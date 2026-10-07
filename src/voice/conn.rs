@@ -157,6 +157,9 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         tries = 0;
         if s.c.kind == Media::GoLive && s.cam.is_none() {
             let _ = s.video(&mut ws, Some(Source::Screen)).await;
+        } else if s.cam.is_some() && !resume {
+            // a fresh session knows nothing about the video we were already sending
+            let _ = s.announce(&mut ws).await;
         }
         if engine.is_none() && s.c.kind == Media::Voice {
             let (e, prods) = audio::start(s.shared.clone(), out_tx.clone());
@@ -268,7 +271,7 @@ impl Sess {
 
         // registers our ssrc; the silence lets Discord learn our address before we ever talk
         send(&mut ws, &json!({ "op": 5, "d": { "speaking": 0, "delay": 0, "ssrc": self.ssrc } })).await?;
-        // without a sink want the SFU won't forward anyone's video to us
+        // ask the SFU for everyone's video at full quality, like the desktop client does
         send(&mut ws, &json!({ "op": 15, "d": { "any": 100 } })).await?;
         for _ in 0..5 {
             self.send_media(&SILENCE);
@@ -774,6 +777,13 @@ impl Sess {
                 Err(e) => self.emit(Kind::Error(format!("couldn't start {}: {e}", if src == Source::Camera { "the camera" } else { "screen capture" }))),
             }
         }
+        if self.cam.is_none() {
+            self.emit(Kind::VideoOff(self.c.me));
+        }
+        self.announce(ws).await
+    }
+
+    async fn announce(&mut self, ws: &mut Sock) -> Result<(), String> {
         let d = match &self.cam {
             Some(cam) => json!({
                 "audio_ssrc": self.ssrc, "video_ssrc": self.vssrc, "rtx_ssrc": self.rtx,
@@ -785,9 +795,6 @@ impl Sess {
             }),
             None => json!({ "audio_ssrc": self.ssrc, "video_ssrc": 0, "rtx_ssrc": 0, "streams": [] }),
         };
-        if self.cam.is_none() {
-            self.emit(Kind::VideoOff(self.c.me));
-        }
         send(ws, &json!({ "op": 12, "d": d })).await
     }
 

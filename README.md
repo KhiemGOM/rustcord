@@ -21,14 +21,19 @@ Log in with email/password (2FA supported) or paste a token. The token and a sna
 - profile popouts, pinned messages, message search, Ctrl+K quick switcher, join server by invite
 - right-click menus: mark as read, mute, copy link, pin, mark unread, copy IDs (developer mode)
 - desktop notifications for mentions and DMs, taskbar flash, unread count in the window title
-- settings: account, zoom, 24h clock, link previews, notifications, developer mode
+- settings: account, zoom, 24h clock, link previews, voice & video devices and input sensitivity, notifications, developer mode
 - emoji render as twemoji everywhere (messages, channel names, nicknames, server names), CJK fallback fonts
 - composer: Ctrl+V images/files, upload cards with spoiler toggle, `@` `#` `:` `/` autocomplete, slash commands, GIF picker, reply ping toggle
 - bot buttons and select menus, jump to replied/pinned/searched messages, "new messages" and "jump to present" bars, image viewer
 - shortcuts: Ctrl+K, Alt+↑/↓, Alt+Shift+↑/↓ (unread), Ctrl+E, Ctrl+Shift+U, Esc marks read, ↑ edits, Alt+click marks unread
+- voice channels and DM / group DM calls: join from the sidebar or the call button, mute / deafen, voice activity detection, speaking rings, the "Voice Connected" panel
+- video: camera, screen share (Go Live) and watching other people's cameras and streams, H264 via openh264
+- DAVE end-to-end encryption (the `davey` crate) for audio and video, on top of the transport encryption
+
+Voice is our own implementation of the voice gateway (v8) and RTP; opus is `opus-rs` (pure Rust, so the build needs no cmake), audio I/O is `cpal` over WASAPI.
 
 ## Tests
 
-`python e2e/run.py` builds the release binary and a fake Discord (`examples/mockcord.rs`), then launches the real client twice (cold, then warm with cache) and drives it through egui's input pipeline: click server, click channel, type and send, scroll history, open DMs, friends, Ctrl+K, forum, thread, profile, search, pins, settings. It checks timings and what the fake server received, and writes `e2e/artifacts/report.md`, `report.json`, screenshots and the request log.
+`python e2e/run.py` builds the release binary and a fake Discord (`examples/mockcord.rs`), then launches the real client twice (cold, then warm with cache) and drives it through egui's input pipeline: click server, click channel, type and send, scroll history, open DMs, friends, Ctrl+K, forum, thread, profile, search, pins, settings, then a voice channel (mute, camera, watching a stream, going live) and a DM call. The fake voice server does real DAVE: openmls plays the MLS external sender and a second `davey` member talks and streams, so the client's commit and welcome paths and its E2EE media are all checked against something independent. It checks timings and what the fake server received, and writes `e2e/artifacts/report.md`, `report.json`, screenshots and the request log.
 
-Env overrides used by the harness: `FASTCORD_API`, `FASTCORD_CDN`, `FASTCORD_EMOJI_CDN`, `FASTCORD_GATEWAY`, `FASTCORD_TOKEN`, `FASTCORD_DATA`, `FASTCORD_E2E`.
+Env overrides used by the harness: `FASTCORD_API`, `FASTCORD_CDN`, `FASTCORD_EMOJI_CDN`, `FASTCORD_GATEWAY`, `FASTCORD_TOKEN`, `FASTCORD_DATA`, `FASTCORD_E2E`, and for media `FASTCORD_FAKE_MIC`, `FASTCORD_FAKE_CAM`, `FASTCORD_FAKE_VIDEO` (synthetic sources instead of devices). `python e2e/run.py --real-camera` uses the real webcam on the warm run.
