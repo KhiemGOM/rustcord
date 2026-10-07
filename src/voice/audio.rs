@@ -109,7 +109,9 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
     let out_dev = want_out
         .and_then(|n| host.output_devices().ok()?.find(|d| name(d) == n))
         .or_else(|| host.default_output_device());
-    let _play = out_dev.and_then(|d| playback(&d, cons, shared.clone()));
+    // test runs shouldn't make noise; decoding still happens, only the speakers stay closed
+    let silent = std::env::var_os("FASTCORD_SILENT").is_some();
+    let _play = out_dev.filter(|_| !silent).and_then(|d| playback(&d, cons, shared.clone()));
     let fake = std::env::var_os("FASTCORD_FAKE_MIC").is_some();
     let mut mic = None;
     if !fake {

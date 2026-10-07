@@ -3,11 +3,13 @@
 Does a cold start (empty data dir) and a warm start (cache from the cold run),
 drives the UI (click guild, click channel, type + send, scroll history, open DMs,
 join a voice channel, start a DM call), then checks timings and what the mock
-actually received. The cold run talks through a synthetic mic tone; the warm run
-uses whatever audio devices the machine has (none is fine, it sends silence).
+actually received. Both runs use a synthetic mic, camera and screen and keep the
+speakers closed, so a test run never records you or makes noise.
 
-    python e2e/run.py            # builds release first
+    python e2e/run.py                  # builds release first
     python e2e/run.py --no-build
+    python e2e/run.py --real-devices   # warm run uses your real mic, speakers and desktop
+    python e2e/run.py --real-camera    # ...and your webcam
 
 Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request log.
 """
@@ -80,11 +82,11 @@ def main():
     mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE)])
     time.sleep(0.5)
     try:
-        # the camera is always synthetic unless asked for, nobody wants their webcam lit up by a test run;
-        # screen share is synthetic on the cold run and the real desktop (never screenshotted) on the warm one
+        # real mic, speakers, desktop and webcam are all opt-in
+        fake = {"FASTCORD_FAKE_MIC": "1", "FASTCORD_FAKE_VIDEO": "1", "FASTCORD_SILENT": "1"}
         cam = {} if "--real-camera" in sys.argv else {"FASTCORD_FAKE_CAM": "1"}
-        cold = run_client("cold", data, {"FASTCORD_FAKE_MIC": "1", "FASTCORD_FAKE_VIDEO": "1", **cam})
-        warm = run_client("warm", data, cam)
+        cold = run_client("cold", data, {**fake, **cam})
+        warm = run_client("warm", data, cam if "--real-devices" in sys.argv else {**fake, **cam})
     finally:
         mock.kill()
 
@@ -188,7 +190,7 @@ def main():
         "go live: STREAM_CREATE + SET_PAUSED, own stream connection on the rtc server, STREAM_DELETE after":
             bool(gw(18)) and any(d.get("paused") is False for d in gw(22)) and len(gw(19)) >= 2
             and any(i.get("server_id") == "5000" for i in idents),
-        "go live: client screen arrived as E2EE H264 and decoded in the mock (warm run = real desktop)":
+        "go live: client screen arrived as E2EE H264 and decoded in the mock (warm run = real desktop with --real-devices)":
             sum(1 for r in vframes if r["server"] == "own_stream") >= 10,
         "watch: STREAM_WATCH for the other member's stream, separate connection with its own DAVE group":
             bool(gw(20)) and any(i.get("server_id") == "5001" for i in idents)
