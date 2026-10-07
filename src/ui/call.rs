@@ -249,7 +249,7 @@ fn tile_color(u: Id) -> Color32 {
         Color32::from_rgb(0x7a, 0x30, 0x34),
         Color32::from_rgb(0x6b, 0x34, 0x5c),
     ];
-    C[((u >> 22) % 5) as usize]
+    C[((u ^ (u >> 22)) % 5) as usize]
 }
 
 fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
