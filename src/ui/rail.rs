@@ -1,6 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Image, Rect, Sense, Ui, pos2, vec2};
 
-use super::{App, badge};
+use super::icons::{self, Icon};
+use super::{App, badge, text};
 use crate::state::{Folder, Id};
 use crate::theme::*;
 
@@ -50,7 +51,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             separator(ui);
             let r = item(ui, egui::Id::new("add_server"), false, false, |ui, rect, radius, hot| {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { BG_PRIMARY });
-                ui.painter().text(rect.center(), Align2::CENTER_CENTER, "+", reg(28.0), if hot { Color32::WHITE } else { GREEN });
+                icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { GREEN });
             });
             if r.on_hover_text("Join a Server").clicked() {
                 app.invite = Some(String::new());
@@ -81,7 +82,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: u8, hot: bool) {
             } * rect.width()
                 / 48.0;
             let col = if hot { Color32::WHITE } else { TEXT_NORMAL };
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, acr, semi(size), col);
+            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
         }
     }
 }
@@ -97,7 +98,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(BG_TERTIARY));
     }
     app.rects.insert(format!("guild:{gid}"), r.rect);
-    let r = r.on_hover_text(name);
+    let r = tip(r, &name);
     if r.clicked() {
         app.select_guild(Some(gid));
     }
@@ -136,7 +137,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
 
     let r = item(ui, egui::Id::new(("folder", f.id)), selected_inside && !open, unread && !open, |ui, rect, radius, _hot| {
         if open {
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, "📁", reg(22.0), color);
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), color);
             return;
         }
         ui.painter().rect_filled(rect, CornerRadius::same(radius), color.gamma_multiply(0.4));
@@ -154,7 +155,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let name = f.name.clone().unwrap_or_else(|| {
         f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).map(|g| g.name.clone()).collect::<Vec<_>>().join(", ")
     });
-    if r.on_hover_text(name).clicked() && !app.ui.open_folders.remove(&f.id) {
+    if tip(r, &name).clicked() && !app.ui.open_folders.remove(&f.id) {
         app.ui.open_folders.insert(f.id);
     }
     if open {
@@ -216,4 +217,11 @@ fn clyde(ui: &Ui, c: egui::Pos2, col: Color32) {
     let eye = if col == Color32::WHITE { BLURPLE } else { BG_PRIMARY };
     p.circle_filled(c + vec2(-5.5, 1.0), 2.6, eye);
     p.circle_filled(c + vec2(5.5, 1.0), 2.6, eye);
+}
+
+// the server-name bubble to the right of the rail, with emoji
+fn tip(r: egui::Response, name: &str) -> egui::Response {
+    r.on_hover_ui(|ui| {
+        text::label(ui, name, semi(16.0), HEADER_PRIMARY, Sense::hover());
+    })
 }

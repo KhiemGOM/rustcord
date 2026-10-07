@@ -34,7 +34,7 @@ fn user(id: u64) -> Value {
     let (name, global, bot) = match id {
         100 => ("you", "You", false),
         101 => ("alice", "Alice", false),
-        102 => ("bob_builds", "Bob", false),
+        102 => ("bob_builds", "Bob 🔨", false),
         103 => ("carol", "Carol ✿", false),
         104 => ("dyno", "Dyno", true),
         106 => ("frank", "Frank", false),
@@ -146,6 +146,25 @@ fn thread() -> Value {
             "last_message_id": snow(now_ms() - 27 * 60_000).to_string(), "member": { "user_id": ME.to_string() } })
 }
 
+fn bot_buttons() -> Value {
+    json!([{ "type": 1, "components": [
+        { "type": 2, "style": 1, "label": "Snooze", "custom_id": "snooze", "emoji": { "name": "😴" } },
+        { "type": 2, "style": 4, "label": "Cancel", "custom_id": "cancel" },
+        { "type": 2, "style": 5, "label": "Docs", "url": "https://example.com/docs" },
+    ]}])
+}
+
+// the client posts uploads and interactions as multipart; pull the json part out
+fn payload_json(body: &[u8]) -> Value {
+    let s = String::from_utf8_lossy(body);
+    let Some(i) = s.find("name=\"payload_json\"") else { return Value::Null };
+    let rest = &s[i..];
+    let Some(j) = rest.find("\r\n\r\n") else { return Value::Null };
+    let rest = &rest[j + 4..];
+    let end = rest.find("\r\n--").unwrap_or(rest.len());
+    serde_json::from_str(&rest[..end]).unwrap_or_default()
+}
+
 fn forum_posts() -> Value {
     let post = |id: u64, owner: u64, name: &str, tags: &[&str], count: u32| {
         json!({ "id": id.to_string(), "type": 11, "guild_id": "1000", "parent_id": FORUM.to_string(), "name": name,
@@ -184,8 +203,8 @@ fn ready(last_general: u64) -> Value {
         "id": "1000", "name": "Rust Lounge", "icon": "icon1000", "owner_id": "101", "member_count": 6,
         "roles": roles, "emojis": [{ "id": "5000", "name": "ferris", "animated": false }],
         "channels": [
-            ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "off-topic", 2, Some(2010)), secret,
-            ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "announcements", 1, Some(2000)),
+            ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
+            ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "📢・announcements", 1, Some(2000)),
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
             forum,
         ],
@@ -268,22 +287,58 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
-            let before = query(path, "before");
+            let id = |m: &Value| m["id"].as_str().unwrap().parse::<u64>().unwrap();
             let w = w.lock().unwrap();
-            let mut list: Vec<&Value> = w
-                .msgs
-                .iter()
-                .filter(|m| m["channel_id"] == ch.to_string())
-                .filter(|m| before.is_none_or(|b| m["id"].as_str().unwrap().parse::<u64>().unwrap() < b))
-                .collect();
-            let n = list.len();
-            list = list.split_off(n.saturating_sub(50));
+            let all: Vec<&Value> = w.msgs.iter().filter(|m| m["channel_id"] == ch.to_string()).collect();
+            let mut list: Vec<&Value> = if let Some(a) = query(path, "around") {
+                let at = all.iter().position(|m| id(m) >= a).unwrap_or(all.len());
+                all[at.saturating_sub(25)..(at + 25).min(all.len())].to_vec()
+            } else if let Some(a) = query(path, "after") {
+                all.into_iter().filter(|m| id(m) > a).take(50).collect()
+            } else {
+                let before = query(path, "before");
+                let mut l: Vec<&Value> = all.into_iter().filter(|m| before.is_none_or(|b| id(m) < b)).collect();
+                let n = l.len();
+                l.split_off(n.saturating_sub(50))
+            };
             list.reverse();
             ok(json!(list))
         }
+        ("POST", ["api", "v9", "interactions"]) => {
+            let b = payload_json(body);
+            let ch: u64 = b["channel_id"].as_str().unwrap_or("0").parse().unwrap_or(0);
+            let text = if b["type"] == json!(2) {
+                format!("⏰ Reminder set: **{}**", b["data"]["options"][0]["value"].as_str().unwrap_or("?"))
+            } else {
+                "😴 Snoozed for 10 minutes.".to_string()
+            };
+            let mut m = msg(snow(now_ms()), ch, 104, &text);
+            m["type"] = json!(20);
+            m["application_id"] = json!("104");
+            if b["type"] == json!(2) {
+                m["components"] = bot_buttons();
+            }
+            let tx = {
+                let mut w = w.lock().unwrap();
+                w.msgs.push(m.clone());
+                w.events.clone()
+            };
+            let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "guilds", _, "application-command-index"]) => ok(json!({
+            "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
+            "application_commands": [
+                { "id": "9001", "application_id": "104", "version": "1", "type": 1, "name": "remind", "description": "Set a reminder",
+                  "options": [{ "type": 3, "name": "what", "description": "What to remind you about", "required": true },
+                              { "type": 4, "name": "minutes", "description": "In how many minutes", "required": false }] },
+                { "id": "9002", "application_id": "104", "version": "1", "type": 1, "name": "poll", "description": "Start a poll",
+                  "options": [{ "type": 3, "name": "question", "description": "What to ask", "required": true }] },
+            ],
+        })),
         ("POST", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
-            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let b: Value = serde_json::from_slice(body).unwrap_or_else(|_| payload_json(body));
             let mut m = msg(snow(now_ms()), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);

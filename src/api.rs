@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use crate::state::Id;
+use crate::state::{Id, Page};
 
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9205 Chrome/134.0.6998.205 Electron/35.3.0 Safari/537.36";
 
@@ -126,10 +126,13 @@ impl Api {
         Err("rate limited".into())
     }
 
-    pub async fn messages(&self, ch: Id, before: Option<Id>) -> Result<Value, String> {
+    pub async fn messages(&self, ch: Id, page: Page) -> Result<Value, String> {
         let mut p = format!("/channels/{ch}/messages?limit=50");
-        if let Some(b) = before {
-            p += &format!("&before={b}");
+        match page {
+            Page::Latest => {}
+            Page::Before(id) => p += &format!("&before={id}"),
+            Page::After(id) => p += &format!("&after={id}"),
+            Page::Around(id) => p += &format!("&around={id}"),
         }
         self.call(Method::GET, &p, None).await
     }
@@ -140,7 +143,7 @@ impl Api {
         content: &str,
         nonce: &str,
         reply: Option<Id>,
-        files: &[PathBuf],
+        files: &[(PathBuf, String)],
     ) -> Result<Value, String> {
         let mut body = json!({ "content": content, "nonce": nonce, "tts": false, "flags": 0 });
         if let Some(r) = reply {
@@ -152,9 +155,9 @@ impl Api {
         }
         let mut atts = Vec::new();
         let mut form = multipart::Form::new();
-        for (i, f) in files.iter().enumerate() {
+        for (i, (f, name)) in files.iter().enumerate() {
             let bytes = tokio::fs::read(f).await.map_err(|e| e.to_string())?;
-            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+            let name = name.clone();
             atts.push(json!({ "id": i, "filename": name }));
             form = form.part(format!("files[{i}]"), multipart::Part::bytes(bytes).file_name(name));
         }
@@ -169,6 +172,17 @@ impl Api {
         let ok = res.status().is_success();
         let v: Value = res.json().await.unwrap_or_default();
         if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
+    }
+
+    // the official client posts interactions as multipart with a payload_json part
+    pub async fn interact(&self, payload: Value) -> Result<Value, String> {
+        let form = multipart::Form::new().text("payload_json", payload.to_string());
+        let res = self.build(Method::POST, "/interactions").multipart(form).send().await.map_err(|e| e.to_string())?;
+        if res.status().is_success() {
+            return Ok(Value::Null);
+        }
+        let v: Value = res.json().await.unwrap_or_default();
+        Err(v["message"].as_str().unwrap_or("the application did not respond").to_string())
     }
 
     pub async fn edit(&self, ch: Id, id: Id, content: &str) -> Result<Value, String> {

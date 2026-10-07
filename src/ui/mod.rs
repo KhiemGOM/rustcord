@@ -1,7 +1,9 @@
 mod chat;
+mod composer;
 mod e2e;
 mod forum;
 mod friends;
+pub mod icons;
 mod login;
 mod members;
 mod picker;
@@ -9,6 +11,7 @@ mod popups;
 mod rail;
 mod settings;
 mod side;
+pub mod text;
 
 use egui::{Color32, CornerRadius, Frame, Image, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -19,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
-use crate::state::{Id, Message, ReactEmoji, Status, Store};
+use crate::state::{Id, Message, Page, ReactEmoji, Status, Store};
 use crate::theme::*;
 
 pub enum Pick {
@@ -36,7 +39,14 @@ pub struct App {
     pub conn: Conn,
     pub login: login::Form,
     pub drafts: HashMap<Id, String>,
-    pub files: Vec<PathBuf>,
+    pub files: Vec<composer::Upload>,
+    pub ac_sel: usize,
+    pub ac_open: bool,
+    pub ac_dismissed: Option<String>,
+    pub aliases: HashMap<Id, Vec<(String, String)>>,
+    pub commands: HashMap<Id, composer::Commands>,
+    v_down: bool,
+    fonts_rx: Option<Receiver<egui::FontDefinitions>>,
     pub reply: Option<Id>,
     pub editing: Option<(Id, String)>,
     pub last_typing: Option<(Id, Instant)>,
@@ -66,6 +76,10 @@ pub struct App {
     pub friends_tab: u8,
     pub add_friend: String,
     pub post: Option<(String, String)>,
+    pub scroll_to: Option<(Id, Id)>,
+    pub scroll_tries: u8,
+    pub flash: Option<(Id, Instant)>,
+    pub viewer: Option<(String, String, u32, u32)>,
     title_count: Option<u32>,
     e2e: Option<e2e::Run>,
     win: Option<[f32; 2]>,
@@ -105,6 +119,19 @@ impl App {
             login: Default::default(),
             drafts: HashMap::new(),
             files: Vec::new(),
+            ac_sel: 0,
+            ac_open: false,
+            ac_dismissed: None,
+            aliases: HashMap::new(),
+            commands: HashMap::new(),
+            v_down: false,
+            fonts_rx: {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::theme::fonts(true));
+                });
+                Some(rx)
+            },
             reply: None,
             editing: None,
             last_typing: None,
@@ -136,6 +163,10 @@ impl App {
             friends_tab: 0,
             add_friend: String::new(),
             post: None,
+            scroll_to: None,
+            scroll_tries: 0,
+            flash: None,
+            viewer: None,
             title_count: None,
             frames: 0,
             save_at: None,
@@ -192,10 +223,11 @@ impl App {
             let path = format!("/channels/{ch}/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
             self.rest("GET", path, None, Tag::Forum(ch));
         } else {
+            let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
             let e = self.store.msgs.entry(ch).or_default();
-            if !e.fresh && !e.loading {
+            if !e.fresh && !e.loading && !jumping {
                 e.loading = true;
-                self.net.send(Cmd::Messages { channel: ch, before: None });
+                self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
             }
         }
         if guild != 0 {
@@ -231,16 +263,49 @@ impl App {
         })));
     }
 
+    /// Open a channel scrolled to one message, fetching the history around it if needed.
+    pub fn jump_to(&mut self, ch: Id, id: Id) {
+        self.scroll_to = Some((ch, id));
+        self.scroll_tries = 0;
+        if self.cur() != Some(ch) {
+            let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
+            self.ui.guild = (g != 0).then_some(g);
+            self.open(ch);
+        }
+        let e = self.store.msgs.entry(ch).or_default();
+        if !e.list.iter().any(|m| m.id == id) {
+            e.loading = true;
+            self.net.send(Cmd::Messages { channel: ch, page: Page::Around(id) });
+        }
+    }
+
+    pub fn jump_to_present(&mut self, ch: Id) {
+        let e = self.store.msgs.entry(ch).or_default();
+        if e.detached {
+            e.loading = true;
+            self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
+        }
+        self.scroll_fix = Some((ch, f32::MAX));
+    }
+
     pub fn send_message(&mut self, ch: Id) {
         let text = self.drafts.remove(&ch).unwrap_or_default();
-        let text = text.trim().to_string();
-        let files = std::mem::take(&mut self.files);
+        let text = self.resolve_aliases(ch, text.trim());
+        self.aliases.remove(&ch);
+        let files: Vec<(PathBuf, String)> = std::mem::take(&mut self.files)
+            .into_iter()
+            .map(|u| {
+                let name = if u.spoiler { format!("SPOILER_{}", u.name) } else { u.name };
+                (u.path, name)
+            })
+            .collect();
         if text.is_empty() && files.is_empty() {
             return;
         }
         let nonce = crate::state::make_nonce();
         let reply = self.reply.take();
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
+        self.jump_to_present(ch);
         self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files });
         self.last_typing = None;
     }
@@ -402,7 +467,30 @@ impl App {
                 self.open(id);
             }
             Tag::Friend => self.toast("Friend request sent."),
+            Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Quiet => {}
+        }
+    }
+
+    /// Images and copied files on the clipboard become attachments.
+    pub fn paste_files(&mut self) {
+        let Ok(mut cb) = arboard::Clipboard::new() else { return };
+        if let Ok(list) = cb.get().file_list()
+            && !list.is_empty()
+        {
+            self.files.extend(list.into_iter().map(composer::Upload::new));
+            return;
+        }
+        let Ok(img) = cb.get_image() else { return };
+        let Some(buf) = image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned()) else { return };
+        let dir = std::env::temp_dir().join("fastcord");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("image-{}.png", chrono::Utc::now().timestamp_millis()));
+        if buf.save(&path).is_ok() {
+            let mut u = composer::Upload::new(path);
+            u.name = "image.png".into();
+            self.files.push(u);
+            self.focus_composer = true;
         }
     }
 
@@ -425,6 +513,9 @@ impl App {
                     if t == "MESSAGE_CREATE" {
                         self.notify(&d, ctx);
                     }
+                    if t == "INTERACTION_FAILURE" {
+                        self.toast("The application did not respond.");
+                    }
                     if t == "READY" {
                         if let Some(e) = &mut self.e2e {
                             e.mark("ready");
@@ -443,10 +534,10 @@ impl App {
                         }
                     }
                 }
-                Ev::Messages { channel, before, list } => {
-                    let n = self.store.set_messages(channel, before, &list);
+                Ev::Messages { channel, page, list } => {
+                    let n = self.store.set_messages(channel, page, &list);
                     self.request_members(channel);
-                    if before.is_some() && n > 0 {
+                    if matches!(page, Page::Before(_)) && n > 0 {
                         let est: f32 = self.store.msgs[&channel].list[..n].iter().map(chat::estimate).sum();
                         let off = self.offsets.get(&channel).copied().unwrap_or(0.0);
                         self.scroll_fix = Some((channel, off + est));
@@ -555,6 +646,7 @@ impl App {
         picker::show(self, &ctx);
         chat::context_menu(self, &ctx);
         popups::show(self, &ctx);
+        popups::viewer(self, &ctx);
     }
 }
 
@@ -563,6 +655,14 @@ impl eframe::App for App {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
         self.pump(&ctx);
+        if self.frames > 0
+            && let Some(f) = self.fonts_rx.as_ref().and_then(|rx| rx.try_recv().ok())
+        {
+            ctx.set_fonts(f);
+            self.fonts_rx = None;
+        }
+        // rebuilt every frame by whatever gets drawn, so nothing points at last frame's layout
+        self.rects.clear();
         if self.frames == 0
             && let Some(e) = &mut self.e2e
         {
@@ -633,8 +733,14 @@ impl eframe::App for App {
         }
         // dropping files on the window attaches them to the next message
         for f in raw.dropped_files.drain(..) {
-            self.files.push(f.path().to_path_buf());
+            self.files.push(composer::Upload::new(f.path().to_path_buf()));
         }
+        // egui-winit swallows ctrl+v when the clipboard holds no text, so watch the key ourselves
+        let v = raw.focused && key_down(0x11) && key_down(b'V');
+        if v && !self.v_down && !raw.events.iter().any(|e| matches!(e, egui::Event::Paste(_))) {
+            self.paste_files();
+        }
+        self.v_down = v;
     }
 
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
@@ -710,14 +816,19 @@ pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Respo
     resp
 }
 
-pub fn icon_button(ui: &mut Ui, glyph: &str, size: f32, tip: &str) -> egui::Response {
+/// Square icon button. Small ones (header style) only brighten on hover,
+/// 32px+ ones get the rounded hover plate like the user panel and message toolbar.
+pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
     let col = if resp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
     if resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(4), BG_MOD_HOVER);
+        if size >= 32.0 {
+            ui.painter().rect_filled(rect, CornerRadius::same(4), BG_MOD_HOVER);
+        }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, glyph, reg(size * 0.62), col);
+    let s = if size >= 32.0 { 20.0 } else { (size * 0.86).min(24.0) };
+    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(s, s)), col);
     resp.on_hover_text(tip)
 }
 
@@ -733,4 +844,9 @@ pub fn channel_title(store: &Store, ch: Id) -> String {
             .join(", "),
         _ => c.name.clone(),
     }
+}
+
+fn key_down(vk: u8) -> bool {
+    // high bit set means the key is held right now
+    unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
 }

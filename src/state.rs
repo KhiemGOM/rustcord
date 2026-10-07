@@ -257,12 +257,25 @@ impl Guild {
             .map(|h| format!("{}/icons/{}/{}.png?size=96", api::cdn(), self.id, h))
     }
 
+    // same rule as the official client: first letter of each word, punctuation and emoji kept
     pub fn acronym(&self) -> String {
-        self.name
-            .split_whitespace()
-            .filter_map(|w| w.chars().next())
-            .take(5)
-            .collect()
+        let name = self.name.replace("'s ", " ");
+        let mut out = String::new();
+        let mut in_word = false;
+        for c in name.chars() {
+            if c.is_alphanumeric() || c == '_' {
+                if !in_word {
+                    out.push(c);
+                }
+                in_word = true;
+            } else {
+                in_word = false;
+                if !c.is_whitespace() {
+                    out.push(c);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -399,6 +412,12 @@ pub struct Message {
     pub embeds: Vec<Embed>,
     pub reactions: Vec<Reaction>,
     pub stickers: Vec<(Id, String, u8)>,
+    #[serde(default)]
+    pub components: Vec<Vec<Comp>>,
+    #[serde(default)]
+    pub app_id: Id,
+    #[serde(default)]
+    pub flags: u64,
     pub reply: Option<Id>,
     pub mentions: Vec<Id>,
     pub mention_roles: Vec<Id>,
@@ -474,6 +493,51 @@ impl Message {
         if v["thread"].is_object() {
             self.thread = Some(sid(&v["thread"]["id"]));
         }
+        if let Some(f) = v["flags"].as_u64() {
+            self.flags = f;
+        }
+        if let Some(rows) = v["components"].as_array() {
+            self.components = rows
+                .iter()
+                .filter(|r| r["type"].as_u64() == Some(1))
+                .map(|r| r["components"].as_array().into_iter().flatten().filter_map(Comp::parse).collect())
+                .collect();
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Comp {
+    Button { style: u8, label: String, emoji: Option<ReactEmoji>, custom_id: String, url: Option<String>, disabled: bool },
+    Select { kind: u8, custom_id: String, placeholder: String, options: Vec<(String, String, Option<String>)>, disabled: bool },
+}
+
+impl Comp {
+    fn parse(v: &Value) -> Option<Comp> {
+        let disabled = v["disabled"].as_bool().unwrap_or(false);
+        match v["type"].as_u64()? {
+            2 => Some(Comp::Button {
+                style: v["style"].as_u64().unwrap_or(2) as u8,
+                label: st(&v["label"]),
+                emoji: v["emoji"].is_object().then(|| ReactEmoji::parse(&v["emoji"])),
+                custom_id: st(&v["custom_id"]),
+                url: ost(&v["url"]),
+                disabled,
+            }),
+            k @ (3 | 5..=8) => Some(Comp::Select {
+                kind: k as u8,
+                custom_id: st(&v["custom_id"]),
+                placeholder: ost(&v["placeholder"]).unwrap_or_else(|| "Make a selection".into()),
+                options: v["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|o| (st(&o["label"]), st(&o["value"]), ost(&o["description"])))
+                    .collect(),
+                disabled,
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -491,6 +555,18 @@ pub struct Msgs {
     pub loading: bool,
     #[serde(skip)]
     pub fresh: bool,
+    // after a jump into old history the list no longer reaches the newest message
+    #[serde(skip)]
+    pub detached: bool,
+}
+
+/// Which slice of history a fetch asks for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Page {
+    Latest,
+    Before(Id),
+    After(Id),
+    Around(Id),
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -526,6 +602,8 @@ pub struct Store {
     pub email: Option<String>,
     #[serde(skip)]
     pub forum_posts: HashMap<Id, Vec<Id>>,
+    #[serde(skip)]
+    pub session: String,
     #[serde(skip)]
     pub msgs: HashMap<Id, Msgs>,
     #[serde(skip)]
@@ -726,6 +804,7 @@ impl Store {
     }
 
     pub fn load_ready(&mut self, d: &Value) {
+        self.session = st(&d["session_id"]);
         let me = self.upsert_user(&d["user"]);
         self.me = me;
         for u in d["users"].as_array().into_iter().flatten() {
@@ -895,6 +974,7 @@ impl Store {
             ..Default::default()
         };
         m.fill(v);
+        m.app_id = if v["application_id"].is_null() { author } else { sid(&v["application_id"]) };
         if v["thread"].is_object() {
             self.put_channel(Channel::parse(&v["thread"], guild));
         }
@@ -910,26 +990,41 @@ impl Store {
         m
     }
 
-    pub fn set_messages(&mut self, channel: Id, before: Option<Id>, raw: &[Value]) -> usize {
+    pub fn set_messages(&mut self, channel: Id, page: Page, raw: &[Value]) -> usize {
         let mut fresh: Vec<Message> = raw.iter().map(|v| self.parse_message(v)).collect();
         fresh.sort_by_key(|m| m.id);
         let n = fresh.len();
+        let newest = self.channels.get(&channel).map(|c| c.last_msg).unwrap_or(0);
         let e = self.msgs.entry(channel).or_default();
         e.loading = false;
-        if before.is_none() {
-            // pending sends survive a refetch
-            let pend: Vec<Message> = e.list.drain(..).filter(|m| m.pending || m.failed).collect();
-            e.list = fresh;
-            e.list.extend(pend);
-            e.fresh = true;
-        } else {
-            let mut merged = fresh;
-            merged.retain(|m| !e.list.iter().any(|x| x.id == m.id));
-            merged.append(&mut e.list);
-            e.list = merged;
-        }
-        if n < 50 {
-            e.at_start = true;
+        match page {
+            Page::Latest => {
+                // pending sends survive a refetch
+                let pend: Vec<Message> = e.list.drain(..).filter(|m| m.pending || m.failed).collect();
+                e.list = fresh;
+                e.list.extend(pend);
+                e.fresh = true;
+                e.detached = false;
+                e.at_start = n < 50;
+            }
+            Page::Before(_) => {
+                let mut merged = fresh;
+                merged.retain(|m| !e.list.iter().any(|x| x.id == m.id));
+                merged.append(&mut e.list);
+                e.list = merged;
+                e.at_start |= n < 50;
+            }
+            Page::After(_) => {
+                fresh.retain(|m| !e.list.iter().any(|x| x.id == m.id));
+                e.list.extend(fresh);
+                e.detached = n >= 50;
+            }
+            Page::Around(_) => {
+                e.detached = !fresh.iter().any(|m| m.id >= newest);
+                e.list = fresh;
+                e.fresh = true;
+                e.at_start = false;
+            }
         }
         n
     }
@@ -1003,7 +1098,7 @@ impl Store {
                 if let Some(ty) = self.typing.get_mut(&ch) {
                     ty.retain(|(u, _)| *u != m.author);
                 }
-                if let Some(e) = self.msgs.get_mut(&ch) {
+                if let Some(e) = self.msgs.get_mut(&ch).filter(|e| !e.detached) {
                     if let Some(pos) = e.list.iter().position(|x| x.pending && x.nonce.is_some() && x.nonce == m.nonce) {
                         e.list.remove(pos);
                     }

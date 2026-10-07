@@ -123,7 +123,7 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
                 }
             });
         }
-        ui.label(RichText::new(&p.name).font(semi(16.0)).color(HEADER_PRIMARY));
+        super::text::label(ui, &p.name, semi(16.0), HEADER_PRIMARY, Sense::hover());
         if let Some(m) = first {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -145,7 +145,9 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
                 let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                 avatar(ui, r, &u.avatar_url());
             }
-            ui.label(RichText::new(format!("💬 {}", p.msg_count)).font(reg(13.0)).color(HEADER_SECONDARY));
+            let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+            super::icons::draw(ui.painter(), super::icons::Icon::Bubble, r, HEADER_SECONDARY);
+            ui.label(RichText::new(p.msg_count.to_string()).font(reg(13.0)).color(HEADER_SECONDARY));
             ui.label(RichText::new("•").color(TEXT_MUTED));
             ui.label(RichText::new(ago(p.last_msg.max(p.id))).font(reg(13.0)).color(HEADER_SECONDARY));
         });

@@ -1,7 +1,8 @@
 use egui::{Align, Align2, CornerRadius, Frame, Key, Layout, Margin, Pos2, Rect, RichText, Sense, Ui, pos2, vec2};
 use serde_json::json;
 
-use super::{App, avatar, button, channel_title, chat, icon_button, status_dot};
+use super::{App, avatar, button, channel_title, chat, icon_button, status_dot, text};
+use super::icons::Icon;
 use crate::net::Tag;
 use crate::state::{Id, Message, snowflake_ms};
 use crate::theme::*;
@@ -187,7 +188,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                 if i == sel || resp.hovered() {
                     ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_SELECTED);
                 }
-                ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), HEADER_PRIMARY);
+                text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), HEADER_PRIMARY, r.width() - 160.0);
                 ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, sub, semi(12.0), TEXT_MUTED);
                 if resp.clicked() {
                     pick = Some(i);
@@ -264,7 +265,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(48.0);
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.label(RichText::new(&name).font(bold(20.0)).color(HEADER_PRIMARY));
+                    text::label(ui, &name, bold(20.0), HEADER_PRIMARY, Sense::hover());
                     ui.label(RichText::new(&user.username).font(reg(14.0)).color(HEADER_PRIMARY));
                     ui.add_space(8.0);
                     Frame::new().fill(BG_SECONDARY_ALT).corner_radius(8).inner_margin(12).show(ui, |ui| {
@@ -357,9 +358,9 @@ fn pins(app: &mut App, ctx: &egui::Context) {
                 });
             });
         });
-    if jump.is_some() {
+    if let Some(id) = jump {
         app.pins = None;
-        app.open(ch);
+        app.jump_to(ch, id);
     } else if dismissed(ctx, &area.response) && !app.rects.get("pins_button").is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p))) {
         app.pins = None;
     }
@@ -378,7 +379,7 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new(header).font(semi(16.0)).color(HEADER_PRIMARY));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if icon_button(ui, "✖", 24.0, "Close").clicked() {
+                if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
                     close = true;
                 }
             });
@@ -405,7 +406,7 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
                             ui.add_space(4.0);
                         }
                         if chat::preview(ui, &app.store, m).clicked() {
-                            jump = Some(m.channel);
+                            jump = Some((m.channel, m.id));
                         }
                         ui.add_space(8.0);
                     }
@@ -416,8 +417,8 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
     if close {
         app.search = None;
     }
-    if let Some(c) = jump {
-        app.open(c);
+    if let Some((c, id)) = jump {
+        app.jump_to(c, id);
     }
 }
 
@@ -442,7 +443,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
             if resp.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_HOVER);
             }
-            ui.painter().text(pos2(r.left() + 8.0, r.top() + 13.0), Align2::LEFT_CENTER, &c.name, semi(15.0), HEADER_PRIMARY);
+            text::paint(ui.painter(), pos2(r.left() + 8.0, r.top() + 13.0), Align2::LEFT_CENTER, &c.name, semi(15.0), HEADER_PRIMARY, r.width() - 16.0);
             let sub = format!("{} messages{}", c.msg_count, if c.joined { " · joined" } else { "" });
             ui.painter().text(pos2(r.left() + 8.0, r.top() + 32.0), Align2::LEFT_CENTER, sub, reg(12.0), TEXT_MUTED);
             if resp.clicked() {
@@ -452,5 +453,45 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
     });
     if let Some(c) = open {
         app.open(c);
+    }
+}
+
+/// Full-window image viewer, like clicking an image in the official client.
+pub fn viewer(app: &mut App, ctx: &egui::Context) {
+    let Some((img, open, w, h)) = app.viewer.clone() else { return };
+    let screen = ctx.content_rect();
+    let mut close = ctx.input(|i| i.key_pressed(Key::Escape));
+    let mut browse = false;
+    egui::Area::new(egui::Id::new("viewer"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let (bg, bg_resp) = ui.allocate_exact_size(screen.size(), Sense::click());
+            ui.painter().rect_filled(bg, CornerRadius::ZERO, egui::Color32::from_black_alpha(215));
+            let (iw, ih) = (w.max(1) as f32, h.max(1) as f32);
+            let s = (screen.width() * 0.8 / iw).min(screen.height() * 0.75 / ih).min(if w == 0 { 1.0 } else { 2.0 });
+            let size = if w == 0 { vec2(screen.width() * 0.6, screen.height() * 0.6) } else { vec2(iw * s, ih * s) };
+            let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size);
+            let sep = if img.contains('?') { '&' } else { '?' };
+            let url = if w > 0 { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() };
+            let ir = ui.interact(rect, egui::Id::new("viewer_img"), Sense::click());
+            egui::Image::from_uri(url).show_loading_spinner(true).paint_at(ui, rect);
+            let link = pos2(rect.left(), rect.bottom() + 12.0);
+            let lr = ui.painter().text(link, Align2::LEFT_TOP, "Open in Browser", semi(14.0), HEADER_SECONDARY);
+            let lresp = ui.interact(lr, egui::Id::new("viewer_link"), Sense::click());
+            if lresp.hovered() {
+                ui.painter().hline(lr.x_range(), lr.bottom(), egui::Stroke::new(1.0, HEADER_SECONDARY));
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            browse = lresp.clicked();
+            if bg_resp.clicked() && !ir.hovered() && !lresp.hovered() {
+                close = true;
+            }
+        });
+    if browse {
+        let _ = open::that_detached(open);
+    }
+    if close || browse {
+        app.viewer = None;
     }
 }

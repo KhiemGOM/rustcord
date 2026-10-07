@@ -5,12 +5,13 @@ use egui::{
     Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
 use std::collections::HashSet;
-use std::time::Instant;
 
 use super::{App, Pick, avatar, channel_title, icon_button};
+use super::icons::{self, Icon};
+use super::{side, text};
 use crate::markdown::{self, Block, Cx, Link};
 use crate::net::Cmd;
-use crate::state::{Channel, Embed, Id, Message, ReactEmoji, Store};
+use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Store};
 use crate::theme::*;
 
 enum Act {
@@ -26,6 +27,9 @@ enum Act {
     SaveEdit(Id, String),
     CancelEdit,
     Profile(Id, Pos2),
+    Jump(Id),
+    Component(Id, String, Option<Vec<String>>),
+    View(String, String, u32, u32),
 }
 
 struct D<'a> {
@@ -40,6 +44,8 @@ struct D<'a> {
     bar: Option<(Id, Rect)>,
     acts: Vec<Act>,
     embeds: bool,
+    flash: Option<(Id, std::time::Instant)>,
+    rects: Vec<(String, Rect)>,
 }
 
 fn normal(kind: u8) -> bool {
@@ -128,7 +134,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .resizable(false)
             .show_separator_line(false)
             .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 0 }))
-            .show(ui, |ui| composer(app, ui, &chan));
+            .show(ui, |ui| super::composer::show(app, ui, &chan));
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| messages(app, ui, &chan));
     });
 }
@@ -144,6 +150,10 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
             ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, BG_TERTIARY));
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
+                let glyph = |ui: &mut Ui, icon: Icon| {
+                    let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                    icons::draw(ui.painter(), icon, r, CHANNEL_DEFAULT);
+                };
                 match chan.kind {
                     1 => {
                         if let Some(u) = chan.recipients.first().and_then(|u| app.store.user(*u)) {
@@ -151,43 +161,33 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             avatar(ui, av, &u.avatar_url());
                         }
                     }
-                    3 => {
-                        ui.label(RichText::new("👥").font(reg(18.0)).color(CHANNEL_DEFAULT));
-                    }
-                    5 => {
-                        ui.label(RichText::new("📢").font(reg(18.0)).color(CHANNEL_DEFAULT));
-                    }
-                    15 | 16 => {
-                        ui.label(RichText::new("💬").font(reg(18.0)).color(CHANNEL_DEFAULT));
-                    }
+                    3 => glyph(ui, Icon::People),
                     10..=12 => {
                         let parent = app.store.channels.get(&chan.parent).cloned();
                         if let Some(p) = parent {
-                            ui.label(RichText::new("#").font(reg(26.0)).color(CHANNEL_DEFAULT));
-                            let r = ui.add(Label::new(RichText::new(&p.name).font(semi(16.0)).color(HEADER_SECONDARY)).sense(Sense::click()));
+                            glyph(ui, side::glyph(&p));
+                            let r = text::label(ui, &p.name, semi(16.0), HEADER_SECONDARY, Sense::click());
+                            if r.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
                             if r.clicked() {
                                 app.open(p.id);
                             }
-                            ui.label(RichText::new("›").font(reg(18.0)).color(CHANNEL_DEFAULT));
+                            let (r, _) = ui.allocate_exact_size(vec2(16.0, 24.0), Sense::hover());
+                            icons::draw(ui.painter(), Icon::ChevronRight, r, CHANNEL_DEFAULT);
                         }
-                        ui.label(RichText::new("🧵").font(reg(16.0)).color(CHANNEL_DEFAULT));
+                        glyph(ui, Icon::Thread);
                     }
-                    _ => {
-                        ui.label(RichText::new("#").font(reg(26.0)).color(CHANNEL_DEFAULT));
-                    }
+                    _ => glyph(ui, side::glyph(chan)),
                 }
-                ui.add(Label::new(RichText::new(title).font(semi(16.0)).color(HEADER_PRIMARY)).selectable(false));
+                text::label(ui, &title, semi(16.0), HEADER_PRIMARY, Sense::hover());
                 let tools = if chan.guild != 0 { 330.0 } else { 220.0 };
                 if let Some(topic) = &chan.topic {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
                     ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, BG_ACCENT));
                     let w = (ui.available_width() - tools).max(0.0);
                     ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
-                        ui.add(
-                            Label::new(RichText::new(topic.replace('\n', " ")).font(reg(14.0)).color(HEADER_SECONDARY))
-                                .truncate()
-                                .selectable(false),
-                        );
+                        text::label(ui, &topic.replace('\n', " "), reg(14.0), HEADER_SECONDARY, Sense::hover());
                     });
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -201,13 +201,16 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .corner_radius(4)
                                 .inner_margin(Margin::symmetric(6, 3))
                                 .show(ui, |ui| {
-                                    ui.add(
+                                    let r = ui.add(
                                         egui::TextEdit::singleline(&mut q)
                                             .frame(Frame::NONE)
                                             .font(reg(14.0))
                                             .hint_text(RichText::new("Search").color(TEXT_MUTED))
-                                            .desired_width(sw - 12.0),
-                                    )
+                                            .desired_width(sw - 30.0),
+                                    );
+                                    let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                                    icons::draw(ui.painter(), Icon::Search, ir, HEADER_SECONDARY);
+                                    r
                                 })
                                 .inner
                         })
@@ -220,13 +223,13 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     ui.add_space(8.0);
                     if chan.guild != 0 && !chan.is_forum() {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
-                        if icon_button(ui, "👥", 28.0, tip).clicked() {
+                        if icon_button(ui, Icon::People, 28.0, tip).clicked() {
                             app.ui.hide_members = !app.ui.hide_members;
                             app.search = None;
                         }
                     }
                     if !chan.is_forum() {
-                        let pins = icon_button(ui, "📌", 28.0, "Pinned Messages");
+                        let pins = icon_button(ui, Icon::Pin, 28.0, "Pinned Messages");
                         app.rects.insert("pins_button".into(), pins.rect);
                         if pins.clicked() {
                             match app.pins {
@@ -236,7 +239,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                     }
                     if chan.guild != 0 && matches!(chan.kind, 0 | 5) {
-                        let t = icon_button(ui, "🧵", 28.0, "Threads");
+                        let t = icon_button(ui, Icon::Thread, 28.0, "Threads");
                         super::popups::threads_menu(app, &t, chan.id);
                     }
                 });
@@ -250,8 +253,14 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .id_salt(("chat", ch))
         .stick_to_bottom(true)
         .auto_shrink([false, false]);
+    let mut to_bottom = false;
     if let Some((_, off)) = app.scroll_fix.take_if(|(c, _)| *c == ch) {
-        sa = sa.vertical_scroll_offset(off);
+        // f32::MAX means "the bottom", which only the content itself knows
+        if off == f32::MAX {
+            to_bottom = true;
+        } else {
+            sa = sa.vertical_scroll_offset(off);
+        }
     }
 
     let pointer = ui.ctx().pointer_hover_pos();
@@ -270,7 +279,12 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         bar: None,
         acts: Vec::new(),
         embeds: app.settings.embeds,
+        flash: app.flash.filter(|(_, t)| t.elapsed().as_secs_f32() < 2.0),
+        rects: Vec::new(),
     };
+    if d.flash.is_some() {
+        ctx.request_repaint();
+    }
     let heights = &mut app.heights;
     let empty = Vec::new();
     let entry = d.store.msgs.get(&ch);
@@ -279,6 +293,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let loading = entry.is_some_and(|e| e.loading);
 
     let mut anchor = 0.0f32;
+    let target = app.scroll_to.filter(|(c, _)| *c == ch).map(|(_, id)| id);
+    let mut target_y = None;
     let out = sa.show_viewport(ui, |ui, vp| {
         ui.spacing_mut().item_spacing.y = 0.0;
         let origin = ui.max_rect().top();
@@ -297,6 +313,9 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             let start = group_start(prev, m);
             let known = heights.get(&(m.id, start)).copied();
             let h = known.unwrap_or_else(|| estimate(m));
+            if target == Some(m.id) {
+                target_y = Some(y);
+            }
             if y + h < vp.top() - 400.0 || y > vp.bottom() + 400.0 {
                 ui.allocate_space(vec2(w, h));
             } else {
@@ -313,10 +332,14 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             prev = Some(m);
         }
         ui.add_space(12.0);
+        if to_bottom {
+            ui.scroll_to_cursor(Some(Align::BOTTOM));
+        }
     });
 
-    let D { acts, bar, .. } = d;
+    let D { acts, bar, rects, .. } = d;
     app.bar = bar;
+    app.rects.extend(rects);
     let offset = out.state.offset.y;
     app.offsets.insert(ch, offset);
     let at_bottom = offset + out.inner_rect.height() >= out.content_size.y - 4.0;
@@ -333,8 +356,33 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         && let Some(oldest) = e.list.iter().find(|m| !m.pending).map(|m| m.id)
     {
         e.loading = true;
-        app.net.send(Cmd::Messages { channel: ch, before: Some(oldest) });
+        app.net.send(Cmd::Messages { channel: ch, page: Page::Before(oldest) });
     }
+    let near_end = offset + out.inner_rect.height() > out.content_size.y - 800.0;
+    if near_end
+        && let Some(e) = app.store.msgs.get_mut(&ch)
+        && e.detached
+        && !e.loading
+        && let Some(newest) = e.list.iter().rev().find(|m| !m.pending).map(|m| m.id)
+    {
+        e.loading = true;
+        app.net.send(Cmd::Messages { channel: ch, page: Page::After(newest) });
+    }
+
+    if let Some((_, id)) = app.scroll_to.filter(|(c, _)| *c == ch)
+        && let Some(ty) = target_y
+    {
+        let want = (ty - 80.0).max(0.0);
+        if (offset - want).abs() > 2.0 && app.scroll_tries < 8 {
+            app.scroll_tries += 1;
+            app.scroll_fix = Some((ch, want));
+            ui.ctx().request_discard("jump");
+        } else {
+            app.scroll_to = None;
+            app.flash = Some((id, std::time::Instant::now()));
+        }
+    }
+    bars(app, ui, ch, out.inner_rect, offset, out.content_size.y);
 
     for a in acts {
         match a {
@@ -383,6 +431,64 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.focus_composer = true;
             }
             Act::Profile(u, at) => app.open_profile(u, chan.guild, at),
+            Act::Jump(id) => app.jump_to(ch, id),
+            Act::Component(id, custom_id, values) => app.press(ch, id, &custom_id, values),
+            Act::View(img, open, w, h) => app.viewer = Some((img, open, w, h)),
+        }
+    }
+}
+
+/// The "N new messages" strip on top and the "Jump To Present" strip at the bottom.
+fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: f32) {
+    let detached = app.store.msgs.get(&ch).is_some_and(|e| e.detached);
+    if let Some(after) = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m) {
+        let list = app.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default();
+        let n = list.iter().filter(|m| m.id > after && !m.pending).count();
+        let first = list.iter().find(|m| m.id > after).map(|m| m.id);
+        if n > 0 {
+            let r = Rect::from_min_size(area.min + vec2(16.0, 0.0), vec2(area.width() - 32.0, 24.0));
+            let p = ui.painter();
+            p.rect_filled(r, CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }, Color32::from_rgb(0x58, 0x65, 0xf2));
+            let since = Local
+                .timestamp_millis_opt(crate::state::snowflake_ms(after))
+                .single()
+                .map(|t| t.format(markdown::hm()).to_string())
+                .unwrap_or_default();
+            let more = if list.first().is_some_and(|m| m.id > after) { "+" } else { "" };
+            p.text(
+                pos2(r.left() + 12.0, r.center().y),
+                Align2::LEFT_CENTER,
+                format!("{n}{more} new message{} since {since}", if n == 1 { "" } else { "s" }),
+                semi(14.0),
+                Color32::WHITE,
+            );
+            let mr = Rect::from_min_max(pos2(r.right() - 130.0, r.top()), r.max);
+            p.text(pos2(mr.right() - 12.0, r.center().y), Align2::RIGHT_CENTER, "Mark As Read", semi(14.0), Color32::WHITE);
+            let left = Rect::from_min_max(r.min, pos2(mr.left(), r.bottom()));
+            if ui.interact(mr, egui::Id::new("mark_read_bar"), Sense::click()).clicked() {
+                app.marker = None;
+            } else if ui.interact(left, egui::Id::new("jump_new_bar"), Sense::click()).clicked()
+                && let Some(f) = first
+            {
+                app.jump_to(ch, f);
+            }
+        }
+    }
+    let scrolled_up = offset + area.height() < content_h - 1500.0;
+    if detached || scrolled_up {
+        let r = Rect::from_min_size(pos2(area.left() + 16.0, area.bottom() - 32.0), vec2(area.width() - 32.0, 32.0));
+        let p = ui.painter();
+        p.rect_filled(r, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, BG_SECONDARY_ALT);
+        p.text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "You're viewing older messages", semi(14.0), HEADER_SECONDARY);
+        let jr = Rect::from_min_max(pos2(r.right() - 150.0, r.top()), r.max);
+        let resp = ui.interact(jr, egui::Id::new("jump_present"), Sense::click());
+        let col = if resp.hovered() { Color32::WHITE } else { HEADER_PRIMARY };
+        p.text(pos2(jr.right() - 16.0, r.center().y), Align2::RIGHT_CENTER, "Jump To Present", semi(14.0), col);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.clicked() {
+            app.jump_to_present(ch);
         }
     }
 }
@@ -476,20 +582,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if start {
             let name = d.store.name_in(d.guild, m.author);
             let color = d.store.role_color(d.guild, m.author).map(role_color).unwrap_or(HEADER_PRIMARY);
-            cui.horizontal(|ui| {
-                let r = ui.add(Label::new(RichText::new(name).font(semi(16.0)).color(color)).selectable(false).sense(Sense::click()));
-                if r.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if r.clicked() {
-                    d.acts.push(Act::Profile(m.author, r.rect.right_top() + vec2(8.0, 0.0)));
-                }
-                if d.store.user(m.author).is_some_and(|u| u.bot) {
-                    tag(ui, "APP");
-                }
-                ui.add_space(2.0);
-                ui.add(Label::new(RichText::new(stamp(m.ts())).font(reg(12.0)).color(TEXT_MUTED)).selectable(false));
-            });
+            let bot = d.store.user(m.author).is_some_and(|u| u.bot);
+            if let Some(at) = author_line(&mut cui, &name, color, bot, &stamp(m.ts())) {
+                d.acts.push(Act::Profile(m.author, at));
+            }
         }
         let editing = d.editing.as_ref().is_some_and(|(id, _)| *id == m.id);
         if editing {
@@ -520,8 +616,12 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 let sep = if a.proxy.contains('?') { '&' } else { '?' };
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
                 let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
-                if media(&mut cui, &url, w, h).clicked() {
-                    d.acts.push(Act::Url(a.url.clone()));
+                let r = media(&mut cui, &url, w, h);
+                if cui.clip_rect().contains(r.rect.center()) {
+                    d.rects.push(("image".into(), r.rect.intersect(cui.clip_rect())));
+                }
+                if r.clicked() {
+                    d.acts.push(Act::View(a.proxy.clone(), a.url.clone(), a.w, a.h));
                 }
             } else if file_card(&mut cui, &a.filename, a.size, a.ctype.starts_with("video/")).clicked() {
                 d.acts.push(Act::Url(a.url.clone()));
@@ -564,6 +664,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 d.acts.push(Act::Channel(t.id));
             }
         }
+        if !m.components.is_empty() {
+            cui.add_space(4.0);
+            components(&mut cui, d, m);
+        }
         if !m.reactions.is_empty() {
             cui.add_space(4.0);
             reactions(&mut cui, d, m);
@@ -585,6 +689,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             YELLOW,
         );
         if hovered { Color32::from_rgba_premultiplied(30, 23, 8, 36) } else { HIGHLIGHT_BG }
+    } else if let Some((_, t)) = d.flash.filter(|(id, _)| *id == m.id) {
+        // jumped-to message glows and fades out over two seconds
+        let a = (1.0 - t.elapsed().as_secs_f32() / 2.0).clamp(0.0, 1.0);
+        Color32::from_rgba_unmultiplied(88, 101, 242, (40.0 * a) as u8)
     } else if hovered || d.editing.as_ref().is_some_and(|(id, _)| *id == m.id) {
         BG_MSG_HOVER
     } else {
@@ -619,31 +727,54 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     }
 }
 
-fn tag(ui: &mut Ui, text: &str) {
-    let g = ui.painter().layout_no_wrap(text.to_string(), semi(10.0), Color32::WHITE);
-    let (r, _) = ui.allocate_exact_size(vec2(g.size().x + 8.0, 15.0), Sense::hover());
-    ui.painter().rect_filled(r, CornerRadius::same(3), BLURPLE);
-    ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
+/// Name, optional APP tag and timestamp on one 22px line. The timestamp shares the
+/// name's baseline rather than its centre, which is what makes discord's header read right.
+/// Returns where to open the profile popout when the name was clicked.
+fn author_line(ui: &mut Ui, name: &str, color: Color32, bot: bool, when: &str) -> Option<Pos2> {
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
+    let n = text::layout(ui.ctx(), name, semi(16.0), color, row.width() - 160.0);
+    let ny = row.center().y - n.size().y / 2.0;
+    let name_rect = Rect::from_min_size(pos2(row.left(), ny), n.size());
+    let resp = ui.interact(name_rect, ui.id().with(("author", name)), Sense::click());
+    n.paint(ui.painter(), name_rect.min);
+    if resp.hovered() {
+        ui.painter().hline(name_rect.x_range(), name_rect.bottom() - 2.0, Stroke::new(1.0, color));
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let mut x = name_rect.right() + 4.0;
+    // ascent is ~81% of a segoe ui row, use it to put both baselines on the same y
+    let base = ny + n.size().y * 0.81;
+    if bot {
+        let g = ui.painter().layout_no_wrap("APP".into(), semi(10.0), Color32::WHITE);
+        let r = Rect::from_min_size(pos2(x, base - 12.5), vec2(g.size().x + 8.0, 15.0));
+        ui.painter().rect_filled(r, CornerRadius::same(3), BLURPLE);
+        ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
+        x = r.right() + 4.0;
+    }
+    let t = ui.painter().layout_no_wrap(when.to_string(), reg(12.0), TEXT_MUTED);
+    let ty = base - t.size().y * 0.81;
+    ui.painter().galley(pos2(x + 2.0, ty), t, TEXT_MUTED);
+    resp.clicked().then(|| name_rect.right_top() + vec2(8.0, 0.0))
 }
 
 fn system_line(ui: &mut Ui, d: &mut D, m: &Message) {
     let name = d.store.name_in(d.guild, m.author);
     let (icon, text, col) = match m.kind {
-        7 => ("→", format!("{name} joined the server."), GREEN),
-        6 => ("📌", format!("{name} pinned a message to this channel."), HEADER_SECONDARY),
-        8..=11 => ("💎", format!("{name} just boosted the server!"), Color32::from_rgb(0xff, 0x73, 0xfa)),
-        1 => ("→", format!("{name} added someone to the group."), GREEN),
-        2 => ("←", format!("{name} removed someone from the group."), RED),
-        3 => ("📞", format!("{name} started a call."), GREEN),
-        4 => ("✎", format!("{name} changed the channel name."), HEADER_SECONDARY),
-        18 => ("🧵", format!("{name} started a thread: {}", m.content), HEADER_SECONDARY),
-        _ => ("•", if m.content.is_empty() { format!("{name} did something.") } else { m.content.clone() }, HEADER_SECONDARY),
+        7 => (Icon::ArrowRight, format!("{name} joined the server."), GREEN),
+        6 => (Icon::Pin, format!("{name} pinned a message to this channel."), HEADER_SECONDARY),
+        8..=11 => (Icon::Gem, format!("{name} just boosted the server!"), Color32::from_rgb(0xff, 0x73, 0xfa)),
+        1 => (Icon::ArrowRight, format!("{name} added someone to the group."), GREEN),
+        2 => (Icon::ArrowLeft, format!("{name} removed someone from the group."), RED),
+        3 => (Icon::Speaker, format!("{name} started a call."), GREEN),
+        4 => (Icon::Pencil, format!("{name} changed the channel name."), HEADER_SECONDARY),
+        18 => (Icon::Thread, format!("{name} started a thread: {}", m.content), HEADER_SECONDARY),
+        _ => (Icon::ArrowRight, if m.content.is_empty() { format!("{name} did something.") } else { m.content.clone() }, HEADER_SECONDARY),
     };
     let left = ui.max_rect().left();
     let y = ui.cursor().top() + 11.0;
-    ui.painter().text(pos2(left - 36.0, y), Align2::CENTER_CENTER, icon, reg(16.0), col);
+    icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(left - 36.0, y), vec2(16.0, 16.0)), col);
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(text).color(HEADER_SECONDARY));
+        text::label(ui, &text, reg(16.0), HEADER_SECONDARY, Sense::hover());
         ui.add(Label::new(RichText::new(stamp(m.ts())).font(reg(12.0)).color(TEXT_MUTED)).selectable(false));
     });
 }
@@ -674,18 +805,25 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     }
     let name = format!("@{}", d.store.name_in(d.guild, rm.author));
     let color = d.store.role_color(d.guild, rm.author).map(role_color).unwrap_or(HEADER_PRIMARY);
-    let ng = p.layout_no_wrap(name, semi(14.0), color);
-    let nw = ng.size().x;
-    p.galley(pos2(cx, y - ng.size().y / 2.0), ng, color);
-    cx += nw + 6.0;
-    let mut excerpt: String = rm.content.replace('\n', " ");
+    let nr = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &name, semi(14.0), color, 200.0);
+    cx = nr.right() + 6.0;
+    let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
-        excerpt = if rm.attachments.is_empty() { "Click to see attachment".into() } else { "🖼 Click to see attachment".into() };
+        let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
+        icons::draw(p, Icon::Image, ir, HEADER_SECONDARY);
+        cx += 20.0;
+        p.text(pos2(cx, y), Align2::LEFT_CENTER, "Click to see attachment", reg(14.0), HEADER_SECONDARY);
+    } else {
+        text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), HEADER_SECONDARY, r.right() - cx);
     }
-    p.with_clip_rect(Rect::from_x_y_ranges(cx..=r.right(), r.y_range()))
-        .text(pos2(cx, y), Align2::LEFT_CENTER, excerpt, reg(14.0), HEADER_SECONDARY);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if ui.clip_rect().contains_rect(r) {
+        d.rects.push(("reply".into(), r));
+    }
+    if resp.clicked() {
+        d.acts.push(Act::Jump(rid));
     }
 }
 
@@ -792,11 +930,14 @@ fn file_card(ui: &mut Ui, name: &str, size: u64, video: bool) -> egui::Response 
     let w = ui.available_width().min(432.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 66.0), Sense::click());
     ui.painter().rect(rect, CornerRadius::same(8), BG_SECONDARY, Stroke::new(1.0, BG_TERTIARY), egui::StrokeKind::Inside);
-    let icon = if video { "🎞" } else { "📄" };
-    ui.painter().text(pos2(rect.left() + 28.0, rect.center().y), Align2::CENTER_CENTER, icon, reg(30.0), BLURPLE);
+    let ir = Rect::from_center_size(pos2(rect.left() + 28.0, rect.center().y), vec2(30.0, 36.0));
+    icons::draw(ui.painter(), Icon::File, ir, BLURPLE);
+    if video {
+        icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(ir.center() + vec2(0.0, 3.0), vec2(12.0, 12.0)), BLURPLE);
+    }
     let clip = ui.painter().with_clip_rect(rect.shrink(8.0));
     let col = if resp.hovered() { LINK.gamma_multiply(1.2) } else { LINK };
-    clip.text(pos2(rect.left() + 52.0, rect.center().y - 9.0), Align2::LEFT_CENTER, name, reg(16.0), col);
+    text::paint(ui.painter(), pos2(rect.left() + 52.0, rect.center().y - 9.0), Align2::LEFT_CENTER, name, reg(16.0), col, rect.width() - 64.0);
     clip.text(pos2(rect.left() + 52.0, rect.center().y + 11.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), TEXT_MUTED);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -809,10 +950,9 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
     if bare && matches!(e.kind.as_str(), "image" | "gifv") {
         if let Some(m) = e.thumb.as_ref().or(e.image.as_ref()) {
             let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
-            if media(ui, &m.url, w, h).clicked()
-                && let Some(u) = &e.url
-            {
-                d.acts.push(Act::Url(u.clone()));
+            if media(ui, &m.url, w, h).clicked() {
+                let open = e.url.clone().unwrap_or_else(|| m.url.clone());
+                d.acts.push(Act::View(m.url.clone(), open, m.w, m.h));
             }
         }
         return;
@@ -895,12 +1035,13 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                 let r = media(ui, &m.url, w, h);
                 if e.kind == "video" {
                     ui.painter().circle_filled(r.rect.center(), 24.0, Color32::from_black_alpha(160));
-                    ui.painter().text(r.rect.center() + vec2(2.0, 0.0), Align2::CENTER_CENTER, "▶", reg(22.0), Color32::WHITE);
+                    icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(r.rect.center() + vec2(2.0, 0.0), vec2(22.0, 22.0)), Color32::WHITE);
                 }
-                if r.clicked()
-                    && let Some(u) = &e.url
-                {
-                    d.acts.push(Act::Url(u.clone()));
+                if r.clicked() {
+                    match (&e.url, e.kind == "video") {
+                        (Some(u), true) => d.acts.push(Act::Url(u.clone())),
+                        _ => d.acts.push(Act::View(m.url.clone(), e.url.clone().unwrap_or_else(|| m.url.clone()), m.w, m.h)),
+                    }
                 }
             }
             if let Some(f) = &e.footer {
@@ -930,6 +1071,89 @@ pub fn emoji_url(e: &ReactEmoji) -> String {
         format!("{}/emojis/{}.{}?size=48", crate::api::cdn(), e.id, if e.animated { "gif" } else { "png" })
     } else {
         markdown::twemoji(&e.name)
+    }
+}
+
+fn components(ui: &mut Ui, d: &mut D, m: &Message) {
+    for row in &m.components {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+            for c in row {
+                match c {
+                    Comp::Button { style, label, emoji, custom_id, url, disabled } => {
+                        let (fill, hover) = match style {
+                            1 => (BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4)),
+                            3 => (Color32::from_rgb(0x24, 0x80, 0x46), Color32::from_rgb(0x1a, 0x63, 0x34)),
+                            4 => (Color32::from_rgb(0xda, 0x37, 0x3c), Color32::from_rgb(0xa1, 0x28, 0x28)),
+                            _ => (BG_ACCENT, Color32::from_rgb(0x6d, 0x6f, 0x78)),
+                        };
+                        let g = ui.painter().layout_no_wrap(label.clone(), semi(14.0), Color32::WHITE);
+                        let ew = if emoji.is_some() { 22.0 } else { 0.0 };
+                        let lw = if url.is_some() { 18.0 } else { 0.0 };
+                        let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + ew + lw + 32.0, 32.0), Sense::click());
+                        let fill = if *disabled {
+                            fill.gamma_multiply(0.5)
+                        } else if resp.hovered() {
+                            hover
+                        } else {
+                            fill
+                        };
+                        ui.painter().rect_filled(r, CornerRadius::same(3), fill);
+                        if ui.clip_rect().contains_rect(r) {
+                            d.rects.push((format!("button:{custom_id}"), r));
+                        }
+                        let mut x = r.left() + 16.0;
+                        if let Some(e) = emoji {
+                            text::image(ui.painter(), &emoji_url(e), Rect::from_min_size(pos2(x, r.center().y - 9.0), vec2(18.0, 18.0)));
+                            x += ew;
+                        }
+                        let tc = if *disabled { Color32::from_white_alpha(140) } else { Color32::WHITE };
+                        let gw = g.size().x;
+                        ui.painter().galley(pos2(x, r.center().y - g.size().y / 2.0), g, tc);
+                        if url.is_some() {
+                            icons::draw(ui.painter(), Icon::ArrowRight, Rect::from_center_size(pos2(x + gw + 12.0, r.center().y), vec2(14.0, 14.0)), tc);
+                        }
+                        if resp.hovered() && !disabled {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if resp.clicked() && !disabled {
+                            match url {
+                                Some(u) => d.acts.push(Act::Url(u.clone())),
+                                None => d.acts.push(Act::Component(m.id, custom_id.clone(), None)),
+                            }
+                        }
+                    }
+                    Comp::Select { custom_id, placeholder, options, disabled, .. } => {
+                        let w = ui.available_width().min(400.0);
+                        let id = ui.id().with(("select", m.id, custom_id));
+                        let mut open: bool = ui.data(|dd| dd.get_temp(id).unwrap_or(false));
+                        let (r, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
+                        ui.painter().rect(r, CornerRadius::same(4), BG_TERTIARY, Stroke::new(1.0, if open { BLURPLE } else { BG_TERTIARY }), egui::StrokeKind::Inside);
+                        ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, placeholder, reg(15.0), TEXT_MUTED);
+                        icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(18.0, 18.0)), HEADER_SECONDARY);
+                        if resp.clicked() && !disabled {
+                            open = !open;
+                        }
+                        if open {
+                            for (label, value, desc) in options {
+                                let h = if desc.is_some() { 48.0 } else { 36.0 };
+                                let (or, oresp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+                                ui.painter().rect_filled(or, CornerRadius::ZERO, if oresp.hovered() { BG_MOD_HOVER } else { BG_SECONDARY });
+                                ui.painter().text(pos2(or.left() + 12.0, or.top() + 18.0), Align2::LEFT_CENTER, label, semi(15.0), HEADER_PRIMARY);
+                                if let Some(dsc) = desc {
+                                    ui.painter().text(pos2(or.left() + 12.0, or.top() + 36.0), Align2::LEFT_CENTER, dsc, reg(13.0), HEADER_SECONDARY);
+                                }
+                                if oresp.clicked() {
+                                    d.acts.push(Act::Component(m.id, custom_id.clone(), Some(vec![value.clone()])));
+                                    open = false;
+                                }
+                            }
+                        }
+                        ui.data_mut(|dd| dd.insert_temp(id, open));
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -981,19 +1205,19 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
-                        let r = icon_button(ui, "☺", 32.0, "Add Reaction");
+                        let r = icon_button(ui, Icon::AddReaction, 32.0, "Add Reaction");
                         if r.clicked() {
                             d.acts.push(Act::Picker(m.id, r.rect.left_bottom()));
                         }
                         if own {
-                            if icon_button(ui, "✏", 32.0, "Edit").clicked() {
+                            if icon_button(ui, Icon::Pencil, 32.0, "Edit").clicked() {
                                 d.acts.push(Act::Edit(m.id));
                             }
                         }
-                        if icon_button(ui, "⮪", 32.0, "Reply").clicked() {
+                        if icon_button(ui, Icon::Reply, 32.0, "Reply").clicked() {
                             d.acts.push(Act::Reply(m.id));
                         }
-                        if own && icon_button(ui, "🗑", 32.0, "Delete").clicked() {
+                        if own && icon_button(ui, Icon::Trash, 32.0, "Delete").clicked() {
                             d.acts.push(Act::Delete(m.id));
                         }
                     });
@@ -1039,164 +1263,6 @@ fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
     } else if esc {
         d.acts.push(Act::CancelEdit);
     }
-}
-
-fn composer(app: &mut App, ui: &mut Ui, chan: &Channel) {
-    let ch = chan.id;
-    let tid = egui::Id::new("composer");
-
-    if let Some(rid) = app.reply {
-        let name = app.store.find_msg(ch, rid).map(|m| app.store.name_in(chan.guild, m.author)).unwrap_or_default();
-        Frame::new()
-            .fill(BG_SECONDARY)
-            .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
-            .inner_margin(Margin::symmetric(16, 8))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Replying to").font(reg(14.0)).color(HEADER_SECONDARY));
-                    ui.label(RichText::new(name).font(semi(14.0)).color(HEADER_SECONDARY));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if icon_button(ui, "✖", 20.0, "Cancel reply").clicked() {
-                            app.reply = None;
-                        }
-                    });
-                });
-            });
-    }
-    if !app.files.is_empty() {
-        let mut remove = None;
-        Frame::new().fill(BG_INPUT).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for (i, f) in app.files.iter().enumerate() {
-                    let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    Frame::new().fill(BG_SECONDARY).corner_radius(4).inner_margin(8).show(ui, |ui| {
-                        ui.label(RichText::new(format!("📄 {name}")).font(reg(14.0)).color(TEXT_NORMAL));
-                        if icon_button(ui, "🗑", 22.0, "Remove").clicked() {
-                            remove = Some(i);
-                        }
-                    });
-                }
-            });
-        });
-        if let Some(i) = remove {
-            app.files.remove(i);
-        }
-    }
-
-    let focused = ui.memory(|m| m.has_focus(tid));
-    let nothing_focused = ui.memory(|m| m.focused().is_none());
-    let typed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Paste(_))));
-    let editing = app.editing.is_some();
-    if !editing && (app.focus_composer || (nothing_focused && typed)) {
-        ui.memory_mut(|m| m.request_focus(tid));
-        app.focus_composer = false;
-    }
-    let draft = app.drafts.entry(ch).or_default();
-    let mut send = false;
-    if focused || (nothing_focused && typed) {
-        if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
-            send = true;
-        }
-        if draft.is_empty() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
-            let me = app.store.me;
-            if let Some(m) = app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.author == me && !m.pending)) {
-                app.editing = Some((m.id, m.content.clone()));
-            }
-        }
-        if app.reply.is_some() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-            app.reply = None;
-        }
-    }
-
-    let draft = app.drafts.entry(ch).or_default();
-    let before = draft.len();
-    let hint = match chan.kind {
-        1 | 3 => format!("Message @{}", channel_title(&app.store, ch)),
-        _ => format!("Message #{}", chan.name),
-    };
-    let top_r = if app.reply.is_some() || !app.files.is_empty() { 0 } else { 8 };
-    let mut attach = false;
-    let mut emoji_at = None;
-    let r = Frame::new()
-        .fill(BG_INPUT)
-        .corner_radius(CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 })
-        .inner_margin(Margin { left: 16, right: 12, top: 0, bottom: 0 })
-        .show(ui, |ui| {
-            ui.set_min_height(44.0);
-            ui.horizontal(|ui| {
-                let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 44.0), Sense::click());
-                let col = if presp.hovered() { HEADER_PRIMARY } else { HEADER_SECONDARY };
-                ui.painter().circle_filled(pr.center(), 12.0, col);
-                ui.painter().text(pr.center() - vec2(0.0, 1.0), Align2::CENTER_CENTER, "+", bold(20.0), BG_INPUT);
-                if presp.on_hover_text("Upload a File").clicked() {
-                    attach = true;
-                }
-                ui.add_space(8.0);
-                egui::ScrollArea::vertical().max_height(320.0).id_salt("composer_scroll").show(ui, |ui| {
-                    ui.add_space(11.0);
-                    ui.add(
-                        egui::TextEdit::multiline(draft)
-                            .id(tid)
-                            .frame(Frame::NONE)
-                            .desired_rows(1)
-                            .font(reg(16.0))
-                            .text_color(TEXT_NORMAL)
-                            .hint_text(RichText::new(&hint).color(CHANNEL_DEFAULT))
-                            .desired_width(ui.available_width() - 40.0)
-                            .lock_focus(true),
-                    );
-                    ui.add_space(11.0);
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let r = icon_button(ui, "☺", 32.0, "Select emoji");
-                    if r.clicked() {
-                        emoji_at = Some(r.rect.left_top());
-                    }
-                });
-            });
-        });
-    app.rects.insert("composer".into(), r.response.rect);
-
-    if attach && let Some(files) = rfd::FileDialog::new().pick_files() {
-        app.files.extend(files);
-    }
-    if let Some(at) = emoji_at {
-        app.picker = Some((Pick::Composer, at - vec2(380.0, 440.0)));
-    }
-    let changed = app.drafts.get(&ch).is_some_and(|d| d.len() != before && !d.is_empty());
-    if changed && app.last_typing.is_none_or(|(c, t)| c != ch || t.elapsed().as_secs() >= 8) {
-        app.last_typing = Some((ch, Instant::now()));
-        app.net.send(Cmd::Typing { channel: ch });
-    }
-    if send {
-        app.send_message(ch);
-    }
-    typing_line(app, ui, chan);
-}
-
-fn typing_line(app: &App, ui: &mut Ui, chan: &Channel) {
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-    let users: Vec<Id> = app.store.typing.get(&chan.id).map(|v| v.iter().map(|(u, _)| *u).collect()).unwrap_or_default();
-    if users.is_empty() {
-        return;
-    }
-    let t = ui.input(|i| i.time) as f32;
-    for i in 0..3 {
-        let phase = ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
-        ui.painter().circle_filled(
-            pos2(r.left() + 6.0 + i as f32 * 7.0, r.center().y),
-            2.5,
-            HEADER_PRIMARY.gamma_multiply(0.4 + 0.6 * phase),
-        );
-    }
-    let names: Vec<String> = users.iter().map(|u| app.store.name_in(chan.guild, *u)).collect();
-    let text = match names.len() {
-        1 => format!("{} is typing…", names[0]),
-        2 => format!("{} and {} are typing…", names[0], names[1]),
-        3 => format!("{}, {}, and {} are typing…", names[0], names[1], names[2]),
-        _ => "Several people are typing…".to_string(),
-    };
-    ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, text, reg(13.0), TEXT_NORMAL);
 }
 
 pub fn context_menu(app: &mut App, ctx: &egui::Context) {
@@ -1318,6 +1384,8 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         bar: None,
         acts: Vec::new(),
         embeds: false,
+        flash: None,
+        rects: Vec::new(),
     };
     let r = Frame::new().fill(BG_PRIMARY).corner_radius(4).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -1336,7 +1404,11 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
                 let blocks = markdown::parse(&m.content, &cx);
                 blocks_ui(ui, &blocks, &mut d, m.id);
                 for a in &m.attachments {
-                    ui.label(RichText::new(format!("📎 {}", a.filename)).font(reg(14.0)).color(LINK));
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                        icons::draw(ui.painter(), Icon::File, r, LINK);
+                        text::label(ui, &a.filename, reg(14.0), LINK, Sense::hover());
+                    });
                 }
             });
         });

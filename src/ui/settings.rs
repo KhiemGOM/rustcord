@@ -92,7 +92,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         let (r, resp) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
                         let col = if resp.hovered() { HEADER_PRIMARY } else { HEADER_SECONDARY };
                         ui.painter().circle_stroke(r.center(), 17.0, egui::Stroke::new(2.0, col));
-                        ui.painter().text(r.center(), Align2::CENTER_CENTER, "✖", reg(14.0), col);
+                        super::icons::draw(ui.painter(), super::icons::Icon::Close, egui::Rect::from_center_size(r.center(), vec2(18.0, 18.0)), col);
                         ui.painter().text(pos2(r.center().x, r.bottom() + 10.0), Align2::CENTER_CENTER, "ESC", semi(13.0), col);
                         if resp.clicked() {
                             app.settings_page = None;

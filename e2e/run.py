@@ -12,6 +12,7 @@ Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request l
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -83,7 +84,22 @@ def main():
 
     reqs = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
     sends = [r for r in reqs if r.get("method") == "POST" and r.get("path", "").endswith("/channels/2011/messages")]
-    sent_bodies = [json.loads(r["body"]).get("content", "") for r in sends]
+    def content(body):
+        try:
+            return json.loads(body).get("content", "")
+        except ValueError:  # multipart upload
+            m = re.search(r'"content":"((?:[^"\\]|\\.)*)"', body)
+            return m.group(1) if m else ""
+
+    def top_type(body):
+        try:
+            return json.loads(body[body.index("{"):body.rindex("}") + 1]).get("type")
+        except ValueError:
+            return None
+
+    sent_bodies = [content(r["body"]) for r in sends]
+    interactions = [r for r in reqs if r.get("path", "").endswith("/interactions")]
+    uploads = [r for r in sends if 'filename="image.png"' in r.get("body", "")]
     acks = [r for r in reqs if "/ack" in r.get("path", "")]
     history = [r for r in reqs if "before=" in r.get("path", "")]
     subs = [r for r in reqs if r.get("gateway_op") == 37]
@@ -94,7 +110,16 @@ def main():
         f"cold: spawn -> first frame < {BUDGET_MS}ms": (cold.get("spawn_to_first_frame_ms") or 1e9) < BUDGET_MS,
         f"warm: spawn -> first frame < {BUDGET_MS}ms": (warm.get("spawn_to_first_frame_ms") or 1e9) < BUDGET_MS,
         f"warm: cached servers on screen < {BUDGET_MS}ms": warm.get("marks_ms", {}).get("content", 1e9) < BUDGET_MS,
-        "two messages typed through the composer reached the API": len(sent_bodies) == 2 and all("hello from the e2e run" in b for b in sent_bodies),
+        "two messages typed through the composer reached the API": sum("hello from the e2e run" in b for b in sent_bodies) == 2,
+        "@al + Tab became a real mention": sum("<@101> ping from autocomplete" in b for b in sent_bodies) == 2,
+        "slash command and button click went out as interactions": [top_type(r["body"]) for r in interactions].count(2) == 2
+            and [top_type(r["body"]) for r in interactions].count(3) == 2,
+        "ctrl+v image was uploaded as a file": len(uploads) == 2,
+        **{f"{name}: {what}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("mention autocomplete", "mention_ac"), ("slash command answered", "slash"),
+                              ("bot button pressed", "component"), ("clipboard image attached", "paste"),
+                              ("reply click jumped to the original", "jump"),
+                              ("image opened in the in-app viewer", "viewer")]},
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,
