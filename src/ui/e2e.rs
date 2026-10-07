@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use super::{App, side};
 use crate::net::Conn;
 use crate::state::Id;
+use crate::voice::{State, audio};
 
 
 pub struct Run {
@@ -23,7 +24,9 @@ pub struct Run {
     frames: Vec<f32>,
     shots: Vec<String>,
     pending_shots: u32,
+    voice: serde_json::Value,
     target: (Id, Id),
+    call: Id,
     loaded: usize,
     text: String,
     error: Option<String>,
@@ -46,7 +49,9 @@ impl Run {
             frames: Vec::new(),
             shots: Vec::new(),
             pending_shots: 0,
+            voice: serde_json::Value::Null,
             target: (0, 0),
+            call: 0,
             loaded: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
@@ -163,6 +168,16 @@ impl Run {
             self.fail(format!("timed out at step {} in #{here}{}", self.step, jump.unwrap_or_default()));
         }
         let msgs = |app: &App, ch: Id| app.store.msgs.get(&ch).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
+        let me = app.store.me;
+        let heard = app.voice.speaking.iter().any(|u| *u != me);
+        let sh = &app.voice.shared;
+        let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
+        let mic = sh.mic.load(std::sync::atomic::Ordering::Relaxed);
+        let mic_name = ["unknown", "none", "device", "fake"].get(mic as usize).copied().unwrap_or("?");
+        self.voice = json!({
+            "mic": mic_name,
+            "packets_sent": n(&sh.sent), "voiced_sent": n(&sh.voiced), "packets_recv": n(&sh.recv), "frames_decoded": n(&sh.decoded),
+        });
         match self.step {
             0 => {
                 if app.conn == Conn::Online && !app.store.guilds.is_empty() {
@@ -596,7 +611,104 @@ impl Run {
             }
             53 => {
                 self.shot(ctx, "multiline.png");
-                self.step = 99;
+                self.next(300);
+            }
+            54 => {
+                let Some(vc) = side::tree(&app.store, self.target.0).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
+                    return self.fail("no voice channel".into());
+                };
+                let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                self.call = vc;
+                self.click(r.center());
+                self.mark("voice_click");
+                self.next(0);
+            }
+            55 => {
+                if app.voice.state == State::Connected && app.voice.chan == Some(self.call) {
+                    self.mark("voice_connected");
+                    self.next(0);
+                }
+            }
+            56 => {
+                // with the fake mic we also want to have sent real speech, not just the join silence
+                let fake = mic == audio::MIC_FAKE;
+                if heard && n(&sh.decoded) > 10 && (!fake || n(&sh.voiced) > 10) {
+                    self.mark("voice_heard");
+                    self.next(0);
+                }
+            }
+            57 => {
+                if heard {
+                    self.shot(ctx, "voice.png");
+                    self.next(300);
+                }
+            }
+            58 => {
+                let Some(r) = app.rects.get("voice:mute").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            59 => {
+                if !app.voice.mute {
+                    return self.fail("mute button did nothing".into());
+                }
+                self.shot(ctx, "voice_muted.png");
+                let Some(r) = app.rects.get("voice:mute").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            60 => {
+                let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            61 => {
+                if app.voice.state == State::Idle && app.voice.chan.is_none() {
+                    self.mark("voice_left");
+                    self.next(200);
+                }
+            }
+            62 => {
+                let Some(r) = app.rects.get("guild:home").copied() else { return };
+                self.click(r.center());
+                self.next(1200);
+            }
+            63 => {
+                let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else {
+                    return self.fail("no dm".into());
+                };
+                let Some(r) = app.rects.get(&format!("chan:{dm}")).copied() else { return };
+                self.call = dm;
+                self.click(r.center());
+                self.next(800);
+            }
+            64 => {
+                let Some(r) = app.rects.get("dm:call").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            65 => {
+                if app.voice.state == State::Connected && app.voice.chan == Some(self.call) && heard {
+                    self.mark("dm_call");
+                    self.next(500);
+                }
+            }
+            66 => {
+                if heard {
+                    self.shot(ctx, "dm_call.png");
+                    self.next(300);
+                }
+            }
+            67 => {
+                let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            68 => {
+                if app.voice.state == State::Idle && app.voice.chan.is_none() {
+                    self.mark("dm_left");
+                    self.step = 99;
+                }
             }
             _ => {
                 if self.pending_shots == 0 {
@@ -619,6 +731,7 @@ impl Run {
             "marks_ms": marks,
             "frame_cpu_ms": { "count": f.len(), "p50": pct(0.5), "p95": pct(0.95), "p99": pct(0.99), "max": pct(1.0) },
             "screenshots": self.shots,
+            "voice": self.voice,
             "rects": self.rects,
         });
         let _ = std::fs::write(self.dir.join("results.json"), serde_json::to_string_pretty(&out).unwrap_or_default());
