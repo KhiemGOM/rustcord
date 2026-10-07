@@ -1,6 +1,6 @@
 //! One voice session: voice gateway v8, UDP media, DAVE (via davey) and opus decode.
 
-use davey::{DaveSession, MediaType, ProposalsOperationType};
+use davey::{Codec, DaveSession, MediaType, ProposalsOperationType};
 use futures_util::{SinkExt, StreamExt};
 use rtrb::Producer;
 use serde_json::{Value, json};
@@ -17,7 +17,8 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use super::audio::{self, FRAME, Out, SILENCE, Shared};
 use super::rtp::{self, Cipher};
-use super::{Connect, Ev, Kind, State};
+use super::video::{self, Assembler, Decode, Encoded, Got, H264_PT, Source};
+use super::{Connect, Ctl, Ev, Kind, Media, State};
 use crate::net::{self, Tx};
 use crate::state::{Id, sid};
 
@@ -62,6 +63,15 @@ struct Sess {
     inbound: HashMap<u32, Inbound>,
     slots: Vec<Option<Producer<f32>>>,
     pcm: Vec<f32>,
+    vssrc: u32,
+    rtx: u32,
+    vseq: u16,
+    asm: HashMap<u32, Assembler>,
+    vusers: HashMap<u32, Id>,
+    decode: Option<Decode>,
+    pli_at: HashMap<u32, Instant>,
+    cam: Option<video::Sender>,
+    vout: mpsc::UnboundedSender<Encoded>,
 }
 
 enum End {
@@ -71,7 +81,7 @@ enum End {
     Quit,
 }
 
-pub async fn run(c: Connect, tx: Tx, mut ctl: mpsc::Receiver<()>) {
+pub async fn run(c: Connect, tx: Tx, mut ctl: mpsc::Receiver<Ctl>) {
     let tag = c.tag;
     let err = session(c, &tx, &mut ctl).await.err();
     tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Closed(err) }));
@@ -83,11 +93,14 @@ fn url(endpoint: &str) -> String {
     format!("{}/?v=8", base.trim_end_matches('/'))
 }
 
-async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<()>) -> Result<(), String> {
+async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(), String> {
     let udp = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| e.to_string())?;
     let shared = c.shared.clone();
     let mut known = HashSet::new();
     known.insert(c.me);
+    let (vout, mut vframes) = mpsc::unbounded_channel();
+    let (pli_tx, mut plis) = mpsc::unbounded_channel();
+    let decode = Some(Decode::start(c.tag, tx.clone(), shared.clone(), pli_tx));
     let mut s = Sess {
         c,
         tx: tx.clone(),
@@ -113,6 +126,15 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<()>) -> Result<()
         inbound: HashMap::new(),
         slots: Vec::new(),
         pcm: vec![0.0; FRAME * 2],
+        vssrc: 0,
+        rtx: 0,
+        vseq: 0,
+        asm: HashMap::new(),
+        vusers: HashMap::new(),
+        decode,
+        pli_at: HashMap::new(),
+        cam: None,
+        vout,
     };
 
     let (out_tx, mut frames) = mpsc::unbounded_channel();
@@ -133,13 +155,16 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<()>) -> Result<()
             Err(e) => return Err(e),
         };
         tries = 0;
-        if engine.is_none() {
+        if s.c.kind == Media::GoLive && s.cam.is_none() {
+            let _ = s.video(&mut ws, Some(Source::Screen)).await;
+        }
+        if engine.is_none() && s.c.kind == Media::Voice {
             let (e, prods) = audio::start(s.shared.clone(), out_tx.clone());
             s.slots = prods.into_iter().map(Some).collect();
             engine = Some(e);
         }
         s.state(State::Connected);
-        match s.pump(&mut ws, beat, &mut frames, ctl).await {
+        match s.pump(&mut ws, beat, &mut frames, &mut vframes, &mut plis, ctl).await {
             End::Quit => {
                 let _ = ws.close(None).await;
                 return Ok(());
@@ -169,6 +194,8 @@ impl Sess {
             "session_id": self.c.session,
             "token": self.c.token,
             "max_dave_protocol_version": davey::DAVE_PROTOCOL_VERSION,
+            "video": true,
+            "streams": [{ "type": if self.c.kind == Media::Voice { "video" } else { "screen" }, "rid": "100", "quality": 100 }],
         }});
         send(&mut ws, &id).await?;
 
@@ -192,6 +219,9 @@ impl Sess {
         }
         let ready = ready.unwrap_or_default();
         self.ssrc = ready["ssrc"].as_u64().unwrap_or(0) as u32;
+        // the gateway hands out our video and retransmission ssrcs up front
+        self.vssrc = ready["streams"][0]["ssrc"].as_u64().unwrap_or(self.ssrc as u64 + 1) as u32;
+        self.rtx = ready["streams"][0]["rtx_ssrc"].as_u64().unwrap_or(self.ssrc as u64 + 2) as u32;
         let ip = ready["ip"].as_str().unwrap_or("").to_string();
         let port = ready["port"].as_u64().unwrap_or(0) as u16;
         let modes: Vec<&str> = ready["modes"].as_array().into_iter().flatten().filter_map(|m| m.as_str()).collect();
@@ -203,6 +233,10 @@ impl Sess {
         send(&mut ws, &json!({ "op": 1, "d": {
             "protocol": "udp",
             "data": { "address": addr, "port": port, "mode": mode },
+            "codecs": [
+                { "name": "opus", "type": "audio", "priority": 1000, "payload_type": rtp::OPUS_PT },
+                { "name": "H264", "type": "video", "priority": 1000, "payload_type": H264_PT, "rtx_payload_type": video::RTX_PT, "encode": true, "decode": true },
+            ],
         }}))
         .await?;
 
@@ -234,6 +268,8 @@ impl Sess {
 
         // registers our ssrc; the silence lets Discord learn our address before we ever talk
         send(&mut ws, &json!({ "op": 5, "d": { "speaking": 0, "delay": 0, "ssrc": self.ssrc } })).await?;
+        // without a sink want the SFU won't forward anyone's video to us
+        send(&mut ws, &json!({ "op": 15, "d": { "any": 100 } })).await?;
         for _ in 0..5 {
             self.send_media(&SILENCE);
         }
@@ -275,7 +311,9 @@ impl Sess {
         ws: &mut Sock,
         beat: Duration,
         frames: &mut mpsc::UnboundedReceiver<Out>,
-        ctl: &mut mpsc::Receiver<()>,
+        vframes: &mut mpsc::UnboundedReceiver<Encoded>,
+        plis: &mut mpsc::UnboundedReceiver<u32>,
+        ctl: &mut mpsc::Receiver<Ctl>,
     ) -> End {
         let udp = self.udp.clone();
         let mut buf = vec![0u8; 2048];
@@ -315,12 +353,24 @@ impl Sess {
                     let t = chrono::Utc::now().timestamp_millis();
                     send(ws, &json!({ "op": 3, "d": { "t": t, "seq_ack": self.seq_ack } })).await
                 }
+                f = vframes.recv() => {
+                    if let Some(f) = f {
+                        self.send_video(f);
+                    }
+                    Ok(())
+                }
+                s = plis.recv() => {
+                    if let Some(s) = s {
+                        self.pli(s);
+                    }
+                    Ok(())
+                }
                 _ = tick.tick() => {
                     self.quiet();
                     Ok(())
                 }
                 c = ctl.recv() => match c {
-                    Some(()) => Ok(()),
+                    Some(Ctl::Camera(on)) => self.video(ws, on.then_some(Source::Camera)).await,
                     None => return End::Quit,
                 },
             };
@@ -373,11 +423,22 @@ impl Sess {
                 let u = sid(&d["user_id"]);
                 self.known.insert(u);
                 self.map_ssrc(d["audio_ssrc"].as_u64(), u);
+                let v = d["video_ssrc"].as_u64().unwrap_or(0) as u32;
+                let active = d["streams"].as_array().map(|a| a.iter().any(|s| s["active"].as_bool() != Some(false))).unwrap_or(v != 0);
+                self.vusers.retain(|_, x| *x != u);
+                if v != 0 && active {
+                    self.vusers.insert(v, u);
+                    self.pli(v);
+                } else {
+                    self.emit(Kind::VideoOff(u));
+                }
             }
             13 => {
                 let u = sid(&d["user_id"]);
                 self.known.remove(&u);
                 self.users.retain(|_, x| *x != u);
+                self.vusers.retain(|_, x| *x != u);
+                self.emit(Kind::VideoOff(u));
                 let gone: Vec<u32> = self.inbound.iter().filter(|(_, i)| i.user == u).map(|(s, _)| *s).collect();
                 for s in gone {
                     self.drop_inbound(s);
@@ -537,7 +598,13 @@ impl Sess {
     }
 
     fn packet(&mut self, pkt: &[u8]) {
-        if rtp::is_rtcp(pkt) || pkt.len() < 12 || pkt[1] & 0x7f != rtp::OPUS_PT {
+        if rtp::is_rtcp(pkt) {
+            return self.rtcp(pkt);
+        }
+        if pkt.len() >= 12 && pkt[1] & 0x7f == H264_PT {
+            return self.video_in(pkt);
+        }
+        if pkt.len() < 12 || pkt[1] & 0x7f != rtp::OPUS_PT {
             return;
         }
         let Some(cipher) = &self.cipher else { return };
@@ -638,6 +705,114 @@ impl Sess {
                 self.emit(Kind::Speaking(u, true));
             }
         }
+    }
+
+    fn video_in(&mut self, pkt: &[u8]) {
+        let Some(cipher) = &self.cipher else { return };
+        let Some(body) = cipher.open(pkt) else { return };
+        let seq = u16::from_be_bytes([pkt[2], pkt[3]]);
+        let ts = u32::from_be_bytes([pkt[4], pkt[5], pkt[6], pkt[7]]);
+        let ssrc = u32::from_be_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]);
+        let first = !self.asm.contains_key(&ssrc);
+        let got = self.asm.entry(ssrc).or_default().push(seq, ts, pkt[1] & 0x80 != 0, &body);
+        if first {
+            self.pli(ssrc);
+        }
+        let frame = match got {
+            Got::Frame(f) => f,
+            Got::Lost => return self.pli(ssrc),
+            Got::Nothing => return,
+        };
+        let user = self.vusers.get(&ssrc).copied().unwrap_or(0);
+        let frame = match &mut self.dave {
+            Some(d) if d.is_ready() && (self.dave_ver != 0 || d.can_passthrough(user)) => match d.decrypt(user, MediaType::VIDEO, &frame) {
+                Ok(f) => f,
+                Err(_) => return self.pli(ssrc),
+            },
+            _ => frame,
+        };
+        if let Some(dec) = &self.decode {
+            dec.push(ssrc, user, frame);
+        }
+    }
+
+    /// Asks the sender for a keyframe (RTCP PLI), at most twice a second per stream.
+    fn pli(&mut self, media: u32) {
+        let Some(cipher) = &self.cipher else { return };
+        if self.pli_at.get(&media).is_some_and(|t| t.elapsed() < Duration::from_millis(500)) {
+            return;
+        }
+        self.pli_at.insert(media, Instant::now());
+        let mut h = [0x81, 206, 0, 2, 0, 0, 0, 0];
+        h[4..8].copy_from_slice(&self.ssrc.to_be_bytes());
+        self.nonce = self.nonce.wrapping_add(1);
+        let _ = self.udp.try_send(&cipher.seal(&h, &media.to_be_bytes(), self.nonce));
+    }
+
+    fn rtcp(&mut self, pkt: &[u8]) {
+        // PLI (fmt 1) or FIR (fmt 4) aimed at our video: next frame goes out as a keyframe
+        if pkt.len() < 8 || pkt[1] != 206 || !matches!(pkt[0] & 0x1f, 1 | 4) {
+            return;
+        }
+        let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
+        if plain.len() >= 4
+            && u32::from_be_bytes([plain[0], plain[1], plain[2], plain[3]]) == self.vssrc
+            && let Some(cam) = &self.cam
+        {
+            cam.key.store(true, Relaxed);
+        }
+    }
+
+    /// Starts or stops our outgoing video and tells the gateway (op 12).
+    async fn video(&mut self, ws: &mut Sock, src: Option<Source>) -> Result<(), String> {
+        self.cam = None;
+        if let Some(src) = src {
+            let (tx, tag, me) = (self.tx.clone(), self.c.tag, self.c.me);
+            let preview = move |img| tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }));
+            match video::send(src, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
+                Ok(s) => self.cam = Some(s),
+                Err(e) => self.emit(Kind::Error(format!("couldn't start {}: {e}", if src == Source::Camera { "the camera" } else { "screen capture" }))),
+            }
+        }
+        let d = match &self.cam {
+            Some(cam) => json!({
+                "audio_ssrc": self.ssrc, "video_ssrc": self.vssrc, "rtx_ssrc": self.rtx,
+                "streams": [{
+                    "type": "video", "rid": "100", "ssrc": self.vssrc, "active": true, "quality": 100, "rtx_ssrc": self.rtx,
+                    "max_bitrate": 2_500_000, "max_framerate": cam.fps,
+                    "max_resolution": { "type": "fixed", "width": cam.size.0, "height": cam.size.1 },
+                }],
+            }),
+            None => json!({ "audio_ssrc": self.ssrc, "video_ssrc": 0, "rtx_ssrc": 0, "streams": [] }),
+        };
+        if self.cam.is_none() {
+            self.emit(Kind::VideoOff(self.c.me));
+        }
+        send(ws, &json!({ "op": 12, "d": d })).await
+    }
+
+    fn send_video(&mut self, f: Encoded) {
+        let frame = match &mut self.dave {
+            Some(d) if self.dave_ver != 0 && d.is_ready() => match d.encrypt(MediaType::VIDEO, Codec::H264, &f.data) {
+                Ok(b) => b.into_owned(),
+                Err(_) => return,
+            },
+            _ => f.data,
+        };
+        let Some(cipher) = &self.cipher else { return };
+        let (mut seq, mut nonce) = (self.vseq, self.nonce);
+        video::packetize(&frame, |p, marker| {
+            let mut h = rtp::header(H264_PT | if marker { 0x80 } else { 0 }, seq, f.ts, self.vssrc).to_vec();
+            // one header extension, playout-delay = 0, the same thing Discord's own clients send
+            h[0] |= 0x10;
+            h.extend_from_slice(&[0xbe, 0xde, 0, 1]);
+            let body = [&[0x51, 0, 0, 0][..], &p].concat();
+            seq = seq.wrapping_add(1);
+            nonce = nonce.wrapping_add(1);
+            let _ = self.udp.try_send(&cipher.seal(&h, &body, nonce));
+        });
+        self.vseq = seq;
+        self.nonce = nonce;
     }
 
     fn quiet(&mut self) {

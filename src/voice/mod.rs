@@ -2,8 +2,10 @@
 //! talks to the main gateway; the session itself runs on the net runtime.
 
 pub mod audio;
+mod capture;
 mod conn;
 mod rtp;
+mod video;
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -25,7 +27,21 @@ pub enum State {
     Reconnecting,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Media {
+    Voice,
+    /// someone else's Go Live, receive only
+    Watch,
+    /// our own screen share
+    GoLive,
+}
+
+pub enum Ctl {
+    Camera(bool),
+}
+
 pub struct Connect {
+    pub kind: Media,
     pub tag: u64,
     pub endpoint: String,
     pub token: String,
@@ -39,6 +55,8 @@ pub struct Connect {
 pub enum Cmd {
     Connect(Connect),
     Leave,
+    EndStream,
+    Ctl(Ctl),
 }
 
 pub struct Ev {
@@ -49,26 +67,55 @@ pub struct Ev {
 pub enum Kind {
     State(State),
     Speaking(Id, bool),
+    /// a decoded frame of someone's video, or our own preview
+    Frame(Id, Arc<egui::ColorImage>),
+    VideoOff(Id),
+    Error(String),
     Closed(Option<String>),
 }
 
-/// Net-side handle on the running session; dropping the sender ends it.
+/// Net-side handles on the running sessions (voice, and at most one stream); dropping a sender ends it.
 #[derive(Default)]
 pub struct Link {
-    ctl: Option<mpsc::Sender<()>>,
+    voice: Option<mpsc::Sender<Ctl>>,
+    stream: Option<mpsc::Sender<Ctl>>,
 }
 
 impl Link {
     pub fn cmd(&mut self, c: Cmd, tx: &Tx) {
         match c {
             Cmd::Connect(c) => {
-                let (s, r) = mpsc::channel(1);
-                self.ctl = Some(s);
+                let (s, r) = mpsc::channel(4);
+                match c.kind {
+                    Media::Voice => self.voice = Some(s),
+                    _ => self.stream = Some(s),
+                }
                 tokio::spawn(conn::run(c, tx.clone(), r));
             }
-            Cmd::Leave => self.ctl = None,
+            Cmd::Leave => {
+                self.voice = None;
+                self.stream = None;
+            }
+            Cmd::EndStream => self.stream = None,
+            Cmd::Ctl(c) => {
+                if let Some(v) = &self.voice {
+                    let _ = v.try_send(c);
+                }
+            }
         }
     }
+}
+
+/// A Go Live session: someone else's we're watching, or our own.
+pub struct Live {
+    pub key: String,
+    pub user: Id,
+    pub mine: bool,
+    pub state: State,
+    pub frame: Option<Arc<egui::ColorImage>>,
+    server: Option<Id>,
+    endpoint: Option<(String, String)>,
+    tag: u64,
 }
 
 #[derive(Default)]
@@ -81,11 +128,20 @@ pub struct VoiceUi {
     pub speaking: HashSet<Id>,
     /// who is in each DM call, from CALL_* and guildless voice states
     pub calls: HashMap<Id, Vec<Id>>,
+    pub camera: bool,
+    /// latest camera frame per user, ours included
+    pub video: HashMap<Id, Arc<egui::ColorImage>>,
+    /// who has their camera on / is streaming, from voice states
+    pub cams: HashSet<Id>,
+    pub live: HashSet<Id>,
+    pub stream: Option<Live>,
+    pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
     session: Option<String>,
     server: Option<(String, String, Id)>,
-    live: Option<(String, String)>,
+    joined: Option<(String, String)>,
     tag: u64,
+    stream_tag: u64,
 }
 
 impl VoiceUi {
@@ -103,7 +159,7 @@ impl VoiceUi {
         self.state = State::Joining;
         self.session = None;
         self.server = None;
-        self.live = None;
+        self.joined = None;
         self.speaking.clear();
         self.tag += 1;
         self.op4(net);
@@ -128,11 +184,16 @@ impl VoiceUi {
 
     fn reset(&mut self, net: &Net) {
         net.send(net::Cmd::Voice(Cmd::Leave));
+        if let Some(l) = self.stream.take() {
+            net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
+        }
+        self.camera = false;
+        self.video.clear();
         self.chan = None;
         self.state = State::Idle;
         self.session = None;
         self.server = None;
-        self.live = None;
+        self.joined = None;
         self.speaking.clear();
         self.tag += 1;
     }
@@ -166,13 +227,128 @@ impl VoiceUi {
             "channel_id": self.chan.map(|c| c.to_string()),
             "self_mute": self.mute || self.deaf,
             "self_deaf": self.deaf,
-            "self_video": false,
+            "self_video": self.camera,
         }})));
+    }
+
+    pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
+        self.camera = on;
+        if !on {
+            self.video.remove(&me);
+        }
+        self.op4(net);
+        net.send(net::Cmd::Voice(Cmd::Ctl(Ctl::Camera(on))));
+    }
+
+    fn stream_key(&self, user: Id) -> Option<String> {
+        let ch = self.chan?;
+        Some(if self.guild != 0 { format!("guild:{}:{ch}:{user}", self.guild) } else { format!("call:{ch}:{user}") })
+    }
+
+    fn start_stream(&mut self, user: Id, mine: bool) -> Option<String> {
+        let key = self.stream_key(user)?;
+        self.stream_tag += 1;
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag: self.stream_tag });
+        Some(key)
+    }
+
+    pub fn watch(&mut self, net: &Net, user: Id) {
+        if self.stream.as_ref().is_some_and(|l| l.user == user) {
+            return;
+        }
+        self.end_stream(net);
+        if let Some(key) = self.start_stream(user, false) {
+            net.send(net::Cmd::Gateway(json!({ "op": 20, "d": { "stream_key": key } })));
+        }
+    }
+
+    pub fn go_live(&mut self, net: &Net, me: Id) {
+        self.end_stream(net);
+        let Some(key) = self.start_stream(me, true) else { return };
+        let (kind, guild) = if self.guild != 0 { ("guild", Some(self.guild.to_string())) } else { ("call", None) };
+        net.send(net::Cmd::Gateway(json!({ "op": 18, "d": {
+            "type": kind, "guild_id": guild, "channel_id": self.chan.map(|c| c.to_string()), "preferred_region": null,
+        }})));
+        net.send(net::Cmd::Gateway(json!({ "op": 22, "d": { "stream_key": key, "paused": false } })));
+    }
+
+    pub fn end_stream(&mut self, net: &Net) {
+        if let Some(l) = self.stream.take() {
+            net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
+            net.send(net::Cmd::Voice(Cmd::EndStream));
+        }
+    }
+
+    fn connect_stream(&mut self, net: &Net, me: Id) {
+        let Some(session) = self.session.clone() else { return };
+        let Some(l) = &mut self.stream else { return };
+        let (Some(server), Some((endpoint, token))) = (l.server, l.endpoint.clone()) else { return };
+        l.state = State::Connecting;
+        net.send(net::Cmd::Voice(Cmd::Connect(Connect {
+            kind: if l.mine { Media::GoLive } else { Media::Watch },
+            tag: l.tag,
+            endpoint,
+            token,
+            session,
+            server,
+            // streams get their own E2EE group, keyed one below the rtc server id
+            channel: server - 1,
+            me,
+            shared: self.shared.clone(),
+        })));
+    }
+
+    // camera and Go Live flags ride along on every voice state
+    fn flags(&mut self, vs: &Value) {
+        let uid = sid(&vs["user_id"]);
+        let gone = vs["channel_id"].is_null();
+        for (set, key) in [(&mut self.cams, "self_video"), (&mut self.live, "self_stream")] {
+            if !gone && vs[key].as_bool() == Some(true) {
+                set.insert(uid);
+            } else {
+                set.remove(&uid);
+            }
+        }
     }
 
     pub fn dispatch(&mut self, net: &Net, me: Id, t: &str, d: &Value) {
         match t {
+            "READY" | "READY_SUPPLEMENTAL" => {
+                for g in d["guilds"].as_array().into_iter().flatten() {
+                    for vs in g["voice_states"].as_array().into_iter().flatten() {
+                        self.flags(vs);
+                    }
+                }
+            }
+            "GUILD_CREATE" => {
+                for vs in d["voice_states"].as_array().into_iter().flatten() {
+                    self.flags(vs);
+                }
+            }
+            "STREAM_CREATE" | "STREAM_UPDATE" | "STREAM_SERVER_UPDATE" => {
+                let Some(l) = &mut self.stream else { return };
+                if d["stream_key"].as_str() != Some(&l.key) {
+                    return;
+                }
+                if t == "STREAM_SERVER_UPDATE" {
+                    let Some(ep) = d["endpoint"].as_str() else { return };
+                    l.endpoint = Some((ep.to_string(), d["token"].as_str().unwrap_or("").to_string()));
+                } else if let Some(r) = d["rtc_server_id"].as_str().and_then(|r| r.parse().ok()) {
+                    if l.server == Some(r) {
+                        return;
+                    }
+                    l.server = Some(r);
+                }
+                self.connect_stream(net, me);
+            }
+            "STREAM_DELETE" => {
+                if self.stream.as_ref().is_some_and(|l| d["stream_key"].as_str() == Some(&l.key)) {
+                    self.stream = None;
+                    net.send(net::Cmd::Voice(Cmd::EndStream));
+                }
+            }
             "VOICE_STATE_UPDATE" => {
+                self.flags(d);
                 let uid = sid(&d["user_id"]);
                 let ch = sid(&d["channel_id"]);
                 if sid(&d["guild_id"]) == 0 {
@@ -229,14 +405,15 @@ impl VoiceUi {
         };
         // our own voice state echoes back on every mute toggle; only a new session or token means reconnect
         let key = (session.clone(), token.clone());
-        if self.live.as_ref() == Some(&key) {
+        if self.joined.as_ref() == Some(&key) {
             return;
         }
-        self.live = Some(key);
+        self.joined = Some(key);
         self.tag += 1;
         self.state = State::Connecting;
         self.speaking.clear();
         net.send(net::Cmd::Voice(Cmd::Connect(Connect {
+            kind: Media::Voice,
             tag: self.tag,
             endpoint: endpoint.clone(),
             token: token.clone(),
@@ -250,10 +427,32 @@ impl VoiceUi {
 
     /// Returns an error worth showing the user, if the session died.
     pub fn event(&mut self, e: Ev) -> Option<String> {
+        if let Some(l) = &mut self.stream
+            && e.tag == l.tag
+        {
+            match e.kind {
+                Kind::State(s) => l.state = s,
+                Kind::Frame(_, img) => l.frame = Some(img),
+                Kind::Error(err) => return Some(err),
+                Kind::Closed(err) => {
+                    self.stream = None;
+                    return err.map(|e| format!("stream ended: {e}"));
+                }
+                _ => {}
+            }
+            return None;
+        }
         if e.tag != self.tag {
             return None;
         }
         match e.kind {
+            Kind::Frame(u, img) => {
+                self.video.insert(u, img);
+            }
+            Kind::VideoOff(u) => {
+                self.video.remove(&u);
+            }
+            Kind::Error(err) => return Some(err),
             Kind::State(s) => self.state = s,
             Kind::Speaking(u, true) => {
                 self.speaking.insert(u);
@@ -268,7 +467,7 @@ impl VoiceUi {
                     self.chan = None;
                     self.session = None;
                     self.server = None;
-                    self.live = None;
+                    self.joined = None;
                 }
                 return err;
             }

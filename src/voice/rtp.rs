@@ -63,7 +63,29 @@ impl Cipher {
             }
             plain.drain(..words * 4);
         }
+        // padding (bandwidth probes mostly): the last byte says how much to drop
+        if pkt[0] & 0x20 != 0 {
+            let pad = *plain.last()? as usize;
+            plain.truncate(plain.len().checked_sub(pad)?);
+        }
         Some(plain)
+    }
+}
+
+/// RTCP keeps its first 8 bytes (header + sender ssrc) in the clear.
+impl Cipher {
+    pub fn open_rtcp(&self, pkt: &[u8]) -> Option<Vec<u8>> {
+        if pkt.len() < 8 + 16 + 4 {
+            return None;
+        }
+        let mut n = [0u8; 24];
+        n[..4].copy_from_slice(&pkt[pkt.len() - 4..]);
+        let p = Payload { msg: &pkt[8..pkt.len() - 4], aad: &pkt[..8] };
+        match self {
+            Cipher::Aes(c) => c.decrypt(n[..12].into(), p),
+            Cipher::Xcha(c) => c.decrypt(&n.into(), p),
+        }
+        .ok()
     }
 }
 

@@ -305,7 +305,8 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         if voice.is_speaking(u) {
             super::call::ring(ui, av);
         }
-        text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), CHANNEL_DEFAULT, row.right() - av.right() - 16.0);
+        let used = super::call::badges(ui, voice, u, row);
+        text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), CHANNEL_DEFAULT, row.right() - av.right() - 16.0 - used);
     }
 }
 
