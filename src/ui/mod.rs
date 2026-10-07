@@ -1,3 +1,4 @@
+mod call;
 mod chat;
 mod composer;
 mod e2e;
@@ -86,6 +87,7 @@ pub struct App {
     pub reply_ping: bool,
     pub gifs: Option<popups::Gifs>,
     title_count: Option<u32>,
+    pub voice: crate::voice::VoiceUi,
     e2e: Option<e2e::Run>,
     win: Option<[f32; 2]>,
     frames: u64,
@@ -149,6 +151,7 @@ impl App {
             dm_filter: String::new(),
             focus_composer: true,
             rects: HashMap::new(),
+            voice: Default::default(),
             e2e: e2e::Run::from_env(t0),
             win: None,
             settings: cache::settings(),
@@ -568,6 +571,7 @@ impl App {
     }
 
     pub fn logout(&mut self) {
+        self.voice.leave(&self.net);
         self.net.send(Cmd::Stop);
         cache::set_token(None);
         self.token = None;
@@ -591,6 +595,7 @@ impl App {
                         }
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
                     }
+                    self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     self.store.apply(&t, &d);
                     if t == "READY" {
                         // cached channel lists can be stale, refetch whatever is open
@@ -643,6 +648,11 @@ impl App {
                 }
                 Ev::Error(e) | Ev::Toast(e) => self.toast(e),
                 Ev::Rest { tag, res } => self.on_rest(tag, res),
+                Ev::Voice(e) => {
+                    if let Some(err) = self.voice.event(e) {
+                        self.toast(format!("Voice disconnected: {err}"));
+                    }
+                }
             }
         }
     }

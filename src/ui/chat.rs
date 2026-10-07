@@ -111,7 +111,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         return;
     };
     let chan = app.store.channels[&ch].clone();
+    if chan.is_voice() {
+        return super::call::room(app, ui, &chan);
+    }
     header(app, ui, &chan);
+    if chan.guild == 0 {
+        super::call::dm_strip(app, ui, &chan);
+    }
     if app.search.is_some() {
         egui::Panel::right("search")
             .exact_size(420.0)
@@ -243,6 +249,9 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     if chan.guild != 0 && matches!(chan.kind, 0 | 5) {
                         let t = icon_button(ui, Icon::Thread, 28.0, "Threads");
                         super::popups::threads_menu(app, &t, chan.id);
+                    }
+                    if chan.guild == 0 {
+                        super::call::call_button(app, ui, chan.id);
                     }
                 });
             });
