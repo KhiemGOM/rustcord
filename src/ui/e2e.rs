@@ -244,6 +244,127 @@ impl Run {
             }
             11 => {
                 self.shot(ctx, "dms.png");
+                let Some(r) = app.rects.get("friends").copied() else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            12 => {
+                self.shot(ctx, "friends.png");
+                let k = |pressed| Event::Key { key: Key::K, physical_key: None, pressed, repeat: false, modifiers: Modifiers::COMMAND };
+                self.queue.push_back(vec![k(true)]);
+                self.queue.push_back(vec![k(false)]);
+                self.queue.push_back(vec![]);
+                self.queue.push_back(vec![Event::Text("help".into())]);
+                self.queue.push_back(vec![]);
+                self.key(Key::Enter);
+                self.next(0);
+            }
+            13 => {
+                let help = app.store.guilds.get(&self.target.0).and_then(|g| {
+                    g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "help"))
+                });
+                if help.is_some() && app.cur() == help {
+                    self.mark("switcher");
+                    self.next(300);
+                }
+            }
+            14 => {
+                let g = self.target.0;
+                let forum = app.store.channels.values().find(|c| c.guild == g && c.is_forum()).map(|c| c.id);
+                let Some(r) = forum.and_then(|f| app.rects.get(&format!("chan:{f}")).copied()) else {
+                    return self.fail("no forum channel in the sidebar".into());
+                };
+                self.click(r.center());
+                self.next(0);
+            }
+            15 => {
+                let Some(f) = app.cur() else { return };
+                if app.store.forum_posts.get(&f).is_some_and(|p| !p.is_empty()) {
+                    self.mark("forum");
+                    self.next(1200);
+                }
+            }
+            16 => {
+                self.shot(ctx, "forum.png");
+                let g = self.target.0;
+                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined).map(|c| c.id);
+                let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
+                    return self.fail("no joined thread in the sidebar".into());
+                };
+                self.click(r.center());
+                self.next(300);
+            }
+            17 => {
+                let Some(t) = app.cur() else { return };
+                let (n, ready) = msgs(app, t);
+                if app.store.channels.get(&t).is_some_and(|c| c.is_thread()) && ready && n > 0 {
+                    self.mark("thread");
+                    self.next(1000);
+                }
+            }
+            18 => {
+                self.shot(ctx, "thread.png");
+                let me = app.store.me;
+                let other = app.store.guilds.get(&self.target.0).and_then(|g| {
+                    g.list.iter().find_map(|i| match i {
+                        crate::state::ListItem::Member(u) if *u != me => Some(*u),
+                        _ => None,
+                    })
+                });
+                let Some(r) = other.and_then(|u| app.rects.get(&format!("member:{u}")).copied()) else { return };
+                self.loaded = other.unwrap_or(0) as usize;
+                self.click(r.center());
+                self.next(0);
+            }
+            19 => {
+                if app.profiles.contains_key(&(self.loaded as Id)) {
+                    self.mark("profile");
+                    self.next(800);
+                }
+            }
+            20 => {
+                self.shot(ctx, "profile.png");
+                self.key(Key::Escape);
+                let Some(r) = app.rects.get("search").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("coffee".into())]);
+                self.key(Key::Enter);
+                self.next(0);
+            }
+            21 => {
+                if app.search.as_ref().is_some_and(|s| s.results.is_some()) {
+                    self.mark("search");
+                    self.next(800);
+                }
+            }
+            22 => {
+                self.shot(ctx, "search.png");
+                let Some(r) = app.rects.get("pins_button").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            23 => {
+                if app.pins.as_ref().is_some_and(|(_, l)| l.is_some()) {
+                    self.mark("pins");
+                    self.next(800);
+                }
+            }
+            24 => {
+                self.shot(ctx, "pins.png");
+                self.key(Key::Escape);
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            25 => {
+                if app.settings_page.is_some() {
+                    self.mark("settings");
+                    self.shot(ctx, "settings.png");
+                    self.next(300);
+                }
+            }
+            26 => {
+                self.key(Key::Escape);
                 self.step = 99;
             }
             _ => {

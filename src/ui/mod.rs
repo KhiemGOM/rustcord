@@ -1,9 +1,13 @@
 mod chat;
 mod e2e;
+mod forum;
+mod friends;
 mod login;
 mod members;
 mod picker;
+mod popups;
 mod rail;
+mod settings;
 mod side;
 
 use egui::{Color32, CornerRadius, Frame, Image, Pos2, Rect, Sense, Ui, pos2, vec2};
@@ -13,9 +17,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use crate::cache::{self, UiState};
-use crate::net::{Cmd, Conn, Ev, Net};
-use crate::state::{Id, ReactEmoji, Status, Store};
+use crate::cache::{self, Settings, UiState};
+use crate::net::{Cmd, Conn, Ev, Net, Tag};
+use crate::state::{Id, Message, ReactEmoji, Status, Store};
 use crate::theme::*;
 
 pub enum Pick {
@@ -50,6 +54,19 @@ pub struct App {
     pub dm_filter: String,
     pub focus_composer: bool,
     pub rects: HashMap<String, Rect>,
+    pub settings: Settings,
+    pub settings_page: Option<settings::Page>,
+    pub invite: Option<String>,
+    pub switcher: Option<String>,
+    pub profile: Option<(Id, Id, Pos2)>,
+    pub profiles: HashMap<Id, serde_json::Value>,
+    pub pins: Option<(Id, Option<Vec<Message>>)>,
+    pub search: Option<popups::Search>,
+    pub friends: bool,
+    pub friends_tab: u8,
+    pub add_friend: String,
+    pub post: Option<(String, String)>,
+    title_count: Option<u32>,
     e2e: Option<e2e::Run>,
     win: Option<[f32; 2]>,
     frames: u64,
@@ -107,9 +124,24 @@ impl App {
             rects: HashMap::new(),
             e2e: e2e::Run::from_env(t0),
             win: None,
+            settings: cache::settings(),
+            settings_page: None,
+            invite: None,
+            switcher: None,
+            profile: None,
+            profiles: HashMap::new(),
+            pins: None,
+            search: None,
+            friends: false,
+            friends_tab: 0,
+            add_friend: String::new(),
+            post: None,
+            title_count: None,
             frames: 0,
             save_at: None,
         };
+        ctx.set_zoom_factor(app.settings.zoom);
+        crate::markdown::CLOCK24.store(app.settings.clock24, std::sync::atomic::Ordering::Relaxed);
         if let Some(ch) = app.cur() {
             app.open(ch);
         }
@@ -138,11 +170,17 @@ impl App {
     pub fn open(&mut self, ch: Id) {
         let Some(c) = self.store.channels.get(&ch) else { return };
         let guild = c.guild;
+        let forum = c.is_forum();
+        // member list subscriptions are per parent channel, threads borrow it
+        let sub = if c.is_thread() { c.parent } else { ch };
         if self.cur() != Some(ch) {
             self.reply = None;
             self.editing = None;
             self.files.clear();
+            self.pins = None;
+            self.post = None;
         }
+        self.friends = false;
         self.ui.chan.insert(guild, ch);
         self.ui.recent.retain(|x| *x != ch);
         self.ui.recent.insert(0, ch);
@@ -150,14 +188,19 @@ impl App {
         self.focus_composer = true;
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
-        let e = self.store.msgs.entry(ch).or_default();
-        if !e.fresh && !e.loading {
-            e.loading = true;
-            self.net.send(Cmd::Messages { channel: ch, before: None });
+        if forum {
+            let path = format!("/channels/{ch}/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
+            self.rest("GET", path, None, Tag::Forum(ch));
+        } else {
+            let e = self.store.msgs.entry(ch).or_default();
+            if !e.fresh && !e.loading {
+                e.loading = true;
+                self.net.send(Cmd::Messages { channel: ch, before: None });
+            }
         }
         if guild != 0 {
             let mut chans = serde_json::Map::new();
-            chans.insert(ch.to_string(), json!([[0, 99]]));
+            chans.insert(sub.to_string(), json!([[0, 99]]));
             self.net.send(Cmd::Gateway(json!({
                 "op": 37,
                 "d": { "subscriptions": { guild.to_string(): {
@@ -207,6 +250,162 @@ impl App {
         self.store.react_local(ch, msg, em, add);
     }
 
+    pub fn rest(&self, method: &'static str, path: String, body: Option<serde_json::Value>, tag: Tag) {
+        self.net.send(Cmd::Rest { method, path, body, tag });
+    }
+
+    pub fn mark_read(&mut self, chans: &[Id]) {
+        let mut states = Vec::new();
+        for ch in chans {
+            let Some(last) = self.store.channels.get(ch).map(|c| c.last_msg).filter(|l| *l != 0) else { continue };
+            let r = self.store.reads.entry(*ch).or_default();
+            if r.last_acked < last || r.mentions > 0 {
+                r.last_acked = last;
+                r.mentions = 0;
+                states.push(json!({ "channel_id": ch.to_string(), "message_id": last.to_string(), "read_state_type": 0 }));
+            }
+        }
+        if !states.is_empty() {
+            self.rest("POST", "/read-states/ack-bulk".into(), Some(json!({ "read_states": states })), Tag::Quiet);
+        }
+    }
+
+    pub fn set_muted(&mut self, id: Id, guild: bool, muted: bool) {
+        if muted {
+            self.store.muted.insert(id);
+        } else {
+            self.store.muted.remove(&id);
+        }
+        if guild {
+            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted })), Tag::Quiet);
+        } else {
+            let g = self.store.channels.get(&id).map(|c| c.guild).unwrap_or(0);
+            let path = if g == 0 { "@me".to_string() } else { g.to_string() };
+            let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted } } });
+            self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
+        }
+    }
+
+    pub fn set_status(&mut self, s: &str) {
+        self.store.presence.insert(self.store.me, Status::parse(s));
+        self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": s, "since": 0, "activities": [], "afk": false } })));
+    }
+
+    pub fn save_settings(&self, ctx: &egui::Context) {
+        ctx.set_zoom_factor(self.settings.zoom);
+        crate::markdown::CLOCK24.store(self.settings.clock24, std::sync::atomic::Ordering::Relaxed);
+        cache::set_settings(&self.settings);
+    }
+
+    fn notify(&mut self, d: &serde_json::Value, ctx: &egui::Context) {
+        let m = self.store.parse_message(d);
+        if m.author == self.store.me || !self.settings.notify {
+            return;
+        }
+        let Some(c) = self.store.channels.get(&m.channel) else { return };
+        if self.store.muted.contains(&c.id) || self.store.muted.contains(&c.guild) {
+            return;
+        }
+        let dm = c.guild == 0;
+        if !(self.store.mentions_me(&m) || (dm && self.settings.notify_all_dms)) {
+            return;
+        }
+        let focused = ctx.input(|i| i.focused);
+        if focused && self.cur() == Some(c.id) {
+            return;
+        }
+        let who = self.store.name_in(c.guild, m.author);
+        let title = match self.store.guilds.get(&c.guild) {
+            Some(g) => format!("{who} (#{}, {})", c.name, g.name),
+            None if c.kind == 3 => format!("{who} ({})", channel_title(&self.store, c.id)),
+            None => who,
+        };
+        let mut body: String = m.content.chars().take(200).collect();
+        if body.is_empty() && !m.attachments.is_empty() {
+            body = "Uploaded a file".into();
+        }
+        if let Some(e) = &mut self.e2e {
+            e.mark_once("notified");
+        } else {
+            std::thread::spawn(move || {
+                let _ = notify_rust::Notification::new().appname("Fastcord").summary(&title).body(&body).show();
+            });
+        }
+        if !focused && self.settings.flash {
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
+    }
+
+    fn update_title(&mut self, ctx: &egui::Context) {
+        let mut n: u32 = self
+            .store
+            .reads
+            .iter()
+            .filter(|(ch, _)| {
+                self.store.channels.get(ch).is_some_and(|c| !self.store.muted.contains(&c.id) && !self.store.muted.contains(&c.guild))
+            })
+            .map(|(_, r)| r.mentions)
+            .sum();
+        n += self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
+        if self.title_count != Some(n) {
+            self.title_count = Some(n);
+            let t = if n > 0 { format!("({n}) Fastcord") } else { "Fastcord".into() };
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(t));
+        }
+    }
+
+    fn on_rest(&mut self, tag: Tag, res: Result<serde_json::Value, String>) {
+        let v = match res {
+            Ok(v) => v,
+            Err(e) => {
+                if let Tag::Pins(_) = tag {
+                    self.pins = None;
+                }
+                return self.toast(e);
+            }
+        };
+        match tag {
+            Tag::Pins(ch) => {
+                let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
+                if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
+                    self.pins = Some((ch, Some(list)));
+                }
+            }
+            Tag::Search(_) => {
+                let list: Vec<Message> = v["messages"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|group| group.as_array().and_then(|g| g.first()))
+                    .map(|m| self.store.parse_message(m))
+                    .collect();
+                if let Some(s) = &mut self.search {
+                    s.total = v["total_results"].as_u64().unwrap_or(list.len() as u64);
+                    s.results = Some(list);
+                }
+            }
+            Tag::Profile(u) => {
+                if v["user"].is_object() {
+                    self.store.apply("USER_UPDATE", &v["user"]);
+                }
+                self.profiles.insert(u, v);
+            }
+            Tag::Forum(f) => self.store.load_forum(f, &v),
+            Tag::Invite => {
+                let name = v["guild"]["name"].as_str().unwrap_or("the server").to_string();
+                self.toast(format!("Joined {name}"));
+            }
+            Tag::OpenDm => {
+                self.store.apply("CHANNEL_CREATE", &v);
+                let id = crate::state::sid(&v["id"]);
+                self.ui.guild = None;
+                self.open(id);
+            }
+            Tag::Friend => self.toast("Friend request sent."),
+            Tag::Quiet => {}
+        }
+    }
+
     pub fn toast(&mut self, s: impl Into<String>) {
         self.toast = Some((s.into(), Instant::now()));
     }
@@ -219,10 +418,13 @@ impl App {
         self.ui = UiState::default();
     }
 
-    fn pump(&mut self) {
+    fn pump(&mut self, ctx: &egui::Context) {
         while let Ok(ev) = self.rx.try_recv() {
             match ev {
                 Ev::Dispatch(t, d) => {
+                    if t == "MESSAGE_CREATE" {
+                        self.notify(&d, ctx);
+                    }
                     if t == "READY" {
                         if let Some(e) = &mut self.e2e {
                             e.mark("ready");
@@ -280,6 +482,7 @@ impl App {
                     self.login.err = Some(e);
                 }
                 Ev::Error(e) => self.toast(e),
+                Ev::Rest { tag, res } => self.on_rest(tag, res),
             }
         }
     }
@@ -351,6 +554,7 @@ impl App {
         }
         picker::show(self, &ctx);
         chat::context_menu(self, &ctx);
+        popups::show(self, &ctx);
     }
 }
 
@@ -358,7 +562,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
-        self.pump();
+        self.pump(&ctx);
         if self.frames == 0
             && let Some(e) = &mut self.e2e
         {
@@ -370,6 +574,8 @@ impl eframe::App for App {
 
         if self.token.is_none() {
             login::show(self, ui);
+        } else if self.settings_page.is_some() {
+            settings::show(self, ui);
         } else {
             let w = ctx.content_rect().width();
             if (w - self.heights_w).abs() > 0.5 {
@@ -393,6 +599,10 @@ impl eframe::App for App {
                 .show(ui, |ui| chat::show(self, ui));
             self.overlays(ui);
             self.ack_current(&ctx);
+            self.update_title(&ctx);
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
+                self.switcher = Some(String::new());
+            }
             if self.store.prune_typing() {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }

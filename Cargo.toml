@@ -13,6 +13,7 @@ egui_extras = { version = "0.36.2", default-features = false, features = ["image
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+notify-rust = "4.18.1"
 open = "5.4.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "multipart", "gzip", "http2"] }
 rfd = "0.17.2"

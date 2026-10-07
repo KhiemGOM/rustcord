@@ -120,6 +120,25 @@ pub struct Channel {
     pub last_msg: Id,
     pub recipients: Vec<Id>,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub owner: Id,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub joined: bool,
+    #[serde(default)]
+    pub msg_count: u32,
+    #[serde(default)]
+    pub tags: Vec<Tag>,
+    #[serde(default)]
+    pub applied: Vec<Id>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct Tag {
+    pub id: Id,
+    pub name: String,
+    pub emoji: Option<String>,
 }
 
 impl Channel {
@@ -149,11 +168,30 @@ impl Channel {
             last_msg: sid(&v["last_message_id"]),
             recipients: Vec::new(),
             icon: ost(&v["icon"]),
+            owner: sid(&v["owner_id"]),
+            archived: v["thread_metadata"]["archived"].as_bool().unwrap_or(false),
+            joined: v["member"].is_object(),
+            msg_count: v["message_count"].as_u64().unwrap_or(0) as u32,
+            tags: v["available_tags"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|t| Tag { id: sid(&t["id"]), name: st(&t["name"]), emoji: ost(&t["emoji_name"]) })
+                .collect(),
+            applied: ids(&v["applied_tags"]),
         }
     }
 
     pub fn is_text(&self) -> bool {
-        matches!(self.kind, 0 | 5 | 1 | 3)
+        matches!(self.kind, 0 | 5 | 1 | 3 | 10 | 11 | 12)
+    }
+
+    pub fn is_thread(&self) -> bool {
+        matches!(self.kind, 10..=12)
+    }
+
+    pub fn is_forum(&self) -> bool {
+        matches!(self.kind, 15 | 16)
     }
 
     pub fn is_voice(&self) -> bool {
@@ -366,6 +404,10 @@ pub struct Message {
     pub mention_roles: Vec<Id>,
     pub mention_everyone: bool,
     pub nonce: Option<String>,
+    #[serde(default)]
+    pub thread: Option<Id>,
+    #[serde(default)]
+    pub pinned: bool,
     #[serde(skip)]
     pub pending: bool,
     #[serde(skip)]
@@ -426,6 +468,12 @@ impl Message {
         if let Some(b) = v["mention_everyone"].as_bool() {
             self.mention_everyone = b;
         }
+        if let Some(b) = v["pinned"].as_bool() {
+            self.pinned = b;
+        }
+        if v["thread"].is_object() {
+            self.thread = Some(sid(&v["thread"]["id"]));
+        }
     }
 }
 
@@ -445,6 +493,20 @@ pub struct Msgs {
     pub fresh: bool,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct Folder {
+    pub id: Id,
+    pub name: Option<String>,
+    pub color: Option<u32>,
+    pub guilds: Vec<Id>,
+}
+
+// relationship types as discord numbers them
+pub const FRIEND: u8 = 1;
+pub const BLOCKED: u8 = 2;
+pub const INCOMING: u8 = 3;
+pub const OUTGOING: u8 = 4;
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,
@@ -456,6 +518,14 @@ pub struct Store {
     pub reads: HashMap<Id, ReadState>,
     pub members: HashMap<Id, HashMap<Id, Member>>,
     pub muted: HashSet<Id>,
+    #[serde(default)]
+    pub folders: Vec<Folder>,
+    #[serde(default)]
+    pub relationships: HashMap<Id, u8>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(skip)]
+    pub forum_posts: HashMap<Id, Vec<Id>>,
     #[serde(skip)]
     pub msgs: HashMap<Id, Msgs>,
     #[serde(skip)]
@@ -497,6 +567,11 @@ impl Store {
     }
 
     pub fn can_view(&self, c: &Channel) -> bool {
+        if c.is_thread()
+            && let Some(p) = self.channels.get(&c.parent)
+        {
+            return self.can_view(p);
+        }
         let Some(g) = self.guilds.get(&c.guild) else {
             return true;
         };
@@ -531,7 +606,7 @@ impl Store {
     }
 
     pub fn unread(&self, c: &Channel) -> bool {
-        if c.last_msg == 0 || self.muted.contains(&c.id) {
+        if c.last_msg == 0 || self.muted.contains(&c.id) || (c.is_thread() && !c.joined) {
             return false;
         }
         match self.reads.get(&c.id) {
@@ -634,6 +709,9 @@ impl Store {
                 self.put_channel(Channel::parse(c, id));
             }
         }
+        for t in v["threads"].as_array().into_iter().flatten() {
+            self.put_channel(Channel::parse(t, id));
+        }
         for m in v["members"].as_array().into_iter().flatten() {
             let uid = sid(&m["user"]["id"]);
             if !m["user"].is_null() {
@@ -719,9 +797,39 @@ impl Store {
             }
         }
 
+        self.email = ost(&d["user"]["email"]);
+        self.relationships.clear();
+        for r in d["relationships"].as_array().into_iter().flatten() {
+            let uid = sid(&r["id"]);
+            if r["user"].is_object() {
+                self.upsert_user(&r["user"]);
+            }
+            self.relationships.insert(uid, r["type"].as_u64().unwrap_or(0) as u8);
+        }
+
+        let mut folders: Vec<Folder> = Vec::new();
+        if let Some(b64) = d["user_settings_proto"].as_str() {
+            use base64::Engine;
+            if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(b64) {
+                folders = crate::proto::guild_folders(&raw);
+            }
+        }
+        if folders.is_empty() {
+            folders = d["user_settings"]["guild_folders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|f| Folder {
+                    id: sid(&f["id"]),
+                    name: ost(&f["name"]),
+                    color: f["color"].as_u64().map(|c| c as u32),
+                    guilds: ids(&f["guild_ids"]),
+                })
+                .collect();
+        }
         let mut order = Vec::new();
-        for f in d["user_settings"]["guild_folders"].as_array().into_iter().flatten() {
-            order.extend(ids(&f["guild_ids"]));
+        for f in &folders {
+            order.extend(f.guilds.iter().copied());
         }
         for g in &seen {
             if !order.contains(g) {
@@ -729,6 +837,18 @@ impl Store {
             }
         }
         order.retain(|g| self.guilds.contains_key(g));
+        // guilds missing from the folder list sit on top, like the official client
+        let mut lone: Vec<Folder> = order
+            .iter()
+            .filter(|g| !folders.iter().any(|f| f.guilds.contains(g)))
+            .map(|g| Folder { guilds: vec![*g], ..Default::default() })
+            .collect();
+        for f in &mut folders {
+            f.guilds.retain(|g| self.guilds.contains_key(g));
+        }
+        folders.retain(|f| !f.guilds.is_empty());
+        lone.append(&mut folders);
+        self.folders = lone;
         self.guild_order = order;
     }
 
@@ -775,6 +895,9 @@ impl Store {
             ..Default::default()
         };
         m.fill(v);
+        if v["thread"].is_object() {
+            self.put_channel(Channel::parse(&v["thread"], guild));
+        }
         if v["referenced_message"].is_object() {
             let r = self.parse_message(&v["referenced_message"]);
             m.reply = Some(r.id);
@@ -1016,6 +1139,72 @@ impl Store {
                 }
             }
             "GUILD_MEMBER_LIST_UPDATE" => self.member_list(d),
+            "THREAD_CREATE" | "THREAD_UPDATE" => {
+                let mut c = Channel::parse(d, 0);
+                if let Some(old) = self.channels.get(&c.id) {
+                    // updates only carry `member` when membership changed
+                    if d.get("member").is_none() {
+                        c.joined = old.joined;
+                    }
+                    c.last_msg = c.last_msg.max(old.last_msg);
+                }
+                if d["newly_created"].as_bool() == Some(true) && c.owner == self.me {
+                    c.joined = true;
+                }
+                if let Some(posts) = self.forum_posts.get_mut(&c.parent)
+                    && !posts.contains(&c.id)
+                {
+                    posts.insert(0, c.id);
+                }
+                self.put_channel(c);
+            }
+            "THREAD_DELETE" => {
+                let id = sid(&d["id"]);
+                if let Some(c) = self.channels.remove(&id)
+                    && let Some(g) = self.guilds.get_mut(&c.guild)
+                {
+                    g.channels.retain(|x| *x != id);
+                }
+            }
+            "THREAD_LIST_SYNC" => {
+                let gid = sid(&d["guild_id"]);
+                let mine: Vec<Id> = d["members"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|m| sid(&m["user_id"]) == self.me)
+                    .map(|m| sid(&m["id"]))
+                    .collect();
+                for t in d["threads"].as_array().into_iter().flatten() {
+                    let mut c = Channel::parse(t, gid);
+                    c.joined = mine.contains(&c.id) || self.channels.get(&c.id).is_some_and(|o| o.joined);
+                    self.put_channel(c);
+                }
+            }
+            "THREAD_MEMBER_UPDATE" => {
+                if sid(&d["user_id"]) == self.me
+                    && let Some(c) = self.channels.get_mut(&sid(&d["id"]))
+                {
+                    c.joined = true;
+                }
+            }
+            "THREAD_MEMBERS_UPDATE" => {
+                if ids(&d["removed_member_ids"]).contains(&self.me)
+                    && let Some(c) = self.channels.get_mut(&sid(&d["id"]))
+                {
+                    c.joined = false;
+                }
+            }
+            "RELATIONSHIP_ADD" | "RELATIONSHIP_UPDATE" => {
+                let uid = sid(&d["id"]);
+                if d["user"].is_object() {
+                    self.upsert_user(&d["user"]);
+                }
+                self.relationships.insert(uid, d["type"].as_u64().unwrap_or(0) as u8);
+            }
+            "RELATIONSHIP_REMOVE" => {
+                self.relationships.remove(&sid(&d["id"]));
+            }
             "GUILD_MEMBERS_CHUNK" => {
                 let gid = sid(&d["guild_id"]);
                 for m in d["members"].as_array().into_iter().flatten() {
@@ -1131,6 +1320,32 @@ impl Store {
             g.member_count = n as u32;
         }
         g.list = list;
+    }
+
+    /// Result of /channels/{forum}/threads/search: posts plus their opening messages.
+    pub fn load_forum(&mut self, forum: Id, v: &Value) {
+        let guild = self.channels.get(&forum).map(|c| c.guild).unwrap_or(0);
+        let mine: Vec<Id> = v["members"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|m| sid(&m["user_id"]) == self.me)
+            .map(|m| sid(&m["id"]))
+            .collect();
+        let mut posts = Vec::new();
+        for t in v["threads"].as_array().into_iter().flatten() {
+            let mut c = Channel::parse(t, guild);
+            c.joined |= mine.contains(&c.id);
+            posts.push(c.id);
+            self.put_channel(c);
+        }
+        for m in v["first_messages"].as_array().into_iter().flatten() {
+            let m = self.parse_message(m);
+            self.refs.insert(m.id, m);
+        }
+        let chans = &self.channels;
+        posts.sort_by_key(|p| std::cmp::Reverse(chans.get(p).map(|c| c.last_msg.max(c.id)).unwrap_or(0)));
+        self.forum_posts.insert(forum, posts);
     }
 
     pub fn react_local(&mut self, channel: Id, id: Id, em: ReactEmoji, add: bool) {

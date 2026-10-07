@@ -25,6 +25,7 @@ enum Act {
     Reveal(Id),
     SaveEdit(Id, String),
     CancelEdit,
+    Profile(Id, Pos2),
 }
 
 struct D<'a> {
@@ -38,6 +39,7 @@ struct D<'a> {
     hover_lock: Option<Id>,
     bar: Option<(Id, Rect)>,
     acts: Vec<Act>,
+    embeds: bool,
 }
 
 fn normal(kind: u8) -> bool {
@@ -80,17 +82,20 @@ pub fn estimate(m: &Message) -> f32 {
 fn stamp(ts: i64) -> String {
     let Some(d) = Local.timestamp_millis_opt(ts).single() else { return String::new() };
     let now = Local::now();
-    let time = d.format("%-I:%M %p");
+    let time = d.format(markdown::hm());
     if d.date_naive() == now.date_naive() {
         format!("Today at {time}")
     } else if d.date_naive().succ_opt() == Some(now.date_naive()) {
         format!("Yesterday at {time}")
     } else {
-        d.format("%m/%d/%Y %-I:%M %p").to_string()
+        format!("{} {}", d.format("%m/%d/%Y"), d.format(markdown::hm()))
     }
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
+    if app.ui.guild.is_none() && app.friends {
+        return super::friends::show(app, ui);
+    }
     let Some(ch) = app.cur() else {
         ui.centered_and_justified(|ui| {
             ui.label(RichText::new("No text channels here yet.").color(TEXT_MUTED));
@@ -99,13 +104,24 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     };
     let chan = app.store.channels[&ch].clone();
     header(app, ui, &chan);
-    if chan.guild != 0 && !app.ui.hide_members {
+    if app.search.is_some() {
+        egui::Panel::right("search")
+            .exact_size(420.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(BG_SECONDARY))
+            .show(ui, |ui| super::popups::search_panel(app, ui));
+    } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() {
         egui::Panel::right("members")
             .exact_size(240.0)
             .resizable(false)
             .show_separator_line(false)
             .frame(Frame::new().fill(BG_SECONDARY))
             .show(ui, |ui| super::members::show(app, ui, chan.guild));
+    }
+    if chan.is_forum() {
+        egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| super::forum::show(app, ui, &chan));
+        return;
     }
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::Panel::bottom("composer")
@@ -141,15 +157,31 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     5 => {
                         ui.label(RichText::new("📢").font(reg(18.0)).color(CHANNEL_DEFAULT));
                     }
+                    15 | 16 => {
+                        ui.label(RichText::new("💬").font(reg(18.0)).color(CHANNEL_DEFAULT));
+                    }
+                    10..=12 => {
+                        let parent = app.store.channels.get(&chan.parent).cloned();
+                        if let Some(p) = parent {
+                            ui.label(RichText::new("#").font(reg(26.0)).color(CHANNEL_DEFAULT));
+                            let r = ui.add(Label::new(RichText::new(&p.name).font(semi(16.0)).color(HEADER_SECONDARY)).sense(Sense::click()));
+                            if r.clicked() {
+                                app.open(p.id);
+                            }
+                            ui.label(RichText::new("›").font(reg(18.0)).color(CHANNEL_DEFAULT));
+                        }
+                        ui.label(RichText::new("🧵").font(reg(16.0)).color(CHANNEL_DEFAULT));
+                    }
                     _ => {
                         ui.label(RichText::new("#").font(reg(26.0)).color(CHANNEL_DEFAULT));
                     }
                 }
                 ui.add(Label::new(RichText::new(title).font(semi(16.0)).color(HEADER_PRIMARY)).selectable(false));
+                let tools = if chan.guild != 0 { 330.0 } else { 220.0 };
                 if let Some(topic) = &chan.topic {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
                     ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, BG_ACCENT));
-                    let w = (ui.available_width() - 60.0).max(0.0);
+                    let w = (ui.available_width() - tools).max(0.0);
                     ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
                         ui.add(
                             Label::new(RichText::new(topic.replace('\n', " ")).font(reg(14.0)).color(HEADER_SECONDARY))
@@ -158,14 +190,56 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         );
                     });
                 }
-                if chan.guild != 0 {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let qid = egui::Id::new("search_q");
+                    let mut q: String = ui.data(|d| d.get_temp(qid).unwrap_or_default());
+                    let sw = if app.search.is_some() { 240.0 } else { 144.0 };
+                    let r = ui
+                        .allocate_ui_with_layout(vec2(sw, 24.0), Layout::left_to_right(Align::Center), |ui| {
+                            Frame::new()
+                                .fill(BG_TERTIARY)
+                                .corner_radius(4)
+                                .inner_margin(Margin::symmetric(6, 3))
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut q)
+                                            .frame(Frame::NONE)
+                                            .font(reg(14.0))
+                                            .hint_text(RichText::new("Search").color(TEXT_MUTED))
+                                            .desired_width(sw - 12.0),
+                                    )
+                                })
+                                .inner
+                        })
+                        .inner;
+                    app.rects.insert("search".into(), r.rect);
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
+                        app.start_search(chan.id, q.trim().to_string());
+                    }
+                    ui.data_mut(|d| d.insert_temp(qid, q));
+                    ui.add_space(8.0);
+                    if chan.guild != 0 && !chan.is_forum() {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
                         if icon_button(ui, "👥", 28.0, tip).clicked() {
                             app.ui.hide_members = !app.ui.hide_members;
+                            app.search = None;
                         }
-                    });
-                }
+                    }
+                    if !chan.is_forum() {
+                        let pins = icon_button(ui, "📌", 28.0, "Pinned Messages");
+                        app.rects.insert("pins_button".into(), pins.rect);
+                        if pins.clicked() {
+                            match app.pins {
+                                Some(_) => app.pins = None,
+                                None => app.open_pins(chan.id),
+                            }
+                        }
+                    }
+                    if chan.guild != 0 && matches!(chan.kind, 0 | 5) {
+                        let t = icon_button(ui, "🧵", 28.0, "Threads");
+                        super::popups::threads_menu(app, &t, chan.id);
+                    }
+                });
             });
         });
 }
@@ -195,6 +269,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         hover_lock,
         bar: None,
         acts: Vec::new(),
+        embeds: app.settings.embeds,
     };
     let heights = &mut app.heights;
     let empty = Vec::new();
@@ -307,6 +382,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.editing = None;
                 app.focus_composer = true;
             }
+            Act::Profile(u, at) => app.open_profile(u, chan.guild, at),
         }
     }
 }
@@ -401,7 +477,13 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             let name = d.store.name_in(d.guild, m.author);
             let color = d.store.role_color(d.guild, m.author).map(role_color).unwrap_or(HEADER_PRIMARY);
             cui.horizontal(|ui| {
-                ui.add(Label::new(RichText::new(name).font(semi(16.0)).color(color)).selectable(false));
+                let r = ui.add(Label::new(RichText::new(name).font(semi(16.0)).color(color)).selectable(false).sense(Sense::click()));
+                if r.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if r.clicked() {
+                    d.acts.push(Act::Profile(m.author, r.rect.right_top() + vec2(8.0, 0.0)));
+                }
                 if d.store.user(m.author).is_some_and(|u| u.bot) {
                     tag(ui, "APP");
                 }
@@ -455,9 +537,32 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 media(&mut cui, &url, 160.0, 160.0).on_hover_text(name);
             }
         }
-        for e in &m.embeds {
+        let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
+        for e in embeds {
             cui.add_space(4.0);
             embed(&mut cui, d, e, m.id);
+        }
+        if let Some(t) = m.thread.and_then(|t| d.store.channels.get(&t)) {
+            cui.add_space(4.0);
+            let r = Frame::new()
+                .fill(BG_SECONDARY)
+                .corner_radius(4)
+                .inner_margin(Margin::symmetric(12, 8))
+                .show(&mut cui, |ui| {
+                    ui.set_max_width(400.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&t.name).font(semi(14.0)).color(HEADER_PRIMARY));
+                        ui.label(RichText::new(format!("{} Messages ›", t.msg_count)).font(semi(14.0)).color(LINK));
+                    });
+                })
+                .response
+                .interact(Sense::click());
+            if r.hovered() {
+                cui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if r.clicked() {
+                d.acts.push(Act::Channel(t.id));
+            }
         }
         if !m.reactions.is_empty() {
             cui.add_space(4.0);
@@ -489,10 +594,18 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
 
     if start && normal(m.kind) {
         if let Some(u) = d.store.user(m.author) {
-            avatar(ui, Rect::from_min_size(pos2(left + 16.0, head_top), vec2(40.0, 40.0)), &u.avatar_url());
+            let ar = Rect::from_min_size(pos2(left + 16.0, head_top), vec2(40.0, 40.0));
+            avatar(ui, ar, &u.avatar_url());
+            let r = ui.interact(ar, egui::Id::new(("avatar", m.id)), Sense::click());
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if r.clicked() {
+                d.acts.push(Act::Profile(m.author, ar.right_top() + vec2(8.0, 0.0)));
+            }
         }
     } else if hovered && normal(m.kind) {
-        let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format("%-I:%M %p").to_string()).unwrap_or_default();
+        let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format(markdown::hm()).to_string()).unwrap_or_default();
         ui.painter().text(pos2(left + 64.0, top + 13.0), Align2::RIGHT_CENTER, t, reg(11.0), TEXT_MUTED);
     }
 
@@ -606,7 +719,10 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                                 Link::Url(u) => d.acts.push(Act::Url(u.clone())),
                                 Link::Channel(c) => d.acts.push(Act::Channel(*c)),
                                 Link::Spoiler => d.acts.push(Act::Reveal(msg)),
-                                Link::User => {}
+                                Link::User(u) => {
+                                    let at = p + vec2(8.0, 0.0);
+                                    d.acts.push(Act::Profile(*u, at));
+                                }
                             }
                         }
                     }
@@ -1091,6 +1207,9 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     };
     let own = m.author == app.store.me;
     let content = m.content.clone();
+    let author = m.author;
+    let pinned = m.pinned;
+    let dev = app.settings.dev;
     let mut pick = None;
     let area = egui::Area::new(egui::Id::new("msg_menu"))
         .order(egui::Order::Foreground)
@@ -1119,11 +1238,23 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
                 if item(ui, "Reply", false) {
                     pick = Some(2);
                 }
+                if item(ui, if pinned { "Unpin Message" } else { "Pin Message" }, false) {
+                    pick = Some(6);
+                }
+                if item(ui, "Mark Unread", false) {
+                    pick = Some(7);
+                }
                 if item(ui, "Copy Text", false) {
                     pick = Some(3);
                 }
-                if item(ui, "Copy Message ID", false) {
+                if item(ui, "Copy Message Link", false) {
+                    pick = Some(8);
+                }
+                if dev && item(ui, "Copy Message ID", false) {
                     pick = Some(4);
+                }
+                if dev && item(ui, "Copy User ID", false) {
+                    pick = Some(9);
                 }
                 if own && item(ui, "Delete Message", true) {
                     pick = Some(5);
@@ -1141,9 +1272,83 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(3) => ctx.copy_text(content),
         Some(4) => ctx.copy_text(id.to_string()),
         Some(5) => app.confirm_delete = Some((ch, id)),
+        Some(6) => {
+            let method = if pinned { "DELETE" } else { "PUT" };
+            app.rest(method, format!("/channels/{ch}/pins/{id}"), None, crate::net::Tag::Quiet);
+            if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                m.pinned = !pinned;
+            }
+        }
+        Some(7) => {
+            // ack the message before this one so it shows as the first unread
+            let prev = app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
+            let r = app.store.reads.entry(ch).or_default();
+            r.last_acked = prev;
+            app.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(serde_json::json!({ "manual": true, "token": null })), crate::net::Tag::Quiet);
+            app.marker = Some((ch, prev));
+        }
+        Some(8) => {
+            let g = app.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0);
+            let g = g.map(|g| g.to_string()).unwrap_or_else(|| "@me".into());
+            ctx.copy_text(format!("https://discord.com/channels/{g}/{ch}/{id}"));
+        }
+        Some(9) => ctx.copy_text(author.to_string()),
         _ => {}
     }
     if pick.is_some() || clicked_out || ctx.input(|i| i.key_pressed(Key::Escape)) {
         app.menu = None;
     }
+}
+
+/// Compact read-only rendering used by pins and search results.
+pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
+    let ctx = ui.ctx().clone();
+    let guild = store.channels.get(&m.channel).map(|c| c.guild).unwrap_or(0);
+    let revealed = HashSet::new();
+    let mut editing = None;
+    let mut d = D {
+        store,
+        ctx: &ctx,
+        guild,
+        ch: m.channel,
+        revealed: &revealed,
+        editing: &mut editing,
+        marker: None,
+        hover_lock: None,
+        bar: None,
+        acts: Vec::new(),
+        embeds: false,
+    };
+    let r = Frame::new().fill(BG_PRIMARY).corner_radius(4).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal_top(|ui| {
+            let (av, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
+            if let Some(u) = store.user(m.author) {
+                avatar(ui, av, &u.avatar_url());
+            }
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    let color = store.role_color(guild, m.author).map(role_color).unwrap_or(HEADER_PRIMARY);
+                    ui.label(RichText::new(store.name_in(guild, m.author)).font(semi(16.0)).color(color));
+                    ui.label(RichText::new(stamp(m.ts())).font(reg(12.0)).color(TEXT_MUTED));
+                });
+                let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: TEXT_NORMAL, revealed: false, edited: m.edited };
+                let blocks = markdown::parse(&m.content, &cx);
+                blocks_ui(ui, &blocks, &mut d, m.id);
+                for a in &m.attachments {
+                    ui.label(RichText::new(format!("📎 {}", a.filename)).font(reg(14.0)).color(LINK));
+                }
+            });
+        });
+    });
+    for a in d.acts {
+        if let Act::Url(u) = a {
+            let _ = open::that_detached(u);
+        }
+    }
+    let resp = r.response.interact(Sense::click());
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
 }

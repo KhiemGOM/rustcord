@@ -6,6 +6,7 @@ mod gateway;
 mod imgcache;
 mod markdown;
 mod net;
+mod proto;
 mod state;
 mod theme;
 mod ui;

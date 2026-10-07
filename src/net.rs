@@ -28,6 +28,20 @@ pub enum Ev {
     NeedMfa(String),
     LoginError(String),
     Error(String),
+    Rest { tag: Tag, res: Result<Value, String> },
+}
+
+/// What a generic REST reply is for, so the UI knows where to put it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Tag {
+    Pins(Id),
+    Search(Id),
+    Profile(Id),
+    Forum(Id),
+    Invite,
+    OpenDm,
+    Friend,
+    Quiet,
 }
 
 pub enum Cmd {
@@ -43,6 +57,7 @@ pub enum Cmd {
     Ack { channel: Id, id: Id },
     Typing { channel: Id },
     Gateway(Value),
+    Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
 }
 
 #[derive(Clone)]
@@ -154,6 +169,17 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Ack { channel, id } => {
                 tokio::spawn(async move {
                     let _ = a.ack(channel, id).await;
+                });
+            }
+            Cmd::Rest { method, path, body, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+                    let res = a.call(m, &path, body).await;
+                    match (&tag, &res) {
+                        (Tag::Quiet, Ok(_)) => {}
+                        (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
+                        _ => tx.send(Ev::Rest { tag, res }),
+                    }
                 });
             }
             Cmd::Typing { channel } => {

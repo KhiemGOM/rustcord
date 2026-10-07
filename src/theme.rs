@@ -78,6 +78,8 @@ pub fn install(ctx: &egui::Context) {
     let bold = add("bold", "segoeuib.ttf");
     let sym = add("sym", "seguisym.ttf");
     let code = add("code", "consola.ttf");
+    // last resort for pictographs the ui fonts lack; egui draws its monochrome outlines
+    let emoji = add("emoji", "seguiemj.ttf");
 
     let defaults = f.families[&FontFamily::Proportional].clone();
     let chain = |first: Option<&str>| {
@@ -89,6 +91,9 @@ pub fn install(ctx: &egui::Context) {
             v.push("sym".into());
         }
         v.extend(defaults.iter().cloned());
+        if emoji {
+            v.push("emoji".into());
+        }
         v.dedup();
         v
     };

@@ -116,9 +116,48 @@ fn seed(cdn: &str) -> Vec<Value> {
             m["mentions"] = json!([user(ME)]);
             m["content"] = json!("<@100> you around? need a review");
         }
+        if i == n - 12 {
+            m["content"] = json!("let's plan the next release in a thread");
+            m["thread"] = thread();
+        }
+        if i == n - 6 || i == n - 40 {
+            m["pinned"] = json!(true);
+        }
         out.push(m);
     }
+    let t0 = now_ms() - 30 * 60_000;
+    for (i, (a, text)) in [(101, "ok what's left for 1.3?"), (102, "voice + video, then polish"), (100, "I'll take the settings screen"), (103, "forums too 🙏")].iter().enumerate() {
+        out.push(msg(snow(t0 + i as u64 * 60_000), THREAD, *a, text));
+    }
+    for (post, a, text) in [(POST_A, 103, "Could we get a compact message mode? Long threads get tall fast."), (POST_B, 105, "Emoji picker should remember recently used ones.")] {
+        out.push(msg(post, FORUM, a, text));
+    }
     out
+}
+
+const THREAD: u64 = 2050;
+const FORUM: u64 = 2030;
+const POST_A: u64 = 2031;
+const POST_B: u64 = 2032;
+
+fn thread() -> Value {
+    json!({ "id": THREAD.to_string(), "type": 11, "guild_id": "1000", "parent_id": GENERAL.to_string(), "name": "release planning",
+            "owner_id": "101", "message_count": 4, "member_count": 4, "thread_metadata": { "archived": false },
+            "last_message_id": snow(now_ms() - 27 * 60_000).to_string(), "member": { "user_id": ME.to_string() } })
+}
+
+fn forum_posts() -> Value {
+    let post = |id: u64, owner: u64, name: &str, tags: &[&str], count: u32| {
+        json!({ "id": id.to_string(), "type": 11, "guild_id": "1000", "parent_id": FORUM.to_string(), "name": name,
+                "owner_id": owner.to_string(), "message_count": count, "applied_tags": tags, "thread_metadata": { "archived": false },
+                "last_message_id": snow(now_ms() - (id - 2030) * 3_600_000).to_string() })
+    };
+    json!({
+        "threads": [post(POST_A, 103, "Compact mode", &["1"], 7), post(POST_B, 105, "Recent emoji in picker", &["1", "2"], 3)],
+        "members": [], "has_more": false, "total_results": 2,
+        "first_messages": [msg(POST_A, POST_A, 103, "Could we get a compact message mode? Long threads get tall fast."),
+                           msg(POST_B, POST_B, 105, "Emoji picker should remember recently used ones.")],
+    })
 }
 
 fn ready(last_general: u64) -> Value {
@@ -131,6 +170,8 @@ fn ready(last_general: u64) -> Value {
     general["topic"] = json!("Talk about anything. Be nice. Rust only on Tuesdays.");
     let mut help = ch(2012, 0, "help", 1, Some(2010));
     help["last_message_id"] = json!(snow(now_ms() - 60_000).to_string());
+    let mut forum = ch(FORUM, 15, "ideas", 4, Some(2010));
+    forum["available_tags"] = json!([{ "id": "1", "name": "feature", "emoji_name": "✨" }, { "id": "2", "name": "ux" }]);
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
@@ -146,7 +187,9 @@ fn ready(last_general: u64) -> Value {
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "announcements", 1, Some(2000)),
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
+            forum,
         ],
+        "threads": [thread()],
         "voice_states": [{ "user_id": "101", "channel_id": "2021" }, { "user_id": "103", "channel_id": "2021" }],
     });
     let simple = |id: u64, name: &str, icon: Option<&str>, chans: &[(u64, &str)]| {
@@ -156,8 +199,9 @@ fn ready(last_general: u64) -> Value {
     };
     json!({
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
-        "user": user(ME),
-        "users": [user(101), user(102), user(103), user(104), user(105)],
+        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com" },
+        "users": [user(101), user(102), user(103), user(104), user(105), user(106)],
+        "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
         "guilds": [g1, simple(1001, "Gamers United", None, &[(2100, "lobby"), (2101, "lfg")]),
                    simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])],
         "merged_members": [[{ "user_id": ME.to_string(), "roles": ["1101"] }], [], []],
@@ -171,7 +215,7 @@ fn ready(last_general: u64) -> Value {
             { "id": "3000", "last_message_id": "0", "mention_count": 0 },
         ], "partial": false, "version": 1 },
         "user_guild_settings": { "entries": [] },
-        "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "guild_ids": ["1001"] }, { "guild_ids": ["1002"] }] },
+        "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] }] },
     })
 }
 
@@ -252,11 +296,37 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(400)).await;
                 let _ = tx.send(json!({ "t": "TYPING_START", "d": { "channel_id": ch.to_string(), "user_id": "101", "guild_id": "1000" } }));
+                // a dm from someone else while you're busy elsewhere, so notifications have something to do
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": msg(snow(now_ms()), 3000, 101, "hey, saw your message — got a sec?") }));
             });
             ok(m)
         }
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
+        ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
+        ("GET", ["api", "v9", "channels", ch, "pins"]) => {
+            let w = w.lock().unwrap();
+            let list: Vec<&Value> = w.msgs.iter().filter(|m| m["channel_id"] == *ch && m["pinned"] == json!(true)).rev().collect();
+            ok(json!(list))
+        }
+        ("GET", ["api", "v9", "guilds", _, "messages", "search"]) => {
+            let q = path.split("content=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_lowercase();
+            let w = w.lock().unwrap();
+            let hits: Vec<Value> = w
+                .msgs
+                .iter()
+                .rev()
+                .filter(|m| !q.is_empty() && m["content"].as_str().unwrap_or("").to_lowercase().contains(&q))
+                .take(25)
+                .map(|m| json!([m]))
+                .collect();
+            ok(json!({ "total_results": hits.len(), "messages": hits }))
+        }
+        ("GET", ["api", "v9", "users", id, "profile"]) => {
+            let id: u64 = id.parse().unwrap_or(0);
+            ok(json!({ "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22 } }))
+        }
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),

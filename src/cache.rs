@@ -5,12 +5,47 @@ use std::path::PathBuf;
 use crate::state::{Id, Message, Msgs, Store};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
+#[serde(default)]
 pub struct UiState {
     pub guild: Option<Id>,
     pub chan: HashMap<Id, Id>,
     pub collapsed: HashSet<Id>,
     pub recent: Vec<Id>,
     pub hide_members: bool,
+    pub open_folders: HashSet<Id>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct Settings {
+    pub notify: bool,
+    pub notify_all_dms: bool,
+    pub flash: bool,
+    pub zoom: f32,
+    pub clock24: bool,
+    pub dev: bool,
+    pub embeds: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { notify: true, notify_all_dms: true, flash: true, zoom: 1.0, clock24: false, dev: false, embeds: true }
+    }
+}
+
+pub fn settings() -> Settings {
+    std::fs::read(dir().join("settings.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+pub fn set_settings(s: &Settings) {
+    let d = dir();
+    let _ = std::fs::create_dir_all(&d);
+    if let Ok(b) = serde_json::to_vec_pretty(s) {
+        let _ = std::fs::write(d.join("settings.json"), b);
+    }
 }
 
 #[derive(Serialize)]
