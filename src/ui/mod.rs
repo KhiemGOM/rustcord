@@ -211,6 +211,11 @@ impl App {
         let forum = c.is_forum();
         // member list subscriptions are per parent channel, threads borrow it
         let sub = if c.is_thread() { c.parent } else { ch };
+        // search results belong to one server (or one dm), don't carry them elsewhere
+        let was = self.cur().and_then(|c| self.store.channels.get(&c)).map(|c| if c.guild != 0 { c.guild } else { c.id });
+        if was != Some(if guild != 0 { guild } else { ch }) {
+            self.search = None;
+        }
         if self.cur() != Some(ch) {
             self.reply = None;
             self.editing = None;
