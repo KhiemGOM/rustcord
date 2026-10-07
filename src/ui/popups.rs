@@ -58,7 +58,140 @@ impl App {
     }
 }
 
+pub struct Gifs {
+    pub query: String,
+    pub sent: String,
+    pub results: Option<Vec<Gif>>,
+    pub at: Pos2,
+}
+
+pub struct Gif {
+    pub url: String,
+    pub src: String,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl App {
+    pub fn open_gifs(&mut self, at: Pos2) {
+        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at });
+        self.rest("GET", "/gifs/trending-gifs?media_format=gif&provider=tenor&locale=en-US".into(), None, Tag::Gifs(String::new()));
+    }
+
+    pub fn set_gifs(&mut self, q: String, v: &serde_json::Value) {
+        let Some(g) = &mut self.gifs else { return };
+        if g.sent != q {
+            return; // an older search answered late
+        }
+        let list = if v.is_array() { v } else { &v["gifs"] };
+        g.results = Some(
+            list.as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|x| {
+                    Some(Gif {
+                        url: x["url"].as_str()?.to_string(),
+                        src: x["src"].as_str().or(x["gif_src"].as_str())?.to_string(),
+                        w: x["width"].as_f64().unwrap_or(200.0) as f32,
+                        h: x["height"].as_f64().unwrap_or(150.0) as f32,
+                    })
+                })
+                .collect(),
+        );
+    }
+}
+
+fn gifs(app: &mut App, ctx: &egui::Context) {
+    let Some(g) = &mut app.gifs else { return };
+    let mut pick = None;
+    let mut search = None;
+    let area = egui::Area::new(egui::Id::new("gifs"))
+        .order(egui::Order::Foreground)
+        .pivot(Align2::RIGHT_BOTTOM)
+        .fixed_pos(g.at)
+        .constrain(true)
+        .show(ctx, |ui| {
+            Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(12).show(ui, |ui| {
+                ui.set_width(420.0);
+                Frame::new().fill(BG_TERTIARY).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut g.query)
+                            .frame(Frame::NONE)
+                            .hint_text(RichText::new("Search Tenor").color(TEXT_MUTED))
+                            .desired_width(ui.available_width()),
+                    );
+                    r.request_focus();
+                    if r.changed() {
+                        search = Some(g.query.trim().to_string());
+                    }
+                });
+                ui.add_space(8.0);
+                egui::ScrollArea::vertical().max_height(400.0).auto_shrink([false, false]).show(ui, |ui| match &g.results {
+                    None => {
+                        ui.add(egui::Spinner::new().color(TEXT_MUTED));
+                    }
+                    Some(list) if list.is_empty() => {
+                        ui.label(RichText::new("No GIFs found.").color(HEADER_SECONDARY));
+                    }
+                    Some(list) => {
+                        // two columns, each image keeps its aspect, shortest column gets the next one
+                        let col_w = (ui.available_width() - 8.0) / 2.0;
+                        let top = ui.cursor().min;
+                        let mut ys = [0.0f32; 2];
+                        for (i, gif) in list.iter().enumerate() {
+                            let c = if ys[0] <= ys[1] { 0 } else { 1 };
+                            let h = col_w * gif.h / gif.w.max(1.0);
+                            let r = Rect::from_min_size(top + vec2(c as f32 * (col_w + 8.0), ys[c]), vec2(col_w, h));
+                            ys[c] += h + 8.0;
+                            let resp = ui.interact(r, egui::Id::new(("gif", i)), Sense::click());
+                            if ui.is_rect_visible(r) {
+                                ui.painter().rect_filled(r, CornerRadius::same(4), BG_TERTIARY);
+                                egui::Image::from_uri(gif.src.clone()).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, r);
+                            }
+                            if resp.hovered() {
+                                ui.painter().rect_stroke(r, CornerRadius::same(4), egui::Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if i == 0 {
+                                // rects from inside the popup closure travel out through egui's temp data
+                                ui.data_mut(|d| d.insert_temp(egui::Id::new("gif0_rect"), r));
+                            }
+                            if resp.clicked() {
+                                pick = Some(gif.url.clone());
+                            }
+                        }
+                        ui.allocate_space(vec2(ui.available_width(), ys[0].max(ys[1])));
+                    }
+                });
+            });
+        });
+    if let Some(q) = search {
+        g.sent = q.clone();
+        g.results = None;
+        let path = if q.is_empty() {
+            "/gifs/trending-gifs?media_format=gif&provider=tenor&locale=en-US".to_string()
+        } else {
+            let enc: String = q.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+            format!("/gifs/search?q={enc}&media_format=gif&provider=tenor&locale=en-US")
+        };
+        app.rest("GET", path, None, Tag::Gifs(q));
+    }
+    if let Some(url) = pick {
+        app.gifs = None;
+        if let Some(ch) = app.cur() {
+            app.drafts.insert(ch, url);
+            app.send_message(ch);
+        }
+    } else if dismissed(ctx, &area.response) {
+        app.gifs = None;
+    }
+    if let Some(r) = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new("gif0_rect"))) {
+        app.rects.insert("gif:0".into(), r);
+    }
+}
+
 pub fn show(app: &mut App, ctx: &egui::Context) {
+    gifs(app, ctx);
     invite(app, ctx);
     switcher(app, ctx);
     profile(app, ctx);

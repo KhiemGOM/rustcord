@@ -22,6 +22,10 @@ Log in with email/password (2FA supported) or paste a token. The token and a sna
 - right-click menus: mark as read, mute, copy link, pin, mark unread, copy IDs (developer mode)
 - desktop notifications for mentions and DMs, taskbar flash, unread count in the window title
 - settings: account, zoom, 24h clock, link previews, notifications, developer mode
+- emoji render as twemoji everywhere (messages, channel names, nicknames, server names), CJK fallback fonts
+- composer: Ctrl+V images/files, upload cards with spoiler toggle, `@` `#` `:` `/` autocomplete, slash commands, GIF picker, reply ping toggle
+- bot buttons and select menus, jump to replied/pinned/searched messages, "new messages" and "jump to present" bars, image viewer
+- shortcuts: Ctrl+K, Alt+↑/↓, Alt+Shift+↑/↓ (unread), Ctrl+E, Ctrl+Shift+U, Esc marks read, ↑ edits, Alt+click marks unread
 
 ## Tests
 

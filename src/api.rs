@@ -142,12 +142,13 @@ impl Api {
         ch: Id,
         content: &str,
         nonce: &str,
-        reply: Option<Id>,
+        reply: Option<(Id, bool)>,
         files: &[(PathBuf, String)],
     ) -> Result<Value, String> {
         let mut body = json!({ "content": content, "nonce": nonce, "tts": false, "flags": 0 });
-        if let Some(r) = reply {
+        if let Some((r, ping)) = reply {
             body["message_reference"] = json!({ "message_id": r.to_string(), "channel_id": ch.to_string() });
+            body["allowed_mentions"] = json!({ "parse": ["users", "roles", "everyone"], "replied_user": ping });
         }
         let path = format!("/channels/{ch}/messages");
         if files.is_empty() {

@@ -80,6 +80,10 @@ pub struct App {
     pub scroll_tries: u8,
     pub flash: Option<(Id, Instant)>,
     pub viewer: Option<(String, String, u32, u32)>,
+    // a channel the user just marked unread shouldn't get re-acked on the next frame
+    pub hold_ack: Option<Id>,
+    pub reply_ping: bool,
+    pub gifs: Option<popups::Gifs>,
     title_count: Option<u32>,
     e2e: Option<e2e::Run>,
     win: Option<[f32; 2]>,
@@ -167,6 +171,9 @@ impl App {
             scroll_tries: 0,
             flash: None,
             viewer: None,
+            hold_ack: None,
+            reply_ping: true,
+            gifs: None,
             title_count: None,
             frames: 0,
             save_at: None,
@@ -210,6 +217,7 @@ impl App {
             self.files.clear();
             self.pins = None;
             self.post = None;
+            self.hold_ack = None;
         }
         self.friends = false;
         self.ui.chan.insert(guild, ch);
@@ -306,7 +314,9 @@ impl App {
         let reply = self.reply.take();
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
         self.jump_to_present(ch);
+        let reply = reply.map(|r| (r, self.reply_ping));
         self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files });
+        self.hold_ack = None;
         self.last_typing = None;
     }
 
@@ -349,6 +359,68 @@ impl App {
             let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted } } });
             self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
         }
+    }
+
+    /// Alt+↑/↓ walks channels, Alt+Shift+↑/↓ jumps between unread ones,
+    /// Ctrl+E opens emoji, Ctrl+Shift+U uploads.
+    fn shortcuts(&mut self, ctx: &egui::Context) {
+        use egui::{Key, Modifiers};
+        let (up, down, uup, udown, emoji, upload) = ctx.input_mut(|i| {
+            (
+                take_key(i, Modifiers::ALT, Key::ArrowUp),
+                take_key(i, Modifiers::ALT, Key::ArrowDown),
+                take_key(i, Modifiers::ALT | Modifiers::SHIFT, Key::ArrowUp),
+                take_key(i, Modifiers::ALT | Modifiers::SHIFT, Key::ArrowDown),
+                take_key(i, Modifiers::COMMAND, Key::E),
+                take_key(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::U),
+            )
+        });
+        if up || down || uup || udown {
+            let list: Vec<Id> = match self.ui.guild {
+                Some(g) => side::tree(&self.store, g)
+                    .into_iter()
+                    .flat_map(|(_, k)| k)
+                    .filter(|c| c.is_text() || c.is_forum())
+                    .map(|c| c.id)
+                    .collect(),
+                None => self.store.dms.clone(),
+            };
+            let at = self.cur().and_then(|c| list.iter().position(|x| *x == c));
+            let n = list.len();
+            let target = if uup || udown {
+                let order: Vec<usize> = if udown { (1..=n).collect() } else { (1..=n).rev().collect() };
+                order
+                    .into_iter()
+                    .map(|k| (at.unwrap_or(0) + k) % n.max(1))
+                    .find(|i| self.store.channels.get(&list[*i]).is_some_and(|c| self.store.unread(c)))
+            } else if n > 0 {
+                Some(match (at, down) {
+                    (Some(i), true) => (i + 1) % n,
+                    (Some(i), false) => (i + n - 1) % n,
+                    (None, _) => 0,
+                })
+            } else {
+                None
+            };
+            if let Some(i) = target {
+                self.open(list[i]);
+            }
+        }
+        if emoji && let Some(r) = self.rects.get("composer").copied() {
+            self.picker = Some((Pick::Composer, r.right_top() - vec2(420.0, 440.0)));
+        }
+        if upload && let Some(files) = rfd::FileDialog::new().pick_files() {
+            self.files.extend(files.into_iter().map(composer::Upload::new));
+        }
+    }
+
+    pub fn mark_unread(&mut self, ch: Id, id: Id) {
+        // ack the message before this one so it shows as the first unread
+        let prev = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
+        self.store.reads.entry(ch).or_default().last_acked = prev;
+        self.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(json!({ "manual": true, "token": null })), Tag::Quiet);
+        self.marker = Some((ch, prev));
+        self.hold_ack = Some(ch);
     }
 
     pub fn set_status(&mut self, s: &str) {
@@ -468,6 +540,7 @@ impl App {
             }
             Tag::Friend => self.toast("Friend request sent."),
             Tag::Commands(scope) => self.set_commands(scope, &v),
+            Tag::Gifs(q) => self.set_gifs(q, &v),
             Tag::Quiet => {}
         }
     }
@@ -572,7 +645,7 @@ impl App {
                     self.login.busy = false;
                     self.login.err = Some(e);
                 }
-                Ev::Error(e) => self.toast(e),
+                Ev::Error(e) | Ev::Toast(e) => self.toast(e),
                 Ev::Rest { tag, res } => self.on_rest(tag, res),
             }
         }
@@ -583,6 +656,10 @@ impl App {
             return;
         }
         let Some(ch) = self.cur() else { return };
+        if self.hold_ack == Some(ch) {
+            return;
+        }
+        self.hold_ack = None;
         let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { return };
         let r = self.store.reads.entry(ch).or_default();
         if last > r.last_acked || r.mentions > 0 {
@@ -700,9 +777,10 @@ impl eframe::App for App {
             self.overlays(ui);
             self.ack_current(&ctx);
             self.update_title(&ctx);
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
+            if ctx.input_mut(|i| take_key(i, egui::Modifiers::COMMAND, egui::Key::K)) {
                 self.switcher = Some(String::new());
             }
+            self.shortcuts(&ctx);
             if self.store.prune_typing() {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }
@@ -849,4 +927,16 @@ pub fn channel_title(store: &Store, ch: Id) -> String {
 fn key_down(vk: u8) -> bool {
     // high bit set means the key is held right now
     unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
+}
+
+/// `consume_key` treats extra modifiers as a match, so plain Enter would also
+/// swallow Shift+Enter. Shortcuts here want the exact combination.
+pub fn take_key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key) -> bool {
+    let mut hit = false;
+    i.events.retain(|e| {
+        let m = matches!(e, egui::Event::Key { key: k, modifiers: em, pressed: true, .. } if *k == key && em.matches_exact(mods));
+        hit |= m;
+        !m
+    });
+    hit
 }

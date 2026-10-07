@@ -177,6 +177,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         if icon_button(ui, Icon::Close, 20.0, "Cancel reply").clicked() {
                             app.reply = None;
                         }
+                        ui.add_space(8.0);
+                        // the "@ ON" toggle: whether the reply pings its author
+                        let (label, col) = if app.reply_ping { ("@ ON", LINK) } else { ("@ OFF", HEADER_SECONDARY) };
+                        let r = ui.add(egui::Label::new(RichText::new(label).font(bold(12.0)).color(col)).sense(Sense::click()));
+                        app.rects.insert("ping_toggle".into(), r.rect);
+                        if r.on_hover_text("Click to toggle mentioning the author").clicked() {
+                            app.reply_ping = !app.reply_ping;
+                        }
                     });
                 });
             });
@@ -212,29 +220,29 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut accept = None;
     if focused || (nothing_focused && typed) {
         if open {
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown)) {
+            if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowDown)) {
                 app.ac_sel = (app.ac_sel + 1) % items.len();
             }
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
+            if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowUp)) {
                 app.ac_sel = (app.ac_sel + items.len() - 1) % items.len();
             }
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab) || i.consume_key(Modifiers::NONE, Key::Enter)) {
+            if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab) || super::take_key(i, Modifiers::NONE, Key::Enter)) {
                 accept = Some(app.ac_sel);
             }
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
                 app.ac_dismissed = tok.as_ref().map(|t| t.2.clone());
             }
         }
-        if accept.is_none() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+        if accept.is_none() && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Enter)) {
             send = true;
         }
-        if draft_now.is_empty() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
+        if draft_now.is_empty() && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowUp)) {
             let me = app.store.me;
             if let Some(m) = app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.author == me && !m.pending)) {
                 app.editing = Some((m.id, m.content.clone()));
             }
         }
-        if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+        if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
             if app.reply.is_some() {
                 app.reply = None;
             } else if let Some(c) = app.cur() {
@@ -252,6 +260,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let top_r = if app.reply.is_some() { 0 } else { 8 };
     let mut attach = false;
     let mut emoji_at = None;
+    let mut gif_at = None;
+    let mut gif_rect = None;
     let mut remove = None;
     let mut new_cursor = None;
     let before = draft_now.len();
@@ -317,7 +327,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     });
                     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                        let (er, eresp) = ui.allocate_exact_size(vec2(32.0, 44.0), Sense::click());
+                        let (er, eresp) = ui.allocate_exact_size(vec2(36.0, 44.0), Sense::click());
                         let col = if eresp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
                         icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(er.center(), vec2(24.0, 24.0)), col);
                         if eresp.hovered() {
@@ -325,6 +335,18 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                         if eresp.on_hover_text("Select emoji").clicked() {
                             emoji_at = Some(er.left_top());
+                        }
+                        let (gr, gresp) = ui.allocate_exact_size(vec2(40.0, 44.0), Sense::click());
+                        let col = if gresp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
+                        let badge = Rect::from_center_size(gr.center(), vec2(28.0, 20.0));
+                        ui.painter().rect_stroke(badge, CornerRadius::same(4), Stroke::new(2.0, col), egui::StrokeKind::Inside);
+                        ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", bold(11.0), col);
+                        gif_rect = Some(gr);
+                        if gresp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if gresp.on_hover_text("Open GIF picker").clicked() {
+                            gif_at = Some(gr.right_top());
                         }
                     });
                 });
@@ -357,6 +379,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     if let Some(at) = emoji_at {
         app.picker = Some((Pick::Composer, at - vec2(380.0, 440.0)));
+    }
+    if let Some(r) = gif_rect {
+        app.rects.insert("gif_button".into(), r);
+    }
+    if let Some(at) = gif_at {
+        match app.gifs {
+            Some(_) => app.gifs = None,
+            None => app.open_gifs(at + vec2(36.0, -8.0)),
+        }
     }
     let changed = app.drafts.get(&ch).is_some_and(|d| d.len() != before && !d.is_empty() && !d.starts_with('/'));
     if changed && app.last_typing.is_none_or(|(c, t)| c != ch || t.elapsed().as_secs() >= 8) {
