@@ -50,6 +50,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .show_separator_line(false)
         .frame(Frame::new().fill(BG_SECONDARY_ALT).inner_margin(egui::Margin::symmetric(8, 0)))
         .show(ui, |ui| user_panel(app, ui));
+    if app.voice.chan.is_some() {
+        egui::Panel::bottom("voice")
+            .exact_size(60.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(BG_SECONDARY_ALT).inner_margin(egui::Margin::symmetric(8, 0)))
+            .show(ui, |ui| super::call::panel(app, ui));
+    }
 
     match app.ui.guild {
         Some(gid) => guild(app, ui, gid),
@@ -124,7 +132,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         channel_menu(&r, t.id, store.muted.contains(&t.id), dev, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
-                        voice_users(ui, store, gid, c.id);
+                        voice_users(ui, store, &app.voice, gid, c.id);
                     }
                 }
             }
@@ -145,10 +153,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
-            app.toast("Voice isn't wired up yet in this build.");
-        } else {
-            app.open(c);
+            app.voice.join(&app.net, &app.store, c);
         }
+        app.open(c);
     }
 }
 
@@ -285,7 +292,7 @@ fn channel_row(ui: &mut Ui, c: &Channel, selected: bool, unread: bool, mentions:
     resp
 }
 
-fn voice_users(ui: &mut Ui, store: &Store, gid: Id, ch: Id) {
+fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
     let Some(g) = store.guilds.get(&gid) else { return };
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
     users.sort();
@@ -294,6 +301,9 @@ fn voice_users(ui: &mut Ui, store: &Store, gid: Id, ch: Id) {
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
         if let Some(user) = store.user(u) {
             avatar(ui, av, &user.avatar_url());
+        }
+        if voice.is_speaking(u) {
+            super::call::ring(ui, av);
         }
         text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), CHANNEL_DEFAULT, row.right() - av.right() - 16.0);
     }
@@ -480,8 +490,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
             if gear.clicked() {
                 app.settings_page = Some(super::settings::Page::Account);
             }
-            icon_button(ui, Icon::Headphones, 32.0, "Deafen");
-            icon_button(ui, Icon::Mic, 32.0, "Mute");
+            super::call::user_buttons(app, ui);
         });
     });
     if let Some(s) = status_pick {
