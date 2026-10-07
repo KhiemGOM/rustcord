@@ -18,6 +18,7 @@ fn has_emoji(s: &str) -> bool {
 }
 
 pub fn layout(ctx: &egui::Context, text: &str, font: FontId, color: Color32, max_w: f32) -> Rich {
+    crate::theme::note_text(text);
     let mut job = LayoutJob::default();
     job.wrap = TextWrapping {
         max_width: max_w,

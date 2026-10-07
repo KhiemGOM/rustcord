@@ -603,6 +603,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
 }
 
 pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
+    crate::theme::note_text(src);
     let src = src.trim();
     let jumbo = is_jumbo(src);
     let mut out = Vec::new();

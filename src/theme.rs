@@ -31,6 +31,19 @@ pub const MENTION_BG: Color32 = Color32::from_rgba_premultiplied(26, 30, 73, 76)
 pub const MENTION_FG: Color32 = Color32::from_rgb(0xc9, 0xcd, 0xfb);
 pub const HIGHLIGHT_BG: Color32 = Color32::from_rgba_premultiplied(24, 18, 5, 26);
 
+/// Set once any text with CJK/Hangul (or the "・" channel names love) shows up;
+/// only then are the ~30MB fallback fonts worth loading.
+pub static CJK_WANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn note_text(s: &str) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !CJK_WANTED.load(Relaxed)
+        && s.chars().any(|c| matches!(c as u32, 0x2E80..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF | 0x1100..=0x11FF))
+    {
+        CJK_WANTED.store(true, Relaxed);
+    }
+}
+
 pub fn bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("bold".into()))
 }
