@@ -29,6 +29,8 @@ const GENERAL: u64 = 2011;
 const SPEAKER: u64 = 101;
 const SPEAKER_SSRC: u32 = 2001;
 const CLIENT_SSRC: u32 = 1001;
+const OWN_STREAM: u64 = 5000;
+const ALICE_STREAM: u64 = 5001;
 
 struct World {
     msgs: Vec<Value>,
@@ -36,15 +38,39 @@ struct World {
     events: broadcast::Sender<Value>,
     voice_port: u16,
     voice_chan: Option<(Option<u64>, u64)>,
-    voice: Option<Voice>,
+    voices: Vec<Voice>,
 }
 
-// what the current voice session agreed on
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Voice,
+    /// the client's own Go Live
+    Own,
+    /// the client watching Alice's stream
+    Watch,
+}
+
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Kind::Voice => "voice",
+            Kind::Own => "own_stream",
+            Kind::Watch => "watch_stream",
+        }
+    }
+}
+
+// what one media session agreed on; sessions are told apart by the client's ssrc
 struct Voice {
+    kind: Kind,
+    cssrc: u32,
     mode: String,
     key: [u8; 32],
     client: Option<SocketAddr>,
     dec: opus_rs::OpusDecoder,
+    vdec: openh264::decoder::Decoder,
+    asm: Asm,
+    key_frame: Arc<AtomicBool>,
     live: Arc<AtomicBool>,
     // Alice's side of the E2EE group; media is only E2EE once the transition executed
     alice: DaveSession,
@@ -532,7 +558,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                 {
                     let mut wl = w.lock().unwrap();
                     let mut line = json!({ "t": now_ms(), "gateway_op": v["op"] });
-                    if v["op"] == 4 {
+                    if matches!(v["op"].as_u64(), Some(4 | 18..=22)) {
                         line["d"] = v["d"].clone();
                     }
                     let _ = writeln!(wl.log, "{line}");
@@ -553,6 +579,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                     }
                     Some(6) => vec![("RESUMED".into(), json!({}))],
                     Some(4) => voice_state(&w, &v["d"]),
+                    Some(op @ 18..=22) => stream_op(&w, op, &v["d"]),
                     Some(37) => vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())],
                     Some(8) => {
                         let members: Vec<Value> = v["d"]["user_ids"]
@@ -595,7 +622,7 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     m["user"] = user(ME);
     let me = json!({
         "guild_id": guild.map(|g| g.to_string()), "channel_id": chan.map(|c| c.to_string()), "user_id": ME.to_string(),
-        "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": false,
+        "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": d["self_video"],
         "mute": false, "deaf": false, "suppress": false, "member": m,
     });
     let mut out = vec![("VOICE_STATE_UPDATE".to_string(), me)];
@@ -604,18 +631,45 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
         return out;
     }
     let endpoint = format!("ws://127.0.0.1:{}", wl.voice_port);
+    // Alice is always on camera and streaming her screen, so there's something to watch
+    let mut alice = json!({ "guild_id": guild.map(|g| g.to_string()), "channel_id": ch.to_string(), "user_id": SPEAKER.to_string(),
+        "session_id": "other", "self_mute": false, "self_deaf": false, "self_video": true, "self_stream": true });
     match guild {
-        Some(g) => out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": g.to_string(), "endpoint": endpoint }))),
+        Some(g) => {
+            let mut am = member(SPEAKER);
+            am["user"] = user(SPEAKER);
+            alice["member"] = am;
+            out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": g.to_string(), "endpoint": endpoint })));
+        }
         None => {
             // a DM call: Alice picks up right away
             out.push(("CALL_CREATE".into(), json!({ "channel_id": ch.to_string(), "message_id": "1", "region": "local",
                 "ringing": [], "voice_states": [{ "user_id": ME.to_string(), "channel_id": ch.to_string(), "session_id": "mock-voice-session" }] })));
             out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": null, "channel_id": ch.to_string(), "endpoint": endpoint })));
-            out.push(("VOICE_STATE_UPDATE".into(), json!({ "guild_id": null, "channel_id": ch.to_string(), "user_id": SPEAKER.to_string(),
-                "session_id": "other", "self_mute": false, "self_deaf": false })));
         }
     }
+    out.push(("VOICE_STATE_UPDATE".into(), alice));
     out
+}
+
+// Go Live on the main gateway: ours gets rtc server 5000, Alice's 5001
+fn stream_op(w: &W, op: u64, d: &Value) -> Vec<(String, Value)> {
+    let (guild, ch) = w.lock().unwrap().voice_chan.unwrap_or((None, 0));
+    let prefix = match guild {
+        Some(g) => format!("guild:{g}:{ch}"),
+        None => format!("call:{ch}"),
+    };
+    let (key, rtc) = match op {
+        18 => (format!("{prefix}:{ME}"), OWN_STREAM),
+        20 => (d["stream_key"].as_str().unwrap_or("").to_string(), ALICE_STREAM),
+        19 => return vec![("STREAM_DELETE".into(), json!({ "stream_key": d["stream_key"], "reason": "user_requested", "unavailable": false }))],
+        _ => return vec![],
+    };
+    let endpoint = format!("ws://127.0.0.1:{}", w.lock().unwrap().voice_port);
+    vec![
+        ("STREAM_CREATE".into(), json!({ "stream_key": key, "rtc_server_id": rtc.to_string(), "viewer_ids": [], "region": "local", "paused": false })),
+        ("STREAM_SERVER_UPDATE".into(), json!({ "stream_key": key, "endpoint": endpoint, "token": "mock-stream-token", "guild_id": null })),
+    ]
 }
 
 fn log(w: &W, line: Value) {
@@ -657,6 +711,81 @@ fn open_rtp(mode: &str, key: &[u8; 32], pkt: &[u8]) -> Option<Vec<u8>> {
     Some(plain)
 }
 
+// Independent of the client's code on purpose: H264 RTP packetizing and reassembly
+fn split_nals(frame: &[u8]) -> Vec<&[u8]> {
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i + 3 <= frame.len() {
+        if frame[i..i + 3] == [0, 0, 1] {
+            starts.push(i + 3);
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    let mut out = Vec::new();
+    for (k, &s) in starts.iter().enumerate() {
+        let mut e = starts.get(k + 1).map(|n| n - 3).unwrap_or(frame.len());
+        while e > s && frame[e - 1] == 0 && k + 1 < starts.len() {
+            e -= 1;
+        }
+        out.push(&frame[s..e]);
+    }
+    out
+}
+
+fn h264_payloads(frame: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    for nal in split_nals(frame) {
+        if nal.len() <= 1000 {
+            out.push(nal.to_vec());
+            continue;
+        }
+        let parts: Vec<&[u8]> = nal[1..].chunks(1000).collect();
+        for (j, p) in parts.iter().enumerate() {
+            let mut fu = vec![(nal[0] & 0xe0) | 28, nal[0] & 0x1f];
+            if j == 0 {
+                fu[1] |= 0x80;
+            }
+            if j + 1 == parts.len() {
+                fu[1] |= 0x40;
+            }
+            fu.extend_from_slice(p);
+            out.push(fu);
+        }
+    }
+    out
+}
+
+#[derive(Default)]
+struct Asm {
+    buf: Vec<u8>,
+    ts: u32,
+}
+
+impl Asm {
+    fn push(&mut self, ts: u32, marker: bool, p: &[u8]) -> Option<Vec<u8>> {
+        if ts != self.ts {
+            self.buf.clear();
+            self.ts = ts;
+        }
+        match p.first()? & 0x1f {
+            1..=23 => {
+                self.buf.extend_from_slice(&[0, 0, 0, 1]);
+                self.buf.extend_from_slice(p);
+            }
+            28 if p.len() > 2 => {
+                if p[1] & 0x80 != 0 {
+                    self.buf.extend_from_slice(&[0, 0, 0, 1, (p[0] & 0xe0) | (p[1] & 0x1f)]);
+                }
+                self.buf.extend_from_slice(&p[2..]);
+            }
+            _ => {}
+        }
+        marker.then(|| std::mem::take(&mut self.buf))
+    }
+}
+
 enum Reply {
     Json(Value),
     Bin(u8, Vec<u8>),
@@ -668,12 +797,12 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
     let mut seq = 0u16;
     let live = Arc::new(AtomicBool::new(true));
     let gw = Gw::new();
-    let (mut channel, mut dm) = (0u64, false);
+    let (mut channel, mut dm, mut kind, mut cssrc) = (0u64, false, Kind::Voice, CLIENT_SSRC);
     let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 1000.0 } }).to_string())).await;
     while let Some(Ok(m)) = rx.next().await {
         let mut out: Vec<Reply> = Vec::new();
         let line = match m {
-            Ws::Binary(b) if !b.is_empty() => dave_bin(&w, &gw, &b, channel, dm, &mut out),
+            Ws::Binary(b) if !b.is_empty() => dave_bin(&w, &gw, cssrc, &b, channel, dm, &mut out),
             Ws::Text(t) => {
                 let v: Value = serde_json::from_str(&t).unwrap_or_default();
                 let d = &v["d"];
@@ -681,16 +810,24 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                 match v["op"].as_u64() {
                     Some(0) => {
                         line["d"] = d.clone();
+                        let server: u64 = d["server_id"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        (kind, cssrc) = match server {
+                            OWN_STREAM => (Kind::Own, CLIENT_SSRC + 100),
+                            ALICE_STREAM => (Kind::Watch, CLIENT_SSRC + 200),
+                            _ => (Kind::Voice, CLIENT_SSRC),
+                        };
                         let (g, ch) = w.lock().unwrap().voice_chan.unwrap_or((None, 0));
-                        (channel, dm) = (ch, g.is_none());
-                        out.push(Reply::Json(json!({ "op": 2, "d": { "ssrc": CLIENT_SSRC, "ip": "127.0.0.1", "port": w.lock().unwrap().voice_port,
-                            "modes": ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"], "heartbeat_interval": 1 } })));
+                        // stream groups are keyed one below their rtc server id
+                        (channel, dm) = if kind == Kind::Voice { (ch, g.is_none()) } else { (server - 1, false) };
+                        out.push(Reply::Json(json!({ "op": 2, "d": { "ssrc": cssrc, "ip": "127.0.0.1", "port": w.lock().unwrap().voice_port,
+                            "modes": ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"], "heartbeat_interval": 1,
+                            "streams": [{ "type": "video", "rid": "100", "ssrc": cssrc + 1, "rtx_ssrc": cssrc + 2, "active": false, "quality": 100 }] } })));
                     }
                     Some(1) => {
                         line["d"] = d.clone();
                         let mode = d["data"]["mode"].as_str().unwrap_or("").to_string();
                         let mut key = [0u8; 32];
-                        let mut x = now_ms() | 1;
+                        let mut x = now_ms() | cssrc as u64;
                         for b in key.iter_mut() {
                             x ^= x << 13;
                             x ^= x >> 7;
@@ -701,19 +838,40 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                         alice.set_external_sender(&gw.sender).unwrap();
                         {
                             let mut wl = w.lock().unwrap();
-                            let client = wl.voice.as_ref().and_then(|v| v.client);
-                            if let Some(old) = &wl.voice {
+                            let client = format!("{}:{}", d["data"]["address"].as_str().unwrap_or(""), d["data"]["port"]).parse().ok();
+                            for old in wl.voices.iter().filter(|v| v.cssrc == cssrc) {
                                 old.live.store(false, Ordering::Relaxed);
                             }
-                            let dec = opus_rs::OpusDecoder::new(48_000, 2).unwrap();
-                            wl.voice = Some(Voice { mode: mode.clone(), key, client, dec, live: live.clone(), alice, e2ee: false });
+                            wl.voices.retain(|v| v.cssrc != cssrc);
+                            wl.voices.push(Voice {
+                                kind,
+                                cssrc,
+                                mode: mode.clone(),
+                                key,
+                                client,
+                                dec: opus_rs::OpusDecoder::new(48_000, 2).unwrap(),
+                                vdec: openh264::decoder::Decoder::new().unwrap(),
+                                asm: Asm::default(),
+                                key_frame: Arc::new(AtomicBool::new(true)),
+                                live: live.clone(),
+                                alice,
+                                e2ee: false,
+                            });
                         }
                         out.push(Reply::Json(json!({ "op": 4, "d": { "mode": mode, "secret_key": key.to_vec(), "dave_protocol_version": 1,
-                            "audio_codec": "opus", "media_session_id": "mock-media" } })));
+                            "audio_codec": "opus", "video_codec": "H264", "media_session_id": "mock-media" } })));
                         out.push(Reply::Json(json!({ "op": 11, "d": { "user_ids": [SPEAKER.to_string()] } })));
-                        out.push(Reply::Json(json!({ "op": 5, "d": { "user_id": SPEAKER.to_string(), "ssrc": SPEAKER_SSRC, "speaking": 1 } })));
+                        let (a, v) = match kind {
+                            Kind::Voice => (SPEAKER_SSRC, SPEAKER_SSRC + 1),
+                            _ => (SPEAKER_SSRC + 100, SPEAKER_SSRC + 101),
+                        };
+                        out.push(Reply::Json(json!({ "op": 5, "d": { "user_id": SPEAKER.to_string(), "ssrc": a, "speaking": 1 } })));
+                        if kind != Kind::Own {
+                            out.push(Reply::Json(json!({ "op": 12, "d": { "user_id": SPEAKER.to_string(), "audio_ssrc": a, "video_ssrc": v, "rtx_ssrc": v + 1,
+                                "streams": [{ "type": "video", "rid": "100", "ssrc": v, "rtx_ssrc": v + 1, "active": true, "quality": 100 }] } })));
+                        }
                         out.push(Reply::Bin(25, gw.sender.clone()));
-                        tokio::spawn(speaker(w.clone(), udp.clone(), live.clone()));
+                        tokio::spawn(speaker(w.clone(), udp.clone(), live.clone(), cssrc));
                     }
                     Some(3) => {
                         line["seq_ack"] = d["seq_ack"].clone();
@@ -721,18 +879,19 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                     }
                     Some(5) => line["speaking"] = d["speaking"].clone(),
                     Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
+                    Some(12) | Some(15) | Some(31) => line["d"] = d.clone(),
                     Some(23) => {
                         // everyone is ready, so media switches to E2EE now
                         line["d"] = d.clone();
                         out.push(Reply::Json(json!({ "op": 22, "d": { "transition_id": d["transition_id"] } })));
-                        if let Some(v) = &mut w.lock().unwrap().voice {
+                        if let Some(v) = w.lock().unwrap().voices.iter_mut().find(|v| v.cssrc == cssrc) {
                             v.e2ee = v.alice.is_ready();
                             line["alice_ready"] = json!(v.e2ee);
                         }
                     }
-                    Some(31) => line["d"] = d.clone(),
                     _ => {}
                 }
+                line["server"] = json!(kind.name());
                 line
             }
             Ws::Close(_) => break,
@@ -754,15 +913,18 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
         }
     }
     live.store(false, Ordering::Relaxed);
-    log(&w, json!({ "t": now_ms(), "voice_closed": true }));
+    // forget the session, or a client socket that reuses its port would be matched to it
+    w.lock().unwrap().voices.retain(|v| !Arc::ptr_eq(&v.live, &live));
+    log(&w, json!({ "t": now_ms(), "voice_closed": kind.name() }));
 }
 
 // The two ways into an MLS group: in a guild channel the client commits Alice's add and
 // welcomes her; in a DM call Alice commits and the client joins from her welcome.
-fn dave_bin(w: &W, gw: &Gw, b: &[u8], channel: u64, dm: bool, out: &mut Vec<Reply>) -> Value {
+fn dave_bin(w: &W, gw: &Gw, cssrc: u32, b: &[u8], channel: u64, dm: bool, out: &mut Vec<Reply>) -> Value {
     let mut line = json!({ "t": now_ms(), "voice_bin": b[0] });
     let mut wl = w.lock().unwrap();
-    let Some(v) = &mut wl.voice else { return line };
+    let Some(v) = wl.voices.iter_mut().find(|v| v.cssrc == cssrc) else { return line };
+    line["server"] = json!(v.kind.name());
     match b[0] {
         26 if dm => {
             let cw = gw
@@ -806,7 +968,8 @@ async fn voice_udp(w: W, udp: Arc<UdpSocket>) {
             r[8..17].copy_from_slice(b"127.0.0.1");
             r[72..74].copy_from_slice(&from.port().to_be_bytes());
             let _ = udp.send_to(&r, from).await;
-            if let Some(v) = &mut w.lock().unwrap().voice {
+            let ssrc = u32::from_be_bytes([pkt[4], pkt[5], pkt[6], pkt[7]]);
+            if let Some(v) = w.lock().unwrap().voices.iter_mut().find(|v| v.cssrc == ssrc) {
                 v.client = Some(from);
             }
             log(&w, json!({ "t": now_ms(), "voice_discovery": from.to_string() }));
@@ -817,52 +980,124 @@ async fn voice_udp(w: W, udp: Arc<UdpSocket>) {
         }
         let line = {
             let mut wl = w.lock().unwrap();
-            let Some(v) = &mut wl.voice else { continue };
-            v.client = Some(from);
-            let plain = open_rtp(&v.mode, &v.key, pkt);
-            let silence = plain.as_deref() == Some(&[0xf8, 0xff, 0xfe][..]);
-            // after the transition every real frame must be E2EE; silence is the one passthrough
-            let mut e2ee = false;
-            let opus = match plain.as_deref() {
-                Some(p) if !silence && v.e2ee => match v.alice.decrypt(ME, MediaType::AUDIO, p) {
-                    Ok(o) => {
-                        e2ee = true;
-                        Some(o)
-                    }
-                    Err(_) => None,
-                },
-                Some(p) if !silence => Some(p.to_vec()),
-                _ => None,
-            };
-            let mut level = None;
-            if let Some(o) = opus
-                && v.dec.decode(&o, 960, &mut pcm).is_ok()
-            {
-                level = Some((pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt());
+            let Some(v) = wl.voices.iter_mut().find(|v| v.client == Some(from)) else { continue };
+            if (200..=206).contains(&pkt[1]) {
+                // RTCP; a PLI from the client means Alice owes it a keyframe
+                if pkt[1] == 206 && pkt[0] & 0x1f == 1 {
+                    v.key_frame.store(true, Ordering::Relaxed);
+                }
+                json!({ "t": now_ms(), "rtcp": pkt[1], "fmt": pkt[0] & 0x1f, "server": v.kind.name() })
+            } else if pkt[1] & 0x7f == 101 {
+                let plain = open_rtp(&v.mode, &v.key, pkt);
+                let ts = u32::from_be_bytes([pkt[4], pkt[5], pkt[6], pkt[7]]);
+                let Some(frame) = plain.and_then(|p| v.asm.push(ts, pkt[1] & 0x80 != 0, &p)) else { continue };
+                let (frame, e2ee) = match v.alice.decrypt(ME, MediaType::VIDEO, &frame) {
+                    Ok(f) if v.e2ee => (f, true),
+                    _ => (frame, false),
+                };
+                let dims = match v.vdec.decode(&frame) {
+                    Ok(Some(yuv)) => Some(openh264::formats::YUVSource::dimensions(&yuv)),
+                    _ => None,
+                };
+                json!({ "t": now_ms(), "video_frame": dims, "e2ee": e2ee, "bytes": frame.len(), "server": v.kind.name() })
+            } else {
+                let plain = open_rtp(&v.mode, &v.key, pkt);
+                let silence = plain.as_deref() == Some(&[0xf8, 0xff, 0xfe][..]);
+                // after the transition every real frame must be E2EE; silence is the one passthrough
+                let mut e2ee = false;
+                let opus = match plain.as_deref() {
+                    Some(p) if !silence && v.e2ee => match v.alice.decrypt(ME, MediaType::AUDIO, p) {
+                        Ok(o) => {
+                            e2ee = true;
+                            Some(o)
+                        }
+                        Err(_) => None,
+                    },
+                    Some(p) if !silence => Some(p.to_vec()),
+                    _ => None,
+                };
+                let mut level = None;
+                if let Some(o) = opus
+                    && v.dec.decode(&o, 960, &mut pcm).is_ok()
+                {
+                    level = Some((pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt());
+                }
+                json!({ "t": now_ms(), "voice_rtp": u16::from_be_bytes([pkt[2], pkt[3]]), "ssrc": u32::from_be_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]),
+                        "pt": pkt[1] & 0x7f, "decrypted": plain.is_some(), "silence": silence, "e2ee": e2ee, "level": level })
             }
-            json!({ "t": now_ms(), "voice_rtp": u16::from_be_bytes([pkt[2], pkt[3]]), "ssrc": u32::from_be_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]),
-                    "pt": pkt[1] & 0x7f, "decrypted": plain.is_some(), "silence": silence, "e2ee": e2ee, "level": level })
         };
         log(&w, line);
     }
 }
 
-// Alice: a quiet 330Hz tone, 1.2s on and 0.8s off, sent the way Discord's SFU forwards it,
-// and only once the E2EE group is up
-async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
+// Alice, once the E2EE group is up: a quiet 330Hz tone (1.2s on, 0.8s off) in voice calls,
+// plus video at ~16fps: her camera in voice, her screen on her stream connection
+async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>, cssrc: u32) {
     let mut enc = opus_rs::OpusEncoder::new(48_000, 2, opus_rs::Application::Audio).unwrap();
+    let mut venc = openh264::encoder::Encoder::new().unwrap();
     let mut tick = tokio::time::interval(Duration::from_millis(20));
-    let (mut seq, mut ts, mut nonce, mut phase) = (0u16, 0u32, 0u32, 0f32);
+    let (mut seq, mut vseq, mut ts, mut nonce, mut phase) = (0u16, 0u16, 0u32, 0u32, 0f32);
     let mut frame = vec![0f32; 1920];
     let mut out = [0u8; 1276];
-    let mut sent = 0u32;
+    let (mut sent, mut vsent) = (0u32, 0u32);
     for i in 0u64.. {
         tick.tick().await;
         if !live.load(Ordering::Relaxed) {
             break;
         }
         ts = ts.wrapping_add(960);
-        if i % 100 >= 60 {
+        let (mode, key, to, kind, want_key) = {
+            let wl = w.lock().unwrap();
+            let Some(v) = wl.voices.iter().find(|v| v.cssrc == cssrc) else { break };
+            if !v.e2ee || v.kind == Kind::Own {
+                continue;
+            }
+            (v.mode.clone(), v.key, v.client, v.kind, v.key_frame.clone())
+        };
+        let Some(to) = to else { continue };
+        let (assrc, vssrc) = if kind == Kind::Voice { (SPEAKER_SSRC, SPEAKER_SSRC + 1) } else { (SPEAKER_SSRC + 100, SPEAKER_SSRC + 101) };
+        if i % 3 == 0 {
+            let (wd, ht) = (320usize, 180usize);
+            let shift = (i / 3) as usize * 4;
+            let rgb: Vec<u8> = (0..wd * ht)
+                .flat_map(|p| {
+                    let (x, y) = (p % wd, p / wd);
+                    let check = ((x + shift) / 20 + y / 20) % 2 == 0;
+                    match (kind, check) {
+                        (Kind::Voice, true) => [0xed, 0x42, 0x45],
+                        (Kind::Voice, false) => [0x30, 0x10, 0x10],
+                        (_, true) => [0xf2, 0xf3, 0xf5],
+                        (_, false) => [0x30, 0x33, 0x38],
+                    }
+                })
+                .collect();
+            if want_key.swap(false, Ordering::Relaxed) {
+                venc.force_intra_frame();
+            }
+            let yuv = openh264::formats::YUVBuffer::from_rgb_source(openh264::formats::RgbSliceU8::new(&rgb, (wd, ht)));
+            let bits = venc.encode(&yuv).map(|b| b.to_vec()).unwrap_or_default();
+            let enc_frame = {
+                let mut wl = w.lock().unwrap();
+                let Some(v) = wl.voices.iter_mut().find(|v| v.cssrc == cssrc) else { break };
+                v.alice.encrypt(MediaType::VIDEO, davey::Codec::H264, &bits).map(|c| c.into_owned()).unwrap_or_default()
+            };
+            let vts = (i as u32).wrapping_mul(1800);
+            let parts = h264_payloads(&enc_frame);
+            let n = parts.len();
+            for (k, p) in parts.into_iter().enumerate() {
+                let mut h = vec![0x90, 101 | if k + 1 == n { 0x80 } else { 0 }];
+                h.extend_from_slice(&vseq.to_be_bytes());
+                h.extend_from_slice(&vts.to_be_bytes());
+                h.extend_from_slice(&vssrc.to_be_bytes());
+                h.extend_from_slice(&[0xbe, 0xde, 0x00, 0x01]);
+                let body = [&[0x51, 0x00, 0x00, 0x00][..], &p].concat();
+                nonce = nonce.wrapping_add(1);
+                let _ = udp.send_to(&seal(&mode, &key, &h, &body, nonce), to).await;
+                vseq = vseq.wrapping_add(1);
+            }
+            vsent += 1;
+        }
+        if kind != Kind::Voice || i % 100 >= 60 {
             continue;
         }
         for k in 0..960 {
@@ -872,21 +1107,17 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
             phase = (phase + std::f32::consts::TAU * 330.0 / 48_000.0) % std::f32::consts::TAU;
         }
         let Ok(n) = enc.encode(&frame, 960, &mut out) else { continue };
-        let (mode, key, to, opus) = {
+        let opus = {
             let mut wl = w.lock().unwrap();
-            let Some(v) = &mut wl.voice else { break };
-            if !v.e2ee {
-                continue;
-            }
+            let Some(v) = wl.voices.iter_mut().find(|v| v.cssrc == cssrc) else { break };
             let Ok(opus) = v.alice.encrypt_opus(&out[..n]).map(|c| c.into_owned()) else { continue };
-            (v.mode.clone(), v.key, v.client, opus)
+            opus
         };
-        let Some(to) = to else { continue };
         // one-element header extension (audio level), whose body is encrypted along with the opus data
         let mut h = vec![0x90, 0x78];
         h.extend_from_slice(&seq.to_be_bytes());
         h.extend_from_slice(&ts.to_be_bytes());
-        h.extend_from_slice(&SPEAKER_SSRC.to_be_bytes());
+        h.extend_from_slice(&assrc.to_be_bytes());
         h.extend_from_slice(&[0xbe, 0xde, 0x00, 0x01]);
         let body = [&[0x10, 0x5a, 0x00, 0x00][..], &opus].concat();
         nonce = nonce.wrapping_add(1);
@@ -894,7 +1125,7 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
         seq = seq.wrapping_add(1);
         sent += 1;
     }
-    log(&w, json!({ "t": now_ms(), "speaker_sent": sent }));
+    log(&w, json!({ "t": now_ms(), "speaker_sent": sent, "video_sent": vsent }));
 }
 
 #[tokio::main]
@@ -913,7 +1144,7 @@ async fn main() {
         events,
         voice_port,
         voice_chan: None,
-        voice: None,
+        voices: Vec::new(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");

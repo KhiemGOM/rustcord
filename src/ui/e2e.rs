@@ -173,11 +173,13 @@ impl Run {
         let sh = &app.voice.shared;
         let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
         let mic = sh.mic.load(std::sync::atomic::Ordering::Relaxed);
+        let fake_video = std::env::var_os("FASTCORD_FAKE_VIDEO").is_some();
         let mic_name = ["unknown", "none", "device", "fake"].get(mic as usize).copied().unwrap_or("?");
         self.voice = json!({
             "mic": mic_name,
             "packets_sent": n(&sh.sent), "voiced_sent": n(&sh.voiced), "packets_recv": n(&sh.recv), "frames_decoded": n(&sh.decoded),
             "e2ee_out": n(&sh.e2ee_out), "e2ee_in": n(&sh.e2ee_in),
+            "video_frames_in": n(&sh.video_in), "video_frames_out": n(&sh.video_out),
         });
         match self.step {
             0 => {
@@ -663,11 +665,90 @@ impl Run {
                 self.next(400);
             }
             62 => {
+                if app.voice.video.keys().any(|u| *u != me) {
+                    self.mark("video_in");
+                    self.next(0);
+                }
+            }
+            63 => {
+                let Some(r) = app.rects.get("voice:camera").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            64 => {
+                if app.voice.camera && app.voice.video.contains_key(&me) && n(&sh.video_out) > 10 {
+                    self.mark("camera_on");
+                    self.next(0);
+                }
+            }
+            65 => {
+                let Some(u) = app.voice.live.iter().copied().find(|u| *u != me) else { return };
+                let Some(r) = app.rects.get(&format!("voice:watch:{u}")).copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            66 => {
+                if app.voice.stream.as_ref().is_some_and(|l| !l.mine && l.state == State::Connected && l.frame.is_some()) {
+                    self.mark("stream_in");
+                    self.next(500);
+                }
+            }
+            67 => {
+                // real captures (warm run) stay out of the screenshots
+                if fake_video {
+                    self.shot(ctx, "video.png");
+                }
+                self.next(300);
+            }
+            68 => {
+                let Some(r) = app.rects.get("voice:stopstream").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            69 => {
+                if app.voice.stream.is_some() {
+                    return;
+                }
+                let Some(r) = app.rects.get("voice:screen").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            70 => {
+                if app.voice.stream.as_ref().is_some_and(|l| l.mine && l.state == State::Connected && l.frame.is_some()) {
+                    self.mark("stream_out");
+                    self.next(1500);
+                }
+            }
+            71 => {
+                if fake_video {
+                    self.shot(ctx, "golive.png");
+                }
+                self.next(300);
+            }
+            72 => {
+                let Some(r) = app.rects.get("voice:stopstream").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            73 => {
+                if app.voice.stream.is_some() {
+                    return;
+                }
+                let Some(r) = app.rects.get("voice:camera").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            74 => {
+                if !app.voice.camera {
+                    self.next(0);
+                }
+            }
+            75 => {
                 let Some(r) = app.rects.get("voice:mute").copied() else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            63 => {
+            76 => {
                 if !app.voice.mute {
                     return self.fail("mute button did nothing".into());
                 }
@@ -676,23 +757,23 @@ impl Run {
                 self.click(r.center());
                 self.next(300);
             }
-            64 => {
+            77 => {
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            65 => {
+            78 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("voice_left");
                     self.next(200);
                 }
             }
-            66 => {
+            79 => {
                 let Some(r) = app.rects.get("guild:home").copied() else { return };
                 self.click(r.center());
                 self.next(1200);
             }
-            67 => {
+            80 => {
                 let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else {
                     return self.fail("no dm".into());
                 };
@@ -701,29 +782,29 @@ impl Run {
                 self.click(r.center());
                 self.next(800);
             }
-            68 => {
+            81 => {
                 let Some(r) = app.rects.get("dm:call").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            69 => {
+            82 => {
                 if app.voice.state == State::Connected && app.voice.chan == Some(self.call) && heard {
                     self.mark("dm_call");
                     self.next(500);
                 }
             }
-            70 => {
+            83 => {
                 if heard {
                     self.shot(ctx, "dm_call.png");
                     self.next(300);
                 }
             }
-            71 => {
+            84 => {
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            72 => {
+            85 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("dm_left");
                     self.step = 99;

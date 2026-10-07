@@ -34,6 +34,11 @@ impl Grab {
         r.map_err(|e| e.message().to_string())
     }
 
+    /// The camera's ReadSample blocks until the next frame, so it sets its own pace.
+    pub fn paced(&self) -> bool {
+        matches!(self, Grab::Camera(_))
+    }
+
     pub fn size(&self) -> (usize, usize) {
         match self {
             Grab::Fake { screen: true, .. } => (1280, 720),

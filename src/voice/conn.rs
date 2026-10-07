@@ -859,17 +859,20 @@ async fn discover(udp: &UdpSocket, ssrc: u32) -> Result<(String, u16), String> {
     req[0..2].copy_from_slice(&1u16.to_be_bytes());
     req[2..4].copy_from_slice(&70u16.to_be_bytes());
     req[4..8].copy_from_slice(&ssrc.to_be_bytes());
-    let mut buf = [0u8; 1500];
+    let mut buf = [0u8; 2048];
     for _ in 0..5 {
         udp.send(&req).await.map_err(|e| e.to_string())?;
-        let Ok(Ok(n)) = timeout(Duration::from_secs(1), udp.recv(&mut buf)).await else { continue };
-        if n < 74 || u16::from_be_bytes([buf[0], buf[1]]) != 2 {
-            continue;
+        // media can beat the reply here, so keep reading until this attempt's second is up
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while let Ok(Ok(n)) = timeout(deadline.saturating_duration_since(Instant::now()), udp.recv(&mut buf)).await {
+            if n < 74 || u16::from_be_bytes([buf[0], buf[1]]) != 2 {
+                continue;
+            }
+            let ip = &buf[8..72];
+            let end = ip.iter().position(|b| *b == 0).unwrap_or(ip.len());
+            let ip = String::from_utf8_lossy(&ip[..end]).to_string();
+            return Ok((ip, u16::from_be_bytes([buf[72], buf[73]])));
         }
-        let ip = &buf[8..72];
-        let end = ip.iter().position(|b| *b == 0).unwrap_or(ip.len());
-        let ip = String::from_utf8_lossy(&ip[..end]).to_string();
-        return Ok((ip, u16::from_be_bytes([buf[72], buf[73]])));
     }
     Err("ip discovery failed".into())
 }
