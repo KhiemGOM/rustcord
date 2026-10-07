@@ -1,24 +1,45 @@
-//! Tiny fake Discord for the e2e harness: REST + CDN over plain HTTP, gateway over ws.
-//! usage: mockcord <http_port> <ws_port> <request_log.jsonl>
+//! Tiny fake Discord for the e2e harness: REST + CDN over plain HTTP, gateway over ws,
+//! and a voice server (ws + udp on the same port number) with one fake speaker.
+//! usage: mockcord <http_port> <ws_port> <request_log.jsonl> [voice_port]
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use aes_gcm::Aes256Gcm;
+use aes_gcm::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::XChaCha20Poly1305;
 use std::io::Write;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 const GENERAL: u64 = 2011;
+const SPEAKER: u64 = 101;
+const SPEAKER_SSRC: u32 = 2001;
+const CLIENT_SSRC: u32 = 1001;
 
 struct World {
     msgs: Vec<Value>,
     log: std::fs::File,
     events: broadcast::Sender<Value>,
+    voice_port: u16,
+    voice_chan: Option<(Option<u64>, u64)>,
+    voice: Option<Voice>,
+}
+
+// what the current voice session agreed on
+struct Voice {
+    mode: String,
+    key: [u8; 32],
+    client: Option<SocketAddr>,
+    dec: opus_rs::OpusDecoder,
+    live: Arc<AtomicBool>,
 }
 
 type W = Arc<Mutex<World>>;
@@ -469,7 +490,10 @@ async fn ws_conn(s: TcpStream, w: W) {
                 let v: Value = serde_json::from_str(&t).unwrap_or_default();
                 {
                     let mut wl = w.lock().unwrap();
-                    let line = json!({ "t": now_ms(), "gateway_op": v["op"] });
+                    let mut line = json!({ "t": now_ms(), "gateway_op": v["op"] });
+                    if v["op"] == 4 {
+                        line["d"] = v["d"].clone();
+                    }
                     let _ = writeln!(wl.log, "{line}");
                 }
                 let out: Vec<(String, Value)> = match v["op"].as_u64() {
@@ -487,6 +511,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                         ]
                     }
                     Some(6) => vec![("RESUMED".into(), json!({}))],
+                    Some(4) => voice_state(&w, &v["d"]),
                     Some(37) => vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())],
                     Some(8) => {
                         let members: Vec<Value> = v["d"]["user_ids"]
@@ -518,12 +543,244 @@ async fn ws_conn(s: TcpStream, w: W) {
     }
 }
 
+// op 4 on the main gateway: echo our voice state, and hand out the voice server on a channel change
+fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
+    let guild = d["guild_id"].as_str().and_then(|g| g.parse::<u64>().ok());
+    let chan = d["channel_id"].as_str().and_then(|c| c.parse::<u64>().ok());
+    let mut wl = w.lock().unwrap();
+    let moved = chan.map(|c| (guild, c)) != wl.voice_chan;
+    wl.voice_chan = chan.map(|c| (guild, c));
+    let mut m = member(ME);
+    m["user"] = user(ME);
+    let me = json!({
+        "guild_id": guild.map(|g| g.to_string()), "channel_id": chan.map(|c| c.to_string()), "user_id": ME.to_string(),
+        "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": false,
+        "mute": false, "deaf": false, "suppress": false, "member": m,
+    });
+    let mut out = vec![("VOICE_STATE_UPDATE".to_string(), me)];
+    let Some(ch) = chan else { return out };
+    if !moved {
+        return out;
+    }
+    let endpoint = format!("ws://127.0.0.1:{}", wl.voice_port);
+    match guild {
+        Some(g) => out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": g.to_string(), "endpoint": endpoint }))),
+        None => {
+            // a DM call: Alice picks up right away
+            out.push(("CALL_CREATE".into(), json!({ "channel_id": ch.to_string(), "message_id": "1", "region": "local",
+                "ringing": [], "voice_states": [{ "user_id": ME.to_string(), "channel_id": ch.to_string(), "session_id": "mock-voice-session" }] })));
+            out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": null, "channel_id": ch.to_string(), "endpoint": endpoint })));
+            out.push(("VOICE_STATE_UPDATE".into(), json!({ "guild_id": null, "channel_id": ch.to_string(), "user_id": SPEAKER.to_string(),
+                "session_id": "other", "self_mute": false, "self_deaf": false })));
+        }
+    }
+    out
+}
+
+fn log(w: &W, line: Value) {
+    let mut wl = w.lock().unwrap();
+    let _ = writeln!(wl.log, "{line}");
+}
+
+fn seal(mode: &str, key: &[u8; 32], header: &[u8], body: &[u8], nonce: u32) -> Vec<u8> {
+    let mut n = [0u8; 24];
+    n[..4].copy_from_slice(&nonce.to_be_bytes());
+    let p = Payload { msg: body, aad: header };
+    let ct = if mode == "aead_aes256_gcm_rtpsize" {
+        Aes256Gcm::new_from_slice(key).unwrap().encrypt(n[..12].into(), p).unwrap()
+    } else {
+        XChaCha20Poly1305::new_from_slice(key).unwrap().encrypt(&n.into(), p).unwrap()
+    };
+    [header, &ct, &nonce.to_be_bytes()].concat()
+}
+
+fn open_rtp(mode: &str, key: &[u8; 32], pkt: &[u8]) -> Option<Vec<u8>> {
+    let cc = (pkt[0] & 0x0f) as usize;
+    let ext = pkt[0] & 0x10 != 0;
+    let hl = 12 + cc * 4 + if ext { 4 } else { 0 };
+    if pkt.len() < hl + 20 {
+        return None;
+    }
+    let mut n = [0u8; 24];
+    n[..4].copy_from_slice(&pkt[pkt.len() - 4..]);
+    let p = Payload { msg: &pkt[hl..pkt.len() - 4], aad: &pkt[..hl] };
+    let mut plain = if mode == "aead_aes256_gcm_rtpsize" {
+        Aes256Gcm::new_from_slice(key).ok()?.decrypt(n[..12].into(), p).ok()?
+    } else {
+        XChaCha20Poly1305::new_from_slice(key).ok()?.decrypt(&n.into(), p).ok()?
+    };
+    if ext {
+        let words = u16::from_be_bytes([pkt[hl - 2], pkt[hl - 1]]) as usize;
+        plain.drain(..(words * 4).min(plain.len()));
+    }
+    Some(plain)
+}
+
+async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
+    let Ok(ws) = tokio_tungstenite::accept_async(s).await else { return };
+    let (mut tx, mut rx) = ws.split();
+    let mut seq = 0u64;
+    let live = Arc::new(AtomicBool::new(true));
+    let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 13750.0 } }).to_string())).await;
+    while let Some(Ok(m)) = rx.next().await {
+        let t = match m {
+            Ws::Text(t) => t,
+            Ws::Binary(b) => {
+                log(&w, json!({ "t": now_ms(), "voice_bin": b.first() }));
+                continue;
+            }
+            Ws::Close(_) => break,
+            _ => continue,
+        };
+        let v: Value = serde_json::from_str(&t).unwrap_or_default();
+        let d = &v["d"];
+        let mut line = json!({ "t": now_ms(), "voice_op": v["op"] });
+        let mut out: Vec<Value> = Vec::new();
+        match v["op"].as_u64() {
+            Some(0) => {
+                line["d"] = d.clone();
+                out.push(json!({ "op": 2, "d": { "ssrc": CLIENT_SSRC, "ip": "127.0.0.1", "port": w.lock().unwrap().voice_port,
+                    "modes": ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"], "heartbeat_interval": 1 } }));
+            }
+            Some(1) => {
+                line["d"] = d.clone();
+                let mode = d["data"]["mode"].as_str().unwrap_or("").to_string();
+                let mut key = [0u8; 32];
+                let mut x = now_ms() | 1;
+                for b in key.iter_mut() {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    *b = x as u8;
+                }
+                {
+                    let mut wl = w.lock().unwrap();
+                    let client = wl.voice.as_ref().and_then(|v| v.client);
+                    if let Some(old) = &wl.voice {
+                        old.live.store(false, Ordering::Relaxed);
+                    }
+                    wl.voice = Some(Voice { mode: mode.clone(), key, client, dec: opus_rs::OpusDecoder::new(48_000, 2).unwrap(), live: live.clone() });
+                }
+                out.push(json!({ "op": 4, "d": { "mode": mode, "secret_key": key.to_vec(), "dave_protocol_version": 0,
+                    "audio_codec": "opus", "media_session_id": "mock-media" } }));
+                out.push(json!({ "op": 11, "d": { "user_ids": [SPEAKER.to_string()] } }));
+                out.push(json!({ "op": 5, "d": { "user_id": SPEAKER.to_string(), "ssrc": SPEAKER_SSRC, "speaking": 1 } }));
+                tokio::spawn(speaker(w.clone(), udp.clone(), live.clone()));
+            }
+            Some(3) => {
+                line["seq_ack"] = d["seq_ack"].clone();
+                let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
+            }
+            Some(5) => line["speaking"] = d["speaking"].clone(),
+            Some(7) => out.push(json!({ "op": 9, "d": null })),
+            _ => {}
+        }
+        log(&w, line);
+        for mut o in out {
+            seq += 1;
+            o["seq"] = json!(seq);
+            if tx.send(Ws::text(o.to_string())).await.is_err() {
+                break;
+            }
+        }
+    }
+    live.store(false, Ordering::Relaxed);
+    log(&w, json!({ "t": now_ms(), "voice_closed": true }));
+}
+
+async fn voice_udp(w: W, udp: Arc<UdpSocket>) {
+    let mut buf = [0u8; 2048];
+    let mut pcm = vec![0f32; 1920];
+    while let Ok((n, from)) = udp.recv_from(&mut buf).await {
+        let pkt = &buf[..n];
+        if n == 74 && pkt[1] == 1 {
+            let mut r = [0u8; 74];
+            r[0..2].copy_from_slice(&2u16.to_be_bytes());
+            r[2..4].copy_from_slice(&70u16.to_be_bytes());
+            r[4..8].copy_from_slice(&pkt[4..8]);
+            r[8..17].copy_from_slice(b"127.0.0.1");
+            r[72..74].copy_from_slice(&from.port().to_be_bytes());
+            let _ = udp.send_to(&r, from).await;
+            if let Some(v) = &mut w.lock().unwrap().voice {
+                v.client = Some(from);
+            }
+            log(&w, json!({ "t": now_ms(), "voice_discovery": from.to_string() }));
+            continue;
+        }
+        if n < 12 {
+            continue;
+        }
+        let line = {
+            let mut wl = w.lock().unwrap();
+            let Some(v) = &mut wl.voice else { continue };
+            v.client = Some(from);
+            let plain = open_rtp(&v.mode, &v.key, pkt);
+            let silence = plain.as_deref() == Some(&[0xf8, 0xff, 0xfe][..]);
+            let mut level = None;
+            if let Some(p) = plain.as_deref().filter(|_| !silence)
+                && v.dec.decode(p, 960, &mut pcm).is_ok()
+            {
+                level = Some((pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt());
+            }
+            json!({ "t": now_ms(), "voice_rtp": u16::from_be_bytes([pkt[2], pkt[3]]), "ssrc": u32::from_be_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]),
+                    "pt": pkt[1] & 0x7f, "decrypted": plain.is_some(), "silence": silence, "level": level })
+        };
+        log(&w, line);
+    }
+}
+
+// Alice: a quiet 330Hz tone, 1.2s on and 0.8s off, sent the way Discord's SFU forwards it
+async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
+    let mut enc = opus_rs::OpusEncoder::new(48_000, 2, opus_rs::Application::Audio).unwrap();
+    let mut tick = tokio::time::interval(Duration::from_millis(20));
+    let (mut seq, mut ts, mut nonce, mut phase) = (0u16, 0u32, 0u32, 0f32);
+    let mut frame = vec![0f32; 1920];
+    let mut out = [0u8; 1276];
+    let mut sent = 0u32;
+    for i in 0u64.. {
+        tick.tick().await;
+        if !live.load(Ordering::Relaxed) {
+            break;
+        }
+        ts = ts.wrapping_add(960);
+        if i % 100 >= 60 {
+            continue;
+        }
+        for k in 0..960 {
+            let x = 0.06 * phase.sin();
+            frame[k * 2] = x;
+            frame[k * 2 + 1] = x;
+            phase = (phase + std::f32::consts::TAU * 330.0 / 48_000.0) % std::f32::consts::TAU;
+        }
+        let Ok(n) = enc.encode(&frame, 960, &mut out) else { continue };
+        let (mode, key, to) = {
+            let wl = w.lock().unwrap();
+            let Some(v) = &wl.voice else { break };
+            (v.mode.clone(), v.key, v.client)
+        };
+        let Some(to) = to else { continue };
+        // one-element header extension (audio level), whose body is encrypted along with the opus data
+        let mut h = vec![0x90, 0x78];
+        h.extend_from_slice(&seq.to_be_bytes());
+        h.extend_from_slice(&ts.to_be_bytes());
+        h.extend_from_slice(&SPEAKER_SSRC.to_be_bytes());
+        h.extend_from_slice(&[0xbe, 0xde, 0x00, 0x01]);
+        let body = [&[0x10, 0x5a, 0x00, 0x00][..], &out[..n]].concat();
+        nonce = nonce.wrapping_add(1);
+        let _ = udp.send_to(&seal(&mode, &key, &h, &body, nonce), to).await;
+        seq = seq.wrapping_add(1);
+        sent += 1;
+    }
+    log(&w, json!({ "t": now_ms(), "speaker_sent": sent }));
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let http_port: u16 = args.get(1).and_then(|p| p.parse().ok()).unwrap_or(7701);
     let ws_port: u16 = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(7702);
     let log = args.get(3).cloned().unwrap_or_else(|| "mock_requests.jsonl".into());
+    let voice_port: u16 = args.get(4).and_then(|p| p.parse().ok()).unwrap_or(ws_port + 1);
     let cdn = format!("http://127.0.0.1:{http_port}/cdn");
     PORT.store(http_port, std::sync::atomic::Ordering::Relaxed);
     let (events, _) = broadcast::channel(256);
@@ -531,11 +788,23 @@ async fn main() {
         msgs: seed(&cdn),
         log: std::fs::File::create(&log).expect("log file"),
         events,
+        voice_port,
+        voice_chan: None,
+        voice: None,
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");
     let ws = TcpListener::bind(("127.0.0.1", ws_port)).await.expect("bind ws");
-    println!("mockcord http={http_port} ws={ws_port}");
+    let vws = TcpListener::bind(("127.0.0.1", voice_port)).await.expect("bind voice ws");
+    let udp = Arc::new(UdpSocket::bind(("127.0.0.1", voice_port)).await.expect("bind voice udp"));
+    println!("mockcord http={http_port} ws={ws_port} voice={voice_port}");
+    tokio::spawn(voice_udp(w.clone(), udp.clone()));
+    let w3 = w.clone();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = vws.accept().await {
+            tokio::spawn(voice_conn(s, w3.clone(), udp.clone()));
+        }
+    });
     let w2 = w.clone();
     tokio::spawn(async move {
         while let Ok((s, _)) = ws.accept().await {
