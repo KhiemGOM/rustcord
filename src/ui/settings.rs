@@ -8,14 +8,16 @@ pub enum Page {
     Account,
     Appearance,
     Notifications,
+    Voice,
     Advanced,
 }
 
-const PAGES: [(&str, Option<(Page, &str)>); 6] = [
+const PAGES: [(&str, Option<(Page, &str)>); 7] = [
     ("USER SETTINGS", None),
     ("", Some((Page::Account, "My Account"))),
     ("APP SETTINGS", None),
     ("", Some((Page::Appearance, "Appearance"))),
+    ("", Some((Page::Voice, "Voice & Video"))),
     ("", Some((Page::Notifications, "Notifications"))),
     ("", Some((Page::Advanced, "Advanced"))),
 ];
@@ -44,6 +46,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     }
                     Some((p, label)) => {
                         let row = egui::Rect::from_min_size(pos2(x, r.top() + 1.0), vec2(192.0, 32.0));
+                        app.rects.insert(format!("settings:{label}"), row);
                         let selected = p == page;
                         if selected {
                             ui.painter().rect_filled(row, CornerRadius::same(4), BG_MOD_SELECTED);
@@ -84,6 +87,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             Page::Account => account(app, ui, &mut logout),
                             Page::Appearance => changed |= appearance(app, ui),
                             Page::Notifications => changed |= notifications(app, ui),
+                            Page::Voice => changed |= super::call::settings(app, ui),
                             Page::Advanced => changed |= advanced(app, ui),
                         }
                     });

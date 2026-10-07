@@ -644,11 +644,29 @@ impl Run {
                 }
             }
             58 => {
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            59 => {
+                let Some(r) = app.rects.get("settings:Voice & Video").copied() else { return };
+                self.click(r.center());
+                self.next(1500);
+            }
+            60 => {
+                self.shot(ctx, "settings_voice.png");
+                self.next(300);
+            }
+            61 => {
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            62 => {
                 let Some(r) = app.rects.get("voice:mute").copied() else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            59 => {
+            63 => {
                 if !app.voice.mute {
                     return self.fail("mute button did nothing".into());
                 }
@@ -657,23 +675,23 @@ impl Run {
                 self.click(r.center());
                 self.next(300);
             }
-            60 => {
+            64 => {
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            61 => {
+            65 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("voice_left");
                     self.next(200);
                 }
             }
-            62 => {
+            66 => {
                 let Some(r) = app.rects.get("guild:home").copied() else { return };
                 self.click(r.center());
                 self.next(1200);
             }
-            63 => {
+            67 => {
                 let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else {
                     return self.fail("no dm".into());
                 };
@@ -682,29 +700,29 @@ impl Run {
                 self.click(r.center());
                 self.next(800);
             }
-            64 => {
+            68 => {
                 let Some(r) = app.rects.get("dm:call").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            65 => {
+            69 => {
                 if app.voice.state == State::Connected && app.voice.chan == Some(self.call) && heard {
                     self.mark("dm_call");
                     self.next(500);
                 }
             }
-            66 => {
+            70 => {
                 if heard {
                     self.shot(ctx, "dm_call.png");
                     self.next(300);
                 }
             }
-            67 => {
+            71 => {
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            68 => {
+            72 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("dm_left");
                     self.step = 99;

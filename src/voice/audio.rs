@@ -8,7 +8,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::f32::consts::TAU;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering::Relaxed};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -26,6 +26,10 @@ pub struct Shared {
     pub mute: AtomicBool,
     pub deaf: AtomicBool,
     pub vad_db: AtomicI32,
+    /// input level of the last mic frame, dBFS
+    pub level: AtomicI32,
+    /// (mic, speaker) by name, None for the system default
+    pub devices: Mutex<(Option<String>, Option<String>)>,
     pub sent: AtomicU64,
     pub voiced: AtomicU64,
     pub recv: AtomicU64,
@@ -39,6 +43,8 @@ impl Default for Shared {
             mute: AtomicBool::new(false),
             deaf: AtomicBool::new(false),
             vad_db: AtomicI32::new(-50),
+            level: AtomicI32::new(-100),
+            devices: Mutex::new((None, None)),
             sent: AtomicU64::new(0),
             voiced: AtomicU64::new(0),
             recv: AtomicU64::new(0),
@@ -89,11 +95,18 @@ pub fn start(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>) -> (Engine, V
 // cpal streams aren't Send everywhere, so they live and die on this thread
 fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<Consumer<f32>>, stop: Arc<AtomicBool>) {
     let host = cpal::default_host();
-    let _play = host.default_output_device().and_then(|d| playback(&d, cons, shared.clone()));
+    let (want_in, want_out) = shared.devices.lock().map(|d| d.clone()).unwrap_or_default();
+    let out_dev = want_out
+        .and_then(|n| host.output_devices().ok()?.find(|d| name(d) == n))
+        .or_else(|| host.default_output_device());
+    let _play = out_dev.and_then(|d| playback(&d, cons, shared.clone()));
     let fake = std::env::var_os("FASTCORD_FAKE_MIC").is_some();
     let mut mic = None;
     if !fake {
-        mic = host.default_input_device().and_then(|d| capture(&d));
+        let dev = want_in
+            .and_then(|n| host.input_devices().ok()?.find(|d| name(d) == n))
+            .or_else(|| host.default_input_device());
+        mic = dev.and_then(|d| capture(&d));
     }
     shared.mic.store(
         if fake {
@@ -175,6 +188,7 @@ impl Tx {
     fn frame(&mut self, pcm: &[f32]) {
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
         let db = 20.0 * (rms + 1e-9).log10();
+        self.shared.level.store(db.max(-100.0) as i32, Relaxed);
         let muted = self.shared.mute.load(Relaxed) || self.shared.deaf.load(Relaxed);
         if !muted && db > self.shared.vad_db.load(Relaxed) as f32 {
             self.hang = HANG;
@@ -204,6 +218,18 @@ impl Tx {
             }
         }
     }
+}
+
+fn name(d: &cpal::Device) -> String {
+    d.description().map(|d| d.name().to_string()).unwrap_or_default()
+}
+
+/// Input and output device names, for the settings page. Slow-ish on WASAPI, call it off the UI thread.
+pub fn devices() -> (Vec<String>, Vec<String>) {
+    let host = cpal::default_host();
+    let ins = host.input_devices().map(|it| it.map(|d| name(&d)).collect()).unwrap_or_default();
+    let outs = host.output_devices().map(|it| it.map(|d| name(&d)).collect()).unwrap_or_default();
+    (ins, outs)
 }
 
 type Mic = (cpal::Stream, Consumer<f32>, Lerp<1>);

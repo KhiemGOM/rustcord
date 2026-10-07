@@ -276,6 +276,14 @@ impl VoiceUi {
         None
     }
 
+    /// Device choice is read when a call starts; the VAD threshold applies live.
+    pub fn configure(&self, s: &crate::cache::Settings) {
+        self.shared.vad_db.store(s.vad_db, Relaxed);
+        if let Ok(mut d) = self.shared.devices.lock() {
+            *d = (s.mic.clone(), s.speaker.clone());
+        }
+    }
+
     pub fn is_speaking(&self, u: Id) -> bool {
         self.speaking.contains(&u)
     }
