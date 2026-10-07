@@ -1,6 +1,8 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Sense, Ui, pos2, vec2};
 
 use super::{App, avatar, badge, channel_title, icon_button, status_dot};
+use super::icons::{self, Icon};
+use super::text;
 use crate::state::{Channel, Id, Status, Store};
 use crate::theme::*;
 
@@ -71,7 +73,7 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
     header(ui, |ui| {
-        ui.add(egui::Label::new(egui::RichText::new(name).font(bold(16.0)).color(HEADER_PRIMARY)).truncate().selectable(false));
+        text::label(ui, &name, bold(16.0), HEADER_PRIMARY, Sense::hover());
     });
 
     let cur = app.cur();
@@ -205,9 +207,7 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
         CHANNEL_DEFAULT
     };
     let font = if selected || unread { semi(15.0) } else { reg(15.0) };
-    ui.painter()
-        .with_clip_rect(inner.shrink2(vec2(8.0, 0.0)))
-        .text(pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col);
+    text::paint(ui.painter(), pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col, inner.width() - 16.0);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -217,29 +217,24 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
 fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
     let col = if resp.hovered() { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
-    let chev = if collapsed { "›" } else { "⌄" };
+    let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
     let y = rect.center().y;
-    ui.painter().text(pos2(rect.left() + 10.0, y - if collapsed { 1.0 } else { 3.0 }), Align2::CENTER_CENTER, chev, semi(12.0), col);
-    ui.painter().with_clip_rect(rect.shrink2(vec2(8.0, 0.0))).text(
-        pos2(rect.left() + 18.0, y),
-        Align2::LEFT_CENTER,
-        name.to_uppercase(),
-        semi(12.0),
-        col,
-    );
+    icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(rect.left() + 10.0, y), vec2(12.0, 12.0)), col);
+    text::paint(ui.painter(), pos2(rect.left() + 18.0, y), Align2::LEFT_CENTER, &name.to_uppercase(), semi(12.0), col, rect.width() - 26.0);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
 }
 
-fn glyph(c: &Channel) -> &'static str {
+pub fn glyph(c: &Channel) -> Icon {
     match c.kind {
-        2 => "🔊",
-        13 => "📡",
-        5 => "📢",
-        15 | 16 => "💬",
-        _ => "#",
+        2 => Icon::Speaker,
+        13 => Icon::Stage,
+        5 => Icon::Megaphone,
+        15 | 16 => Icon::Forum,
+        10..=12 => Icon::Thread,
+        _ => Icon::Hash,
     }
 }
 
@@ -268,14 +263,19 @@ fn channel_row(ui: &mut Ui, c: &Channel, selected: bool, unread: bool, mentions:
             HEADER_PRIMARY,
         );
     }
-    let g = glyph(c);
-    let gfont = if g == "#" { reg(22.0) } else { reg(15.0) };
-    ui.painter().text(pos2(inner.left() + 16.0, row.center().y), Align2::CENTER_CENTER, g, gfont, if selected { HEADER_SECONDARY } else { CHANNEL_DEFAULT.gamma_multiply(if muted { 0.6 } else { 1.0 }) });
+    let icon_col = if selected {
+        HEADER_PRIMARY
+    } else if muted {
+        CHANNEL_MUTED
+    } else {
+        CHANNEL_DEFAULT
+    };
+    let ir = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
+    icons::draw(ui.painter(), glyph(c), ir, icon_col);
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if selected || unread { semi(16.0) } else { reg(16.0) };
-    ui.painter()
-        .with_clip_rect(Rect::from_x_y_ranges(inner.left()..=right, row.y_range()))
-        .text(pos2(inner.left() + 32.0, row.center().y), Align2::LEFT_CENTER, &c.name, font, col);
+    let left = inner.left() + 34.0;
+    text::paint(ui.painter(), pos2(left, row.center().y), Align2::LEFT_CENTER, &c.name, font, col, right - left);
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
     }
@@ -295,13 +295,7 @@ fn voice_users(ui: &mut Ui, store: &Store, gid: Id, ch: Id) {
         if let Some(user) = store.user(u) {
             avatar(ui, av, &user.avatar_url());
         }
-        ui.painter().text(
-            pos2(av.right() + 8.0, row.center().y),
-            Align2::LEFT_CENTER,
-            store.name_in(gid, u),
-            reg(14.0),
-            CHANNEL_DEFAULT,
-        );
+        text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), CHANNEL_DEFAULT, row.right() - av.right() - 16.0);
     }
 }
 
@@ -335,7 +329,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
             }
             let col = if app.friends { HEADER_PRIMARY } else if resp.hovered() { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
-            ui.painter().text(pos2(inner.left() + 24.0, row.center().y), Align2::CENTER_CENTER, "👥", reg(18.0), col);
+            icons::draw(ui.painter(), Icon::People, Rect::from_center_size(pos2(inner.left() + 24.0, row.center().y), vec2(24.0, 24.0)), col);
             ui.painter().text(pos2(inner.left() + 52.0, row.center().y), Align2::LEFT_CENTER, "Friends", semi(16.0), col);
             if pending > 0 {
                 badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
@@ -391,17 +385,18 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             Some(icon) => avatar(ui, av, &format!("{}/channel-icons/{}/{}.png?size=64", crate::api::cdn(), c.id, icon)),
             None => {
                 ui.painter().circle_filled(av.center(), 16.0, group_color(c.id));
-                ui.painter().text(av.center(), Align2::CENTER_CENTER, "👥", reg(15.0), Color32::WHITE);
+                icons::draw(ui.painter(), Icon::People, Rect::from_center_size(av.center(), vec2(20.0, 20.0)), Color32::WHITE);
             }
         }
     }
     let col = if selected || unread { HEADER_PRIMARY } else if hovered { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
     let mentions = store.mentions(c.id);
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     let font = if unread { semi(16.0) } else { reg(16.0) };
+    let tw = right - av.right() - 12.0;
+    let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     if c.kind == 3 {
-        clip.text(pos2(av.right() + 12.0, row.center().y - 8.0), Align2::LEFT_CENTER, title, font, col);
+        text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 8.0), Align2::LEFT_CENTER, title, font, col, tw);
         clip.text(
             pos2(av.right() + 12.0, row.center().y + 9.0),
             Align2::LEFT_CENTER,
@@ -410,7 +405,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             TEXT_MUTED,
         );
     } else {
-        clip.text(pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col);
+        text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw);
     }
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
@@ -469,7 +464,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.add_space(8.0);
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
-            ui.add(egui::Label::new(egui::RichText::new(name).font(semi(14.0)).color(HEADER_PRIMARY)).truncate().selectable(false));
+            text::label(ui, &name, semi(14.0), HEADER_PRIMARY, Sense::hover());
             let sub = match app.conn {
                 crate::net::Conn::Online => user.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
                 crate::net::Conn::Connecting => "Connecting…".into(),
@@ -480,13 +475,13 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
-            let gear = icon_button(ui, "⚙", 32.0, "User Settings");
+            let gear = icon_button(ui, Icon::Gear, 32.0, "User Settings");
             app.rects.insert("gear".into(), gear.rect);
             if gear.clicked() {
                 app.settings_page = Some(super::settings::Page::Account);
             }
-            icon_button(ui, "🎧", 32.0, "Deafen");
-            icon_button(ui, "🎤", 32.0, "Mute");
+            icon_button(ui, Icon::Headphones, 32.0, "Deafen");
+            icon_button(ui, Icon::Mic, 32.0, "Mute");
         });
     });
     if let Some(s) = status_pick {

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 use crate::api::{self, Api};
 use crate::gateway;
-use crate::state::Id;
+use crate::state::{Id, Page};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Conn {
@@ -21,7 +21,7 @@ pub enum Ev {
     Dispatch(String, Value),
     Conn(Conn),
     AuthFailed,
-    Messages { channel: Id, before: Option<Id>, list: Vec<Value> },
+    Messages { channel: Id, page: Page, list: Vec<Value> },
     MessagesFailed { channel: Id },
     SendFailed { channel: Id, nonce: String, err: String },
     LoggedIn(String),
@@ -41,6 +41,7 @@ pub enum Tag {
     Invite,
     OpenDm,
     Friend,
+    Commands(Id),
     Quiet,
 }
 
@@ -49,8 +50,9 @@ pub enum Cmd {
     Stop,
     Login { login: String, password: String },
     Mfa { ticket: String, code: String },
-    Messages { channel: Id, before: Option<Id> },
-    Send { channel: Id, content: String, nonce: String, reply: Option<Id>, files: Vec<PathBuf> },
+    Messages { channel: Id, page: Page },
+    Send { channel: Id, content: String, nonce: String, reply: Option<Id>, files: Vec<(PathBuf, String)> },
+    Interact(Value),
     Edit { channel: Id, id: Id, content: String },
     Delete { channel: Id, id: Id },
     React { channel: Id, id: Id, emoji: String, add: bool },
@@ -130,10 +132,10 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Mfa { ticket, code } => {
                 tokio::spawn(async move { login_result(&tx, a.mfa(&ticket, &code).await) });
             }
-            Cmd::Messages { channel, before } => {
+            Cmd::Messages { channel, page } => {
                 tokio::spawn(async move {
-                    match a.messages(channel, before).await {
-                        Ok(Value::Array(list)) => tx.send(Ev::Messages { channel, before, list }),
+                    match a.messages(channel, page).await {
+                        Ok(Value::Array(list)) => tx.send(Ev::Messages { channel, page, list }),
                         _ => tx.send(Ev::MessagesFailed { channel }),
                     }
                 });
@@ -179,6 +181,13 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
                         _ => tx.send(Ev::Rest { tag, res }),
+                    }
+                });
+            }
+            Cmd::Interact(payload) => {
+                tokio::spawn(async move {
+                    if let Err(e) = a.interact(payload).await {
+                        tx.send(Ev::Error(e));
                     }
                 });
             }

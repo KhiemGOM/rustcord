@@ -28,6 +28,7 @@ pub struct Run {
     text: String,
     error: Option<String>,
     done: bool,
+    rects: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Run {
@@ -50,6 +51,7 @@ impl Run {
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
             done: false,
+            rects: Default::default(),
         })
     }
 
@@ -143,11 +145,21 @@ impl Run {
             return;
         }
         ctx.request_repaint();
+        // layout snapshot for alignment checks against discord's metrics
+        for k in ["composer", "composer_text", "gear", "search", "friends"] {
+            if let Some(r) = app.rects.get(k) {
+                self.rects.insert(k.into(), json!([r.min.x, r.min.y, r.width(), r.height()]));
+            }
+        }
         if !self.queue.is_empty() || Instant::now() < self.wait {
             return;
         }
         if self.step < 99 && self.step_at.elapsed() > Duration::from_secs(20) {
-            self.fail(format!("timed out at step {}", self.step));
+            let jump = app.scroll_to.map(|(c, id)| {
+                let have = app.store.msgs.get(&c).is_some_and(|e| e.list.iter().any(|m| m.id == id));
+                format!(" scroll_to={id} loaded={have} tries={}", app.scroll_tries)
+            });
+            self.fail(format!("timed out at step {}{}", self.step, jump.unwrap_or_default()));
         }
         let msgs = |app: &App, ch: Id| app.store.msgs.get(&ch).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
         match self.step {
@@ -365,6 +377,142 @@ impl Run {
             }
             26 => {
                 self.key(Key::Escape);
+                let general = app.store.guilds.get(&self.target.0).and_then(|g| {
+                    g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "general"))
+                });
+                let Some(r) = general.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            27 => {
+                // @-mention through the autocomplete popup
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("@al".into())]);
+                self.next(400);
+            }
+            28 => {
+                if app.ac_open {
+                    self.shot(ctx, "mention_autocomplete.png");
+                    self.key(Key::Tab);
+                    self.queue.push_back(vec![Event::Text("ping from autocomplete".into())]);
+                    self.key(Key::Enter);
+                    self.mark("mention_ac");
+                    self.next(600);
+                }
+            }
+            29 => {
+                self.queue.push_back(vec![Event::Text("/rem".into())]);
+                self.next(600);
+            }
+            30 => {
+                if app.ac_open {
+                    self.shot(ctx, "slash_autocomplete.png");
+                    self.key(Key::Tab);
+                    self.queue.push_back(vec![Event::Text("water the plants".into())]);
+                    self.key(Key::Enter);
+                    self.next(0);
+                }
+            }
+            31 => {
+                let ch = app.cur().unwrap_or(0);
+                let replied = app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.content.contains("Reminder set")));
+                if replied {
+                    self.mark("slash");
+                    self.next(800);
+                }
+            }
+            32 => {
+                self.shot(ctx, "slash_reply.png");
+                let Some(r) = app.rects.get("button:snooze").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            33 => {
+                let ch = app.cur().unwrap_or(0);
+                if app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.content.contains("Snoozed"))) {
+                    self.mark("component");
+                    // what a screenshot tool would leave on the clipboard
+                    let img = image::RgbaImage::from_fn(160, 90, |x, y| image::Rgba([(x * 255 / 160) as u8, (y * 255 / 90) as u8, 200, 255]));
+                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                        let _ = cb.set_image(arboard::ImageData { width: 160, height: 90, bytes: img.into_raw().into() });
+                    }
+                    app.paste_files();
+                    self.next(1200);
+                }
+            }
+            34 => {
+                if !app.files.is_empty() {
+                    self.shot(ctx, "upload.png");
+                    let Some(r) = app.rects.get("composer").copied() else { return };
+                    self.click(r.center() + vec2(0.0, r.height() / 2.0 - 22.0));
+                    self.queue.push_back(vec![Event::Text("pasted screenshot".into())]);
+                    self.key(Key::Enter);
+                    self.mark("paste");
+                    self.next(1000);
+                }
+            }
+            35 => {
+                if !app.rects.contains_key("reply") {
+                    // scroll up a bit at a time until a reply preview is on screen
+                    if let Some(c) = app.rects.get("composer").copied() {
+                        self.queue.push_back(vec![Event::PointerMoved(c.center() - vec2(0.0, 200.0))]);
+                        self.queue.push_back(vec![Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0.0, 150.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: Modifiers::NONE,
+                        }]);
+                    }
+                    return;
+                }
+                // let the smooth scroll settle before aiming
+                self.next(600);
+            }
+            36 => {
+                let Some(r) = app.rects.get("reply").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            37 => {
+                if app.flash.is_some() {
+                    self.mark("jump");
+                    self.next(300);
+                }
+            }
+            38 => {
+                self.shot(ctx, "jump.png");
+                self.next(200);
+            }
+            39 => {
+                if !app.rects.contains_key("image") {
+                    if let Some(c) = app.rects.get("composer").copied() {
+                        self.queue.push_back(vec![Event::PointerMoved(c.center() - vec2(0.0, 200.0))]);
+                        self.queue.push_back(vec![Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0.0, 150.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: Modifiers::NONE,
+                        }]);
+                    }
+                    return;
+                }
+                self.next(600);
+            }
+            40 => {
+                let Some(r) = app.rects.get("image").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            41 => {
+                if app.viewer.is_some() {
+                    self.mark("viewer");
+                    self.next(1200);
+                }
+            }
+            42 => {
+                self.shot(ctx, "viewer.png");
+                self.key(Key::Escape);
                 self.step = 99;
             }
             _ => {
@@ -388,6 +536,7 @@ impl Run {
             "marks_ms": marks,
             "frame_cpu_ms": { "count": f.len(), "p50": pct(0.5), "p95": pct(0.95), "p99": pct(0.99), "max": pct(1.0) },
             "screenshots": self.shots,
+            "rects": self.rects,
         });
         let _ = std::fs::write(self.dir.join("results.json"), serde_json::to_string_pretty(&out).unwrap_or_default());
         ctx.send_viewport_cmd(ViewportCommand::Close);

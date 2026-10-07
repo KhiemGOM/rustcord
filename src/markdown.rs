@@ -123,12 +123,23 @@ impl B<'_, '_> {
     }
 }
 
-fn strong_emoji(c: char) -> bool {
-    matches!(c as u32, 0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0x2B00..=0x2BFF | 0x231A | 0x231B | 0x23E9..=0x23FA)
+fn is_emoji(c: char) -> bool {
+    let mut b = [0u8; 4];
+    emojis::get(c.encode_utf8(&mut b)).is_some()
 }
 
+// emoji even without a variation selector: the pictograph blocks, plus dingbats and
+// misc symbols the unicode data knows as emoji (so ✿ ★ ♪ in nicknames stay text)
+fn strong_emoji(c: char) -> bool {
+    match c as u32 {
+        0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0x2B00..=0x2BFF | 0x231A | 0x231B | 0x23E9..=0x23FA => is_emoji(c),
+        _ => false,
+    }
+}
+
+// only an emoji when followed by U+FE0F, e.g. © ™ ↔
 fn weak_emoji(c: char) -> bool {
-    matches!(c as u32, 0xA9 | 0xAE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2194..=0x21AA | 0x2300..=0x23FF | 0x24C2 | 0x25AA..=0x25FE | 0x2934 | 0x2935 | 0x3030 | 0x303D | 0x3297 | 0x3299)
+    c as u32 >= 0xA9 && is_emoji(c)
 }
 
 fn regional(c: char) -> bool {
@@ -169,6 +180,47 @@ pub fn take_emoji(s: &str) -> Option<usize> {
         }
     }
     Some(end)
+}
+
+/// One-line text for previews: mentions and custom emoji spelled out, markdown markers dropped.
+pub fn plain(src: &str, store: &Store, guild: Id) -> String {
+    let mut out = String::new();
+    let mut rest = src;
+    while let Some(i) = rest.find('<') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let end = rest.find('>').unwrap_or(0);
+        let inner = &rest[1..end.max(1)];
+        let sub = if end == 0 {
+            None
+        } else if let Some((_, name, _, _)) = custom_emoji(rest) {
+            Some(format!(":{name}:"))
+        } else if let Some(id) = inner.strip_prefix("@&").and_then(|x| x.parse::<Id>().ok()) {
+            Some(store.guilds.get(&guild).and_then(|g| g.roles.get(&id)).map(|r| format!("@{}", r.name)).unwrap_or_else(|| "@role".into()))
+        } else if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
+            Some(format!("@{}", store.name_in(guild, id)))
+        } else if let Some(id) = inner.strip_prefix('#').and_then(|x| x.parse::<Id>().ok()) {
+            Some(store.channels.get(&id).map(|c| format!("#{}", c.name)).unwrap_or_else(|| "#channel".into()))
+        } else {
+            None
+        };
+        match sub {
+            Some(s) => {
+                out.push_str(&s);
+                rest = &rest[end + 1..];
+            }
+            None => {
+                out.push('<');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    let mut s = out.replace('\n', " ");
+    for m in ["**", "__", "~~", "||", "```", "`"] {
+        s = s.replace(m, "");
+    }
+    s.trim().to_string()
 }
 
 pub fn twemoji(seq: &str) -> String {

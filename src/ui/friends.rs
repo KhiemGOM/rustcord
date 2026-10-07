@@ -2,6 +2,7 @@ use egui::{Align, Align2, CornerRadius, Frame, Layout, Margin, Rect, RichText, S
 use serde_json::json;
 
 use super::{App, avatar, button, icon_button, status_dot};
+use super::icons::Icon;
 use crate::net::Tag;
 use crate::state::{BLOCKED, FRIEND, INCOMING, Id, OUTGOING, Status};
 use crate::theme::*;
@@ -19,7 +20,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let r = ui.max_rect();
             ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, BG_TERTIARY));
             ui.horizontal_centered(|ui| {
-                ui.label(RichText::new("👥").font(reg(18.0)).color(CHANNEL_DEFAULT));
+                let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                super::icons::draw(ui.painter(), super::icons::Icon::People, r, CHANNEL_DEFAULT);
                 ui.label(RichText::new("Friends").font(semi(16.0)).color(HEADER_PRIMARY));
                 let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
                 ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, BG_ACCENT));
@@ -129,7 +131,7 @@ fn list(app: &mut App, ui: &mut Ui) {
             if kind == FRIEND {
                 status_dot(ui, av, st, if resp.hovered() { BG_MOD_HOVER } else { BG_PRIMARY });
             }
-            ui.painter().text(pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, app.store.name_in(0, uid), semi(16.0), HEADER_PRIMARY);
+            super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), HEADER_PRIMARY, row.width() - 160.0);
             let sub = match kind {
                 INCOMING => "Incoming Friend Request".to_string(),
                 OUTGOING => "Outgoing Friend Request".to_string(),
@@ -145,20 +147,20 @@ fn list(app: &mut App, ui: &mut Ui) {
             );
             match kind {
                 FRIEND => {
-                    if icon_button(&mut br, "💬", 36.0, "Message").clicked() {
+                    if icon_button(&mut br, Icon::Bubble, 36.0, "Message").clicked() {
                         act = Some((uid, "dm"));
                     }
                 }
                 INCOMING => {
-                    if icon_button(&mut br, "✖", 36.0, "Ignore").clicked() {
+                    if icon_button(&mut br, Icon::Close, 36.0, "Ignore").clicked() {
                         act = Some((uid, "remove"));
                     }
-                    if icon_button(&mut br, "✔", 36.0, "Accept").clicked() {
+                    if icon_button(&mut br, Icon::Check, 36.0, "Accept").clicked() {
                         act = Some((uid, "accept"));
                     }
                 }
                 _ => {
-                    if icon_button(&mut br, "✖", 36.0, if kind == BLOCKED { "Unblock" } else { "Cancel" }).clicked() {
+                    if icon_button(&mut br, Icon::Close, 36.0, if kind == BLOCKED { "Unblock" } else { "Cancel" }).clicked() {
                         act = Some((uid, "remove"));
                     }
                 }

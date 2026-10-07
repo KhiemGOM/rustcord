@@ -5,11 +5,29 @@ use crate::markdown::twemoji;
 use crate::state::{Emoji, ReactEmoji};
 use crate::theme::*;
 
-const COMMON: &str = "😀 grinning|😃 smiley|😄 smile|😁 grin|😆 laughing|😅 sweat_smile|🤣 rofl|😂 joy|🙂 slight_smile|🙃 upside_down|😉 wink|😊 blush|😇 innocent|🥰 smiling_face_with_hearts|😍 heart_eyes|🤩 star_struck|😘 kissing_heart|😋 yum|😛 stuck_out_tongue|😜 stuck_out_tongue_winking_eye|🤪 zany_face|😝 stuck_out_tongue_closed_eyes|🤑 money_mouth|🤗 hugging|🤭 hand_over_mouth|🤫 shushing_face|🤔 thinking|🤐 zipper_mouth|🤨 raised_eyebrow|😐 neutral_face|😑 expressionless|😶 no_mouth|😏 smirk|😒 unamused|🙄 rolling_eyes|😬 grimacing|😮‍💨 face_exhaling|🤥 lying_face|😌 relieved|😔 pensive|😪 sleepy|🤤 drooling_face|😴 sleeping|😷 mask|🤒 thermometer_face|🤕 head_bandage|🤢 nauseated_face|🤮 vomiting|🥵 hot_face|🥶 cold_face|🥴 woozy_face|😵 dizzy_face|🤯 exploding_head|🤠 cowboy|🥳 partying_face|😎 sunglasses|🤓 nerd|🧐 monocle|😕 confused|😟 worried|🙁 slight_frown|😮 open_mouth|😯 hushed|😲 astonished|😳 flushed|🥺 pleading_face|😦 frowning|😧 anguished|😨 fearful|😰 cold_sweat|😥 disappointed_relieved|😢 cry|😭 sob|😱 scream|😖 confounded|😣 persevere|😞 disappointed|😓 sweat|😩 weary|😫 tired_face|🥱 yawning_face|😤 triumph|😡 rage|😠 angry|🤬 face_with_symbols_over_mouth|😈 smiling_imp|👿 imp|💀 skull|💩 poop|🤡 clown|👻 ghost|👽 alien|🤖 robot|😺 smiley_cat|😹 joy_cat|😻 heart_eyes_cat|🙈 see_no_evil|🙉 hear_no_evil|🙊 speak_no_evil|💋 kiss|💯 100|💢 anger|💥 boom|💫 dizzy|💦 sweat_drops|💨 dash|💬 speech_balloon|💤 zzz|👋 wave|🤚 raised_back_of_hand|✋ raised_hand|🖖 vulcan|👌 ok_hand|🤌 pinched_fingers|🤏 pinching_hand|✌️ v|🤞 fingers_crossed|🤟 love_you_gesture|🤘 metal|🤙 call_me|👈 point_left|👉 point_right|👆 point_up_2|👇 point_down|☝️ point_up|👍 thumbsup|👎 thumbsdown|✊ fist|👊 punch|👏 clap|🙌 raised_hands|👐 open_hands|🤲 palms_up_together|🤝 handshake|🙏 pray|✍️ writing_hand|💪 muscle|🧠 brain|👀 eyes|👁️ eye|👅 tongue|👄 lips|🫡 saluting_face|🫠 melting_face|🫶 heart_hands|❤️ heart|🧡 orange_heart|💛 yellow_heart|💚 green_heart|💙 blue_heart|💜 purple_heart|🖤 black_heart|🤍 white_heart|🤎 brown_heart|💔 broken_heart|❣️ heart_exclamation|💕 two_hearts|💞 revolving_hearts|💓 heartbeat|💗 heartpulse|💖 sparkling_heart|💘 cupid|💝 gift_heart|🔥 fire|✨ sparkles|⭐ star|🌟 star2|⚡ zap|☀️ sunny|🌈 rainbow|❄️ snowflake|🌙 crescent_moon|🎉 tada|🎊 confetti_ball|🎈 balloon|🎁 gift|🏆 trophy|🥇 first_place|🎮 video_game|🎵 musical_note|🎶 notes|🍕 pizza|🍔 hamburger|🍟 fries|🌮 taco|🍣 sushi|🍩 doughnut|🍪 cookie|🎂 birthday|☕ coffee|🍺 beer|🍷 wine_glass|🥤 cup_with_straw|🐶 dog|🐱 cat|🦊 fox|🐻 bear|🐼 panda|🐸 frog|🐵 monkey_face|🐧 penguin|🐢 turtle|🐍 snake|🦀 crab|🐟 fish|🦆 duck|🦉 owl|🦄 unicorn|🐝 bee|🌸 cherry_blossom|🌹 rose|🌻 sunflower|🍀 four_leaf_clover|🌵 cactus|🌲 evergreen_tree|🚀 rocket|✈️ airplane|🚗 car|🏠 house|💻 computer|📱 iphone|⌨️ keyboard|🖥️ desktop|💾 floppy_disk|📷 camera|🔔 bell|📌 pushpin|📎 paperclip|🔒 lock|🔑 key|🔨 hammer|🛠️ tools|⚙️ gear|💡 bulb|📈 chart_with_upwards_trend|📉 chart_with_downwards_trend|✅ white_check_mark|☑️ ballot_box_with_check|✔️ heavy_check_mark|❌ x|❎ negative_squared_cross_mark|➕ heavy_plus_sign|➖ heavy_minus_sign|❓ question|❗ exclamation|‼️ bangbang|⚠️ warning|🚫 no_entry_sign|⛔ no_entry|🔴 red_circle|🟢 green_circle|🔵 blue_circle|🟡 yellow_circle|⬆️ arrow_up|⬇️ arrow_down|➡️ arrow_right|⬅️ arrow_left|🔁 repeat|🆗 ok|🆕 new|🆒 cool|🏳️‍🌈 rainbow_flag|🇺🇸 flag_us|🇬🇧 flag_gb|🇯🇵 flag_jp";
 
-fn common() -> impl Iterator<Item = (&'static str, &'static str)> {
-    COMMON.split('|').filter_map(|e| e.split_once(' '))
+/// Every emoji that has a shortcode, default skin tone only.
+pub fn common() -> impl Iterator<Item = (&'static str, &'static str)> {
+    emoji_list(None)
 }
+
+fn emoji_list(group: Option<emojis::Group>) -> impl Iterator<Item = (&'static str, &'static str)> {
+    emojis::iter()
+        .filter(move |e| group.is_none_or(|g| e.group() == g))
+        .filter(|e| e.skin_tone().is_none_or(|t| t == emojis::SkinTone::Default))
+        .filter_map(|e| Some((e.as_str(), e.shortcode()?)))
+}
+
+const GROUPS: [(emojis::Group, &str); 8] = [
+    (emojis::Group::SmileysAndEmotion, "PEOPLE"),
+    (emojis::Group::AnimalsAndNature, "NATURE"),
+    (emojis::Group::FoodAndDrink, "FOOD"),
+    (emojis::Group::Activities, "ACTIVITIES"),
+    (emojis::Group::TravelAndPlaces, "TRAVEL"),
+    (emojis::Group::Objects, "OBJECTS"),
+    (emojis::Group::Symbols, "SYMBOLS"),
+    (emojis::Group::Flags, "FLAGS"),
+];
 
 enum Chosen {
     Custom(Emoji),
@@ -56,9 +74,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             chosen = Some(Chosen::Custom(customs[i].clone()));
                         }, |i| format!(":{}:", customs[i].name));
                     }
-                    let uni: Vec<(&str, &str)> = common().filter(|(_, n)| ql.is_empty() || n.contains(&ql)).collect();
-                    if !uni.is_empty() {
-                        section(ui, "PEOPLE & THINGS");
+                    for (group, title) in GROUPS {
+                        let uni: Vec<(&str, &str)> = emoji_list(Some(group)).filter(|(_, n)| ql.is_empty() || n.contains(&ql)).collect();
+                        if uni.is_empty() {
+                            continue;
+                        }
+                        section(ui, title);
                         grid(ui, uni.len(), |ui, i, r| {
                             Image::from_uri(twemoji(uni[i].0)).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                         }, |i| {

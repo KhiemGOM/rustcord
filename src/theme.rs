@@ -61,7 +61,9 @@ pub fn role_color(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
-pub fn install(ctx: &egui::Context) {
+/// Font setup. `cjk` adds the big CJK/Hangul fallbacks (~30MB), which we load
+/// off the UI thread after the first frame so startup doesn't pay for them.
+pub fn fonts(cjk: bool) -> FontDefinitions {
     let mut f = FontDefinitions::default();
     let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()) + "\\Fonts\\";
     let mut add = |key: &str, file: &str| -> bool {
@@ -80,6 +82,9 @@ pub fn install(ctx: &egui::Context) {
     let code = add("code", "consola.ttf");
     // last resort for pictographs the ui fonts lack; egui draws its monochrome outlines
     let emoji = add("emoji", "seguiemj.ttf");
+    // channel names lean on things like "・" and "┃", and plenty of people write CJK
+    let yahei = cjk && add("cjk", "msyh.ttc");
+    let hangul = cjk && add("hangul", "malgun.ttf");
 
     let defaults = f.families[&FontFamily::Proportional].clone();
     let chain = |first: Option<&str>| {
@@ -91,6 +96,12 @@ pub fn install(ctx: &egui::Context) {
             v.push("sym".into());
         }
         v.extend(defaults.iter().cloned());
+        if yahei {
+            v.push("cjk".into());
+        }
+        if hangul {
+            v.push("hangul".into());
+        }
         if emoji {
             v.push("emoji".into());
         }
@@ -106,7 +117,11 @@ pub fn install(ctx: &egui::Context) {
     if code {
         f.families.get_mut(&FontFamily::Monospace).unwrap().insert(0, "code".into());
     }
-    ctx.set_fonts(f);
+    f
+}
+
+pub fn install(ctx: &egui::Context) {
+    ctx.set_fonts(fonts(false));
 
     let mut style = egui::Style::default();
     style.visuals = egui::Visuals::dark();

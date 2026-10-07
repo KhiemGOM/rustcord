@@ -82,13 +82,15 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         status_dot(ui, av, st, if hovered { BG_MOD_HOVER } else { BG_SECONDARY });
                     }
                     let color = store.role_color(gid, *uid).map(role_color).unwrap_or(HEADER_SECONDARY);
-                    let mut name = store.name_in(gid, *uid);
-                    if store.user(*uid).is_some_and(|u| u.bot) {
-                        name.push_str("  ·  APP");
+                    let name = store.name_in(gid, *uid);
+                    let bot = store.user(*uid).is_some_and(|u| u.bot);
+                    let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 36.0 } else { 0.0 };
+                    let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, &name, semi(15.0), color.gamma_multiply(fade), tw);
+                    if bot {
+                        let tag = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.5), vec2(30.0, 15.0));
+                        ui.painter().rect_filled(tag, CornerRadius::same(3), BLURPLE.gamma_multiply(fade.max(0.5)));
+                        ui.painter().text(tag.center(), Align2::CENTER_CENTER, "APP", semi(10.0), egui::Color32::WHITE);
                     }
-                    ui.painter()
-                        .with_clip_rect(Rect::from_x_y_ranges(av.right()..=inner.right() - 8.0, row.y_range()))
-                        .text(pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, name, semi(15.0), color.gamma_multiply(fade));
                 }
             }
         }
