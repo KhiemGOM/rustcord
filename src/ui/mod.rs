@@ -47,6 +47,7 @@ pub struct App {
     pub commands: HashMap<Id, composer::Commands>,
     v_down: bool,
     fonts_rx: Option<Receiver<egui::FontDefinitions>>,
+    cjk_loaded: bool,
     pub reply: Option<Id>,
     pub editing: Option<(Id, String)>,
     pub last_typing: Option<(Id, Instant)>,
@@ -129,13 +130,8 @@ impl App {
             aliases: HashMap::new(),
             commands: HashMap::new(),
             v_down: false,
-            fonts_rx: {
-                let (tx, rx) = std::sync::mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ = tx.send(crate::theme::fonts(true));
-                });
-                Some(rx)
-            },
+            fonts_rx: None,
+            cjk_loaded: false,
             reply: None,
             editing: None,
             last_typing: None,
@@ -732,9 +728,15 @@ impl eframe::App for App {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
         self.pump(&ctx);
-        if self.frames > 0
-            && let Some(f) = self.fonts_rx.as_ref().and_then(|rx| rx.try_recv().ok())
-        {
+        if !self.cjk_loaded && crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed) {
+            self.cjk_loaded = true;
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::theme::fonts(true));
+            });
+            self.fonts_rx = Some(rx);
+        }
+        if let Some(f) = self.fonts_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             ctx.set_fonts(f);
             self.fonts_rx = None;
         }
