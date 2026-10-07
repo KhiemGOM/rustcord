@@ -10,6 +10,7 @@ mod proto;
 mod state;
 mod theme;
 mod ui;
+mod voice;
 
 fn main() -> eframe::Result {
     let t0 = std::time::Instant::now();

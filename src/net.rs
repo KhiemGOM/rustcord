@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use crate::api::{self, Api};
 use crate::gateway;
 use crate::state::{Id, Page};
+use crate::voice;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Conn {
@@ -30,6 +31,7 @@ pub enum Ev {
     Error(String),
     Toast(String),
     Rest { tag: Tag, res: Result<Value, String> },
+    Voice(voice::Ev),
 }
 
 /// What a generic REST reply is for, so the UI knows where to put it.
@@ -63,6 +65,7 @@ pub enum Cmd {
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
+    Voice(voice::Cmd),
 }
 
 #[derive(Clone)]
@@ -109,6 +112,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let http = api::http();
     let mut api = Arc::new(Api::new(http.clone(), String::new()));
     let mut gw: Option<mpsc::UnboundedSender<Value>> = None;
+    let mut voice = voice::Link::default();
 
     while let Some(cmd) = rx.recv().await {
         let a = api.clone();
@@ -212,6 +216,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     let _ = a.typing(channel).await;
                 });
             }
+            Cmd::Voice(c) => voice.cmd(c, &tx),
         }
     }
 }
