@@ -152,7 +152,14 @@ impl VoiceUi {
         }
         let Some(c) = store.channels.get(&ch) else { return };
         if self.chan.is_some() {
+            // moving channels drops the stream connection and the camera along with the old call
+            if let Some(l) = self.stream.take() {
+                net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
+            }
             net.send(net::Cmd::Voice(Cmd::Leave));
+            self.camera = false;
+            self.video.clear();
+            self.tex.clear();
         }
         let ring = c.guild == 0 && !self.calls.get(&ch).is_some_and(|u| !u.is_empty());
         self.chan = Some(ch);
@@ -190,6 +197,7 @@ impl VoiceUi {
         }
         self.camera = false;
         self.video.clear();
+        self.tex.clear();
         self.chan = None;
         self.state = State::Idle;
         self.session = None;
@@ -279,6 +287,7 @@ impl VoiceUi {
     }
 
     pub fn end_stream(&mut self, net: &Net) {
+        self.tex.remove("stream");
         if let Some(l) = self.stream.take() {
             net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
             net.send(net::Cmd::Voice(Cmd::EndStream));
@@ -457,6 +466,7 @@ impl VoiceUi {
             }
             Kind::VideoOff(u) => {
                 self.video.remove(&u);
+                self.tex.remove(&format!("cam:{u}"));
             }
             Kind::Error(err) => return Some(err),
             Kind::State(s) => self.state = s,
