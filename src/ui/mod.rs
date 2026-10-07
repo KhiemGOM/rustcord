@@ -1,0 +1,526 @@
+mod chat;
+mod e2e;
+mod login;
+mod members;
+mod picker;
+mod rail;
+mod side;
+
+use egui::{Color32, CornerRadius, Frame, Image, Pos2, Rect, Sense, Ui, pos2, vec2};
+use serde_json::json;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
+
+use crate::cache::{self, UiState};
+use crate::net::{Cmd, Conn, Ev, Net};
+use crate::state::{Id, ReactEmoji, Status, Store};
+use crate::theme::*;
+
+pub enum Pick {
+    Composer,
+    React(Id, Id),
+}
+
+pub struct App {
+    pub net: Net,
+    rx: Receiver<Ev>,
+    pub store: Store,
+    pub ui: UiState,
+    pub token: Option<String>,
+    pub conn: Conn,
+    pub login: login::Form,
+    pub drafts: HashMap<Id, String>,
+    pub files: Vec<PathBuf>,
+    pub reply: Option<Id>,
+    pub editing: Option<(Id, String)>,
+    pub last_typing: Option<(Id, Instant)>,
+    pub heights: HashMap<(Id, bool), f32>,
+    pub heights_w: f32,
+    pub offsets: HashMap<Id, f32>,
+    pub scroll_fix: Option<(Id, f32)>,
+    pub revealed: HashSet<Id>,
+    pub picker: Option<(Pick, Pos2)>,
+    pub menu: Option<(Id, Id, Pos2)>,
+    pub confirm_delete: Option<(Id, Id)>,
+    pub bar: Option<(Id, Rect)>,
+    pub toast: Option<(String, Instant)>,
+    pub marker: Option<(Id, Id)>,
+    pub dm_filter: String,
+    pub focus_composer: bool,
+    pub rects: HashMap<String, Rect>,
+    e2e: Option<e2e::Run>,
+    win: Option<[f32; 2]>,
+    frames: u64,
+    save_at: Option<Instant>,
+}
+
+impl App {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        t0: Instant,
+        snap: std::thread::JoinHandle<Option<(Store, UiState)>>,
+    ) -> Self {
+        let ctx = cc.egui_ctx.clone();
+        crate::theme::install(&ctx);
+        egui_extras::install_image_loaders(&ctx);
+        let (net, rx) = Net::new(ctx.clone());
+        ctx.add_bytes_loader(std::sync::Arc::new(crate::imgcache::DiskLoader::new(
+            cache::dir().join("img"),
+            net.rt.clone(),
+        )));
+        let token = cache::token();
+        let (store, ui) = match (&token, snap.join().ok().flatten()) {
+            (Some(_), Some(s)) => s,
+            _ => Default::default(),
+        };
+        if let Some(t) = &token {
+            net.send(Cmd::Start(t.clone()));
+        }
+        let mut app = App {
+            net,
+            rx,
+            store,
+            ui,
+            token,
+            conn: Conn::Connecting,
+            login: Default::default(),
+            drafts: HashMap::new(),
+            files: Vec::new(),
+            reply: None,
+            editing: None,
+            last_typing: None,
+            heights: HashMap::new(),
+            heights_w: 0.0,
+            offsets: HashMap::new(),
+            scroll_fix: None,
+            revealed: HashSet::new(),
+            picker: None,
+            menu: None,
+            confirm_delete: None,
+            bar: None,
+            toast: None,
+            marker: None,
+            dm_filter: String::new(),
+            focus_composer: true,
+            rects: HashMap::new(),
+            e2e: e2e::Run::from_env(t0),
+            win: None,
+            frames: 0,
+            save_at: None,
+        };
+        if let Some(ch) = app.cur() {
+            app.open(ch);
+        }
+        app
+    }
+
+    pub fn cur(&self) -> Option<Id> {
+        let ch = *self.ui.chan.get(&self.ui.guild.unwrap_or(0))?;
+        self.store.channels.contains_key(&ch).then_some(ch)
+    }
+
+    pub fn select_guild(&mut self, g: Option<Id>) {
+        self.ui.guild = g;
+        let ch = match self.cur() {
+            Some(c) => Some(c),
+            None => match g {
+                Some(g) => side::first_channel(&self.store, g),
+                None => self.store.dms.first().copied(),
+            },
+        };
+        if let Some(c) = ch {
+            self.open(c);
+        }
+    }
+
+    pub fn open(&mut self, ch: Id) {
+        let Some(c) = self.store.channels.get(&ch) else { return };
+        let guild = c.guild;
+        if self.cur() != Some(ch) {
+            self.reply = None;
+            self.editing = None;
+            self.files.clear();
+        }
+        self.ui.chan.insert(guild, ch);
+        self.ui.recent.retain(|x| *x != ch);
+        self.ui.recent.insert(0, ch);
+        self.ui.recent.truncate(15);
+        self.focus_composer = true;
+        let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
+        self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
+        let e = self.store.msgs.entry(ch).or_default();
+        if !e.fresh && !e.loading {
+            e.loading = true;
+            self.net.send(Cmd::Messages { channel: ch, before: None });
+        }
+        if guild != 0 {
+            let mut chans = serde_json::Map::new();
+            chans.insert(ch.to_string(), json!([[0, 99]]));
+            self.net.send(Cmd::Gateway(json!({
+                "op": 37,
+                "d": { "subscriptions": { guild.to_string(): {
+                    "typing": true, "activities": true, "threads": true, "channels": chans
+                }}}
+            })));
+        }
+    }
+
+    // history from REST has no member objects; ask the gateway for the authors we haven't seen
+    fn request_members(&mut self, ch: Id) {
+        let Some(guild) = self.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0) else { return };
+        let known = self.store.members.get(&guild);
+        let mut ids: Vec<String> = Vec::new();
+        for m in self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default() {
+            let id = m.author.to_string();
+            if !known.is_some_and(|k| k.contains_key(&m.author)) && !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        if ids.is_empty() {
+            return;
+        }
+        ids.truncate(100);
+        self.net.send(Cmd::Gateway(json!({
+            "op": 8,
+            "d": { "guild_id": [guild.to_string()], "user_ids": ids, "presences": false }
+        })));
+    }
+
+    pub fn send_message(&mut self, ch: Id) {
+        let text = self.drafts.remove(&ch).unwrap_or_default();
+        let text = text.trim().to_string();
+        let files = std::mem::take(&mut self.files);
+        if text.is_empty() && files.is_empty() {
+            return;
+        }
+        let nonce = crate::state::make_nonce();
+        let reply = self.reply.take();
+        self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files });
+        self.last_typing = None;
+    }
+
+    pub fn react(&mut self, ch: Id, msg: Id, em: ReactEmoji, add: bool) {
+        self.net.send(Cmd::React { channel: ch, id: msg, emoji: em.api_name(), add });
+        self.store.react_local(ch, msg, em, add);
+    }
+
+    pub fn toast(&mut self, s: impl Into<String>) {
+        self.toast = Some((s.into(), Instant::now()));
+    }
+
+    pub fn logout(&mut self) {
+        self.net.send(Cmd::Stop);
+        cache::set_token(None);
+        self.token = None;
+        self.store = Store::default();
+        self.ui = UiState::default();
+    }
+
+    fn pump(&mut self) {
+        while let Ok(ev) = self.rx.try_recv() {
+            match ev {
+                Ev::Dispatch(t, d) => {
+                    if t == "READY" {
+                        if let Some(e) = &mut self.e2e {
+                            e.mark("ready");
+                        }
+                        self.save_at = Some(Instant::now() + Duration::from_secs(5));
+                    }
+                    self.store.apply(&t, &d);
+                    if t == "READY" {
+                        // cached channel lists can be stale, refetch whatever is open
+                        for m in self.store.msgs.values_mut() {
+                            m.fresh = false;
+                        }
+                        match self.cur() {
+                            Some(c) => self.open(c),
+                            None => self.select_guild(self.ui.guild.filter(|g| self.store.guilds.contains_key(g))),
+                        }
+                    }
+                }
+                Ev::Messages { channel, before, list } => {
+                    let n = self.store.set_messages(channel, before, &list);
+                    self.request_members(channel);
+                    if before.is_some() && n > 0 {
+                        let est: f32 = self.store.msgs[&channel].list[..n].iter().map(chat::estimate).sum();
+                        let off = self.offsets.get(&channel).copied().unwrap_or(0.0);
+                        self.scroll_fix = Some((channel, off + est));
+                    }
+                }
+                Ev::MessagesFailed { channel } => {
+                    if let Some(m) = self.store.msgs.get_mut(&channel) {
+                        m.loading = false;
+                        m.fresh = true;
+                    }
+                }
+                Ev::SendFailed { channel, nonce, err } => {
+                    self.store.fail_pending(channel, &nonce);
+                    self.toast(format!("Message failed to send: {err}"));
+                }
+                Ev::Conn(c) => self.conn = c,
+                Ev::AuthFailed => {
+                    self.logout();
+                    self.login.err = Some("Your session expired. Log in again.".into());
+                }
+                Ev::LoggedIn(t) => {
+                    cache::set_token(Some(&t));
+                    self.net.send(Cmd::Start(t.clone()));
+                    self.token = Some(t);
+                    self.login = Default::default();
+                }
+                Ev::NeedMfa(ticket) => {
+                    self.login.busy = false;
+                    self.login.mfa = Some(ticket);
+                }
+                Ev::LoginError(e) => {
+                    self.login.busy = false;
+                    self.login.err = Some(e);
+                }
+                Ev::Error(e) => self.toast(e),
+            }
+        }
+    }
+
+    fn ack_current(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.focused) {
+            return;
+        }
+        let Some(ch) = self.cur() else { return };
+        let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { return };
+        let r = self.store.reads.entry(ch).or_default();
+        if last > r.last_acked || r.mentions > 0 {
+            r.last_acked = last.max(r.last_acked);
+            r.mentions = 0;
+            if last != 0 {
+                self.net.send(Cmd::Ack { channel: ch, id: last });
+            }
+        }
+    }
+
+    fn overlays(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        if let Some((text, at)) = &self.toast {
+            if at.elapsed() > Duration::from_secs(4) {
+                self.toast = None;
+            } else {
+                let text = text.clone();
+                egui::Area::new("toast".into())
+                    .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -90.0))
+                    .order(egui::Order::Tooltip)
+                    .show(&ctx, |ui| {
+                        Frame::new()
+                            .fill(BG_FLOATING)
+                            .corner_radius(8)
+                            .inner_margin(egui::Margin::symmetric(16, 10))
+                            .show(ui, |ui| ui.label(egui::RichText::new(text).color(TEXT_NORMAL).font(reg(14.0))));
+                    });
+                ctx.request_repaint_after(Duration::from_millis(500));
+            }
+        }
+        if let Some((ch, id)) = self.confirm_delete {
+            let mut close = false;
+            let modal = egui::Modal::new("delete".into())
+                .frame(Frame::new().fill(BG_PRIMARY).corner_radius(8).inner_margin(16))
+                .show(&ctx, |ui| {
+                    ui.set_width(440.0);
+                    ui.label(egui::RichText::new("Delete Message").font(bold(20.0)).color(HEADER_PRIMARY));
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new("Are you sure you want to delete this message?").color(TEXT_NORMAL));
+                    ui.add_space(20.0);
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if button(ui, "Delete", RED, 96.0).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                self.net.send(Cmd::Delete { channel: ch, id });
+                                if let Some(m) = self.store.msgs.get_mut(&ch) {
+                                    m.list.retain(|m| m.id != id);
+                                }
+                                close = true;
+                            }
+                            if ui.add(egui::Label::new(egui::RichText::new("Cancel").color(HEADER_PRIMARY)).sense(Sense::click())).clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+                });
+            if close || modal.should_close() {
+                self.confirm_delete = None;
+            }
+        }
+        picker::show(self, &ctx);
+        chat::context_menu(self, &ctx);
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let started = Instant::now();
+        let ctx = ui.ctx().clone();
+        self.pump();
+        if self.frames == 0
+            && let Some(e) = &mut self.e2e
+        {
+            e.mark("first_frame");
+        }
+        if let Some(e) = &mut self.e2e {
+            e.screenshots(&ctx);
+        }
+
+        if self.token.is_none() {
+            login::show(self, ui);
+        } else {
+            let w = ctx.content_rect().width();
+            if (w - self.heights_w).abs() > 0.5 {
+                self.heights.clear();
+                self.heights_w = w;
+            }
+            egui::Panel::left("rail")
+                .exact_size(72.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(BG_TERTIARY))
+                .show(ui, |ui| rail::show(self, ui));
+            egui::Panel::left("side")
+                .exact_size(240.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(BG_SECONDARY))
+                .show(ui, |ui| side::show(self, ui));
+            egui::CentralPanel::default()
+                .frame(Frame::new().fill(BG_PRIMARY))
+                .show(ui, |ui| chat::show(self, ui));
+            self.overlays(ui);
+            self.ack_current(&ctx);
+            if self.store.prune_typing() {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+            if let Some(e) = &mut self.e2e
+                && self.frames > 0
+                && !self.store.guilds.is_empty()
+            {
+                e.mark_once("content");
+            }
+        }
+
+        if self.save_at.is_some_and(|t| Instant::now() >= t) {
+            self.save_at = None;
+            cache::save(&self.store, &self.ui);
+        }
+        if let Some(mut e) = self.e2e.take() {
+            e.step(self, &ctx);
+            e.frame_time(started.elapsed());
+            self.e2e = Some(e);
+        }
+        self.frames += 1;
+        self.win = ctx.input(|i| i.viewport().inner_rect).map(|r| [r.width(), r.height()]);
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if let Some(e) = &mut self.e2e {
+            e.inject(raw);
+        }
+        // dropping files on the window attaches them to the next message
+        for f in raw.dropped_files.drain(..) {
+            self.files.push(f.path().to_path_buf());
+        }
+    }
+
+    fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
+        BG_TERTIARY.to_normalized_gamma_f32()
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if self.token.is_some() {
+            cache::save(&self.store, &self.ui);
+        }
+        if let Some(w) = self.win {
+            cache::set_window(w);
+        }
+    }
+}
+
+pub fn avatar(ui: &Ui, rect: Rect, url: &str) {
+    ui.painter().circle_filled(rect.center(), rect.width() / 2.0, BG_ACCENT);
+    Image::from_uri(url.to_string())
+        .corner_radius(CornerRadius::same((rect.width() / 2.0) as u8))
+        .show_loading_spinner(false)
+        .paint_at(ui, rect);
+}
+
+pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
+    let r = (avatar.width() * 0.16).max(4.0);
+    let c = pos2(avatar.right() - r * 0.9, avatar.bottom() - r * 0.9);
+    ui.painter().circle_filled(c, r + 2.5, ring);
+    let col = status_color(s);
+    match s {
+        Status::Offline => {
+            ui.painter().circle_filled(c, r, col);
+            ui.painter().circle_filled(c, r * 0.45, ring);
+        }
+        Status::Idle => {
+            ui.painter().circle_filled(c, r, col);
+            ui.painter().circle_filled(c + vec2(-r * 0.45, -r * 0.45), r * 0.6, ring);
+        }
+        Status::Dnd => {
+            ui.painter().circle_filled(c, r, col);
+            ui.painter().rect_filled(
+                Rect::from_center_size(c, vec2(r * 1.2, r * 0.4)),
+                CornerRadius::same(2),
+                ring,
+            );
+        }
+        Status::Online => {
+            ui.painter().circle_filled(c, r, col);
+        }
+    }
+}
+
+pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
+    let text = if n > 99 { "99+".to_string() } else { n.to_string() };
+    let galley = ui.painter().layout_no_wrap(text, bold(12.0), Color32::WHITE);
+    let w = (galley.size().x + 10.0).max(16.0);
+    let rect = Rect::from_min_size(pos2(right_center.x - w, right_center.y - 8.0), vec2(w, 16.0));
+    if let Some(ring) = ring {
+        ui.painter().rect_filled(rect.expand(3.0), CornerRadius::same(11), ring);
+    }
+    ui.painter().rect_filled(rect, CornerRadius::same(8), RED);
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, Color32::WHITE);
+}
+
+pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
+    let fill = if resp.hovered() { fill.gamma_multiply(0.85) } else { fill };
+    ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, semi(14.0), Color32::WHITE);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+pub fn icon_button(ui: &mut Ui, glyph: &str, size: f32, tip: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+    let col = if resp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, CornerRadius::same(4), BG_MOD_HOVER);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, glyph, reg(size * 0.62), col);
+    resp.on_hover_text(tip)
+}
+
+pub fn channel_title(store: &Store, ch: Id) -> String {
+    let Some(c) = store.channels.get(&ch) else { return String::new() };
+    match c.kind {
+        1 => c.recipients.first().map(|u| store.name_in(0, *u)).unwrap_or_else(|| "Unknown".into()),
+        3 if c.name.is_empty() => c
+            .recipients
+            .iter()
+            .map(|u| store.name_in(0, *u))
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => c.name.clone(),
+    }
+}
