@@ -4,8 +4,10 @@ use super::{App, avatar, status_dot};
 use crate::state::{Id, ListItem, Status};
 use crate::theme::*;
 
-pub fn show(app: &App, ui: &mut Ui, gid: Id) {
+pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
+    let mut clicked = None;
     let store = &app.store;
+    let mut rects = Vec::new();
     let Some(g) = store.guilds.get(&gid) else { return };
 
     // until the gateway sends a member list, fall back to people we've seen talk
@@ -55,6 +57,13 @@ pub fn show(app: &App, ui: &mut Ui, gid: Id) {
                 }
                 ListItem::Member(uid) => {
                     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
+                    rects.push((*uid, row));
+                    if resp.clicked() {
+                        clicked = Some((*uid, row.left_top() - vec2(310.0, 0.0)));
+                    }
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
                     let inner = row.shrink2(vec2(8.0, 0.0));
                     let hovered = resp.hovered();
                     if hovered {
@@ -85,4 +94,10 @@ pub fn show(app: &App, ui: &mut Ui, gid: Id) {
         }
         ui.add_space(16.0);
     });
+    for (u, r) in rects {
+        app.rects.insert(format!("member:{u}"), r);
+    }
+    if let Some((u, at)) = clicked {
+        app.open_profile(u, gid, at);
+    }
 }

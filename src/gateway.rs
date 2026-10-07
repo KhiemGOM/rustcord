@@ -11,8 +11,8 @@ use crate::net::{Conn, Ev, Tx};
 
 const SUFFIX: [u8; 4] = [0, 0, 0xff, 0xff];
 
-// DEDUPE_USER_OBJECTS | PRIORITIZED_READY_PAYLOAD | VERSIONED_READ_STATES | ...
-const CAPABILITIES: u64 = 1 | 2 | 4 | 16 | 32;
+// DEDUPE_USER_OBJECTS | PRIORITIZED_READY_PAYLOAD | VERSIONED_READ_STATES | USER_SETTINGS_PROTO | ...
+const CAPABILITIES: u64 = 1 | 2 | 4 | 16 | 32 | 512;
 
 struct Session {
     id: String,

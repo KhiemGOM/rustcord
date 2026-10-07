@@ -2,6 +2,7 @@ use chrono::{Local, TimeZone};
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Align, Color32, FontId, Stroke};
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::api;
 use crate::state::{Id, Store};
@@ -9,7 +10,7 @@ use crate::theme::*;
 
 pub enum Link {
     Url(String),
-    User,
+    User(Id),
     Channel(Id),
     Spoiler,
 }
@@ -227,16 +228,23 @@ fn url_len(s: &str) -> usize {
     end
 }
 
+pub static CLOCK24: AtomicBool = AtomicBool::new(false);
+
+/// strftime for an hour:minute, honouring the 24h setting
+pub fn hm() -> &'static str {
+    if CLOCK24.load(Ordering::Relaxed) { "%H:%M" } else { "%-I:%M %p" }
+}
+
 pub fn fmt_ts(secs: i64, style: char) -> String {
     let Some(dt) = Local.timestamp_opt(secs, 0).single() else {
         return String::new();
     };
     let f = match style {
-        't' => "%-I:%M %p",
-        'T' => "%-I:%M:%S %p",
+        't' => hm(),
+        'T' => if CLOCK24.load(Ordering::Relaxed) { "%H:%M:%S" } else { "%-I:%M:%S %p" },
         'd' => "%m/%d/%Y",
         'D' => "%B %-d, %Y",
-        'F' => "%A, %B %-d, %Y %-I:%M %p",
+        'F' => return format!("{} {}", dt.format("%A, %B %-d, %Y"), dt.format(hm())),
         'R' => {
             let d = secs - Local::now().timestamp();
             let a = d.abs();
@@ -251,7 +259,7 @@ pub fn fmt_ts(secs: i64, style: char) -> String {
             let s = if n == 1 { "" } else { "s" };
             return if d < 0 { format!("{n} {unit}{s} ago") } else { format!("in {n} {unit}{s}") };
         }
-        _ => "%B %-d, %Y %-I:%M %p",
+        _ => return format!("{} {}", dt.format("%B %-d, %Y"), dt.format(hm())),
     };
     dt.format(f).to_string()
 }
@@ -424,7 +432,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
     }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
         let name = format!("@{}", b.cx.store.name_in(b.cx.guild, id));
-        pill(b, &name, Some(Link::User), MENTION_FG, MENTION_BG);
+        pill(b, &name, Some(Link::User(id)), MENTION_FG, MENTION_BG);
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('#').and_then(|x| x.parse::<Id>().ok()) {

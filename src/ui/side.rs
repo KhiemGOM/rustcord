@@ -77,11 +77,19 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let cur = app.cur();
     let mut open: Option<Id> = None;
     let mut toggle: Option<Id> = None;
+    let mut menu: Option<(Id, ChanAct)> = None;
+    let dev = app.settings.dev;
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(8.0);
             let store = &app.store;
+            let mut threads: Vec<&Channel> = store
+                .channels
+                .values()
+                .filter(|c| c.guild == gid && c.is_thread() && c.joined && !c.archived)
+                .collect();
+            threads.sort_by_key(|t| t.id);
             for (cat, kids) in tree(store, gid) {
                 let collapsed = cat.is_some_and(|c| app.ui.collapsed.contains(&c.id));
                 if let Some(cat) = cat {
@@ -96,10 +104,22 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     if collapsed && !selected && !unread {
                         continue;
                     }
-                    let r = channel_row(ui, c, selected, unread, store.mentions(c.id), store.muted.contains(&c.id));
+                    let muted = store.muted.contains(&c.id);
+                    let r = channel_row(ui, c, selected, unread, store.mentions(c.id), muted);
                     app.rects.insert(format!("chan:{}", c.id), r.rect);
                     if r.clicked() {
                         open = Some(c.id);
+                    }
+                    channel_menu(&r, c.id, muted, dev, &mut menu);
+                    let kids: Vec<&&Channel> = threads.iter().filter(|t| t.parent == c.id).collect();
+                    let n = kids.len();
+                    for (i, t) in kids.into_iter().enumerate() {
+                        let r = thread_row(ui, t, cur == Some(t.id), store.unread(t), i + 1 == n);
+                        app.rects.insert(format!("chan:{}", t.id), r.rect);
+                        if r.clicked() {
+                            open = Some(t.id);
+                        }
+                        channel_menu(&r, t.id, store.muted.contains(&t.id), dev, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
                         voice_users(ui, store, gid, c.id);
@@ -114,6 +134,13 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     {
         app.ui.collapsed.insert(c);
     }
+    match menu {
+        Some((c, ChanAct::Read)) => app.mark_read(&[c]),
+        Some((c, ChanAct::Mute(m))) => app.set_muted(c, false, m),
+        Some((c, ChanAct::Link)) => ui.ctx().copy_text(format!("https://discord.com/channels/{gid}/{c}")),
+        Some((c, ChanAct::CopyId)) => ui.ctx().copy_text(c.to_string()),
+        None => {}
+    }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
             app.toast("Voice isn't wired up yet in this build.");
@@ -121,6 +148,70 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             app.open(c);
         }
     }
+}
+
+enum ChanAct {
+    Read,
+    Mute(bool),
+    Link,
+    CopyId,
+}
+
+fn channel_menu(r: &egui::Response, id: Id, muted: bool, dev: bool, out: &mut Option<(Id, ChanAct)>) {
+    r.context_menu(|ui| {
+        ui.set_min_width(180.0);
+        if ui.button("Mark As Read").clicked() {
+            *out = Some((id, ChanAct::Read));
+            ui.close();
+        }
+        if ui.button(if muted { "Unmute Channel" } else { "Mute Channel" }).clicked() {
+            *out = Some((id, ChanAct::Mute(!muted)));
+            ui.close();
+        }
+        if ui.button("Copy Link").clicked() {
+            *out = Some((id, ChanAct::Link));
+            ui.close();
+        }
+        if dev && ui.button("Copy Channel ID").clicked() {
+            *out = Some((id, ChanAct::CopyId));
+            ui.close();
+        }
+    });
+}
+
+fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool) -> egui::Response {
+    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+    let spine = egui::Stroke::new(1.5, BG_ACCENT);
+    let x = row.left() + 24.0;
+    // the little tree branch the official client draws from the parent channel
+    ui.painter().line_segment([pos2(x, row.top() - 2.0), pos2(x, if last { row.center().y - 6.0 } else { row.bottom() + 2.0 })], spine);
+    ui.painter().add(egui::epaint::CubicBezierShape::from_points_stroke(
+        [pos2(x, row.center().y - 6.0), pos2(x, row.center().y), pos2(x, row.center().y), pos2(x + 8.0, row.center().y)],
+        false,
+        Color32::TRANSPARENT,
+        spine,
+    ));
+    let inner = Rect::from_min_max(pos2(row.left() + 36.0, row.top()), pos2(row.right() - 8.0, row.bottom()));
+    if selected {
+        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_SELECTED);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+    }
+    let col = if selected || unread {
+        HEADER_PRIMARY
+    } else if resp.hovered() {
+        INTERACTIVE_HOVER
+    } else {
+        CHANNEL_DEFAULT
+    };
+    let font = if selected || unread { semi(15.0) } else { reg(15.0) };
+    ui.painter()
+        .with_clip_rect(inner.shrink2(vec2(8.0, 0.0)))
+        .text(pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
 }
 
 fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
@@ -234,7 +325,26 @@ fn dms(app: &mut App, ui: &mut Ui) {
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
-            ui.add_space(16.0);
+            ui.add_space(8.0);
+            let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
+            let inner = row.shrink2(vec2(8.0, 0.0));
+            if app.friends {
+                ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_SELECTED);
+            } else if resp.hovered() {
+                ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+            }
+            let col = if app.friends { HEADER_PRIMARY } else if resp.hovered() { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
+            ui.painter().text(pos2(inner.left() + 24.0, row.center().y), Align2::CENTER_CENTER, "👥", reg(18.0), col);
+            ui.painter().text(pos2(inner.left() + 52.0, row.center().y), Align2::LEFT_CENTER, "Friends", semi(16.0), col);
+            if pending > 0 {
+                badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
+            }
+            app.rects.insert("friends".into(), row);
+            if resp.clicked() {
+                app.friends = true;
+            }
+            ui.add_space(8.0);
             let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
             ui.painter().text(pos2(h.left() + 18.0, h.center().y), Align2::LEFT_CENTER, "DIRECT MESSAGES", semi(12.0), CHANNEL_DEFAULT);
             ui.add_space(4.0);
@@ -246,7 +356,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 if !filter.is_empty() && !title.to_lowercase().contains(&filter) {
                     continue;
                 }
-                let r = dm_row(ui, store, c, &title, cur == Some(id));
+                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 if r.clicked() {
                     open = Some(id);
@@ -325,9 +435,29 @@ fn group_color(id: Id) -> Color32 {
 fn user_panel(app: &mut App, ui: &mut Ui) {
     let me = app.store.me;
     let user = app.store.user(me).cloned();
-    let mut logout = false;
+    let mut status_pick: Option<&str> = None;
     ui.horizontal_centered(|ui| {
-        let (av, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+        let (av, avr) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+        egui::Popup::menu(&avr).show(|ui| {
+            ui.set_min_width(200.0);
+            for (key, label, st) in [
+                ("online", "Online", Status::Online),
+                ("idle", "Idle", Status::Idle),
+                ("dnd", "Do Not Disturb", Status::Dnd),
+                ("invisible", "Invisible", Status::Offline),
+            ] {
+                let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
+                if resp.hovered() {
+                    ui.painter().rect_filled(r, CornerRadius::same(2), BLURPLE);
+                }
+                ui.painter().circle_filled(pos2(r.left() + 14.0, r.center().y), 5.0, crate::theme::status_color(st));
+                ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, label, reg(14.0), HEADER_PRIMARY);
+                if resp.clicked() {
+                    status_pick = Some(key);
+                    ui.close();
+                }
+            }
+        });
         if let Some(u) = &user {
             avatar(ui, av, &u.avatar_url());
         }
@@ -351,17 +481,15 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let gear = icon_button(ui, "⚙", 32.0, "User Settings");
-            egui::Popup::menu(&gear).show(|ui| {
-                ui.set_min_width(160.0);
-                if ui.add(egui::Button::new(egui::RichText::new("Log Out").color(RED))).clicked() {
-                    logout = true;
-                }
-            });
+            app.rects.insert("gear".into(), gear.rect);
+            if gear.clicked() {
+                app.settings_page = Some(super::settings::Page::Account);
+            }
             icon_button(ui, "🎧", 32.0, "Deafen");
             icon_button(ui, "🎤", 32.0, "Mute");
         });
     });
-    if logout {
-        app.logout();
+    if let Some(s) = status_pick {
+        app.set_status(s);
     }
 }

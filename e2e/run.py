@@ -13,6 +13,7 @@ Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request l
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -20,7 +21,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
-HTTP, WS = 7701, 7702
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+# random ports so parallel runs (other worktrees, other agents) can't cross wires
+HTTP, WS = free_port(), free_port()
 BUDGET_MS = 1000
 
 
@@ -91,6 +99,12 @@ def main():
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,
         "message authors were requested via op 8": any(r.get("gateway_op") == 8 for r in reqs),
+        **{f"{name}: {what}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("quick switcher (ctrl+k) jumped to #help", "switcher"), ("forum posts loaded", "forum"),
+                              ("thread opened from sidebar", "thread"), ("profile popout loaded", "profile"),
+                              ("search returned results", "search"), ("pins loaded", "pins"), ("settings opened", "settings"),
+                              ("dm from someone else raised a notification", "notified")]},
+        "forum, pins, search and profile hit the api": all(any(k in r.get("path", "") for r in reqs) for k in ("/threads/search", "/pins", "/messages/search", "/profile")),
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
     }

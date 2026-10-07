@@ -100,7 +100,7 @@ impl Api {
         r
     }
 
-    async fn call(&self, m: Method, path: &str, body: Option<Value>) -> Result<Value, String> {
+    pub async fn call(&self, m: Method, path: &str, body: Option<Value>) -> Result<Value, String> {
         for _ in 0..4 {
             let mut req = self.build(m.clone(), path);
             if let Some(b) = &body {
