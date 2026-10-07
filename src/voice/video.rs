@@ -264,7 +264,9 @@ pub fn send(src: Source, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared
             let mut n = 0u64;
             while !s2.load(Relaxed) {
                 next += frame_time;
-                if let Some(d) = next.checked_duration_since(Instant::now()) {
+                if let Some(d) = next.checked_duration_since(Instant::now())
+                    && !grab.paced()
+                {
                     std::thread::sleep(d);
                 }
                 if !grab.frame(&mut bgra, w, h) {

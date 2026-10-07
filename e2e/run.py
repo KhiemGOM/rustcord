@@ -80,8 +80,11 @@ def main():
     mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE)])
     time.sleep(0.5)
     try:
-        cold = run_client("cold", data, {"FASTCORD_FAKE_MIC": "1"})
-        warm = run_client("warm", data)
+        # the camera is always synthetic unless asked for, nobody wants their webcam lit up by a test run;
+        # screen share is synthetic on the cold run and the real desktop (never screenshotted) on the warm one
+        cam = {} if "--real-camera" in sys.argv else {"FASTCORD_FAKE_CAM": "1"}
+        cold = run_client("cold", data, {"FASTCORD_FAKE_MIC": "1", "FASTCORD_FAKE_VIDEO": "1", **cam})
+        warm = run_client("warm", data, cam)
     finally:
         mock.kill()
 
@@ -115,6 +118,9 @@ def main():
     op4 = [r.get("d", {}) for r in reqs if r.get("gateway_op") == 4]
     voice_marks = ("voice_connected", "voice_heard", "voice_left", "dm_call", "dm_left")
     vbin = [r for r in reqs if "voice_bin" in r]
+    vframes = [r for r in reqs if r.get("video_frame") and r.get("e2ee")]
+    gw = lambda op: [r.get("d", {}) for r in reqs if r.get("gateway_op") == op]
+    video_marks = ("video_in", "camera_on", "stream_in", "stream_out")
     e2ee = [r for r in rtp if r.get("e2ee")]
 
     checks = {
@@ -149,7 +155,8 @@ def main():
         "forum, pins, search and profile hit the api": all(any(k in r.get("path", "") for r in reqs) for k in ("/threads/search", "/pins", "/messages/search", "/profile")),
         "voice: op 4 joined the guild voice channel": any(d.get("guild_id") == "1000" and d.get("channel_id") == "2021" for d in op4),
         "voice: identify carried session, token and max_dave_protocol_version": len(idents) >= 4 and all(
-            i.get("session_id") == "mock-voice-session" and i.get("token") == "mock-voice-token" and (i.get("max_dave_protocol_version") or 0) >= 1 for i in idents),
+            i.get("session_id") == "mock-voice-session" and (i.get("max_dave_protocol_version") or 0) >= 1
+            and i.get("token") == ("mock-stream-token" if i.get("server_id") in ("5000", "5001") else "mock-voice-token") for i in idents),
         "voice: dm call identified with the dm channel as server_id": any(i.get("server_id") == "3000" for i in idents),
         "voice: select protocol picked aead_aes256_gcm_rtpsize with the discovered address": len(selects) >= 4 and all(
             s["data"]["mode"] == "aead_aes256_gcm_rtpsize" and s["data"]["address"] == "127.0.0.1" and s["data"]["port"] > 0 for s in selects),
@@ -172,6 +179,21 @@ def main():
         "voice: disconnect sent op 4 with channel_id null": sum(1 for d in op4 if d.get("channel_id") is None) >= 4,
         "voice: dm call joined with guild_id null and rang the recipient": any(d.get("guild_id") is None and d.get("channel_id") == "3000" for d in op4)
             and any(r.get("path", "").endswith("/channels/3000/call/ring") for r in reqs),
+        "video: client announced its camera (op 12 with an active stream) and asked for video (op 15)":
+            any(r["voice_op"] == 12 and r["d"].get("video_ssrc") and r["d"]["streams"][0]["active"] for r in vops)
+            and any(r["voice_op"] == 15 for r in vops) and any(d.get("self_video") is True for d in op4),
+        "video: client camera arrived as E2EE H264 and decoded in the mock": sum(1 for r in vframes if r["server"] == "voice") >= 10,
+        "video: client decoded the other member's camera, watched their stream, went live (both runs)":
+            all(all(m in r.get("marks_ms", {}) for m in video_marks) and r.get("voice", {}).get("video_frames_in", 0) > 10 for r in (cold, warm)),
+        "go live: STREAM_CREATE + SET_PAUSED, own stream connection on the rtc server, STREAM_DELETE after":
+            bool(gw(18)) and any(d.get("paused") is False for d in gw(22)) and len(gw(19)) >= 2
+            and any(i.get("server_id") == "5000" for i in idents),
+        "go live: client screen arrived as E2EE H264 and decoded in the mock (warm run = real desktop)":
+            sum(1 for r in vframes if r["server"] == "own_stream") >= 10,
+        "watch: STREAM_WATCH for the other member's stream, separate connection with its own DAVE group":
+            bool(gw(20)) and any(i.get("server_id") == "5001" for i in idents)
+            and sum(1 for r in vbin if r.get("server") == "watch_stream" and r.get("alice_welcomed")) >= 2,
+        "rtcp: client asked for keyframes with PLI": any(r.get("rtcp") == 206 and r.get("fmt") == 1 for r in reqs),
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
     }

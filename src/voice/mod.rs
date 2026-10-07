@@ -141,7 +141,8 @@ pub struct VoiceUi {
     server: Option<(String, String, Id)>,
     joined: Option<(String, String)>,
     tag: u64,
-    stream_tag: u64,
+    /// one counter for voice and stream sessions, so their events can never be mistaken for each other
+    tags: u64,
 }
 
 impl VoiceUi {
@@ -161,7 +162,7 @@ impl VoiceUi {
         self.server = None;
         self.joined = None;
         self.speaking.clear();
-        self.tag += 1;
+        self.tag = self.next_tag();
         self.op4(net);
         if ring {
             net.send(net::Cmd::Rest {
@@ -195,7 +196,7 @@ impl VoiceUi {
         self.server = None;
         self.joined = None;
         self.speaking.clear();
-        self.tag += 1;
+        self.tag = self.next_tag();
     }
 
     pub fn set_mute(&mut self, net: &Net, on: bool) {
@@ -240,6 +241,11 @@ impl VoiceUi {
         net.send(net::Cmd::Voice(Cmd::Ctl(Ctl::Camera(on))));
     }
 
+    fn next_tag(&mut self) -> u64 {
+        self.tags += 1;
+        self.tags
+    }
+
     fn stream_key(&self, user: Id) -> Option<String> {
         let ch = self.chan?;
         Some(if self.guild != 0 { format!("guild:{}:{ch}:{user}", self.guild) } else { format!("call:{ch}:{user}") })
@@ -247,8 +253,8 @@ impl VoiceUi {
 
     fn start_stream(&mut self, user: Id, mine: bool) -> Option<String> {
         let key = self.stream_key(user)?;
-        self.stream_tag += 1;
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag: self.stream_tag });
+        let tag = self.next_tag();
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag });
         Some(key)
     }
 
@@ -400,7 +406,7 @@ impl VoiceUi {
     }
 
     fn connect(&mut self, net: &Net, me: Id) {
-        let (Some(session), Some((endpoint, token, server)), Some(ch)) = (&self.session, &self.server, self.chan) else {
+        let (Some(session), Some((endpoint, token, server)), Some(ch)) = (self.session.clone(), self.server.clone(), self.chan) else {
             return;
         };
         // our own voice state echoes back on every mute toggle; only a new session or token means reconnect
@@ -409,16 +415,16 @@ impl VoiceUi {
             return;
         }
         self.joined = Some(key);
-        self.tag += 1;
+        self.tag = self.next_tag();
         self.state = State::Connecting;
         self.speaking.clear();
         net.send(net::Cmd::Voice(Cmd::Connect(Connect {
             kind: Media::Voice,
             tag: self.tag,
-            endpoint: endpoint.clone(),
-            token: token.clone(),
-            session: session.clone(),
-            server: *server,
+            endpoint,
+            token,
+            session,
+            server,
             channel: ch,
             me,
             shared: self.shared.clone(),
