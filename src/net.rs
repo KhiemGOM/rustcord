@@ -28,6 +28,7 @@ pub enum Ev {
     NeedMfa(String),
     LoginError(String),
     Error(String),
+    Toast(String),
     Rest { tag: Tag, res: Result<Value, String> },
 }
 
@@ -42,6 +43,7 @@ pub enum Tag {
     OpenDm,
     Friend,
     Commands(Id),
+    Gifs(String),
     Quiet,
 }
 
@@ -51,7 +53,8 @@ pub enum Cmd {
     Login { login: String, password: String },
     Mfa { ticket: String, code: String },
     Messages { channel: Id, page: Page },
-    Send { channel: Id, content: String, nonce: String, reply: Option<Id>, files: Vec<(PathBuf, String)> },
+    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)> },
+    Download { url: String, path: PathBuf },
     Interact(Value),
     Edit { channel: Id, id: Id, content: String },
     Delete { channel: Id, id: Id },
@@ -181,6 +184,19 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
                         _ => tx.send(Ev::Rest { tag, res }),
+                    }
+                });
+            }
+            Cmd::Download { url, path } => {
+                let http = http.clone();
+                tokio::spawn(async move {
+                    let res = async {
+                        let b = http.get(&url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+                        tokio::fs::write(&path, &b).await.map_err(|e| e.to_string())
+                    };
+                    match res.await {
+                        Ok(()) => tx.send(Ev::Toast(format!("Saved {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))),
+                        Err(e) => tx.send(Ev::Error(e)),
                     }
                 });
             }

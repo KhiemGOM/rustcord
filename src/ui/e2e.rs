@@ -159,7 +159,8 @@ impl Run {
                 let have = app.store.msgs.get(&c).is_some_and(|e| e.list.iter().any(|m| m.id == id));
                 format!(" scroll_to={id} loaded={have} tries={}", app.scroll_tries)
             });
-            self.fail(format!("timed out at step {}{}", self.step, jump.unwrap_or_default()));
+            let here = app.cur().and_then(|c| app.store.channels.get(&c)).map(|c| c.name.clone()).unwrap_or_default();
+            self.fail(format!("timed out at step {} in #{here}{}", self.step, jump.unwrap_or_default()));
         }
         let msgs = |app: &App, ch: Id| app.store.msgs.get(&ch).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
         match self.step {
@@ -513,6 +514,88 @@ impl Run {
             42 => {
                 self.shot(ctx, "viewer.png");
                 self.key(Key::Escape);
+                if app.rects.keys().any(|k| k.starts_with("dmbubble:")) {
+                    self.mark("dm_bubble");
+                }
+                self.loaded = app.cur().unwrap_or(0) as usize;
+                let k = |pressed| Event::Key { key: Key::ArrowDown, physical_key: None, pressed, repeat: false, modifiers: Modifiers::ALT };
+                self.queue.push_back(vec![k(true)]);
+                self.queue.push_back(vec![k(false)]);
+                self.next(300);
+            }
+            43 => {
+                if app.cur().is_some_and(|c| c as usize != self.loaded) {
+                    self.mark("alt_nav");
+                    let k = |pressed| Event::Key { key: Key::ArrowUp, physical_key: None, pressed, repeat: false, modifiers: Modifiers::ALT };
+                    self.queue.push_back(vec![k(true)]);
+                    self.queue.push_back(vec![k(false)]);
+                    self.next(600);
+                }
+            }
+            44 => {
+                if app.cur() != Some(self.loaded as Id) {
+                    return;
+                }
+                let Some(r) = app.rects.get("gif_button").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            45 => {
+                if app.gifs.as_ref().is_some_and(|g| g.results.as_ref().is_some_and(|l| !l.is_empty())) {
+                    self.next(1000);
+                }
+            }
+            46 => {
+                self.shot(ctx, "gifs.png");
+                let Some(r) = app.rects.get("gif:0").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            47 => {
+                let ch = app.cur().unwrap_or(0);
+                if app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| !m.pending && m.content.contains("tenor.com/view/mock"))) {
+                    self.mark("gif");
+                    self.next(600);
+                }
+            }
+            48 => {
+                // reply through the hover toolbar with the ping turned off
+                let Some(r) = app.rects.get("msg:last").copied() else { return };
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(400);
+            }
+            49 => {
+                let Some(r) = app.rects.get("bar_reply").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            50 => {
+                let Some(r) = app.rects.get("ping_toggle").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            51 => {
+                if app.reply_ping {
+                    return;
+                }
+                self.shot(ctx, "reply_ping_off.png");
+                self.queue.push_back(vec![Event::Text("quiet reply".into())]);
+                let se = |pressed| Event::Key { key: Key::Enter, physical_key: None, pressed, repeat: false, modifiers: Modifiers::SHIFT };
+                self.queue.push_back(vec![se(true)]);
+                self.queue.push_back(vec![se(false)]);
+                self.queue.push_back(vec![Event::Text("second line".into())]);
+                self.key(Key::Enter);
+                self.mark("reply_quiet");
+                self.next(0);
+            }
+            52 => {
+                let ch = app.cur().unwrap_or(0);
+                if app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| !m.pending && m.content.contains("second line"))) {
+                    self.next(500);
+                }
+            }
+            53 => {
+                self.shot(ctx, "multiline.png");
                 self.step = 99;
             }
             _ => {

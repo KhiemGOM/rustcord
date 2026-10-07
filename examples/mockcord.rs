@@ -12,6 +12,7 @@ use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 const ME: u64 = 100;
+static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 const GENERAL: u64 = 2011;
 
 struct World {
@@ -326,6 +327,14 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
             (204, "application/json", Vec::new())
         }
+        ("GET", ["api", "v9", "gifs", _]) => {
+            let gifs: Vec<Value> = (0..8)
+                .map(|i| json!({ "id": i.to_string(), "title": format!("mock {i}"), "url": format!("https://tenor.com/view/mock-{i}"),
+                                 "src": format!("http://127.0.0.1:{}/cdn/attachments/gif{i}.png", PORT.load(std::sync::atomic::Ordering::Relaxed)),
+                                 "width": 220 + (i % 3) * 40, "height": 160 + (i % 2) * 60 }))
+                .collect();
+            ok(json!(gifs))
+        }
         ("GET", ["api", "v9", "guilds", _, "application-command-index"]) => ok(json!({
             "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
             "application_commands": [
@@ -516,6 +525,7 @@ async fn main() {
     let ws_port: u16 = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(7702);
     let log = args.get(3).cloned().unwrap_or_else(|| "mock_requests.jsonl".into());
     let cdn = format!("http://127.0.0.1:{http_port}/cdn");
+    PORT.store(http_port, std::sync::atomic::Ordering::Relaxed);
     let (events, _) = broadcast::channel(256);
     let w: W = Arc::new(Mutex::new(World {
         msgs: seed(&cdn),

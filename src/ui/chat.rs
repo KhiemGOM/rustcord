@@ -30,6 +30,8 @@ enum Act {
     Jump(Id),
     Component(Id, String, Option<Vec<String>>),
     View(String, String, u32, u32),
+    MarkUnread(Id),
+    Save(String),
 }
 
 struct D<'a> {
@@ -434,6 +436,13 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Jump(id) => app.jump_to(ch, id),
             Act::Component(id, custom_id, values) => app.press(ch, id, &custom_id, values),
             Act::View(img, open, w, h) => app.viewer = Some((img, open, w, h)),
+            Act::MarkUnread(id) => app.mark_unread(ch, id),
+            Act::Save(url) => {
+                let name = url.split('?').next().unwrap_or("").rsplit('/').next().unwrap_or("image.png").to_string();
+                if let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() {
+                    app.net.send(Cmd::Download { url, path });
+                }
+            }
         }
     }
 }
@@ -583,7 +592,12 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             let name = d.store.name_in(d.guild, m.author);
             let color = d.store.role_color(d.guild, m.author).map(role_color).unwrap_or(HEADER_PRIMARY);
             let bot = d.store.user(m.author).is_some_and(|u| u.bot);
-            if let Some(at) = author_line(&mut cui, &name, color, bot, &stamp(m.ts())) {
+            let full = Local
+                .timestamp_millis_opt(m.ts())
+                .single()
+                .map(|t| format!("{} {}", t.format("%A, %B %-d, %Y"), t.format(markdown::hm())))
+                .unwrap_or_default();
+            if let Some(at) = author_line(&mut cui, &name, color, bot, &stamp(m.ts()), &full) {
                 d.acts.push(Act::Profile(m.author, at));
             }
         }
@@ -616,7 +630,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 let sep = if a.proxy.contains('?') { '&' } else { '?' };
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
                 let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
-                let r = media(&mut cui, &url, w, h);
+                let r = media(&mut cui, d, &url, &a.url, w, h);
                 if cui.clip_rect().contains(r.rect.center()) {
                     d.rects.push(("image".into(), r.rect.intersect(cui.clip_rect())));
                 }
@@ -634,7 +648,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             } else {
                 let ext = if *fmt == 4 { "gif" } else { "png" };
                 let url = format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160");
-                media(&mut cui, &url, 160.0, 160.0).on_hover_text(name);
+                media(&mut cui, d, &url, &url, 160.0, 160.0).on_hover_text(name);
             }
         }
         let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
@@ -677,6 +691,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     let bottom = cui.min_rect().bottom().max(top + 22.0) + 2.0;
     let row = Rect::from_min_max(pos2(left, top), pos2(left + w, bottom));
     ui.advance_cursor_after_rect(row);
+    if ui.clip_rect().contains_rect(row) && normal(m.kind) && !m.pending {
+        d.rects.push(("msg:last".into(), row));
+    }
 
     let hovered = match d.hover_lock {
         Some(id) => id == m.id,
@@ -718,6 +735,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     }
 
     if hovered && !m.pending && !m.failed {
+        // alt+click marks unread from this message on, a long-standing discord shortcut
+        if ui.input(|i| i.pointer.primary_clicked() && i.modifiers.alt) {
+            d.acts.push(Act::MarkUnread(m.id));
+        }
         action_bar(d, m, row);
         if ui.input(|i| i.pointer.secondary_clicked())
             && let Some(p) = ui.ctx().pointer_interact_pos()
@@ -730,7 +751,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
 /// Name, optional APP tag and timestamp on one 22px line. The timestamp shares the
 /// name's baseline rather than its centre, which is what makes discord's header read right.
 /// Returns where to open the profile popout when the name was clicked.
-fn author_line(ui: &mut Ui, name: &str, color: Color32, bot: bool, when: &str) -> Option<Pos2> {
+fn author_line(ui: &mut Ui, name: &str, color: Color32, bot: bool, when: &str, full: &str) -> Option<Pos2> {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
     let n = text::layout(ui.ctx(), name, semi(16.0), color, row.width() - 160.0);
     let ny = row.center().y - n.size().y / 2.0;
@@ -753,7 +774,9 @@ fn author_line(ui: &mut Ui, name: &str, color: Color32, bot: bool, when: &str) -
     }
     let t = ui.painter().layout_no_wrap(when.to_string(), reg(12.0), TEXT_MUTED);
     let ty = base - t.size().y * 0.81;
-    ui.painter().galley(pos2(x + 2.0, ty), t, TEXT_MUTED);
+    let tr = Rect::from_min_size(pos2(x + 2.0, ty), t.size());
+    ui.painter().galley(tr.min, t, TEXT_MUTED);
+    ui.interact(tr, ui.id().with(("stamp", name, when)), Sense::hover()).on_hover_text(full);
     resp.clicked().then(|| name_rect.right_top() + vec2(8.0, 0.0))
 }
 
@@ -905,8 +928,23 @@ fn fit(w: u32, h: u32, max_w: f32, max_h: f32, avail: f32) -> (f32, f32) {
     ((w * s).round(), (h * s).round())
 }
 
-fn media(ui: &mut Ui, url: &str, w: f32, h: f32) -> egui::Response {
+fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    resp.context_menu(|ui| {
+        ui.set_min_width(180.0);
+        if ui.button("Copy Link").clicked() {
+            ui.ctx().copy_text(full.to_string());
+            ui.close();
+        }
+        if ui.button("Open Link").clicked() {
+            d.acts.push(Act::Url(full.to_string()));
+            ui.close();
+        }
+        if ui.button("Save Image").clicked() {
+            d.acts.push(Act::Save(full.to_string()));
+            ui.close();
+        }
+    });
     ui.painter().rect_filled(rect, CornerRadius::same(8), BG_SECONDARY);
     Image::from_uri(url.to_string())
         .corner_radius(CornerRadius::same(8))
@@ -950,7 +988,7 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
     if bare && matches!(e.kind.as_str(), "image" | "gifv") {
         if let Some(m) = e.thumb.as_ref().or(e.image.as_ref()) {
             let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
-            if media(ui, &m.url, w, h).clicked() {
+            if media(ui, d, &m.url, &m.url, w, h).clicked() {
                 let open = e.url.clone().unwrap_or_else(|| m.url.clone());
                 d.acts.push(Act::View(m.url.clone(), open, m.w, m.h));
             }
@@ -1026,13 +1064,13 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                 });
                 if let Some(t) = thumb {
                     let (w, h) = fit(t.w, t.h, 80.0, 80.0, 80.0);
-                    media(ui, &t.url, w, h);
+                    media(ui, d, &t.url, &t.url, w, h);
                 }
             });
             if let Some(m) = e.image.as_ref().or(if e.kind == "video" { e.thumb.as_ref() } else { None }) {
                 ui.add_space(8.0);
                 let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
-                let r = media(ui, &m.url, w, h);
+                let r = media(ui, d, &m.url, &m.url, w, h);
                 if e.kind == "video" {
                     ui.painter().circle_filled(r.rect.center(), 24.0, Color32::from_black_alpha(160));
                     icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(r.rect.center() + vec2(2.0, 0.0), vec2(22.0, 22.0)), Color32::WHITE);
@@ -1214,7 +1252,9 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
                                 d.acts.push(Act::Edit(m.id));
                             }
                         }
-                        if icon_button(ui, Icon::Reply, 32.0, "Reply").clicked() {
+                        let rr = icon_button(ui, Icon::Reply, 32.0, "Reply");
+                        d.rects.push(("bar_reply".into(), rr.rect));
+                        if rr.clicked() {
                             d.acts.push(Act::Reply(m.id));
                         }
                         if own && icon_button(ui, Icon::Trash, 32.0, "Delete").clicked() {
@@ -1228,8 +1268,8 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
 fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
     let Some((_, text)) = d.editing.as_mut() else { return };
     let tid = egui::Id::new("edit_box");
-    let enter = ui.memory(|m| m.has_focus(tid)) && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
-    let esc = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
+    let enter = ui.memory(|m| m.has_focus(tid)) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Enter));
+    let esc = ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape));
     ui.add_space(4.0);
     Frame::new().fill(BG_INPUT).corner_radius(8).inner_margin(Margin::symmetric(16, 11)).show(ui, |ui| {
         let r = ui.add(
@@ -1345,14 +1385,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
                 m.pinned = !pinned;
             }
         }
-        Some(7) => {
-            // ack the message before this one so it shows as the first unread
-            let prev = app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
-            let r = app.store.reads.entry(ch).or_default();
-            r.last_acked = prev;
-            app.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(serde_json::json!({ "manual": true, "token": null })), crate::net::Tag::Quiet);
-            app.marker = Some((ch, prev));
-        }
+        Some(7) => app.mark_unread(ch, id),
         Some(8) => {
             let g = app.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0);
             let g = g.map(|g| g.to_string()).unwrap_or_else(|| "@me".into());

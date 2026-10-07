@@ -15,7 +15,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.add_space(12.0);
 
-            let dm_mentions: u32 = app.store.dms.iter().map(|c| app.store.mentions(*c)).sum();
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
             let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, hot| {
@@ -23,13 +22,45 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
                 clyde(ui, rect.center(), if hot { Color32::WHITE } else { INTERACTIVE_HOVER });
             });
-            if dm_mentions + incoming > 0 {
-                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), dm_mentions + incoming, Some(BG_TERTIARY));
+            if incoming > 0 {
+                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(BG_TERTIARY));
             }
             app.rects.insert("guild:home".into(), r.rect);
             let r = r.on_hover_text("Direct Messages");
             if r.clicked() {
                 app.select_guild(None);
+            }
+
+            // dms with something waiting get their own bubble under home, like the official client
+            let waiting: Vec<(Id, u32)> = app
+                .store
+                .dms
+                .iter()
+                .map(|c| (*c, app.store.mentions(*c)))
+                .filter(|(_, n)| *n > 0)
+                .take(8)
+                .collect();
+            for (c, n) in waiting {
+                let Some(ch) = app.store.channels.get(&c) else { continue };
+                let url = match ch.kind {
+                    1 => ch.recipients.first().and_then(|u| app.store.user(*u)).map(|u| u.avatar_url()),
+                    _ => ch.icon.as_ref().map(|i| format!("{}/channel-icons/{c}/{i}.png?size=96", crate::api::cdn())),
+                };
+                let title = super::channel_title(&app.store, c);
+                let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _| {
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), BLURPLE);
+                    if let Some(u) = &url {
+                        Image::from_uri(u.clone()).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
+                    } else {
+                        icons::draw(ui.painter(), Icon::People, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), Color32::WHITE);
+                    }
+                });
+                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(BG_TERTIARY));
+                app.rects.insert(format!("dmbubble:{c}"), r.rect);
+                if tip(r, &title).clicked() {
+                    app.ui.guild = None;
+                    app.open(c);
+                }
             }
 
             separator(ui);
