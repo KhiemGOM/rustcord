@@ -1,4 +1,4 @@
-use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align2, Color32, ColorImage, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, Mutex};
 
@@ -77,6 +77,25 @@ fn phone(ui: &Ui, c: egui::Pos2, col: Color32) {
     p.circle_filled(c + vec2(6.5, 6.0), 2.5, col);
 }
 
+// a camcorder: body plus the lens flare on the right
+fn camera(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
+    let p = ui.painter();
+    p.rect_filled(Rect::from_center_size(c + vec2(-2.5, 0.0) * k, vec2(13.0, 10.0) * k), CornerRadius::same((2.0 * k) as u8), col);
+    p.add(egui::Shape::convex_polygon(
+        vec![c + vec2(4.0, -1.5) * k, c + vec2(9.0, -4.5) * k, c + vec2(9.0, 4.5) * k, c + vec2(4.0, 1.5) * k],
+        col,
+        Stroke::NONE,
+    ));
+}
+
+// a monitor on its stand
+fn screen(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
+    let p = ui.painter();
+    p.rect_stroke(Rect::from_center_size(c + vec2(0.0, -1.5) * k, vec2(16.0, 11.0) * k), CornerRadius::same((2.0 * k) as u8), Stroke::new(2.0 * k, col), egui::StrokeKind::Middle);
+    p.line_segment([c + vec2(0.0, 4.0) * k, c + vec2(0.0, 7.0) * k], Stroke::new(2.0 * k, col));
+    p.line_segment([c + vec2(-4.0, 7.5) * k, c + vec2(4.0, 7.5) * k], Stroke::new(2.0 * k, col));
+}
+
 // a handset tipped on its side, the shape Discord uses for "leave"
 fn hangup(ui: &Ui, c: egui::Pos2, col: Color32) {
     let p = ui.painter();
@@ -132,38 +151,151 @@ pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
     }
 }
 
+/// Uploads a frame to the GPU when it's a new image, and returns something paintable.
+fn texture(app: &mut App, ctx: &egui::Context, key: String, img: &Arc<ColorImage>) -> egui::TextureId {
+    let ptr = Arc::as_ptr(img) as usize;
+    if let Some((h, p)) = app.voice.tex.get_mut(&key) {
+        if *p != ptr {
+            h.set(img.clone(), egui::TextureOptions::LINEAR);
+            *p = ptr;
+        }
+        return h.id();
+    }
+    let h = ctx.load_texture(key.clone(), img.clone(), egui::TextureOptions::LINEAR);
+    let id = h.id();
+    app.voice.tex.insert(key, (h, ptr));
+    id
+}
+
+// letterboxed into `r`
+fn frame(app: &mut App, ui: &Ui, key: String, img: &Arc<ColorImage>, r: Rect) {
+    let id = texture(app, ui.ctx(), key, img);
+    let k = (r.width() / img.size[0] as f32).min(r.height() / img.size[1] as f32);
+    let fr = Rect::from_center_size(r.center(), vec2(img.size[0] as f32 * k, img.size[1] as f32 * k));
+    egui::Image::new(egui::load::SizedTexture::new(id, fr.size())).corner_radius(6).paint_at(ui, fr);
+}
+
+fn live_badge(ui: &Ui, right_top: egui::Pos2) {
+    let g = ui.painter().layout_no_wrap("LIVE".into(), bold(11.0), Color32::WHITE);
+    let r = Rect::from_min_size(pos2(right_top.x - g.size().x - 12.0, right_top.y), g.size() + vec2(12.0, 4.0));
+    ui.painter().rect_filled(r, CornerRadius::same(8), RED);
+    ui.painter().galley(r.min + vec2(6.0, 2.0), g, Color32::WHITE);
+}
+
+/// LIVE pill and camera mark at the end of a sidebar voice row; returns the width they took.
+pub fn badges(ui: &Ui, voice: &crate::voice::VoiceUi, u: Id, row: Rect) -> f32 {
+    let mut x = row.right() - 12.0;
+    if voice.live.contains(&u) {
+        live_badge(ui, pos2(x, row.center().y - 8.0));
+        x -= 42.0;
+    }
+    if voice.cams.contains(&u) {
+        camera(ui, pos2(x - 8.0, row.center().y), 0.8, CHANNEL_DEFAULT);
+        x -= 20.0;
+    }
+    row.right() - 12.0 - x
+}
+
 /// The call area at the top of a DM while a call is going on.
 pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let members = app.voice.members(&app.store, chan.id);
     if members.is_empty() {
         return;
     }
+    let inside = app.voice.chan == Some(chan.id);
+    let watching = app.voice.stream.as_ref().filter(|_| inside).map(|l| l.frame.clone());
+    let video = watching.is_some() || members.iter().any(|u| app.voice.video.contains_key(u));
     egui::Panel::top("dm_call")
-        .exact_size(220.0)
+        .exact_size(if video { 340.0 } else { 220.0 })
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().fill(BG_FLOATING))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            let av = 80.0;
-            let gap = 24.0;
-            let w = members.len() as f32 * (av + gap) - gap;
-            let mut x = r.center().x - w / 2.0;
-            for u in &members {
-                let a = Rect::from_min_size(pos2(x, r.top() + 40.0), vec2(av, av));
-                if let Some(user) = app.store.user(*u) {
-                    avatar(ui, a, &user.avatar_url());
+            let top = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 72.0));
+            if let Some(f) = watching {
+                stage(app, ui, top, f);
+            } else {
+                let sizes: Vec<egui::Vec2> = members
+                    .iter()
+                    .map(|u| if app.voice.video.contains_key(u) { vec2(top.height() * 16.0 / 9.0, top.height()) } else { vec2(80.0, 80.0) })
+                    .collect();
+                let w: f32 = sizes.iter().map(|s| s.x + 24.0).sum::<f32>() - 24.0;
+                let mut x = r.center().x - w / 2.0;
+                for (u, &s) in members.iter().zip(&sizes) {
+                    let a = Rect::from_min_size(pos2(x, top.center().y - s.y / 2.0), s);
+                    match app.voice.video.get(u).cloned() {
+                        Some(img) => {
+                            frame(app, ui, format!("cam:{u}"), &img, a);
+                            if app.voice.is_speaking(*u) {
+                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, GREEN), egui::StrokeKind::Outside);
+                            }
+                        }
+                        None => {
+                            if let Some(user) = app.store.user(*u) {
+                                avatar(ui, a, &user.avatar_url());
+                            }
+                            if app.voice.is_speaking(*u) {
+                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, GREEN));
+                            }
+                        }
+                    }
+                    if app.voice.live.contains(u) {
+                        live_badge(ui, a.right_top() + vec2(0.0, -6.0));
+                        watch_click(app, ui, *u, a);
+                    }
+                    x += s.x + 24.0;
                 }
-                if app.voice.is_speaking(*u) {
-                    ui.painter().circle_stroke(a.center(), av / 2.0 + 3.0, Stroke::new(3.0, GREEN));
-                }
-                x += av + gap;
             }
             controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 64.0), r.max), "Join Call");
         });
 }
 
-/// Voice channel view: a tile per person, controls along the bottom.
+// a live user's tile or avatar starts watching their stream when clicked
+fn watch_click(app: &mut App, ui: &Ui, u: Id, r: Rect) {
+    if u == app.store.me || app.voice.chan.is_none() {
+        return;
+    }
+    let resp = ui.interact(r, egui::Id::new(("watch", u)), Sense::click());
+    app.rects.insert(format!("voice:watch:{u}"), r);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        let b = Rect::from_center_size(r.center(), vec2(120.0, 32.0));
+        ui.painter().rect_filled(b, CornerRadius::same(16), Color32::from_black_alpha(180));
+        ui.painter().text(b.center(), Align2::CENTER_CENTER, "Watch Stream", semi(13.0), Color32::WHITE);
+    }
+    if resp.clicked() {
+        app.voice.watch(&app.net, u);
+    }
+}
+
+// the big area showing the stream we're watching, or our own while live
+fn stage(app: &mut App, ui: &mut Ui, r: Rect, img: Option<Arc<ColorImage>>) {
+    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::BLACK);
+    let Some((who, mine)) = app.voice.stream.as_ref().map(|l| (l.user, l.mine)) else { return };
+    match img {
+        Some(img) => frame(app, ui, "stream".into(), &img, r),
+        None => {
+            ui.painter().text(r.center(), Align2::CENTER_CENTER, "Connecting to stream…", reg(14.0), HEADER_SECONDARY);
+        }
+    }
+    let label = if mine { "You're live".to_string() } else { format!("{}'s screen", app.store.name_in(app.voice.guild, who)) };
+    let g = ui.painter().layout_no_wrap(label, semi(13.0), Color32::WHITE);
+    let tag = Rect::from_min_size(r.min + vec2(10.0, 10.0), g.size() + vec2(16.0, 8.0));
+    ui.painter().rect_filled(tag, CornerRadius::same(4), Color32::from_black_alpha(160));
+    ui.painter().galley(tag.min + vec2(8.0, 4.0), g, Color32::WHITE);
+    live_badge(ui, pos2(tag.right() + 52.0, tag.top() + 3.0));
+    let stop = Rect::from_min_size(pos2(r.right() - 130.0, r.top() + 10.0), vec2(120.0, 30.0));
+    let resp = ui.interact(stop, egui::Id::new("stop_stream"), Sense::click());
+    ui.painter().rect_filled(stop, CornerRadius::same(4), if resp.hovered() { RED.gamma_multiply(0.85) } else { RED });
+    ui.painter().text(stop.center(), Align2::CENTER_CENTER, if mine { "Stop Streaming" } else { "Stop Watching" }, semi(13.0), Color32::WHITE);
+    app.rects.insert("voice:stopstream".into(), stop);
+    if resp.clicked() {
+        app.voice.end_stream(&app.net);
+    }
+}
+
+/// Voice channel view: a tile per person, the stream on top when watching one, controls along the bottom.
 pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
     egui::Panel::top("room_head")
         .exact_size(48.0)
@@ -180,7 +312,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
     egui::CentralPanel::default().frame(Frame::new().fill(BG_FLOATING)).show(ui, |ui| {
         let r = ui.max_rect();
         let members = app.voice.members(&app.store, chan.id);
-        let area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 80.0));
+        let mut area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 80.0));
         if members.is_empty() {
             ui.painter().text(area.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, &chan.name, bold(24.0), HEADER_PRIMARY);
             ui.painter().text(
@@ -191,18 +323,32 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 HEADER_SECONDARY,
             );
         }
+        if let Some(f) = app.voice.stream.as_ref().filter(|_| app.voice.chan == Some(chan.id)).map(|l| l.frame.clone()) {
+            let top = Rect::from_min_max(area.min, pos2(area.right(), area.top() + area.height() * 0.68));
+            stage(app, ui, top, f);
+            area.min.y = top.bottom() + 8.0;
+        }
         for (u, tile) in members.iter().zip(grid(area, members.len())) {
             ui.painter().rect_filled(tile, CornerRadius::same(8), tile_color(*u));
-            let av = (tile.height().min(tile.width()) * 0.35).clamp(40.0, 96.0);
-            let a = Rect::from_center_size(tile.center(), vec2(av, av));
-            if let Some(user) = app.store.user(*u) {
-                avatar(ui, a, &user.avatar_url());
+            match app.voice.video.get(u).cloned() {
+                Some(img) => frame(app, ui, format!("cam:{u}"), &img, tile),
+                None => {
+                    let av = (tile.height().min(tile.width()) * 0.35).clamp(40.0, 96.0);
+                    let a = Rect::from_center_size(tile.center(), vec2(av, av));
+                    if let Some(user) = app.store.user(*u) {
+                        avatar(ui, a, &user.avatar_url());
+                    }
+                }
             }
             let name = app.store.name_in(chan.guild, *u);
             let g = ui.painter().layout_no_wrap(name, semi(13.0), Color32::WHITE);
             let tag = Rect::from_min_size(pos2(tile.left() + 8.0, tile.bottom() - 30.0), g.size() + vec2(16.0, 8.0));
             ui.painter().rect_filled(tag, CornerRadius::same(4), Color32::from_black_alpha(140));
             ui.painter().galley(tag.min + vec2(8.0, 4.0), g, Color32::WHITE);
+            if app.voice.live.contains(u) {
+                live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
+                watch_click(app, ui, *u, tile);
+            }
             if app.voice.is_speaking(*u) {
                 ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN), egui::StrokeKind::Inside);
             }
@@ -270,32 +416,48 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
     }
     let mute = app.voice.mute || app.voice.deaf;
     let deaf = app.voice.deaf;
-    let spots = [c - vec2(64.0, 0.0), c, c + vec2(64.0, 0.0)];
-    for (i, at) in spots.into_iter().enumerate() {
-        let b = Rect::from_center_size(at, vec2(52.0, 52.0));
+    let cam = app.voice.camera;
+    let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
+    let me = app.store.me;
+    for i in 0..5 {
+        let b = Rect::from_center_size(c + vec2((i as f32 - 2.0) * 64.0, 0.0), vec2(52.0, 52.0));
         let r = ui.interact(b, egui::Id::new(("ctl", i)), Sense::click());
-        let (fill, glyph, on) = match i {
-            0 => (if mute { Color32::WHITE } else { BG_MOD_SELECTED }, "🎤", mute),
-            1 => (if deaf { Color32::WHITE } else { BG_MOD_SELECTED }, "🎧", deaf),
-            _ => (RED, "", false),
+        // muted and deafened get the slash; camera and screen just light up when on
+        let (on, slash, tip, key) = match i {
+            0 => (mute, true, if mute { "Unmute" } else { "Mute" }, "voice:mute_big"),
+            1 => (deaf, true, if deaf { "Undeafen" } else { "Deafen" }, "voice:deafen_big"),
+            2 => (cam, false, if cam { "Turn Off Camera" } else { "Turn On Camera" }, "voice:camera"),
+            3 => (sharing, false, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:screen"),
+            _ => (false, false, "Disconnect", "voice:leave_big"),
         };
+        let fill = if i == 4 { RED } else if on { Color32::WHITE } else { BG_MOD_SELECTED };
         ui.painter().circle_filled(b.center(), 26.0, if r.hovered() { fill.gamma_multiply(0.85) } else { fill });
-        if i == 2 {
+        if i == 4 {
             hangup(ui, b.center(), Color32::WHITE);
         } else {
             let fg = if on { Color32::BLACK } else { Color32::WHITE };
-            ui.painter().text(b.center(), Align2::CENTER_CENTER, glyph, reg(22.0), fg);
-            if on {
+            let icon = Rect::from_center_size(b.center(), vec2(22.0, 22.0));
+            match i {
+                0 => icons::draw(ui.painter(), Icon::Mic, icon, fg),
+                1 => icons::draw(ui.painter(), Icon::Headphones, icon, fg),
+                2 => camera(ui, b.center(), 1.2, fg),
+                _ => screen(ui, b.center(), 1.2, fg),
+            }
+            if on && slash {
                 ui.painter().line_segment([b.center() + vec2(-10.0, -10.0), b.center() + vec2(10.0, 10.0)], Stroke::new(2.5, RED));
             }
         }
+        app.rects.insert(key.into(), b);
         if r.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if r.clicked() {
+        if r.on_hover_text(tip).clicked() {
             match i {
                 0 => app.voice.set_mute(&app.net, !mute),
                 1 => app.voice.set_deaf(&app.net, !deaf),
+                2 => app.voice.set_camera(&app.net, me, !cam),
+                3 if sharing => app.voice.end_stream(&app.net),
+                3 => app.voice.go_live(&app.net, me),
                 _ => app.voice.leave(&app.net),
             }
         }
