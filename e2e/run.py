@@ -114,6 +114,8 @@ def main():
     rtp = [r for r in reqs if "voice_rtp" in r and r.get("ssrc") == 1001]
     op4 = [r.get("d", {}) for r in reqs if r.get("gateway_op") == 4]
     voice_marks = ("voice_connected", "voice_heard", "voice_left", "dm_call", "dm_left")
+    vbin = [r for r in reqs if "voice_bin" in r]
+    e2ee = [r for r in rtp if r.get("e2ee")]
 
     checks = {
         "cold run finished its script": cold.get("ok") is True,
@@ -155,6 +157,15 @@ def main():
         "voice: client sent speaking (op 5), and speaking=1 from the fake mic": 0 in speaking and 1 in speaking,
         "voice: every client rtp packet decrypted with the session key": len(rtp) >= 20 and all(r["decrypted"] for r in rtp),
         "voice: fake mic audio arrived as voiced opus": sum(1 for r in rtp if (r.get("level") or 0) > 0.05) >= 20,
+        "dave: client sent a key package (op 26) on every session": sum(1 for r in vbin if r["voice_bin"] == 26) >= 4,
+        "dave: guild call - client committed the external add proposal, the other member joined from its welcome":
+            sum(1 for r in vbin if r.get("alice_welcomed") is True) >= 2,
+        "dave: dm call - client joined the group from the other member's welcome": sum(1 for r in vbin if r.get("alice_committed") is True) >= 2,
+        "dave: client acked every transition (op 23), never flagged a bad commit (op 31)":
+            sum(1 for r in vops if r["voice_op"] == 23 and r.get("alice_ready")) >= 4 and not any(r["voice_op"] == 31 for r in vops),
+        "dave: client mic audio arrived end-to-end encrypted and decrypted by the other member":
+            sum(1 for r in e2ee if (r.get("level") or 0) > 0.05) >= 20,
+        "dave: client decrypted the other member's E2EE audio (both runs)": all(r.get("voice", {}).get("e2ee_in", 0) > 20 for r in (cold, warm)),
         "voice: client decoded the fake speaker and lit their speaking ring (both runs)": all(
             all(m in r.get("marks_ms", {}) for m in voice_marks) and r.get("voice", {}).get("frames_decoded", 0) > 20 for r in (cold, warm)),
         "voice: mute and deafen state reached the gateway": any(d.get("self_mute") is True and d.get("channel_id") for d in op4),

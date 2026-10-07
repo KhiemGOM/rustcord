@@ -34,6 +34,9 @@ pub struct Shared {
     pub voiced: AtomicU64,
     pub recv: AtomicU64,
     pub decoded: AtomicU64,
+    /// frames that went through DAVE, each way
+    pub e2ee_out: AtomicU64,
+    pub e2ee_in: AtomicU64,
     pub mic: AtomicI32,
 }
 
@@ -49,6 +52,8 @@ impl Default for Shared {
             voiced: AtomicU64::new(0),
             recv: AtomicU64::new(0),
             decoded: AtomicU64::new(0),
+            e2ee_out: AtomicU64::new(0),
+            e2ee_in: AtomicU64::new(0),
             mic: AtomicI32::new(MIC_UNKNOWN),
         }
     }

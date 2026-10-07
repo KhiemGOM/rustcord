@@ -2,12 +2,18 @@
 //! and a voice server (ws + udp on the same port number) with one fake speaker.
 //! usage: mockcord <http_port> <ws_port> <request_log.jsonl> [voice_port]
 
-use futures_util::{SinkExt, StreamExt};
-use serde_json::{Value, json};
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::XChaCha20Poly1305;
+use davey::{DaveSession, MediaType, ProposalsOperationType};
+use futures_util::{SinkExt, StreamExt};
+use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
+use openmls::prelude::*;
+use openmls_basic_credential::SignatureKeyPair;
+use openmls_rust_crypto::OpenMlsRustCrypto;
+use serde_json::{Value, json};
 use std::io::Write;
+use std::num::NonZeroU16;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -40,6 +46,41 @@ struct Voice {
     client: Option<SocketAddr>,
     dec: opus_rs::OpusDecoder,
     live: Arc<AtomicBool>,
+    // Alice's side of the E2EE group; media is only E2EE once the transition executed
+    alice: DaveSession,
+    e2ee: bool,
+}
+
+// the gateway's MLS external sender: it proposes adds, members commit them
+struct Gw {
+    signer: SignatureKeyPair,
+    sender: Vec<u8>,
+    provider: OpenMlsRustCrypto,
+}
+
+impl Gw {
+    fn new() -> Gw {
+        let signer = SignatureKeyPair::new(SignatureScheme::ECDSA_SECP256R1_SHA256).unwrap();
+        let cred: Credential = BasicCredential::new(b"mock-voice-gateway".to_vec()).into();
+        let sender = ExternalSender::new(signer.public().into(), cred).tls_serialize_detached().unwrap();
+        Gw { signer, sender, provider: OpenMlsRustCrypto::default() }
+    }
+
+    /// Wraps a member's key package in an external Add proposal, framed the way op 27 carries it.
+    /// Key packages arrive bare, not inside an MLSMessage (libdave and davey both send them that way).
+    fn propose_add(&self, kp: &[u8], channel: u64) -> Option<Vec<u8>> {
+        let kp = KeyPackageIn::tls_deserialize_exact(kp).ok()?;
+        let kp = kp.validate(self.provider.crypto(), ProtocolVersion::Mls10).ok()?;
+        let msg = ExternalProposal::new_add::<OpenMlsRustCrypto>(
+            kp,
+            GroupId::from_slice(&channel.to_be_bytes()),
+            GroupEpoch::from(0),
+            &self.signer,
+            SenderExtensionIndex::new(0),
+        )
+        .ok()?;
+        VLBytes::new(msg.tls_serialize_detached().ok()?).tls_serialize_detached().ok()
+    }
 }
 
 type W = Arc<Mutex<World>>;
@@ -616,76 +657,140 @@ fn open_rtp(mode: &str, key: &[u8; 32], pkt: &[u8]) -> Option<Vec<u8>> {
     Some(plain)
 }
 
+enum Reply {
+    Json(Value),
+    Bin(u8, Vec<u8>),
+}
+
 async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
     let Ok(ws) = tokio_tungstenite::accept_async(s).await else { return };
     let (mut tx, mut rx) = ws.split();
-    let mut seq = 0u64;
+    let mut seq = 0u16;
     let live = Arc::new(AtomicBool::new(true));
+    let gw = Gw::new();
+    let (mut channel, mut dm) = (0u64, false);
     let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 1000.0 } }).to_string())).await;
     while let Some(Ok(m)) = rx.next().await {
-        let t = match m {
-            Ws::Text(t) => t,
-            Ws::Binary(b) => {
-                log(&w, json!({ "t": now_ms(), "voice_bin": b.first() }));
-                continue;
+        let mut out: Vec<Reply> = Vec::new();
+        let line = match m {
+            Ws::Binary(b) if !b.is_empty() => dave_bin(&w, &gw, &b, channel, dm, &mut out),
+            Ws::Text(t) => {
+                let v: Value = serde_json::from_str(&t).unwrap_or_default();
+                let d = &v["d"];
+                let mut line = json!({ "t": now_ms(), "voice_op": v["op"] });
+                match v["op"].as_u64() {
+                    Some(0) => {
+                        line["d"] = d.clone();
+                        let (g, ch) = w.lock().unwrap().voice_chan.unwrap_or((None, 0));
+                        (channel, dm) = (ch, g.is_none());
+                        out.push(Reply::Json(json!({ "op": 2, "d": { "ssrc": CLIENT_SSRC, "ip": "127.0.0.1", "port": w.lock().unwrap().voice_port,
+                            "modes": ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"], "heartbeat_interval": 1 } })));
+                    }
+                    Some(1) => {
+                        line["d"] = d.clone();
+                        let mode = d["data"]["mode"].as_str().unwrap_or("").to_string();
+                        let mut key = [0u8; 32];
+                        let mut x = now_ms() | 1;
+                        for b in key.iter_mut() {
+                            x ^= x << 13;
+                            x ^= x >> 7;
+                            x ^= x << 17;
+                            *b = x as u8;
+                        }
+                        let mut alice = DaveSession::new(NonZeroU16::new(1).unwrap(), SPEAKER, channel, None).unwrap();
+                        alice.set_external_sender(&gw.sender).unwrap();
+                        {
+                            let mut wl = w.lock().unwrap();
+                            let client = wl.voice.as_ref().and_then(|v| v.client);
+                            if let Some(old) = &wl.voice {
+                                old.live.store(false, Ordering::Relaxed);
+                            }
+                            let dec = opus_rs::OpusDecoder::new(48_000, 2).unwrap();
+                            wl.voice = Some(Voice { mode: mode.clone(), key, client, dec, live: live.clone(), alice, e2ee: false });
+                        }
+                        out.push(Reply::Json(json!({ "op": 4, "d": { "mode": mode, "secret_key": key.to_vec(), "dave_protocol_version": 1,
+                            "audio_codec": "opus", "media_session_id": "mock-media" } })));
+                        out.push(Reply::Json(json!({ "op": 11, "d": { "user_ids": [SPEAKER.to_string()] } })));
+                        out.push(Reply::Json(json!({ "op": 5, "d": { "user_id": SPEAKER.to_string(), "ssrc": SPEAKER_SSRC, "speaking": 1 } })));
+                        out.push(Reply::Bin(25, gw.sender.clone()));
+                        tokio::spawn(speaker(w.clone(), udp.clone(), live.clone()));
+                    }
+                    Some(3) => {
+                        line["seq_ack"] = d["seq_ack"].clone();
+                        let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
+                    }
+                    Some(5) => line["speaking"] = d["speaking"].clone(),
+                    Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
+                    Some(23) => {
+                        // everyone is ready, so media switches to E2EE now
+                        line["d"] = d.clone();
+                        out.push(Reply::Json(json!({ "op": 22, "d": { "transition_id": d["transition_id"] } })));
+                        if let Some(v) = &mut w.lock().unwrap().voice {
+                            v.e2ee = v.alice.is_ready();
+                            line["alice_ready"] = json!(v.e2ee);
+                        }
+                    }
+                    Some(31) => line["d"] = d.clone(),
+                    _ => {}
+                }
+                line
             }
             Ws::Close(_) => break,
             _ => continue,
         };
-        let v: Value = serde_json::from_str(&t).unwrap_or_default();
-        let d = &v["d"];
-        let mut line = json!({ "t": now_ms(), "voice_op": v["op"] });
-        let mut out: Vec<Value> = Vec::new();
-        match v["op"].as_u64() {
-            Some(0) => {
-                line["d"] = d.clone();
-                out.push(json!({ "op": 2, "d": { "ssrc": CLIENT_SSRC, "ip": "127.0.0.1", "port": w.lock().unwrap().voice_port,
-                    "modes": ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"], "heartbeat_interval": 1 } }));
-            }
-            Some(1) => {
-                line["d"] = d.clone();
-                let mode = d["data"]["mode"].as_str().unwrap_or("").to_string();
-                let mut key = [0u8; 32];
-                let mut x = now_ms() | 1;
-                for b in key.iter_mut() {
-                    x ^= x << 13;
-                    x ^= x >> 7;
-                    x ^= x << 17;
-                    *b = x as u8;
-                }
-                {
-                    let mut wl = w.lock().unwrap();
-                    let client = wl.voice.as_ref().and_then(|v| v.client);
-                    if let Some(old) = &wl.voice {
-                        old.live.store(false, Ordering::Relaxed);
-                    }
-                    wl.voice = Some(Voice { mode: mode.clone(), key, client, dec: opus_rs::OpusDecoder::new(48_000, 2).unwrap(), live: live.clone() });
-                }
-                out.push(json!({ "op": 4, "d": { "mode": mode, "secret_key": key.to_vec(), "dave_protocol_version": 0,
-                    "audio_codec": "opus", "media_session_id": "mock-media" } }));
-                out.push(json!({ "op": 11, "d": { "user_ids": [SPEAKER.to_string()] } }));
-                out.push(json!({ "op": 5, "d": { "user_id": SPEAKER.to_string(), "ssrc": SPEAKER_SSRC, "speaking": 1 } }));
-                tokio::spawn(speaker(w.clone(), udp.clone(), live.clone()));
-            }
-            Some(3) => {
-                line["seq_ack"] = d["seq_ack"].clone();
-                let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
-            }
-            Some(5) => line["speaking"] = d["speaking"].clone(),
-            Some(7) => out.push(json!({ "op": 9, "d": null })),
-            _ => {}
-        }
         log(&w, line);
-        for mut o in out {
-            seq += 1;
-            o["seq"] = json!(seq);
-            if tx.send(Ws::text(o.to_string())).await.is_err() {
+        for r in out {
+            seq = seq.wrapping_add(1);
+            let m = match r {
+                Reply::Json(mut o) => {
+                    o["seq"] = json!(seq);
+                    Ws::text(o.to_string())
+                }
+                Reply::Bin(op, body) => Ws::binary([&seq.to_be_bytes()[..], &[op], &body].concat()),
+            };
+            if tx.send(m).await.is_err() {
                 break;
             }
         }
     }
     live.store(false, Ordering::Relaxed);
     log(&w, json!({ "t": now_ms(), "voice_closed": true }));
+}
+
+// The two ways into an MLS group: in a guild channel the client commits Alice's add and
+// welcomes her; in a DM call Alice commits and the client joins from her welcome.
+fn dave_bin(w: &W, gw: &Gw, b: &[u8], channel: u64, dm: bool, out: &mut Vec<Reply>) -> Value {
+    let mut line = json!({ "t": now_ms(), "voice_bin": b[0] });
+    let mut wl = w.lock().unwrap();
+    let Some(v) = &mut wl.voice else { return line };
+    match b[0] {
+        26 if dm => {
+            let cw = gw
+                .propose_add(&b[1..], channel)
+                .and_then(|p| v.alice.process_proposals(ProposalsOperationType::APPEND, &p, Some(&[ME])).ok().flatten());
+            if let Some(cw) = cw {
+                line["alice_committed"] = json!(v.alice.process_commit(&cw.commit).is_ok());
+                if let Some(wel) = cw.welcome {
+                    out.push(Reply::Bin(30, [&1u16.to_be_bytes()[..], &wel].concat()));
+                }
+            }
+        }
+        26 => {
+            let kp = v.alice.create_key_package().unwrap();
+            if let Some(p) = gw.propose_add(&kp, channel) {
+                out.push(Reply::Bin(27, [&[0u8][..], &p].concat()));
+            }
+        }
+        28 => {
+            let mut rest = &b[1..];
+            let parsed = MlsMessageIn::tls_deserialize(&mut rest).is_ok();
+            let commit = b[1..b.len() - rest.len()].to_vec();
+            line["alice_welcomed"] = json!(parsed && v.alice.process_welcome(rest).is_ok());
+            out.push(Reply::Bin(29, [&1u16.to_be_bytes()[..], &commit].concat()));
+        }
+        _ => {}
+    }
+    line
 }
 
 async fn voice_udp(w: W, udp: Arc<UdpSocket>) {
@@ -716,20 +821,34 @@ async fn voice_udp(w: W, udp: Arc<UdpSocket>) {
             v.client = Some(from);
             let plain = open_rtp(&v.mode, &v.key, pkt);
             let silence = plain.as_deref() == Some(&[0xf8, 0xff, 0xfe][..]);
+            // after the transition every real frame must be E2EE; silence is the one passthrough
+            let mut e2ee = false;
+            let opus = match plain.as_deref() {
+                Some(p) if !silence && v.e2ee => match v.alice.decrypt(ME, MediaType::AUDIO, p) {
+                    Ok(o) => {
+                        e2ee = true;
+                        Some(o)
+                    }
+                    Err(_) => None,
+                },
+                Some(p) if !silence => Some(p.to_vec()),
+                _ => None,
+            };
             let mut level = None;
-            if let Some(p) = plain.as_deref().filter(|_| !silence)
-                && v.dec.decode(p, 960, &mut pcm).is_ok()
+            if let Some(o) = opus
+                && v.dec.decode(&o, 960, &mut pcm).is_ok()
             {
                 level = Some((pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt());
             }
             json!({ "t": now_ms(), "voice_rtp": u16::from_be_bytes([pkt[2], pkt[3]]), "ssrc": u32::from_be_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]),
-                    "pt": pkt[1] & 0x7f, "decrypted": plain.is_some(), "silence": silence, "level": level })
+                    "pt": pkt[1] & 0x7f, "decrypted": plain.is_some(), "silence": silence, "e2ee": e2ee, "level": level })
         };
         log(&w, line);
     }
 }
 
-// Alice: a quiet 330Hz tone, 1.2s on and 0.8s off, sent the way Discord's SFU forwards it
+// Alice: a quiet 330Hz tone, 1.2s on and 0.8s off, sent the way Discord's SFU forwards it,
+// and only once the E2EE group is up
 async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
     let mut enc = opus_rs::OpusEncoder::new(48_000, 2, opus_rs::Application::Audio).unwrap();
     let mut tick = tokio::time::interval(Duration::from_millis(20));
@@ -753,10 +872,14 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
             phase = (phase + std::f32::consts::TAU * 330.0 / 48_000.0) % std::f32::consts::TAU;
         }
         let Ok(n) = enc.encode(&frame, 960, &mut out) else { continue };
-        let (mode, key, to) = {
-            let wl = w.lock().unwrap();
-            let Some(v) = &wl.voice else { break };
-            (v.mode.clone(), v.key, v.client)
+        let (mode, key, to, opus) = {
+            let mut wl = w.lock().unwrap();
+            let Some(v) = &mut wl.voice else { break };
+            if !v.e2ee {
+                continue;
+            }
+            let Ok(opus) = v.alice.encrypt_opus(&out[..n]).map(|c| c.into_owned()) else { continue };
+            (v.mode.clone(), v.key, v.client, opus)
         };
         let Some(to) = to else { continue };
         // one-element header extension (audio level), whose body is encrypted along with the opus data
@@ -765,7 +888,7 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>) {
         h.extend_from_slice(&ts.to_be_bytes());
         h.extend_from_slice(&SPEAKER_SSRC.to_be_bytes());
         h.extend_from_slice(&[0xbe, 0xde, 0x00, 0x01]);
-        let body = [&[0x10, 0x5a, 0x00, 0x00][..], &out[..n]].concat();
+        let body = [&[0x10, 0x5a, 0x00, 0x00][..], &opus].concat();
         nonce = nonce.wrapping_add(1);
         let _ = udp.send_to(&seal(&mode, &key, &h, &body, nonce), to).await;
         seq = seq.wrapping_add(1);
