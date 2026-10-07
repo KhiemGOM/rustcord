@@ -25,11 +25,14 @@ pub struct Settings {
     pub clock24: bool,
     pub dev: bool,
     pub embeds: bool,
+    pub mic: Option<String>,
+    pub speaker: Option<String>,
+    pub vad_db: i32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { notify: true, notify_all_dms: true, flash: true, zoom: 1.0, clock24: false, dev: false, embeds: true }
+        Settings { notify: true, notify_all_dms: true, flash: true, zoom: 1.0, clock24: false, dev: false, embeds: true, mic: None, speaker: None, vad_db: -50 }
     }
 }
 

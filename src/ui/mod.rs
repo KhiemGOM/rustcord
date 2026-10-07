@@ -179,6 +179,7 @@ impl App {
         };
         ctx.set_zoom_factor(app.settings.zoom);
         crate::markdown::CLOCK24.store(app.settings.clock24, std::sync::atomic::Ordering::Relaxed);
+        app.voice.configure(&app.settings);
         if let Some(ch) = app.cur() {
             app.open(ch);
         }
@@ -430,6 +431,7 @@ impl App {
     pub fn save_settings(&self, ctx: &egui::Context) {
         ctx.set_zoom_factor(self.settings.zoom);
         crate::markdown::CLOCK24.store(self.settings.clock24, std::sync::atomic::Ordering::Relaxed);
+        self.voice.configure(&self.settings);
         cache::set_settings(&self.settings);
     }
 

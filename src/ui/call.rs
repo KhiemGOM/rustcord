@@ -1,10 +1,12 @@
-use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::{Arc, Mutex};
 
 use super::icons::{self, Icon};
 use super::{App, avatar, channel_title, icon_button};
 use crate::state::{Channel, Id};
 use crate::theme::*;
-use crate::voice::State;
+use crate::voice::{State, audio};
 
 /// "Voice Connected" box that sits above the user panel.
 pub fn panel(app: &mut App, ui: &mut Ui) {
@@ -298,4 +300,79 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
             }
         }
     }
+}
+
+type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;
+
+/// Voice & Video settings page. Returns true when a setting changed.
+pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
+    ui.label(RichText::new("Voice & Video").font(bold(20.0)).color(HEADER_PRIMARY));
+    ui.add_space(12.0);
+    // enumerating WASAPI endpoints takes a while, so it happens once, on a thread
+    let key = egui::Id::new("voice_devices");
+    let devs: Devices = match ui.data(|d| d.get_temp::<Devices>(key)) {
+        Some(d) => d,
+        None => {
+            let d: Devices = Arc::default();
+            let (out, ctx) = (d.clone(), ui.ctx().clone());
+            std::thread::spawn(move || {
+                let list = audio::devices();
+                if let Ok(mut o) = out.lock() {
+                    *o = Some(list);
+                }
+                ctx.request_repaint();
+            });
+            ui.data_mut(|m| m.insert_temp(key, d.clone()));
+            d
+        }
+    };
+    let (ins, outs) = devs.lock().ok().and_then(|d| d.clone()).unwrap_or_default();
+    let s = &mut app.settings;
+    let mut changed = false;
+    ui.columns(2, |cols| {
+        changed |= pick(&mut cols[0], "INPUT DEVICE", "mic_pick", &ins, &mut s.mic);
+        changed |= pick(&mut cols[1], "OUTPUT DEVICE", "speaker_pick", &outs, &mut s.speaker);
+    });
+    ui.label(RichText::new("Device changes apply the next time you join a call.").font(reg(14.0)).color(HEADER_SECONDARY));
+    ui.add_space(20.0);
+
+    ui.label(RichText::new("INPUT SENSITIVITY").font(bold(12.0)).color(HEADER_SECONDARY));
+    let mut db = s.vad_db as f32;
+    ui.spacing_mut().slider_width = ui.available_width().min(500.0);
+    let r = ui.add(egui::Slider::new(&mut db, -100.0..=0.0).step_by(1.0).show_value(false));
+    ui.label(RichText::new(format!("{db:.0} dB")).font(reg(13.0)).color(HEADER_SECONDARY));
+    if r.changed() {
+        s.vad_db = db as i32;
+        changed = true;
+    }
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width().min(500.0), 10.0), Sense::hover());
+    ui.painter().rect_filled(bar, CornerRadius::same(5), BG_TERTIARY);
+    let x = |v: f32| bar.left() + bar.width() * ((v + 100.0) / 100.0).clamp(0.0, 1.0);
+    if app.voice.chan.is_some() {
+        let level = app.voice.shared.level.load(Relaxed) as f32;
+        let fill = Rect::from_min_max(bar.min, pos2(x(level), bar.bottom()));
+        ui.painter().rect_filled(fill, CornerRadius::same(5), if level > db { GREEN } else { YELLOW });
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+    }
+    ui.painter().vline(x(db), bar.y_range().expand(3.0), Stroke::new(2.0, Color32::WHITE));
+    let note = if app.voice.chan.is_some() {
+        "You transmit while the bar is green."
+    } else {
+        "Join a voice channel to see your input level."
+    };
+    ui.label(RichText::new(note).font(reg(14.0)).color(HEADER_SECONDARY));
+    changed
+}
+
+fn pick(ui: &mut Ui, label: &str, id: &str, names: &[String], cur: &mut Option<String>) -> bool {
+    ui.label(RichText::new(label).font(bold(12.0)).color(HEADER_SECONDARY));
+    let shown = cur.clone().unwrap_or_else(|| "Default".into());
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id).width(ui.available_width() - 8.0).selected_text(shown).show_ui(ui, |ui| {
+        changed |= ui.selectable_value(cur, None, "Default").changed();
+        for n in names {
+            changed |= ui.selectable_value(cur, Some(n.clone()), n).changed();
+        }
+    });
+    changed
 }
