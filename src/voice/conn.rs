@@ -514,7 +514,12 @@ impl Sess {
         let Some(cipher) = &self.cipher else { return };
         let body = match &mut self.dave {
             Some(d) if self.dave_ver != 0 && d.is_ready() => match d.encrypt_opus(opus) {
-                Ok(b) => b.into_owned(),
+                Ok(b) => {
+                    if opus != SILENCE {
+                        self.shared.e2ee_out.fetch_add(1, Relaxed);
+                    }
+                    b.into_owned()
+                }
                 Err(_) => return,
             },
             _ => opus.to_vec(),
@@ -548,6 +553,7 @@ impl Sess {
                 match d.decrypt(user, MediaType::AUDIO, &body) {
                     Ok(b) => {
                         self.fails = 0;
+                        self.shared.e2ee_in.fetch_add(1, Relaxed);
                         b
                     }
                     Err(_) => {

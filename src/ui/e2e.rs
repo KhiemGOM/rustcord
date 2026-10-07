@@ -177,6 +177,7 @@ impl Run {
         self.voice = json!({
             "mic": mic_name,
             "packets_sent": n(&sh.sent), "voiced_sent": n(&sh.voiced), "packets_recv": n(&sh.recv), "frames_decoded": n(&sh.decoded),
+            "e2ee_out": n(&sh.e2ee_out), "e2ee_in": n(&sh.e2ee_in),
         });
         match self.step {
             0 => {
