@@ -621,7 +621,7 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
     let (mut tx, mut rx) = ws.split();
     let mut seq = 0u64;
     let live = Arc::new(AtomicBool::new(true));
-    let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 13750.0 } }).to_string())).await;
+    let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 1000.0 } }).to_string())).await;
     while let Some(Ok(m)) = rx.next().await {
         let t = match m {
             Ws::Text(t) => t,

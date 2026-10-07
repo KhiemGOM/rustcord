@@ -1,8 +1,10 @@
 """End-to-end run: real fastcord binary against the mock Discord in examples/mockcord.rs.
 
 Does a cold start (empty data dir) and a warm start (cache from the cold run),
-drives the UI (click guild, click channel, type + send, scroll history, open DMs),
-then checks timings and what the mock actually received.
+drives the UI (click guild, click channel, type + send, scroll history, open DMs,
+join a voice channel, start a DM call), then checks timings and what the mock
+actually received. The cold run talks through a synthetic mic tone; the warm run
+uses whatever audio devices the machine has (none is fine, it sends silence).
 
     python e2e/run.py            # builds release first
     python e2e/run.py --no-build
@@ -29,7 +31,7 @@ def free_port():
 
 
 # random ports so parallel runs (other worktrees, other agents) can't cross wires
-HTTP, WS = free_port(), free_port()
+HTTP, WS, VOICE = free_port(), free_port(), free_port()
 BUDGET_MS = 1000
 
 
@@ -37,7 +39,7 @@ def build():
     subprocess.run(["cargo", "build", "--release", "--bin", "fastcord", "--example", "mockcord"], cwd=ROOT, check=True)
 
 
-def run_client(name, data_dir):
+def run_client(name, data_dir, extra=None):
     out = ART / name
     out.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -50,6 +52,7 @@ def run_client(name, data_dir):
         "FASTCORD_DATA": str(data_dir),
         "FASTCORD_E2E": str(out),
     })
+    env.update(extra or {})
     exe = ROOT / "target" / "release" / "fastcord.exe"
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
@@ -74,10 +77,10 @@ def main():
     data = ART / "data"
     log = ART / "mock_requests.jsonl"
 
-    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log)])
+    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE)])
     time.sleep(0.5)
     try:
-        cold = run_client("cold", data)
+        cold = run_client("cold", data, {"FASTCORD_FAKE_MIC": "1"})
         warm = run_client("warm", data)
     finally:
         mock.kill()
@@ -103,6 +106,14 @@ def main():
     acks = [r for r in reqs if "/ack" in r.get("path", "")]
     history = [r for r in reqs if "before=" in r.get("path", "")]
     subs = [r for r in reqs if r.get("gateway_op") == 37]
+    vops = [r for r in reqs if "voice_op" in r]
+    idents = [r["d"] for r in vops if r["voice_op"] == 0]
+    selects = [r["d"] for r in vops if r["voice_op"] == 1]
+    beats = [r for r in vops if r["voice_op"] == 3]
+    speaking = [r.get("speaking") for r in vops if r["voice_op"] == 5]
+    rtp = [r for r in reqs if "voice_rtp" in r and r.get("ssrc") == 1001]
+    op4 = [r.get("d", {}) for r in reqs if r.get("gateway_op") == 4]
+    voice_marks = ("voice_connected", "voice_heard", "voice_left", "dm_call", "dm_left")
 
     checks = {
         "cold run finished its script": cold.get("ok") is True,
@@ -134,6 +145,22 @@ def main():
                               ("search returned results", "search"), ("pins loaded", "pins"), ("settings opened", "settings"),
                               ("dm from someone else raised a notification", "notified")]},
         "forum, pins, search and profile hit the api": all(any(k in r.get("path", "") for r in reqs) for k in ("/threads/search", "/pins", "/messages/search", "/profile")),
+        "voice: op 4 joined the guild voice channel": any(d.get("guild_id") == "1000" and d.get("channel_id") == "2021" for d in op4),
+        "voice: identify carried session, token and max_dave_protocol_version": len(idents) >= 4 and all(
+            i.get("session_id") == "mock-voice-session" and i.get("token") == "mock-voice-token" and (i.get("max_dave_protocol_version") or 0) >= 1 for i in idents),
+        "voice: dm call identified with the dm channel as server_id": any(i.get("server_id") == "3000" for i in idents),
+        "voice: select protocol picked aead_aes256_gcm_rtpsize with the discovered address": len(selects) >= 4 and all(
+            s["data"]["mode"] == "aead_aes256_gcm_rtpsize" and s["data"]["address"] == "127.0.0.1" and s["data"]["port"] > 0 for s in selects),
+        "voice: heartbeats carry seq_ack (v8)": len(beats) >= 2 and all(isinstance(b.get("seq_ack"), int) and b["seq_ack"] >= 1 for b in beats),
+        "voice: client sent speaking (op 5), and speaking=1 from the fake mic": 0 in speaking and 1 in speaking,
+        "voice: every client rtp packet decrypted with the session key": len(rtp) >= 20 and all(r["decrypted"] for r in rtp),
+        "voice: fake mic audio arrived as voiced opus": sum(1 for r in rtp if (r.get("level") or 0) > 0.05) >= 20,
+        "voice: client decoded the fake speaker and lit their speaking ring (both runs)": all(
+            all(m in r.get("marks_ms", {}) for m in voice_marks) and r.get("voice", {}).get("frames_decoded", 0) > 20 for r in (cold, warm)),
+        "voice: mute and deafen state reached the gateway": any(d.get("self_mute") is True and d.get("channel_id") for d in op4),
+        "voice: disconnect sent op 4 with channel_id null": sum(1 for d in op4 if d.get("channel_id") is None) >= 4,
+        "voice: dm call joined with guild_id null and rang the recipient": any(d.get("guild_id") is None and d.get("channel_id") == "3000" for d in op4)
+            and any(r.get("path", "").endswith("/channels/3000/call/ring") for r in reqs),
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
     }
@@ -147,6 +174,7 @@ def main():
         md += [f"- {k}: {v} ms" for k, v in r.get("marks_ms", {}).items()]
         f = r.get("frame_cpu_ms", {})
         md += [f"- frame cpu: p50 {f.get('p50', 0):.2f} / p95 {f.get('p95', 0):.2f} / p99 {f.get('p99', 0):.2f} / max {f.get('max', 0):.2f} ms over {f.get('count')} frames"]
+        md += [f"- voice: {json.dumps(r.get('voice'))}"]
         md += [f"- screenshot: {name}/{s}" for s in r.get("screenshots", [])]
         if r.get("error"):
             md += [f"- error: {r['error']}"]
