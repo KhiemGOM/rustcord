@@ -1,4 +1,4 @@
-use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::{card, danger, divider, h5, markers, note, primary, radio, secondary, title, toggle};
 use crate::cache::{RoleColors, Spoilers};
@@ -294,8 +294,8 @@ pub fn keybinds(app: &mut App, ui: &mut Ui) -> bool {
                 cols[1].label(RichText::new("KEYBIND").font(bold(12.0)).color(pal().header_secondary));
                 let shown = if recording { combo(&app.sform.rec_keys) } else { combo(keys) };
                 let (r, _) = cols[1].allocate_exact_size(vec2(cols[1].available_width(), 40.0), Sense::hover());
-                let stroke = if recording { RED } else { pal().bg_tertiary };
-                cols[1].painter().rect(r, CornerRadius::same(3), pal().bg_tertiary, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+                let stroke = if recording { RED } else { pal().border_normal };
+                cols[1].painter().rect(r, CornerRadius::same(3), pal().input_bg, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
                 cols[1].painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, shown, semi(14.0), pal().header_primary);
                 let mut b = cols[1].new_child(egui::UiBuilder::new().max_rect(r.shrink(4.0)).layout(Layout::right_to_left(Align::Center)));
                 let label = if recording { "Stop Recording" } else { "Record Keybind" };
@@ -339,7 +339,7 @@ pub fn keybinds(app: &mut App, ui: &mut Ui) -> bool {
         ui.horizontal(|ui| {
             ui.label(RichText::new(what).font(reg(15.0)).color(pal().text_normal));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+                input_frame().corner_radius(4).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
                     ui.label(RichText::new(keys).font(bold(12.0)).color(pal().header_secondary));
                 });
             });

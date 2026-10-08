@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import look
+import polish
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -290,6 +291,7 @@ def main():
         "account sync: Onyx update painted the rail #000000 (both runs)": all(
             r.get("rects", {}).get("look:sync_onyx:rail") == "#000000" for r in (cold, warm)),
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
+        **polish.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

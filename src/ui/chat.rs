@@ -174,6 +174,11 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
                     icons::draw(ui.painter(), icon, r, pal().channel_default);
                 };
+                let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
+                    let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                    side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
+                    r
+                };
                 match chan.kind {
                     1 => {
                         if let Some(u) = chan.recipients.first().and_then(|u| app.store.user(*u)) {
@@ -185,7 +190,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     10..=12 => {
                         let parent = app.store.channels.get(&chan.parent).cloned();
                         if let Some(p) = parent {
-                            glyph(ui, side::glyph(&p));
+                            chan_glyph(ui, &app.store, &p);
                             let r = text::label(ui, &p.name, semi(16.0), pal().header_secondary, Sense::click());
                             if r.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -198,7 +203,10 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                         glyph(ui, Icon::Thread);
                     }
-                    _ => glyph(ui, side::glyph(chan)),
+                    _ => {
+                        let r = chan_glyph(ui, &app.store, chan);
+                        app.rects.insert("header:icon".into(), r);
+                    }
                 }
                 text::label(ui, &title, semi(16.0), pal().header_primary, Sense::hover());
                 let tools = if chan.guild != 0 { 330.0 } else { 220.0 };
@@ -217,7 +225,8 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let r = ui
                         .allocate_ui_with_layout(vec2(sw, 24.0), Layout::left_to_right(Align::Center), |ui| {
                             Frame::new()
-                                .fill(pal().bg_tertiary)
+                                .fill(pal().input_bg)
+                                .stroke(Stroke::new(1.0, pal().border_normal))
                                 .corner_radius(4)
                                 .inner_margin(Margin::symmetric(6, 3))
                                 .show(ui, |ui| {
@@ -837,7 +846,7 @@ fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     use crate::cache::RoleColors::*;
     if let Some((fx, cols)) = d.store.user(who).and_then(|u| u.style.clone()) {
         let min = if matches!(fx, 2 | 6 | 7) { 2.5 } else { 3.0 };
-        let stops: Vec<Color32> = cols.iter().map(|c| contrast(role_color(*c), pal().bg_secondary_alt, min)).collect();
+        let stops: Vec<Color32> = cols.iter().map(|c| contrast(role_color(*c), pal().bg_primary, min)).collect();
         // gradient, glow and prism spread their colours; the other effects sit flat on the first
         return match fx {
             2 | 6 | 7 => (Ink { stops, tile: false, glow: fx == 6 }, None),
@@ -1074,16 +1083,19 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                 }
             }
             Block::Code(code) => {
-                ui.add_space(4.0);
-                Frame::new()
-                    .fill(pal().bg_secondary)
-                    .stroke(Stroke::new(1.0, pal().bg_tertiary))
+                ui.add_space(6.0);
+                let r = Frame::new()
+                    .fill(pal().bg_code)
+                    .stroke(Stroke::new(1.0, pal().border_normal))
                     .corner_radius(4)
-                    .inner_margin(8)
+                    .inner_margin(7)
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.add(Label::new(RichText::new(code).font(mono(14.0)).color(pal().text_normal)).wrap());
                     });
+                if ui.clip_rect().contains_rect(r.response.rect) {
+                    d.rects.push(("codeblock".into(), r.response.rect));
+                }
                 ui.add_space(4.0);
             }
             Block::Quote(inner) => {
@@ -1156,7 +1168,7 @@ fn human_size(n: u64) -> String {
 fn file_card(ui: &mut Ui, name: &str, size: u64, video: bool) -> egui::Response {
     let w = ui.available_width().min(432.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 66.0), Sense::click());
-    ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().bg_tertiary), egui::StrokeKind::Inside);
+    ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let ir = Rect::from_center_size(pos2(rect.left() + 28.0, rect.center().y), vec2(30.0, 36.0));
     icons::draw(ui.painter(), Icon::File, ir, BLURPLE);
     if video {
@@ -1204,7 +1216,7 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
         return;
     }
     let maxw = (ui.available_width() - 4.0).min(516.0);
-    let bar = e.color.map(role_color).unwrap_or(pal().bg_tertiary);
+    let bar = e.color.map(role_color).unwrap_or(pal().border_normal);
     let start = ui.cursor().min;
     let thumb = e.thumb.as_ref().filter(|_| media_ok && e.kind != "video" && e.image.is_none());
     let r = Frame::new()
@@ -1374,7 +1386,7 @@ fn components(ui: &mut Ui, d: &mut D, m: &Message) {
                         let id = ui.id().with(("select", m.id, custom_id));
                         let mut open: bool = ui.data(|dd| dd.get_temp(id).unwrap_or(false));
                         let (r, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
-                        ui.painter().rect(r, CornerRadius::same(4), pal().bg_tertiary, Stroke::new(1.0, if open { BLURPLE } else { pal().bg_tertiary }), egui::StrokeKind::Inside);
+                        ui.painter().rect(r, CornerRadius::same(4), pal().input_bg, Stroke::new(1.0, if open { BLURPLE } else { pal().border_normal }), egui::StrokeKind::Inside);
                         ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, placeholder, reg(15.0), pal().text_muted);
                         icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(18.0, 18.0)), pal().header_secondary);
                         if resp.clicked() && !disabled {
@@ -1444,8 +1456,8 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
         .fixed_pos(pos)
         .show(d.ctx, |ui| {
             Frame::new()
-                .fill(pal().bg_primary)
-                .stroke(Stroke::new(1.0, pal().bg_tertiary))
+                .fill(pal().bg_secondary)
+                .stroke(Stroke::new(1.0, pal().border_subtle))
                 .corner_radius(4)
                 .inner_margin(1)
                 .show(ui, |ui| {

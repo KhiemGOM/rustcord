@@ -1423,8 +1423,114 @@ impl Run {
     }
 
     /// Leftovers: channel header marks, voice panel, palette sweep.
-    fn polish_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 99;
+    fn polish_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let rect = |app: &App, k: &str| app.rects.get(k).copied();
+        let save = |me: &mut Self, app: &App, k: &str| {
+            if let Some(r) = rect(app, k) {
+                me.rects.insert(format!("polish:{k}"), json!([r.min.x, r.min.y, r.width(), r.height()]));
+            }
+        };
+        match self.step {
+            330 => {
+                let Some(r) = rect(app, "guild:1003") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            331 | 333 => {
+                let chan = if self.step == 331 { 2302 } else { 2303 };
+                if app.ui.guild != Some(1003) {
+                    return;
+                }
+                let Some(r) = rect(app, &format!("chan:{chan}")) else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            332 | 334 => {
+                let want = if self.step == 332 { 2302 } else { 2303 };
+                let Some(icon) = rect(app, "header:icon").filter(|_| app.cur() == Some(want)) else { return };
+                // the corner of the glyph where the lock sits when a channel is private
+                let shot = if want == 2302 { "polish_private.png" } else { "polish_public.png" };
+                self.probes.push((shot.into(), vec![("lock".into(), Probe::At(icon.min + vec2(22.2, 9.0)))]));
+                save(self, app, "header:icon");
+                self.shot(ctx, shot);
+                self.next(400);
+            }
+335 => {
+                let Some(r) = rect(app, "chan:2310") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+336 => {
+                let (Some(cam), Some(_)) = (rect(app, "voice:panel_camera"), rect(app, "voice:panel_screen")) else { return };
+                if app.voice.state != State::Connected {
+                    return;
+                }
+                for k in ["voice:panel_camera", "voice:panel_screen", "voice:disconnect", "userpanel"] {
+                    save(self, app, k);
+                }
+                let probes = vec![
+                    ("gap".into(), Probe::At(cam.left_top() + vec2(10.0, -6.0))),
+                    ("button".into(), Probe::At(cam.left_top() + vec2(6.0, 16.0))),
+                ];
+                self.probes.push(("polish_voice.png".into(), probes));
+                self.shot(ctx, "polish_voice.png");
+                self.next(400);
+            }
+337 => {
+                let Some(r) = rect(app, "voice:disconnect") else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+338 => {
+                if app.voice.state == State::Idle && app.voice.chan.is_none() {
+                    self.next(200);
+                }
+            }
+339 => {
+                let Some(r) = rect(app, &format!("guild:{}", self.target.0)) else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+340 => {
+                let Some(r) = rect(app, &format!("chan:{}", self.target.1)) else { return };
+                self.click(r.center());
+                self.next(1200);
+            }
+341 => {
+                // the code message sits a few above the newest; older than the viewport after the earlier steps sent more
+                let Some(code) = rect(app, "codeblock") else {
+                    if self.tries < 20 {
+                        self.tries += 1;
+                        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
+                        self.queue.push_back(vec![Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0.0, 150.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: Modifiers::NONE,
+                        }]);
+                        self.wait = Instant::now() + Duration::from_millis(250);
+                    }
+                    return;
+                };
+                // off the message, so the hover wash doesn't tint the probes
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(30.0, 300.0))]);
+                self.next(500);
+            }
+            342 => {
+                let Some(code) = rect(app, "codeblock") else { return };
+                let probes = vec![
+                    ("fill".into(), Probe::At(code.min + vec2(4.0, 4.0))),
+                    ("edge".into(), Probe::At(code.left_center() + vec2(0.4, 0.0))),
+                    ("chat".into(), Probe::At(code.left_center() - vec2(4.0, 0.0))),
+                ];
+                self.probes.push(("polish_code.png".into(), probes));
+                save(self, app, "codeblock");
+                self.shot(ctx, "polish_code.png");
+                self.mark("polish");
+                self.next(400);
+            }
+            _ => self.step = 99,
+        }
     }
 
     /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):

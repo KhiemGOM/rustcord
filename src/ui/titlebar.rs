@@ -13,7 +13,6 @@ pub const HEIGHT: f32 = 30.0;
 
 // --interactive-background-hover and --border-subtle, which the palette doesn't carry
 const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 31);
-const DIVIDER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 51);
 const CLOSE: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 
 const INBOX_W: f32 = 440.0;
@@ -175,112 +174,116 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .exact_size(HEIGHT)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_tertiary))
+        .frame(Frame::NONE)
         .show(ui, |ui| {
             let bar = ui.max_rect();
-            app.rects.insert("title:bar".into(), bar);
-            let drag = ui.interact(bar, egui::Id::new("title_drag"), Sense::click_and_drag());
-            let mid = bar.center().y;
-            let at = |x: f32, w: f32, h: f32| Rect::from_min_size(pos2(x, mid - h / 2.0), vec2(w, h));
-            let press = |ui: &mut Ui, app: &mut App, name: &str, rect: Rect, enabled: bool| {
-                app.rects.insert(format!("title:{name}"), rect);
-                let resp = ui.interact(rect, egui::Id::new(("title", name)), Sense::click());
-                let on = enabled && resp.hovered();
-                if on {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                (resp.clicked() && enabled, on)
-            };
-            let glyph = |ui: &Ui, icon: Icon, rect: Rect, size: f32, col: Color32| {
-                icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(size, size)), col);
-            };
-            let idle = pal().header_secondary;
-            let lit = pal().interactive_hover;
-
-            let back = signed_in && app.nav.can_back();
-            let (hit, on) = press(ui, app, "back", at(bar.left() + 12.0, 24.0, 24.0), back);
-            let col = if !back { idle.gamma_multiply(0.4) } else if on { lit } else { idle };
-            glyph(ui, Icon::ArrowLeft, at(bar.left() + 12.0, 24.0, 24.0), 22.0, col);
-            if hit {
-                app.go(true);
-            }
-            let fwd = signed_in && app.nav.can_forward();
-            let (hit, on) = press(ui, app, "forward", at(bar.left() + 36.0, 24.0, 24.0), fwd);
-            let col = if !fwd { idle.gamma_multiply(0.4) } else if on { lit } else { idle };
-            glyph(ui, Icon::ArrowRight, at(bar.left() + 36.0, 24.0, 24.0), 22.0, col);
-            if hit {
-                app.go(false);
-            }
-
-            // the window buttons are flush with the right edge
-            let mut x = bar.right();
-            for (name, icon) in [("close", Icon::Close), ("max", if maximized { Icon::Restore } else { Icon::Maximize }), ("min", Icon::Minimize)] {
-                let rect = at(x - 32.0, 32.0, HEIGHT);
-                let (hit, on) = press(ui, app, name, rect, true);
-                let (fill, col) = match (name, on) {
-                    ("close", true) => (CLOSE, Color32::WHITE),
-                    (_, true) => (HOVER, lit),
-                    _ => (Color32::TRANSPARENT, idle),
+            // above the order modals use, so dialogs can't swallow the window buttons
+            egui::Area::new(egui::Id::new("titlebar_over")).order(egui::Order::Tooltip).fixed_pos(bar.min).show(&ctx, |ui| {
+                ui.painter().rect_filled(bar, CornerRadius::ZERO, pal().frame_bg);
+                app.rects.insert("title:bar".into(), bar);
+                let drag = ui.interact(bar, egui::Id::new("title_drag"), Sense::click_and_drag());
+                let mid = bar.center().y;
+                let at = |x: f32, w: f32, h: f32| Rect::from_min_size(pos2(x, mid - h / 2.0), vec2(w, h));
+                let press = |ui: &mut Ui, app: &mut App, name: &str, rect: Rect, enabled: bool| {
+                    app.rects.insert(format!("title:{name}"), rect);
+                    let resp = ui.interact(rect, egui::Id::new(("title", name)), Sense::click());
+                    let on = enabled && resp.hovered();
+                    if on {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    (resp.clicked() && enabled, on)
                 };
-                ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
-                glyph(ui, icon, rect, 18.0, col);
+                let glyph = |ui: &Ui, icon: Icon, rect: Rect, size: f32, col: Color32| {
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(size, size)), col);
+                };
+                let idle = pal().header_secondary;
+                let lit = pal().interactive_hover;
+
+                let back = signed_in && app.nav.can_back();
+                let (hit, on) = press(ui, app, "back", at(bar.left() + 12.0, 24.0, 24.0), back);
+                let col = if !back { idle.gamma_multiply(0.4) } else if on { lit } else { idle };
+                glyph(ui, Icon::ArrowLeft, at(bar.left() + 12.0, 24.0, 24.0), 22.0, col);
                 if hit {
-                    ctx.send_viewport_cmd(match name {
-                        "close" => ViewportCommand::Close,
-                        "min" => ViewportCommand::Minimized(true),
-                        _ => ViewportCommand::Maximized(!maximized),
-                    });
+                    app.go(true);
                 }
-                x -= 36.0;
-            }
-            // what's left of the 4px gap, then the divider with its margin
-            let div = x - 4.0 - 4.0;
-            ui.painter().vline(div + 0.5, (mid - 9.0)..=(mid + 9.0), egui::Stroke::new(1.0, DIVIDER));
-            let help = at(div - 4.0 - 12.0 - 24.0, 24.0, 24.0);
-            let inbox = at(help.left() - 12.0 - 24.0, 24.0, 24.0);
-
-            let (hit, on) = press(ui, app, "help", help, true);
-            glyph(ui, Icon::Help, help, 16.0, if on { lit } else { idle });
-            if hit && app.e2e.is_none() {
-                let _ = open::that_detached("https://support.discord.com");
-            }
-
-            let (hit, on) = press(ui, app, "inbox", inbox, signed_in);
-            let open = app.inbox.is_some();
-            if signed_in {
-                glyph(ui, Icon::Inbox, inbox, 16.0, if on || open { lit } else { idle });
-                let n = mentions(&app.store);
-                if n > 0 {
-                    badge(ui, inbox.center() + vec2(22.0, -6.0), n, Some(pal().bg_tertiary));
+                let fwd = signed_in && app.nav.can_forward();
+                let (hit, on) = press(ui, app, "forward", at(bar.left() + 36.0, 24.0, 24.0), fwd);
+                let col = if !fwd { idle.gamma_multiply(0.4) } else if on { lit } else { idle };
+                glyph(ui, Icon::ArrowRight, at(bar.left() + 36.0, 24.0, 24.0), 22.0, col);
+                if hit {
+                    app.go(false);
                 }
-            }
-            if hit {
-                app.toggle_inbox();
-            }
 
-            // centred on the window, not on the space between the buttons
-            let half = (bar.center().x - (bar.left() + 72.0)).min(inbox.left() - 12.0 - bar.center().x);
-            let label = text::layout(&ctx, &title, semi(14.0), pal().header_primary, (half * 2.0 - 32.0).max(0.0));
-            let width = 16.0 + 8.0 + label.size().x;
-            let left = bar.center().x - width / 2.0;
-            let icon = Rect::from_min_size(pos2(left, mid - 8.0), vec2(16.0, 16.0));
-            let bare = matches!(mark, Mark::None);
-            match mark {
-                Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
-                Mark::Avatar(url) => super::avatar(ui, icon, &url),
-                Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
-                Mark::None => {}
-            }
-            let name_at = if bare { bar.center().x - label.size().x / 2.0 } else { left + 24.0 };
-            label.paint(ui.painter(), pos2(name_at, mid - label.size().y / 2.0));
-            app.rects.insert("title:name".into(), Rect::from_min_size(pos2(name_at, mid - 8.0), vec2(label.size().x, 16.0)));
+                // the window buttons are flush with the right edge
+                let mut x = bar.right();
+                for (name, icon) in [("close", Icon::Close), ("max", if maximized { Icon::Restore } else { Icon::Maximize }), ("min", Icon::Minimize)] {
+                    let rect = at(x - 32.0, 32.0, HEIGHT);
+                    let (hit, on) = press(ui, app, name, rect, true);
+                    let (fill, col) = match (name, on) {
+                        ("close", true) => (CLOSE, Color32::WHITE),
+                        (_, true) => (HOVER, lit),
+                        _ => (Color32::TRANSPARENT, idle),
+                    };
+                    ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
+                    glyph(ui, icon, rect, 18.0, col);
+                    if hit {
+                        ctx.send_viewport_cmd(match name {
+                            "close" => ViewportCommand::Close,
+                            "min" => ViewportCommand::Minimized(true),
+                            _ => ViewportCommand::Maximized(!maximized),
+                        });
+                    }
+                    x -= 36.0;
+                }
+                // what's left of the 4px gap, then the divider with its margin
+                let div = x - 4.0 - 4.0;
+                ui.painter().vline(div + 0.5, (mid - 9.0)..=(mid + 9.0), egui::Stroke::new(1.0, pal().frame_border));
+                let help = at(div - 4.0 - 12.0 - 24.0, 24.0, 24.0);
+                let inbox = at(help.left() - 12.0 - 24.0, 24.0, 24.0);
 
-            if drag.drag_started_by(PointerButton::Primary) {
-                ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-            }
-            if drag.double_clicked() {
-                toggle_maximized(&ctx);
-            }
+                let (hit, on) = press(ui, app, "help", help, true);
+                glyph(ui, Icon::Help, help, 16.0, if on { lit } else { idle });
+                if hit && app.e2e.is_none() {
+                    let _ = open::that_detached("https://support.discord.com");
+                }
+
+                let (hit, on) = press(ui, app, "inbox", inbox, signed_in);
+                let open = app.inbox.is_some();
+                if signed_in {
+                    glyph(ui, Icon::Inbox, inbox, 16.0, if on || open { lit } else { idle });
+                    let n = mentions(&app.store);
+                    if n > 0 {
+                        badge(ui, inbox.center() + vec2(22.0, -6.0), n, Some(pal().frame_bg));
+                    }
+                }
+                if hit {
+                    app.toggle_inbox();
+                }
+
+                // centred on the window, not on the space between the buttons
+                let half = (bar.center().x - (bar.left() + 72.0)).min(inbox.left() - 12.0 - bar.center().x);
+                let label = text::layout(&ctx, &title, semi(14.0), pal().header_primary, (half * 2.0 - 32.0).max(0.0));
+                let width = 16.0 + 8.0 + label.size().x;
+                let left = bar.center().x - width / 2.0;
+                let icon = Rect::from_min_size(pos2(left, mid - 8.0), vec2(16.0, 16.0));
+                let bare = matches!(mark, Mark::None);
+                match mark {
+                    Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
+                    Mark::Avatar(url) => super::avatar(ui, icon, &url),
+                    Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
+                    Mark::None => {}
+                }
+                let name_at = if bare { bar.center().x - label.size().x / 2.0 } else { left + 24.0 };
+                label.paint(ui.painter(), pos2(name_at, mid - label.size().y / 2.0));
+                app.rects.insert("title:name".into(), Rect::from_min_size(pos2(name_at, mid - 8.0), vec2(label.size().x, 16.0)));
+
+                if drag.drag_started_by(PointerButton::Primary) {
+                    ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+                }
+                if drag.double_clicked() {
+                    toggle_maximized(&ctx);
+                }
+            });
         });
 }
 
