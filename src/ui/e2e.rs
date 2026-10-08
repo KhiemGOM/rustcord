@@ -19,6 +19,13 @@ const PAGES_BELOW: [&str; 10] = [
     "Streamer Mode", "Log Out",
 ];
 
+// the settings sidebar top to bottom
+const SIDEBAR: [&str; 18] = [
+    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
+    "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy", "Connected Apps",
+    "Developer", "Log Out",
+];
+
 pub struct Run {
     dir: PathBuf,
     t0: Instant,
@@ -561,7 +568,8 @@ impl Run {
                 if !app.rects.contains_key("reply") {
                     // scroll up a bit at a time until a reply preview is on screen
                     if let Some(c) = app.rects.get("composer").copied() {
-                        self.queue.push_back(vec![Event::PointerMoved(c.center() - vec2(0.0, 200.0))]);
+                        // the middle of the message list; a tall composer (an upload still attached) makes "above the composer" unreliable
+                        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(c.center().x, (c.top() + 90.0) / 2.0))]);
                         self.queue.push_back(vec![Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
                             delta: vec2(0.0, 150.0),
@@ -593,7 +601,8 @@ impl Run {
             39 => {
                 if !app.rects.contains_key("image") {
                     if let Some(c) = app.rects.get("composer").copied() {
-                        self.queue.push_back(vec![Event::PointerMoved(c.center() - vec2(0.0, 200.0))]);
+                        // the middle of the message list; a tall composer (an upload still attached) makes "above the composer" unreliable
+                        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(c.center().x, (c.top() + 90.0) / 2.0))]);
                         self.queue.push_back(vec![Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
                             delta: vec2(0.0, 150.0),
@@ -609,7 +618,8 @@ impl Run {
                 // the wheel scroll glides on, and can carry the image back out below the fold
                 let Some(r) = app.rects.get("image").copied() else {
                     if let Some(c) = app.rects.get("composer").copied() {
-                        self.queue.push_back(vec![Event::PointerMoved(c.center() - vec2(0.0, 200.0))]);
+                        // the middle of the message list; a tall composer (an upload still attached) makes "above the composer" unreliable
+                        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(c.center().x, (c.top() + 90.0) / 2.0))]);
                         self.queue.push_back(vec![Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
                             delta: vec2(0.0, -60.0),
@@ -951,8 +961,17 @@ impl Run {
             self.steady = Some(r);
             return false;
         }
-        let dir = if PAGES_BELOW.contains(&label) { -200.0 } else { 200.0 };
-        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(280.0, 500.0))]);
+        // scroll toward the label: down when it's below everything on screen
+        let order = |l: &str| SIDEBAR.iter().position(|x| *x == l);
+        let lowest = app.rects.keys().filter_map(|k| k.strip_prefix("settings:")).filter_map(order).max();
+        let below = match (order(label), lowest) {
+            (Some(i), Some(l)) => i > l,
+            _ => PAGES_BELOW.contains(&label),
+        };
+        let dir = if below { -200.0 } else { 200.0 };
+        // over the sidebar's list, just under the profile card, whatever the window's size
+        let at = app.rects.get("settings:Edit Profiles").map_or(egui::pos2(280.0, 500.0), |r| egui::pos2(r.center().x, r.bottom() + 120.0));
+        self.queue.push_back(vec![Event::PointerMoved(at)]);
         self.queue.push_back(vec![Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: vec2(0.0, dir),

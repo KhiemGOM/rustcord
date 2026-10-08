@@ -389,7 +389,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let pointer = ui.ctx().pointer_hover_pos();
     let hover_lock = app.bar.and_then(|(id, r)| pointer.filter(|p| r.contains(*p)).map(|_| id));
     // the hover toolbar floats on its own layer; a wheel over it still scrolls the chat, like discord
-    if hover_lock.is_some() && !fixed {
+    let over_bar = pointer.and_then(|p| ui.ctx().layer_id_at(p)) == Some(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("msg_bar")));
+    if (hover_lock.is_some() || over_bar) && !fixed {
         nudge += ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta.y));
     }
     let marker = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m);
