@@ -332,6 +332,7 @@ pub fn style(ctx: &egui::Context) {
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, pal().text_normal);
     v.widgets.inactive.fg_stroke = Stroke::new(1.0, pal().header_secondary);
     v.widgets.hovered.fg_stroke = Stroke::new(1.0, pal().interactive_hover);
+    v.widgets.active.fg_stroke = Stroke::new(1.0, pal().interactive_hover);
 
     style.spacing.item_spacing = egui::vec2(8.0, 0.0);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
@@ -339,6 +340,13 @@ pub fn style(ctx: &egui::Context) {
         bar_width: 8.0,
         floating: true,
         floating_allocated_width: 0.0,
+        // thin() paints the track at full opacity even at rest; discord has no track and hides the thumb until hover or scroll
+        dormant_background_opacity: 0.0,
+        active_background_opacity: 0.0,
+        interact_background_opacity: 0.0,
+        dormant_handle_opacity: 0.0,
+        active_handle_opacity: 0.7,
+        interact_handle_opacity: 1.0,
         ..egui::style::ScrollStyle::thin()
     };
     style.text_styles.insert(egui::TextStyle::Body, reg(16.0));

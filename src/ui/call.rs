@@ -205,9 +205,13 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let inside = app.voice.chan == Some(chan.id);
     let watching = app.voice.stream.as_ref().filter(|_| inside).map(|l| l.frame.clone());
     let video = watching.is_some() || members.iter().any(|u| app.voice.video.contains_key(u));
-    egui::Panel::top("dm_call")
-        .exact_size(if video { 340.0 } else { 220.0 })
-        .resizable(false)
+    let ctx = ui.ctx().clone();
+    let h = if app.ui.dm_call_h > 0.0 { app.ui.dm_call_h } else if video { 340.0 } else { 220.0 };
+    // own id per mode so toggling video re-seeds the default instead of keeping the other mode's height
+    let r = egui::Panel::top(if video { "dm_call_video" } else { "dm_call" })
+        .default_size(h)
+        .size_range(160.0..=(ui.available_height() - 300.0).clamp(160.0, 640.0))
+        .resizable(true)
         .show_separator_line(false)
         .frame(Frame::new().fill(pal().bg_floating))
         .show(ui, |ui| {
@@ -249,6 +253,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 64.0), r.max), "Join Call");
         });
+    app.ui.dm_call_h = app.dragged(&ctx, r.response.rect.height(), h);
 }
 
 // a live user's tile or avatar starts watching their stream when clicked
