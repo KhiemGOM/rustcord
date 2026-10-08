@@ -149,6 +149,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .frame(Frame::new().fill(pal().bg_primary).inner_margin(8))
                 .show(ui, |ui| super::popups::dm_profile(app, ui, uid));
         }
+    } else if chan.kind == 3 && !app.ui.hide_members && room >= members_w + 420.0 {
+        egui::Panel::right("group_members")
+            .exact_size(members_w)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(pal().bg_primary))
+            .show(ui, |ui| super::members::group(app, ui, &chan));
     } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() && room >= members_w + 420.0 {
         let r = egui::Panel::right("members")
             .default_size(members_w)
@@ -287,7 +294,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             app.search = None;
                         }
                     }
-                    if chan.guild != 0 && !chan.is_forum() {
+                    if (chan.guild != 0 && !chan.is_forum()) || chan.kind == 3 {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
                         if icon_button(ui, Icon::People, 32.0, tip).clicked() {
                             app.ui.hide_members = !app.ui.hide_members;
@@ -324,10 +331,12 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
 fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
     use super::{Trail, menu_item, menu_row, menu_sep};
     let muted = app.store.muted.contains(&chan.id);
-    let b = icon_button(ui, if app.store.is_muted(chan) { Icon::BellOff } else { Icon::Bell }, 32.0, "Notification Settings");
-    app.rects.insert("bell".into(), b.rect);
     let level = app.store.levels.get(&chan.id).copied();
     let inherited = app.store.inherited_level(chan);
+    // discord slashes the bell whenever not every message notifies
+    let quiet = app.store.is_muted(chan) || level.unwrap_or(inherited) != 0;
+    let b = icon_button(ui, if quiet { Icon::BellOff } else { Icon::Bell }, 32.0, "Notification Settings");
+    app.rects.insert("bell".into(), b.rect);
     let mut pick: Option<Option<u8>> = None;
     let mut mute = None;
     egui::Popup::menu(&b).gap(4.0).show(|ui| {

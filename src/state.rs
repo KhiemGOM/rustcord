@@ -91,6 +91,9 @@ pub struct User {
     /// avatar decoration asset
     #[serde(default)]
     pub decoration: Option<String>,
+    /// nameplate collectible: the asset folder its images live in
+    #[serde(default)]
+    pub nameplate: Option<String>,
     #[serde(default)]
     pub flags: u64,
 }
@@ -113,6 +116,7 @@ impl User {
                     .filter(|(t, _, _)| !t.is_empty())
             },
             decoration: ost(&v["avatar_decoration_data"]["asset"]),
+            nameplate: ost(&v["collectibles"]["nameplate"]["asset"]),
             flags: v["public_flags"].as_u64().unwrap_or(0),
         }
     }
@@ -123,6 +127,11 @@ impl User {
 
     pub fn decoration_url(&self) -> Option<String> {
         self.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=96&passthrough=false", crate::api::cdn()))
+    }
+
+    /// The still of a nameplate, 448x84 with its own fade on the left.
+    pub fn nameplate_url(&self) -> Option<String> {
+        self.nameplate.as_ref().map(|a| format!("{}/assets/collectibles/{a}static.png", crate::api::cdn()))
     }
 
     pub fn display(&self) -> &str {

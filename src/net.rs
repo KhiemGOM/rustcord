@@ -48,6 +48,8 @@ pub enum Tag {
     Commands(Id),
     Gifs(String),
     GifCats,
+    Welcome(Id),
+    MemberActions(Id),
     Inbox,
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
