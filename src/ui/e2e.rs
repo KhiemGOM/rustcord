@@ -842,6 +842,9 @@ impl Run {
                 }
             }
             100..=199 => self.settings_steps(app, ctx),
+            200..=219 => self.media_steps(app, ctx),
+            220..=239 => self.side_steps(app, ctx),
+            240..=259 => self.layout_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1094,11 +1097,26 @@ impl Run {
                 if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
                     self.mark("display_name");
                     self.key(Key::Escape);
-                    self.step = 99;
+                    self.step = 200;
                 }
             }
             _ => self.step = 99,
         }
+    }
+
+    /// Animated emoji and gifs, media embeds.
+    fn media_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 220;
+    }
+
+    /// Server rail, channel list, member list, user panel.
+    fn side_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 240;
+    }
+
+    /// Dragging panel edges.
+    fn layout_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 99;
     }
 
     /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):
