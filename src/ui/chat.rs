@@ -1334,39 +1334,40 @@ pub fn emoji_url(e: &ReactEmoji) -> String {
 }
 
 fn components(ui: &mut Ui, d: &mut D, m: &Message) {
-    for row in &m.components {
+    for (i, row) in m.components.iter().enumerate() {
+        if i > 0 {
+            ui.add_space(8.0);
+        }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
             for c in row {
                 match c {
                     Comp::Button { style, label, emoji, custom_id, url, disabled } => {
-                        let (fill, hover) = match style {
-                            1 => (BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4)),
-                            3 => (Color32::from_rgb(0x24, 0x80, 0x46), Color32::from_rgb(0x1a, 0x63, 0x34)),
-                            4 => (Color32::from_rgb(0xda, 0x37, 0x3c), Color32::from_rgb(0xa1, 0x28, 0x28)),
-                            _ => (pal().bg_accent, Color32::from_rgb(0x6d, 0x6f, 0x78)),
+                        // discord's small button: 32 tall, 1px border, 11 padding inside it, radius 8
+                        let edge = Color32::from_white_alpha(20);
+                        let (fill, hover, ink, stroke) = match style {
+                            1 => (BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), Color32::WHITE, edge),
+                            3 => (Color32::from_rgb(0x00, 0x85, 0x45), Color32::from_rgb(0x00, 0x6c, 0x37), Color32::WHITE, edge),
+                            4 => (Color32::from_rgb(0xd2, 0x2d, 0x39), Color32::from_rgb(0xa9, 0x23, 0x2e), Color32::WHITE, edge),
+                            _ => (pal().control, pal().control_hover, pal().header_primary, pal().border_muted),
                         };
-                        let g = ui.painter().layout_no_wrap(label.clone(), semi(14.0), Color32::WHITE);
+                        let g = ui.painter().layout_no_wrap(label.clone(), medium(14.0), Color32::WHITE);
                         let ew = if emoji.is_some() { 22.0 } else { 0.0 };
                         let lw = if url.is_some() { 18.0 } else { 0.0 };
-                        let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + ew + lw + 32.0, 32.0), Sense::click());
-                        let fill = if *disabled {
-                            fill.gamma_multiply(0.5)
-                        } else if resp.hovered() {
-                            hover
-                        } else {
-                            fill
-                        };
-                        ui.painter().rect_filled(r, CornerRadius::same(3), fill);
+                        let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + ew + lw + 24.0).max(60.0), 32.0), Sense::click());
+                        // disabled is opacity .5 on the whole button
+                        let fade = if *disabled { 0.5 } else { 1.0 };
+                        let fill = if resp.hovered() && !disabled { hover } else { fill };
+                        ui.painter().rect(r, CornerRadius::same(8), fill.gamma_multiply(fade), Stroke::new(1.0, stroke.gamma_multiply(fade)), egui::StrokeKind::Inside);
                         if ui.clip_rect().contains_rect(r) {
                             d.rects.push((format!("button:{custom_id}"), r));
                         }
-                        let mut x = r.left() + 16.0;
+                        let mut x = r.center().x - (g.size().x + ew + lw) / 2.0;
                         if let Some(e) = emoji {
                             text::image(ui.painter(), &emoji_url(e), Rect::from_min_size(pos2(x, r.center().y - 9.0), vec2(18.0, 18.0)));
                             x += ew;
                         }
-                        let tc = if *disabled { Color32::from_white_alpha(140) } else { Color32::WHITE };
+                        let tc = ink.gamma_multiply(fade);
                         let gw = g.size().x;
                         ui.painter().galley(pos2(x, r.center().y - g.size().y / 2.0), g, tc);
                         if url.is_some() {
