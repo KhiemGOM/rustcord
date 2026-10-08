@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::markdown::{take_emoji, twemoji};
 
+#[derive(Clone)]
 pub struct Rich {
     pub galley: Arc<Galley>,
     emojis: Vec<(usize, String, f32, f32)>,
@@ -69,6 +70,26 @@ impl Rich {
         self.galley.size()
     }
 
+    /// y of the first line's baseline, from the galley's top.
+    pub fn baseline(&self) -> f32 {
+        baseline(&self.galley)
+    }
+
+    /// Recolour the glyphs by their x offset in the galley, for gradient names.
+    pub fn tint(mut self, at: impl Fn(f32) -> Color32) -> Self {
+        let mut g = (*self.galley).clone();
+        for placed in &mut g.rows {
+            let x0 = placed.pos.x;
+            let row = Arc::make_mut(&mut placed.row);
+            let range = row.visuals.glyph_vertex_range.clone();
+            for v in &mut row.visuals.mesh.vertices[range] {
+                v.color = at(x0 + v.pos.x);
+            }
+        }
+        self.galley = Arc::new(g);
+        self
+    }
+
     pub fn paint(&self, p: &Painter, pos: Pos2) {
         p.galley(pos, self.galley.clone(), Color32::WHITE);
         for (url, r) in self.emoji_rects(pos) {
@@ -86,6 +107,10 @@ impl Rich {
             Some((url.as_str(), Rect::from_min_size(pos2(pos.x + (c.min.x - lead).max(0.0), pos.y + c.center().y - size / 2.0), vec2(*size, *size))))
         })
     }
+}
+
+pub fn baseline(g: &Galley) -> f32 {
+    g.rows.first().and_then(|r| r.glyphs.first().map(|c| r.pos.y + c.pos.y)).unwrap_or(g.size().y * 0.8)
 }
 
 /// Paint an http image with any painter, so clip rects are honoured.
