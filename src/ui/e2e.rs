@@ -845,6 +845,7 @@ impl Run {
             200..=219 => self.media_steps(app, ctx),
             220..=239 => self.side_steps(app, ctx),
             240..=259 => self.layout_steps(app, ctx),
+            260..=279 => self.title_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1097,7 +1098,7 @@ impl Run {
                 if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
                     self.mark("display_name");
                     self.key(Key::Escape);
-                    self.step = 200;
+                    self.step = 260;
                 }
             }
             _ => self.step = 99,
@@ -1366,6 +1367,11 @@ impl Run {
         });
         let _ = std::fs::write(self.dir.join("results.json"), serde_json::to_string_pretty(&out).unwrap_or_default());
         ctx.send_viewport_cmd(ViewportCommand::Close);
+    }
+
+    /// Title bar: back/forward, inbox, window buttons.
+    fn title_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 200;
     }
 }
 
