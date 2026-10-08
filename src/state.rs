@@ -323,6 +323,13 @@ pub struct Guild {
     pub default_notif: u8,
     #[serde(default)]
     pub rules: Id,
+    // the boosted banner over the channel list, and the boost goal bar under it
+    #[serde(default)]
+    pub banner: Option<String>,
+    #[serde(default)]
+    pub boosts: u32,
+    #[serde(default)]
+    pub boost_bar: bool,
     #[serde(skip)]
     pub voice: HashMap<Id, Id>,
     #[serde(skip)]
@@ -330,6 +337,10 @@ pub struct Guild {
 }
 
 impl Guild {
+    pub fn banner_url(&self) -> Option<String> {
+        self.banner.as_ref().map(|h| format!("{}/banners/{}/{h}.png?size=480", api::cdn(), self.id))
+    }
+
     pub fn icon_url(&self) -> Option<String> {
         self.icon
             .as_ref()
@@ -1067,6 +1078,9 @@ impl Store {
         g.owner = sid(&p["owner_id"]);
         g.rules = sid(&p["rules_channel_id"]);
         g.default_notif = p["default_message_notifications"].as_u64().unwrap_or(0) as u8;
+        g.banner = ost(&p["banner"]);
+        g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
+        g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
         if let Some(n) = v["member_count"].as_u64() {
             g.member_count = n as u32;
         }

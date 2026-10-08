@@ -280,7 +280,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
                         app.start_search(chan.id, q.trim().to_string());
                     }
-                    if let Some(past) = super::popups::search_options(app, ui.ctx(), &r, &mut q) {
+                    if let Some(past) = super::popups::search_options(app, ui.ctx(), &r, &mut q, chan.guild) {
                         app.start_search(chan.id, past.clone());
                         q = past;
                     }

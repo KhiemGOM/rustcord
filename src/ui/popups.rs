@@ -997,17 +997,43 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
     }
 }
 
-/// What drops from the search box while it's focused: discord's filters, then past searches.
-/// Picking a filter types its prefix; picking a past search runs it again.
-pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response, q: &mut String) -> Option<String> {
+/// What drops from the search box while it's focused. Empty, discord's filters and past
+/// searches; typed, a row to search and the people and channels the last word could mean.
+/// Picking a filter types it; picking a search runs it.
+pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response, q: &mut String, guild: Id) -> Option<String> {
     let id = egui::Id::new("search_options");
     let hovered = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    if !(field.has_focus() || hovered) || !q.is_empty() {
+    if !(field.has_focus() || hovered) {
         ctx.data_mut(|d| d.insert_temp(id, false));
         return None;
     }
+    let typed = q.trim().to_string();
+    let word = typed.rsplit(' ').next().unwrap_or("").to_lowercase();
+    let filtering = word.contains(':');
+    let store = &app.store;
+    // who and where the last word might be, a couple of each like discord
+    let people: Vec<(Id, String, String)> = if typed.is_empty() || filtering {
+        Vec::new()
+    } else {
+        let pool: Vec<Id> = match store.members.get(&guild) {
+            Some(m) => m.keys().copied().collect(),
+            None => store.users.keys().copied().collect(),
+        };
+        pool.into_iter()
+            .filter_map(|u| store.user(u))
+            .filter(|u| u.username.to_lowercase().contains(&word) || u.display().to_lowercase().contains(&word))
+            .take(2)
+            .map(|u| (u.id, store.name_in(guild, u.id), u.username.clone()))
+            .collect()
+    };
+    let places: Vec<(Id, String)> = if typed.is_empty() || filtering || guild == 0 {
+        Vec::new()
+    } else {
+        store.channels.values().filter(|c| c.guild == guild && c.is_text() && !c.is_thread() && c.name.to_lowercase().contains(&word)).take(2).map(|c| (c.id, c.name.clone())).collect()
+    };
     let mut run = None;
-    let mut add = None;
+    let mut add: Option<String> = None;
+    let mut replace: Option<String> = None;
     let area = egui::Area::new(id)
         .order(egui::Order::Foreground)
         .pivot(Align2::RIGHT_TOP)
@@ -1021,44 +1047,108 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                     let (r, _) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::hover());
                     ui.painter().text(pos2(r.left() + 17.0, r.top() + 25.0), Align2::LEFT_CENTER, t, semi(12.0), pal().header_secondary);
                 };
-                head(ui, "Filters");
-                ui.add_space(4.0);
-                for (icon, title, key, hint) in [
-                    (Icon::Person, "From a specific user", "from:", "user"),
-                    (Icon::Hash, "Sent in a specific channel", "in:", "channel"),
-                    (Icon::Attach, "Includes a specific type of data", "has:", "link, embed or file"),
-                    (Icon::At, "Mentions a specific user", "mentions:", "user"),
-                ] {
+                let rule = |ui: &mut Ui| {
+                    ui.add_space(8.0);
+                    let (r, _) = ui.allocate_exact_size(vec2(356.0, 1.0), Sense::hover());
+                    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+                };
+                // a two-line row: icon, a title, and "key: value" under it
+                let row = |ui: &mut Ui, icon: Icon, avatar_url: Option<String>, title: &str, key: &str, hint: &str| {
                     let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
                     let p = ui.painter();
                     if resp.hovered() {
                         p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
                     }
                     super::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                    p.text(pos2(r.left() + 45.0, r.center().y - 9.0), Align2::LEFT_CENTER, title, medium(14.0), pal().header_primary);
+                    let mut x = r.left() + 45.0;
+                    if let Some(url) = avatar_url {
+                        avatar(ui, Rect::from_center_size(pos2(x + 8.0, r.center().y - 9.0), vec2(16.0, 16.0)), &url);
+                        x += 22.0;
+                    }
+                    let p = ui.painter();
+                    text::paint(p, pos2(x, r.center().y - 9.0), Align2::LEFT_CENTER, title, if key.is_empty() { medium(14.0) } else { semi(14.0) }, pal().header_primary, 280.0);
                     let k = p.text(pos2(r.left() + 45.0, r.center().y + 9.0), Align2::LEFT_CENTER, key, semi(14.0), pal().header_secondary);
                     p.text(pos2(k.right() + 4.0, r.center().y + 9.0), Align2::LEFT_CENTER, hint, medium(14.0), pal().text_muted);
-                    if resp.clicked() {
-                        add = Some(key);
-                    }
-                }
-                let history = &app.ui.searches;
-                if !history.is_empty() {
-                    ui.add_space(8.0);
-                    let (r, _) = ui.allocate_exact_size(vec2(356.0, 1.0), Sense::hover());
-                    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
-                    head(ui, "History");
+                    resp.clicked()
+                };
+                if typed.is_empty() {
+                    head(ui, "Filters");
                     ui.add_space(4.0);
-                    for h in history {
-                        let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
-                        let p = ui.painter();
-                        if resp.hovered() {
-                            p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
+                    for (icon, title, key, hint) in [
+                        (Icon::Person, "From a specific user", "from:", "user"),
+                        (Icon::Hash, "Sent in a specific channel", "in:", "channel"),
+                        (Icon::Attach, "Includes a specific type of data", "has:", "link, embed or file"),
+                        (Icon::At, "Mentions a specific user", "mentions:", "user"),
+                    ] {
+                        if row(ui, icon, None, title, key, hint) {
+                            add = Some(key.to_string());
                         }
-                        super::icons::draw(p, Icon::Clock, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                        text::paint(p, pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, h, semi(14.0), pal().header_primary, 290.0);
-                        if resp.clicked() {
-                            run = Some(h.clone());
+                    }
+                    let history = &app.ui.searches;
+                    if !history.is_empty() {
+                        rule(ui);
+                        head(ui, "History");
+                        ui.add_space(4.0);
+                        for h in history {
+                            let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
+                            let p = ui.painter();
+                            if resp.hovered() {
+                                p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
+                            }
+                            super::icons::draw(p, Icon::Clock, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                            text::paint(p, pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, h, semi(14.0), pal().header_primary, 290.0);
+                            if resp.clicked() {
+                                run = Some(h.clone());
+                            }
+                        }
+                    }
+                } else {
+                    ui.add_space(8.0);
+                    let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
+                    let p = ui.painter();
+                    if resp.hovered() {
+                        p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
+                    }
+                    super::icons::draw(p, Icon::Search, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                    let s = p.text(pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, "Search for ", medium(14.0), pal().header_primary);
+                    text::paint(p, pos2(s.right(), r.center().y), Align2::LEFT_CENTER, &typed, semi(14.0), pal().header_primary, 290.0 - s.width());
+                    if resp.clicked() {
+                        run = Some(typed.clone());
+                    }
+                    // discord's order: who it's from, where, who it mentions
+                    if !people.is_empty() {
+                        rule(ui);
+                        head(ui, "From User");
+                        for (uid, name, username) in &people {
+                            if row(ui, Icon::Person, store.user(*uid).map(|u| u.avatar_url()), name, "from:", username) {
+                                replace = Some(format!("from:{username} "));
+                            }
+                        }
+                    }
+                    if !places.is_empty() {
+                        rule(ui);
+                        head(ui, "In Channel");
+                        for (_, name) in &places {
+                            let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
+                            let p = ui.painter();
+                            if resp.hovered() {
+                                p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
+                            }
+                            super::icons::draw(p, Icon::Hash, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                            let k = p.text(pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, "in:", semi(14.0), pal().header_secondary);
+                            text::paint(p, pos2(k.right() + 4.0, r.center().y), Align2::LEFT_CENTER, &format!("# {name}"), semi(14.0), pal().header_primary, 280.0);
+                            if resp.clicked() {
+                                replace = Some(format!("in:{name} "));
+                            }
+                        }
+                    }
+                    if !people.is_empty() {
+                        rule(ui);
+                        head(ui, "Mentions User");
+                        for (uid, name, username) in &people {
+                            if row(ui, Icon::At, store.user(*uid).map(|u| u.avatar_url()), name, "mentions:", username) {
+                                replace = Some(format!("mentions:{username} "));
+                            }
                         }
                     }
                 }
@@ -1068,7 +1158,13 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
     ctx.data_mut(|d| d.insert_temp(id, area.response.contains_pointer()));
     app.rects.insert("search_options".into(), area.response.rect);
     if let Some(k) = add {
-        q.push_str(k);
+        q.push_str(&k);
+        field.request_focus();
+    }
+    if let Some(r) = replace {
+        // the suggestion takes the place of the word that called it up
+        let keep = q.trim_end().rsplit_once(' ').map(|(head, _)| format!("{head} ")).unwrap_or_default();
+        *q = keep + &r;
         field.request_focus();
     }
     run

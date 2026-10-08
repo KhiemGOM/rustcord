@@ -1696,17 +1696,17 @@ impl Run {
             }
             // discord's menus and popouts, each opened, shot and closed again
             // back to the server the rest of the tour expects, a frame after the last shot
-            353 => {
+            354 => {
                 app.select_guild(Some(self.target.0));
                 self.step = 304;
                 self.step_at = Instant::now();
                 self.wait = Instant::now() + Duration::from_millis(800);
             }
-            340..=352 => {
-                const SHOTS: [&str; 13] = [
+            340..=353 => {
+                const SHOTS: [&str; 14] = [
                     "11_menu_message", "12_menu_channel", "13_menu_guild", "14_server_dropdown", "15_menu_user",
                     "16_account", "17_bell", "18_threads", "19_inbox", "20_search_options", "21_stickers", "22_forward",
-                    "23_dm_profile",
+                    "23_dm_profile", "24_banner",
                 ];
                 let i = (self.step - 340) as usize;
                 if self.loaded == 0 {
@@ -1723,7 +1723,11 @@ impl Run {
                         6 => (app.rects.get("bell").copied(), false),
                         7 => (app.rects.get("threads_button").copied(), false),
                         8 => (app.rects.get("title:inbox").copied(), false),
-                        9 => (app.rects.get("search").copied(), false),
+                        9 => {
+                            // typed, so the dropdown shows its suggestions
+                            ctx.data_mut(|d| d.insert_temp(egui::Id::new("search_q"), "the".to_string()));
+                            (app.rects.get("search").copied(), false)
+                        }
                         10 => (app.rects.get("sticker_button").copied(), false),
                         11 => {
                             let last = app.store.msgs.get(&cur).and_then(|e| e.list.last()).map(|m| m.id);
@@ -1732,11 +1736,18 @@ impl Run {
                             }
                             (None, false)
                         }
-                        _ => {
+                        12 => {
                             let dm = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1));
                             if let Some(c) = dm {
                                 app.ui.guild = None;
                                 app.open(c);
+                            }
+                            (None, false)
+                        }
+                        _ => {
+                            let g = app.store.guild_order.iter().copied().find(|g| app.store.guilds.get(g).is_some_and(|g| g.banner.is_some()));
+                            if let Some(g) = g {
+                                app.select_guild(Some(g));
                             }
                             (None, false)
                         }
