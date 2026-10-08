@@ -193,6 +193,18 @@ def main():
                               ("hovering a gif with autoplay off plays it", "media_hover_plays")]},
         "media: gifv titled by its provider drew as bare 160x120 media, not a card": all(
             (r.get("rects", {}).get("media_gifv") or [0, 0, 0, 0])[2:] == [160, 120] for r in (cold, warm)),
+        **{f"title bar: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("drawn with back, forward, inbox, help and the window buttons", "title_bar"),
+                              ("back and forward buttons walked the history", "nav_buttons"),
+                              ("alt+left and the mouse side button walked it too", "nav_keys"),
+                              ("the friends page is a history entry", "nav_friends"),
+                              ("inbox listed the mentions", "inbox_listed"), ("clicking a mention jumped to it", "inbox_jump"),
+                              ("double click on the bar maximized the window", "maximize"), ("the maximize button restored it", "restore")]},
+        "title bar: 30pt tall, flush with the top of the window": all(
+            r.get("rects", {}).get("title_bar", [0, 1, 0, 0])[1] == 0 and abs(r.get("rects", {}).get("title_bar", [0, 0, 0, 0])[3] - 30) < 0.5 for r in (cold, warm)),
+        "title bar: every edge and corner answers WM_NCHITTEST with its resize zone": all(
+            r.get("rects", {}).get("edge_hits") == [10, 11, 12, 15, 13, 14, 16, 17, 1] for r in (cold, warm)),
+        "title bar: inbox fetched /users/@me/mentions": sum("/users/@me/mentions?limit=25&roles=true&everyone=true" in r.get("path", "") for r in reqs) == 2,
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

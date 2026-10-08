@@ -1676,8 +1676,198 @@ impl Run {
     }
 
     /// Title bar: back/forward, inbox, window buttons.
-    fn title_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 200;
+    fn title_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let general = self.target.1;
+        let help = app.store.channels.values().find(|c| c.guild == self.target.0 && c.name == "help").map(|c| c.id).unwrap_or(0);
+        let here = app.cur();
+        let rect = |app: &App, k: &str| app.rects.get(&format!("title:{k}")).copied();
+        let press = |at: Pos2, button| {
+            [true, false].map(|pressed| vec![Event::PointerButton { pos: at, button, pressed, modifiers: Modifiers::NONE }])
+        };
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        match self.step {
+            260 => {
+                if app.settings_page.is_some() {
+                    return;
+                }
+                let names = ["bar", "back", "forward", "name", "inbox", "help", "min", "max", "close"];
+                if let Some(k) = names.iter().find(|k| rect(app, k).is_none()) {
+                    return self.fail(format!("title bar has no {k}"));
+                }
+                let bar = rect(app, "bar").unwrap_or(egui::Rect::NOTHING);
+                self.rects.insert("title_bar".into(), json!([bar.min.x, bar.min.y, bar.width(), bar.height()]));
+                self.rects.insert("edge_hits".into(), json!(crate::winsys::probe_edges()));
+                self.mark("title_bar");
+                let Some(r) = app.rects.get(&format!("guild:{}", self.target.0)).copied() else { return };
+                self.click(r.center());
+                self.next(250);
+            }
+            261 => {
+                let Some(r) = app.rects.get(&format!("chan:{general}")).copied() else { return };
+                self.click(r.center());
+                self.next(100);
+            }
+            262 => {
+                if here != Some(general) {
+                    return;
+                }
+                let Some(r) = app.rects.get(&format!("chan:{help}")).copied() else { return };
+                self.click(r.center());
+                self.next(100);
+            }
+            263 => {
+                if here != Some(help) {
+                    return;
+                }
+                let Some(r) = rect(app, "back") else { return };
+                self.click(r.center());
+                self.next(100);
+            }
+            264 => {
+                if here != Some(general) {
+                    return;
+                }
+                let Some(r) = rect(app, "forward") else { return };
+                self.click(r.center());
+                self.next(100);
+            }
+            265 => {
+                if here != Some(help) {
+                    return;
+                }
+                self.mark("nav_buttons");
+                let key = |pressed| Event::Key { key: Key::ArrowLeft, physical_key: None, pressed, repeat: false, modifiers: Modifiers::ALT };
+                self.queue.push_back(vec![key(true)]);
+                self.queue.push_back(vec![key(false)]);
+                self.next(100);
+            }
+            266 => {
+                if here != Some(general) {
+                    return;
+                }
+                // the forward button on the side of a mouse
+                let at = rect(app, "bar").map(|r| r.center()).unwrap_or_default();
+                self.queue.push_back(vec![Event::PointerMoved(at)]);
+                self.queue.extend(press(at, PointerButton::Extra2));
+                self.next(100);
+            }
+            267 => {
+                if here != Some(help) {
+                    return;
+                }
+                self.mark("nav_keys");
+                let Some(r) = app.rects.get("guild:home").copied() else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            268 => {
+                let Some(r) = app.rects.get("friends").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            269 => {
+                if !app.friends {
+                    return;
+                }
+                let Some(r) = rect(app, "back") else { return };
+                self.click(r.center());
+                self.next(200);
+            }
+            270 => {
+                if app.friends || app.ui.guild.is_some() {
+                    return;
+                }
+                let Some(r) = rect(app, "forward") else { return };
+                self.click(r.center());
+                self.next(200);
+            }
+            271 => {
+                if !app.friends {
+                    return;
+                }
+                self.mark("nav_friends");
+                let Some(r) = app.rects.get(&format!("guild:{}", self.target.0)).copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            272 => {
+                if here != Some(help) || app.friends {
+                    return;
+                }
+                let Some(r) = rect(app, "inbox") else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            273 => {
+                let listed = app.rects.keys().filter(|k| k.starts_with("inbox:mention:")).count();
+                if app.inbox.as_ref().is_none_or(|i| i.mentions.is_none()) || listed < 2 {
+                    return;
+                }
+                self.mark("inbox_listed");
+                self.shot(ctx, "inbox.png");
+                let Some(r) = app.rects.get("inbox:unreads").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            274 => {
+                self.shot(ctx, "inbox_unreads.png");
+                let Some(r) = app.rects.get("inbox:mentions").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            275 => {
+                // the oldest one, which isn't anything an earlier step sent
+                let id = |k: &str| k.trim_start_matches("inbox:mention:").parse::<u64>().unwrap_or(u64::MAX);
+                let oldest = app.rects.iter().filter(|(k, _)| k.starts_with("inbox:mention:")).min_by_key(|(k, _)| id(k));
+                let Some((_, r)) = oldest else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            276 => {
+                if here != Some(general) || app.inbox.is_some() || app.scroll_to.is_some() {
+                    return;
+                }
+                self.mark("inbox_jump");
+                self.shot(ctx, "titlebar.png");
+                let Some(r) = rect(app, "close") else { return };
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(800);
+            }
+            277 => {
+                self.shot(ctx, "titlebar_close.png");
+                self.next(400);
+            }
+            278 => {
+                if self.loaded != 278 {
+                    let Some(bar) = rect(app, "bar") else { return };
+                    let empty = bar.left_center() + vec2(220.0, 0.0);
+                    self.queue.push_back(vec![Event::PointerMoved(empty)]);
+                    // double click on the empty bar
+                    self.queue.extend(press(empty, PointerButton::Primary));
+                    self.queue.extend(press(empty, PointerButton::Primary));
+                    self.loaded = 278;
+                    return;
+                }
+                if !maximized {
+                    return;
+                }
+                self.mark("maximize");
+                self.shot(ctx, "maximized.png");
+                self.next(600);
+            }
+            279 => {
+                let Some(r) = rect(app, "max") else { return };
+                if maximized {
+                    self.click(r.center());
+                    self.next(600);
+                    self.step = 279;
+                } else {
+                    self.mark("restore");
+                    self.step = 200;
+                }
+            }
+            _ => self.step = 200,
+        }
     }
 
     /// Theme colours, fonts, message headers.

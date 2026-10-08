@@ -5,6 +5,8 @@
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, vec2};
 use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
+use crate::theme::pal;
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Icon {
     Hash,
@@ -39,6 +41,11 @@ pub enum Icon {
     ArrowLeft,
     Bubble,
     Send,
+    Inbox,
+    Help,
+    Minimize,
+    Maximize,
+    Restore,
 }
 
 struct G<'a> {
@@ -295,6 +302,36 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
         }
         Icon::Send => {
             g.fill(&[(3.0, 4.0), (21.0, 12.0), (3.0, 20.0), (6.0, 12.0)]);
+        }
+        Icon::Inbox => {
+            g.rect(3.0, 3.0, 21.0, 5.0, 1.0);
+            g.rect(3.0, 3.0, 5.0, 21.0, 1.0);
+            g.rect(19.0, 3.0, 21.0, 21.0, 1.0);
+            g.rect(3.0, 15.0, 9.0, 21.0, 1.0);
+            g.rect(15.0, 15.0, 21.0, 21.0, 1.0);
+            // the tray dips into the bottom edge, so fill what's left under the curve
+            let dip = |i: usize| {
+                let a = PI * i as f32 / 8.0;
+                (12.0 - 3.0 * a.cos(), 15.0 + 3.0 * a.sin())
+            };
+            for i in 0..8 {
+                let (a, b) = (dip(i), dip(i + 1));
+                g.fill(&[a, b, (b.0, 21.0), (a.0, 21.0)]);
+            }
+        }
+        Icon::Help => {
+            // the question mark is a hole in the disc, which one colour can't do; this only ever sits on the title bar
+            g.circle(12.0, 12.0, 10.0);
+            let h = G { c: pal().bg_tertiary, ..g };
+            h.arc(12.0, 9.5, 3.2, -PI, FRAC_PI_4, 2.4);
+            h.line(&[(14.3, 11.8), (12.0, 14.0), (12.0, 15.5)], 2.4);
+            h.circle(12.0, 18.4, 1.3);
+        }
+        Icon::Minimize => g.line(&[(5.0, 12.0), (19.0, 12.0)], 1.8),
+        Icon::Maximize => g.rect_line(5.5, 5.5, 18.5, 18.5, 0.0, 1.8),
+        Icon::Restore => {
+            g.rect_line(4.5, 8.5, 15.5, 19.5, 0.0, 1.8);
+            g.line(&[(8.5, 8.0), (8.5, 4.5), (19.5, 4.5), (19.5, 15.5), (16.0, 15.5)], 1.8);
         }
         Icon::Bubble => {
             g.rect(3.0, 4.0, 21.0, 17.0, 4.0);
