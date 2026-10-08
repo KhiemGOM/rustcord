@@ -1112,8 +1112,75 @@ impl Run {
     }
 
     /// Server rail, channel list, member list, user panel.
-    fn side_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 240;
+    fn side_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let rect = |app: &App, k: &str| app.rects.get(k).copied();
+        match self.step {
+            220 => {
+                if app.ui.open_folders.contains(&78) {
+                    return self.next(0);
+                }
+                let Some(r) = rect(app, "folder:78") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            221 => {
+                let Some(r) = rect(app, "guild:1003") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            222 => {
+                if app.ui.guild != Some(1003) || rect(app, "chan:2303").is_none() {
+                    return;
+                }
+                self.snapshot_side(app);
+                for g in 1003..=1008 {
+                    let (unread, _) = app.store.guild_badge(g);
+                    self.rects.insert(format!("side_unread_{g}"), json!(unread));
+                }
+                for c in [2302, 2303, 2309, 2310] {
+                    if let Some(ch) = app.store.channels.get(&c) {
+                        self.rects.insert(format!("side_locked_{c}"), json!(app.store.locked(ch)));
+                    }
+                }
+                self.shot(ctx, "side_channels.png");
+                self.next(300);
+            }
+            223 => {
+                let Some(r) = rect(app, &format!("guild:{}", self.target.0)) else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            224 => {
+                // the member list is hidden while a voice channel is open
+                if app.ui.guild != Some(self.target.0) {
+                    return;
+                }
+                let Some(r) = rect(app, &format!("chan:{}", self.target.1)) else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            225 => {
+                if rect(app, "member:101").is_none() {
+                    return;
+                }
+                self.snapshot_side(app);
+                self.shot(ctx, "side_members.png");
+                self.next(300);
+            }
+            _ => {
+                self.mark("side");
+                self.step = 240;
+            }
+        }
+    }
+
+    fn snapshot_side(&mut self, app: &App) {
+        const KEYS: [&str; 8] = ["guildicon:", "voicebadge:", "folderbg:", "folder:", "chanemoji:", "chanicon:", "chan:", "member:"];
+        for (k, r) in &app.rects {
+            if KEYS.iter().any(|p| k.starts_with(p)) || k == "userpanel" {
+                self.rects.insert(k.clone(), json!([r.min.x, r.min.y, r.width(), r.height()]));
+            }
+        }
     }
 
     /// Dragging panel edges.

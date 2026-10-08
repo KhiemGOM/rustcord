@@ -12,6 +12,7 @@ pub enum Icon {
     Megaphone,
     Forum,
     Stage,
+    Rules,
     Thread,
     People,
     Pin,
@@ -109,6 +110,35 @@ fn rotate(pts: &[(f32, f32)], a: f32) -> Vec<(f32, f32)> {
         .collect()
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Mark {
+    Lock,
+    Warn,
+}
+
+/// A channel glyph with the top-right corner cut away for a small lock or warning triangle.
+pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) {
+    let side = rect.width().min(rect.height());
+    let o = rect.center() - vec2(side, side) / 2.0;
+    let k = side / 24.0;
+    for clip in [
+        Rect::from_min_size(o, vec2(13.0 * k, side)),
+        Rect::from_min_max(o + vec2(0.0, 11.5 * k), o + vec2(side, side)),
+    ] {
+        draw(&p.with_clip_rect(clip.intersect(p.clip_rect())), icon, rect, c);
+    }
+    let g = G { p, o, s: k, c };
+    match mark {
+        Mark::Lock => {
+            g.rect(14.0, 5.5, 23.0, 11.5, 1.5);
+            g.arc(18.5, 5.5, 2.6, PI, TAU, 1.8);
+        }
+        Mark::Warn => {
+            g.fill(&[(18.5, 0.5), (23.5, 10.5), (13.5, 10.5)]);
+        }
+    }
+}
+
 pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
     let side = rect.width().min(rect.height());
     let g = G { p, o: rect.center() - vec2(side, side) / 2.0, s: side / 24.0, c };
@@ -141,6 +171,10 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             g.arc(12.0, 12.0, 5.5, PI * 0.25, PI * 0.75, 2.0);
             g.arc(12.0, 12.0, 9.0, -PI * 0.75, -PI * 0.25, 2.0);
             g.arc(12.0, 12.0, 9.0, PI * 0.25, PI * 0.75, 2.0);
+        }
+        Icon::Rules => {
+            g.rect_line(4.5, 3.5, 19.5, 20.5, 2.5, 2.0);
+            g.line(&[(8.5, 12.5), (11.0, 15.0), (15.5, 9.5)], 2.0);
         }
         Icon::Thread => {
             g.line(&[(8.5, 3.0), (7.0, 15.0)], 2.0);
