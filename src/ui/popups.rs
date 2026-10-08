@@ -185,7 +185,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                             let mut at = r.center() - g.size() / 2.0;
                             if i == 0 {
                                 at.x += 12.0;
-                                super::icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(pos2(at.x - 14.0, r.center().y), vec2(20.0, 20.0)), egui::Color32::WHITE);
+                                super::icons::draw(ui.painter(), Icon::Insights, Rect::from_center_size(pos2(at.x - 14.0, r.center().y), vec2(20.0, 20.0)), egui::Color32::WHITE);
                             }
                             ui.painter().galley(at, g, egui::Color32::WHITE);
                         }
@@ -510,9 +510,6 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     };
     let p = app.profiles.get(&uid);
     let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
-    let friends: Vec<Id> = p.and_then(|p| p["mutual_friends"].as_array()).into_iter().flatten().map(|f| crate::state::sid(&f["id"])).collect();
-    let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
-    let n_guilds = p.and_then(|p| p["mutual_guilds"].as_array()).map_or(0, |g| g.len());
     let roles: Vec<(String, u32)> = app
         .store
         .members
@@ -543,60 +540,13 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(300.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let top = card_head(ui, &user, p, &name, status);
-                let mut x = top.right() - 12.0;
-                let mut round = |ui: &mut Ui, icon: Icon, tip: &str| {
-                    let r = Rect::from_min_size(pos2(x - 32.0, top.top() + 8.0), vec2(32.0, 32.0));
-                    x -= 40.0;
-                    let resp = ui.interact(r, ui.id().with(("banner_btn", tip)), Sense::click());
-                    let fill = egui::Color32::from_black_alpha(if resp.hovered() { 184 } else { 143 });
-                    ui.painter().circle(r.center(), 16.0, fill, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)));
-                    super::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), egui::Color32::WHITE);
-                    resp.on_hover_text(tip)
-                };
                 if uid != me {
-                    let r = round(ui, Icon::More, "More");
-                    if r.clicked() {
-                        more = Some(r.rect.left_bottom() + vec2(0.0, 4.0));
-                    }
-                    if stranger && round(ui, Icon::PersonAdd, "Add Friend").clicked() {
-                        add = true;
-                    }
+                    (more, add) = banner_buttons(ui, top, stranger);
                 }
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    if n_friends > 0 || n_guilds > 0 {
-                        ui.add_space(19.0);
-                        let (r, _) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::hover());
-                        let mut x = r.left();
-                        for f in friends.iter().take(3) {
-                            let a = Rect::from_min_size(pos2(x, r.top()), vec2(16.0, 16.0));
-                            // each face sits on a ring of the card over the one before
-                            ui.painter().circle_filled(a.center(), 9.5, pal().bg_secondary);
-                            if let Some(u) = store.user(*f) {
-                                avatar(ui, a, &u.avatar_url());
-                            }
-                            x += 13.0;
-                        }
-                        if !friends.is_empty() {
-                            x += 7.0;
-                        }
-                        let plural = |n: u64, what: &str| format!("{n} Mutual {what}{}", if n == 1 { "" } else { "s" });
-                        let mut parts = Vec::new();
-                        if n_friends > 0 {
-                            parts.push(plural(n_friends, "Friend"));
-                        }
-                        if n_guilds > 0 {
-                            parts.push(plural(n_guilds as u64, "Server"));
-                        }
-                        for (i, t) in parts.iter().enumerate() {
-                            if i > 0 {
-                                ui.painter().circle_filled(pos2(x + 6.0, r.center().y), 2.0, pal().header_secondary);
-                                x += 12.0;
-                            }
-                            x = ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, t, reg(12.0), pal().header_secondary).right();
-                        }
-                    }
+                    mutuals(ui, store, p, pal().bg_secondary);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().header_primary));
@@ -663,6 +613,106 @@ fn profile(app: &mut App, ctx: &egui::Context) {
         app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
     } else if dismissed(ctx, &area.response) && app.user_menu.is_none() {
         app.profile = None;
+    }
+}
+
+/// The round buttons on a profile's banner: "..." for the person's menu, and add friend to a
+/// stranger. Hands back where the menu should open and whether add was clicked.
+fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool) -> (Option<Pos2>, bool) {
+    let mut x = top.right() - 12.0;
+    let mut round = |ui: &mut Ui, icon: Icon, tip: &str| {
+        let r = Rect::from_min_size(pos2(x - 32.0, top.top() + 8.0), vec2(32.0, 32.0));
+        x -= 40.0;
+        let resp = ui.interact(r, ui.id().with(("banner_btn", tip)), Sense::click());
+        let fill = egui::Color32::from_black_alpha(if resp.hovered() { 184 } else { 143 });
+        ui.painter().circle(r.center(), 16.0, fill, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)));
+        super::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), egui::Color32::WHITE);
+        resp.on_hover_text(tip)
+    };
+    let r = round(ui, Icon::More, "More");
+    let more = r.clicked().then(|| r.rect.left_bottom() + vec2(0.0, 4.0));
+    let add = stranger && round(ui, Icon::PersonAdd, "Add Friend").clicked();
+    (more, add)
+}
+
+/// "6 Mutual Friends • 7 Mutual Servers" with the first three friends' faces. `card` is what
+/// the faces' rings are cut from.
+fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32) {
+    let friends: Vec<Id> = p.and_then(|p| p["mutual_friends"].as_array()).into_iter().flatten().map(|f| crate::state::sid(&f["id"])).collect();
+    let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
+    let n_guilds = p.and_then(|p| p["mutual_guilds"].as_array()).map_or(0, |g| g.len() as u64);
+    if n_friends == 0 && n_guilds == 0 {
+        return;
+    }
+    ui.add_space(19.0);
+    let (r, _) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::hover());
+    let mut x = r.left();
+    for f in friends.iter().take(3) {
+        let a = Rect::from_min_size(pos2(x, r.top()), vec2(16.0, 16.0));
+        // each face sits on a ring of the card over the one before
+        ui.painter().circle_filled(a.center(), 9.5, card);
+        if let Some(u) = store.user(*f) {
+            avatar(ui, a, &u.avatar_url());
+        }
+        x += 13.0;
+    }
+    if !friends.is_empty() {
+        x += 7.0;
+    }
+    let plural = |n: u64, what: &str| format!("{n} Mutual {what}{}", if n == 1 { "" } else { "s" });
+    let parts: Vec<String> = [(n_friends, "Friend"), (n_guilds, "Server")].into_iter().filter(|(n, _)| *n > 0).map(|(n, w)| plural(n, w)).collect();
+    for (i, t) in parts.iter().enumerate() {
+        if i > 0 {
+            ui.painter().circle_filled(pos2(x + 6.0, r.center().y), 2.0, pal().header_secondary);
+            x += 12.0;
+        }
+        x = ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, t, reg(12.0), pal().header_secondary).right();
+    }
+}
+
+/// The card discord keeps beside a one-on-one dm: the person's profile, full height.
+pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
+    let Some(user) = app.store.user(uid).cloned() else { return };
+    if !app.profiles.contains_key(&uid) {
+        app.profiles.insert(uid, serde_json::Value::Null);
+        app.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true"), None, Tag::Profile(uid));
+    }
+    let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
+    let status = app.store.status(uid);
+    let (mut more, mut add, mut full) = (None, false, false);
+    let height = ui.available_height();
+    let store = &app.store;
+    let p = app.profiles.get(&uid);
+    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
+        ui.set_width(300.0);
+        ui.set_min_height(height - 2.0);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let top = card_head(ui, &user, p, user.display(), status);
+        (more, add) = banner_buttons(ui, top, stranger);
+        Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
+            ui.set_width(268.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            mutuals(ui, store, p, pal().bg_primary);
+            ui.add_space(24.0);
+            ui.label(RichText::new("Member Since").font(semi(12.0)).color(pal().header_primary));
+            ui.add_space(8.0);
+            let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
+            ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
+        });
+        let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
+        let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
+        ui.painter().rect(b, 8, egui::Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+        ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
+        full = resp.clicked();
+    });
+    if let Some(at) = more {
+        app.user_menu = Some((uid, 0, None, at));
+    }
+    if add {
+        app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
+    }
+    if full {
+        app.open_profile(uid, 0, ui.min_rect().left_top() - vec2(310.0, 0.0));
     }
 }
 
@@ -1377,12 +1427,14 @@ fn forward(app: &mut App, ctx: &egui::Context) {
         .collect();
     let preview = store.find_msg(f.ch, f.msg).cloned();
     let (mut send, mut close) = (false, false);
+    // measured from discord's: 478 wide, 24 in, 48 tall rows, the forwarded text quoted at the foot
     let modal = egui::Modal::new("forward".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
-            ui.set_width(512.0);
+            ui.set_width(478.0);
             ui.spacing_mut().item_spacing.y = 0.0;
             Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 16 }).show(ui, |ui| {
+                ui.set_width(430.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Forward To").font(semi(20.0)).color(pal().header_primary));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1392,45 +1444,66 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                     });
                 });
                 ui.add_space(4.0);
-                ui.label(RichText::new("Select where you want to share this message.").font(reg(14.0)).color(pal().header_secondary));
+                ui.label(RichText::new("Select where you want to share this message.").font(reg(16.0)).color(pal().header_secondary));
                 ui.add_space(16.0);
-                ui.add(
+                let (field, _) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::hover());
+                ui.painter().rect_filled(field, 8, pal().input_bg);
+                let inner = Rect::from_min_max(pos2(field.left() + 38.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0));
+                let r = ui.put(
+                    inner,
                     egui::TextEdit::singleline(&mut f.query)
                         .hint_text(RichText::new("Search").color(pal().text_muted))
                         .font(reg(16.0))
-                        .desired_width(f32::INFINITY)
-                        .margin(Margin::symmetric(12, 9)),
-                )
-                .request_focus();
+                        .frame(Frame::NONE)
+                        .margin(Margin::ZERO),
+                );
+                r.request_focus();
+                ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                super::icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0)), pal().header_primary);
             });
-            egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
-                Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
+            let room = (ui.ctx().content_rect().height() - 360.0).clamp(144.0, 400.0);
+            egui::ScrollArea::vertical().max_height(room).auto_shrink([false, true]).show(ui, |ui| {
+                Frame::new().inner_margin(Margin::symmetric(24, 0)).show(ui, |ui| {
                     for c in &places {
                         let Some(ch) = store.channels.get(c) else { continue };
-                        let (r, resp) = ui.allocate_exact_size(vec2(480.0, 48.0), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(430.0, 48.0), Sense::click());
                         let on = f.picked.contains(c);
                         if resp.hovered() {
-                            ui.painter().rect_filled(r, 8, MENU_HOVER);
+                            ui.painter().rect_filled(r.expand2(vec2(8.0, 0.0)), 8, MENU_HOVER);
                         }
-                        let icon = Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0));
-                        match ch.recipients.first().and_then(|u| store.user(*u)) {
-                            Some(u) if ch.kind == 1 => avatar(ui, icon, &u.avatar_url()),
-                            _ if ch.guild == 0 => super::icons::draw(ui.painter(), Icon::People, icon.shrink(6.0), pal().header_secondary),
-                            _ => super::side::chan_icon(store, ui.painter(), ch, icon.shrink(6.0), pal().header_secondary),
+                        let icon = Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(32.0, 32.0));
+                        match (ch.recipients.first().and_then(|u| store.user(*u)), store.guilds.get(&ch.guild)) {
+                            (Some(u), _) if ch.kind == 1 => avatar(ui, icon, &u.avatar_url()),
+                            (_, Some(g)) => {
+                                // the server's icon with the channel's glyph in a badge at its corner
+                                match g.icon_url() {
+                                    Some(url) => {
+                                        egui::Image::from_uri(url).corner_radius(CornerRadius::same(16)).show_loading_spinner(false).paint_at(ui, icon);
+                                    }
+                                    None => {
+                                        ui.painter().circle_filled(icon.center(), 16.0, pal().bg_accent);
+                                        ui.painter().text(icon.center(), Align2::CENTER_CENTER, g.acronym(), semi(11.0), pal().text_normal);
+                                    }
+                                }
+                                let b = pos2(icon.right() - 4.0, icon.bottom() - 4.0);
+                                ui.painter().circle_filled(b, 9.0, pal().bg_secondary);
+                                super::side::chan_icon(store, ui.painter(), ch, Rect::from_center_size(b, vec2(12.0, 12.0)), pal().header_secondary);
+                            }
+                            _ => super::icons::draw(ui.painter(), Icon::People, icon.shrink(6.0), pal().header_secondary),
                         }
                         let title = channel_title(store, *c);
                         let sub = store.guilds.get(&ch.guild).map(|g| g.name.clone());
                         let y = if sub.is_some() { r.center().y - 9.0 } else { r.center().y };
-                        text::paint(ui.painter(), pos2(r.left() + 52.0, y), Align2::LEFT_CENTER, &title, medium(16.0), pal().header_primary, 360.0);
+                        text::paint(ui.painter(), pos2(r.left() + 44.0, y), Align2::LEFT_CENTER, &title, semi(16.0), pal().header_primary, 340.0);
                         if let Some(sub) = sub {
-                            text::paint(ui.painter(), pos2(r.left() + 52.0, r.center().y + 10.0), Align2::LEFT_CENTER, &sub, reg(12.0), pal().text_muted, 360.0);
+                            text::paint(ui.painter(), pos2(r.left() + 44.0, r.center().y + 10.0), Align2::LEFT_CENTER, &sub, reg(12.0), pal().header_secondary, 340.0);
                         }
-                        let b = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(20.0, 20.0));
+                        let b = Rect::from_center_size(pos2(r.right() - 10.0, r.center().y), vec2(20.0, 20.0));
                         if on {
-                            ui.painter().rect_filled(b, 4, BLURPLE);
-                            super::icons::draw(ui.painter(), Icon::Check, b.shrink(2.0), egui::Color32::WHITE);
+                            ui.painter().rect_filled(b, 6, BLURPLE);
+                            super::icons::draw(ui.painter(), Icon::Check, b.shrink(3.0), egui::Color32::WHITE);
                         } else {
-                            ui.painter().rect_stroke(b, 4, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                            ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
                         }
                         if resp.clicked() {
                             if on {
@@ -1447,37 +1520,47 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                     }
                 });
             });
-            Frame::new().inner_margin(16).show(ui, |ui| {
+            let (line, _) = ui.allocate_exact_size(vec2(478.0, 1.0), Sense::hover());
+            ui.painter().hline(line.x_range(), line.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+            Frame::new().inner_margin(Margin { left: 24, right: 24, top: 20, bottom: 24 }).show(ui, |ui| {
+                ui.set_width(430.0);
                 if let Some(m) = &preview {
-                    Frame::new().fill(pal().bg_floating).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        let who = store.name_in(store.channels.get(&f.ch).map_or(0, |c| c.guild), m.author);
-                        ui.horizontal(|ui| {
-                            let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                            super::icons::draw(ui.painter(), Icon::Forward, r, pal().header_secondary);
-                            ui.label(RichText::new(who).font(semi(14.0)).color(pal().header_primary));
-                        });
-                        let body = if m.content.is_empty() { "Attachment".to_string() } else { m.content.clone() };
-                        text::paint(ui.painter(), ui.cursor().min + vec2(0.0, 10.0), Align2::LEFT_CENTER, &body.replace('\n', " "), reg(14.0), pal().text_normal, 440.0);
-                        ui.add_space(22.0);
-                    });
-                    ui.add_space(12.0);
+                    // quoted like discord's: a bar down the left and the message beside it
+                    let guild = store.channels.get(&f.ch).map_or(0, |c| c.guild);
+                    let body = if m.content.is_empty() { "Attachment".to_string() } else { crate::markdown::plain(&m.content, store, guild) };
+                    let (r, _) = ui.allocate_exact_size(vec2(430.0, 24.0), Sense::hover());
+                    ui.painter().rect_filled(Rect::from_min_size(r.min, vec2(4.0, 24.0)), 2, pal().border_normal);
+                    text::paint(ui.painter(), pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, &body, reg(16.0), pal().text_normal, 410.0);
+                    ui.add_space(16.0);
                 }
-                ui.horizontal(|ui| {
+                {
                     let n = f.picked.len();
-                    let label = if n > 1 { format!("Send ({n})") } else { "Send".to_string() };
-                    ui.add(
+                    // one row cut by hand: put() would push a horizontal layout past the field
+                    let (row, _) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::hover());
+                    let field = Rect::from_min_size(row.min, vec2(320.0, 40.0));
+                    ui.painter().rect(field, 8, pal().input_bg, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    let inner = Rect::from_min_max(pos2(field.left() + 16.0, field.center().y - 10.0), pos2(field.right() - 44.0, field.center().y + 10.0));
+                    ui.put(
+                        inner,
                         egui::TextEdit::singleline(&mut f.note)
                             .hint_text(RichText::new("Add an optional message...").color(pal().text_muted))
-                            .font(reg(14.0))
-                            .desired_width(480.0 - 96.0)
-                            .margin(Margin::symmetric(12, 10)),
+                            .font(reg(16.0))
+                            .frame(Frame::NONE)
+                            .margin(Margin::ZERO),
                     );
-                    let fill = if n == 0 { BLURPLE.gamma_multiply(0.5) } else { BLURPLE };
-                    if button(ui, &label, fill, 88.0).clicked() && n > 0 {
-                        send = true;
-                    }
-                });
+                    super::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(field.right() - 22.0, field.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+                    let b = Rect::from_min_size(pos2(field.right() + 10.0, row.top()), vec2(100.0, 40.0));
+                    let resp = ui.interact(b, ui.id().with("forward_send"), Sense::click());
+                    let fill = if n == 0 { BLURPLE.gamma_multiply(0.5) } else if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE };
+                    ui.painter().rect_filled(b, 8, fill);
+                    let label = if n > 1 { format!("Send ({n})") } else { "Send".to_string() };
+                    let g = ui.painter().layout_no_wrap(label, medium(16.0), egui::Color32::WHITE);
+                    let x = b.center().x - (g.size().x + 26.0) / 2.0;
+                    let w = g.size().x;
+                    ui.painter().galley(pos2(x, b.center().y - g.size().y / 2.0), g, egui::Color32::WHITE);
+                    super::icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(pos2(x + w + 16.0, b.center().y), vec2(20.0, 20.0)), egui::Color32::WHITE);
+                    send = resp.clicked() && n > 0;
+                }
             });
         });
     if send {

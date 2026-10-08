@@ -14,6 +14,8 @@ pub struct UiState {
     // the toolbar's one-click reactions, most recent first
     pub quick: Vec<crate::state::ReactEmoji>,
     pub hide_members: bool,
+    // the profile card beside one-on-one dms
+    pub hide_dm_profile: bool,
     pub open_folders: HashSet<Id>,
     // new keys: beta 2 saved its 240 defaults whether or not anyone dragged
     #[serde(rename = "channels_w")]
@@ -24,6 +26,10 @@ pub struct UiState {
     pub dm_call_h: f32,
     // past searches, newest first, for the search box's history
     pub searches: Vec<String>,
+    // the picker's frequently used emoji, newest first, and its skin tone (0 is the default yellow)
+    pub frequent: Vec<crate::state::ReactEmoji>,
+    pub skin: u8,
+    pub frequent_stickers: Vec<crate::state::Id>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

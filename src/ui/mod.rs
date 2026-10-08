@@ -388,9 +388,17 @@ impl App {
             self.ui.quick.retain(|q| *q != em);
             self.ui.quick.insert(0, em.clone());
             self.ui.quick.truncate(3);
+            self.used(em.clone());
         }
         self.net.send(Cmd::React { channel: ch, id: msg, emoji: em.api_name(), add });
         self.store.react_local(ch, msg, em, add);
+    }
+
+    /// An emoji went out, as a reaction or in a message: it moves up the picker's frequently used.
+    pub fn used(&mut self, em: ReactEmoji) {
+        self.ui.frequent.retain(|q| *q != em);
+        self.ui.frequent.insert(0, em);
+        self.ui.frequent.truncate(27);
     }
 
     pub fn rest(&self, method: &'static str, path: String, body: Option<serde_json::Value>, tag: Tag) {
@@ -502,8 +510,8 @@ impl App {
                 self.open(list[i]);
             }
         }
-        if emoji && let Some(r) = self.rects.get("composer").copied() {
-            self.picker = Some((Pick::Composer, r.right_top() - vec2(420.0, 440.0)));
+        if emoji && self.rects.contains_key("composer") {
+            picker::toggle(self, picker::Tab::Emoji);
         }
         if upload && let Some(files) = rfd::FileDialog::new().pick_files() {
             self.files.extend(files.into_iter().map(composer::Upload::new));

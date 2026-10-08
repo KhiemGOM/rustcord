@@ -36,8 +36,21 @@ def free_port():
         return s.getsockname()[1]
 
 
+def free_both():
+    """The voice port takes tcp and udp. Windows reserves udp ranges inside the ephemeral
+    ports a tcp probe hands out, so try until one binds both ways."""
+    while True:
+        p = free_port()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+            try:
+                u.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                pass
+
+
 # random ports so parallel runs (other worktrees, other agents) can't cross wires
-HTTP, WS, VOICE = free_port(), free_port(), free_port()
+HTTP, WS, VOICE = free_port(), free_port(), free_both()
 BUDGET_MS = 1000
 
 
