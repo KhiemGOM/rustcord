@@ -287,6 +287,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
     gifs(app, ctx);
+    forward(app, ctx);
     invite(app, ctx);
     made_invite(app, ctx);
     switcher(app, ctx);
@@ -1338,5 +1339,162 @@ fn close_dm(app: &mut App, c: Id) {
     app.store.dms.retain(|d| *d != c);
     if app.cur() == Some(c) {
         app.friends = true;
+    }
+}
+
+pub struct Forward {
+    ch: Id,
+    msg: Id,
+    query: String,
+    picked: Vec<Id>,
+    note: String,
+}
+
+impl Forward {
+    pub fn new(ch: Id, msg: Id) -> Self {
+        Forward { ch, msg, query: String::new(), picked: Vec::new(), note: String::new() }
+    }
+}
+
+/// Discord's Forward To: up to five places, then an optional note under the forwarded message.
+fn forward(app: &mut App, ctx: &egui::Context) {
+    let Some(f) = &mut app.forward else { return };
+    let store = &app.store;
+    let ql = f.query.to_lowercase();
+    // where you've been lately, then dms, then every channel you can post in
+    let mut seen = std::collections::HashSet::new();
+    let places: Vec<Id> = app
+        .ui
+        .recent
+        .iter()
+        .chain(store.dms.iter())
+        .chain(store.guild_order.iter().filter_map(|g| store.guilds.get(g)).flat_map(|g| g.channels.iter()))
+        .copied()
+        .filter(|c| seen.insert(*c))
+        .filter(|c| store.channels.get(c).is_some_and(|c| (c.is_text() && !c.is_thread()) && (c.guild == 0 || store.can_view(c))))
+        .filter(|c| ql.is_empty() || channel_title(store, *c).to_lowercase().contains(&ql))
+        .take(60)
+        .collect();
+    let preview = store.find_msg(f.ch, f.msg).cloned();
+    let (mut send, mut close) = (false, false);
+    let modal = egui::Modal::new("forward".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
+        .show(ctx, |ui| {
+            ui.set_width(512.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 16 }).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Forward To").font(semi(20.0)).color(pal().header_primary));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+                ui.label(RichText::new("Select where you want to share this message.").font(reg(14.0)).color(pal().header_secondary));
+                ui.add_space(16.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut f.query)
+                        .hint_text(RichText::new("Search").color(pal().text_muted))
+                        .font(reg(16.0))
+                        .desired_width(f32::INFINITY)
+                        .margin(Margin::symmetric(12, 9)),
+                )
+                .request_focus();
+            });
+            egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
+                Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
+                    for c in &places {
+                        let Some(ch) = store.channels.get(c) else { continue };
+                        let (r, resp) = ui.allocate_exact_size(vec2(480.0, 48.0), Sense::click());
+                        let on = f.picked.contains(c);
+                        if resp.hovered() {
+                            ui.painter().rect_filled(r, 8, MENU_HOVER);
+                        }
+                        let icon = Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0));
+                        match ch.recipients.first().and_then(|u| store.user(*u)) {
+                            Some(u) if ch.kind == 1 => avatar(ui, icon, &u.avatar_url()),
+                            _ if ch.guild == 0 => super::icons::draw(ui.painter(), Icon::People, icon.shrink(6.0), pal().header_secondary),
+                            _ => super::side::chan_icon(store, ui.painter(), ch, icon.shrink(6.0), pal().header_secondary),
+                        }
+                        let title = channel_title(store, *c);
+                        let sub = store.guilds.get(&ch.guild).map(|g| g.name.clone());
+                        let y = if sub.is_some() { r.center().y - 9.0 } else { r.center().y };
+                        text::paint(ui.painter(), pos2(r.left() + 52.0, y), Align2::LEFT_CENTER, &title, medium(16.0), pal().header_primary, 360.0);
+                        if let Some(sub) = sub {
+                            text::paint(ui.painter(), pos2(r.left() + 52.0, r.center().y + 10.0), Align2::LEFT_CENTER, &sub, reg(12.0), pal().text_muted, 360.0);
+                        }
+                        let b = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(20.0, 20.0));
+                        if on {
+                            ui.painter().rect_filled(b, 4, BLURPLE);
+                            super::icons::draw(ui.painter(), Icon::Check, b.shrink(2.0), egui::Color32::WHITE);
+                        } else {
+                            ui.painter().rect_stroke(b, 4, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                        }
+                        if resp.clicked() {
+                            if on {
+                                f.picked.retain(|x| x != c);
+                            } else if f.picked.len() < 5 {
+                                f.picked.push(*c);
+                            }
+                        }
+                    }
+                    if places.is_empty() {
+                        ui.add_space(24.0);
+                        ui.vertical_centered(|ui| ui.label(RichText::new("No results found").color(pal().header_secondary)));
+                        ui.add_space(24.0);
+                    }
+                });
+            });
+            Frame::new().inner_margin(16).show(ui, |ui| {
+                if let Some(m) = &preview {
+                    Frame::new().fill(pal().bg_floating).corner_radius(8).inner_margin(12).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        let who = store.name_in(store.channels.get(&f.ch).map_or(0, |c| c.guild), m.author);
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                            super::icons::draw(ui.painter(), Icon::Forward, r, pal().header_secondary);
+                            ui.label(RichText::new(who).font(semi(14.0)).color(pal().header_primary));
+                        });
+                        let body = if m.content.is_empty() { "Attachment".to_string() } else { m.content.clone() };
+                        text::paint(ui.painter(), ui.cursor().min + vec2(0.0, 10.0), Align2::LEFT_CENTER, &body.replace('\n', " "), reg(14.0), pal().text_normal, 440.0);
+                        ui.add_space(22.0);
+                    });
+                    ui.add_space(12.0);
+                }
+                ui.horizontal(|ui| {
+                    let n = f.picked.len();
+                    let label = if n > 1 { format!("Send ({n})") } else { "Send".to_string() };
+                    ui.add(
+                        egui::TextEdit::singleline(&mut f.note)
+                            .hint_text(RichText::new("Add an optional message...").color(pal().text_muted))
+                            .font(reg(14.0))
+                            .desired_width(480.0 - 96.0)
+                            .margin(Margin::symmetric(12, 10)),
+                    );
+                    let fill = if n == 0 { BLURPLE.gamma_multiply(0.5) } else { BLURPLE };
+                    if button(ui, &label, fill, 88.0).clicked() && n > 0 {
+                        send = true;
+                    }
+                });
+            });
+        });
+    if send {
+        let f = app.forward.take().expect("checked above");
+        let guild = app.store.channels.get(&f.ch).map_or(0, |c| c.guild);
+        for to in f.picked {
+            let mut reference = json!({ "type": 1, "message_id": f.msg.to_string(), "channel_id": f.ch.to_string() });
+            if guild != 0 {
+                reference["guild_id"] = json!(guild.to_string());
+            }
+            app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": "", "message_reference": reference })), Tag::Quiet);
+            if !f.note.trim().is_empty() {
+                app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": f.note.trim() })), Tag::Quiet);
+            }
+        }
+        app.toast("Message forwarded.");
+    } else if close || modal.should_close() {
+        app.forward = None;
     }
 }

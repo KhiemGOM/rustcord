@@ -29,6 +29,7 @@ enum Act {
     CancelEdit,
     Profile(Id, Pos2),
     UserMenu(Id, Pos2),
+    Forward(Id),
     Jump(Id),
     Component(Id, String, Option<Vec<String>>),
     View(String, String, u32, u32),
@@ -346,10 +347,15 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .stick_to_bottom(true)
         .auto_shrink([false, false]);
     let mut to_bottom = false;
+    // a scroll by delta, for when egui's stick-to-bottom would undo a set offset
+    let mut nudge = 0.0;
+    let fixed = app.scroll_fix.is_some_and(|(c, _)| c == ch);
     if let Some((_, off)) = app.scroll_fix.take_if(|(c, _)| *c == ch) {
         // f32::MAX means "the bottom", which only the content itself knows
         if off == f32::MAX {
             to_bottom = true;
+        } else if app.pinned.contains(&ch) {
+            nudge = app.offsets.get(&ch).copied().unwrap_or(0.0) - off;
         } else {
             sa = sa.vertical_scroll_offset(off);
         }
@@ -357,6 +363,10 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
     let pointer = ui.ctx().pointer_hover_pos();
     let hover_lock = app.bar.and_then(|(id, r)| pointer.filter(|p| r.contains(*p)).map(|_| id));
+    // the hover toolbar floats on its own layer; a wheel over it still scrolls the chat, like discord
+    if hover_lock.is_some() && !fixed {
+        nudge += ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta.y));
+    }
     let marker = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m);
     let ctx = ui.ctx().clone();
     let mut d = D {
@@ -391,6 +401,9 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let target = app.scroll_to.filter(|(c, _)| *c == ch).map(|(_, id)| id);
     let mut target_y = None;
     let out = sa.show_viewport(ui, |ui, vp| {
+        if nudge != 0.0 {
+            ui.scroll_with_delta_animation(vec2(0.0, nudge), egui::style::ScrollAnimation::none());
+        }
         ui.spacing_mut().item_spacing.y = 0.0;
         let origin = ui.max_rect().top();
         let w = ui.available_width();
@@ -537,6 +550,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             Act::Profile(u, at) => app.open_profile(u, chan.guild, at),
             Act::UserMenu(u, at) => app.user_menu = Some((u, chan.guild, None, at)),
+            Act::Forward(id) => app.forward = Some(super::popups::Forward::new(ch, id)),
             Act::Jump(id) => app.jump_to(ch, id),
             Act::Component(id, custom_id, values) => app.press(ch, id, &custom_id, values),
             Act::View(img, open, w, h) => app.viewer = Some((img, open, w, h)),
@@ -1594,10 +1608,11 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
                                 d.acts.push(Act::Delete(m.id));
                             }
                         }
-                        // forwarding goes through the message menu for now
-                        let f = icon_button(ui, Icon::Forward, 32.0, "Forward");
+                        if icon_button(ui, Icon::Forward, 32.0, "Forward").clicked() {
+                            d.acts.push(Act::Forward(m.id));
+                        }
                         let more = icon_button(ui, Icon::More, 32.0, "More");
-                        if f.clicked() || more.clicked() {
+                        if more.clicked() {
                             d.acts.push(Act::Menu(m.id, more.rect.left_bottom()));
                         }
                     });
@@ -1710,6 +1725,9 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if menu_item(ui, Some(Icon::Reply), "Reply", false) {
             pick = Some(2);
         }
+        if menu_item(ui, Some(Icon::Forward), "Forward", false) {
+            pick = Some(11);
+        }
         menu_sep(ui);
         if menu_item(ui, Some(Icon::Copy), "Copy Text", false) {
             pick = Some(3);
@@ -1765,6 +1783,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
             let g = g.map(|g| g.to_string()).unwrap_or_else(|| "@me".into());
             ctx.copy_text(format!("https://discord.com/channels/{g}/{ch}/{id}"));
         }
+        Some(11) => app.forward = Some(super::popups::Forward::new(ch, id)),
         // reporting has no flow of its own here; discord's web client handles it
         Some(10) => {
             let g = app.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0);

@@ -236,7 +236,18 @@ impl Run {
                 format!(" scroll_to={id} loaded={have} tries={}", app.scroll_tries)
             });
             let here = app.cur().and_then(|c| app.store.channels.get(&c)).map(|c| c.name.clone()).unwrap_or_default();
-            self.fail(format!("timed out at step {} in #{here}{}", self.step, jump.unwrap_or_default()));
+            // where the chat was scrolled to, for steps that scroll looking for something
+            let scroll = app.cur().map(|c| {
+                let e = app.store.msgs.get(&c);
+                format!(
+                    " offset={:.0} msgs={} at_start={} loading={}",
+                    app.offsets.get(&c).copied().unwrap_or(-1.0),
+                    e.map_or(0, |e| e.list.len()),
+                    e.is_some_and(|e| e.at_start),
+                    e.is_some_and(|e| e.loading)
+                )
+            });
+            self.fail(format!("timed out at step {} in #{here}{}{}", self.step, jump.unwrap_or_default(), scroll.unwrap_or_default()));
         }
         let msgs = |app: &App, ch: Id| app.store.msgs.get(&ch).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
         GUILDS.store(app.store.guilds.len(), std::sync::atomic::Ordering::Relaxed);
@@ -2180,7 +2191,9 @@ impl Run {
             }
             // the right-click menus, the server dropdown and the search filters each open
             385 | 387 | 389 | 391 => {
-                app.rects.remove("search_options");
+                // the filters drop down from an empty search box; an earlier step left a query in it
+                ctx.data_mut(|d| d.remove::<String>(egui::Id::new("search_q")));
+                app.search = None;
                 let member = app.rects.keys().find(|k| k.starts_with("member:") && **k != format!("member:{}", app.store.me)).cloned();
                 let (key, right) = match self.step {
                     385 => (format!("chan:{general}"), true),

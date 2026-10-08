@@ -170,9 +170,12 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let collapsed = cat.is_some_and(|c| app.ui.collapsed.contains(&c.id));
                 if let Some(cat) = cat {
                     ui.add_space(14.0);
-                    let r = category(ui, &cat.name, collapsed);
+                    let (r, add) = category(ui, &cat.name, collapsed, store.perms(cat) & crate::state::MANAGE_CHANNELS != 0);
                     if r.clicked() {
                         toggle = Some(cat.id);
+                    }
+                    if add {
+                        menu = Some((cat.id, ChanAct::Web));
                     }
                     let unread = kids.iter().any(|k| k.is_text() && store.unread(k));
                     channel_menu(&r, store, cat, unread, collapsed, dev, &mut menu);
@@ -184,9 +187,12 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         continue;
                     }
                     let muted = store.is_muted(c);
-                    let (r, emoji, invite) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted);
+                    let (r, emoji, invite, edit) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted);
                     if invite {
                         make_invite = Some(c.id);
+                    }
+                    if edit {
+                        menu = Some((c.id, ChanAct::Web));
                     }
                     app.rects.insert(format!("chan:{}", c.id), r.rect);
                     if let Some(e) = emoji {
@@ -515,18 +521,26 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
     ui.add_space(4.0);
 }
 
-fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
+/// A category header, and whether its create-channel plus was clicked.
+fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
     let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
     let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
     let y = rect.center().y;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name
-    let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 28.0, 1.0);
+    let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 52.0, 1.0);
     icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col);
+    let mut add = false;
+    if can_add {
+        let pr = Rect::from_center_size(pos2(rect.right() - 24.0, y), vec2(16.0, 16.0));
+        let hit = ui.interact(pr.expand(2.0), ui.id().with(("add_channel", name)), Sense::click());
+        icons::draw(ui.painter(), Icon::Plus, pr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        add = hit.on_hover_text("Create Channel").clicked();
+    }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp
+    (resp, add)
 }
 
 /// The channel's icon with the lock or warning discord adds for private and age-gated ones.
@@ -553,7 +567,9 @@ pub fn glyph(c: &Channel) -> Icon {
     }
 }
 
-fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> (egui::Response, Option<Rect>, bool) {
+/// A channel in the list. Besides the row, hands back where its name's emoji went and whether
+/// the invite or edit buttons were clicked.
+fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> (egui::Response, Option<Rect>, bool, bool) {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -587,16 +603,25 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     };
     let ir = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
     chan_icon(store, ui.painter(), c, ir, icon_col);
-    // the create-invite button discord shows on the hovered or selected row
-    let can_invite = (hovered || selected) && !c.is_thread() && store.perms(c) & crate::state::CREATE_INVITE != 0;
-    let mut invite = false;
+    // the invite and edit buttons discord shows on the hovered or selected row
+    let perms = store.perms(c);
+    let lit = (hovered || selected) && !c.is_thread() && mentions == 0;
+    let (mut invite, mut edit) = (false, false);
     let mut right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    if can_invite && mentions == 0 {
-        let ir = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
-        let hit = ui.interact(ir.expand(2.0), ui.id().with(("invite", c.id)), Sense::click());
-        icons::draw(ui.painter(), Icon::PersonAdd, ir, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
-        invite = hit.on_hover_text("Create Invite").clicked();
+    let mut x = inner.right() - 16.0;
+    for (icon, tip, bit, out) in [
+        (Icon::Gear, "Edit Channel", crate::state::MANAGE_CHANNELS, &mut edit),
+        (Icon::PersonAdd, "Create Invite", crate::state::CREATE_INVITE, &mut invite),
+    ] {
+        if !lit || perms & bit == 0 {
+            continue;
+        }
+        let ir = Rect::from_center_size(pos2(x, row.center().y), vec2(16.0, 16.0));
+        let hit = ui.interact(ir.expand(2.0), ui.id().with((tip, c.id)), Sense::click());
+        icons::draw(ui.painter(), icon, ir, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        *out = hit.on_hover_text(tip).clicked();
         right = ir.left() - 6.0;
+        x -= 22.0;
     }
     // channel names are medium; unread ones go semibold
     let font = if unread { semi(16.0) } else { medium(16.0) };
@@ -611,7 +636,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    (resp, emoji, invite)
+    (resp, emoji, invite, edit)
 }
 
 fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
