@@ -21,7 +21,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, hot| {
                 let fill = if hot { BLURPLE } else { pal().bg_primary };
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
-                clyde(ui, rect.center(), if hot { Color32::WHITE } else { pal().interactive_hover });
+                icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
             });
             if incoming > 0 {
                 badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(pal().bg_tertiary));
@@ -83,10 +83,23 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             separator(ui);
             let r = item(ui, egui::Id::new("add_server"), false, false, |ui, rect, radius, hot| {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
-                icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { GREEN });
+                icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
             });
-            if r.on_hover_text("Join a Server").clicked() {
+            if r.on_hover_text("Add a Server").clicked() {
                 app.invite = Some(String::new());
+            }
+            // discord's last two rail buttons; fastcord leaves both pages to the browser
+            for (key, icon, tip, url) in [
+                ("discover", Icon::Discover, "Discover", "https://discord.com/discovery"),
+                ("download", Icon::Download, "Download Apps", "https://discord.com/download"),
+            ] {
+                let r = item(ui, egui::Id::new(key), false, false, |ui, rect, radius, hot| {
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
+                });
+                if r.on_hover_text(tip).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
             }
             ui.add_space(12.0);
         });
@@ -274,16 +287,6 @@ fn item(
     }
     paint(ui, rect, radius, hot);
     resp
-}
-
-// a little discord-ish face so the home button reads right at a glance
-fn clyde(ui: &Ui, c: egui::Pos2, col: Color32) {
-    let p = ui.painter();
-    let body = Rect::from_center_size(c + vec2(0.0, 1.0), vec2(26.0, 18.0));
-    p.rect_filled(body, CornerRadius { nw: 9, ne: 9, sw: 6, se: 6 }, col);
-    let eye = if col == Color32::WHITE { BLURPLE } else { pal().bg_primary };
-    p.circle_filled(c + vec2(-5.5, 1.0), 2.6, eye);
-    p.circle_filled(c + vec2(5.5, 1.0), 2.6, eye);
 }
 
 // the server-name bubble to the right of the rail, with emoji

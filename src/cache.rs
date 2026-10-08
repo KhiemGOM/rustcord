@@ -11,6 +11,8 @@ pub struct UiState {
     pub chan: HashMap<Id, Id>,
     pub collapsed: HashSet<Id>,
     pub recent: Vec<Id>,
+    // the toolbar's one-click reactions, most recent first
+    pub quick: Vec<crate::state::ReactEmoji>,
     pub hide_members: bool,
     pub open_folders: HashSet<Id>,
     // new keys: beta 2 saved its 240 defaults whether or not anyone dragged

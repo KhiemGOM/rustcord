@@ -156,8 +156,12 @@ impl Api {
         nonce: &str,
         reply: Option<(Id, bool)>,
         files: &[(PathBuf, String)],
+        stickers: &[Id],
     ) -> Result<Value, String> {
         let mut body = json!({ "content": content, "nonce": nonce, "tts": false, "flags": 0 });
+        if !stickers.is_empty() {
+            body["sticker_ids"] = json!(stickers.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        }
         if let Some((r, ping)) = reply {
             body["message_reference"] = json!({ "message_id": r.to_string(), "channel_id": ch.to_string() });
             body["allowed_mentions"] = json!({ "parse": ["users", "roles", "everyone"], "replied_user": ping });

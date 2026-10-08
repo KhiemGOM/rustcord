@@ -558,7 +558,8 @@ impl Run {
             }
             36 => {
                 let Some(r) = app.rects.get("reply").copied() else { return };
-                self.click(r.center());
+                // the start of the line: the hover toolbar covers the message's top right
+                self.click(r.left_center() + vec2(40.0_f32.min(r.width() / 2.0), 0.0));
                 self.next(0);
             }
             37 => {

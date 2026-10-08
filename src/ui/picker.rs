@@ -199,3 +199,64 @@ fn grid(
         });
     }
 }
+
+/// Discord's sticker picker: every server's stickers, the current one first; another
+/// server's need nitro.
+pub fn stickers(app: &mut App, ctx: &egui::Context) {
+    let Some(at) = app.stickers else { return };
+    let Some(ch) = app.cur() else { return };
+    let here = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+    let nitro = app.store.nitro();
+    let order = std::iter::once(here).chain(app.store.guild_order.iter().copied().filter(|g| *g != here));
+    let groups: Vec<(String, Vec<(Id, String, u8)>, bool)> = order
+        .filter_map(|g| app.store.guilds.get(&g))
+        .filter(|g| !g.stickers.is_empty())
+        .map(|g| (g.name.clone(), g.stickers.clone(), nitro || g.id == here))
+        .collect();
+    let mut chosen = None;
+    let area = egui::Area::new(egui::Id::new("stickers"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(at)
+        .constrain(true)
+        .show(ctx, |ui| {
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(12).show(ui, |ui| {
+                ui.set_width(394.0);
+                egui::ScrollArea::vertical().max_height(400.0).auto_shrink([false, false]).show(ui, |ui| {
+                    if groups.is_empty() {
+                        ui.label(RichText::new("No stickers here yet.").color(pal().text_muted));
+                    }
+                    for (name, list, ok) in &groups {
+                        section(ui, name);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                            for (id, sname, fmt) in list {
+                                let (r, resp) = ui.allocate_exact_size(vec2(92.0, 92.0), Sense::click());
+                                if resp.hovered() {
+                                    ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_hover);
+                                }
+                                // lottie stickers (format 3) have no still image to show
+                                if *fmt != 3 {
+                                    let ext = if *fmt == 4 { "gif" } else { "png" };
+                                    let url = format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160");
+                                    let tint = if *ok { Color32::WHITE } else { Color32::from_white_alpha(90) };
+                                    Image::from_uri(crate::gif::uri(ui.ctx(), &url, ui.is_rect_visible(r))).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(6.0));
+                                }
+                                let resp = resp.on_hover_text(if *ok { sname.clone() } else { format!("{sname} needs Nitro here") });
+                                if resp.clicked() && *ok {
+                                    chosen = Some(*id);
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+        });
+    if let Some(id) = chosen {
+        let nonce = crate::state::make_nonce();
+        app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id] });
+        app.jump_to_present(ch);
+        app.stickers = None;
+    } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || (ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer()) {
+        app.stickers = None;
+    }
+}

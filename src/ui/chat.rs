@@ -50,6 +50,7 @@ struct D<'a> {
     flash: Option<(Id, std::time::Instant)>,
     rects: Vec<(String, Rect)>,
     s: &'a crate::cache::Settings,
+    quick: &'a [ReactEmoji],
     moderator: bool,
 }
 
@@ -100,7 +101,7 @@ fn stamp(ts: i64) -> String {
     } else if d.date_naive().succ_opt() == Some(now.date_naive()) {
         format!("Yesterday at {time}")
     } else {
-        format!("{} {}", d.format("%m/%d/%Y"), d.format(markdown::hm()))
+        format!("{}, {}", d.format("%-m/%-d/%y"), d.format(markdown::hm()))
     }
 }
 
@@ -213,7 +214,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                 }
                 text::label(ui, &title, semi(16.0), pal().header_primary, Sense::hover());
-                let tools = if chan.guild != 0 { 330.0 } else { 220.0 };
+                let tools = if chan.guild != 0 { 420.0 } else { 300.0 };
                 if let Some(topic) = &chan.topic {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
                     ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
@@ -225,21 +226,26 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let qid = egui::Id::new("search_q");
                     let mut q: String = ui.data(|d| d.get_temp(qid).unwrap_or_default());
-                    let sw = if app.search.is_some() { 240.0 } else { 144.0 };
+                    // discord's 244x32 box, placeholder naming the server
+                    let sw = 244.0;
+                    let hint = match app.store.guilds.get(&chan.guild) {
+                        Some(g) => format!("Search {}", g.name.split_whitespace().collect::<Vec<_>>().join(" ")),
+                        None => "Search".to_string(),
+                    };
                     let r = ui
-                        .allocate_ui_with_layout(vec2(sw, 24.0), Layout::left_to_right(Align::Center), |ui| {
+                        .allocate_ui_with_layout(vec2(sw, 32.0), Layout::left_to_right(Align::Center), |ui| {
                             Frame::new()
                                 .fill(pal().input_bg)
-                                .stroke(Stroke::new(1.0, pal().border_normal))
-                                .corner_radius(4)
-                                .inner_margin(Margin::symmetric(6, 3))
+                                .stroke(Stroke::new(1.0, pal().border_subtle))
+                                .corner_radius(8)
+                                .inner_margin(Margin::symmetric(8, 6))
                                 .show(ui, |ui| {
                                     let r = ui.add(
                                         egui::TextEdit::singleline(&mut q)
                                             .frame(Frame::NONE)
-                                            .font(reg(14.0))
-                                            .hint_text(RichText::new("Search").color(pal().text_muted))
-                                            .desired_width(sw - 30.0),
+                                            .font(reg(16.0))
+                                            .hint_text(RichText::new(hint).color(pal().text_muted))
+                                            .desired_width(sw - 42.0),
                                     );
                                     let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                                     icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
@@ -254,15 +260,16 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     ui.data_mut(|d| d.insert_temp(qid, q));
                     ui.add_space(8.0);
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     if chan.guild != 0 && !chan.is_forum() {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
-                        if icon_button(ui, Icon::People, 28.0, tip).clicked() {
+                        if icon_button(ui, Icon::People, 32.0, tip).clicked() {
                             app.ui.hide_members = !app.ui.hide_members;
                             app.search = None;
                         }
                     }
                     if !chan.is_forum() {
-                        let pins = icon_button(ui, Icon::Pin, 28.0, "Pinned Messages");
+                        let pins = icon_button(ui, Icon::Pin, 32.0, "Pinned Messages");
                         app.rects.insert("pins_button".into(), pins.rect);
                         if pins.clicked() {
                             match app.pins {
@@ -271,8 +278,11 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             }
                         }
                     }
+                    if chan.guild != 0 {
+                        bell(app, ui, chan);
+                    }
                     if chan.guild != 0 && matches!(chan.kind, 0 | 5) {
-                        let t = icon_button(ui, Icon::Thread, 28.0, "Threads");
+                        let t = icon_button(ui, Icon::Thread, 32.0, "Threads");
                         super::popups::threads_menu(app, &t, chan.id);
                     }
                     if chan.guild == 0 {
@@ -281,6 +291,33 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 });
             });
         });
+}
+
+/// The header's notification bell: Discord's menu to mute the channel or pick its level.
+fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
+    let muted = app.store.is_muted(chan);
+    let b = icon_button(ui, if muted { Icon::BellOff } else { Icon::Bell }, 32.0, "Notification Settings");
+    let level = app.store.levels.get(&chan.id).copied();
+    let mut pick: Option<Option<u8>> = None;
+    let mut mute = None;
+    egui::Popup::menu(&b).show(|ui| {
+        ui.set_min_width(220.0);
+        if ui.button(if muted { "Unmute Channel" } else { "Mute Channel" }).clicked() {
+            mute = Some(!muted);
+        }
+        ui.separator();
+        for (label, v) in [("Use Category Default", None), ("All Messages", Some(0)), ("Only @mentions", Some(1)), ("Nothing", Some(2))] {
+            if ui.radio(level == v, label).clicked() {
+                pick = Some(v);
+            }
+        }
+    });
+    if let Some(m) = mute {
+        app.set_muted(chan.id, false, m);
+    }
+    if let Some(v) = pick {
+        app.set_level(chan.id, v);
+    }
 }
 
 fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
@@ -318,6 +355,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         flash: app.flash.filter(|(_, t)| t.elapsed().as_secs_f32() < 2.0),
         rects: Vec::new(),
         s: &app.settings,
+        quick: &app.ui.quick,
         moderator: app.store.perms(chan) & crate::state::MANAGE_MESSAGES != 0,
     };
     if d.flash.is_some() {
@@ -659,7 +697,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             let revealed = d.revealed.contains(&m.id)
                 || d.s.spoilers == crate::cache::Spoilers::Always
                 || (d.s.spoilers == crate::cache::Spoilers::Moderated && d.moderator);
-            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color, revealed, edited: m.edited };
+            // with no text the marker goes under the embeds and buttons instead
+            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color, revealed, edited: m.edited && !m.content.trim().is_empty() };
             let mut blocks = markdown::parse(&m.content, &cx);
             if compact {
                 compact_prefix(d, m, &mut blocks, &name, color, font);
@@ -728,6 +767,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if !m.components.is_empty() {
             cui.add_space(4.0);
             components(&mut cui, d, m);
+        }
+        if m.edited && m.content.trim().is_empty() {
+            cui.add_space(2.0);
+            cui.label(RichText::new("(edited)").font(reg(10.0)).color(pal().text_muted));
         }
         if !m.reactions.is_empty() && d.s.reactions {
             cui.add_space(4.0);
@@ -927,12 +970,13 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
         }
         x = ir.right();
     }
-    if d.store.user(m.author).is_some_and(|u| u.bot) {
-        let g = ui.painter().layout_no_wrap("APP".into(), semi(10.0), Color32::WHITE);
-        let r = Rect::from_min_size(pos2(x, base - 12.5), vec2(g.size().x + 8.0, 15.0));
-        ui.painter().rect_filled(r, CornerRadius::same(3), BLURPLE);
-        ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
-        x = r.right() + 4.0;
+    if let Some(u) = d.store.user(m.author) {
+        let cy = row.center().y;
+        if u.bot {
+            x = super::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
+        } else if let Some(r) = super::tag_chip(ui.painter(), u, pos2(x, cy), 1.0) {
+            x = r.right() + 4.0;
+        }
     }
     let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
     let ty = base - text::baseline(&t);
@@ -1023,7 +1067,12 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     p.line_segment([pos2(x + 6.0, y), pos2(r.left() - 4.0, y)], spine);
 
     let Some(rm) = d.store.find_msg(d.ch, rid) else {
-        p.text(pos2(r.left(), y), Align2::LEFT_CENTER, "Original message was deleted", reg(14.0), pal().text_muted);
+        // discord: a small reply arrow, then the notice in italics
+        icons::draw(p, Icon::Reply, Rect::from_center_size(pos2(r.left() + 6.0, y), vec2(12.0, 12.0)), pal().text_muted);
+        let mut job = egui::text::LayoutJob::default();
+        job.append("Original message was deleted", 0.0, egui::TextFormat { font_id: reg(14.0), color: pal().text_muted, italics: true, ..Default::default() });
+        let g = ui.painter().layout_job(job);
+        p.galley(pos2(r.left() + 16.0, y - g.size().y / 2.0), g, pal().text_muted);
         return;
     };
     let mut cx = r.left();
@@ -1461,8 +1510,14 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
 
 fn action_bar(d: &mut D, m: &Message, row: Rect) {
     let own = m.author == d.store.me;
-    let n = if own { 4.0 } else { 2.0 };
-    let size = vec2(n * 32.0 + 2.0, 34.0);
+    // discord's bar: three one-click reactions, a rule, then react, edit (own), reply, forward, more
+    let quick: Vec<ReactEmoji> = if d.quick.is_empty() {
+        ["✅", "❤️", "🔥"].iter().map(|n| ReactEmoji { id: 0, name: n.to_string(), animated: false }).collect()
+    } else {
+        d.quick.to_vec()
+    };
+    let n = quick.len() as f32 + if own { 5.0 } else { 4.0 };
+    let size = vec2(n * 32.0 + 9.0 + 2.0, 34.0);
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
     let rect = Rect::from_min_size(pos, size);
     d.bar = Some((m.id, rect));
@@ -1473,27 +1528,49 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
             Frame::new()
                 .fill(pal().bg_secondary)
                 .stroke(Stroke::new(1.0, pal().border_subtle))
-                .corner_radius(4)
+                .corner_radius(8)
                 .inner_margin(1)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
+                        for e in quick {
+                            let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+                            if resp.hovered() {
+                                ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
+                            }
+                            let er = Rect::from_center_size(r.center(), vec2(20.0, 20.0));
+                            Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&e), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
+                            if resp.on_hover_text("Click to react").clicked() {
+                                d.acts.push(Act::React(m.id, e.clone(), true));
+                            }
+                        }
+                        let (rule, _) = ui.allocate_exact_size(vec2(9.0, 32.0), Sense::hover());
+                        ui.painter().vline(rule.center().x, rule.y_range().shrink(8.0), Stroke::new(1.0, pal().border_subtle));
                         let r = icon_button(ui, Icon::AddReaction, 32.0, "Add Reaction");
                         if r.clicked() {
                             d.acts.push(Act::Picker(m.id, r.rect.left_bottom()));
                         }
-                        if own {
-                            if icon_button(ui, Icon::Pencil, 32.0, "Edit").clicked() {
-                                d.acts.push(Act::Edit(m.id));
-                            }
+                        if own && icon_button(ui, Icon::Pencil, 32.0, "Edit").clicked() {
+                            d.acts.push(Act::Edit(m.id));
                         }
                         let rr = icon_button(ui, Icon::Reply, 32.0, "Reply");
                         d.rects.push(("bar_reply".into(), rr.rect));
                         if rr.clicked() {
                             d.acts.push(Act::Reply(m.id));
                         }
-                        if own && icon_button(ui, Icon::Trash, 32.0, "Delete").clicked() {
-                            d.acts.push(Act::Delete(m.id));
+                        // holding shift on your own message offers delete without the confirm, like discord
+                        if own && ui.input(|i| i.modifiers.shift) {
+                            let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+                            icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), RED);
+                            if resp.on_hover_text("Delete").clicked() {
+                                d.acts.push(Act::Delete(m.id));
+                            }
+                        }
+                        // forwarding goes through the message menu for now
+                        let f = icon_button(ui, Icon::Forward, 32.0, "Forward");
+                        let more = icon_button(ui, Icon::More, 32.0, "More");
+                        if f.clicked() || more.clicked() {
+                            d.acts.push(Act::Menu(m.id, more.rect.left_bottom()));
                         }
                     });
                 });
@@ -1656,6 +1733,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         flash: None,
         rects: Vec::new(),
         s: &settings,
+        quick: &[],
         moderator: false,
     };
     let r = Frame::new().fill(pal().bg_primary).corner_radius(4).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {

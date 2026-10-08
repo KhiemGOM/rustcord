@@ -312,7 +312,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
         }
         for c in g.channels.iter().filter_map(|c| store.channels.get(c)) {
             if (c.is_text() || c.is_forum()) && c.name.to_lowercase().contains(&ql) && store.can_view(c) && !c.is_thread() {
-                hits.push((Hit::Channel(c.id), format!("# {}", c.name), g.name.to_uppercase()));
+                hits.push((Hit::Channel(c.id), format!("# {}", c.name), g.name.split_whitespace().collect::<Vec<_>>().join(" ")));
             }
         }
     }
@@ -335,38 +335,64 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     sel = sel.min(hits.len().saturating_sub(1));
     let mut pick = ctx.input(|i| i.key_pressed(Key::Enter)).then_some(sel);
 
+    // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule
     let modal = egui::Modal::new("switcher".into())
-        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(20))
+        .frame(
+            Frame::new()
+                .fill(pal().bg_secondary)
+                .corner_radius(8)
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)))
+                .inner_margin(Margin { left: 20, right: 20, top: 12, bottom: 12 }),
+        )
         .show(ctx, |ui| {
-            ui.set_width(530.0);
-            input_frame().corner_radius(4).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
+            ui.set_width(638.0);
+            input_frame().corner_radius(8).inner_margin(Margin::symmetric(12, 22)).show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::singleline(q)
                         .frame(Frame::NONE)
-                        .font(reg(20.0))
+                        .font(reg(22.0))
                         .hint_text(RichText::new("Where would you like to go?").color(pal().text_muted))
                         .desired_width(ui.available_width()),
                 );
                 r.request_focus();
             });
-            ui.add_space(12.0);
-            if hits.is_empty() {
-                ui.label(RichText::new("Can't find what you're looking for?").color(pal().text_muted));
-            }
-            for (i, (_, label, sub)) in hits.iter().enumerate() {
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
-                if i == sel || resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+            ui.add_space(16.0);
+            egui::ScrollArea::vertical().max_height(236.0).min_scrolled_height(236.0).auto_shrink([false, false]).show(ui, |ui| {
+                if hits.is_empty() && !q.is_empty() {
+                    ui.add_space(90.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("Can't find what you're looking for?").font(medium(16.0)).color(pal().text_muted));
+                    });
                 }
-                text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), pal().header_primary, r.width() - 160.0);
-                ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, sub, semi(12.0), pal().text_muted);
-                if resp.clicked() {
-                    pick = Some(i);
+                for (i, (_, label, sub)) in hits.iter().enumerate() {
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+                    if i == sel || resp.hovered() {
+                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+                    }
+                    text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), pal().header_primary, r.width() - 200.0);
+                    ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, sub, medium(12.0), pal().header_secondary.gamma_multiply(0.6));
+                    if resp.clicked() {
+                        pick = Some(i);
+                    }
                 }
-            }
-            ui.add_space(12.0);
-            ui.label(RichText::new("PROTIP: Ctrl+K opens this from anywhere").font(semi(12.0)).color(GREEN));
+            });
+            ui.add_space(10.0);
+            let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().hline(rule.x_range(), rule.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
+                ui.label(RichText::new("Start searches with @ # ! * $ to narrow results.").font(reg(14.0)).color(pal().header_secondary));
+            });
         });
+    // the title and arrows sit on the backdrop around the box
+    let b = modal.response.rect;
+    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("switcher_deco")));
+    p.text(pos2(b.center().x, b.top() - 41.0 + 12.0), Align2::CENTER_CENTER, "Search for servers, channels or DMs", medium(18.0), egui::Color32::WHITE);
+    let iy = b.top() + 12.0 + 35.0;
+    super::icons::draw(&p, super::icons::Icon::ArrowRight, Rect::from_center_size(pos2(b.left() - 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
+    super::icons::draw(&p, super::icons::Icon::ArrowLeft, Rect::from_center_size(pos2(b.right() + 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
     ctx.data_mut(|d| d.insert_temp(sel_id, sel));
     if let Some(i) = pick.filter(|i| *i < hits.len()) {
         match hits[i].0 {
@@ -492,11 +518,15 @@ fn pins(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
-            Frame::new().fill(pal().bg_secondary).corner_radius(8).show(ui, |ui| {
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20))).show(ui, |ui| {
                 ui.set_width(420.0);
-                Frame::new().fill(pal().bg_tertiary).corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }).inner_margin(16).show(ui, |ui| {
+                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 12 }).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Pinned Messages").font(semi(16.0)).color(pal().header_primary));
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                        super::icons::draw(ui.painter(), super::icons::Icon::Pin, r, pal().header_secondary);
+                        ui.label(RichText::new("Pinned Messages").font(semi(20.0)).color(pal().header_primary));
+                    });
                 });
                 egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
                     Frame::new().inner_margin(12).show(ui, |ui| {
@@ -508,9 +538,21 @@ fn pins(app: &mut App, ctx: &egui::Context) {
                             Some(l) if l.is_empty() => {
                                 ui.add_space(24.0);
                                 ui.vertical_centered(|ui| {
-                                    ui.label(RichText::new("This channel doesn't have any pinned messages... yet.").color(pal().header_secondary));
+                                    ui.label(RichText::new("This channel doesn't have any
+pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
                                 });
                                 ui.add_space(24.0);
+                                let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                                ui.painter().hline(sep.x_range(), sep.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+                                ui.add_space(12.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
+                                    ui.label(
+                                        RichText::new("Users with the 'Pin Messages' permission can pin a message from its context menu.")
+                                            .font(reg(14.0))
+                                            .color(pal().header_secondary),
+                                    );
+                                });
                             }
                             Some(l) => {
                                 for m in l {
