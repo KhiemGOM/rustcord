@@ -156,23 +156,99 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     if r.clicked() {
         app.select_guild(Some(gid));
     }
-    let muted = app.store.muted.contains(&gid);
-    r.context_menu(|ui| {
-        ui.set_min_width(180.0);
-        if ui.button("Mark As Read").clicked() {
+    guild_menu(app, &r, gid, unread);
+}
+
+enum Act {
+    Read,
+    Invite(Id),
+    Mute(bool, Option<i64>),
+    Notifs,
+    HideMuted,
+    Web,
+    Leave,
+    CopyId,
+}
+
+/// Discord's right-click menu on a server icon.
+fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
+    use super::{Trail, menu_item, menu_row, menu_sep};
+    let store = &app.store;
+    let muted = store.muted.contains(&gid);
+    let hide = store.hide_muted.contains(&gid);
+    let owner = store.guilds.get(&gid).is_some_and(|g| g.owner == store.me);
+    // invites need a channel; discord picks the first one we may invite to
+    let invite_to = super::side::first_channel(store, gid)
+        .and_then(|c| store.channels.get(&c))
+        .filter(|c| store.perms(c) & crate::state::CREATE_INVITE != 0)
+        .map(|c| c.id);
+    let dev = app.settings.dev;
+    let mut act = None;
+    r.context_menu(|ui| super::menu_body(ui, |ui| {
+        if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
+            act = Some(Act::Read);
+        }
+        if let Some(c) = invite_to {
+            menu_sep(ui);
+            if menu_item(ui, None, "Invite to Server", false) {
+                act = Some(Act::Invite(c));
+            }
+        }
+        menu_sep(ui);
+        if muted {
+            if menu_item(ui, None, "Unmute Server", false) {
+                act = Some(Act::Mute(false, None));
+            }
+        } else {
+            let m = menu_row(ui, None, "Mute Server", None, false, Trail::Caret);
+            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+                if let Some(secs) = super::mute_menu(ui) {
+                    act = Some(Act::Mute(true, secs));
+                }
+            });
+        }
+        if menu_item(ui, None, "Notification Settings", false) {
+            act = Some(Act::Notifs);
+        }
+        if menu_row(ui, None, "Hide Muted Channels", None, false, Trail::Check(hide)).clicked() {
+            act = Some(Act::HideMuted);
+        }
+        menu_sep(ui);
+        for label in ["Privacy Settings", "Edit Per-server Profile"] {
+            if menu_item(ui, None, label, false) {
+                act = Some(Act::Web);
+            }
+        }
+        if !owner {
+            menu_sep(ui);
+            if menu_item(ui, None, "Leave Server", true) {
+                act = Some(Act::Leave);
+            }
+        }
+        if dev {
+            menu_sep(ui);
+            if menu_item(ui, Some(Icon::Id), "Copy Server ID", false) {
+                act = Some(Act::CopyId);
+            }
+        }
+    }));
+    match act {
+        Some(Act::Read) => {
             let chans = app.store.guilds.get(&gid).map(|g| g.channels.clone()).unwrap_or_default();
             app.mark_read(&chans);
-            ui.close();
         }
-        if ui.button(if muted { "Unmute Server" } else { "Mute Server" }).clicked() {
-            app.set_muted(gid, true, !muted);
-            ui.close();
+        Some(Act::Invite(c)) => {
+            app.made_invite = Some((c, None));
+            app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
         }
-        if app.settings.dev && ui.button("Copy Server ID").clicked() {
-            ui.ctx().copy_text(gid.to_string());
-            ui.close();
-        }
-    });
+        Some(Act::Mute(m, secs)) => app.mute_for(gid, true, m, secs),
+        Some(Act::Notifs) => app.guild_notifs = Some(gid),
+        Some(Act::HideMuted) => super::side::toggle_hide_muted(app, gid),
+        Some(Act::Web) => r.ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}"))),
+        Some(Act::Leave) => super::side::leave(app, gid),
+        Some(Act::CopyId) => r.ctx.copy_text(gid.to_string()),
+        None => {}
+    }
 }
 
 /// Some(true) when we're connected to voice in this server, Some(false) when someone else is.
@@ -229,8 +305,18 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let name = f.name.clone().unwrap_or_else(|| {
         f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).map(|g| g.name.clone()).collect::<Vec<_>>().join(", ")
     });
-    if tip(r, &name).clicked() && !app.ui.open_folders.remove(&f.id) {
+    let r = tip(r, &name);
+    if r.clicked() && !app.ui.open_folders.remove(&f.id) {
         app.ui.open_folders.insert(f.id);
+    }
+    let mut read = false;
+    r.context_menu(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        read = ui.add_enabled_ui(unread, |ui| super::menu_item(ui, None, "Mark Folder As Read", false)).inner;
+    });
+    if read {
+        let chans: Vec<Id> = f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).flat_map(|g| g.channels.iter().copied()).collect();
+        app.mark_read(&chans);
     }
     if open {
         for g in &f.guilds {

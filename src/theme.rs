@@ -43,6 +43,7 @@ pub struct Palette {
     pub control_hover: Color32,
     /// --spine-default: reply spine
     pub spine: Color32,
+    pub critical: Color32,
     /// --background-code
     pub bg_code: Color32,
     /// --spoiler-hidden-background and --spoiler-revealed-background
@@ -80,6 +81,10 @@ const fn rgb(c: u32) -> Color32 {
 
 // the grey every theme builds its translucent overlays from
 const OVERLAY: u32 = 0x97979f;
+// menus hover with the same wash in every theme
+pub const MENU_HOVER: Color32 = tint(OVERLAY, 122);
+pub const CRITICAL_BG: Color32 = tint(0xd22d39, 78);
+pub const PROFILE_CARD: Color32 = tint(OVERLAY, 161);
 
 /// `fg` at `permille`/1000 opacity laid over `bg`, as one opaque colour.
 const fn mix(fg: u32, permille: u32, bg: u32) -> Color32 {
@@ -120,6 +125,7 @@ const ASH: Palette = Palette {
     control: tint(OVERLAY, 122),
     control_hover: tint(OVERLAY, 161),
     spine: rgb(0x595a63),
+    critical: rgb(0xffa09b),
     bg_code: tint(0x5865f2, 78),
     spoiler: rgb(0x7d7e87),
     spoiler_revealed: rgb(0x232428),
@@ -153,6 +159,7 @@ const DARK: Palette = Palette {
     input_bg: tint(0x000000, 122),
     frame_bg: rgb(0x070709),
     spine: rgb(0x474851),
+    critical: rgb(0xf87e7a),
     spoiler: rgb(0x666770),
     spoiler_revealed: tint(0x6c6f7c, 160),
     text_normal: rgb(0xefeff1),
@@ -188,6 +195,7 @@ const ONYX: Palette = Palette {
     input_bg: tint(0x000000, 122),
     control_hover: tint(OVERLAY, 200),
     spine: rgb(0x383940),
+    critical: rgb(0xeb5f5e),
     spoiler: rgb(0x595a63),
     spoiler_revealed: tint(0x6c6f7c, 160),
     text_normal: rgb(0xd4d5d8),
@@ -221,6 +229,7 @@ const LIGHT: Palette = Palette {
     frame_border: tint(OVERLAY, 278),
     input_bg: tint(0x000000, 20),
     spine: rgb(0xc5c6ca),
+    critical: rgb(0xb92733),
     bg_code: tint(0x5865f2, 39),
     spoiler: rgb(0x8f9097),
     spoiler_revealed: rgb(0xebedef),
@@ -495,10 +504,11 @@ pub fn style(ctx: &egui::Context) {
     v.override_text_color = None;
     v.selection.bg_fill = if p.dark { Color32::from_rgb(0x3d, 0x5a, 0xbf) } else { Color32::from_rgb(0xb3, 0xc5, 0xf5) };
     v.selection.stroke = Stroke::new(1.0, pal().header_primary);
-    v.window_stroke = Stroke::NONE;
+    // discord's menus and popouts: a hairline, 8 rounded, the deep drop shadow
+    v.window_stroke = Stroke::new(1.0, p.border_subtle);
     v.window_corner_radius = 8.into();
-    v.menu_corner_radius = 4.into();
-    v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(if p.dark { 90 } else { 40 }) };
+    v.menu_corner_radius = 8.into();
+    v.popup_shadow = egui::Shadow { offset: [0, 12], blur: 24, spread: 0, color: Color32::from_black_alpha(if p.dark { 61 } else { 30 }) };
     v.window_shadow = v.popup_shadow;
     v.text_cursor.stroke = Stroke::new(2.0, pal().text_normal);
     for w in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
@@ -519,6 +529,7 @@ pub fn style(ctx: &egui::Context) {
     v.widgets.active.fg_stroke = Stroke::new(1.0, pal().interactive_hover);
 
     style.spacing.item_spacing = egui::vec2(8.0, 0.0);
+    style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.scroll = egui::style::ScrollStyle {
         bar_width: 8.0,

@@ -6,6 +6,7 @@ use crate::theme::*;
 
 pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut clicked = None;
+    let mut menu = None;
     let store = &app.store;
     let mut rects = Vec::new();
     let Some(g) = store.guilds.get(&gid) else { return };
@@ -60,6 +61,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     rects.push((*uid, row));
                     if resp.clicked() {
                         clicked = Some((*uid, row.left_top() - vec2(310.0, 0.0)));
+                    }
+                    if resp.secondary_clicked() {
+                        menu = Some((*uid, resp.interact_pointer_pos().unwrap_or(row.center())));
                     }
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -134,5 +138,8 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some((u, at)) = clicked {
         app.open_profile(u, gid, at);
+    }
+    if let Some((u, at)) = menu {
+        app.user_menu = Some((u, gid, None, at));
     }
 }

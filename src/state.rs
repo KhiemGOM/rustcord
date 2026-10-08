@@ -50,6 +50,10 @@ pub const KICK_MEMBERS: u64 = 1 << 1;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
 pub const CONNECT: u64 = 1 << 20;
+pub const MANAGE_CHANNELS: u64 = 1 << 4;
+pub const MANAGE_GUILD: u64 = 1 << 5;
+pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
+pub const MANAGE_EVENTS: u64 = 1 << 33;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub enum Status {
@@ -671,6 +675,9 @@ pub struct Store {
     // message_notifications the user picked per server or channel (3 = inherit is left out)
     #[serde(default)]
     pub levels: HashMap<Id, u8>,
+    // servers where muted channels are left out of the list
+    #[serde(default)]
+    pub hide_muted: HashSet<Id>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -829,6 +836,16 @@ impl Store {
         p & bit == 0 || p & VIEW_CHANNEL == 0
     }
 
+    /// The notification level a channel falls back to: its category's, then the server's own pick,
+    /// then the server default.
+    pub fn inherited_level(&self, c: &Channel) -> u8 {
+        [c.parent, c.guild]
+            .iter()
+            .filter(|id| **id != 0)
+            .find_map(|id| self.levels.get(id).copied())
+            .unwrap_or_else(|| self.guilds.get(&c.guild).map(|g| g.default_notif).unwrap_or(0))
+    }
+
     /// Muted itself, or through its category or parent channel.
     pub fn is_muted(&self, c: &Channel) -> bool {
         let mut id = c.id;
@@ -870,6 +887,11 @@ impl Store {
         };
         if on(s) {
             self.muted.insert(gid);
+        }
+        if s["hide_muted_channels"].as_bool() == Some(true) {
+            self.hide_muted.insert(gid);
+        } else {
+            self.hide_muted.remove(&gid);
         }
         if let Some(all) = unreads(s, 2048, 4096) {
             self.unreads.insert(gid, all);

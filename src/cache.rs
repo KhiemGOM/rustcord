@@ -22,6 +22,8 @@ pub struct UiState {
     pub members_w: f32,
     pub search_w: f32,
     pub dm_call_h: f32,
+    // past searches, newest first, for the search box's history
+    pub searches: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

@@ -600,6 +600,12 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
             (204, "application/json", Vec::new())
         }
+        ("GET", ["api", "v9", "gifs", "trending"]) => {
+            let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+            let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/attachments/gif{i}.png");
+            let cats: Vec<Value> = ["hello", "lol", "love", "happy birthday"].iter().enumerate().map(|(i, n)| json!({ "name": n, "src": src(i as u32) })).collect();
+            ok(json!({ "categories": cats, "gifs": [{ "src": src(5), "width": 220, "height": 160 }] }))
+        }
         ("GET", ["api", "v9", "gifs", _]) => {
             let gifs: Vec<Value> = (0..8)
                 .map(|i| json!({ "id": i.to_string(), "title": format!("mock {i}"), "url": format!("https://tenor.com/view/mock-{i}"),

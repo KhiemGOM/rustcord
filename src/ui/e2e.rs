@@ -192,6 +192,13 @@ impl Run {
         self.queue.push_back(vec![b(false)]);
     }
 
+    fn rclick(&mut self, at: Pos2) {
+        let b = |pressed| Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed, modifiers: Modifiers::NONE };
+        self.queue.push_back(vec![Event::PointerMoved(at)]);
+        self.queue.push_back(vec![b(true)]);
+        self.queue.push_back(vec![b(false)]);
+    }
+
     fn key(&mut self, key: Key) {
         let k = |pressed| Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Modifiers::NONE };
         self.queue.push_back(vec![k(true)]);
@@ -648,6 +655,10 @@ impl Run {
             45 => {
                 if app.gifs.as_ref().is_some_and(|g| g.results.as_ref().is_some_and(|l| !l.is_empty())) {
                     self.next(1000);
+                } else if let Some(r) = app.rects.remove("gifcat:trending") {
+                    // discord opens on its search terms; trending is the first tile
+                    self.click(r.center());
+                    self.wait = Instant::now() + Duration::from_millis(800);
                 }
             }
             46 => {
@@ -1609,7 +1620,49 @@ impl Run {
             }
             303 => {
                 self.shot(ctx, "01_server_channel.png");
-                self.next(300);
+                self.loaded = 0;
+                self.step = 340;
+                self.step_at = Instant::now();
+                self.wait = Instant::now() + Duration::from_millis(300);
+            }
+            // discord's menus and popouts, each opened, shot and closed again
+            340..=349 => {
+                const SHOTS: [&str; 10] = [
+                    "11_menu_message", "12_menu_channel", "13_menu_guild", "14_server_dropdown", "15_menu_user",
+                    "16_account", "17_bell", "18_threads", "19_inbox", "20_search_options",
+                ];
+                let i = (self.step - 340) as usize;
+                if self.loaded == 0 {
+                    let cur = app.cur().unwrap_or(0);
+                    let me = format!(":{}", app.store.me);
+                    let find = |p: &str| app.rects.iter().find(|(k, _)| k.starts_with(p) && !k.ends_with(&me)).map(|(_, r)| *r);
+                    let (r, right) = match i {
+                        0 => (find("stamp:"), true),
+                        1 => (app.rects.get(&format!("chan:{cur}")).copied(), true),
+                        2 => (app.rects.get(&format!("guild:{}", self.target.0)).copied(), true),
+                        3 => (app.rects.get("guildmenu").copied(), false),
+                        4 => (find("member:"), true),
+                        5 => (app.rects.get("userpanel").map(|r| egui::Rect::from_center_size(egui::pos2(r.left() + 40.0, r.center().y), egui::vec2(4.0, 4.0))), false),
+                        6 => (app.rects.get("bell").copied(), false),
+                        7 => (app.rects.get("threads_button").copied(), false),
+                        8 => (app.rects.get("title:inbox").copied(), false),
+                        _ => (app.rects.get("search").copied(), false),
+                    };
+                    match r {
+                        Some(r) if right => self.rclick(r.center()),
+                        Some(r) => self.click(r.center()),
+                        None => {}
+                    }
+                    self.loaded = 1;
+                    self.wait = Instant::now() + Duration::from_millis(1500);
+                } else {
+                    self.shot(ctx, &format!("{}.png", SHOTS[i]));
+                    self.key(Key::Escape);
+                    self.loaded = 0;
+                    self.step = if i == 9 { 304 } else { self.step + 1 };
+                    self.step_at = Instant::now();
+                    self.wait = Instant::now() + Duration::from_millis(500);
+                }
             }
             304 => {
                 let me = app.store.me;
@@ -2066,6 +2119,41 @@ impl Run {
             384 => {
                 self.mark("emoji");
                 self.next(800);
+            }
+            // the right-click menus, the server dropdown and the search filters each open
+            385 | 387 | 389 | 391 => {
+                app.rects.remove("search_options");
+                let member = app.rects.keys().find(|k| k.starts_with("member:") && **k != format!("member:{}", app.store.me)).cloned();
+                let (key, right) = match self.step {
+                    385 => (format!("chan:{general}"), true),
+                    387 => ("guildmenu".to_string(), false),
+                    389 => ("search".to_string(), false),
+                    _ => (member.unwrap_or_default(), true),
+                };
+                let Some(r) = app.rects.get(&key).copied() else { return self.fail(format!("nothing to open a menu on: {key}")) };
+                if right {
+                    self.rclick(r.center());
+                } else {
+                    self.click(r.center());
+                }
+                self.next(700);
+            }
+            386 | 388 | 390 | 392 => {
+                let (open, name) = match self.step {
+                    386 => (egui::Popup::is_any_open(ctx), "menu_channel"),
+                    388 => (egui::Popup::is_any_open(ctx), "server_dropdown"),
+                    390 => (app.rects.contains_key("search_options"), "search_options"),
+                    _ => (app.user_menu.is_some(), "menu_user"),
+                };
+                if !open {
+                    return self.fail(format!("{name} didn't open"));
+                }
+                self.shot(ctx, &format!("{name}.png"));
+                self.key(Key::Escape);
+                if self.step == 392 {
+                    self.mark("menus");
+                }
+                self.next(500);
             }
             _ => self.step = 99,
         }

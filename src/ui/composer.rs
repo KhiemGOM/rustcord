@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use super::icons::{self, Icon};
-use super::{App, Pick, avatar, channel_title, icon_button, text};
+use super::{App, avatar, channel_title, icon_button, text};
 use crate::net::{Cmd, Tag};
 use crate::state::{Channel, Id, make_nonce, sid};
 use crate::theme::*;
@@ -275,12 +275,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     };
     let top_r = if app.reply.is_some() { 0 } else { 8 };
     let mut attach = false;
-    let mut emoji_at = None;
-    let mut sticker_at: Option<egui::Pos2> = None;
+    let mut tab = None;
     let mut apps_click = false;
     let mut gift_click = false;
     let mut send_click = false;
-    let mut gif_at = None;
     let mut gif_rect = None;
     let mut remove = None;
     let mut new_cursor = None;
@@ -373,17 +371,19 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                         apps_click = slot(ui, Icon::Apps, "Apps").clicked();
                         let er = slot(ui, Icon::Smile, "Select emoji");
+                        app.rects.insert("emoji_button".into(), er.rect);
                         if er.clicked() {
-                            emoji_at = Some(er.rect.left_top());
+                            tab = Some(super::picker::Tab::Emoji);
                         }
                         let sr = slot(ui, Icon::Sticker, "Open sticker picker");
+                        app.rects.insert("sticker_button".into(), sr.rect);
                         if sr.clicked() {
-                            sticker_at = Some(sr.rect.right_top());
+                            tab = Some(super::picker::Tab::Stickers);
                         }
                         let gr = slot(ui, Icon::Gif, "Open GIF picker");
                         gif_rect = Some(gr.rect);
                         if gr.clicked() {
-                            gif_at = Some(gr.rect.right_top());
+                            tab = Some(super::picker::Tab::Gifs);
                         }
                         gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
                     });
@@ -418,12 +418,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if attach && let Some(files) = rfd::FileDialog::new().pick_files() {
         app.files.extend(files.into_iter().map(Upload::new));
     }
-    if let Some(at) = emoji_at {
-        app.picker = Some((Pick::Composer, at - vec2(380.0, 440.0)));
-    }
-    if let Some(at) = sticker_at {
-        app.stickers = Some(at - vec2(418.0, 440.0));
-    }
+
     if gift_click {
         ui.ctx().open_url(egui::OpenUrl::new_tab("https://discord.com/nitro"));
     }
@@ -438,11 +433,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if let Some(r) = gif_rect {
         app.rects.insert("gif_button".into(), r);
     }
-    if let Some(at) = gif_at {
-        match app.gifs {
-            Some(_) => app.gifs = None,
-            None => app.open_gifs(at + vec2(36.0, -8.0)),
-        }
+    if let Some(t) = tab {
+        super::picker::toggle(app, t);
     }
     let changed = app.drafts.get(&ch).is_some_and(|d| d.len() != before && !d.is_empty() && !d.starts_with('/'));
     if changed && app.last_typing.is_none_or(|(c, t)| c != ch || t.elapsed().as_secs() >= 8) {
