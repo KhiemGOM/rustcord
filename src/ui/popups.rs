@@ -201,7 +201,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     pins(app, ctx);
 }
 
-fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {
+pub(super) fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {
     ctx.input(|i| i.key_pressed(Key::Escape)) || (ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer())
 }
 
@@ -592,7 +592,9 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
 /// Full-window image viewer, like clicking an image in the official client.
 pub fn viewer(app: &mut App, ctx: &egui::Context) {
     let Some((img, open, w, h)) = app.viewer.clone() else { return };
-    let screen = ctx.content_rect();
+    // below the title bar, so the window buttons stay reachable
+    let mut screen = ctx.content_rect();
+    screen.min.y += super::titlebar::HEIGHT;
     let mut close = ctx.input(|i| i.key_pressed(Key::Escape));
     let mut browse = false;
     egui::Area::new(egui::Id::new("viewer"))
