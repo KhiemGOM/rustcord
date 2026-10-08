@@ -69,7 +69,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     if !customs.is_empty() {
                         section(ui, "SERVER EMOJI");
                         grid(ui, customs.len(), |ui, i, r| {
-                            Image::from_uri(customs[i].url()).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
+                            Image::from_uri(crate::gif::uri(ui.ctx(), &customs[i].url(), ui.is_rect_visible(r))).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                         }, |i| {
                             chosen = Some(Chosen::Custom(customs[i].clone()));
                         }, |i| format!(":{}:", customs[i].name));

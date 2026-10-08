@@ -7,6 +7,7 @@ mod gif;
 mod hotkeys;
 mod imgcache;
 mod markdown;
+mod mp4;
 mod net;
 mod proto;
 mod sound;

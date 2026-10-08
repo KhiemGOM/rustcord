@@ -102,7 +102,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
     let radius = radius.into();
     match g.icon_url() {
         Some(url) => {
-            Image::from_uri(url).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
+            crate::gif::paint_still(ui, &url, rect, radius, hot);
         }
         None => {
             ui.painter().rect_filled(rect, radius, if hot { BLURPLE } else { pal().bg_mod_selected });
