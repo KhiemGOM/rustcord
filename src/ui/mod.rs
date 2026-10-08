@@ -82,6 +82,11 @@ pub struct App {
     pub scroll_tries: u8,
     pub flash: Option<(Id, Instant)>,
     pub viewer: Option<(String, String, u32, u32)>,
+    pub remote: HashMap<&'static str, Option<Result<serde_json::Value, String>>>,
+    hotkey_rx: Option<Receiver<(String, bool)>>,
+    obs_seen: bool,
+    capture_hidden: bool,
+    pub sform: settings::Forms,
     // a channel the user just marked unread shouldn't get re-acked on the next frame
     pub hold_ack: Option<Id>,
     pub reply_ping: bool,
@@ -170,6 +175,11 @@ impl App {
             scroll_tries: 0,
             flash: None,
             viewer: None,
+            remote: HashMap::new(),
+            hotkey_rx: None,
+            obs_seen: false,
+            capture_hidden: false,
+            sform: Default::default(),
             hold_ack: None,
             reply_ping: true,
             gifs: None,
@@ -177,9 +187,15 @@ impl App {
             frames: 0,
             save_at: None,
         };
-        ctx.set_zoom_factor(app.settings.zoom);
-        crate::markdown::CLOCK24.store(app.settings.clock24, std::sync::atomic::Ordering::Relaxed);
-        app.voice.configure(&app.settings);
+        app.apply_settings(&ctx);
+        let (htx, hrx) = std::sync::mpsc::channel();
+        crate::hotkeys::start(ctx.clone(), htx);
+        app.hotkey_rx = Some(hrx);
+        crate::winsys::watch_streaming(ctx.clone());
+        app.obs_seen = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
+        if app.settings.start_minimized && std::env::args().any(|a| a == "--startup") {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
         if let Some(ch) = app.cur() {
             app.open(ch);
         }
@@ -212,8 +228,7 @@ impl App {
         // member list subscriptions are per parent channel, threads borrow it
         let sub = if c.is_thread() { c.parent } else { ch };
         // search results belong to one server (or one dm), don't carry them elsewhere
-        let was = self.cur().and_then(|c| self.store.channels.get(&c)).map(|c| if c.guild != 0 { c.guild } else { c.id });
-        if was != Some(if guild != 0 { guild } else { ch }) {
+        if self.search.as_ref().is_some_and(|s| s.scope != if guild != 0 { guild } else { ch }) {
             self.search = None;
         }
         if self.cur() != Some(ch) {
@@ -303,7 +318,10 @@ impl App {
 
     pub fn send_message(&mut self, ch: Id) {
         let text = self.drafts.remove(&ch).unwrap_or_default();
-        let text = self.resolve_aliases(ch, text.trim());
+        let mut text = self.resolve_aliases(ch, text.trim());
+        if self.settings.emoticons {
+            text = emoticons(&text);
+        }
         self.aliases.remove(&ch);
         let files: Vec<(PathBuf, String)> = std::mem::take(&mut self.files)
             .into_iter()
@@ -419,6 +437,35 @@ impl App {
         }
     }
 
+    // join/leave chimes for people entering or leaving the call you're in, and the ring
+    fn voice_cues(&self, t: &str, d: &serde_json::Value) {
+        let me = self.store.me;
+        match t {
+            "VOICE_STATE_UPDATE" => {
+                let Some(mine) = self.voice.chan else { return };
+                let uid = crate::state::sid(&d["user_id"]);
+                if uid == me {
+                    return;
+                }
+                let gid = crate::state::sid(&d["guild_id"]);
+                let was = self.store.guilds.get(&gid).and_then(|g| g.voice.get(&uid).copied()).unwrap_or(0);
+                let now = crate::state::sid(&d["channel_id"]);
+                if now == mine && was != mine {
+                    crate::sound::cue("join");
+                } else if was == mine && now != mine {
+                    crate::sound::cue("leave");
+                }
+            }
+            "CALL_CREATE" | "CALL_UPDATE" => {
+                let ringing = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| crate::state::sid(u) == me));
+                if ringing && self.voice.chan.is_none() {
+                    crate::sound::cue("ring");
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
         // ack the message before this one so it shows as the first unread
         let prev = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
@@ -434,15 +481,32 @@ impl App {
     }
 
     pub fn save_settings(&self, ctx: &egui::Context) {
-        ctx.set_zoom_factor(self.settings.zoom);
-        crate::markdown::CLOCK24.store(self.settings.clock24, std::sync::atomic::Ordering::Relaxed);
-        self.voice.configure(&self.settings);
+        self.apply_settings(ctx);
         cache::set_settings(&self.settings);
+    }
+
+    /// Push every setting that lives outside `App` (theme, zoom, sounds, hotkeys...) to where it acts.
+    fn apply_settings(&self, ctx: &egui::Context) {
+        let s = &self.settings;
+        ctx.set_zoom_factor(s.zoom);
+        crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
+        crate::theme::set_reduced_motion(s.reduced_motion);
+        crate::theme::set_view(crate::theme::View {
+            underline_links: s.underline_links,
+            animate_emoji: s.animate_emoji,
+            hide_invites: s.streamer && s.hide_invites,
+        });
+        crate::theme::set_theme(ctx, s.theme);
+        crate::theme::style(ctx);
+        crate::sound::configure(s.sounds && !(s.streamer && s.streamer_no_sounds), &s.muted_sounds);
+        crate::hotkeys::set(&s.keybinds);
+        crate::api::set_locale(&s.locale);
+        self.voice.configure(s);
     }
 
     fn notify(&mut self, d: &serde_json::Value, ctx: &egui::Context) {
         let m = self.store.parse_message(d);
-        if m.author == self.store.me || !self.settings.notify {
+        if m.author == self.store.me || !self.settings.notify || (self.settings.streamer && self.settings.streamer_no_notifications) {
             return;
         }
         let Some(c) = self.store.channels.get(&m.channel) else { return };
@@ -467,6 +531,7 @@ impl App {
         if body.is_empty() && !m.attachments.is_empty() {
             body = "Uploaded a file".into();
         }
+        crate::sound::cue("message");
         if let Some(e) = &mut self.e2e {
             e.mark_once("notified");
         } else {
@@ -476,6 +541,89 @@ impl App {
         }
         if !focused && self.settings.flash {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
+    }
+
+    /// Settings that react to the outside world every frame: system theme,
+    /// ctrl+wheel zoom, global keybinds, OBS starting, capture exclusion.
+    fn os_settings(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        if self.settings.theme == crate::theme::Theme::Sync {
+            crate::theme::set_theme(ctx, crate::theme::Theme::Sync);
+        }
+        let z = ctx.zoom_factor();
+        if (z - self.settings.zoom).abs() > 0.001 {
+            self.settings.zoom = z;
+            cache::set_settings(&self.settings);
+        }
+        let events: Vec<(String, bool)> = self.hotkey_rx.as_ref().map(|rx| rx.try_iter().collect()).unwrap_or_default();
+        for (action, pressed) in events {
+            if !pressed {
+                continue;
+            }
+            match action.as_str() {
+                "mute" => {
+                    let on = !self.voice.mute;
+                    self.voice.set_mute(&self.net, on);
+                }
+                "deafen" => {
+                    let on = !self.voice.deaf;
+                    self.voice.set_deaf(&self.net, on);
+                }
+                "streamer" => {
+                    self.settings.streamer = !self.settings.streamer;
+                    self.save_settings(ctx);
+                }
+                _ => {}
+            }
+        }
+        let obs = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
+        if obs != self.obs_seen {
+            self.obs_seen = obs;
+            if self.settings.streamer_auto {
+                self.settings.streamer = obs;
+                self.save_settings(ctx);
+            }
+        }
+        let hide = self.settings.streamer && self.settings.hide_window;
+        if hide != self.capture_hidden {
+            self.capture_hidden = hide;
+            crate::winsys::exclude_from_capture(frame, hide);
+        }
+    }
+
+    // the purple strip the official client shows across the top in streamer mode
+    fn streamer_banner(&mut self, ui: &mut Ui) {
+        if !self.settings.streamer {
+            return;
+        }
+        let mut off = false;
+        egui::Panel::top("streamer_banner")
+            .exact_size(36.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(Color32::from_rgb(0x59, 0x3b, 0xd3)))
+            .show(ui, |ui| {
+                let r = ui.max_rect();
+                let p = ui.painter();
+                let msg = p.layout_no_wrap("Streamer Mode is enabled. Stay safe, friend.".into(), semi(14.0), Color32::WHITE);
+                let link = p.layout_no_wrap("Disable".into(), semi(14.0), Color32::WHITE);
+                let total = msg.size().x + 10.0 + link.size().x;
+                let x = r.center().x - total / 2.0;
+                let y = r.center().y - msg.size().y / 2.0;
+                let lr = Rect::from_min_size(pos2(x + msg.size().x + 10.0, y), link.size());
+                p.galley(pos2(x, y), msg, Color32::WHITE);
+                p.galley(lr.min, link, Color32::WHITE);
+                p.hline(lr.x_range(), lr.bottom(), egui::Stroke::new(1.0, Color32::WHITE));
+                let resp = ui.interact(lr, egui::Id::new("streamer_off"), Sense::click());
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                off = resp.clicked();
+            });
+        if off {
+            self.settings.streamer = false;
+            self.settings.streamer_auto = false;
+            self.save_settings(ui.ctx());
         }
     }
 
@@ -490,6 +638,9 @@ impl App {
             .map(|(_, r)| r.mentions)
             .sum();
         n += self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
+        if !self.settings.badge {
+            n = 0;
+        }
         if self.title_count != Some(n) {
             self.title_count = Some(n);
             let t = if n > 0 { format!("({n}) Fastcord") } else { "Fastcord".into() };
@@ -498,6 +649,9 @@ impl App {
     }
 
     fn on_rest(&mut self, tag: Tag, res: Result<serde_json::Value, String>) {
+        if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
+            return settings::on_remote(self, k, Err(e.clone()));
+        }
         let v = match res {
             Ok(v) => v,
             Err(e) => {
@@ -547,6 +701,7 @@ impl App {
             Tag::Friend => self.toast("Friend request sent."),
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
+            Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Quiet => {}
         }
     }
@@ -602,6 +757,7 @@ impl App {
                         }
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
                     }
+                    self.voice_cues(&t, &d);
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     self.store.apply(&t, &d);
                     if t == "READY" {
@@ -696,10 +852,10 @@ impl App {
                     .order(egui::Order::Tooltip)
                     .show(&ctx, |ui| {
                         Frame::new()
-                            .fill(BG_FLOATING)
+                            .fill(pal().bg_floating)
                             .corner_radius(8)
                             .inner_margin(egui::Margin::symmetric(16, 10))
-                            .show(ui, |ui| ui.label(egui::RichText::new(text).color(TEXT_NORMAL).font(reg(14.0))));
+                            .show(ui, |ui| ui.label(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))));
                     });
                 ctx.request_repaint_after(Duration::from_millis(500));
             }
@@ -707,12 +863,12 @@ impl App {
         if let Some((ch, id)) = self.confirm_delete {
             let mut close = false;
             let modal = egui::Modal::new("delete".into())
-                .frame(Frame::new().fill(BG_PRIMARY).corner_radius(8).inner_margin(16))
+                .frame(Frame::new().fill(pal().bg_primary).corner_radius(8).inner_margin(16))
                 .show(&ctx, |ui| {
                     ui.set_width(440.0);
-                    ui.label(egui::RichText::new("Delete Message").font(bold(20.0)).color(HEADER_PRIMARY));
+                    ui.label(egui::RichText::new("Delete Message").font(bold(20.0)).color(pal().header_primary));
                     ui.add_space(12.0);
-                    ui.label(egui::RichText::new("Are you sure you want to delete this message?").color(TEXT_NORMAL));
+                    ui.label(egui::RichText::new("Are you sure you want to delete this message?").color(pal().text_normal));
                     ui.add_space(20.0);
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -723,7 +879,7 @@ impl App {
                                 }
                                 close = true;
                             }
-                            if ui.add(egui::Label::new(egui::RichText::new("Cancel").color(HEADER_PRIMARY)).sense(Sense::click())).clicked() {
+                            if ui.add(egui::Label::new(egui::RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click())).clicked() {
                                 close = true;
                             }
                         });
@@ -741,10 +897,11 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
         self.pump(&ctx);
+        self.os_settings(&ctx, frame);
         if !self.cjk_loaded && crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed) {
             self.cjk_loaded = true;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -771,8 +928,10 @@ impl eframe::App for App {
         if self.token.is_none() {
             login::show(self, ui);
         } else if self.settings_page.is_some() {
+            self.streamer_banner(ui);
             settings::show(self, ui);
         } else {
+            self.streamer_banner(ui);
             let w = ctx.content_rect().width();
             if (w - self.heights_w).abs() > 0.5 {
                 self.heights.clear();
@@ -782,16 +941,16 @@ impl eframe::App for App {
                 .exact_size(72.0)
                 .resizable(false)
                 .show_separator_line(false)
-                .frame(Frame::new().fill(BG_TERTIARY))
+                .frame(Frame::new().fill(pal().bg_tertiary))
                 .show(ui, |ui| rail::show(self, ui));
             egui::Panel::left("side")
                 .exact_size(240.0)
                 .resizable(false)
                 .show_separator_line(false)
-                .frame(Frame::new().fill(BG_SECONDARY))
+                .frame(Frame::new().fill(pal().bg_secondary))
                 .show(ui, |ui| side::show(self, ui));
             egui::CentralPanel::default()
-                .frame(Frame::new().fill(BG_PRIMARY))
+                .frame(Frame::new().fill(pal().bg_primary))
                 .show(ui, |ui| chat::show(self, ui));
             self.overlays(ui);
             self.ack_current(&ctx);
@@ -841,7 +1000,7 @@ impl eframe::App for App {
     }
 
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
-        BG_TERTIARY.to_normalized_gamma_f32()
+        pal().bg_tertiary.to_normalized_gamma_f32()
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -855,7 +1014,7 @@ impl eframe::App for App {
 }
 
 pub fn avatar(ui: &Ui, rect: Rect, url: &str) {
-    ui.painter().circle_filled(rect.center(), rect.width() / 2.0, BG_ACCENT);
+    ui.painter().circle_filled(rect.center(), rect.width() / 2.0, pal().bg_accent);
     Image::from_uri(url.to_string())
         .corner_radius(CornerRadius::same((rect.width() / 2.0) as u8))
         .show_loading_spinner(false)
@@ -917,10 +1076,10 @@ pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Respo
 /// 32px+ ones get the rounded hover plate like the user panel and message toolbar.
 pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    let col = if resp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
+    let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
     if resp.hovered() {
         if size >= 32.0 {
-            ui.painter().rect_filled(rect, CornerRadius::same(4), BG_MOD_HOVER);
+            ui.painter().rect_filled(rect, CornerRadius::same(4), pal().bg_mod_hover);
         }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -958,4 +1117,20 @@ pub fn take_key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key)
         !m
     });
     hit
+}
+
+/// ":)" and friends become emoji, but only as whole words, so urls and
+/// code like `a:b` are left alone.
+fn emoticons(text: &str) -> String {
+    const MAP: [(&str, &str); 14] = [
+        (":)", "🙂"), (":-)", "🙂"), (":(", "🙁"), (":-(", "🙁"), (":D", "😃"), (":-D", "😃"), (";)", "😉"),
+        (";-)", "😉"), (":P", "😛"), (":p", "😛"), ("<3", "❤️"), (":O", "😮"), (":o", "😮"), (":'(", "😢"),
+    ];
+    if text.contains("```") {
+        return text.to_string();
+    }
+    text.split(' ')
+        .map(|w| MAP.iter().find(|(k, _)| *k == w).map(|(_, e)| e.to_string()).unwrap_or_else(|| w.to_string()))
+        .collect::<Vec<_>>()
+        .join(" ")
 }

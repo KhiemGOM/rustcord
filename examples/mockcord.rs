@@ -477,8 +477,35 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         ("GET", ["api", "v9", "users", id, "profile"]) => {
             let id: u64 = id.parse().unwrap_or(0);
-            ok(json!({ "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22 } }))
+            ok(json!({ "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" } }))
         }
+        // settings pages
+        ("GET", ["api", "v9", "users", "@me", "settings"]) => ok(json!({
+            "explicit_content_filter": 1, "default_guilds_restricted": false, "show_current_game": true,
+            "allow_accessibility_detection": false, "friend_source_flags": { "all": true },
+        })),
+        ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut u = user(ME);
+            if let Some(n) = b["global_name"].as_str() {
+                u["global_name"] = json!(n);
+            }
+            ok(u)
+        }
+        ("GET", ["api", "v9", "users", "@me", "consent"]) => ok(json!({ "usage_statistics": { "consented": true }, "personalization": { "consented": false } })),
+        ("GET", ["api", "v9", "auth", "sessions"]) => ok(json!({ "user_sessions": [
+            { "id_hash": "aaa", "approx_last_used_time": "2026-10-07T10:00:00+00:00", "client_info": { "os": "Windows", "platform": "Discord Client", "location": "Bangkok, Thailand" } },
+            { "id_hash": "bbb", "approx_last_used_time": "2026-10-01T10:00:00+00:00", "client_info": { "os": "Android", "platform": "Discord Android", "location": "Bangkok, Thailand" } },
+        ] })),
+        ("GET", ["api", "v9", "oauth2", "tokens"]) => ok(json!([
+            { "id": "77", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } },
+        ])),
+        ("GET", ["api", "v9", "users", "@me", "connections"]) => ok(json!([
+            { "type": "github", "id": "1", "name": "you-on-github", "visibility": 1, "show_activity": true, "verified": true },
+        ])),
+        ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => ok(json!([])),
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
@@ -509,11 +536,11 @@ async fn http_conn(mut s: TcpStream, w: W) {
         let mut first = lines.next().unwrap_or("").split_whitespace();
         let method = first.next().unwrap_or("").to_string();
         let path = first.next().unwrap_or("").to_string();
-        let len: usize = lines
-            .filter_map(|l| l.split_once(':'))
-            .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
-            .and_then(|(_, v)| v.trim().parse().ok())
-            .unwrap_or(0);
+        let headers: Vec<(String, String)> =
+            lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())).collect();
+        let header = |name: &str| headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+        let len: usize = header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let locale = header("x-discord-locale").unwrap_or_default();
         while buf.len() < head_end + len {
             match s.read(&mut tmp).await {
                 Ok(0) | Err(_) => return,
@@ -525,7 +552,7 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body) });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale });
             let _ = writeln!(wl.log, "{line}");
         }
         let (code, ctype, out) = route(&w, &method, &path, &body).await;

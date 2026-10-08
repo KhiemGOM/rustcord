@@ -21,7 +21,10 @@ Log in with email/password (2FA supported) or paste a token. The token and a sna
 - profile popouts, pinned messages, message search, Ctrl+K quick switcher, join server by invite
 - right-click menus: mark as read, mute, copy link, pin, mark unread, copy IDs (developer mode)
 - desktop notifications for mentions and DMs, taskbar flash, unread count in the window title
-- settings: account, zoom, 24h clock, link previews, voice & video devices and input sensitivity, notifications, developer mode
+- settings, laid out like Discord's (searchable sidebar, 24 pages):
+  - User: My Account (display name, username, email, password, account removal), Profiles (live preview, per-server nickname, unsaved-changes bar), Content & Social, Data & Privacy, Family Center, Authorized Apps, Devices, Connections, Nitro/Subscriptions/Gift Inventory/Billing (read-only)
+  - App: Appearance (Light/Ash/Dark/Onyx/Sync themes, cozy/compact, font scaling, group spacing, zoom), Accessibility, Voice & Video (devices, volumes, voice activity or push to talk), Chat, Notifications (with sounds), Keybinds (global), Language, Windows Settings (run on startup), Streamer Mode (incl. hiding the window from capture), Advanced
+  - Activity: Activity Privacy, HypeSquad
 - emoji render as twemoji everywhere (messages, channel names, nicknames, server names), CJK fallback fonts
 - composer: Ctrl+V images/files, upload cards with spoiler toggle, `@` `#` `:` `/` autocomplete, slash commands, GIF picker, reply ping toggle
 - bot buttons and select menus, jump to replied/pinned/searched messages, "new messages" and "jump to present" bars, image viewer

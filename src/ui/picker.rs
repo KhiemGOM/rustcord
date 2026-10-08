@@ -48,14 +48,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
-            Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(0).show(ui, |ui| {
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(0).show(ui, |ui| {
                 ui.set_width(418.0);
                 Frame::new().inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
-                    Frame::new().fill(BG_TERTIARY).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+                    Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
                         let r = ui.add(
                             egui::TextEdit::singleline(&mut q)
                                 .frame(Frame::NONE)
-                                .hint_text(RichText::new("Find the perfect emoji").color(TEXT_MUTED))
+                                .hint_text(RichText::new("Find the perfect emoji").color(pal().text_muted))
                                 .font(reg(15.0))
                                 .desired_width(ui.available_width()),
                         );
@@ -130,7 +130,7 @@ fn section(ui: &mut Ui, title: &str) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.add_space(12.0);
-        ui.label(RichText::new(title).font(semi(12.0)).color(HEADER_SECONDARY));
+        ui.label(RichText::new(title).font(semi(12.0)).color(pal().header_secondary));
     });
     ui.add_space(6.0);
 }
@@ -154,7 +154,7 @@ fn grid(
                 }
                 let (r, resp) = ui.allocate_exact_size(vec2(cell, cell), Sense::click());
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_HOVER);
+                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
                 }
                 if ui.is_rect_visible(r) {
                     paint(ui, i, r);

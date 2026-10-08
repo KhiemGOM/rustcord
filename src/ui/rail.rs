@@ -18,12 +18,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
             let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, hot| {
-                let fill = if hot { BLURPLE } else { BG_PRIMARY };
+                let fill = if hot { BLURPLE } else { pal().bg_primary };
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
-                clyde(ui, rect.center(), if hot { Color32::WHITE } else { INTERACTIVE_HOVER });
+                clyde(ui, rect.center(), if hot { Color32::WHITE } else { pal().interactive_hover });
             });
             if incoming > 0 {
-                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(BG_TERTIARY));
+                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(pal().bg_tertiary));
             }
             app.rects.insert("guild:home".into(), r.rect);
             let r = r.on_hover_text("Direct Messages");
@@ -55,7 +55,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         icons::draw(ui.painter(), Icon::People, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), Color32::WHITE);
                     }
                 });
-                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(BG_TERTIARY));
+                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(pal().bg_tertiary));
                 app.rects.insert(format!("dmbubble:{c}"), r.rect);
                 if tip(r, &title).clicked() {
                     app.ui.guild = None;
@@ -81,7 +81,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
             separator(ui);
             let r = item(ui, egui::Id::new("add_server"), false, false, |ui, rect, radius, hot| {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { BG_PRIMARY });
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
                 icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { GREEN });
             });
             if r.on_hover_text("Join a Server").clicked() {
@@ -93,18 +93,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 fn separator(ui: &mut Ui) {
     let (sep, _) = ui.allocate_exact_size(vec2(72.0, 2.0), Sense::hover());
-    ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 2.0)), CornerRadius::same(1), BG_MOD_HOVER);
+    ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 2.0)), CornerRadius::same(1), pal().bg_mod_hover);
 }
 
 fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: u8, hot: bool) {
     let Some(g) = app.store.guilds.get(&gid) else { return };
     match g.icon_url() {
         Some(url) => {
-            ui.painter().rect_filled(rect, CornerRadius::same(radius), BG_PRIMARY);
+            ui.painter().rect_filled(rect, CornerRadius::same(radius), pal().bg_primary);
             Image::from_uri(url).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
         }
         None => {
-            ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { BLURPLE } else { BG_PRIMARY });
+            ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { BLURPLE } else { pal().bg_primary });
             let acr = g.acronym();
             let size = match acr.chars().count() {
                 0..=2 => 18.0,
@@ -112,7 +112,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: u8, hot: bool) {
                 _ => 12.0,
             } * rect.width()
                 / 48.0;
-            let col = if hot { Color32::WHITE } else { TEXT_NORMAL };
+            let col = if hot { Color32::WHITE } else { pal().text_normal };
             text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
         }
     }
@@ -126,7 +126,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         guild_icon(app, ui, gid, rect, radius, hot)
     });
     if mentions > 0 {
-        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(BG_TERTIARY));
+        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
     }
     app.rects.insert(format!("guild:{gid}"), r.rect);
     let r = tip(r, &name);
@@ -181,7 +181,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
         }
     });
     if mentions > 0 && !open {
-        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(BG_TERTIARY));
+        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
     }
     let name = f.name.clone().unwrap_or_else(|| {
         f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).map(|g| g.name.clone()).collect::<Vec<_>>().join(", ")
@@ -213,7 +213,7 @@ fn item(
     let rect = Rect::from_center_size(row.center(), vec2(48.0, 48.0));
     let hovered = resp.hovered();
     let hot = hovered || selected;
-    let t = ui.ctx().animate_bool_with_time(id.with("r"), hot, 0.15);
+    let t = ui.ctx().animate_bool_with_time(id.with("r"), hot, anim(0.15));
     let radius = (24.0 - 8.0 * t).round() as u8;
     let pill_target = if selected {
         40.0
@@ -224,13 +224,13 @@ fn item(
     } else {
         0.0
     };
-    let pill = ui.ctx().animate_value_with_time(id.with("p"), pill_target, 0.15);
+    let pill = ui.ctx().animate_value_with_time(id.with("p"), pill_target, anim(0.15));
     if pill > 0.5 {
         let p = Rect::from_min_size(pos2(row.left(), row.center().y - pill / 2.0), vec2(4.0, pill));
         ui.painter().rect_filled(
             p,
             CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 },
-            HEADER_PRIMARY,
+            pal().header_primary,
         );
     }
     if hovered {
@@ -245,7 +245,7 @@ fn clyde(ui: &Ui, c: egui::Pos2, col: Color32) {
     let p = ui.painter();
     let body = Rect::from_center_size(c + vec2(0.0, 1.0), vec2(26.0, 18.0));
     p.rect_filled(body, CornerRadius { nw: 9, ne: 9, sw: 6, se: 6 }, col);
-    let eye = if col == Color32::WHITE { BLURPLE } else { BG_PRIMARY };
+    let eye = if col == Color32::WHITE { BLURPLE } else { pal().bg_primary };
     p.circle_filled(c + vec2(-5.5, 1.0), 2.6, eye);
     p.circle_filled(c + vec2(5.5, 1.0), 2.6, eye);
 }
@@ -253,6 +253,6 @@ fn clyde(ui: &Ui, c: egui::Pos2, col: Color32) {
 // the server-name bubble to the right of the rail, with emoji
 fn tip(r: egui::Response, name: &str) -> egui::Response {
     r.on_hover_ui(|ui| {
-        text::label(ui, name, semi(16.0), HEADER_PRIMARY, Sense::hover());
+        text::label(ui, name, semi(16.0), pal().header_primary, Sense::hover());
     })
 }

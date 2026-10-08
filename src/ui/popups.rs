@@ -8,6 +8,7 @@ use crate::state::{Id, Message, snowflake_ms};
 use crate::theme::*;
 
 pub struct Search {
+    pub scope: Id,
     pub guild: bool,
     pub query: String,
     pub results: Option<Vec<Message>>,
@@ -28,7 +29,7 @@ impl App {
             format!("/channels/{scope}/messages/search?content={q}")
         };
         self.rest("GET", path, None, Tag::Search(scope));
-        self.search = Some(Search { guild, query, results: None, total: 0 });
+        self.search = Some(Search { scope, guild, query, results: None, total: 0 });
     }
 
     pub fn open_pins(&mut self, ch: Id) {
@@ -111,13 +112,13 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(g.at)
         .constrain(true)
         .show(ctx, |ui| {
-            Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(12).show(ui, |ui| {
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 ui.set_width(420.0);
-                Frame::new().fill(BG_TERTIARY).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+                Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut g.query)
                             .frame(Frame::NONE)
-                            .hint_text(RichText::new("Search Tenor").color(TEXT_MUTED))
+                            .hint_text(RichText::new("Search Tenor").color(pal().text_muted))
                             .desired_width(ui.available_width()),
                     );
                     r.request_focus();
@@ -128,10 +129,10 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(8.0);
                 egui::ScrollArea::vertical().max_height(400.0).auto_shrink([false, false]).show(ui, |ui| match &g.results {
                     None => {
-                        ui.add(egui::Spinner::new().color(TEXT_MUTED));
+                        ui.add(egui::Spinner::new().color(pal().text_muted));
                     }
                     Some(list) if list.is_empty() => {
-                        ui.label(RichText::new("No GIFs found.").color(HEADER_SECONDARY));
+                        ui.label(RichText::new("No GIFs found.").color(pal().header_secondary));
                     }
                     Some(list) => {
                         // two columns, each image keeps its aspect, shortest column gets the next one
@@ -145,7 +146,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                             ys[c] += h + 8.0;
                             let resp = ui.interact(r, egui::Id::new(("gif", i)), Sense::click());
                             if ui.is_rect_visible(r) {
-                                ui.painter().rect_filled(r, CornerRadius::same(4), BG_TERTIARY);
+                                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_tertiary);
                                 egui::Image::from_uri(gif.src.clone()).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, r);
                             }
                             if resp.hovered() {
@@ -207,18 +208,18 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     let mut join = None;
     let mut close = false;
     let modal = egui::Modal::new("invite".into())
-        .frame(Frame::new().fill(BG_PRIMARY).corner_radius(8).inner_margin(16))
+        .frame(Frame::new().fill(pal().bg_primary).corner_radius(8).inner_margin(16))
         .show(ctx, |ui| {
             ui.set_width(440.0);
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new("Join a Server").font(bold(24.0)).color(HEADER_PRIMARY));
+                ui.label(RichText::new("Join a Server").font(bold(24.0)).color(pal().header_primary));
                 ui.add_space(8.0);
-                ui.label(RichText::new("Enter an invite below to join an existing server").color(HEADER_SECONDARY));
+                ui.label(RichText::new("Enter an invite below to join an existing server").color(pal().header_secondary));
             });
             ui.add_space(16.0);
-            ui.label(RichText::new("INVITE LINK").font(bold(12.0)).color(HEADER_SECONDARY));
+            ui.label(RichText::new("INVITE pal().link").font(bold(12.0)).color(pal().header_secondary));
             ui.add_space(8.0);
-            Frame::new().fill(BG_TERTIARY).corner_radius(3).inner_margin(10).show(ui, |ui| {
+            Frame::new().fill(pal().bg_tertiary).corner_radius(3).inner_margin(10).show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::singleline(text)
                         .frame(Frame::NONE)
@@ -232,7 +233,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
                 if button(ui, "Join Server", BLURPLE, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                     join = Some(text.clone());
                 }
-                if ui.add(egui::Label::new(RichText::new("Back").color(HEADER_PRIMARY)).sense(Sense::click())).clicked() {
+                if ui.add(egui::Label::new(RichText::new("Back").color(pal().header_primary)).sense(Sense::click())).clicked() {
                     close = true;
                 }
             });
@@ -299,30 +300,30 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     let mut pick = ctx.input(|i| i.key_pressed(Key::Enter)).then_some(sel);
 
     let modal = egui::Modal::new("switcher".into())
-        .frame(Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(20))
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(20))
         .show(ctx, |ui| {
             ui.set_width(530.0);
-            Frame::new().fill(BG_TERTIARY).corner_radius(4).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
+            Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::singleline(q)
                         .frame(Frame::NONE)
                         .font(reg(20.0))
-                        .hint_text(RichText::new("Where would you like to go?").color(TEXT_MUTED))
+                        .hint_text(RichText::new("Where would you like to go?").color(pal().text_muted))
                         .desired_width(ui.available_width()),
                 );
                 r.request_focus();
             });
             ui.add_space(12.0);
             if hits.is_empty() {
-                ui.label(RichText::new("Can't find what you're looking for?").color(TEXT_MUTED));
+                ui.label(RichText::new("Can't find what you're looking for?").color(pal().text_muted));
             }
             for (i, (_, label, sub)) in hits.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
                 if i == sel || resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_SELECTED);
+                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
                 }
-                text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), HEADER_PRIMARY, r.width() - 160.0);
-                ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, sub, semi(12.0), TEXT_MUTED);
+                text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), pal().header_primary, r.width() - 160.0);
+                ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, sub, semi(12.0), pal().text_muted);
                 if resp.clicked() {
                     pick = Some(i);
                 }
@@ -381,7 +382,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
-            Frame::new().fill(BG_TERTIARY).corner_radius(8).show(ui, |ui| {
+            Frame::new().fill(pal().bg_tertiary).corner_radius(8).show(ui, |ui| {
                 ui.set_width(300.0);
                 let (top, _) = ui.allocate_exact_size(vec2(300.0, 60.0), Sense::hover());
                 ui.painter().rect_filled(top, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, accent);
@@ -392,39 +393,39 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         .paint_at(ui, top);
                 }
                 let av = Rect::from_min_size(pos2(top.left() + 16.0, top.bottom() - 40.0), vec2(80.0, 80.0));
-                ui.painter().circle_filled(av.center(), 46.0, BG_TERTIARY);
+                ui.painter().circle_filled(av.center(), 46.0, pal().bg_tertiary);
                 avatar(ui, av, &user.avatar_url());
-                status_dot(ui, av, status, BG_TERTIARY);
+                status_dot(ui, av, status, pal().bg_tertiary);
                 ui.add_space(48.0);
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    text::label(ui, &name, bold(20.0), HEADER_PRIMARY, Sense::hover());
-                    ui.label(RichText::new(&user.username).font(reg(14.0)).color(HEADER_PRIMARY));
+                    text::label(ui, &name, bold(20.0), pal().header_primary, Sense::hover());
+                    ui.label(RichText::new(&user.username).font(reg(14.0)).color(pal().header_primary));
                     ui.add_space(8.0);
-                    Frame::new().fill(BG_SECONDARY_ALT).corner_radius(8).inner_margin(12).show(ui, |ui| {
+                    Frame::new().fill(pal().bg_secondary_alt).corner_radius(8).inner_margin(12).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.spacing_mut().item_spacing.y = 4.0;
                         if !bio.is_empty() {
-                            ui.label(RichText::new("ABOUT ME").font(bold(12.0)).color(HEADER_PRIMARY));
-                            ui.label(RichText::new(&bio).font(reg(14.0)).color(TEXT_NORMAL));
+                            ui.label(RichText::new("ABOUT ME").font(bold(12.0)).color(pal().header_primary));
+                            ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().text_normal));
                             ui.add_space(8.0);
                         }
-                        ui.label(RichText::new("DISCORD MEMBER SINCE").font(bold(12.0)).color(HEADER_PRIMARY));
+                        ui.label(RichText::new("DISCORD MEMBER SINCE").font(bold(12.0)).color(pal().header_primary));
                         let since = chrono::DateTime::from_timestamp_millis(snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
-                        ui.label(RichText::new(since).font(reg(14.0)).color(TEXT_NORMAL));
+                        ui.label(RichText::new(since).font(reg(14.0)).color(pal().text_normal));
                         if !roles.is_empty() {
                             ui.add_space(8.0);
-                            ui.label(RichText::new(if roles.len() == 1 { "ROLE" } else { "ROLES" }).font(bold(12.0)).color(HEADER_PRIMARY));
+                            ui.label(RichText::new(if roles.len() == 1 { "ROLE" } else { "ROLES" }).font(bold(12.0)).color(pal().header_primary));
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                                 for (r, c) in &roles {
-                                    Frame::new().fill(BG_PRIMARY).corner_radius(4).inner_margin(Margin::symmetric(6, 3)).show(ui, |ui| {
+                                    Frame::new().fill(pal().bg_primary).corner_radius(4).inner_margin(Margin::symmetric(6, 3)).show(ui, |ui| {
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing.x = 4.0;
                                             let (d, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
                                             let col = if *c == 0 { GREY } else { role_color(*c) };
                                             ui.painter().circle_filled(d.center(), 6.0, col);
-                                            ui.label(RichText::new(r).font(reg(12.0)).color(TEXT_NORMAL));
+                                            ui.label(RichText::new(r).font(reg(12.0)).color(pal().text_normal));
                                         });
                                     });
                                 }
@@ -458,23 +459,23 @@ fn pins(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
-            Frame::new().fill(BG_SECONDARY).corner_radius(8).show(ui, |ui| {
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).show(ui, |ui| {
                 ui.set_width(420.0);
-                Frame::new().fill(BG_TERTIARY).corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }).inner_margin(16).show(ui, |ui| {
+                Frame::new().fill(pal().bg_tertiary).corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }).inner_margin(16).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Pinned Messages").font(bold(16.0)).color(HEADER_PRIMARY));
+                    ui.label(RichText::new("Pinned Messages").font(bold(16.0)).color(pal().header_primary));
                 });
                 egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
                     Frame::new().inner_margin(12).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         match list {
                             None => {
-                                ui.add(egui::Spinner::new().color(TEXT_MUTED));
+                                ui.add(egui::Spinner::new().color(pal().text_muted));
                             }
                             Some(l) if l.is_empty() => {
                                 ui.add_space(24.0);
                                 ui.vertical_centered(|ui| {
-                                    ui.label(RichText::new("This channel doesn't have any pinned messages... yet.").color(HEADER_SECONDARY));
+                                    ui.label(RichText::new("This channel doesn't have any pinned messages... yet.").color(pal().header_secondary));
                                 });
                                 ui.add_space(24.0);
                             }
@@ -507,10 +508,10 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
         None => "Searching…".to_string(),
         Some(_) => format!("{} Results for “{}”", s.total, s.query),
     };
-    Frame::new().fill(BG_SECONDARY).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
+    Frame::new().fill(pal().bg_secondary).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new(header).font(semi(16.0)).color(HEADER_PRIMARY));
+            ui.label(RichText::new(header).font(semi(16.0)).color(pal().header_primary));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
                     close = true;
@@ -523,10 +524,10 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
             ui.set_width(ui.available_width());
             match &s.results {
                 None => {
-                    ui.add(egui::Spinner::new().color(TEXT_MUTED));
+                    ui.add(egui::Spinner::new().color(pal().text_muted));
                 }
                 Some(list) if list.is_empty() => {
-                    ui.label(RichText::new("We searched far and wide. Unfortunately, no results were found.").color(HEADER_SECONDARY));
+                    ui.label(RichText::new("We searched far and wide. Unfortunately, no results were found.").color(pal().header_secondary));
                 }
                 Some(list) => {
                     let mut last = 0;
@@ -535,7 +536,7 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
                             last = m.channel;
                             let name = app.store.channels.get(&m.channel).map(|c| c.name.clone()).unwrap_or_default();
                             ui.add_space(6.0);
-                            ui.label(RichText::new(format!("# {name}")).font(semi(14.0)).color(HEADER_SECONDARY));
+                            ui.label(RichText::new(format!("# {name}")).font(semi(14.0)).color(pal().header_secondary));
                             ui.add_space(4.0);
                         }
                         if chat::preview(ui, &app.store, m).clicked() {
@@ -559,7 +560,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
     let mut open = None;
     egui::Popup::menu(button).show(|ui| {
         ui.set_width(320.0);
-        ui.label(RichText::new("Threads").font(bold(16.0)).color(HEADER_PRIMARY));
+        ui.label(RichText::new("Threads").font(bold(16.0)).color(pal().header_primary));
         ui.add_space(8.0);
         let mut list: Vec<_> = app
             .store
@@ -569,16 +570,16 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
             .collect();
         list.sort_by_key(|c| std::cmp::Reverse(c.last_msg.max(c.id)));
         if list.is_empty() {
-            ui.label(RichText::new("There are no active threads.").color(HEADER_SECONDARY));
+            ui.label(RichText::new("There are no active threads.").color(pal().header_secondary));
         }
         for c in list {
             let (r, resp) = ui.allocate_exact_size(vec2(320.0, 44.0), Sense::click());
             if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_HOVER);
+                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
             }
-            text::paint(ui.painter(), pos2(r.left() + 8.0, r.top() + 13.0), Align2::LEFT_CENTER, &c.name, semi(15.0), HEADER_PRIMARY, r.width() - 16.0);
+            text::paint(ui.painter(), pos2(r.left() + 8.0, r.top() + 13.0), Align2::LEFT_CENTER, &c.name, semi(15.0), pal().header_primary, r.width() - 16.0);
             let sub = format!("{} messages{}", c.msg_count, if c.joined { " · joined" } else { "" });
-            ui.painter().text(pos2(r.left() + 8.0, r.top() + 32.0), Align2::LEFT_CENTER, sub, reg(12.0), TEXT_MUTED);
+            ui.painter().text(pos2(r.left() + 8.0, r.top() + 32.0), Align2::LEFT_CENTER, sub, reg(12.0), pal().text_muted);
             if resp.clicked() {
                 open = Some(c.id);
             }
@@ -610,10 +611,10 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
             let ir = ui.interact(rect, egui::Id::new("viewer_img"), Sense::click());
             egui::Image::from_uri(url).show_loading_spinner(true).paint_at(ui, rect);
             let link = pos2(rect.left(), rect.bottom() + 12.0);
-            let lr = ui.painter().text(link, Align2::LEFT_TOP, "Open in Browser", semi(14.0), HEADER_SECONDARY);
+            let lr = ui.painter().text(link, Align2::LEFT_TOP, "Open in Browser", semi(14.0), pal().header_secondary);
             let lresp = ui.interact(lr, egui::Id::new("viewer_link"), Sense::click());
             if lresp.hovered() {
-                ui.painter().hline(lr.x_range(), lr.bottom(), egui::Stroke::new(1.0, HEADER_SECONDARY));
+                ui.painter().hline(lr.x_range(), lr.bottom(), egui::Stroke::new(1.0, pal().header_secondary));
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             browse = lresp.clicked();

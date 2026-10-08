@@ -46,6 +46,7 @@ pub fn make_nonce() -> String {
 
 pub const VIEW_CHANNEL: u64 = 1 << 10;
 pub const ADMINISTRATOR: u64 = 1 << 3;
+pub const MANAGE_MESSAGES: u64 = 1 << 13;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub enum Status {
@@ -219,10 +220,8 @@ pub struct Emoji {
 impl Emoji {
     pub fn url(&self) -> String {
         format!(
-            "{}/emojis/{}.{}?size=48",
-            api::cdn(),
-            self.id,
-            if self.animated { "gif" } else { "png" }
+            "{}",
+            crate::markdown::emoji_url(self.id, self.animated)
         )
     }
 }
@@ -600,6 +599,9 @@ pub struct Store {
     pub relationships: HashMap<Id, u8>,
     #[serde(default)]
     pub email: Option<String>,
+    // READY's user object as-is: phone, mfa, verified, premium type, flags
+    #[serde(default)]
+    pub me_raw: Value,
     #[serde(skip)]
     pub forum_posts: HashMap<Id, Vec<Id>>,
     #[serde(skip)]
@@ -645,16 +647,21 @@ impl Store {
     }
 
     pub fn can_view(&self, c: &Channel) -> bool {
+        self.perms(c) & VIEW_CHANNEL != 0
+    }
+
+    /// Our effective permission bits in a channel. DMs and owners get everything.
+    pub fn perms(&self, c: &Channel) -> u64 {
         if c.is_thread()
             && let Some(p) = self.channels.get(&c.parent)
         {
-            return self.can_view(p);
+            return self.perms(p);
         }
         let Some(g) = self.guilds.get(&c.guild) else {
-            return true;
+            return u64::MAX;
         };
         if g.owner == self.me {
-            return true;
+            return u64::MAX;
         }
         let mut p = g.roles.get(&g.id).map(|r| r.perms).unwrap_or(0);
         for r in &g.my_roles {
@@ -663,7 +670,7 @@ impl Store {
             }
         }
         if p & ADMINISTRATOR != 0 {
-            return true;
+            return u64::MAX;
         }
         let ow = |id: Id| c.overwrites.iter().find(|o| o.id == id);
         if let Some(o) = ow(g.id) {
@@ -680,7 +687,7 @@ impl Store {
         if let Some(o) = c.overwrites.iter().find(|o| o.id == self.me && o.kind == 1) {
             p = (p & !o.deny) | o.allow;
         }
-        p & VIEW_CHANNEL != 0
+        p
     }
 
     pub fn unread(&self, c: &Channel) -> bool {
@@ -877,6 +884,7 @@ impl Store {
         }
 
         self.email = ost(&d["user"]["email"]);
+        self.me_raw = d["user"].clone();
         self.relationships.clear();
         for r in d["relationships"].as_array().into_iter().flatten() {
             let uid = sid(&r["id"]);

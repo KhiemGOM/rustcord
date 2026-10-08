@@ -46,6 +46,8 @@ pub enum Tag {
     Friend,
     Commands(Id),
     Gifs(String),
+    /// settings pages park their data under a key, see `App::remote`
+    Remote(&'static str),
     Quiet,
 }
 

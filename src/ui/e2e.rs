@@ -13,6 +13,12 @@ use crate::state::Id;
 use crate::voice::{State, audio};
 
 
+// sidebar entries that sit low enough to need a scroll down to reach
+const PAGES_BELOW: [&str; 12] = [
+    "Appearance", "Accessibility", "Voice & Video", "Chat", "Notifications", "Keybinds", "Language",
+    "Windows Settings", "Streamer Mode", "Advanced", "Activity Privacy", "HypeSquad",
+];
+
 pub struct Run {
     dir: PathBuf,
     t0: Instant,
@@ -32,6 +38,7 @@ pub struct Run {
     error: Option<String>,
     done: bool,
     rects: serde_json::Map<String, serde_json::Value>,
+    steady: Option<egui::Rect>,
 }
 
 impl Run {
@@ -57,6 +64,7 @@ impl Run {
             error: None,
             done: false,
             rects: Default::default(),
+            steady: None,
         })
     }
 
@@ -159,7 +167,7 @@ impl Run {
         if !self.queue.is_empty() || Instant::now() < self.wait {
             return;
         }
-        if self.step < 99 && self.step_at.elapsed() > Duration::from_secs(20) {
+        if self.step != 99 && self.step_at.elapsed() > Duration::from_secs(20) {
             let jump = app.scroll_to.map(|(c, id)| {
                 let have = app.store.msgs.get(&c).is_some_and(|e| e.list.iter().any(|m| m.id == id));
                 format!(" scroll_to={id} loaded={have} tries={}", app.scroll_tries)
@@ -807,14 +815,267 @@ impl Run {
             85 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("dm_left");
-                    self.step = 99;
+                    self.loaded = 0;
+                    self.step = 100;
                 }
             }
+            100..=199 => self.settings_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
                 }
             }
+        }
+    }
+
+    /// Click a settings sidebar entry, scrolling the sidebar first if it's below the fold.
+    fn open_page(&mut self, app: &App, label: &str) -> bool {
+        if let Some(r) = app.rects.get(&format!("settings:{label}")).copied() {
+            // only aim once the sidebar has stopped scrolling
+            if self.steady == Some(r) {
+                self.steady = None;
+                self.click(r.center());
+                return true;
+            }
+            self.steady = Some(r);
+            return false;
+        }
+        let dir = if PAGES_BELOW.contains(&label) { -200.0 } else { 200.0 };
+        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(150.0, 400.0))]);
+        self.queue.push_back(vec![Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, dir),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        }]);
+        false
+    }
+
+    fn at(ctx: &egui::Context, key: &str) -> Option<egui::Rect> {
+        ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", key))))
+    }
+
+    /// Settings: a screenshot of every page, then a few real round trips.
+    fn settings_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        const PAGES: [&str; 24] = [
+            "My Account", "Profiles", "Content & Social", "Data & Privacy", "Family Center", "Authorized Apps", "Devices",
+            "Connections", "Nitro", "Subscriptions", "Gift Inventory", "Billing", "Appearance", "Accessibility",
+            "Voice & Video", "Chat", "Notifications", "Keybinds", "Language", "Windows Settings", "Streamer Mode",
+            "Advanced", "Activity Privacy", "HypeSquad",
+        ];
+        match self.step {
+            100 => {
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            101 => {
+                let Some(label) = PAGES.get(self.loaded) else {
+                    self.mark("settings_tour");
+                    self.step = 103;
+                    return;
+                };
+                if !self.open_page(app, label) {
+                    return;
+                }
+                self.next(900);
+            }
+            102 => {
+                if app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded]) {
+                    return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
+                }
+                let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+                self.shot(ctx, &format!("settings_{slug}.png"));
+                self.loaded += 1;
+                self.step = 101;
+                self.wait = Instant::now() + Duration::from_millis(200);
+            }
+            103 => {
+                if !self.open_page(app, "Profiles") {
+                    return;
+                }
+                self.next(900);
+            }
+            104 => {
+                let Some(r) = Self::at(ctx, "profile:pronouns") else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("they/them".into())]);
+                self.next(500);
+            }
+            105 => {
+                let Some(r) = Self::at(ctx, "save_changes") else { return };
+                self.shot(ctx, "settings_unsaved.png");
+                self.click(r.center());
+                self.next(0);
+            }
+            106 => {
+                let saved = app.sform.profile_base.as_ref().is_some_and(|_| app.sform.profile == app.sform.profile_base) && !app.sform.saving;
+                if saved {
+                    self.mark("profile_saved");
+                    self.next(300);
+                }
+            }
+            107 => {
+                if !self.open_page(app, "Appearance") {
+                    return;
+                }
+                self.next(600);
+            }
+            108 => {
+                let Some(r) = app.rects.get("theme:Light").copied() else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            109 => {
+                if app.settings.theme == crate::theme::Theme::Light {
+                    self.mark("theme_light");
+                    self.shot(ctx, "settings_light.png");
+                    self.key(Key::Escape);
+                    self.next(900);
+                }
+            }
+            110 => {
+                self.shot(ctx, "chat_light.png");
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            111 => {
+                if !self.open_page(app, "Appearance") {
+                    return;
+                }
+                self.next(600);
+            }
+            112 => {
+                let Some(r) = app.rects.get("theme:Ash").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            113 => {
+                let Some(r) = Self::at(ctx, "radio:Compact") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            114 => {
+                if app.settings.compact {
+                    self.mark("compact");
+                    self.key(Key::Escape);
+                    self.next(1000);
+                }
+            }
+            115 => {
+                self.shot(ctx, "chat_compact.png");
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            116 => {
+                if !self.open_page(app, "Appearance") {
+                    return;
+                }
+                self.next(600);
+            }
+            117 => {
+                let Some(r) = Self::at(ctx, "radio:Cozy") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            118 => {
+                if !self.open_page(app, "Streamer Mode") {
+                    return;
+                }
+                self.next(600);
+            }
+            119 => {
+                let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            120 => {
+                if app.settings.streamer {
+                    self.mark("streamer");
+                    self.shot(ctx, "settings_streamer_on.png");
+                    let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
+                    self.click(r.center());
+                    self.next(400);
+                }
+            }
+            121 => {
+                if !self.open_page(app, "Content & Social") {
+                    return;
+                }
+                self.next(900);
+            }
+            122 => {
+                let Some(r) = Self::at(ctx, "radio:Keep me safe") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            123 => {
+                if !self.open_page(app, "Language") {
+                    return;
+                }
+                self.next(600);
+            }
+            124 => {
+                let Some(r) = Self::at(ctx, "lang:de") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            125 => {
+                if !self.open_page(app, "HypeSquad") {
+                    return;
+                }
+                self.next(600);
+            }
+            126 => {
+                let Some(r) = Self::at(ctx, "house:Bravery") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            127 => {
+                self.mark("hypesquad");
+                if !self.open_page(app, "Language") {
+                    return;
+                }
+                self.next(600);
+            }
+            128 => {
+                let Some(r) = Self::at(ctx, "lang:en-US") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            129 => {
+                if !self.open_page(app, "My Account") {
+                    return;
+                }
+                self.next(600);
+            }
+            130 => {
+                let Some(r) = Self::at(ctx, "edit:DISPLAY NAME") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            131 => {
+                let Some(r) = Self::at(ctx, "modal_input") else { return };
+                self.click(r.right_center() - vec2(4.0, 0.0));
+                self.queue.push_back(vec![Event::Text("!".into())]);
+                self.next(400);
+            }
+            132 => {
+                let Some(r) = Self::at(ctx, "modal_done") else { return };
+                self.shot(ctx, "settings_modal.png");
+                self.click(r.center());
+                self.next(0);
+            }
+            133 => {
+                if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
+                    self.mark("display_name");
+                    self.key(Key::Escape);
+                    self.step = 99;
+                }
+            }
+            _ => self.step = 99,
         }
     }
 

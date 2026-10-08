@@ -48,14 +48,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .exact_size(52.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(BG_SECONDARY_ALT).inner_margin(egui::Margin::symmetric(8, 0)))
+        .frame(Frame::new().fill(pal().bg_secondary_alt).inner_margin(egui::Margin::symmetric(8, 0)))
         .show(ui, |ui| user_panel(app, ui));
     if app.voice.chan.is_some() {
         egui::Panel::bottom("voice")
             .exact_size(60.0)
             .resizable(false)
             .show_separator_line(false)
-            .frame(Frame::new().fill(BG_SECONDARY_ALT).inner_margin(egui::Margin::symmetric(8, 0)))
+            .frame(Frame::new().fill(pal().bg_secondary_alt).inner_margin(egui::Margin::symmetric(8, 0)))
             .show(ui, |ui| super::call::panel(app, ui));
     }
 
@@ -73,7 +73,7 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
         .frame(Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), egui::Stroke::new(1.0, BG_TERTIARY));
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), egui::Stroke::new(1.0, pal().bg_tertiary));
             ui.horizontal_centered(add);
         });
 }
@@ -81,7 +81,7 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
     header(ui, |ui| {
-        text::label(ui, &name, bold(16.0), HEADER_PRIMARY, Sense::hover());
+        text::label(ui, &name, bold(16.0), pal().header_primary, Sense::hover());
     });
 
     let cur = app.cur();
@@ -190,7 +190,7 @@ fn channel_menu(r: &egui::Response, id: Id, muted: bool, dev: bool, out: &mut Op
 
 fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool) -> egui::Response {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-    let spine = egui::Stroke::new(1.5, BG_ACCENT);
+    let spine = egui::Stroke::new(1.5, pal().bg_accent);
     let x = row.left() + 24.0;
     // the little tree branch the official client draws from the parent channel
     ui.painter().line_segment([pos2(x, row.top() - 2.0), pos2(x, if last { row.center().y - 6.0 } else { row.bottom() + 2.0 })], spine);
@@ -202,16 +202,16 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
     ));
     let inner = Rect::from_min_max(pos2(row.left() + 36.0, row.top()), pos2(row.right() - 8.0, row.bottom()));
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_SELECTED);
+        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
     } else if resp.hovered() {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
     }
     let col = if selected || unread {
-        HEADER_PRIMARY
+        pal().header_primary
     } else if resp.hovered() {
-        INTERACTIVE_HOVER
+        pal().interactive_hover
     } else {
-        CHANNEL_DEFAULT
+        pal().channel_default
     };
     let font = if selected || unread { semi(15.0) } else { reg(15.0) };
     text::paint(ui.painter(), pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col, inner.width() - 16.0);
@@ -223,7 +223,7 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
 
 fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-    let col = if resp.hovered() { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
+    let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
     let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
     let y = rect.center().y;
     icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(rect.left() + 10.0, y), vec2(12.0, 12.0)), col);
@@ -250,32 +250,32 @@ fn channel_row(ui: &mut Ui, c: &Channel, selected: bool, unread: bool, mentions:
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_SELECTED);
+        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
     }
     let col = if selected || (unread && !muted) {
-        HEADER_PRIMARY
+        pal().header_primary
     } else if hovered {
-        INTERACTIVE_HOVER
+        pal().interactive_hover
     } else if muted {
-        CHANNEL_MUTED
+        pal().channel_muted
     } else {
-        CHANNEL_DEFAULT
+        pal().channel_default
     };
     if unread && !selected && !muted {
         ui.painter().rect_filled(
             Rect::from_min_size(pos2(row.left(), row.center().y - 4.0), vec2(4.0, 8.0)),
             CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 },
-            HEADER_PRIMARY,
+            pal().header_primary,
         );
     }
     let icon_col = if selected {
-        HEADER_PRIMARY
+        pal().header_primary
     } else if muted {
-        CHANNEL_MUTED
+        pal().channel_muted
     } else {
-        CHANNEL_DEFAULT
+        pal().channel_default
     };
     let ir = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
     icons::draw(ui.painter(), glyph(c), ir, icon_col);
@@ -306,7 +306,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             super::call::ring(ui, av);
         }
         let used = super::call::badges(ui, voice, u, row);
-        text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), CHANNEL_DEFAULT, row.right() - av.right() - 16.0 - used);
+        text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), pal().channel_default, row.right() - av.right() - 16.0 - used);
     }
 }
 
@@ -314,11 +314,11 @@ fn dms(app: &mut App, ui: &mut Ui) {
     header(ui, |ui| {
         let w = ui.available_width();
         ui.allocate_ui_with_layout(vec2(w, 28.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            Frame::new().fill(BG_TERTIARY).corner_radius(4).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+            Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut app.dm_filter)
                         .frame(Frame::NONE)
-                        .hint_text(egui::RichText::new("Find or start a conversation").color(TEXT_MUTED))
+                        .hint_text(egui::RichText::new("Find or start a conversation").color(pal().text_muted))
                         .font(reg(14.0))
                         .desired_width(ui.available_width()),
                 );
@@ -335,11 +335,11 @@ fn dms(app: &mut App, ui: &mut Ui) {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
             let inner = row.shrink2(vec2(8.0, 0.0));
             if app.friends {
-                ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_SELECTED);
+                ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
             } else if resp.hovered() {
-                ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+                ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
             }
-            let col = if app.friends { HEADER_PRIMARY } else if resp.hovered() { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
+            let col = if app.friends { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
             icons::draw(ui.painter(), Icon::People, Rect::from_center_size(pos2(inner.left() + 24.0, row.center().y), vec2(24.0, 24.0)), col);
             ui.painter().text(pos2(inner.left() + 52.0, row.center().y), Align2::LEFT_CENTER, "Friends", semi(16.0), col);
             if pending > 0 {
@@ -351,7 +351,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             }
             ui.add_space(8.0);
             let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-            ui.painter().text(pos2(h.left() + 18.0, h.center().y), Align2::LEFT_CENTER, "DIRECT MESSAGES", semi(12.0), CHANNEL_DEFAULT);
+            ui.painter().text(pos2(h.left() + 18.0, h.center().y), Align2::LEFT_CENTER, "DIRECT MESSAGES", semi(12.0), pal().channel_default);
             ui.add_space(4.0);
             let filter = app.dm_filter.to_lowercase();
             let store = &app.store;
@@ -379,13 +379,13 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_SELECTED);
+        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
     }
     let unread = store.unread(c);
     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
-    let ring = if selected { BG_MOD_SELECTED } else if hovered { BG_MOD_HOVER } else { BG_SECONDARY };
+    let ring = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_secondary };
     if c.kind == 1 {
         if let Some(u) = c.recipients.first().and_then(|u| store.user(*u)) {
             avatar(ui, av, &u.avatar_url());
@@ -400,7 +400,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             }
         }
     }
-    let col = if selected || unread { HEADER_PRIMARY } else if hovered { INTERACTIVE_HOVER } else { CHANNEL_DEFAULT };
+    let col = if selected || unread { pal().header_primary } else if hovered { pal().interactive_hover } else { pal().channel_default };
     let mentions = store.mentions(c.id);
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if unread { semi(16.0) } else { reg(16.0) };
@@ -413,7 +413,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             Align2::LEFT_CENTER,
             format!("{} Members", c.recipients.len() + 1),
             reg(12.0),
-            TEXT_MUTED,
+            pal().text_muted,
         );
     } else {
         text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw);
@@ -457,7 +457,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                     ui.painter().rect_filled(r, CornerRadius::same(2), BLURPLE);
                 }
                 ui.painter().circle_filled(pos2(r.left() + 14.0, r.center().y), 5.0, crate::theme::status_color(st));
-                ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, label, reg(14.0), HEADER_PRIMARY);
+                ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, label, reg(14.0), pal().header_primary);
                 if resp.clicked() {
                     status_pick = Some(key);
                     ui.close();
@@ -471,18 +471,19 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
             crate::net::Conn::Online => app.store.presence.get(&me).copied().unwrap_or(Status::Online),
             _ => Status::Offline,
         };
-        status_dot(ui, av, status, BG_SECONDARY_ALT);
+        status_dot(ui, av, status, pal().bg_secondary_alt);
         ui.vertical(|ui| {
             ui.add_space(8.0);
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
-            text::label(ui, &name, semi(14.0), HEADER_PRIMARY, Sense::hover());
+            text::label(ui, &name, semi(14.0), pal().header_primary, Sense::hover());
             let sub = match app.conn {
+                crate::net::Conn::Online if app.settings.hiding_personal() => "Streamer Mode".into(),
                 crate::net::Conn::Online => user.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
                 crate::net::Conn::Connecting => "Connecting…".into(),
                 crate::net::Conn::Resuming => "Reconnecting…".into(),
                 crate::net::Conn::Offline => "Offline".into(),
             };
-            ui.add(egui::Label::new(egui::RichText::new(sub).font(reg(12.0)).color(HEADER_SECONDARY)).truncate().selectable(false));
+            ui.add(egui::Label::new(egui::RichText::new(sub).font(reg(12.0)).color(pal().header_secondary)).truncate().selectable(false));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;

@@ -26,9 +26,9 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             match &mut app.post {
                 None => {
                     ui.horizontal(|ui| {
-                        Frame::new().fill(BG_TERTIARY).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
+                        Frame::new().fill(pal().bg_tertiary).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
                             ui.set_width(ui.available_width() - 130.0);
-                            ui.label(RichText::new("Search or create a post…").color(TEXT_MUTED));
+                            ui.label(RichText::new("Search or create a post…").color(pal().text_muted));
                         });
                         if button(ui, "New Post", BLURPLE, 110.0).clicked() {
                             app.post = Some((String::new(), String::new()));
@@ -36,7 +36,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                     });
                 }
                 Some((title, body)) => {
-                    Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(16).show(ui, |ui| {
+                    Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.add(
                             egui::TextEdit::singleline(title)
@@ -46,7 +46,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                                 .desired_width(ui.available_width()),
                         );
                         ui.add_space(6.0);
-                        Frame::new().fill(BG_INPUT).corner_radius(8).inner_margin(12).show(ui, |ui| {
+                        Frame::new().fill(pal().bg_input).corner_radius(8).inner_margin(12).show(ui, |ui| {
                             ui.add(
                                 egui::TextEdit::multiline(body)
                                     .frame(Frame::NONE)
@@ -59,10 +59,10 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                         ui.add_space(6.0);
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let ok = !title.trim().is_empty() && !body.trim().is_empty();
-                            if button(ui, "Post", if ok { BLURPLE } else { BG_ACCENT }, 90.0).clicked() && ok {
+                            if button(ui, "Post", if ok { BLURPLE } else { pal().bg_accent }, 90.0).clicked() && ok {
                                 submit = Some((title.trim().to_string(), body.trim().to_string()));
                             }
-                            if ui.add(egui::Label::new(RichText::new("Cancel").color(HEADER_PRIMARY)).sense(Sense::click())).clicked() {
+                            if ui.add(egui::Label::new(RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click())).clicked() {
                                 submit = Some((String::new(), String::new()));
                             }
                         });
@@ -73,14 +73,14 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
 
             let posts = app.store.forum_posts.get(&forum.id).cloned();
             let Some(posts) = posts else {
-                ui.add(egui::Spinner::new().color(TEXT_MUTED));
+                ui.add(egui::Spinner::new().color(pal().text_muted));
                 return;
             };
             if posts.is_empty() {
                 ui.add_space(40.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("There are no posts yet").font(bold(20.0)).color(HEADER_PRIMARY));
-                    ui.label(RichText::new("Be the first to start a conversation.").color(HEADER_SECONDARY));
+                    ui.label(RichText::new("There are no posts yet").font(bold(20.0)).color(pal().header_primary));
+                    ui.label(RichText::new("Be the first to start a conversation.").color(pal().header_secondary));
                 });
             }
             for pid in posts {
@@ -105,7 +105,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
 
 fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response {
     let first = app.store.refs.get(&p.id);
-    let r = Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(16).show(ui, |ui| {
+    let r = Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 6.0;
         let tags: Vec<_> = p.applied.iter().filter_map(|t| forum.tags.iter().find(|x| x.id == *t)).collect();
@@ -117,20 +117,20 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
                         Some(e) => format!("{e} {}", t.name),
                         None => t.name.clone(),
                     };
-                    Frame::new().fill(BG_MOD_HOVER).corner_radius(8).inner_margin(Margin::symmetric(8, 2)).show(ui, |ui| {
-                        ui.label(RichText::new(text).font(semi(12.0)).color(HEADER_PRIMARY));
+                    Frame::new().fill(pal().bg_mod_hover).corner_radius(8).inner_margin(Margin::symmetric(8, 2)).show(ui, |ui| {
+                        ui.label(RichText::new(text).font(semi(12.0)).color(pal().header_primary));
                     });
                 }
             });
         }
-        super::text::label(ui, &p.name, semi(16.0), HEADER_PRIMARY, Sense::hover());
+        super::text::label(ui, &p.name, semi(16.0), pal().header_primary, Sense::hover());
         if let Some(m) = first {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                let color = app.store.role_color(p.guild, m.author).map(role_color).unwrap_or(HEADER_PRIMARY);
+                let color = app.store.role_color(p.guild, m.author).map(role_color).unwrap_or(pal().header_primary);
                 ui.label(RichText::new(format!("{}:", app.store.name_in(p.guild, m.author))).font(semi(14.0)).color(color));
                 let excerpt: String = m.content.replace('\n', " ").chars().take(160).collect();
-                ui.add(egui::Label::new(RichText::new(excerpt).font(reg(14.0)).color(HEADER_SECONDARY)).truncate());
+                ui.add(egui::Label::new(RichText::new(excerpt).font(reg(14.0)).color(pal().header_secondary)).truncate());
             });
             if let Some(a) = m.attachments.iter().find(|a| a.is_image()) {
                 let (r, _) = ui.allocate_exact_size(vec2(96.0, 72.0), Sense::hover());
@@ -146,15 +146,15 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
                 avatar(ui, r, &u.avatar_url());
             }
             let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-            super::icons::draw(ui.painter(), super::icons::Icon::Bubble, r, HEADER_SECONDARY);
-            ui.label(RichText::new(p.msg_count.to_string()).font(reg(13.0)).color(HEADER_SECONDARY));
-            ui.label(RichText::new("•").color(TEXT_MUTED));
-            ui.label(RichText::new(ago(p.last_msg.max(p.id))).font(reg(13.0)).color(HEADER_SECONDARY));
+            super::icons::draw(ui.painter(), super::icons::Icon::Bubble, r, pal().header_secondary);
+            ui.label(RichText::new(p.msg_count.to_string()).font(reg(13.0)).color(pal().header_secondary));
+            ui.label(RichText::new("•").color(pal().text_muted));
+            ui.label(RichText::new(ago(p.last_msg.max(p.id))).font(reg(13.0)).color(pal().header_secondary));
         });
     });
     let resp = r.response.interact(Sense::click());
     if resp.hovered() {
-        ui.painter().rect_stroke(resp.rect, CornerRadius::same(8), egui::Stroke::new(1.0, BG_ACCENT), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(resp.rect, CornerRadius::same(8), egui::Stroke::new(1.0, pal().bg_accent), egui::StrokeKind::Inside);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp

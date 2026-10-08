@@ -13,6 +13,18 @@ fn env_or(key: &str, def: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| def.to_string())
 }
 
+static LOCALE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+pub fn set_locale(l: &str) {
+    if let Ok(mut s) = LOCALE.write() {
+        *s = l.to_string();
+    }
+}
+
+fn locale() -> String {
+    LOCALE.read().ok().map(|s| s.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| "en-US".into())
+}
+
 pub fn base() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
     V.get_or_init(|| env_or("FASTCORD_API", "https://discord.com/api/v9"))
@@ -92,7 +104,7 @@ impl Api {
             .http
             .request(m, format!("{}{}", base(), path))
             .header("X-Super-Properties", super_props())
-            .header("X-Discord-Locale", "en-US")
+            .header("X-Discord-Locale", locale())
             .header("X-Discord-Timezone", "UTC");
         if !self.token.is_empty() {
             r = r.header("Authorization", &self.token);
