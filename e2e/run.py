@@ -217,8 +217,8 @@ def main():
                               ("the friends page is a history entry", "nav_friends"),
                               ("inbox listed the mentions", "inbox_listed"), ("clicking a mention jumped to it", "inbox_jump"),
                               ("double click on the bar maximized the window", "maximize"), ("the maximize button restored it", "restore")]},
-        "title bar: 30pt tall, flush with the top of the window": all(
-            r.get("rects", {}).get("title_bar", [0, 1, 0, 0])[1] == 0 and abs(r.get("rects", {}).get("title_bar", [0, 0, 0, 0])[3] - 30) < 0.5 for r in (cold, warm)),
+        "title bar: 32pt tall like discord's top bar, flush with the top of the window": all(
+            r.get("rects", {}).get("title_bar", [0, 1, 0, 0])[1] == 0 and abs(r.get("rects", {}).get("title_bar", [0, 0, 0, 0])[3] - 32) < 0.5 for r in (cold, warm)),
         "title bar: every edge and corner answers WM_NCHITTEST with its resize zone": all(
             r.get("rects", {}).get("edge_hits") == [10, 11, 12, 15, 13, 14, 16, 17, 1] for r in (cold, warm)),
         "title bar: inbox fetched /users/@me/mentions": sum("/users/@me/mentions?limit=25&roles=true&everyone=true" in r.get("path", "") for r in reqs) == 2,
@@ -284,12 +284,12 @@ def main():
             bool(gw(20)) and any(i.get("server_id") == "5001" for i in idents)
             and sum(1 for r in vbin if r.get("server") == "watch_stream" and r.get("alice_welcomed")) >= 2,
         "rtcp: client asked for keyframes with PLI": any(r.get("rtcp") == 206 and r.get("fmt") == 1 for r in reqs),
-        "layout: dragging the channel list edge widened it by ~60 and the chat column reflowed (both runs)":
-            all(lay(r, "side_dragged") - lay(r, "side_start") > 50 and lay(r, "chat_after_side") < lay(r, "chat_start") - 50 for r in (cold, warm)),
+        "layout: dragging the channel list edge narrowed it by ~50 and the chat column reflowed (both runs)":
+            all(lay(r, "side_start") - lay(r, "side_dragged") > 40 and lay(r, "chat_after_side") > lay(r, "chat_start") + 40 for r in (cold, warm)),
         "layout: dragging the member list edge left widened it and the chat column reflowed again (both runs)":
             all(lay(r, "members_dragged") - lay(r, "members_start") > 30 and lay(r, "chat_after_members") < lay(r, "chat_after_side") - 30 for r in (cold, warm)),
-        "layout: dragging the channel list far past its limit stops at 480 and leaves the chat column >= 400 (both runs)":
-            all(lay(r, "side_max") <= 480.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
+        "layout: dragging the channel list far past its limit stops at discord's 359 and leaves the chat column >= 400 (both runs)":
+            all(lay(r, "side_max") <= 359.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
         "layout: warm run starts with the panel widths the cold run left":
             abs(lay(warm, "side_start") - lay(cold, "side_end")) < 1 and abs(lay(warm, "members_start") - lay(cold, "members_dragged")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,

@@ -31,7 +31,7 @@ fn backdrop(ui: &Ui) {
 }
 
 fn field(ui: &mut Ui, label: &str, value: &mut String, password: bool) -> egui::Response {
-    ui.label(RichText::new(label).font(bold(12.0)).color(pal().header_secondary));
+    ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
     ui.add_space(8.0);
     let r = Frame::new()
         .fill(pal().bg_tertiary)
@@ -80,15 +80,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.add_space(20.0);
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if f.mfa.is_some() {
-                    let r = field(ui, "ENTER DISCORD AUTH CODE", &mut f.code, false);
+                    let r = field(ui, "Enter Discord Auth Code", &mut f.code, false);
                     if !r.has_focus() && f.code.is_empty() {
                         r.request_focus();
                     }
                 } else if f.use_token {
-                    field(ui, "TOKEN", &mut f.token, true);
+                    field(ui, "Token", &mut f.token, true);
                 } else {
-                    field(ui, "EMAIL OR PHONE NUMBER", &mut f.login, false);
-                    field(ui, "PASSWORD", &mut f.password, true);
+                    field(ui, "Email or Phone Number", &mut f.login, false);
+                    field(ui, "Password", &mut f.password, true);
                 }
                 if let Some(e) = &f.err {
                     ui.label(RichText::new(e).font(reg(14.0)).color(RED));

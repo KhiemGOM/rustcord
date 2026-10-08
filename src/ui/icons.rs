@@ -46,6 +46,7 @@ pub enum Icon {
     Minimize,
     Maximize,
     Restore,
+    PersonAdd,
 }
 
 struct G<'a> {
@@ -226,6 +227,12 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             g.arc(12.0, 13.0, 8.0, PI, TAU, 2.0);
             g.rect(3.0, 13.0, 8.0, 20.5, 2.0);
             g.rect(16.0, 13.0, 21.0, 20.5, 2.0);
+        }
+        Icon::PersonAdd => {
+            g.circle(10.0, 8.0, 4.0);
+            g.half_disc(10.0, 20.5, 7.0);
+            g.line(&[(19.0, 4.0), (19.0, 12.0)], 2.0);
+            g.line(&[(15.0, 8.0), (23.0, 8.0)], 2.0);
         }
         Icon::Plus => {
             g.line(&[(12.0, 5.0), (12.0, 19.0)], 2.5);

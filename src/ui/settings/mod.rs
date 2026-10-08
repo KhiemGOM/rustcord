@@ -50,7 +50,7 @@ enum Item {
 }
 
 const SIDEBAR: &[Item] = &[
-    Item::Header("USER SETTINGS"),
+    Item::Header("User Settings"),
     Item::Page(Page::Account, "My Account"),
     Item::Page(Page::Profiles, "Profiles"),
     Item::Page(Page::Content, "Content & Social"),
@@ -60,13 +60,13 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Devices, "Devices"),
     Item::Page(Page::Connections, "Connections"),
     Item::Gap,
-    Item::Header("BILLING SETTINGS"),
+    Item::Header("Billing Settings"),
     Item::Page(Page::Nitro, "Nitro"),
     Item::Page(Page::Subscriptions, "Subscriptions"),
     Item::Page(Page::Gifts, "Gift Inventory"),
     Item::Page(Page::Billing, "Billing"),
     Item::Gap,
-    Item::Header("APP SETTINGS"),
+    Item::Header("App Settings"),
     Item::Page(Page::Appearance, "Appearance"),
     Item::Page(Page::Accessibility, "Accessibility"),
     Item::Page(Page::Voice, "Voice & Video"),
@@ -78,7 +78,7 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Streamer, "Streamer Mode"),
     Item::Page(Page::Advanced, "Advanced"),
     Item::Gap,
-    Item::Header("ACTIVITY SETTINGS"),
+    Item::Header("Activity Settings"),
     Item::Page(Page::Activity, "Activity Privacy"),
     Item::Gap,
     Item::Page(Page::HypeSquad, "HypeSquad"),
@@ -132,7 +132,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     match item {
                         Item::Header(h) if q.is_empty() => {
                             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-                            ui.painter().text(pos2(x + 10.0, r.center().y + 4.0), Align2::LEFT_CENTER, *h, bold(12.0), pal().channel_default);
+                            ui.painter().text(pos2(x + 10.0, r.center().y + 4.0), Align2::LEFT_CENTER, *h, medium(14.0), pal().channel_default);
                         }
                         Item::Gap if q.is_empty() => {
                             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 17.0), Sense::hover());
@@ -293,13 +293,13 @@ pub fn mark(ui: &Ui, key: &str, r: Rect) {
 // widgets every page is built from
 
 pub fn title(ui: &mut Ui, s: &str) {
-    ui.label(RichText::new(s).font(bold(20.0)).color(pal().header_primary));
+    ui.label(RichText::new(s).font(semi(20.0)).color(pal().header_primary));
     ui.add_space(12.0);
 }
 
 pub fn h5(ui: &mut Ui, s: &str) {
     ui.add_space(4.0);
-    ui.label(RichText::new(s.to_uppercase()).font(bold(12.0)).color(pal().header_secondary));
+    ui.label(RichText::new(s).font(medium(14.0)).color(pal().header_secondary));
     ui.add_space(4.0);
 }
 

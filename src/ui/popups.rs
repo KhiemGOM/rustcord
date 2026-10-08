@@ -196,6 +196,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
 pub fn show(app: &mut App, ctx: &egui::Context) {
     gifs(app, ctx);
     invite(app, ctx);
+    made_invite(app, ctx);
     switcher(app, ctx);
     profile(app, ctx);
     pins(app, ctx);
@@ -214,12 +215,12 @@ fn invite(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_width(440.0);
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new("Join a Server").font(bold(24.0)).color(pal().header_primary));
+                ui.label(RichText::new("Join a Server").font(semi(24.0)).color(pal().header_primary));
                 ui.add_space(8.0);
                 ui.label(RichText::new("Enter an invite below to join an existing server").color(pal().header_secondary));
             });
             ui.add_space(16.0);
-            ui.label(RichText::new("INVITE pal().link").font(bold(12.0)).color(pal().header_secondary));
+            ui.label(RichText::new("Invite Link").font(medium(14.0)).color(pal().header_secondary));
             ui.add_space(8.0);
             input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
                 let r = ui.add(
@@ -249,6 +250,39 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     }
     if close || modal.should_close() {
         app.invite = None;
+    }
+}
+
+/// Discord's "Invite friends" dialog, the link half: the code it made, a copy button, the expiry.
+fn made_invite(app: &mut App, ctx: &egui::Context) {
+    let Some((ch, code)) = &app.made_invite else { return };
+    let server = app.store.channels.get(ch).and_then(|c| app.store.guilds.get(&c.guild)).map(|g| g.name.clone()).unwrap_or_default();
+    let link = code.as_ref().map(|c| format!("https://discord.gg/{c}"));
+    let mut copy = false;
+    let modal = egui::Modal::new("made_invite".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
+        .show(ctx, |ui| {
+            ui.set_width(440.0);
+            ui.label(RichText::new(format!("Invite friends to {server}")).font(semi(20.0)).color(pal().header_primary));
+            ui.add_space(16.0);
+            ui.label(RichText::new("Send a server invite link to a friend").font(medium(14.0)).color(pal().header_secondary));
+            ui.add_space(8.0);
+            input_frame().corner_radius(8).inner_margin(egui::Margin { left: 10, right: 4, top: 4, bottom: 4 }).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let shown = link.clone().unwrap_or_else(|| "Generating link…".into());
+                    ui.add_sized(vec2(ui.available_width() - 84.0, 32.0), egui::Label::new(RichText::new(shown).color(pal().header_primary)).truncate());
+                    copy = link.is_some() && button(ui, "Copy", BLURPLE, 76.0).clicked();
+                });
+            });
+            ui.add_space(8.0);
+            ui.label(RichText::new("Your invite link expires in 7 days.").font(reg(12.0)).color(pal().text_muted));
+        });
+    if copy && let Some(l) = link {
+        ctx.copy_text(l);
+        app.toast("Invite link copied.");
+    }
+    if modal.should_close() {
+        app.made_invite = None;
     }
 }
 
@@ -398,23 +432,23 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(48.0);
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    text::label(ui, &name, bold(20.0), pal().header_primary, Sense::hover());
+                    text::label(ui, &name, semi(20.0), pal().header_primary, Sense::hover());
                     ui.label(RichText::new(&user.username).font(reg(14.0)).color(pal().header_primary));
                     ui.add_space(8.0);
                     Frame::new().fill(pal().bg_secondary_alt).corner_radius(8).inner_margin(12).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.spacing_mut().item_spacing.y = 4.0;
                         if !bio.is_empty() {
-                            ui.label(RichText::new("ABOUT ME").font(bold(12.0)).color(pal().header_primary));
+                            ui.label(RichText::new("About Me").font(medium(14.0)).color(pal().header_primary));
                             ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().text_normal));
                             ui.add_space(8.0);
                         }
-                        ui.label(RichText::new("DISCORD MEMBER SINCE").font(bold(12.0)).color(pal().header_primary));
+                        ui.label(RichText::new("Member Since").font(medium(14.0)).color(pal().header_primary));
                         let since = chrono::DateTime::from_timestamp_millis(snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
                         ui.label(RichText::new(since).font(reg(14.0)).color(pal().text_normal));
                         if !roles.is_empty() {
                             ui.add_space(8.0);
-                            ui.label(RichText::new(if roles.len() == 1 { "ROLE" } else { "ROLES" }).font(bold(12.0)).color(pal().header_primary));
+                            ui.label(RichText::new(if roles.len() == 1 { "Role" } else { "Roles" }).font(medium(14.0)).color(pal().header_primary));
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                                 for (r, c) in &roles {
@@ -462,7 +496,7 @@ fn pins(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(420.0);
                 Frame::new().fill(pal().bg_tertiary).corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }).inner_margin(16).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Pinned Messages").font(bold(16.0)).color(pal().header_primary));
+                    ui.label(RichText::new("Pinned Messages").font(semi(16.0)).color(pal().header_primary));
                 });
                 egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
                     Frame::new().inner_margin(12).show(ui, |ui| {
@@ -559,7 +593,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
     let mut open = None;
     egui::Popup::menu(button).show(|ui| {
         ui.set_width(320.0);
-        ui.label(RichText::new("Threads").font(bold(16.0)).color(pal().header_primary));
+        ui.label(RichText::new("Threads").font(semi(16.0)).color(pal().header_primary));
         ui.add_space(8.0);
         let mut list: Vec<_> = app
             .store

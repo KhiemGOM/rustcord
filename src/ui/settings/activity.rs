@@ -57,7 +57,7 @@ pub fn hypesquad(app: &mut App, ui: &mut Ui) -> bool {
                 crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Gem, egui::Rect::from_center_size(r.center(), vec2(28.0, 28.0)), Color32::WHITE);
                 ui.add_space(8.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new(*name).font(bold(18.0)).color(pal().header_primary));
+                    ui.label(RichText::new(*name).font(semi(18.0)).color(pal().header_primary));
                 });
                 ui.label(RichText::new(*blurb).font(reg(13.0)).color(pal().header_secondary));
                 ui.add_space(8.0);

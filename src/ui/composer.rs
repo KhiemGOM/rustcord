@@ -196,7 +196,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         ui.add_space(8.0);
                         // the "@ ON" toggle: whether the reply pings its author
                         let (label, col) = if app.reply_ping { ("@ ON", pal().link) } else { ("@ OFF", pal().header_secondary) };
-                        let r = ui.add(egui::Label::new(RichText::new(label).font(bold(12.0)).color(col)).sense(Sense::click()));
+                        let r = ui.add(egui::Label::new(RichText::new(label).font(medium(14.0)).color(col)).sense(Sense::click()));
                         app.rects.insert("ping_toggle".into(), r.rect);
                         if r.on_hover_text("Click to toggle mentioning the author").clicked() {
                             app.reply_ping = !app.reply_ping;
@@ -286,6 +286,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let before = draft_now.len();
     let r = Frame::new()
         .fill(pal().bg_input)
+        .stroke(Stroke::new(1.0, pal().border_subtle))
         .corner_radius(CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -308,13 +309,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.painter().hline(sep.x_range(), sep.center().y, Stroke::new(1.0, pal().bg_accent.gamma_multiply(0.5)));
             }
             Frame::new().inner_margin(Margin { left: 16, right: 10, top: 0, bottom: 0 }).show(ui, |ui| {
-                ui.set_min_height(44.0);
+                // discord's 56px text area, its 22px line centred
+                ui.set_min_height(56.0);
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 44.0), Sense::click());
+                    let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
                     let col = if presp.hovered() { pal().header_primary } else { pal().header_secondary };
-                    ui.painter().circle_filled(pr.center(), 12.0, col);
-                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(16.0, 16.0)), pal().bg_input);
+                    ui.painter().circle_filled(pr.center(), 10.0, col);
+                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(12.0, 12.0)), pal().bg_input);
                     if presp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -328,7 +330,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt("composer_scroll").show(ui, |ui| {
                         // the row is horizontal; padding above and below the text has to be vertical
                         ui.vertical(|ui| {
-                            ui.add_space(11.0);
+                            ui.add_space(17.0);
                             let out = egui::TextEdit::multiline(draft)
                                 .id(tid)
                                 .frame(Frame::NONE)
@@ -344,14 +346,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             if colon {
                                 colon_at = out.cursor_range.map(|r| r.primary.index.0);
                             }
-                            ui.add_space(11.0);
+                            ui.add_space(17.0);
                         });
                     });
                     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                        let (er, eresp) = ui.allocate_exact_size(vec2(36.0, 44.0), Sense::click());
+                        let (er, eresp) = ui.allocate_exact_size(vec2(36.0, 56.0), Sense::click());
                         let col = if eresp.hovered() { pal().interactive_hover } else { pal().header_secondary };
-                        icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(er.center(), vec2(24.0, 24.0)), col);
+                        icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(er.center(), vec2(20.0, 20.0)), col);
                         if eresp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
@@ -359,18 +361,18 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             emoji_at = Some(er.left_top());
                         }
                         if app.settings.send_button {
-                            let (sr, sresp) = ui.allocate_exact_size(vec2(36.0, 44.0), Sense::click());
+                            let (sr, sresp) = ui.allocate_exact_size(vec2(36.0, 56.0), Sense::click());
                             let col = if sresp.hovered() { BLURPLE } else { pal().header_secondary };
                             icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(22.0, 22.0)), col);
                             if sresp.on_hover_text("Send Message").clicked() {
                                 send_click = true;
                             }
                         }
-                        let (gr, gresp) = ui.allocate_exact_size(vec2(40.0, 44.0), Sense::click());
+                        let (gr, gresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
                         let col = if gresp.hovered() { pal().interactive_hover } else { pal().header_secondary };
                         let badge = Rect::from_center_size(gr.center(), vec2(28.0, 20.0));
                         ui.painter().rect_stroke(badge, CornerRadius::same(4), Stroke::new(2.0, col), egui::StrokeKind::Inside);
-                        ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", bold(11.0), col);
+                        ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", semi(11.0), col);
                         gif_rect = Some(gr);
                         if gresp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -457,7 +459,7 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
             .paint_at(ui, thumb);
         if f.spoiler {
             p.rect_filled(thumb, CornerRadius::same(3), Color32::from_black_alpha(230));
-            p.text(thumb.center(), Align2::CENTER_CENTER, "SPOILER", bold(14.0), Color32::WHITE);
+            p.text(thumb.center(), Align2::CENTER_CENTER, "SPOILER", semi(14.0), Color32::WHITE);
         }
     } else {
         icons::draw(p, Icon::File, Rect::from_center_size(thumb.center(), vec2(72.0, 72.0)), BLURPLE);
@@ -485,10 +487,10 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
 fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], composer: Rect, kind: char) -> Option<usize> {
     let mut picked = None;
     let title = match kind {
-        '@' => "MEMBERS".to_string(),
-        '#' => "TEXT CHANNELS".to_string(),
-        ':' => "EMOJI MATCHING".to_string(),
-        _ => "COMMANDS".to_string(),
+        '@' => "Members".to_string(),
+        '#' => "Text Channels".to_string(),
+        ':' => "Emoji Matching".to_string(),
+        _ => "Commands".to_string(),
     };
     let row_h = if kind == '/' { 52.0 } else { 34.0 };
     egui::Area::new(egui::Id::new("autocomplete"))
@@ -500,7 +502,7 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
                 ui.set_width(composer.width() - 16.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-                ui.painter().text(pos2(hr.left() + 8.0, hr.center().y), Align2::LEFT_CENTER, title, bold(12.0), pal().header_secondary);
+                ui.painter().text(pos2(hr.left() + 8.0, hr.center().y), Align2::LEFT_CENTER, title, medium(14.0), pal().header_secondary);
                 // the area only offers the space below the composer, so the list has to ask for its height
                 let list_h = row_h * items.len().min(10) as f32;
                 egui::ScrollArea::vertical().min_scrolled_height(list_h).max_height(list_h).show(ui, |ui| {

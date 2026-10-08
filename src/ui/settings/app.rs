@@ -280,7 +280,7 @@ pub fn keybinds(app: &mut App, ui: &mut Ui) -> bool {
         let recording = app.sform.recording == Some(i);
         card(ui, |ui| {
             ui.columns(2, |cols| {
-                cols[0].label(RichText::new("ACTION").font(bold(12.0)).color(pal().header_secondary));
+                cols[0].label(RichText::new("Action").font(medium(14.0)).color(pal().header_secondary));
                 let (action, keys) = &mut app.settings.keybinds[i];
                 let shown = ACTIONS.iter().find(|a| a.0 == action).map(|a| a.1).unwrap_or("Push to Talk");
                 egui::ComboBox::from_id_salt(("kb_action", i)).width(cols[0].available_width() - 8.0).selected_text(shown).show_ui(&mut cols[0], |ui| {
@@ -291,7 +291,7 @@ pub fn keybinds(app: &mut App, ui: &mut Ui) -> bool {
                         }
                     }
                 });
-                cols[1].label(RichText::new("KEYBIND").font(bold(12.0)).color(pal().header_secondary));
+                cols[1].label(RichText::new("Keybind").font(medium(14.0)).color(pal().header_secondary));
                 let shown = if recording { combo(&app.sform.rec_keys) } else { combo(keys) };
                 let (r, _) = cols[1].allocate_exact_size(vec2(cols[1].available_width(), 40.0), Sense::hover());
                 let stroke = if recording { RED } else { pal().border_normal };
@@ -340,7 +340,7 @@ pub fn keybinds(app: &mut App, ui: &mut Ui) -> bool {
             ui.label(RichText::new(what).font(reg(15.0)).color(pal().text_normal));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 input_frame().corner_radius(4).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
-                    ui.label(RichText::new(keys).font(bold(12.0)).color(pal().header_secondary));
+                    ui.label(RichText::new(keys).font(semi(12.0)).color(pal().header_secondary));
                 });
             });
         });

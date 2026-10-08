@@ -9,7 +9,7 @@ use crate::net::Tag;
 use crate::state::{Id, Message, Store};
 use crate::theme::*;
 
-pub const HEIGHT: f32 = 30.0;
+pub const HEIGHT: f32 = 32.0;
 
 // --interactive-background-hover and --border-subtle, which the palette doesn't carry
 const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 31);
@@ -343,7 +343,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                             icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
-                            ui.label(RichText::new("Inbox").font(bold(16.0)).color(pal().header_primary));
+                            ui.label(RichText::new("Inbox").font(semi(16.0)).color(pal().header_primary));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 if tab(ui, app, "mentions", "Mentions", !unreads) {
                                     switch = Some(false);

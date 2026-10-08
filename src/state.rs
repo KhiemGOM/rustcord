@@ -44,6 +44,7 @@ pub fn make_nonce() -> String {
     ((ms as u64) << 22).to_string()
 }
 
+pub const CREATE_INVITE: u64 = 1;
 pub const VIEW_CHANNEL: u64 = 1 << 10;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
@@ -643,6 +644,8 @@ pub struct Store {
     #[serde(skip)]
     pub account: crate::proto::Account,
     #[serde(default)]
+    pub custom_status: Option<String>,
+    #[serde(default)]
     pub relationships: HashMap<Id, u8>,
     #[serde(default)]
     pub email: Option<String>,
@@ -1059,6 +1062,7 @@ impl Store {
             if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(b64) {
                 folders = crate::proto::guild_folders(&raw);
                 self.account = crate::proto::account(&raw, true);
+                self.custom_status = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten();
             }
         }
         if folders.is_empty() {
@@ -1512,6 +1516,9 @@ impl Store {
                 if let Some(raw) = raw {
                     let full = d["partial"].as_bool() == Some(false);
                     self.account.merge(crate::proto::account(&raw, full));
+                    if let Some(c) = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64) {
+                        self.custom_status = c;
+                    }
                 }
             }
             _ => {}

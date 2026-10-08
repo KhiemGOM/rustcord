@@ -42,6 +42,7 @@ pub enum Tag {
     Profile(Id),
     Forum(Id),
     Invite,
+    MadeInvite,
     OpenDm,
     Friend,
     Commands(Id),

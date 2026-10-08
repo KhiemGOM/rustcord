@@ -124,7 +124,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let ctx = ui.ctx().clone();
     let room = ui.available_width();
-    let members_w = if app.ui.members_w > 0.0 { app.ui.members_w } else { 240.0 };
+    let members_w = if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
     if app.search.is_some() {
         let search_w = if app.ui.search_w > 0.0 { app.ui.search_w } else { 420.0 };
         let r = egui::Panel::right("search")
@@ -134,7 +134,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::popups::search_panel(app, ui));
-        app.ui.search_w = app.dragged(&ctx, r.response.rect.width(), search_w);
+        if let Some(w) = app.dragged(&ctx, r.response.rect.width(), search_w) {
+            app.ui.search_w = w;
+        }
     } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() && room >= members_w + 420.0 {
         let r = egui::Panel::right("members")
             .default_size(members_w)
@@ -143,7 +145,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::members::show(app, ui, chan.guild));
-        app.ui.members_w = app.dragged(&ctx, r.response.rect.width(), members_w);
+        if let Some(w) = app.dragged(&ctx, r.response.rect.width(), members_w) {
+            app.ui.members_w = w;
+        }
     }
     if chan.is_forum() {
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| super::forum::show(app, ui, &chan));
@@ -153,7 +157,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         egui::Panel::bottom("composer")
             .resizable(false)
             .show_separator_line(false)
-            .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 0 }))
+            .frame(Frame::new().inner_margin(Margin { left: 8, right: 8, top: 0, bottom: 0 }))
             .show(ui, |ui| super::composer::show(app, ui, &chan));
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| messages(app, ui, &chan));
     });
@@ -161,13 +165,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
     egui::Panel::top("chat_head")
-        .exact_size(48.0)
+        .exact_size(49.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_secondary).inner_margin(Margin::symmetric(16, 0)))
+        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().border_muted));
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
                 let glyph = |ui: &mut Ui, icon: Icon| {
@@ -367,7 +371,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         ui.add_space(12.0);
         if to_bottom {
-            ui.scroll_to_cursor(Some(Align::BOTTOM));
+            // instant: images still loading above would bend a smooth scroll through the anchor fix
+            ui.scroll_to_cursor_animation(Some(Align::BOTTOM), egui::style::ScrollAnimation::none());
         }
     });
 
@@ -377,7 +382,15 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let offset = out.state.offset.y;
     app.offsets.insert(ch, offset);
     let at_bottom = offset + out.inner_rect.height() >= out.content_size.y - 4.0;
-    if anchor.abs() > 0.5 && !at_bottom {
+    // a message arriving grows the content in the same frame something above may change height;
+    // if the list was at the bottom it should stay there, not hold the old spot
+    let was_bottom = to_bottom || app.pinned.contains(&ch);
+    if at_bottom {
+        app.pinned.insert(ch);
+    } else {
+        app.pinned.remove(&ch);
+    }
+    if anchor.abs() > 0.5 && !at_bottom && !was_bottom {
         app.scroll_fix = Some((ch, offset + anchor));
         ui.ctx().request_discard("scroll anchor");
     }
@@ -544,7 +557,7 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) {
                 let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
                 avatar(ui, r, &u.avatar_url());
                 ui.add_space(8.0);
-                ui.label(RichText::new(&title).font(bold(32.0)).color(pal().header_primary));
+                ui.label(RichText::new(&title).font(semi(32.0)).color(pal().header_primary));
                 ui.label(RichText::new(&u.username).font(reg(20.0)).color(pal().header_primary));
                 ui.add_space(8.0);
                 ui.label(
@@ -557,7 +570,7 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) {
             ui.painter().circle_filled(r.center(), 34.0, pal().bg_accent);
             ui.painter().text(r.center(), Align2::CENTER_CENTER, "#", reg(44.0), Color32::WHITE);
             ui.add_space(8.0);
-            ui.label(RichText::new(format!("Welcome to #{title}!")).font(bold(32.0)).color(pal().header_primary));
+            ui.label(RichText::new(format!("Welcome to #{title}!")).font(semi(32.0)).color(pal().header_primary));
             ui.add_space(4.0);
             ui.label(RichText::new(format!("This is the start of the #{title} channel.")).color(pal().header_secondary));
         }

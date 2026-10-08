@@ -153,15 +153,21 @@ fn toggle(ui: &mut Ui, icon: Icon, on: bool, size: f32, tip: &str) -> egui::Resp
 pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     let deaf = app.voice.deaf;
     let mute = app.voice.mute || deaf;
+    // laid out right to left: each chevron sits after its button
+    let mut changed = device_menu(ui, "Output Device", true, &mut app.settings.speaker);
     let d = toggle(ui, Icon::Headphones, deaf, 32.0, if deaf { "Undeafen" } else { "Deafen" });
     app.rects.insert("voice:deafen".into(), d.rect);
     if d.clicked() {
         app.voice.set_deaf(&app.net, !deaf);
     }
+    changed |= device_menu(ui, "Input Device", false, &mut app.settings.mic);
     let m = toggle(ui, Icon::Mic, mute, 32.0, if mute { "Unmute" } else { "Mute" });
     app.rects.insert("voice:mute".into(), m.rect);
     if m.clicked() {
         app.voice.set_mute(&app.net, !mute);
+    }
+    if changed {
+        app.save_settings(ui.ctx());
     }
 }
 
@@ -209,7 +215,7 @@ fn frame(app: &mut App, ui: &Ui, key: String, img: &Arc<ColorImage>, r: Rect) {
 }
 
 fn live_badge(ui: &Ui, right_top: egui::Pos2) {
-    let g = ui.painter().layout_no_wrap("LIVE".into(), bold(11.0), Color32::WHITE);
+    let g = ui.painter().layout_no_wrap("LIVE".into(), semi(11.0), Color32::WHITE);
     let r = Rect::from_min_size(pos2(right_top.x - g.size().x - 12.0, right_top.y), g.size() + vec2(12.0, 4.0));
     ui.painter().rect_filled(r, CornerRadius::same(8), RED);
     ui.painter().galley(r.min + vec2(6.0, 2.0), g, Color32::WHITE);
@@ -286,7 +292,9 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 64.0), r.max), "Join Call");
         });
-    app.ui.dm_call_h = app.dragged(&ctx, r.response.rect.height(), h);
+    if let Some(h) = app.dragged(&ctx, r.response.rect.height(), h) {
+        app.ui.dm_call_h = h;
+    }
 }
 
 // a live user's tile or avatar starts watching their stream when clicked
@@ -352,7 +360,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         let members = app.voice.members(&app.store, chan.id);
         let mut area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 80.0));
         if members.is_empty() {
-            ui.painter().text(area.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, &chan.name, bold(24.0), pal().header_primary);
+            ui.painter().text(area.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, &chan.name, semi(24.0), pal().header_primary);
             ui.painter().text(
                 area.center() + vec2(0.0, 16.0),
                 Align2::CENTER_CENTER,
@@ -504,42 +512,71 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
 
 type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;
 
-/// Voice & Video settings page. Returns true when a setting changed.
-pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
-    ui.label(RichText::new("Voice & Video").font(bold(20.0)).color(pal().header_primary));
-    ui.add_space(12.0);
-    // enumerating WASAPI endpoints takes a while, so it happens once, on a thread
+/// Input and output device names. Enumerating WASAPI endpoints takes a while, so it happens
+/// once, on a thread; empty until it lands.
+fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
     let key = egui::Id::new("voice_devices");
-    let devs: Devices = match ui.data(|d| d.get_temp::<Devices>(key)) {
+    let devs: Devices = match ctx.data(|d| d.get_temp::<Devices>(key)) {
         Some(d) => d,
         None => {
             let d: Devices = Arc::default();
-            let (out, ctx) = (d.clone(), ui.ctx().clone());
+            let (out, ctx2) = (d.clone(), ctx.clone());
             std::thread::spawn(move || {
                 let list = audio::devices();
                 if let Ok(mut o) = out.lock() {
                     *o = Some(list);
                 }
-                ctx.request_repaint();
+                ctx2.request_repaint();
             });
-            ui.data_mut(|m| m.insert_temp(key, d.clone()));
+            ctx.data_mut(|m| m.insert_temp(key, d.clone()));
             d
         }
     };
-    let (ins, outs) = devs.lock().ok().and_then(|d| d.clone()).unwrap_or_default();
+    devs.lock().ok().and_then(|d| d.clone()).unwrap_or_default()
+}
+
+/// The little chevron beside the panel's mic and headphones: a menu of devices to pick from.
+fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>) -> bool {
+    let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
+    let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(12.0, 12.0)), col);
+    let mut changed = false;
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(220.0);
+        ui.label(RichText::new(title).font(medium(14.0)).color(pal().header_secondary));
+        ui.add_space(4.0);
+        let (ins, outs) = devices(ui.ctx());
+        let names = if output { outs } else { ins };
+        for name in std::iter::once(None).chain(names.iter().map(Some)) {
+            let on = cur.as_ref() == name;
+            let label = name.map(String::as_str).unwrap_or("Default");
+            if ui.selectable_label(on, label).clicked() {
+                *cur = name.cloned();
+                changed = true;
+            }
+        }
+    });
+    changed
+}
+
+/// Voice & Video settings page. Returns true when a setting changed.
+pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
+    ui.label(RichText::new("Voice & Video").font(semi(20.0)).color(pal().header_primary));
+    ui.add_space(12.0);
+    let (ins, outs) = devices(ui.ctx());
     let s = &mut app.settings;
     let mut changed = false;
     let mut goto_keybinds = false;
     ui.columns(2, |cols| {
-        changed |= pick(&mut cols[0], "INPUT DEVICE", "mic_pick", &ins, &mut s.mic);
-        changed |= pick(&mut cols[1], "OUTPUT DEVICE", "speaker_pick", &outs, &mut s.speaker);
+        changed |= pick(&mut cols[0], "Input Device", "mic_pick", &ins, &mut s.mic);
+        changed |= pick(&mut cols[1], "Output Device", "speaker_pick", &outs, &mut s.speaker);
     });
     ui.label(RichText::new("Device changes apply the next time you join a call.").font(reg(14.0)).color(pal().header_secondary));
     ui.add_space(12.0);
     ui.columns(2, |cols| {
-        for (i, (label, v)) in [("INPUT VOLUME", &mut s.input_volume), ("OUTPUT VOLUME", &mut s.output_volume)].into_iter().enumerate() {
+        for (i, (label, v)) in [("Input Volume", &mut s.input_volume), ("Output Volume", &mut s.output_volume)].into_iter().enumerate() {
             let ui = &mut cols[i];
-            ui.label(RichText::new(label).font(bold(12.0)).color(pal().header_secondary));
+            ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
             let mut pct = *v * 100.0;
             ui.spacing_mut().slider_width = ui.available_width() - 60.0;
             if ui.add(egui::Slider::new(&mut pct, 0.0..=200.0).step_by(1.0).suffix("%")).changed() {
@@ -549,7 +586,7 @@ pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
         }
     });
     ui.add_space(16.0);
-    ui.label(RichText::new("INPUT MODE").font(bold(12.0)).color(pal().header_secondary));
+    ui.label(RichText::new("Input Mode").font(medium(14.0)).color(pal().header_secondary));
     let mut ptt = s.ptt;
     if crate::ui::settings::radio(ui, &mut ptt, &[(false, "Voice Activity", ""), (true, "Push to Talk", "")]) {
         s.ptt = ptt;
@@ -559,12 +596,12 @@ pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
     if s.ptt {
         let keys = s.keybinds.iter().find(|(a, k)| a == "ptt" && !k.is_empty()).map(|(_, k)| crate::ui::settings::combo(k));
         ui.columns(2, |cols| {
-            cols[0].label(RichText::new("SHORTCUT").font(bold(12.0)).color(pal().header_secondary));
+            cols[0].label(RichText::new("Shortcut").font(medium(14.0)).color(pal().header_secondary));
             cols[0].label(RichText::new(keys.clone().unwrap_or_else(|| "No Keybind Set".into())).font(semi(16.0)).color(pal().header_primary));
             if crate::ui::settings::link(&mut cols[0], if keys.is_some() { "Edit Keybind" } else { "Add a Keybind" }).clicked() {
                 goto_keybinds = true;
             }
-            cols[1].label(RichText::new("PUSH TO TALK RELEASE DELAY").font(bold(12.0)).color(pal().header_secondary));
+            cols[1].label(RichText::new("Push to Talk Release Delay").font(medium(14.0)).color(pal().header_secondary));
             let mut ms = s.ptt_delay_ms as f32;
             cols[1].spacing_mut().slider_width = cols[1].available_width() - 70.0;
             if cols[1].add(egui::Slider::new(&mut ms, 0.0..=2000.0).step_by(10.0).suffix("ms")).changed() {
@@ -579,7 +616,7 @@ pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
         return changed;
     }
     ui.add_space(4.0);
-    ui.label(RichText::new("INPUT SENSITIVITY").font(bold(12.0)).color(pal().header_secondary));
+    ui.label(RichText::new("Input Sensitivity").font(medium(14.0)).color(pal().header_secondary));
     changed |= crate::ui::settings::toggle(ui, &mut s.auto_sensitivity, "Automatically determine input sensitivity", "");
     if s.auto_sensitivity {
         return changed;
@@ -612,7 +649,7 @@ pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
 }
 
 fn pick(ui: &mut Ui, label: &str, id: &str, names: &[String], cur: &mut Option<String>) -> bool {
-    ui.label(RichText::new(label).font(bold(12.0)).color(pal().header_secondary));
+    ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
     let shown = cur.clone().unwrap_or_else(|| "Default".into());
     let mut changed = false;
     egui::ComboBox::from_id_salt(id).width(ui.available_width() - 8.0).selected_text(shown).show_ui(ui, |ui| {

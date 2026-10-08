@@ -87,13 +87,16 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
     header(ui, |ui| {
-        text::label(ui, &name, bold(16.0), pal().header_primary, Sense::hover());
+        text::label(ui, &name, semi(16.0), pal().header_primary, Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+        icons::draw(ui.painter(), Icon::ChevronDown, r, pal().header_primary);
     });
 
     let cur = app.cur();
     let mut open: Option<Id> = None;
     let mut toggle: Option<Id> = None;
     let mut menu: Option<(Id, ChanAct)> = None;
+    let mut make_invite: Option<Id> = None;
     let dev = app.settings.dev;
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -121,7 +124,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         continue;
                     }
                     let muted = store.is_muted(c);
-                    let (r, emoji) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted);
+                    let (r, emoji, invite) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted);
+                    if invite {
+                        make_invite = Some(c.id);
+                    }
                     app.rects.insert(format!("chan:{}", c.id), r.rect);
                     if let Some(e) = emoji {
                         app.rects.insert(format!("chanemoji:{}", c.id), e);
@@ -160,6 +166,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         Some((c, ChanAct::Link)) => ui.ctx().copy_text(format!("https://discord.com/channels/{gid}/{c}")),
         Some((c, ChanAct::CopyId)) => ui.ctx().copy_text(c.to_string()),
         None => {}
+    }
+    if let Some(c) = make_invite {
+        app.made_invite = Some((c, None));
+        app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
     }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
@@ -236,8 +246,9 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
     let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
     let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
     let y = rect.center().y;
-    icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(rect.left() + 10.0, y), vec2(12.0, 12.0)), col);
-    text::paint(ui.painter(), pos2(rect.left() + 18.0, y), Align2::LEFT_CENTER, &name.to_uppercase(), semi(12.0), col, rect.width() - 26.0);
+    // the refresh's type consolidation: sentence case at 14 medium, caret after the name
+    let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 28.0, 1.0);
+    icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -268,7 +279,7 @@ pub fn glyph(c: &Channel) -> Icon {
     }
 }
 
-fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> (egui::Response, Option<Rect>) {
+fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> (egui::Response, Option<Rect>, bool) {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -302,8 +313,19 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     };
     let ir = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
     chan_icon(store, ui.painter(), c, ir, icon_col);
-    let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    let font = if selected || unread { semi(16.0) } else { reg(16.0) };
+    // the create-invite button discord shows on the hovered or selected row
+    let can_invite = (hovered || selected) && !c.is_thread() && store.perms(c) & crate::state::CREATE_INVITE != 0;
+    let mut invite = false;
+    let mut right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
+    if can_invite && mentions == 0 {
+        let ir = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
+        let hit = ui.interact(ir.expand(2.0), ui.id().with(("invite", c.id)), Sense::click());
+        icons::draw(ui.painter(), Icon::PersonAdd, ir, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        invite = hit.on_hover_text("Create Invite").clicked();
+        right = ir.left() - 6.0;
+    }
+    // channel names are medium; unread ones go semibold
+    let font = if unread { semi(16.0) } else { medium(16.0) };
     let left = inner.left() + 34.0;
     let name = text::layout_em(ui.ctx(), &c.name, font, col, right - left, 1.0);
     let at = pos2(left, row.center().y - name.size().y / 2.0);
@@ -315,7 +337,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    (resp, emoji)
+    (resp, emoji, invite)
 }
 
 fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
@@ -377,7 +399,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             }
             ui.add_space(8.0);
             let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-            ui.painter().text(pos2(h.left() + 18.0, h.center().y), Align2::LEFT_CENTER, "DIRECT MESSAGES", semi(12.0), pal().channel_default);
+            ui.painter().text(pos2(h.left() + 18.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
             ui.add_space(4.0);
             let filter = app.dm_filter.to_lowercase();
             let store = &app.store;
@@ -499,7 +521,8 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         };
         status_dot(ui, av, status, pal().bg_secondary_alt);
         // leave room for the three buttons so long names elide instead of running under them
-        let col = (ui.available_width() - 100.0).max(40.0);
+        let col = (ui.available_width() - 132.0).max(40.0);
+        let hot = ui.rect_contains_pointer(ui.max_rect());
         ui.vertical(|ui| {
             ui.set_width(col);
             ui.set_max_width(col);
@@ -508,7 +531,17 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
             text::label(ui, &name, semi(14.0), pal().header_primary, Sense::hover());
             let sub = match app.conn {
                 crate::net::Conn::Online if app.settings.hiding_personal() => "Streamer Mode".into(),
-                crate::net::Conn::Online => user.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+                // discord shows the custom status, or the status itself, and the username on hover
+                crate::net::Conn::Online if hot => user.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+                crate::net::Conn::Online => app.store.custom_status.clone().unwrap_or_else(|| {
+                    match status {
+                        Status::Online => "Online",
+                        Status::Idle => "Idle",
+                        Status::Dnd => "Do Not Disturb",
+                        Status::Offline => "Invisible",
+                    }
+                    .into()
+                }),
                 crate::net::Conn::Connecting => "Connecting…".into(),
                 crate::net::Conn::Resuming => "Reconnecting…".into(),
                 crate::net::Conn::Offline => "Offline".into(),

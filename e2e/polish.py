@@ -22,7 +22,7 @@ def checks(runs, reqs, data):
 
         lock, bare = px("polish_private:lock"), px("polish_public:lock")
         out[f"polish: {tag}: private channel header draws the lock over the glyph's corner, public one leaves it empty"] = (
-            "?" not in lock and "?" not in bare and near(lock, "#999aa1", 24) and near(bare, "#393a41", 6))
+            "?" not in lock and "?" not in bare and near(lock, "#999aa1", 24) and near(bare, "#323339", 6))
 
         cam, scr, off, user = g("voice:panel_camera"), g("voice:panel_screen"), g("voice:disconnect"), g("userpanel")
         out[f"polish: {tag}: voice panel buttons are 32 high, equal width, 8 apart, 12 above the user card"] = (

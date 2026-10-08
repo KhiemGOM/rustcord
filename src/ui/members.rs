@@ -50,8 +50,8 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     ui.painter().text(
                         pos2(r.left() + 16.0, r.center().y),
                         Align2::LEFT_CENTER,
-                        format!("{} — {}", name.to_uppercase(), count),
-                        semi(12.0),
+                        format!("{} — {}", name, count),
+                        medium(14.0),
                         pal().channel_default,
                     );
                 }

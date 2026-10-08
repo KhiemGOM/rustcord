@@ -288,6 +288,11 @@ pub fn pal() -> &'static Palette {
     &PALETTES[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize]
 }
 
+/// Onyx draws a few hairlines the other themes leave out.
+pub fn onyx() -> bool {
+    THEME.load(std::sync::atomic::Ordering::Relaxed) == 3
+}
+
 /// The wash and outline discord gives every text field.
 pub fn input_frame() -> egui::Frame {
     egui::Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal))

@@ -79,7 +79,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             if posts.is_empty() {
                 ui.add_space(40.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("There are no posts yet").font(bold(20.0)).color(pal().header_primary));
+                    ui.label(RichText::new("There are no posts yet").font(semi(20.0)).color(pal().header_primary));
                     ui.label(RichText::new("Be the first to start a conversation.").color(pal().header_secondary));
                 });
             }
