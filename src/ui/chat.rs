@@ -120,20 +120,28 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if chan.guild == 0 {
         super::call::dm_strip(app, ui, &chan);
     }
+    let ctx = ui.ctx().clone();
+    let room = ui.available_width();
+    let members_w = if app.ui.members_w > 0.0 { app.ui.members_w } else { 240.0 };
     if app.search.is_some() {
-        egui::Panel::right("search")
-            .exact_size(420.0)
-            .resizable(false)
+        let search_w = if app.ui.search_w > 0.0 { app.ui.search_w } else { 420.0 };
+        let r = egui::Panel::right("search")
+            .default_size(search_w)
+            .size_range(300.0..=(room - 320.0).clamp(300.0, 640.0))
+            .resizable(true)
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_secondary))
             .show(ui, |ui| super::popups::search_panel(app, ui));
-    } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() {
-        egui::Panel::right("members")
-            .exact_size(240.0)
-            .resizable(false)
+        app.ui.search_w = app.dragged(&ctx, r.response.rect.width(), search_w);
+    } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() && room >= members_w + 420.0 {
+        let r = egui::Panel::right("members")
+            .default_size(members_w)
+            .size_range(200.0..=(room - 420.0).clamp(200.0, 480.0))
+            .resizable(true)
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_secondary))
             .show(ui, |ui| super::members::show(app, ui, chan.guild));
+        app.ui.members_w = app.dragged(&ctx, r.response.rect.width(), members_w);
     }
     if chan.is_forum() {
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| super::forum::show(app, ui, &chan));

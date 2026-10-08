@@ -13,6 +13,10 @@ pub struct UiState {
     pub recent: Vec<Id>,
     pub hide_members: bool,
     pub open_folders: HashSet<Id>,
+    pub side_w: f32,
+    pub members_w: f32,
+    pub search_w: f32,
+    pub dm_call_h: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

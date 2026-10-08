@@ -292,6 +292,16 @@ impl App {
         })));
     }
 
+    /// Width a panel ended up at; only counts as the user's choice while a button is held, so
+    /// a shrinking window doesn't overwrite what they picked.
+    pub fn dragged(&mut self, ctx: &egui::Context, now: f32, was: f32) -> f32 {
+        if (now - was).abs() < 0.5 || !ctx.input(|i| i.pointer.any_down()) {
+            return was;
+        }
+        self.save_at = Some(Instant::now() + Duration::from_secs(1));
+        now
+    }
+
     /// Open a channel scrolled to one message, fetching the history around it if needed.
     pub fn jump_to(&mut self, ch: Id, id: Id) {
         self.scroll_to = Some((ch, id));
@@ -957,12 +967,15 @@ impl eframe::App for App {
                 .show_separator_line(false)
                 .frame(Frame::new().fill(pal().bg_tertiary))
                 .show(ui, |ui| rail::show(self, ui));
-            egui::Panel::left("side")
-                .exact_size(240.0)
-                .resizable(false)
+            let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 240.0 };
+            let r = egui::Panel::left("side")
+                .default_size(side_w)
+                .size_range(240.0..=(w - 72.0 - 420.0).clamp(240.0, 480.0))
+                .resizable(true)
                 .show_separator_line(false)
                 .frame(Frame::new().fill(pal().bg_secondary))
                 .show(ui, |ui| side::show(self, ui));
+            self.ui.side_w = self.dragged(&ctx, r.response.rect.width(), side_w);
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(pal().bg_primary))
                 .show(ui, |ui| chat::show(self, ui));
