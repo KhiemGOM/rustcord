@@ -887,6 +887,7 @@ impl Run {
             280..=299 => self.look_steps(app, ctx),
             330..=349 => self.polish_steps(app, ctx),
             350..=369 => self.sync_steps(app, ctx),
+            370..=389 => self.emoji_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1529,7 +1530,7 @@ impl Run {
                 self.mark("polish");
                 self.next(400);
             }
-            _ => self.step = 99,
+            _ => self.step = 370,
         }
     }
 
@@ -1975,6 +1976,11 @@ impl Run {
             }
             _ => self.step = 200,
         }
+    }
+
+    /// Custom emoji: `:` autocomplete across servers, typed :name: on send, nitro rules.
+    fn emoji_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 99;
     }
 
     /// Settings that follow the account: theme and friends, from user_settings_proto.
