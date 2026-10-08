@@ -33,6 +33,9 @@ pub struct Palette {
     pub border_normal: Color32,
     /// --border-subtle as an overlay: embed and file card outlines, rules in the channel list
     pub border_subtle: Color32,
+    /// --app-frame-background and --app-frame-border: the title bar and the rules between app regions
+    pub frame_bg: Color32,
+    pub frame_border: Color32,
     /// --input-background-default: text fields, a black wash over whatever they sit on
     pub input_bg: Color32,
     /// --control-secondary-background-default and -hover: buttons on the account card
@@ -111,6 +114,8 @@ const ASH: Palette = Palette {
     border_muted: tint(OVERLAY, 39),
     border_normal: tint(OVERLAY, 200),
     border_subtle: tint(OVERLAY, 122),
+    frame_bg: rgb(0x25262a),
+    frame_border: tint(OVERLAY, 122),
     input_bg: tint(0x000000, 78),
     control: tint(OVERLAY, 122),
     control_hover: tint(OVERLAY, 161),
@@ -146,6 +151,7 @@ const DARK: Palette = Palette {
     bg_mod_selected: mix(OVERLAY, 200, 0x121214),
     bg_accent: mix(OVERLAY, 122, 0x1a1a1e),
     input_bg: tint(0x000000, 122),
+    frame_bg: rgb(0x070709),
     spine: rgb(0x474851),
     spoiler: rgb(0x666770),
     spoiler_revealed: tint(0x6c6f7c, 160),
@@ -177,6 +183,8 @@ const ONYX: Palette = Palette {
     border_muted: tint(OVERLAY, 161),
     border_normal: tint(OVERLAY, 239),
     border_subtle: tint(OVERLAY, 200),
+    frame_bg: rgb(0x000000),
+    frame_border: tint(OVERLAY, 200),
     input_bg: tint(0x000000, 122),
     control_hover: tint(OVERLAY, 200),
     spine: rgb(0x383940),
@@ -209,6 +217,8 @@ const LIGHT: Palette = Palette {
     border_muted: tint(OVERLAY, 200),
     border_normal: tint(OVERLAY, 400),
     border_subtle: tint(OVERLAY, 278),
+    frame_bg: rgb(0xe8e8ea),
+    frame_border: tint(OVERLAY, 278),
     input_bg: tint(0x000000, 20),
     spine: rgb(0xc5c6ca),
     bg_code: tint(0x5865f2, 39),

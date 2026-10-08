@@ -94,7 +94,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 fn separator(ui: &mut Ui) {
     let (sep, _) = ui.allocate_exact_size(vec2(72.0, 2.0), Sense::hover());
-    ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 2.0)), CornerRadius::same(1), pal().bg_mod_hover);
+    ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 1.0)), CornerRadius::same(1), pal().frame_border);
 }
 
 fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool) {
