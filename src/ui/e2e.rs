@@ -1872,8 +1872,68 @@ impl Run {
     }
 
     /// Settings that follow the account: theme and friends, from user_settings_proto.
-    fn sync_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 280;
+    fn sync_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::net::Tag;
+        use crate::theme::Theme;
+        let push = |app: &App, theme: u32, avatars: bool| {
+            let body = json!({ "theme": theme, "compact_avatars": avatars });
+            app.rest("POST", "/mock/settings-proto".into(), Some(body), Tag::Quiet);
+        };
+        match self.step {
+            350 => {
+                // the mock's READY says dark (Ash) with compact avatars on, which is not our default
+                if !app.settings.compact_avatars {
+                    return;
+                }
+                self.mark("sync_login");
+                // a local edit of a synced setting, as the settings page would make it
+                app.settings.compact_avatars = false;
+                app.save_settings(ctx);
+                push(app, 4, true);
+                self.next(0);
+            }
+            351 => {
+                if app.settings.theme != Theme::Onyx {
+                    return;
+                }
+                self.mark("sync_live_theme");
+                // the account still says true, same as at login, so the local false stays
+                if !app.settings.compact_avatars {
+                    self.mark("sync_local_kept");
+                }
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(30.0, 300.0))]);
+                self.next(500);
+            }
+            352 => {
+                let Some(row) = app.rects.get("msg:last").copied() else { return };
+                let shot = "sync_onyx.png".to_string();
+                self.probes.push((shot.clone(), vec![("rail".into(), Probe::At(egui::pos2(2.0, row.center().y)))]));
+                self.shot(ctx, &shot);
+                self.next(400);
+            }
+            353 => {
+                app.settings.theme = Theme::Dark;
+                app.save_settings(ctx);
+                push(app, 4, true);
+                self.next(1000);
+            }
+            354 => {
+                // account repeated Onyx: not a change, so the local Dark stays
+                if app.settings.theme == Theme::Dark {
+                    self.mark("sync_override_kept");
+                }
+                push(app, 1, true);
+                self.next(0);
+            }
+            355 => {
+                if app.settings.theme != Theme::Ash {
+                    return;
+                }
+                self.mark("sync_back");
+                self.step = 280;
+            }
+            _ => self.step = 280,
+        }
     }
 
     /// Theme colours, fonts, message headers.
