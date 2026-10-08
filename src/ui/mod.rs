@@ -13,6 +13,7 @@ mod rail;
 mod settings;
 mod side;
 pub mod text;
+mod titlebar;
 
 use egui::{Color32, CornerRadius, Frame, Image, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -91,6 +92,8 @@ pub struct App {
     pub hold_ack: Option<Id>,
     pub reply_ping: bool,
     pub gifs: Option<popups::Gifs>,
+    pub nav: titlebar::Nav,
+    pub inbox: Option<titlebar::Inbox>,
     title_count: Option<u32>,
     pub voice: crate::voice::VoiceUi,
     e2e: Option<e2e::Run>,
@@ -184,6 +187,8 @@ impl App {
             hold_ack: None,
             reply_ping: true,
             gifs: None,
+            nav: Default::default(),
+            inbox: None,
             title_count: None,
             frames: 0,
             save_at: None,
@@ -241,6 +246,7 @@ impl App {
             self.hold_ack = None;
         }
         self.friends = false;
+        self.nav.visit(titlebar::Loc::Chan(ch, None));
         self.ui.chan.insert(guild, ch);
         self.ui.recent.retain(|x| *x != ch);
         self.ui.recent.insert(0, ch);
@@ -296,11 +302,13 @@ impl App {
     pub fn jump_to(&mut self, ch: Id, id: Id) {
         self.scroll_to = Some((ch, id));
         self.scroll_tries = 0;
-        if self.cur() != Some(ch) {
+        let moved = self.cur() != Some(ch);
+        if moved {
             let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
             self.ui.guild = (g != 0).then_some(g);
             self.open(ch);
         }
+        self.nav.jumped(ch, id, moved);
         let e = self.store.msgs.entry(ch).or_default();
         if !e.list.iter().any(|m| m.id == id) {
             e.loading = true;
@@ -656,8 +664,10 @@ impl App {
         let v = match res {
             Ok(v) => v,
             Err(e) => {
-                if let Tag::Pins(_) = tag {
-                    self.pins = None;
+                match tag {
+                    Tag::Pins(_) => self.pins = None,
+                    Tag::Inbox => self.inbox = None,
+                    _ => {}
                 }
                 return self.toast(e);
             }
@@ -687,6 +697,12 @@ impl App {
                     self.store.apply("USER_UPDATE", &v["user"]);
                 }
                 self.profiles.insert(u, v);
+            }
+            Tag::Inbox => {
+                let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
+                if let Some(i) = &mut self.inbox {
+                    i.mentions = Some(list);
+                }
             }
             Tag::Forum(f) => self.store.load_forum(f, &v),
             Tag::Invite => {
@@ -740,6 +756,8 @@ impl App {
         self.token = None;
         self.store = Store::default();
         self.ui = UiState::default();
+        self.nav = Default::default();
+        self.inbox = None;
     }
 
     fn pump(&mut self, ctx: &egui::Context) {
@@ -939,6 +957,10 @@ impl eframe::App for App {
             e.screenshots(&ctx);
         }
 
+        if self.frames == 0 {
+            crate::winsys::frameless(frame);
+        }
+        titlebar::show(self, ui);
         if self.token.is_none() {
             login::show(self, ui);
         } else if self.settings_page.is_some() {
@@ -982,6 +1004,10 @@ impl eframe::App for App {
             {
                 e.mark_once("content");
             }
+        }
+
+        if self.token.is_some() {
+            titlebar::inbox(self, &ctx);
         }
 
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
