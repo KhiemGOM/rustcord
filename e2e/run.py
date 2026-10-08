@@ -21,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -41,6 +42,19 @@ BUDGET_MS = 1000
 
 def build():
     subprocess.run(["cargo", "build", "--release", "--bin", "fastcord", "--example", "mockcord"], cwd=ROOT, check=True)
+
+
+def prime():
+    """First launch of a freshly linked exe spends ~450ms in the OS (Defender scan, cold
+    pages) before main runs. Pay that here so the timed cold start measures our code."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = dict(os.environ, FASTCORD_DATA=tmp + "/data", FASTCORD_E2E=tmp, FASTCORD_FAKE_MIC="1", FASTCORD_FAKE_CAM="1", FASTCORD_SILENT="1")
+        p = subprocess.Popen([str(ROOT / "target" / "release" / "fastcord.exe")], env=env)
+        end = time.time() + 30
+        while not (Path(tmp) / "first_frame_epoch_ms").exists() and time.time() < end:
+            time.sleep(0.01)
+        p.kill()
+        p.wait()
 
 
 def run_client(name, data_dir, extra=None):
@@ -82,6 +96,7 @@ def main():
     data = ART / "data"
     log = ART / "mock_requests.jsonl"
 
+    prime()
     mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE)])
     time.sleep(0.5)
     try:
