@@ -194,7 +194,7 @@ def main():
         "shift+enter made a newline instead of sending": sum("quiet reply\nsecond line" in b for b in sent_bodies) == 2,
         **{f"settings: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("every page opened and was captured", "settings_tour"), ("profile edit saved via the unsaved-changes bar", "profile_saved"),
-                              ("light theme applied", "theme_light"), ("compact mode applied", "compact"), ("streamer mode toggled", "streamer"),
+                              ("sidebar sub-section scrolled its section into view", "settings_scrolled_to"), ("light theme applied", "theme_light"), ("compact mode applied", "compact"), ("streamer mode toggled", "streamer"),
                               ("display name changed through the modal", "display_name")]},
         "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
         "settings: content filter PATCHed to the legacy settings": sum('"explicit_content_filter":2' in r.get("body", "") for r in reqs if r.get("method") == "PATCH") == 2,
@@ -233,6 +233,7 @@ def main():
                               ("nitro: other server's emoji typed in full", "<:omgBruh:5200> typed"),
                               ("role-locked and unavailable emojis stayed literal even with nitro", ":omgMods: :omgLapsed: no")]},
         "emoji: popup opened for both the locked and the nitro run": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("emoji_locked_ac", "emoji")),
+        "menus: channel, server dropdown, search filters and person menu all opened": all("menus" in r.get("marks_ms", {}) for r in (cold, warm)),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

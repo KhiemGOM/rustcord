@@ -14,9 +14,9 @@ use crate::voice::{State, audio};
 
 
 // sidebar entries that sit low enough to need a scroll down to reach
-const PAGES_BELOW: [&str; 12] = [
-    "Appearance", "Accessibility", "Voice & Video", "Chat", "Notifications", "Keybinds", "Language",
-    "Windows Settings", "Streamer Mode", "Advanced", "Activity Privacy", "HypeSquad",
+const PAGES_BELOW: [&str; 10] = [
+    "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy", "Connected Apps", "Developer",
+    "Streamer Mode", "Log Out",
 ];
 
 pub struct Run {
@@ -750,8 +750,9 @@ impl Run {
                 self.next(400);
             }
             59 => {
-                let Some(r) = app.rects.get("settings:Voice & Video").copied() else { return };
-                self.click(r.center());
+                if !self.open_page(app, "Voice & Video") {
+                    return;
+                }
                 self.next(1500);
             }
             60 => {
@@ -917,7 +918,7 @@ impl Run {
             280..=299 => self.look_steps(app, ctx),
             330..=349 => self.polish_steps(app, ctx),
             350..=369 => self.sync_steps(app, ctx),
-            370..=389 => self.emoji_steps(app, ctx),
+            370..=399 => self.emoji_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -928,7 +929,8 @@ impl Run {
 
     /// Click a settings sidebar entry, scrolling the sidebar first if it's below the fold.
     fn open_page(&mut self, app: &App, label: &str) -> bool {
-        if let Some(r) = app.rects.get(&format!("settings:{label}")).copied() {
+        let key = if label == "Profiles" { "Edit Profiles" } else { label };
+        if let Some(r) = app.rects.get(&format!("settings:{key}")).copied() {
             // only aim once the sidebar has stopped scrolling
             if self.steady == Some(r) {
                 self.steady = None;
@@ -939,7 +941,7 @@ impl Run {
             return false;
         }
         let dir = if PAGES_BELOW.contains(&label) { -200.0 } else { 200.0 };
-        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(150.0, 400.0))]);
+        self.queue.push_back(vec![Event::PointerMoved(egui::pos2(280.0, 500.0))]);
         self.queue.push_back(vec![Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: vec2(0.0, dir),
@@ -955,11 +957,10 @@ impl Run {
 
     /// Settings: a screenshot of every page, then a few real round trips.
     fn settings_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        const PAGES: [&str; 24] = [
-            "My Account", "Profiles", "Content & Social", "Data & Privacy", "Family Center", "Authorized Apps", "Devices",
-            "Connections", "Nitro", "Subscriptions", "Gift Inventory", "Billing", "Appearance", "Accessibility",
-            "Voice & Video", "Chat", "Notifications", "Keybinds", "Language", "Windows Settings", "Streamer Mode",
-            "Advanced", "Activity Privacy", "HypeSquad",
+        const PAGES: [&str; 18] = [
+            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions",
+            "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time",
+            "Activity Privacy", "Connected Apps", "Developer",
         ];
         match self.step {
             100 => {
@@ -1028,8 +1029,8 @@ impl Run {
                 if app.settings.theme == crate::theme::Theme::Light {
                     self.mark("theme_light");
                     self.shot(ctx, "settings_light.png");
-                    self.key(Key::Escape);
-                    self.next(900);
+                    self.step = 142;
+                    self.next(500);
                 }
             }
             110 => {
@@ -1050,128 +1051,186 @@ impl Run {
                 self.next(400);
             }
             113 => {
+                if !self.open_page(app, "Messages") {
+                    return;
+                }
+                self.next(800);
+            }
+            114 => {
                 let Some(r) = Self::at(ctx, "radio:Compact") else { return };
+                // the sidebar's Messages row must have brought it into view
+                if !ctx.content_rect().contains(r.center()) {
+                    return;
+                }
+                self.mark("settings_scrolled_to");
                 self.click(r.center());
                 self.next(500);
             }
-            114 => {
+            115 => {
                 if app.settings.compact {
                     self.mark("compact");
                     self.key(Key::Escape);
                     self.next(1000);
                 }
             }
-            115 => {
+            116 => {
                 self.shot(ctx, "chat_compact.png");
                 let Some(r) = app.rects.get("gear").copied() else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            116 => {
+            117 => {
                 if !self.open_page(app, "Appearance") {
                     return;
                 }
                 self.next(600);
             }
-            117 => {
+            118 => {
+                if !self.open_page(app, "Messages") {
+                    return;
+                }
+                self.next(800);
+            }
+            119 => {
                 let Some(r) = Self::at(ctx, "radio:Cozy") else { return };
                 self.click(r.center());
                 self.next(300);
             }
-            118 => {
+            120 => {
                 if !self.open_page(app, "Streamer Mode") {
                     return;
                 }
-                self.next(600);
+                self.next(800);
             }
-            119 => {
+            121 => {
                 let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
                 self.click(r.center());
                 self.next(600);
             }
-            120 => {
+            122 => {
                 if app.settings.streamer {
                     self.mark("streamer");
                     self.shot(ctx, "settings_streamer_on.png");
-                    let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
-                    self.click(r.center());
+                    self.step = 141;
                     self.next(400);
                 }
             }
-            121 => {
-                if !self.open_page(app, "Content & Social") {
+            123 => {
+                if !self.open_page(app, "Messaging Permissions") {
                     return;
                 }
                 self.next(900);
             }
-            122 => {
+            124 => {
                 let Some(r) = Self::at(ctx, "radio:Keep me safe") else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            123 => {
-                if !self.open_page(app, "Language") {
-                    return;
-                }
-                self.next(600);
-            }
-            124 => {
-                let Some(r) = Self::at(ctx, "lang:de") else { return };
-                self.click(r.center());
-                self.next(400);
-            }
             125 => {
-                if !self.open_page(app, "HypeSquad") {
+                if !self.open_page(app, "Language & Time") {
                     return;
                 }
                 self.next(600);
             }
             126 => {
-                let Some(r) = Self::at(ctx, "house:Bravery") else { return };
+                let Some(r) = Self::at(ctx, "lang:de") else { return };
                 self.click(r.center());
-                self.next(600);
+                self.next(400);
             }
             127 => {
-                self.mark("hypesquad");
-                if !self.open_page(app, "Language") {
+                if !self.open_page(app, "Account") {
                     return;
                 }
                 self.next(600);
             }
             128 => {
-                let Some(r) = Self::at(ctx, "lang:en-US") else { return };
-                self.click(r.center());
-                self.next(300);
+                if !self.open_page(app, "Family Center") {
+                    return;
+                }
+                self.next(800);
             }
             129 => {
-                if !self.open_page(app, "My Account") {
+                let Some(r) = Self::at(ctx, "house:Bravery") else { return };
+                self.shot(ctx, "settings_account_family.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            130 => {
+                self.mark("hypesquad");
+                if !self.open_page(app, "Language & Time") {
                     return;
                 }
                 self.next(600);
             }
-            130 => {
+            131 => {
+                let Some(r) = Self::at(ctx, "lang:en-US") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            132 => {
+                if !self.open_page(app, "Account") {
+                    return;
+                }
+                self.next(600);
+            }
+            133 => {
+                if !self.open_page(app, "Account Info") {
+                    return;
+                }
+                self.next(800);
+            }
+            134 => {
                 let Some(r) = Self::at(ctx, "edit:Display Name") else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            131 => {
+            135 => {
                 let Some(r) = Self::at(ctx, "modal_input") else { return };
                 self.click(r.right_center() - vec2(4.0, 0.0));
                 self.queue.push_back(vec![Event::Text("!".into())]);
                 self.next(400);
             }
-            132 => {
+            136 => {
                 let Some(r) = Self::at(ctx, "modal_done") else { return };
                 self.shot(ctx, "settings_modal.png");
                 self.click(r.center());
                 self.next(0);
             }
-            133 => {
+            137 => {
                 if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
                     self.mark("display_name");
-                    self.key(Key::Escape);
-                    self.step = 350;
+                    self.next(300);
                 }
+            }
+            138 => {
+                if !self.open_page(app, "Password & Security") {
+                    return;
+                }
+                self.next(800);
+            }
+            139 => {
+                let Some(r) = Self::at(ctx, "nav:Logged-in Devices") else { return };
+                self.click(r.center());
+                self.next(900);
+            }
+            140 => {
+                self.shot(ctx, "settings_devices.png");
+                self.next(400);
+            }
+            141 => {
+                self.key(Key::Escape);
+                self.step = 350;
+            }
+            142 => {
+                let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
+                self.click(r.center());
+                self.step = 122;
+                self.next(400);
+            }
+            143 => {
+                self.key(Key::Escape);
+                self.step = 109;
+                self.next(900);
             }
             _ => self.step = 99,
         }
@@ -1568,11 +1627,10 @@ impl Run {
     /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):
     /// look at things, screenshot them, change nothing.
     fn tour_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        const PAGES: [&str; 24] = [
-            "My Account", "Profiles", "Content & Social", "Data & Privacy", "Family Center", "Authorized Apps", "Devices",
-            "Connections", "Nitro", "Subscriptions", "Gift Inventory", "Billing", "Appearance", "Accessibility",
-            "Voice & Video", "Chat", "Notifications", "Keybinds", "Language", "Windows Settings", "Streamer Mode",
-            "Advanced", "Activity Privacy", "HypeSquad",
+        const PAGES: [&str; 18] = [
+            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions",
+            "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time",
+            "Activity Privacy", "Connected Apps", "Developer",
         ];
         if self.cache_guilds.is_none() {
             // the snapshot written by the previous build, before READY replaces it

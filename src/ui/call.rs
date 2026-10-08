@@ -1,5 +1,4 @@
 use egui::{Align2, Color32, ColorImage, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, Mutex};
 
 use super::icons::{self, Icon};
@@ -510,7 +509,7 @@ type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;
 
 /// Input and output device names. Enumerating WASAPI endpoints takes a while, so it happens
 /// once, on a thread; empty until it lands.
-fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
+pub fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
     let key = egui::Id::new("voice_devices");
     let devs: Devices = match ctx.data(|d| d.get_temp::<Devices>(key)) {
         Some(d) => d,
@@ -556,108 +555,6 @@ fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>,
                 *cur = name.cloned();
                 changed = true;
             }
-        }
-    });
-    changed
-}
-
-/// Voice & Video settings page. Returns true when a setting changed.
-pub fn settings(app: &mut App, ui: &mut Ui) -> bool {
-    ui.label(RichText::new("Voice & Video").font(semi(20.0)).color(pal().header_primary));
-    ui.add_space(12.0);
-    let (ins, outs) = devices(ui.ctx());
-    let s = &mut app.settings;
-    let mut changed = false;
-    let mut goto_keybinds = false;
-    ui.columns(2, |cols| {
-        changed |= pick(&mut cols[0], "Input Device", "mic_pick", &ins, &mut s.mic);
-        changed |= pick(&mut cols[1], "Output Device", "speaker_pick", &outs, &mut s.speaker);
-    });
-    ui.label(RichText::new("Device changes apply the next time you join a call.").font(reg(14.0)).color(pal().header_secondary));
-    ui.add_space(12.0);
-    ui.columns(2, |cols| {
-        for (i, (label, v)) in [("Input Volume", &mut s.input_volume), ("Output Volume", &mut s.output_volume)].into_iter().enumerate() {
-            let ui = &mut cols[i];
-            ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
-            let mut pct = *v * 100.0;
-            ui.spacing_mut().slider_width = ui.available_width() - 60.0;
-            if ui.add(egui::Slider::new(&mut pct, 0.0..=200.0).step_by(1.0).suffix("%")).changed() {
-                *v = pct / 100.0;
-                changed = true;
-            }
-        }
-    });
-    ui.add_space(16.0);
-    ui.label(RichText::new("Input Mode").font(medium(14.0)).color(pal().header_secondary));
-    let mut ptt = s.ptt;
-    if crate::ui::settings::radio(ui, &mut ptt, &[(false, "Voice Activity", ""), (true, "Push to Talk", "")]) {
-        s.ptt = ptt;
-        changed = true;
-    }
-    ui.add_space(8.0);
-    if s.ptt {
-        let keys = s.keybinds.iter().find(|(a, k)| a == "ptt" && !k.is_empty()).map(|(_, k)| crate::ui::settings::combo(k));
-        ui.columns(2, |cols| {
-            cols[0].label(RichText::new("Shortcut").font(medium(14.0)).color(pal().header_secondary));
-            cols[0].label(RichText::new(keys.clone().unwrap_or_else(|| "No Keybind Set".into())).font(semi(16.0)).color(pal().header_primary));
-            if crate::ui::settings::link(&mut cols[0], if keys.is_some() { "Edit Keybind" } else { "Add a Keybind" }).clicked() {
-                goto_keybinds = true;
-            }
-            cols[1].label(RichText::new("Push to Talk Release Delay").font(medium(14.0)).color(pal().header_secondary));
-            let mut ms = s.ptt_delay_ms as f32;
-            cols[1].spacing_mut().slider_width = cols[1].available_width() - 70.0;
-            if cols[1].add(egui::Slider::new(&mut ms, 0.0..=2000.0).step_by(10.0).suffix("ms")).changed() {
-                s.ptt_delay_ms = ms as u32;
-                changed = true;
-            }
-        });
-        ui.label(RichText::new("Push to talk works anywhere, even when Fastcord isn't focused.").font(reg(14.0)).color(pal().header_secondary));
-        if goto_keybinds {
-            app.settings_page = Some(crate::ui::settings::Page::Keybinds);
-        }
-        return changed;
-    }
-    ui.add_space(4.0);
-    ui.label(RichText::new("Input Sensitivity").font(medium(14.0)).color(pal().header_secondary));
-    changed |= crate::ui::settings::toggle(ui, &mut s.auto_sensitivity, "Automatically determine input sensitivity", "");
-    if s.auto_sensitivity {
-        return changed;
-    }
-    let mut db = s.vad_db as f32;
-    ui.spacing_mut().slider_width = ui.available_width().min(500.0);
-    let r = ui.add(egui::Slider::new(&mut db, -100.0..=0.0).step_by(1.0).show_value(false));
-    ui.label(RichText::new(format!("{db:.0} dB")).font(reg(13.0)).color(pal().header_secondary));
-    if r.changed() {
-        s.vad_db = db as i32;
-        changed = true;
-    }
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width().min(500.0), 10.0), Sense::hover());
-    ui.painter().rect_filled(bar, CornerRadius::same(5), pal().bg_tertiary);
-    let x = |v: f32| bar.left() + bar.width() * ((v + 100.0) / 100.0).clamp(0.0, 1.0);
-    if app.voice.chan.is_some() {
-        let level = app.voice.shared.level.load(Relaxed) as f32;
-        let fill = Rect::from_min_max(bar.min, pos2(x(level), bar.bottom()));
-        ui.painter().rect_filled(fill, CornerRadius::same(5), if level > db { GREEN } else { YELLOW });
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-    }
-    ui.painter().vline(x(db), bar.y_range().expand(3.0), Stroke::new(2.0, Color32::WHITE));
-    let note = if app.voice.chan.is_some() {
-        "You transmit while the bar is green."
-    } else {
-        "Join a voice channel to see your input level."
-    };
-    ui.label(RichText::new(note).font(reg(14.0)).color(pal().header_secondary));
-    changed
-}
-
-fn pick(ui: &mut Ui, label: &str, id: &str, names: &[String], cur: &mut Option<String>) -> bool {
-    ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
-    let shown = cur.clone().unwrap_or_else(|| "Default".into());
-    let mut changed = false;
-    egui::ComboBox::from_id_salt(id).width(ui.available_width() - 8.0).selected_text(shown).show_ui(ui, |ui| {
-        changed |= ui.selectable_value(cur, None, "Default").changed();
-        for n in names {
-            changed |= ui.selectable_value(cur, Some(n.clone()), n).changed();
         }
     });
     changed
