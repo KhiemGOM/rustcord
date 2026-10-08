@@ -39,11 +39,15 @@ pub struct Run {
     done: bool,
     rects: serde_json::Map<String, serde_json::Value>,
     steady: Option<egui::Rect>,
+    pub tour: bool,
+    cache_guilds: Option<usize>,
+    slow: Vec<serde_json::Value>,
 }
 
 impl Run {
     pub fn from_env(t0: Instant) -> Option<Run> {
-        let dir = PathBuf::from(std::env::var_os("FASTCORD_E2E")?);
+        let tour = std::env::var_os("FASTCORD_TOUR").is_some();
+        let dir = PathBuf::from(std::env::var_os("FASTCORD_E2E").or_else(|| std::env::var_os("FASTCORD_TOUR"))?);
         let _ = std::fs::create_dir_all(&dir);
         Some(Run {
             dir,
@@ -65,11 +69,19 @@ impl Run {
             done: false,
             rects: Default::default(),
             steady: None,
+            tour,
+            cache_guilds: None,
+            slow: Vec::new(),
         })
     }
 
     fn ms(&self) -> f64 {
         self.t0.elapsed().as_secs_f64() * 1000.0
+    }
+
+    /// How long one expensive thing took on the UI thread, for the report.
+    pub fn cost(&mut self, name: &str, d: Duration) {
+        self.rects.insert(format!("cost_{name}_ms"), json!((d.as_secs_f64() * 10000.0).round() / 10.0));
     }
 
     pub fn mark(&mut self, name: &str) {
@@ -88,7 +100,13 @@ impl Run {
     }
 
     pub fn frame_time(&mut self, d: Duration) {
-        self.frames.push(d.as_secs_f32() * 1000.0);
+        let ms = d.as_secs_f32() * 1000.0;
+        if ms > 40.0 {
+            let at = self.ms();
+            let step = self.step;
+            self.slow.push(json!({ "at_ms": at.round(), "ms": ms.round(), "step": step }));
+        }
+        self.frames.push(ms);
     }
 
     pub fn inject(&mut self, raw: &mut egui::RawInput) {
@@ -176,6 +194,10 @@ impl Run {
             self.fail(format!("timed out at step {} in #{here}{}", self.step, jump.unwrap_or_default()));
         }
         let msgs = |app: &App, ch: Id| app.store.msgs.get(&ch).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
+        GUILDS.store(app.store.guilds.len(), std::sync::atomic::Ordering::Relaxed);
+        if self.tour && self.step != 99 {
+            return self.tour_steps(app, ctx);
+        }
         let me = app.store.me;
         let heard = app.voice.speaking.iter().any(|u| *u != me);
         let sh = &app.voice.shared;
@@ -1079,6 +1101,231 @@ impl Run {
         }
     }
 
+    /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):
+    /// look at things, screenshot them, change nothing.
+    fn tour_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        const PAGES: [&str; 24] = [
+            "My Account", "Profiles", "Content & Social", "Data & Privacy", "Family Center", "Authorized Apps", "Devices",
+            "Connections", "Nitro", "Subscriptions", "Gift Inventory", "Billing", "Appearance", "Accessibility",
+            "Voice & Video", "Chat", "Notifications", "Keybinds", "Language", "Windows Settings", "Streamer Mode",
+            "Advanced", "Activity Privacy", "HypeSquad",
+        ];
+        if self.cache_guilds.is_none() {
+            // the snapshot written by the previous build, before READY replaces it
+            self.cache_guilds = Some(app.store.guilds.len());
+            self.mark("cache_checked");
+        }
+        let cur_msgs = |app: &App| app.cur().and_then(|c| app.store.msgs.get(&c)).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
+        let skip_after = |s: &Self, secs: u64| s.step_at.elapsed() > Duration::from_secs(secs);
+        if self.step == 0 {
+            self.step = 300;
+        }
+        match self.step {
+            300 => {
+                if app.conn == Conn::Online && !app.store.guilds.is_empty() {
+                    self.mark("ready");
+                    self.next(500);
+                }
+            }
+            301 => {
+                let pick = app.store.guild_order.iter().copied().find(|g| side::first_channel(&app.store, *g).is_some());
+                let Some(g) = pick else { return self.fail("no server with a readable text channel".into()) };
+                self.target = (g, 0);
+                match app.rects.get(&format!("guild:{g}")).copied() {
+                    Some(r) => self.click(r.center()),
+                    None => app.select_guild(Some(g)),
+                }
+                self.next(500);
+            }
+            302 => {
+                // whatever was open last time may be a forum or voice channel; tour a text one
+                let text = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.is_text() && !c.is_thread());
+                if !text {
+                    let first = side::first_channel(&app.store, self.target.0);
+                    if let Some(r) = first.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) {
+                        self.click(r.center());
+                        self.wait = Instant::now() + Duration::from_millis(500);
+                    }
+                    return;
+                }
+                let (n, ready) = cur_msgs(app);
+                if ready && n > 0 {
+                    self.mark("channel_loaded");
+                    self.next(3000);
+                }
+            }
+            303 => {
+                self.shot(ctx, "01_server_channel.png");
+                self.next(300);
+            }
+            304 => {
+                let me = app.store.me;
+                let member = app.rects.keys().find_map(|k| k.strip_prefix("member:").and_then(|u| u.parse::<Id>().ok()).filter(|u| *u != me));
+                match member.and_then(|u| app.rects.get(&format!("member:{u}")).copied().map(|r| (u, r))) {
+                    Some((u, r)) => {
+                        self.loaded = u as usize;
+                        self.click(r.center());
+                        self.next(0);
+                    }
+                    None if skip_after(self, 6) => self.step = 307,
+                    None => {}
+                }
+            }
+            305 => {
+                if app.profiles.contains_key(&(self.loaded as Id)) || skip_after(self, 6) {
+                    self.next(1500);
+                }
+            }
+            306 => {
+                self.shot(ctx, "02_profile_popout.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            307 => {
+                let k = |pressed| Event::Key { key: Key::K, physical_key: None, pressed, repeat: false, modifiers: Modifiers::COMMAND };
+                self.queue.push_back(vec![k(true)]);
+                self.queue.push_back(vec![k(false)]);
+                self.next(700);
+            }
+            308 => {
+                self.shot(ctx, "03_quick_switcher.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            309 => {
+                let k = |pressed| Event::Key { key: Key::E, physical_key: None, pressed, repeat: false, modifiers: Modifiers::COMMAND };
+                self.queue.push_back(vec![k(true)]);
+                self.queue.push_back(vec![k(false)]);
+                self.next(2000);
+            }
+            310 => {
+                self.shot(ctx, "04_emoji_picker.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            311 => {
+                let Some(r) = app.rects.get("gif_button").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            312 => {
+                if app.gifs.as_ref().is_some_and(|g| g.results.is_some()) || skip_after(self, 8) {
+                    self.next(2500);
+                }
+            }
+            313 => {
+                self.shot(ctx, "05_gif_picker.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            314 => {
+                let Some(r) = app.rects.get("pins_button").copied() else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            315 => {
+                if app.pins.as_ref().is_some_and(|(_, l)| l.is_some()) || skip_after(self, 8) {
+                    self.next(1500);
+                }
+            }
+            316 => {
+                self.shot(ctx, "06_pins.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            317 => {
+                let Some(r) = app.rects.get("search").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("the".into())]);
+                self.key(Key::Enter);
+                self.next(0);
+            }
+            318 => {
+                if app.search.as_ref().is_some_and(|s| s.results.is_some()) || skip_after(self, 10) {
+                    self.next(2000);
+                }
+            }
+            319 => {
+                self.shot(ctx, "07_search.png");
+                self.next(600);
+            }
+            320 => {
+                app.search = None;
+                // a forum and a joined thread, if this server has them
+                let g = self.target.0;
+                let forum = app.store.channels.values().find(|c| c.guild == g && c.is_forum() && app.store.can_view(c)).map(|c| c.id);
+                match forum.and_then(|f| app.rects.get(&format!("chan:{f}")).copied()) {
+                    Some(r) => {
+                        self.click(r.center());
+                        self.next(3000);
+                    }
+                    None => self.step = 322,
+                }
+            }
+            321 => {
+                self.shot(ctx, "08_forum.png");
+                self.next(300);
+            }
+            322 => {
+                let g = self.target.0;
+                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined && !c.archived).map(|c| c.id);
+                match thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) {
+                    Some(r) => {
+                        self.click(r.center());
+                        self.next(3000);
+                    }
+                    None => self.step = 324,
+                }
+            }
+            323 => {
+                self.shot(ctx, "09_thread.png");
+                self.next(300);
+            }
+            324 => {
+                let Some(r) = app.rects.get("guild:home").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            325 => {
+                let Some(r) = app.rects.get("friends").copied() else { return };
+                self.click(r.center());
+                self.next(2000);
+            }
+            326 => {
+                self.shot(ctx, "10_friends.png");
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.loaded = 0;
+                self.next(800);
+            }
+            327 => {
+                let Some(label) = PAGES.get(self.loaded) else {
+                    self.mark("settings_tour");
+                    self.step = 329;
+                    return;
+                };
+                if self.open_page(app, label) {
+                    self.next(2500);
+                }
+            }
+            328 => {
+                if app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded]) {
+                    return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
+                }
+                let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+                self.shot(ctx, &format!("settings_{:02}_{slug}.png", self.loaded + 1));
+                self.loaded += 1;
+                self.step = 327;
+                self.wait = Instant::now() + Duration::from_millis(200);
+            }
+            329 => {
+                self.key(Key::Escape);
+                self.step = 99;
+            }
+            _ => self.step = 99,
+        }
+    }
+
     fn finish(&mut self, ctx: &egui::Context) {
         self.done = true;
         let mut f = self.frames.clone();
@@ -1094,8 +1341,18 @@ impl Run {
             "screenshots": self.shots,
             "voice": self.voice,
             "rects": self.rects,
+            "cache_guilds": self.cache_guilds,
+            "slow_frames": self.slow,
+            "guilds_after_ready": app_guilds(),
+            "blocked_by_readonly": crate::net::BLOCKED.load(std::sync::atomic::Ordering::Relaxed),
         });
         let _ = std::fs::write(self.dir.join("results.json"), serde_json::to_string_pretty(&out).unwrap_or_default());
         ctx.send_viewport_cmd(ViewportCommand::Close);
     }
+}
+
+static GUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn app_guilds() -> usize {
+    GUILDS.load(std::sync::atomic::Ordering::Relaxed)
 }
