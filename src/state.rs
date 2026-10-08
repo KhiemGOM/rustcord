@@ -622,6 +622,8 @@ pub struct Store {
     pub notif: HashMap<Id, u8>,
     #[serde(default)]
     pub folders: Vec<Folder>,
+    #[serde(skip)]
+    pub account: crate::proto::Account,
     #[serde(default)]
     pub relationships: HashMap<Id, u8>,
     #[serde(default)]
@@ -996,10 +998,12 @@ impl Store {
         }
 
         let mut folders: Vec<Folder> = Vec::new();
+        self.account = Default::default();
         if let Some(b64) = d["user_settings_proto"].as_str() {
             use base64::Engine;
             if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(b64) {
                 folders = crate::proto::guild_folders(&raw);
+                self.account = crate::proto::account(&raw, true);
             }
         }
         if folders.is_empty() {
@@ -1441,6 +1445,14 @@ impl Store {
             }
             "USER_UPDATE" => {
                 self.upsert_user(d);
+            }
+            "USER_SETTINGS_PROTO_UPDATE" if d["settings"]["type"].as_u64() == Some(1) => {
+                use base64::Engine;
+                let raw = d["settings"]["proto"].as_str().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
+                if let Some(raw) = raw {
+                    let full = d["partial"].as_bool() == Some(false);
+                    self.account.merge(crate::proto::account(&raw, full));
+                }
             }
             _ => {}
         }

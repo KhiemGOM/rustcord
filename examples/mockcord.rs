@@ -385,6 +385,34 @@ fn side_reads() -> Vec<Value> {
     [2400, 2501, 2600, 2700].iter().map(|c| json!({ "id": c.to_string(), "last_message_id": "0", "mention_count": 0 })).collect()
 }
 
+fn varint(mut v: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    while v >= 0x80 {
+        out.push(v as u8 | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+    out
+}
+
+fn pb_len(field: u64, body: &[u8]) -> Vec<u8> {
+    [varint(field << 3 | 2), varint(body.len() as u64), body.to_vec()].concat()
+}
+
+fn pb_int(field: u64, v: u64) -> Vec<u8> {
+    [varint(field << 3), varint(v)].concat()
+}
+
+/// PreloadedUserSettings with appearance.theme (1 dark .. 4 midnight) and
+/// text_and_images.display_compact_avatars, the latter as a BoolValue wrapper.
+fn settings_proto(theme: u64, compact_avatars: bool) -> String {
+    use base64::Engine;
+    let appearance = pb_int(1, theme);
+    let text = pb_len(41, &if compact_avatars { pb_int(1, 1) } else { Vec::new() });
+    let blob = [pb_len(6, &text), pb_len(13, &appearance)].concat();
+    base64::engine::general_purpose::STANDARD.encode(blob)
+}
+
 fn ready(last_general: u64) -> Value {
     let ch = |id: u64, kind: u8, name: &str, pos: i32, parent: Option<u64>| {
         json!({ "id": id.to_string(), "type": kind, "name": name, "position": pos,
@@ -452,6 +480,7 @@ fn ready(last_general: u64) -> Value {
             { "guild_id": "1005", "channel_overrides": [{ "channel_id": "2500", "muted": true }] },
             { "guild_id": "1006", "message_notifications": 1, "channel_overrides": [] },
         ] },
+        "user_settings_proto": settings_proto(1, true),
         "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] },
                                           { "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }, { "guild_ids": ["1007"] }, { "guild_ids": ["1008"] }] },
     })
@@ -601,6 +630,13 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
                 let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": msg(snow(now_ms()), 3000, 101, "hey, saw your message — got a sec?") }));
             });
             ok(m)
+        }
+        ("POST", ["api", "v9", "mock", "settings-proto"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let proto = settings_proto(b["theme"].as_u64().unwrap_or(1), b["compact_avatars"].as_bool().unwrap_or(false));
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
+            ok(json!({}))
         }
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),

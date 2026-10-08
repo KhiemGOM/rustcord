@@ -100,6 +100,7 @@ pub struct App {
     win: Option<[f32; 2]>,
     frames: u64,
     save_at: Option<Instant>,
+    synced: Option<crate::proto::Account>,
 }
 
 impl App {
@@ -193,6 +194,7 @@ impl App {
             title_count: None,
             frames: 0,
             save_at: None,
+            synced: None,
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -505,6 +507,22 @@ impl App {
         cache::set_settings(&self.settings);
     }
 
+    /// The account's values win at login and whenever one of them changes; a
+    /// value the account still agrees on with last time leaves a local edit alone.
+    fn sync_account(&mut self, ctx: &egui::Context) {
+        let now = self.store.account.clone();
+        let changed = now.changed(self.synced.as_ref());
+        self.synced = Some(now);
+        // sync with computer is a local choice the account doesn't know about
+        let theme = self.settings.theme;
+        changed.apply(&mut self.settings);
+        if theme == crate::theme::Theme::Sync {
+            self.settings.theme = theme;
+        }
+        self.heights.clear();
+        self.save_settings(ctx);
+    }
+
     /// Push every setting that lives outside `App` (theme, zoom, sounds, hotkeys...) to where it acts.
     fn apply_settings(&self, ctx: &egui::Context) {
         let s = &self.settings;
@@ -791,6 +809,9 @@ impl App {
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
+                    if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
+                        self.sync_account(ctx);
+                    }
                     if t == "READY"
                         && let Some(e) = &mut self.e2e
                     {
