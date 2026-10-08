@@ -212,6 +212,10 @@ fn seed(cdn: &str) -> Vec<Value> {
             m["mentions"] = json!([user(ME)]);
             m["content"] = json!("<@100> you around? need a review");
         }
+        if i == n - 20 {
+            m["mentions"] = json!([user(ME)]);
+            m["content"] = json!("<@100> did you see the egui release notes?");
+        }
         if i == n - 12 {
             m["content"] = json!("let's plan the next release in a thread");
             m["thread"] = thread();
@@ -622,6 +626,11 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["api", "v9", "users", id, "profile"]) => {
             let id: u64 = id.parse().unwrap_or(0);
             ok(json!({ "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" } }))
+        }
+        ("GET", ["api", "v9", "users", "@me", "mentions"]) => {
+            let w = w.lock().unwrap();
+            let list: Vec<&Value> = w.msgs.iter().rev().filter(|m| m["mentions"].as_array().is_some_and(|u| !u.is_empty())).take(25).collect();
+            ok(json!(list))
         }
         // settings pages
         ("GET", ["api", "v9", "users", "@me", "settings"]) => ok(json!({
