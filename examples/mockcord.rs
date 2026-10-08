@@ -268,6 +268,50 @@ fn forum_posts() -> Value {
     })
 }
 
+// servers for the rail and channel list checks: a folder of four, one that must show a pill,
+// and three that must not (muted channel, muted category, "only @mentions")
+fn side_guilds() -> Vec<Value> {
+    let ch = |id: u64, kind: u8, name: &str, pos: i32, parent: Option<u64>| {
+        json!({ "id": id.to_string(), "type": kind, "name": name, "position": pos, "parent_id": parent.map(|p| p.to_string()),
+                "permission_overwrites": [], "last_message_id": snow(now_ms() - 90_000).to_string() })
+    };
+    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" });
+    let guild = |id: u64, name: &str, chans: Vec<Value>| {
+        json!({ "id": id.to_string(), "name": name, "icon": null, "owner_id": "102", "roles": [everyone(id)], "emojis": [], "channels": chans })
+    };
+
+    let mut trusted = ch(2302, 0, "『🔒』trusted", 1, Some(2300));
+    trusted["permission_overwrites"] = json!([{ "id": "1003", "type": 0, "allow": "0", "deny": "1024" }, { "id": "1201", "type": 0, "allow": "1024", "deny": "0" }]);
+    let mut news = ch(2304, 5, "『📢』news", 3, Some(2300));
+    news["permission_overwrites"] = json!([{ "id": "1003", "type": 0, "allow": "0", "deny": "1024" }, { "id": "1201", "type": 0, "allow": "1024", "deny": "0" }]);
+    let mut spicy = ch(2305, 0, "spicy-takes", 4, Some(2300));
+    spicy["nsfw"] = json!(true);
+    let mut staff = ch(2309, 2, "Staff Room", 1, Some(2308));
+    staff["permission_overwrites"] = json!([{ "id": "1003", "type": 0, "allow": "0", "deny": "1048576" }]);
+    let mut emoji = guild(1003, "Emoji Lounge", vec![
+        ch(2300, 4, "Main", 0, None), ch(2301, 0, "rules", 0, Some(2300)), trusted, ch(2303, 0, "『💬』general", 2, Some(2300)),
+        news, spicy, ch(2306, 15, "ideas", 5, Some(2300)), ch(2307, 16, "media-wall", 6, Some(2300)),
+        ch(2308, 4, "Voice", 1, None), ch(2310, 2, "Lounge", 0, Some(2308)), staff, ch(2311, 13, "Town Hall", 2, Some(2308)),
+    ]);
+    emoji["rules_channel_id"] = json!("2301");
+    emoji["roles"] = json!([everyone(1003), { "id": "1201", "name": "Trusted", "color": 0, "position": 1, "permissions": "0" }]);
+
+    let mut den = guild(1008, "Voice Den", vec![ch(2800, 0, "chat", 0, None), ch(2801, 2, "Hangout", 1, None)]);
+    den["voice_states"] = json!([{ "user_id": "101", "channel_id": "2801" }]);
+    vec![
+        emoji,
+        guild(1004, "Quiet Corner", vec![ch(2400, 0, "noise", 0, None)]),
+        guild(1005, "Muted Category", vec![ch(2500, 4, "Archive", 0, None), ch(2501, 0, "old-news", 0, Some(2500))]),
+        guild(1006, "Mentions Only", vec![ch(2600, 0, "firehose", 0, None)]),
+        guild(1007, "Loud Place", vec![ch(2700, 0, "alerts", 0, None)]),
+        den,
+    ]
+}
+
+fn side_reads() -> Vec<Value> {
+    [2400, 2501, 2600, 2700].iter().map(|c| json!({ "id": c.to_string(), "last_message_id": "0", "mention_count": 0 })).collect()
+}
+
 fn ready(last_general: u64) -> Value {
     let ch = |id: u64, kind: u8, name: &str, pos: i32, parent: Option<u64>| {
         json!({ "id": id.to_string(), "type": kind, "name": name, "position": pos,
@@ -305,25 +349,34 @@ fn ready(last_general: u64) -> Value {
         let chans: Vec<Value> = chans.iter().enumerate().map(|(i, (cid, n))| ch(*cid, 0, n, i as i32, None)).collect();
         json!({ "id": id.to_string(), "name": name, "icon": icon, "owner_id": "102", "roles": roles, "emojis": [], "channels": chans })
     };
+    let mut guilds = vec![g1, simple(1001, "Gamers United", None, &[(2100, "lobby"), (2101, "lfg")]),
+                          simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])];
+    guilds.extend(side_guilds());
+    let mut reads = vec![
+        json!({ "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1 }),
+        json!({ "id": "2012", "last_message_id": "0", "mention_count": 2 }),
+        json!({ "id": "3000", "last_message_id": "0", "mention_count": 0 }),
+    ];
+    reads.extend(side_reads());
     json!({
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
         "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com" },
         "users": [user(101), user(102), user(103), user(104), user(105), user(106)],
         "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
-        "guilds": [g1, simple(1001, "Gamers United", None, &[(2100, "lobby"), (2101, "lfg")]),
-                   simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])],
-        "merged_members": [[{ "user_id": ME.to_string(), "roles": ["1101"] }], [], []],
+        "guilds": guilds,
+        "merged_members": [[{ "user_id": ME.to_string(), "roles": ["1101"] }], [], [], [{ "user_id": ME.to_string(), "roles": ["1201"] }], [], [], [], [], []],
         "private_channels": [
             { "id": "3000", "type": 1, "recipient_ids": ["101"], "last_message_id": snow(now_ms() - 3_600_000).to_string() },
             { "id": "3001", "type": 3, "name": "", "recipient_ids": ["102", "103"], "last_message_id": snow(now_ms() - 7_200_000).to_string() },
         ],
-        "read_state": { "entries": [
-            { "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1 },
-            { "id": "2012", "last_message_id": "0", "mention_count": 2 },
-            { "id": "3000", "last_message_id": "0", "mention_count": 0 },
-        ], "partial": false, "version": 1 },
-        "user_guild_settings": { "entries": [] },
-        "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] }] },
+        "read_state": { "entries": reads, "partial": false, "version": 1 },
+        "user_guild_settings": { "entries": [
+            { "guild_id": "1004", "channel_overrides": [{ "channel_id": "2400", "muted": true }] },
+            { "guild_id": "1005", "channel_overrides": [{ "channel_id": "2500", "muted": true }] },
+            { "guild_id": "1006", "message_notifications": 1, "channel_overrides": [] },
+        ] },
+        "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] },
+                                          { "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }, { "guild_ids": ["1007"] }, { "guild_ids": ["1008"] }] },
     })
 }
 
