@@ -43,6 +43,14 @@ pub struct Run {
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
     blur: bool,
+    probes: Vec<(String, Vec<(String, Probe)>)>,
+    tries: u32,
+}
+
+/// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
+enum Probe {
+    At(Pos2),
+    Bright(egui::Rect),
 }
 
 impl Run {
@@ -75,6 +83,8 @@ impl Run {
             cache_guilds: None,
             slow: Vec::new(),
             blur: false,
+            probes: Vec::new(),
+            tries: 0,
         })
     }
 
@@ -134,7 +144,32 @@ impl Run {
                 })
                 .collect()
         });
+        let ppp = ctx.pixels_per_point();
         for (name, img) in shots {
+            if let Some(i) = self.probes.iter().position(|(n, _)| *n == name) {
+                let (_, list) = self.probes.remove(i);
+                let px = |p: Pos2| img.pixels.get((p.y * ppp) as usize * img.size[0] + (p.x * ppp) as usize).copied().unwrap_or_default();
+                for (key, probe) in list {
+                    let c = match probe {
+                        Probe::At(p) => px(p),
+                        Probe::Bright(r) => {
+                            let (mut best, mut at) = (0u32, Pos2::ZERO);
+                            for y in (r.top() * ppp) as usize..(r.bottom() * ppp) as usize {
+                                for x in (r.left() * ppp) as usize..(r.right() * ppp) as usize {
+                                    let c = img.pixels.get(y * img.size[0] + x).copied().unwrap_or_default();
+                                    let lum = c.r() as u32 + c.g() as u32 + c.b() as u32;
+                                    if lum > best {
+                                        (best, at) = (lum, egui::pos2(x as f32 / ppp, y as f32 / ppp));
+                                    }
+                                }
+                            }
+                            px(at)
+                        }
+                    };
+                    let hex = format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+                    self.rects.insert(format!("look:{}:{key}", name.trim_end_matches(".png")), json!(hex));
+                }
+            }
             let [w, h] = img.size;
             let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
             if let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, bytes) {
@@ -1640,8 +1675,149 @@ impl Run {
     }
 
     /// Theme colours, fonts, message headers.
-    fn look_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 260;
+    fn look_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::theme::Theme;
+        // ash goes last so everything after this runs on the default theme
+        const THEMES: [(&str, Theme); 4] = [("Onyx", Theme::Onyx), ("Dark", Theme::Dark), ("Light", Theme::Light), ("Ash", Theme::Ash)];
+        let (name, theme) = THEMES[self.loaded.min(3)];
+        match self.step {
+            280 => {
+                self.loaded = 0;
+                let Some(r) = app.rects.get(&format!("guild:{}", self.target.0)).copied() else { return };
+                self.click(r.center());
+                self.next(250);
+            }
+            281 => {
+                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                self.click(r.center());
+                self.next(50);
+            }
+            282 => {
+                let ready = app.store.msgs.get(&self.target.1).is_some_and(|e| e.fresh && !e.loading && !e.list.is_empty());
+                if app.cur() == Some(self.target.1) && ready {
+                    self.next(1500);
+                }
+            }
+            283 => {
+                // the download lands in the background on a cold start, so give it a moment
+                let first = |fam: egui::FontFamily| ctx.fonts(|f| f.definitions().families.get(&fam).and_then(|v| v.first().cloned()));
+                let prop = first(egui::FontFamily::Proportional);
+                if prop.as_deref() == Some("gg400") || self.step_at.elapsed() > Duration::from_secs(12) {
+                    self.rects.insert("look:font".into(), json!(prop));
+                    self.rects.insert("look:font_medium".into(), json!(first(egui::FontFamily::Name("medium".into()))));
+                    self.next(0);
+                }
+            }
+            284 => {
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            285 => {
+                if !self.open_page(app, "Appearance") {
+                    return;
+                }
+                self.next(500);
+            }
+            286 => {
+                let Some(r) = app.rects.get(&format!("theme:{name}")).copied() else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            287 => {
+                if app.settings.theme == theme {
+                    self.key(Key::Escape);
+                    self.next(900);
+                }
+            }
+            288 => {
+                // the seeded gradient authors sit above everything the earlier steps sent
+                let seen = |w: u64| app.rects.contains_key(&format!("name:{w}"));
+                if !(seen(103) && seen(105) && seen(106)) && self.tries < 14 {
+                    self.tries += 1;
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: vec2(0.0, 150.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: Modifiers::NONE,
+                    }]);
+                    self.wait = Instant::now() + Duration::from_millis(250);
+                    return;
+                }
+                let Some(r) = app.rects.get("msg:last").copied() else { return };
+                self.queue.push_back(vec![Event::PointerMoved(r.left_center() + vec2(6.0, 0.0))]);
+                self.next(500);
+            }
+            289 => {
+                let Some(r) = app.rects.get("msg:last").copied() else { return };
+                let shot = format!("look_{name}_hover.png");
+                self.probes.push((shot.clone(), vec![("msg_hover".into(), Probe::At(r.left_center() + vec2(6.0, 0.0)))]));
+                self.shot(ctx, &shot);
+                self.next(400);
+            }
+            290 => {
+                // off every message, so nothing is hovered or animating in the next shot
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(30.0, 300.0))]);
+                self.next(500);
+            }
+            291 => {
+                let (Some(row), Some(composer), Some(search)) =
+                    (app.rects.get("msg:last").copied(), app.rects.get("composer").copied(), app.rects.get("search").copied())
+                else {
+                    return;
+                };
+                let screen = ctx.content_rect();
+                let y = row.center().y;
+                let mut probes = vec![
+                    ("rail".to_string(), Probe::At(egui::pos2(2.0, y))),
+                    ("side".into(), Probe::At(egui::pos2(row.left() - 4.0, y))),
+                    ("chat".into(), Probe::At(egui::pos2(row.left() + 8.0, y))),
+                    ("members".into(), Probe::At(egui::pos2(screen.right() - 2.0, y))),
+                    ("header".into(), Probe::At(egui::pos2(row.left() + 6.0, search.center().y))),
+                    ("input".into(), Probe::At(egui::pos2(composer.left() + 3.0, composer.center().y))),
+                ];
+                // role gradients, display styles and role icons, by author id (see the mock's roles)
+                for who in [103u64, 105, 106] {
+                    if let Some(n) = app.rects.get(&format!("name:{who}")).copied() {
+                        let part = n.width() * 0.3;
+                        probes.push((format!("name{who}_l"), Probe::Bright(egui::Rect::from_min_size(n.min, vec2(part, n.height())))));
+                        probes.push((format!("name{who}_r"), Probe::Bright(egui::Rect::from_min_size(n.right_top() - vec2(part, 0.0), vec2(part, n.height())))));
+                        probes.push((format!("halo{who}_near"), Probe::At(n.left_center() - vec2(3.0, 0.0))));
+                        probes.push((format!("halo{who}_far"), Probe::At(n.left_center() - vec2(10.0, 0.0))));
+                    }
+                    if let Some(i) = app.rects.get(&format!("role_icon:{who}")).copied() {
+                        probes.push((format!("icon{who}"), Probe::Bright(i)));
+                    }
+                }
+                for (k, r) in app.rects.iter().filter(|(k, _)| ["name:", "stamp:", "avatar:", "role_icon:"].iter().any(|p| k.starts_with(p))) {
+                    self.rects.insert(format!("look:{name}:{k}"), json!([r.min.x, r.min.y, r.width(), r.height()]));
+                }
+                let shot = format!("look_{name}.png");
+                self.probes.push((shot.clone(), probes));
+                self.shot(ctx, &shot);
+                self.next(400);
+            }
+            292 => {
+                self.loaded += 1;
+                self.step = if self.loaded < THEMES.len() { 284 } else { 293 };
+                self.wait = Instant::now() + Duration::from_millis(200);
+            }
+            _ => {
+                // back to the newest messages for whoever runs next
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
+                for _ in 0..40 {
+                    self.queue.push_back(vec![Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: vec2(0.0, -400.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: Modifiers::NONE,
+                    }]);
+                }
+                self.mark("look");
+                self.step = 260;
+            }
+        }
     }
 }
 

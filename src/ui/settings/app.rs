@@ -9,10 +9,10 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     title(ui, "Appearance");
     h5(ui, "Theme");
     let themes = [
-        (Theme::Light, "Light", Color32::from_rgb(0xff, 0xff, 0xff), Color32::from_rgb(0xe3, 0xe5, 0xe8)),
-        (Theme::Ash, "Ash", Color32::from_rgb(0x31, 0x33, 0x38), Color32::from_rgb(0x1e, 0x1f, 0x22)),
-        (Theme::Dark, "Dark", Color32::from_rgb(0x1a, 0x1a, 0x1e), Color32::from_rgb(0x0f, 0x0f, 0x11)),
-        (Theme::Onyx, "Onyx", Color32::from_rgb(0x0c, 0x0c, 0x0e), Color32::from_rgb(0x00, 0x00, 0x00)),
+        (Theme::Light, "Light", palette(Theme::Light).bg_primary, palette(Theme::Light).bg_tertiary),
+        (Theme::Ash, "Ash", palette(Theme::Ash).bg_primary, palette(Theme::Ash).bg_tertiary),
+        (Theme::Dark, "Dark", palette(Theme::Dark).bg_primary, palette(Theme::Dark).bg_tertiary),
+        (Theme::Onyx, "Onyx", palette(Theme::Onyx).bg_primary, palette(Theme::Onyx).bg_secondary),
         (Theme::Sync, "Sync with computer", Color32::from_rgb(0xff, 0xff, 0xff), Color32::from_rgb(0x1e, 0x1f, 0x22)),
     ];
     let mut changed = false;

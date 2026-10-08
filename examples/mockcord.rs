@@ -130,14 +130,20 @@ fn user(id: u64) -> Value {
         106 => ("frank", "Frank", false),
         _ => ("eve", "Eve", false),
     };
-    json!({ "id": id.to_string(), "username": name, "global_name": global, "avatar": format!("av{id}"), "bot": bot, "discriminator": "0" })
+    let mut u = json!({ "id": id.to_string(), "username": name, "global_name": global, "avatar": format!("av{id}"), "bot": bot, "discriminator": "0" });
+    if id == 106 {
+        u["display_name_styles"] = json!({ "font_id": 11, "effect_id": 6, "colors": [0xE1C2FB, 0xEDE9FE] });
+    }
+    u
 }
 
 fn member(id: u64) -> Value {
     let roles: Vec<String> = match id {
         101 => vec!["1100".into()],
         102 | 100 | 106 => vec!["1101".into()],
+        103 => vec!["1104".into()],
         104 => vec!["1102".into()],
+        105 => vec!["1103".into()],
         _ => vec![],
     };
     json!({ "roles": roles, "nick": null })
@@ -394,6 +400,10 @@ fn ready(last_general: u64) -> Value {
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },
+        { "id": "1104", "name": "Duo", "color": 0xD96BFF, "position": 4, "permissions": "0", "hoist": false, "unicode_emoji": "🪙",
+          "colors": { "primary_color": 0xD96BFF, "secondary_color": 0x6BD0FF, "tertiary_color": null } },
+        { "id": "1103", "name": "Holographic", "color": 11127295, "position": 5, "permissions": "0", "hoist": false, "icon": "roleicon1103",
+          "colors": { "primary_color": 11127295, "secondary_color": 16759788, "tertiary_color": 16761760 } },
     ]);
     let g1 = json!({
         "id": "1000", "name": "Rust Lounge", "icon": "icon1000", "owner_id": "101", "member_count": 6,
@@ -483,6 +493,24 @@ fn png(w: u32, h: u32, seed: u64, round: bool) -> Vec<u8> {
 fn query(path: &str, key: &str) -> Option<u64> {
     let q = path.split_once('?')?.1;
     q.split('&').find_map(|kv| kv.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
+}
+
+/// Windows ships no gg sans, so the download path gets a system font in woff2 clothes.
+fn gg_stand_in(weight: u16) -> Vec<u8> {
+    static CACHE: Mutex<Vec<(u16, Vec<u8>)>> = Mutex::new(Vec::new());
+    if let Some((_, b)) = CACHE.lock().unwrap().iter().find(|(w, _)| *w == weight) {
+        return b.clone();
+    }
+    let file = match weight {
+        600 => "seguisb.ttf",
+        700 => "segoeuib.ttf",
+        _ => "segoeui.ttf",
+    };
+    let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+    let ttf = std::fs::read(format!("{dir}\\Fonts\\{file}")).unwrap_or_default();
+    let woff2 = ttf2woff2::encode(&ttf, 3.into()).unwrap_or_default();
+    CACHE.lock().unwrap().push((weight, woff2.clone()));
+    woff2
 }
 
 async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
@@ -627,6 +655,25 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["app"]) => (200, "text/html", br#"<link href="/assets/other.css" rel="stylesheet"><link href="/assets/fonts.css" rel="stylesheet">"#.to_vec()),
+        ("GET", ["assets", "other.css"]) => (200, "text/css", b"body{margin:0}".to_vec()),
+        ("GET", ["assets", "fonts.css"]) => {
+            // same shape as discord's: upright and italic faces, plus a family we don't want
+            let face = |fam: &str, style: &str, w: u16| {
+                format!("@font-face{{font-display:swap;font-family:{fam};font-style:{style};font-weight:{w};src:url(/assets/mock{w}{style}.woff2) format(\"woff2\")}}")
+            };
+            let mut css = String::new();
+            for w in [400, 500, 600, 700] {
+                css += &face("gg sans", "normal", w);
+                css += &face("gg sans", "italic", w);
+            }
+            css += &face("gg mono", "normal", 400);
+            (200, "text/css", css.into_bytes())
+        }
+        ("GET", ["assets", f]) if f.starts_with("mock") && f.ends_with("normal.woff2") => {
+            let w: u16 = f[4..7].parse().unwrap_or(400);
+            (200, "font/woff2", gg_stand_in(w))
+        }
         ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {

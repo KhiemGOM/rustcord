@@ -110,6 +110,7 @@ impl App {
         egui_extras::install_image_loaders(&ctx);
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
         let (net, rx) = Net::new(ctx.clone());
+        crate::fonts::fetch(&net.rt, ctx.clone());
         ctx.add_bytes_loader(std::sync::Arc::new(crate::imgcache::DiskLoader::new(
             cache::dir().join("img"),
             net.rt.clone(),
@@ -922,11 +923,12 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.pump(&ctx);
         self.os_settings(&ctx, frame);
-        if !self.cjk_loaded && crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed) {
-            self.cjk_loaded = true;
+        let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
+        if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {
+            self.cjk_loaded = want_cjk;
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let _ = tx.send(crate::theme::fonts(true));
+                let _ = tx.send(crate::theme::fonts(want_cjk));
             });
             self.fonts_rx = Some(rx);
         }
@@ -973,7 +975,7 @@ impl eframe::App for App {
                 .size_range(240.0..=(w - 72.0 - 420.0).clamp(240.0, 480.0))
                 .resizable(true)
                 .show_separator_line(false)
-                .frame(Frame::new().fill(pal().bg_secondary))
+                .frame(Frame::new().fill(pal().bg_tertiary))
                 .show(ui, |ui| side::show(self, ui));
             self.ui.side_w = self.dragged(&ctx, r.response.rect.width(), side_w);
             egui::CentralPanel::default()

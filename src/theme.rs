@@ -1,30 +1,63 @@
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke};
 use std::sync::Arc;
 
-/// The colours that change with the theme. Brand colours (blurple, status
+//// The colours that change with the theme. Brand colours (blurple, status
 /// colours) stay put across themes, like they do in the official client.
+/// Values are the custom properties discord's web css resolves per theme; the
+/// comments name the one each field was read off.
 #[derive(Clone, Copy)]
 pub struct Palette {
+    /// --background-base-lowest: server rail, channel list, title bar
     pub bg_tertiary: Color32,
+    /// --background-surface-high: cards, embeds, chat header, popouts, modals
     pub bg_secondary: Color32,
+    /// --background-base-low: user panel
     pub bg_secondary_alt: Color32,
+    /// --background-base-lower: chat and member list
     pub bg_primary: Color32,
+    /// --background-surface-higher: context menus
     pub bg_floating: Color32,
+    /// --chat-background-default: the composer's input box
     pub bg_input: Color32,
+    /// --message-background-hover over base-lower
     pub bg_msg_hover: Color32,
+    /// --interactive-background-hover over base-lowest
     pub bg_mod_hover: Color32,
+    /// --interactive-background-selected over base-lowest
     pub bg_mod_selected: Color32,
+    /// --border-subtle over base-lower, for rules and outlines that must be opaque
     pub bg_accent: Color32,
+    /// --border-muted as an overlay: header rule
+    pub border_muted: Color32,
+    /// --spine-default: reply spine
+    pub spine: Color32,
+    /// --background-code
+    pub bg_code: Color32,
+    /// --spoiler-hidden-background and --spoiler-revealed-background
+    pub spoiler: Color32,
+    pub spoiler_revealed: Color32,
+    /// --text-default
     pub text_normal: Color32,
+    /// --text-muted
     pub text_muted: Color32,
+    /// --chat-text-muted: timestamps
+    pub chat_muted: Color32,
+    /// --text-strong
     pub header_primary: Color32,
+    /// --interactive-text-default
     pub header_secondary: Color32,
+    /// --channels-default
     pub channel_default: Color32,
+    /// --interactive-muted
     pub channel_muted: Color32,
+    /// --interactive-text-hover
     pub interactive_hover: Color32,
+    /// --text-link
     pub link: Color32,
+    /// --mention-background and --mention-foreground
     pub mention_bg: Color32,
     pub mention_fg: Color32,
+    /// --message-mentioned-background-default
     pub highlight_bg: Color32,
     pub dark: bool,
 }
@@ -33,85 +66,144 @@ const fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
-// the grey everyone knows; discord calls it "ash" since the 2025 refresh
+// the grey every theme builds its translucent overlays from
+const OVERLAY: u32 = 0x97979f;
+
+/// `fg` at `permille`/1000 opacity laid over `bg`, as one opaque colour.
+const fn mix(fg: u32, permille: u32, bg: u32) -> Color32 {
+    const fn ch(fg: u32, bg: u32, permille: u32, shift: u32) -> u8 {
+        let (f, b) = ((fg >> shift) & 0xff, (bg >> shift) & 0xff);
+        ((f * permille + b * (1000 - permille) + 500) / 1000) as u8
+    }
+    Color32::from_rgb(ch(fg, bg, permille, 16), ch(fg, bg, permille, 8), ch(fg, bg, permille, 0))
+}
+
+/// `fg` at `permille`/1000 opacity, kept translucent (premultiplied, the way egui wants it).
+const fn tint(fg: u32, permille: u32) -> Color32 {
+    let a = (permille * 255 + 500) / 1000;
+    const fn ch(fg: u32, a: u32, shift: u32) -> u8 {
+        ((((fg >> shift) & 0xff) * a + 127) / 255) as u8
+    }
+    Color32::from_rgba_premultiplied(ch(fg, a, 16), ch(fg, a, 8), ch(fg, a, 0), a as u8)
+}
+
+// the grey everyone knows; "ash" in the picker, theme-dark in discord's css
 const ASH: Palette = Palette {
-    bg_tertiary: rgb(0x1e1f22),
-    bg_secondary: rgb(0x2b2d31),
-    bg_secondary_alt: rgb(0x232428),
-    bg_primary: rgb(0x313338),
-    bg_floating: rgb(0x111214),
-    bg_input: rgb(0x383a40),
-    bg_msg_hover: rgb(0x2e3035),
-    bg_mod_hover: rgb(0x35373c),
-    bg_mod_selected: rgb(0x404249),
-    bg_accent: rgb(0x4e5058),
-    text_normal: rgb(0xdbdee1),
-    text_muted: rgb(0x949ba4),
-    header_primary: rgb(0xf2f3f5),
-    header_secondary: rgb(0xb5bac1),
-    channel_default: rgb(0x80848e),
+    bg_tertiary: rgb(0x2c2d32),
+    bg_secondary: rgb(0x393a41),
+    bg_secondary_alt: rgb(0x36373e),
+    bg_primary: rgb(0x323339),
+    bg_floating: rgb(0x3c3d45),
+    bg_input: rgb(0x393a41),
+    bg_msg_hover: mix(OVERLAY, 122, 0x323339),
+    bg_mod_hover: mix(OVERLAY, 122, 0x2c2d32),
+    bg_mod_selected: mix(OVERLAY, 200, 0x2c2d32),
+    bg_accent: mix(OVERLAY, 122, 0x323339),
+    border_muted: tint(OVERLAY, 39),
+    spine: rgb(0x595a63),
+    bg_code: tint(0x5865f2, 78),
+    spoiler: rgb(0x7d7e87),
+    spoiler_revealed: rgb(0x232428),
+    text_normal: rgb(0xf3f3f4),
+    text_muted: rgb(0xabacb2),
+    chat_muted: rgb(0x9d9ea5),
+    header_primary: rgb(0xffffff),
+    header_secondary: rgb(0xc5c6ca),
+    channel_default: rgb(0x999aa1),
     channel_muted: rgb(0x4e5058),
-    interactive_hover: rgb(0xdbdee1),
-    link: rgb(0x00a8fc),
-    mention_bg: Color32::from_rgba_premultiplied(26, 30, 73, 76),
-    mention_fg: rgb(0xc9cdfb),
-    highlight_bg: Color32::from_rgba_premultiplied(24, 18, 5, 26),
+    interactive_hover: rgb(0xffffff),
+    link: rgb(0x76aff6),
+    mention_bg: tint(0x5865f2, 239),
+    mention_fg: rgb(0xcdd7ff),
+    highlight_bg: tint(0xf8a300, 78),
     dark: true,
 };
 
+// theme-darker
 const DARK: Palette = Palette {
-    bg_tertiary: rgb(0x0f0f11),
-    bg_secondary: rgb(0x121214),
-    bg_secondary_alt: rgb(0x17171a),
+    bg_tertiary: rgb(0x121214),
+    bg_secondary: rgb(0x242429),
+    bg_secondary_alt: rgb(0x202024),
     bg_primary: rgb(0x1a1a1e),
-    bg_floating: rgb(0x111113),
+    bg_floating: rgb(0x28282d),
     bg_input: rgb(0x222327),
-    bg_msg_hover: rgb(0x1e1e22),
-    bg_mod_hover: rgb(0x202024),
-    bg_mod_selected: rgb(0x2b2b30),
-    bg_accent: rgb(0x3a3a41),
-    channel_muted: rgb(0x3f4047),
+    bg_msg_hover: mix(OVERLAY, 122, 0x1a1a1e),
+    bg_mod_hover: mix(OVERLAY, 122, 0x121214),
+    bg_mod_selected: mix(OVERLAY, 200, 0x121214),
+    bg_accent: mix(OVERLAY, 122, 0x1a1a1e),
+    spine: rgb(0x474851),
+    spoiler: rgb(0x666770),
+    spoiler_revealed: tint(0x6c6f7c, 160),
+    text_normal: rgb(0xefeff1),
+    text_muted: rgb(0x96979e),
+    chat_muted: rgb(0x81828a),
+    header_primary: rgb(0xfbfbfb),
+    header_secondary: rgb(0xabacb2),
+    channel_default: rgb(0x81828a),
+    channel_muted: rgb(0x4d505b),
+    interactive_hover: rgb(0xfbfbfb),
+    link: rgb(0x4d96ee),
+    mention_fg: rgb(0xa9bbff),
     ..ASH
 };
 
+// theme-midnight
 const ONYX: Palette = Palette {
     bg_tertiary: rgb(0x000000),
-    bg_secondary: rgb(0x070709),
-    bg_secondary_alt: rgb(0x0b0b0d),
-    bg_primary: rgb(0x0c0c0e),
-    bg_floating: rgb(0x0c0c0e),
-    bg_input: rgb(0x18181b),
-    bg_msg_hover: rgb(0x121214),
-    bg_mod_hover: rgb(0x151518),
-    bg_mod_selected: rgb(0x1f1f23),
-    bg_accent: rgb(0x2c2c31),
-    channel_muted: rgb(0x36373d),
+    bg_secondary: rgb(0x0a0a0c),
+    bg_secondary_alt: rgb(0x000000),
+    bg_primary: rgb(0x000000),
+    bg_floating: rgb(0x121214),
+    bg_input: rgb(0x101013),
+    bg_msg_hover: mix(OVERLAY, 122, 0x000000),
+    bg_mod_hover: mix(OVERLAY, 122, 0x000000),
+    bg_mod_selected: mix(OVERLAY, 239, 0x000000),
+    bg_accent: mix(OVERLAY, 200, 0x000000),
+    border_muted: tint(OVERLAY, 161),
+    spine: rgb(0x383940),
+    spoiler: rgb(0x595a63),
+    spoiler_revealed: tint(0x6c6f7c, 160),
+    text_normal: rgb(0xd4d5d8),
+    text_muted: rgb(0x81828a),
+    chat_muted: rgb(0x73747d),
+    header_primary: rgb(0xdcdcdf),
+    header_secondary: rgb(0x96979e),
+    channel_default: rgb(0x7a7b83),
+    channel_muted: rgb(0x4d505b),
+    interactive_hover: rgb(0xdcdcdf),
+    link: rgb(0x2781e7),
+    mention_fg: rgb(0x8ca0fd),
     ..ASH
 };
 
 const LIGHT: Palette = Palette {
-    bg_tertiary: rgb(0xe3e5e8),
-    bg_secondary: rgb(0xf2f3f5),
-    bg_secondary_alt: rgb(0xebedef),
-    bg_primary: rgb(0xffffff),
+    bg_tertiary: rgb(0xf3f3f4),
+    bg_secondary: rgb(0xffffff),
+    bg_secondary_alt: rgb(0xfbfbfb),
+    bg_primary: rgb(0xfbfbfb),
     bg_floating: rgb(0xffffff),
-    bg_input: rgb(0xebedef),
-    bg_msg_hover: rgb(0xf6f6f7),
-    bg_mod_hover: rgb(0xe0e1e5),
-    bg_mod_selected: rgb(0xd4d7dc),
-    bg_accent: rgb(0xc4c9ce),
-    text_normal: rgb(0x313338),
-    text_muted: rgb(0x5c5e66),
-    header_primary: rgb(0x060607),
-    header_secondary: rgb(0x4e5058),
-    channel_default: rgb(0x5c5e66),
-    channel_muted: rgb(0xa3a6aa),
-    interactive_hover: rgb(0x2e3338),
-    link: rgb(0x006ce7),
-    mention_bg: Color32::from_rgba_premultiplied(13, 15, 36, 38),
-    mention_fg: rgb(0x505cdc),
-    highlight_bg: Color32::from_rgba_premultiplied(25, 17, 3, 26),
+    bg_input: rgb(0xffffff),
+    bg_msg_hover: mix(OVERLAY, 122, 0xfbfbfb),
+    bg_mod_hover: mix(OVERLAY, 122, 0xf3f3f4),
+    bg_mod_selected: mix(OVERLAY, 239, 0xf3f3f4),
+    bg_accent: mix(OVERLAY, 278, 0xfbfbfb),
+    border_muted: tint(OVERLAY, 200),
+    spine: rgb(0xc5c6ca),
+    bg_code: tint(0x5865f2, 39),
+    spoiler: rgb(0x8f9097),
+    spoiler_revealed: rgb(0xebedef),
+    text_normal: rgb(0x2e2e34),
+    text_muted: rgb(0x6c6d76),
+    chat_muted: rgb(0x70717a),
+    header_primary: rgb(0x28282d),
+    header_secondary: rgb(0x595a63),
+    channel_default: rgb(0x666770),
+    channel_muted: rgb(0xc4c9ce),
+    interactive_hover: rgb(0x28282d),
+    link: rgb(0x006dd4),
+    mention_fg: rgb(0x2e3c88),
     dark: false,
+    ..ASH
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -164,6 +256,16 @@ pub fn pal() -> &'static Palette {
     &PALETTES[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize]
 }
 
+/// A theme's palette without switching to it (settings swatches); `Sync` shows as ash.
+pub fn palette(t: Theme) -> &'static Palette {
+    &PALETTES[match t {
+        Theme::Light => 0,
+        Theme::Dark => 2,
+        Theme::Onyx => 3,
+        _ => 1,
+    }]
+}
+
 /// Switch the live palette. `Sync` follows the system's light/dark setting.
 pub fn set_theme(ctx: &egui::Context, t: Theme) {
     let idx = match t {
@@ -207,6 +309,10 @@ pub fn bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("bold".into()))
 }
 
+pub fn medium(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("medium".into()))
+}
+
 pub fn semi(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("semi".into()))
 }
@@ -233,6 +339,32 @@ pub fn role_color(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
+/// Pull `c` toward black or white until it reaches `ratio` against `bg`; discord does this
+/// to display name style colours so a pale one isn't lost on the light theme.
+pub fn contrast(c: Color32, bg: Color32, ratio: f32) -> Color32 {
+    let lum = |c: Color32| {
+        let lin = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    };
+    let reads = |a: Color32| (lum(a).max(lum(bg)) + 0.05) / (lum(a).min(lum(bg)) + 0.05) >= ratio;
+    let to = if lum(bg) > 0.4 { Color32::BLACK } else { Color32::WHITE };
+    (0..=20).map(|i| c.lerp_to_gamma(to, i as f32 / 20.0)).find(|a| reads(*a)).unwrap_or(to)
+}
+
+/// Colour `t` of the way (0 to 1) along evenly spaced stops, like css `linear-gradient`.
+pub fn ramp(stops: &[Color32], t: f32) -> Color32 {
+    let last = stops.len() - 1;
+    if last == 0 {
+        return stops[0];
+    }
+    let x = t.clamp(0.0, 1.0) * last as f32;
+    let i = (x as usize).min(last - 1);
+    stops[i].lerp_to_gamma(stops[i + 1], x - i as f32)
+}
+
 /// Font setup. `cjk` adds the big CJK/Hangul fallbacks (~30MB), which we load
 /// off the UI thread after the first frame so startup doesn't pay for them.
 pub fn fonts(cjk: bool) -> FontDefinitions {
@@ -257,6 +389,13 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     // channel names lean on things like "・" and "┃", and plenty of people write CJK
     let yahei = cjk && add("cjk", "msyh.ttc");
     let hangul = cjk && add("hangul", "malgun.ttf");
+    // discord's own face once it has been downloaded, see fonts.rs
+    let gg: Option<Vec<Vec<u8>>> = crate::fonts::WEIGHTS.iter().map(|w| crate::fonts::cached(*w)).collect();
+    if let Some(files) = &gg {
+        for (w, b) in crate::fonts::WEIGHTS.iter().zip(files) {
+            f.font_data.insert(format!("gg{w}"), Arc::new(FontData::from_owned(b.clone())));
+        }
+    }
 
     let defaults = f.families[&FontFamily::Proportional].clone();
     let chain = |first: Option<&str>| {
@@ -280,10 +419,13 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         v.dedup();
         v
     };
-    let prop = chain(None);
-    let s = chain(semi.then_some("semi"));
-    let b = chain(bold.then_some("bold"));
+    let gg = gg.is_some();
+    let prop = chain(gg.then_some("gg400"));
+    let m = chain(gg.then_some("gg500"));
+    let s = chain(if gg { Some("gg600") } else { semi.then_some("semi") });
+    let b = chain(if gg { Some("gg700") } else { bold.then_some("bold") });
     f.families.insert(FontFamily::Proportional, prop);
+    f.families.insert(FontFamily::Name("medium".into()), m);
     f.families.insert(FontFamily::Name("semi".into()), s);
     f.families.insert(FontFamily::Name("bold".into()), b);
     if code {

@@ -65,6 +65,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+]
+
+[[package]]
 name = "alsa"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -404,6 +425,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "brotli"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8b851b75c23ca7873623d612fe49bd1989aeb03d08fb9432187eb253d3d4c6b"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+ "alloc-stdlib",
+ "brotli-decompressor 6.0.1",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "5.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a32acac15fe1967bc3986b2a6347dffc965602354ea6f450ad07e8bfd253583"
+dependencies = [
+ "alloc-no-stdlib 2.0.4",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "6.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "941cd9bd4ddab83cb46fa5a2d428f1c857b24ac78cb876cf7beb710840934bd7"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+ "alloc-stdlib",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -428,6 +479,12 @@ dependencies = [
  "quote",
  "syn 3.0.6",
 ]
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "byteorder-lite"
@@ -1413,8 +1470,10 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "ttf2woff2",
  "windows",
  "windows-sys 0.61.2",
+ "wuff",
 ]
 
 [[package]]
@@ -5131,6 +5190,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "ttf2woff2"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61405db12fdd9c3881ccd8a9881fea46abec68096fedd6d50b6ab8538b442b28"
+dependencies = [
+ "brotli",
+ "byteorder",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "tungstenite"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5918,6 +5988,16 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "wuff"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "200a7b806377b65f1ff9a985874332f15357c87e5dd7855f35f06dade95b8b3d"
+dependencies = [
+ "brotli-decompressor 5.0.3",
+ "bytes",
+]
 
 [[package]]
 name = "x11rb"

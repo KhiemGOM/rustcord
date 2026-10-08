@@ -70,9 +70,9 @@ impl B<'_, '_> {
             reg(st.size)
         };
         let (color, bg) = if st.spoiler && !self.cx.revealed {
-            (pal().bg_tertiary, pal().bg_tertiary)
+            (pal().spoiler, pal().spoiler)
         } else if st.spoiler {
-            (st.color, Color32::from_white_alpha(25))
+            (st.color, pal().spoiler_revealed)
         } else {
             (st.color, st.bg)
         };
@@ -80,7 +80,7 @@ impl B<'_, '_> {
             font_id: family,
             line_height: Some((st.size * 1.375).round()),
             color,
-            background: if st.code { pal().bg_secondary_alt } else { bg },
+            background: if st.code { pal().bg_code } else { bg },
             italics: st.italic,
             underline: if st.under { Stroke::new(1.0, color) } else { Stroke::NONE },
             strikethrough: if st.strike { Stroke::new(1.0, color) } else { Stroke::NONE },

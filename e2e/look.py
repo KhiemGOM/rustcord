@@ -1,0 +1,95 @@
+"""Checks for theme colours, the gg sans download and message headers.
+
+The client samples its own screenshots (see look_steps in src/ui/e2e.rs) and drops
+the colours into results.json under rects["look:..."]; here they're compared with
+what discord's web css resolves for each theme. Expected values are those tokens:
+theme-midnight (Onyx), theme-darker (Dark), theme-dark (Ash), theme-light.
+"""
+
+OVERLAY = (0x97, 0x97, 0x9F)
+HOVER_ALPHA = 0.122  # --message-background-hover
+
+# rail/channel list = --background-base-lowest, chat/members = base-lower,
+# header = surface-high, input = --chat-background-default
+SURFACES = {
+    "Onyx": dict(rail="000000", side="000000", chat="000000", members="000000", header="0a0a0c", input="101013"),
+    "Dark": dict(rail="121214", side="121214", chat="1a1a1e", members="1a1a1e", header="242429", input="222327"),
+    "Ash": dict(rail="2c2d32", side="2c2d32", chat="323339", members="323339", header="393a41", input="393a41"),
+    "Light": dict(rail="f3f3f4", side="f3f3f4", chat="fbfbfb", members="fbfbfb", header="ffffff", input="ffffff"),
+}
+FONTS = ("400", "500", "600", "700")
+
+
+def rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def near(a, b, tol=2):
+    return all(abs(x - y) <= tol for x, y in zip(rgb(a), rgb(b)))
+
+
+def over(chat):
+    return tuple(round(o * HOVER_ALPHA + c * (1 - HOVER_ALPHA)) for o, c in zip(OVERLAY, rgb(chat)))
+
+
+def sfnt(path):
+    try:
+        return path.read_bytes()[:4] in (b"\x00\x01\x00\x00", b"OTTO", b"true")
+    except OSError:
+        return False
+
+
+def checks(runs, reqs, data):
+    out = {}
+    for tag, r in runs.items():
+        look = r.get("rects", {})
+        for theme, want in SURFACES.items():
+            got = {k: look.get(f"look:look_{theme}:{k}", "#?") for k in want}
+            bad = [k for k, v in want.items() if not (got[k].startswith("#") and "?" not in got[k] and near(got[k], v))]
+            out[f"look: {tag}: {theme} surfaces match discord's tokens"] = not bad
+            if bad:
+                print(f"{tag} {theme}: " + ", ".join(f"{k} {got[k]} != #{want[k]}" for k in bad))
+            hov = look.get(f"look:look_{theme}_hover:msg_hover", "#?")
+            out[f"look: {tag}: {theme} hovered message is the 0.122 overlay"] = "?" not in hov and near(hov, "#%02x%02x%02x" % over(want["chat"]))
+
+        out[f"look: {tag}: gg sans is the proportional face (and its medium cut)"] = (
+            look.get("look:font") == "gg400" and look.get("look:font_medium") == "gg500")
+
+        c = lambda k: rgb(look[f"look:look_Ash:{k}"]) if f"look:look_Ash:{k}" in look else (0, 0, 0)
+        # carol: two-tone role, tiled every 100px; eve: holographic role; frank: nitro glow style
+        out[f"look: {tag}: duo role gradient runs magenta to cyan across the name"] = (
+            c("name103_l")[0] - c("name103_r")[0] >= 30 and c("name103_r")[1] - c("name103_l")[1] >= 25)
+        out[f"look: {tag}: holographic role gradient goes from blue to pink"] = c("name105_r")[0] - c("name105_l")[0] >= 25
+        out[f"look: {tag}: nitro glow style spreads its colours over the name"] = (
+            c("name106_r")[1] - c("name106_l")[1] >= 8 and 0xB0 <= c("name106_l")[1] <= 0xD0)
+        out[f"look: {tag}: glow style has a halo, plain names don't"] = (
+            max(abs(a - b) for a, b in zip(c("halo106_near"), c("halo106_far"))) >= 3
+            and max(abs(a - b) for a, b in zip(c("halo105_near"), c("halo105_far"))) <= 1)
+        chat = rgb("#" + SURFACES["Ash"]["chat"])
+        out[f"look: {tag}: role icon (image) and role emoji drew something"] = all(
+            max(abs(a - b) for a, b in zip(c(k), chat)) >= 40 for k in ("icon105", "icon103"))
+
+        def box(k):
+            return look.get(f"look:Ash:{k}") or [0, 0, 0, 0]
+
+        for who in (103, 105, 106):
+            av, nm, st = box(f"avatar:{who}"), box(f"name:{who}"), box(f"stamp:{who}")
+            icon = box(f"role_icon:{who}")
+            after = icon[0] + icon[2] if icon[2] else nm[0] + nm[2] + 4
+            out[f"look: {tag}: header {who}: 40px avatar, name 56px right of it, centred 9px below the avatar top"] = (
+                av[2] == 40 and abs(nm[0] - av[0] - 56) <= 1 and abs(nm[1] + nm[3] / 2 - av[1] - 9) <= 2)
+            out[f"look: {tag}: header {who}: timestamp 4px after the {'role icon' if icon[2] else 'name + margin'}, time only"] = (
+                abs(st[0] - after - 4) <= 1 and 0 < st[2] < 60)
+        icon = box("role_icon:105")
+        nm = box("name:105")
+        out[f"look: {tag}: role icon is 20px, 4px after the name"] = icon[2] == 20 and abs(icon[0] - nm[0] - nm[2] - 4) <= 1
+
+    cached = [data / "fonts" / f"ggsans-{w}.ttf" for w in FONTS]
+    out["look: gg sans was decoded to ttf in the cache dir"] = all(sfnt(p) for p in cached)
+    paths = [r.get("path", "") for r in reqs]
+    woff = [p for p in paths if p.endswith(".woff2")]
+    out["look: font download read the new names off /app after the built-in one 404ed, and the warm run reused the cache"] = (
+        "/app" in paths and "/assets/fonts.css" in paths
+        and sum("/assets/mock" in p for p in woff) == 4 and len(woff) == 5)
+    return out
