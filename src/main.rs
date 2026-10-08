@@ -3,6 +3,7 @@
 mod api;
 mod cache;
 mod gateway;
+mod gif;
 mod hotkeys;
 mod imgcache;
 mod markdown;
