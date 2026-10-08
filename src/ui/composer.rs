@@ -325,7 +325,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     ui.add_space(16.0);
                     let draft = app.drafts.entry(ch).or_default();
-                    let w = ui.available_width() - 44.0;
+                    // the text stops short of the buttons: five 40 wide, six with the send button
+                    let buttons = if app.settings.send_button { 240.0 } else { 200.0 };
+                    let w = (ui.available_width() - buttons - 8.0).max(60.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt("composer_scroll").show(ui, |ui| {
                         // the row is horizontal; padding above and below the text has to be vertical

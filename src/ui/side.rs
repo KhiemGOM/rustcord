@@ -72,6 +72,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    header_ruled(ui, true, add);
+}
+
+/// The header with or without its hairline; a banner runs under it without one.
+fn header_ruled(ui: &mut Ui, rule: bool, add: impl FnOnce(&mut Ui)) {
     egui::Panel::top("side_head")
         .exact_size(49.0)
         .resizable(false)
@@ -79,7 +84,9 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
         .frame(Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), egui::Stroke::new(1.0, pal().border_subtle));
+            if rule {
+                ui.painter().hline(r.x_range().expand(16.0), r.bottom(), egui::Stroke::new(1.0, pal().border_subtle));
+            }
             ui.horizontal_centered(add);
         });
 }
@@ -95,7 +102,33 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let hide = app.store.hide_muted.contains(&gid);
     let mut invite = false;
     let mut act = None;
-    header(ui, |ui| {
+    // a boosted server's banner sits behind the header and scrolls away with the list
+    let banner = app.store.guilds.get(&gid).and_then(|g| g.banner_url());
+    let scroll_id = egui::Id::new(("side_scroll", gid));
+    if let Some(url) = &banner {
+        let side = ui.available_rect_before_wrap();
+        let off: f32 = ui.ctx().data(|d| d.get_temp(scroll_id)).unwrap_or(0.0);
+        let r = Rect::from_min_size(pos2(side.left(), side.top() - off.min(81.0)), vec2(side.width(), 130.0));
+        let p = ui.painter().with_clip_rect(side);
+        p.rect_filled(r, 0, pal().bg_mod_selected);
+        // banners are 16:9; cover the 21:9 strip by trimming top and bottom
+        let trim = (1.0 - (16.0 / 9.0) / (side.width() / 130.0)).max(0.0) / 2.0;
+        let uv = Rect::from_min_max(pos2(0.0, trim), pos2(1.0, 1.0 - trim));
+        egui::Image::from_uri(url.clone()).uv(uv).show_loading_spinner(false).paint_at(&ui.new_child(egui::UiBuilder::new().max_rect(side)), r);
+        // discord darkens the top behind the name so white text reads on any banner
+        let mut m = egui::Mesh::default();
+        let shade = Rect::from_min_size(r.min, vec2(r.width(), 72.0));
+        let dark = Color32::from_black_alpha(133);
+        m.colored_vertex(shade.left_top(), dark);
+        m.colored_vertex(shade.right_top(), dark);
+        m.colored_vertex(shade.right_bottom(), Color32::TRANSPARENT);
+        m.colored_vertex(shade.left_bottom(), Color32::TRANSPARENT);
+        m.add_triangle(0, 1, 2);
+        m.add_triangle(0, 2, 3);
+        p.add(m);
+    }
+    let ink = if banner.is_some() { Color32::WHITE } else { pal().header_primary };
+    header_ruled(ui, banner.is_none(), |ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         let head = ui.max_rect().expand2(vec2(16.0, 0.0));
         let id = ui.id().with("guild_menu");
@@ -107,9 +140,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             icons::draw(ui.painter(), Icon::Community, r, pal().header_secondary);
             ui.add_space(5.0);
         }
-        text::label(ui, &name, semi(16.0), pal().header_primary, Sense::hover());
+        text::label(ui, &name, semi(16.0), ink, Sense::hover());
         let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-        icons::draw(ui.painter(), if open { Icon::ChevronUp } else { Icon::ChevronDown }, r, pal().header_primary);
+        icons::draw(ui.painter(), if open { Icon::ChevronUp } else { Icon::ChevronDown }, r, ink);
         let btn = Rect::from_x_y_ranges(left - 8.0..=r.right() + 8.0, head.center().y - 16.0..=head.center().y + 16.0);
         let resp = ui.interact(btn, id, Sense::click());
         if open || resp.hovered() {
@@ -155,10 +188,14 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut menu: Option<(Id, ChanAct)> = None;
     let mut make_invite: Option<Id> = None;
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let out = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
-            ui.add_space(8.0);
+            // under a banner the list starts where the banner ends
+            ui.add_space(if banner.is_some() { 81.0 } else { 8.0 });
             let store = &app.store;
+            if let Some(g) = store.guilds.get(&gid).filter(|g| g.boost_bar) {
+                boost_goal(ui, gid, g.boosts, banner.is_some());
+            }
             let mut threads: Vec<&Channel> = store
                 .channels
                 .values()
@@ -166,8 +203,11 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 .collect();
             threads.sort_by_key(|t| t.id);
             if let Some(g) = store.guilds.get(&gid).filter(|g| g.features.iter().any(|f| f == "COMMUNITY")) {
-                if let Some((acts, done)) = app.guides.get(&gid).filter(|(a, _)| !a.is_empty()) {
-                    get_started(ui, gid, acts.len(), acts.iter().filter(|c| done.contains(c)).count());
+                // discord counts only the steps in channels you can see
+                let acts: Vec<Id> = app.guides.get(&gid).map(|(a, _)| a.iter().copied().filter(|c| store.channels.get(c).is_some_and(|c| store.can_view(c))).collect()).unwrap_or_default();
+                if !acts.is_empty() {
+                    let done = app.guides.get(&gid).map_or(0, |(_, d)| acts.iter().filter(|c| d.contains(c)).count());
+                    get_started(ui, gid, acts.len(), done);
                 }
                 home_rows(ui, g, store.my_perms(gid));
             }
@@ -231,6 +271,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             }
             ui.add_space(12.0);
         });
+        ui.ctx().data_mut(|d| d.insert_temp(scroll_id, out.state.offset.y));
     });
     match menu {
         Some((c, ChanAct::Read)) => {
@@ -493,6 +534,54 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
+}
+
+/// Discord's boost goal pill: boosts against the next level, or past level 3 a full bar and
+/// the count. It opens the server's boost page, in the browser here.
+fn boost_goal(ui: &mut Ui, gid: Id, boosts: u32, under_banner: bool) {
+    ui.add_space(if under_banner { 17.0 } else { 4.0 });
+    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+    let pill = Rect::from_min_max(pos2(row.left() + 12.0, row.top()), pos2(row.right() - 13.0, row.bottom()));
+    let p = ui.painter();
+    p.rect_filled(pill, 13, pal().bg_tertiary);
+    let next = [2, 7, 14].into_iter().find(|n| boosts < *n);
+    let fill = next.map_or(1.0, |n| boosts as f32 / n as f32);
+    let bar = pill.shrink(2.0);
+    let done = Rect::from_min_size(bar.min, vec2(bar.width() * fill, bar.height()));
+    if done.width() > done.height() {
+        // discord's boost gradient, purple into pink, with round ends
+        let (a, b) = (Color32::from_rgb(0x8a, 0x42, 0xde), Color32::from_rgb(0xe6, 0x5c, 0xd6));
+        let rad = done.height() / 2.0;
+        let mid = done.shrink2(vec2(rad, 0.0));
+        let mut m = egui::Mesh::default();
+        m.colored_vertex(mid.left_top(), a);
+        m.colored_vertex(mid.right_top(), b);
+        m.colored_vertex(mid.right_bottom(), b);
+        m.colored_vertex(mid.left_bottom(), a);
+        m.add_triangle(0, 1, 2);
+        m.add_triangle(0, 2, 3);
+        p.circle_filled(pos2(mid.left(), mid.center().y), rad, a);
+        p.circle_filled(pos2(mid.right(), mid.center().y), rad, b);
+        p.add(m);
+    }
+    let left = if next.is_none() { "Boost Goal 🎉".to_string() } else { "Boost Goal".to_string() };
+    text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().text_normal, 160.0);
+    let caret = Rect::from_center_size(pos2(bar.right() - 10.0, bar.center().y), vec2(12.0, 12.0));
+    icons::draw(p, Icon::ChevronRight, caret, pal().text_normal);
+    let count = match next {
+        Some(n) => format!("{boosts}/{n} Boosts"),
+        None => format!("{boosts} Boosts"),
+    };
+    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), pal().text_normal);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}")));
+    }
+    ui.add_space(4.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
+    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
 }
 
 /// Discord's "Get Started" bar over a server guide: how many of the new member steps are done,
