@@ -885,6 +885,7 @@ impl Run {
             240..=259 => self.layout_steps(app, ctx),
             260..=279 => self.title_steps(app, ctx),
             280..=299 => self.look_steps(app, ctx),
+            330..=349 => self.polish_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1416,8 +1417,13 @@ impl Run {
                 // the save is debounced by a second
                 self.next(2000);
             }
-            _ => self.step = 99,
+            _ => self.step = 330,
         }
+    }
+
+    /// Leftovers: channel header marks, voice panel, palette sweep.
+    fn polish_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 99;
     }
 
     /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):
