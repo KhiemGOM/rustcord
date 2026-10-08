@@ -1,7 +1,7 @@
 //! Scripted run used by the end-to-end harness (FASTCORD_E2E=<artifact dir>).
 //! Everything goes through egui's normal input path, so a click here is a click.
 
-use egui::{Event, Key, Modifiers, PointerButton, Pos2, ViewportCommand, vec2};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, ViewportCommand, pos2, vec2};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -1117,8 +1117,81 @@ impl Run {
     }
 
     /// Dragging panel edges.
-    fn layout_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 99;
+    fn layout_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let chat_w = |app: &App| app.rects.get("composer").map(|r| r.width());
+        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { 240.0 };
+        let members_w = |app: &App| if app.ui.members_w > 0.0 { app.ui.members_w } else { 240.0 };
+        let drag = |run: &mut Self, from: Pos2, dx: f32| {
+            run.queue.push_back(vec![Event::PointerMoved(from)]);
+            run.queue.push_back(vec![Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
+            for i in 1..=6 {
+                run.queue.push_back(vec![Event::PointerMoved(from + vec2(dx * i as f32 / 6.0, 0.0))]);
+            }
+            let to = from + vec2(dx, 0.0);
+            run.queue.push_back(vec![Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
+        };
+        match self.step {
+            240 => {
+                app.settings_page = None;
+                app.friends = false;
+                let Some(r) = app.rects.get(&format!("guild:{}", self.target.0)).copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            241 => {
+                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            242 => {
+                let Some(w) = chat_w(app) else { return };
+                if app.cur() != Some(self.target.1) {
+                    return;
+                }
+                self.rects.insert("layout_side_start".into(), json!(side_w(app)));
+                self.rects.insert("layout_members_start".into(), json!(members_w(app)));
+                self.rects.insert("layout_chat_start".into(), json!(w));
+                self.shot(ctx, "layout_before.png");
+                self.next(300);
+            }
+            243 => {
+                drag(self, pos2(72.0 + side_w(app), 400.0), 60.0);
+                self.next(400);
+            }
+            244 => {
+                self.rects.insert("layout_side_dragged".into(), json!(side_w(app)));
+                self.rects.insert("layout_chat_after_side".into(), json!(chat_w(app).unwrap_or(0.0)));
+                // a few px inside the panel: the message list's scrollbar sits on the other side of the edge and would take the press
+                let edge = ctx.content_rect().right() - members_w(app) + 3.0;
+                drag(self, pos2(edge, 400.0), -40.0);
+                self.next(400);
+            }
+            245 => {
+                self.rects.insert("layout_members_dragged".into(), json!(members_w(app)));
+                self.rects.insert("layout_chat_after_members".into(), json!(chat_w(app).unwrap_or(0.0)));
+                self.shot(ctx, "layout_after.png");
+                self.next(300);
+            }
+            246 => {
+                // drag the side edge far past its max; the chat column has to survive it
+                drag(self, pos2(72.0 + side_w(app), 400.0), 2000.0);
+                self.next(400);
+            }
+            247 => {
+                self.rects.insert("layout_side_max".into(), json!(side_w(app)));
+                self.rects.insert("layout_chat_min".into(), json!(chat_w(app).unwrap_or(0.0)));
+                self.shot(ctx, "layout_max.png");
+                let back = app.ui.side_w;
+                drag(self, pos2(72.0 + back, 400.0), self.rects["layout_side_dragged"].as_f64().unwrap_or(0.0) as f32 - back);
+                self.next(400);
+            }
+            248 => {
+                self.rects.insert("layout_side_end".into(), json!(side_w(app)));
+                // the save is debounced by a second
+                self.next(2000);
+            }
+            _ => self.step = 99,
+        }
     }
 
     /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):
