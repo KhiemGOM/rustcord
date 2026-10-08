@@ -69,6 +69,8 @@ pub struct App {
     pub confirm_delete: Option<(Id, Id)>,
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
+    // the server guide's new member actions, per server: (their channels, the ones done)
+    pub guides: HashMap<Id, (Vec<Id>, HashSet<Id>)>,
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
@@ -170,6 +172,7 @@ impl App {
             confirm_delete: None,
             confirm: None,
             forward: None,
+            guides: HashMap::new(),
             user_menu: None,
             guild_notifs: None,
             bar: None,
@@ -815,6 +818,16 @@ impl App {
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
             Tag::GifCats => self.set_gif_cats(&v),
+            Tag::Welcome(g) => {
+                let on = v["enabled"].as_bool().unwrap_or(false);
+                let actions = v["new_member_actions"].as_array().into_iter().flatten().map(|a| crate::state::sid(&a["channel_id"]));
+                let e = self.guides.entry(g).or_default();
+                e.0 = if on { actions.filter(|c| *c != 0).collect() } else { Vec::new() };
+            }
+            Tag::MemberActions(g) => {
+                let done = v["channel_actions"].as_object().into_iter().flatten().filter(|(_, a)| a["completed"].as_bool() == Some(true));
+                self.guides.entry(g).or_default().1 = done.filter_map(|(c, _)| c.parse().ok()).collect();
+            }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Quiet => {}
         }

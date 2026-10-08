@@ -141,6 +141,14 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
     }
 
+    // the server guide's checklist, fetched the first time the server is shown
+    let guided = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "GUILD_SERVER_GUIDE"));
+    if guided && !app.guides.contains_key(&gid) {
+        app.guides.insert(gid, Default::default());
+        app.rest("GET", format!("/guilds/{gid}/new-member-welcome"), None, crate::net::Tag::Welcome(gid));
+        app.rest("GET", format!("/guilds/{gid}/new-member-actions"), None, crate::net::Tag::MemberActions(gid));
+    }
+
     let cur = app.cur();
     let mut open: Option<Id> = None;
     let mut toggle: Option<Id> = None;
@@ -158,6 +166,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 .collect();
             threads.sort_by_key(|t| t.id);
             if let Some(g) = store.guilds.get(&gid).filter(|g| g.features.iter().any(|f| f == "COMMUNITY")) {
+                if let Some((acts, done)) = app.guides.get(&gid).filter(|(a, _)| !a.is_empty()) {
+                    get_started(ui, gid, acts.len(), acts.iter().filter(|c| done.contains(c)).count());
+                }
                 home_rows(ui, g, store.my_perms(gid));
             }
             let hide = store.hide_muted.contains(&gid);
@@ -482,6 +493,33 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
+}
+
+/// Discord's "Get Started" bar over a server guide: how many of the new member steps are done,
+/// with a bar filling green, then a rule. It opens the guide, which lives in the browser here.
+fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+    let p = ui.painter();
+    let x = r.left() + 16.0;
+    let right = r.right() - 9.0;
+    p.text(pos2(x, r.top() + 5.0), Align2::LEFT_TOP, "Get Started", bold(14.0), pal().header_primary);
+    let arrow = Rect::from_min_size(pos2(right - 16.0, r.top() + 6.0), vec2(16.0, 16.0));
+    icons::draw(p, Icon::ChevronRight, arrow, pal().text_normal);
+    let n = p.text(pos2(arrow.left(), arrow.center().y), Align2::RIGHT_CENTER, total.to_string(), bold(12.0), pal().text_normal);
+    let of = p.text(pos2(n.left() - 4.0, arrow.center().y), Align2::RIGHT_CENTER, "of", medium(12.0), pal().text_muted);
+    p.text(pos2(of.left() - 4.0, arrow.center().y), Align2::RIGHT_CENTER, done.to_string(), bold(12.0), pal().text_normal);
+    let track = Rect::from_min_max(pos2(x, r.top() + 31.0), pos2(right, r.top() + 35.0));
+    p.rect_filled(track, 3, pal().border_subtle);
+    let filled = Rect::from_min_size(track.min, vec2(track.width() * done as f32 / total.max(1) as f32, track.height()));
+    p.rect_filled(filled, 3, GREEN);
+    p.hline(r.x_range(), r.bottom() - 1.0, egui::Stroke::new(1.0, pal().border_subtle));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/@home")));
+    }
+    ui.add_space(8.0);
 }
 
 /// The community rows above the channels. Fastcord has none of these pages yet, so each
