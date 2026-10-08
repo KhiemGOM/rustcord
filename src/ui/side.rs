@@ -472,7 +472,11 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
             _ => Status::Offline,
         };
         status_dot(ui, av, status, pal().bg_secondary_alt);
+        // leave room for the three buttons so long names elide instead of running under them
+        let col = (ui.available_width() - 100.0).max(40.0);
         ui.vertical(|ui| {
+            ui.set_width(col);
+            ui.set_max_width(col);
             ui.add_space(8.0);
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
             text::label(ui, &name, semi(14.0), pal().header_primary, Sense::hover());
