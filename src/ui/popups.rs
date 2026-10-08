@@ -539,6 +539,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
+                let wash = ui.painter().add(egui::Shape::Noop);
                 let top = card_head(ui, &user, p, &name, status);
                 if uid != me {
                     (more, add) = banner_buttons(ui, top, stranger);
@@ -602,6 +603,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         message = resp.clicked();
                     }
                 });
+                theme_wash(ui, wash, p, ui.min_rect());
             });
         });
     if message {
@@ -687,6 +689,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.set_width(300.0);
         ui.set_min_height(height - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
+        let wash = ui.painter().add(egui::Shape::Noop);
         let top = card_head(ui, &user, p, user.display(), status);
         (more, add) = banner_buttons(ui, top, stranger);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
@@ -704,6 +707,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.painter().rect(b, 8, egui::Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
         full = resp.clicked();
+        theme_wash(ui, wash, p, ui.min_rect());
     });
     if let Some(at) = more {
         app.user_menu = Some((uid, 0, None, at));
@@ -714,6 +718,38 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     if full {
         app.open_profile(uid, 0, ui.min_rect().left_top() - vec2(310.0, 0.0));
     }
+}
+
+/// A profile's nitro theme as discord shows it: primary and accent, dimmed in dark themes.
+fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)> {
+    let c = p.and_then(|p| p["user_profile"]["theme_colors"].as_array()).filter(|c| c.len() == 2)?;
+    let k = if pal().dark { 0.4 } else { 1.0 };
+    let col = |v: &serde_json::Value| {
+        let c = v.as_u64().unwrap_or(0) as u32;
+        let ch = |s: u32| (((c >> s) & 255) as f32 * k) as u8;
+        egui::Color32::from_rgb(ch(16), ch(8), ch(0))
+    };
+    Some((col(&c[0]), col(&c[1])))
+}
+
+fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> {
+    theme(p).map(|(a, _)| a)
+}
+
+/// A nitro profile theme: the card washed from its primary colour down to its accent, dimmed the
+/// way discord dims them in dark themes. Paints into `slot`, reserved before the card's content.
+fn theme_wash(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Value>, rect: Rect) {
+    let Some((a, b)) = theme(p) else { return };
+    let mut mesh = egui::Mesh::default();
+    let size = ui.ctx().fonts(|f| f.font_image_size());
+    let mut tess = egui::epaint::Tessellator::new(ui.ctx().pixels_per_point(), Default::default(), size, Vec::new());
+    tess.tessellate_rect(&egui::epaint::RectShape::filled(rect, 7, egui::Color32::WHITE), &mut mesh);
+    for v in &mut mesh.vertices {
+        let t = ((v.pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+        let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+        v.color = egui::Color32::from_rgba_unmultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), v.color.a());
+    }
+    ui.painter().set(slot, mesh);
 }
 
 /// The top of a profile card: banner, avatar with its decoration and status, then the names.
@@ -732,12 +768,14 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
         crate::gif::paint_still(ui, b, top, cr, ui.rect_contains_pointer(top));
     }
     let av = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + 61.0), vec2(80.0, 80.0));
-    ui.painter().circle_filled(av.center(), 46.0, pal().bg_secondary);
+    // the ring around the avatar is cut from the card, themed or not
+    let ring = theme_top(p).unwrap_or(pal().bg_secondary);
+    ui.painter().circle_filled(av.center(), 46.0, ring);
     avatar(ui, av, &user.avatar_url().replace("size=80", "size=128"));
     if let Some(d) = user.decoration_url() {
         text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(96.0, 96.0)));
     }
-    status_dot(ui, av, status, pal().bg_secondary);
+    status_dot(ui, av, status, ring);
     ui.add_space(47.0);
     Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 0 }).show(ui, |ui| {
         ui.set_width(268.0);
@@ -758,7 +796,15 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
                 ui.add_space(18.0);
                 r = text::label(ui, pr, reg(14.0), pal().header_primary, Sense::hover()).rect;
             }
-            super::tag_chip(ui.painter(), user, pos2(r.right() + 8.0, r.center().y), 1.0);
+            let mut x = super::tag_chip(ui.painter(), user, pos2(r.right() + 8.0, r.center().y), 1.0).map_or(r.right() + 8.0, |t| t.right() + 6.0);
+            // the profile's badges, 20 apiece, each telling what it's for on hover
+            for b in p.and_then(|p| p["badges"].as_array()).into_iter().flatten() {
+                let Some(icon) = b["icon"].as_str() else { continue };
+                let br = Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0));
+                egui::Image::from_uri(format!("{}/badge-icons/{icon}.png", crate::api::cdn())).show_loading_spinner(false).paint_at(ui, br);
+                ui.interact(br, ui.id().with(("badge", icon)), Sense::hover()).on_hover_text(b["description"].as_str().unwrap_or(""));
+                x += 22.0;
+            }
         });
     });
     top
@@ -786,6 +832,7 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     let mut act = None;
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
+    let wash = ui.painter().add(egui::Shape::Noop);
     let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
     if let Some(c) = &custom {
         // the speech bubble discord floats beside your avatar
@@ -844,6 +891,7 @@ pub fn account(app: &mut App, ui: &mut Ui) {
             });
         }
     });
+    theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
     match act {
         Some(AccountAct::Status(s)) => app.set_status(s),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
