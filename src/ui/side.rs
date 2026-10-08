@@ -73,7 +73,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     egui::Panel::top("side_head")
-        .exact_size(48.0)
+        .exact_size(49.0)
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
@@ -85,12 +85,33 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 }
 
 fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
-    let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+    // html collapses runs of spaces in names, so discord never shows them
+    let name = app.store.guilds.get(&gid).map(|g| g.name.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
+    let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
+    let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.perms(c) & crate::state::CREATE_INVITE != 0);
+    let mut invite = false;
     header(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        if community {
+            let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+            icons::draw(ui.painter(), Icon::Community, r, pal().header_secondary);
+            ui.add_space(5.0);
+        }
         text::label(ui, &name, semi(16.0), pal().header_primary, Sense::hover());
         let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
         icons::draw(ui.painter(), Icon::ChevronDown, r, pal().header_primary);
+        if can_invite {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                icons::draw(ui.painter(), Icon::PersonAdd, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                invite = resp.on_hover_text("Invite to Server").clicked();
+            });
+        }
     });
+    if invite && let Some(c) = app.cur() {
+        app.made_invite = Some((c, None));
+        app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
+    }
 
     let cur = app.cur();
     let mut open: Option<Id> = None;
@@ -109,6 +130,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 .filter(|c| c.guild == gid && c.is_thread() && c.joined && !c.archived)
                 .collect();
             threads.sort_by_key(|t| t.id);
+            if let Some(g) = store.guilds.get(&gid).filter(|g| g.features.iter().any(|f| f == "COMMUNITY")) {
+                home_rows(ui, g, store.my_perms(gid));
+            }
             for (cat, kids) in tree(store, gid) {
                 let collapsed = cat.is_some_and(|c| app.ui.collapsed.contains(&c.id));
                 if let Some(cat) = cat {
@@ -241,6 +265,43 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
     resp
 }
 
+/// The community rows above the channels. Fastcord has none of these pages yet, so each
+/// opens Discord's in the browser.
+fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
+    let has = |f: &str| g.features.iter().any(|x| x == f);
+    let id = g.id;
+    let mut rows = Vec::new();
+    if has("GUILD_SERVER_GUIDE") {
+        rows.push((Icon::ServerGuide, "Server Guide", format!("https://discord.com/channels/{id}/@home")));
+    }
+    rows.push((Icon::Events, "Events", format!("https://discord.com/channels/{id}/@home")));
+    if has("GUILD_ONBOARDING") {
+        rows.push((Icon::ChannelsRoles, "Channels & Roles", format!("https://discord.com/channels/{id}/customize-community")));
+    }
+    if perms & (crate::state::KICK_MEMBERS | crate::state::ADMINISTRATOR) != 0 {
+        rows.push((Icon::People, "Members", format!("https://discord.com/channels/{id}/member-safety")));
+    }
+    rows.push((Icon::Gem, "Server Boosts", format!("https://discord.com/channels/{id}/@home")));
+    for (icon, label, url) in rows {
+        let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        let inner = row.shrink2(vec2(8.0, 0.0));
+        if resp.hovered() {
+            ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+        icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
+        text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col, inner.width() - 40.0);
+        if resp.clicked() {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        }
+    }
+    ui.add_space(6.0);
+    let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+    ui.add_space(4.0);
+}
+
 fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
     let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
@@ -273,7 +334,7 @@ pub fn glyph(c: &Channel) -> Icon {
         13 => Icon::Stage,
         5 => Icon::Megaphone,
         15 => Icon::Forum,
-        16 => Icon::Image,
+        16 => Icon::Media,
         10..=12 => Icon::Thread,
         _ => Icon::Hash,
     }
@@ -359,20 +420,20 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
 }
 
 fn dms(app: &mut App, ui: &mut Ui) {
+    // discord's is a button into the quick switcher, not a filter
+    let mut find = false;
     header(ui, |ui| {
-        let w = ui.available_width();
-        ui.allocate_ui_with_layout(vec2(w, 28.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            input_frame().corner_radius(4).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut app.dm_filter)
-                        .frame(Frame::NONE)
-                        .hint_text(egui::RichText::new("Find or start a conversation").color(pal().text_muted))
-                        .font(reg(14.0))
-                        .desired_width(ui.available_width()),
-                );
-            });
-        });
+        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, "Find or start a conversation", medium(14.0), pal().header_primary);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        find = resp.clicked();
     });
+    if find {
+        app.switcher = Some(String::new());
+    }
     let cur = app.cur();
     let mut open = None;
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
@@ -380,35 +441,55 @@ fn dms(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(8.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
-            let inner = row.shrink2(vec2(8.0, 0.0));
-            if app.friends {
-                ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
-            } else if resp.hovered() {
-                ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
+            // friends, then the store pages fastcord leaves to the browser
+            let rows = [
+                (Icon::Friends, "Friends", None),
+                (Icon::Nitro, "Nitro Home", Some("https://discord.com/store")),
+                (Icon::Shop, "Shop", Some("https://discord.com/shop")),
+                (Icon::Quests, "Quests", Some("https://discord.com/quest-home")),
+            ];
+            for (icon, label, url) in rows {
+                let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+                let inner = row.shrink2(vec2(8.0, 0.0));
+                let on = url.is_none() && app.friends;
+                if on {
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
+                } else if resp.hovered() {
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
+                }
+                let col = if on { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+                icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
+                if url.is_none() {
+                    if pending > 0 {
+                        badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
+                    }
+                    app.rects.insert("friends".into(), row);
+                }
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    match url {
+                        Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+                        None => app.friends = true,
+                    }
+                }
             }
-            let col = if app.friends { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
-            icons::draw(ui.painter(), Icon::People, Rect::from_center_size(pos2(inner.left() + 24.0, row.center().y), vec2(24.0, 24.0)), col);
-            ui.painter().text(pos2(inner.left() + 52.0, row.center().y), Align2::LEFT_CENTER, "Friends", semi(16.0), col);
-            if pending > 0 {
-                badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
-            }
-            app.rects.insert("friends".into(), row);
-            if resp.clicked() {
-                app.friends = true;
-            }
-            ui.add_space(8.0);
+            ui.add_space(14.0);
             let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-            ui.painter().text(pos2(h.left() + 18.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
+            ui.painter().text(pos2(h.left() + 16.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
+            let pr = Rect::from_center_size(pos2(h.right() - 24.0, h.center().y), vec2(16.0, 16.0));
+            let plus = ui.interact(pr.expand(4.0), ui.id().with("new_dm"), Sense::click());
+            icons::draw(ui.painter(), Icon::Plus, pr, if plus.hovered() { pal().interactive_hover } else { pal().channel_default });
+            if plus.on_hover_text("Create DM").clicked() {
+                app.switcher = Some(String::new());
+            }
             ui.add_space(4.0);
-            let filter = app.dm_filter.to_lowercase();
             let store = &app.store;
             for &id in &store.dms {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                if !filter.is_empty() && !title.to_lowercase().contains(&filter) {
-                    continue;
-                }
                 let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 if r.clicked() {
@@ -521,7 +602,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         };
         status_dot(ui, av, status, pal().bg_secondary_alt);
         // leave room for the three buttons so long names elide instead of running under them
-        let col = (ui.available_width() - 132.0).max(40.0);
+        let col = (ui.available_width() - 146.0).max(40.0);
         let hot = ui.rect_contains_pointer(ui.max_rect());
         ui.vertical(|ui| {
             ui.set_width(col);

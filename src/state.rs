@@ -46,6 +46,7 @@ pub fn make_nonce() -> String {
 
 pub const CREATE_INVITE: u64 = 1;
 pub const VIEW_CHANNEL: u64 = 1 << 10;
+pub const KICK_MEMBERS: u64 = 1 << 1;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
 pub const CONNECT: u64 = 1 << 20;
@@ -80,6 +81,14 @@ pub struct User {
     /// nitro display name style: effect id and colours (the font is ignored)
     #[serde(default)]
     pub style: Option<(u8, Vec<u32>)>,
+    /// server tag shown after the name: (tag, its server, badge hash)
+    #[serde(default)]
+    pub tag: Option<(String, Id, String)>,
+    /// avatar decoration asset
+    #[serde(default)]
+    pub decoration: Option<String>,
+    #[serde(default)]
+    pub flags: u64,
 }
 
 impl User {
@@ -93,7 +102,23 @@ impl User {
             avatar: ost(&v["avatar"]),
             bot: v["bot"].as_bool().unwrap_or(false),
             style: (!colors.is_empty()).then(|| (s["effect_id"].as_u64().unwrap_or(1) as u8, colors)),
+            tag: {
+                let g = &v["primary_guild"];
+                (g["identity_enabled"].as_bool() == Some(true))
+                    .then(|| (st(&g["tag"]), sid(&g["identity_guild_id"]), st(&g["badge"])))
+                    .filter(|(t, _, _)| !t.is_empty())
+            },
+            decoration: ost(&v["avatar_decoration_data"]["asset"]),
+            flags: v["public_flags"].as_u64().unwrap_or(0),
         }
+    }
+
+    pub fn tag_badge_url(&self) -> Option<String> {
+        self.tag.as_ref().filter(|(_, _, b)| !b.is_empty()).map(|(_, g, b)| format!("{}/guild-tag-badges/{g}/{b}.png?size=32", crate::api::cdn()))
+    }
+
+    pub fn decoration_url(&self) -> Option<String> {
+        self.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=96&passthrough=false", crate::api::cdn()))
     }
 
     pub fn display(&self) -> &str {
@@ -273,6 +298,10 @@ pub struct Guild {
     pub owner: Id,
     pub roles: HashMap<Id, Role>,
     pub emojis: Vec<Emoji>,
+    #[serde(default)]
+    pub stickers: Vec<(Id, String, u8)>,
+    #[serde(default)]
+    pub features: Vec<String>,
     pub channels: Vec<Id>,
     pub my_roles: Vec<Id>,
     pub member_count: u32,
@@ -639,6 +668,9 @@ pub struct Store {
     // the account opted into discord's newer notification settings, which is what makes the above count
     #[serde(default)]
     pub new_notifs: bool,
+    // message_notifications the user picked per server or channel (3 = inherit is left out)
+    #[serde(default)]
+    pub levels: HashMap<Id, u8>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -662,6 +694,9 @@ pub struct Store {
     pub refs: HashMap<Id, Message>,
     #[serde(skip)]
     pub presence: HashMap<Id, Status>,
+    // what each user is doing, live from presences: (kind, name, state, emoji url)
+    #[serde(skip)]
+    pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
     #[serde(skip)]
     pub typing: HashMap<Id, Vec<(Id, Instant)>>,
 }
@@ -729,6 +764,21 @@ impl Store {
     }
 
     /// Our effective permission bits in a channel. DMs and owners get everything.
+    /// Server-wide permissions, before any channel overwrites.
+    pub fn my_perms(&self, gid: Id) -> u64 {
+        let Some(g) = self.guilds.get(&gid) else { return 0 };
+        if g.owner == self.me {
+            return u64::MAX;
+        }
+        let mut p = g.roles.get(&g.id).map(|r| r.perms).unwrap_or(0);
+        for r in &g.my_roles {
+            if let Some(r) = g.roles.get(r) {
+                p |= r.perms;
+            }
+        }
+        if p & ADMINISTRATOR != 0 { u64::MAX } else { p }
+    }
+
     pub fn perms(&self, c: &Channel) -> u64 {
         if c.is_thread()
             && let Some(p) = self.channels.get(&c.parent)
@@ -824,6 +874,9 @@ impl Store {
         if let Some(all) = unreads(s, 2048, 4096) {
             self.unreads.insert(gid, all);
         }
+        if let Some(n) = s["message_notifications"].as_u64().filter(|n| *n < 3) {
+            self.levels.insert(gid, n as u8);
+        }
         for o in s["channel_overrides"].as_array().into_iter().flatten() {
             let cid = sid(&o["channel_id"]);
             if on(o) {
@@ -831,6 +884,9 @@ impl Store {
             }
             if let Some(all) = unreads(o, 1024, 512) {
                 self.unreads.insert(cid, all);
+            }
+            if let Some(n) = o["message_notifications"].as_u64().filter(|n| *n < 3) {
+                self.levels.insert(cid, n as u8);
             }
         }
     }
@@ -893,6 +949,48 @@ impl Store {
         (unread, men)
     }
 
+    fn set_activities(&mut self, uid: Id, v: &Value) {
+        let list: Vec<_> = v
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|a| {
+                let e = &a["emoji"];
+                let emoji = match (e["id"].as_str(), e["name"].as_str()) {
+                    (Some(id), _) => Some(format!("{}/emojis/{id}.png?size=32", crate::api::cdn())),
+                    (None, Some(n)) => Some(crate::markdown::twemoji(n)),
+                    _ => None,
+                };
+                (a["type"].as_u64().unwrap_or(0) as u8, st(&a["name"]), ost(&a["state"]), emoji)
+            })
+            .collect();
+        if list.is_empty() {
+            self.activities.remove(&uid);
+        } else {
+            self.activities.insert(uid, list);
+        }
+    }
+
+    /// The member list's second line: the custom status if there is one, else what they're
+    /// doing ("Playing", bold name). (emoji url, prefix, bold part)
+    pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String)> {
+        let list = self.activities.get(&uid)?;
+        if let Some((_, _, state, emoji)) = list.iter().find(|a| a.0 == 4)
+            && (state.is_some() || emoji.is_some())
+        {
+            return Some((emoji.clone(), state.clone().unwrap_or_default(), String::new()));
+        }
+        let (kind, name, _, _) = list.iter().find(|a| a.0 != 4)?;
+        let verb = match kind {
+            1 => "Streaming ",
+            2 => "Listening to ",
+            3 => "Watching ",
+            5 => "Competing in ",
+            _ => "Playing ",
+        };
+        Some((None, verb.to_string(), name.clone()))
+    }
+
     fn upsert_user(&mut self, v: &Value) -> Id {
         let u = User::parse(v);
         let id = u.id;
@@ -946,6 +1044,12 @@ impl Store {
         }
         if let Some(e) = v["emojis"].as_array() {
             g.emojis = e.iter().map(Emoji::parse).collect();
+        }
+        if let Some(f) = v["features"].as_array() {
+            g.features = f.iter().filter_map(|x| x.as_str()).map(str::to_string).collect();
+        }
+        if let Some(list) = v["stickers"].as_array() {
+            g.stickers = list.iter().map(|s| (sid(&s["id"]), st(&s["name"]), s["format_type"].as_u64().unwrap_or(1) as u8)).collect();
         }
         for vs in v["voice_states"].as_array().into_iter().flatten() {
             g.voice.insert(sid(&vs["user_id"]), sid(&vs["channel_id"]));
@@ -1039,6 +1143,7 @@ impl Store {
         };
         self.muted.clear();
         self.unreads.clear();
+        self.levels.clear();
         self.new_notifs = d["notification_settings"]["flags"].as_u64().unwrap_or(0) & 16 != 0;
         for s in ugs.as_array().into_iter().flatten() {
             self.guild_settings(s);
@@ -1105,10 +1210,12 @@ impl Store {
 
     pub fn load_supplemental(&mut self, d: &Value) {
         for p in d["merged_presences"]["friends"].as_array().into_iter().flatten() {
+            self.set_activities(sid(&p["user_id"]), &p["activities"]);
             self.presence.insert(sid(&p["user_id"]), Status::parse(p["status"].as_str().unwrap_or("")));
         }
         for list in d["merged_presences"]["guilds"].as_array().into_iter().flatten() {
             for p in list.as_array().into_iter().flatten() {
+                self.set_activities(sid(&p["user_id"]), &p["activities"]);
                 self.presence.insert(sid(&p["user_id"]), Status::parse(p["status"].as_str().unwrap_or("")));
             }
         }
@@ -1391,6 +1498,16 @@ impl Store {
                 let uid = self.upsert_user(&d["user"]);
                 self.upsert_member(sid(&d["guild_id"]), uid, d);
             }
+            "GUILD_STICKERS_UPDATE" => {
+                if let Some(g) = self.guilds.get_mut(&sid(&d["guild_id"])) {
+                    g.stickers = d["stickers"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|s| (sid(&s["id"]), st(&s["name"]), s["format_type"].as_u64().unwrap_or(1) as u8))
+                        .collect();
+                }
+            }
             "GUILD_EMOJIS_UPDATE" => {
                 if let Some(g) = self.guilds.get_mut(&sid(&d["guild_id"])) {
                     g.emojis = d["emojis"].as_array().into_iter().flatten().map(Emoji::parse).collect();
@@ -1476,6 +1593,7 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.presence.insert(uid, Status::parse(d["status"].as_str().unwrap_or("")));
+                self.set_activities(uid, &d["activities"]);
             }
             "VOICE_STATE_UPDATE" => {
                 let gid = sid(&d["guild_id"]);
@@ -1500,6 +1618,7 @@ impl Store {
                 for id in chans.iter().chain([&gid]) {
                     self.muted.remove(id);
                     self.unreads.remove(id);
+                    self.levels.remove(id);
                 }
                 self.guild_settings(d);
             }
@@ -1538,6 +1657,7 @@ impl Store {
         self.upsert_member(gid, uid, m);
         if let Some(s) = m["presence"]["status"].as_str() {
             self.presence.insert(uid, Status::parse(s));
+            self.set_activities(uid, &m["presence"]["activities"]);
         }
         ListItem::Member(uid)
     }

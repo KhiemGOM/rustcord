@@ -276,6 +276,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let top_r = if app.reply.is_some() { 0 } else { 8 };
     let mut attach = false;
     let mut emoji_at = None;
+    let mut sticker_at: Option<egui::Pos2> = None;
+    let mut apps_click = false;
+    let mut gift_click = false;
     let mut send_click = false;
     let mut gif_at = None;
     let mut gif_rect = None;
@@ -308,15 +311,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
                 ui.painter().hline(sep.x_range(), sep.center().y, Stroke::new(1.0, pal().bg_accent.gamma_multiply(0.5)));
             }
-            Frame::new().inner_margin(Margin { left: 16, right: 10, top: 0, bottom: 0 }).show(ui, |ui| {
+            Frame::new().inner_margin(Margin { left: 16, right: 8, top: 0, bottom: 0 }).show(ui, |ui| {
                 // discord's 56px text area, its 22px line centred
                 ui.set_min_height(56.0);
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
-                    let col = if presp.hovered() { pal().header_primary } else { pal().header_secondary };
-                    ui.painter().circle_filled(pr.center(), 10.0, col);
-                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(12.0, 12.0)), pal().bg_input);
+                    let col = if presp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), col);
                     if presp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -350,36 +352,40 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         });
                     });
                     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
+                    // discord's row, right to left: apps, emoji, sticker, gif, gift; 20px icons 40 apart
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                        let (er, eresp) = ui.allocate_exact_size(vec2(36.0, 56.0), Sense::click());
-                        let col = if eresp.hovered() { pal().interactive_hover } else { pal().header_secondary };
-                        icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(er.center(), vec2(20.0, 20.0)), col);
-                        if eresp.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-                        if eresp.on_hover_text("Select emoji").clicked() {
-                            emoji_at = Some(er.left_top());
-                        }
+                        let slot = |ui: &mut Ui, icon: Icon, tip: &str| {
+                            let (r, resp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
+                            let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                            icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
+                            if resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            resp.on_hover_text(tip)
+                        };
                         if app.settings.send_button {
-                            let (sr, sresp) = ui.allocate_exact_size(vec2(36.0, 56.0), Sense::click());
+                            let (sr, sresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
                             let col = if sresp.hovered() { BLURPLE } else { pal().header_secondary };
-                            icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(22.0, 22.0)), col);
+                            icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(20.0, 20.0)), col);
                             if sresp.on_hover_text("Send Message").clicked() {
                                 send_click = true;
                             }
                         }
-                        let (gr, gresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
-                        let col = if gresp.hovered() { pal().interactive_hover } else { pal().header_secondary };
-                        let badge = Rect::from_center_size(gr.center(), vec2(28.0, 20.0));
-                        ui.painter().rect_stroke(badge, CornerRadius::same(4), Stroke::new(2.0, col), egui::StrokeKind::Inside);
-                        ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", semi(11.0), col);
-                        gif_rect = Some(gr);
-                        if gresp.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        apps_click = slot(ui, Icon::Apps, "Apps").clicked();
+                        let er = slot(ui, Icon::Smile, "Select emoji");
+                        if er.clicked() {
+                            emoji_at = Some(er.rect.left_top());
                         }
-                        if gresp.on_hover_text("Open GIF picker").clicked() {
-                            gif_at = Some(gr.right_top());
+                        let sr = slot(ui, Icon::Sticker, "Open sticker picker");
+                        if sr.clicked() {
+                            sticker_at = Some(sr.rect.right_top());
                         }
+                        let gr = slot(ui, Icon::Gif, "Open GIF picker");
+                        gif_rect = Some(gr.rect);
+                        if gr.clicked() {
+                            gif_at = Some(gr.rect.right_top());
+                        }
+                        gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
                     });
                 });
             });
@@ -414,6 +420,20 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     if let Some(at) = emoji_at {
         app.picker = Some((Pick::Composer, at - vec2(380.0, 440.0)));
+    }
+    if let Some(at) = sticker_at {
+        app.stickers = Some(at - vec2(418.0, 440.0));
+    }
+    if gift_click {
+        ui.ctx().open_url(egui::OpenUrl::new_tab("https://discord.com/nitro"));
+    }
+    // the apps button opens what fastcord has of the app launcher: the slash command list
+    if apps_click {
+        let d = app.drafts.entry(ch).or_default();
+        if d.is_empty() {
+            d.push('/');
+        }
+        app.focus_composer = true;
     }
     if let Some(r) = gif_rect {
         app.rects.insert("gif_button".into(), r);

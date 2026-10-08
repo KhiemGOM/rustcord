@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, Mutex};
 
 use super::icons::{self, Icon};
-use super::{App, avatar, channel_title, icon_button};
+use super::{App, avatar, channel_title};
 use crate::state::{Channel, Id};
 use crate::theme::*;
 use crate::voice::{State, audio};
@@ -110,58 +110,35 @@ fn phone(ui: &Ui, c: egui::Pos2, col: Color32) {
     p.circle_filled(c + vec2(6.5, 6.0), 2.5, col);
 }
 
-// a camcorder: body plus the lens flare on the right
 fn camera(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
-    let p = ui.painter();
-    p.rect_filled(Rect::from_center_size(c + vec2(-2.5, 0.0) * k, vec2(13.0, 10.0) * k), CornerRadius::same((2.0 * k) as u8), col);
-    p.add(egui::Shape::convex_polygon(
-        vec![c + vec2(4.0, -1.5) * k, c + vec2(9.0, -4.5) * k, c + vec2(9.0, 4.5) * k, c + vec2(4.0, 1.5) * k],
-        col,
-        Stroke::NONE,
-    ));
+    icons::draw(ui.painter(), Icon::Video, Rect::from_center_size(c, vec2(20.0, 20.0) * k), col);
 }
 
-// a monitor on its stand
 fn screen(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
-    let p = ui.painter();
-    p.rect_stroke(Rect::from_center_size(c + vec2(0.0, -1.5) * k, vec2(16.0, 11.0) * k), CornerRadius::same((2.0 * k) as u8), Stroke::new(2.0 * k, col), egui::StrokeKind::Middle);
-    p.line_segment([c + vec2(0.0, 4.0) * k, c + vec2(0.0, 7.0) * k], Stroke::new(2.0 * k, col));
-    p.line_segment([c + vec2(-4.0, 7.5) * k, c + vec2(4.0, 7.5) * k], Stroke::new(2.0 * k, col));
+    icons::draw(ui.painter(), Icon::Screen, Rect::from_center_size(c, vec2(20.0, 20.0) * k), col);
 }
 
-// a handset tipped on its side, the shape Discord uses for "leave"
 fn hangup(ui: &Ui, c: egui::Pos2, col: Color32) {
-    let p = ui.painter();
-    p.rect_filled(Rect::from_center_size(c + vec2(0.0, -1.0), vec2(16.0, 5.0)), CornerRadius::same(3), col);
-    p.rect_filled(Rect::from_center_size(c + vec2(-6.0, 2.5), vec2(5.0, 5.0)), CornerRadius::same(2), col);
-    p.rect_filled(Rect::from_center_size(c + vec2(6.0, 2.5), vec2(5.0, 5.0)), CornerRadius::same(2), col);
-}
-
-fn toggle(ui: &mut Ui, icon: Icon, on: bool, size: f32, tip: &str) -> egui::Response {
-    let r = icon_button(ui, icon, size, tip);
-    if on {
-        let c = r.rect.center();
-        let d = size * 0.26;
-        let bg = if r.hovered() { pal().bg_mod_hover } else { pal().bg_secondary_alt };
-        ui.painter().line_segment([c + vec2(-d, -d), c + vec2(d, d)], Stroke::new(4.0, bg));
-        ui.painter().line_segment([c + vec2(-d, -d), c + vec2(d, d)], Stroke::new(2.0, RED));
-    }
-    r
+    icons::draw(ui.painter(), Icon::HangUp, Rect::from_center_size(c, vec2(20.0, 20.0)), col);
 }
 
 /// Mute and deafen, drawn right to left inside the user panel.
 pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     let deaf = app.voice.deaf;
     let mute = app.voice.mute || deaf;
-    // laid out right to left: each chevron sits after its button
-    let mut changed = device_menu(ui, "Output Device", true, &mut app.settings.speaker);
-    let d = toggle(ui, Icon::Headphones, deaf, 32.0, if deaf { "Undeafen" } else { "Deafen" });
+    // laid out right to left: each chevron sits after its button, groups 8 apart
+    ui.add_space(8.0);
+    let mut changed = device_menu(ui, "Output Device", true, &mut app.settings.speaker, deaf);
+    ui.add_space(1.0);
+    let d = split(ui, if deaf { Icon::HeadphonesOff } else { Icon::Headphones }, deaf, if deaf { "Undeafen" } else { "Deafen" });
     app.rects.insert("voice:deafen".into(), d.rect);
     if d.clicked() {
         app.voice.set_deaf(&app.net, !deaf);
     }
-    changed |= device_menu(ui, "Input Device", false, &mut app.settings.mic);
-    let m = toggle(ui, Icon::Mic, mute, 32.0, if mute { "Unmute" } else { "Mute" });
+    ui.add_space(8.0);
+    changed |= device_menu(ui, "Input Device", false, &mut app.settings.mic, mute);
+    ui.add_space(1.0);
+    let m = split(ui, if mute { Icon::MicOff } else { Icon::Mic }, mute, if mute { "Unmute" } else { "Mute" });
     app.rects.insert("voice:mute".into(), m.rect);
     if m.clicked() {
         app.voice.set_mute(&app.net, !mute);
@@ -169,6 +146,25 @@ pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     if changed {
         app.save_settings(ui.ctx());
     }
+}
+
+const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
+
+/// The left half of Discord's mic/headphone split button; washed red with a red icon while off.
+fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+    let bg = match (off, resp.hovered()) {
+        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
+        (false, true) => pal().control_hover,
+        (false, false) => Color32::TRANSPARENT,
+    };
+    ui.painter().rect_filled(r, CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 }, bg);
+    let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.on_hover_text(tip)
 }
 
 /// Green ring around a speaking user's avatar.
@@ -536,10 +532,16 @@ fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
 }
 
 /// The little chevron beside the panel's mic and headphones: a menu of devices to pick from.
-fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>) -> bool {
+fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>, off: bool) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
-    let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
-    icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(12.0, 12.0)), col);
+    let bg = match (off, resp.hovered()) {
+        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
+        (false, true) => pal().control_hover,
+        (false, false) => Color32::TRANSPARENT,
+    };
+    ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
+    let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
     let mut changed = false;
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(220.0);

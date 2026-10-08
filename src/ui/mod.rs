@@ -61,12 +61,13 @@ pub struct App {
     pub scroll_fix: Option<(Id, f32)>,
     pub revealed: HashSet<Id>,
     pub picker: Option<(Pick, Pos2)>,
+    // the sticker picker, anchored where it opened
+    pub stickers: Option<Pos2>,
     pub menu: Option<(Id, Id, Pos2)>,
     pub confirm_delete: Option<(Id, Id)>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
     pub marker: Option<(Id, Id)>,
-    pub dm_filter: String,
     pub focus_composer: bool,
     pub rects: HashMap<String, Rect>,
     pub settings: Settings,
@@ -159,12 +160,12 @@ impl App {
             scroll_fix: None,
             revealed: HashSet::new(),
             picker: None,
+            stickers: None,
             menu: None,
             confirm_delete: None,
             bar: None,
             toast: None,
             marker: None,
-            dm_filter: String::new(),
             focus_composer: true,
             rects: HashMap::new(),
             voice: Default::default(),
@@ -368,12 +369,17 @@ impl App {
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
         self.jump_to_present(ch);
         let reply = reply.map(|r| (r, self.reply_ping));
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files });
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new() });
         self.hold_ack = None;
         self.last_typing = None;
     }
 
     pub fn react(&mut self, ch: Id, msg: Id, em: ReactEmoji, add: bool) {
+        if add {
+            self.ui.quick.retain(|q| *q != em);
+            self.ui.quick.insert(0, em.clone());
+            self.ui.quick.truncate(3);
+        }
         self.net.send(Cmd::React { channel: ch, id: msg, emoji: em.api_name(), add });
         self.store.react_local(ch, msg, em, add);
     }
@@ -412,6 +418,18 @@ impl App {
             let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted } } });
             self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
         }
+    }
+
+    /// A channel's notification level, as Discord's bell menu sets it; None goes back to the
+    /// category or server default.
+    pub fn set_level(&mut self, ch: Id, level: Option<u8>) {
+        match level {
+            Some(n) => self.store.levels.insert(ch, n),
+            None => self.store.levels.remove(&ch),
+        };
+        let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
+        let body = json!({ "channel_overrides": { ch.to_string(): { "message_notifications": level.unwrap_or(3) } } });
+        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
     }
 
     /// Alt+↑/↓ walks channels, Alt+Shift+↑/↓ jumps between unread ones,
@@ -963,6 +981,7 @@ impl App {
             }
         }
         picker::show(self, &ctx);
+        picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);
         popups::show(self, &ctx);
         popups::viewer(self, &ctx);
@@ -1173,13 +1192,46 @@ pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui
     let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
     if resp.hovered() {
         if size >= 32.0 {
-            ui.painter().rect_filled(rect, CornerRadius::same(4), pal().bg_mod_hover);
+            ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover);
         }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let s = if size >= 32.0 { 20.0 } else { (size * 0.86).min(24.0) };
     icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(s, s)), col);
     resp.on_hover_text(tip)
+}
+
+/// Discord's server tag chip after a name: badge and tag on a grey wash, 16 tall.
+pub fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade: f32) -> Option<Rect> {
+    let (tag, _, _) = u.tag.as_ref()?;
+    let ink = pal().header_primary.gamma_multiply(fade);
+    let g = p.layout_no_wrap(tag.clone(), semi(12.0), ink);
+    let badge = u.tag_badge_url();
+    let w = 8.0 + if badge.is_some() { 16.0 } else { 0.0 } + g.size().x;
+    let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(w, 16.0));
+    p.rect_filled(r, CornerRadius::same(4), Color32::from_rgba_unmultiplied(151, 151, 159, 61).gamma_multiply(fade));
+    let mut x = r.left() + 4.0;
+    if let Some(url) = badge {
+        text::image_tint(p, &url, Rect::from_min_size(pos2(x, at.y - 7.0), vec2(14.0, 14.0)), Color32::WHITE.gamma_multiply(fade));
+        x += 16.0;
+    }
+    p.galley(pos2(x, at.y - g.size().y / 2.0), g, ink);
+    Some(r)
+}
+
+/// The blurple "APP" tag after a bot's name, with the check for verified apps.
+pub fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32) -> Rect {
+    let g = p.layout_no_wrap("APP".into(), semi(12.0), Color32::WHITE);
+    let w = 8.0 + if verified { 16.0 } else { 0.0 } + g.size().x;
+    let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(w, 16.0));
+    p.rect_filled(r, CornerRadius::same(4), BLURPLE.gamma_multiply(fade.max(0.5)));
+    let mut x = r.left() + 4.0;
+    if verified {
+        icons::draw(p, icons::Icon::Verified, Rect::from_min_size(pos2(x - 2.0, at.y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
+        x += 14.0;
+    }
+    p.galley(pos2(x, at.y - g.size().y / 2.0), g, Color32::WHITE);
+    r
 }
 
 pub fn channel_title(store: &Store, ch: Id) -> String {

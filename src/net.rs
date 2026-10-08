@@ -59,7 +59,7 @@ pub enum Cmd {
     Login { login: String, password: String },
     Mfa { ticket: String, code: String },
     Messages { channel: Id, page: Page },
-    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)> },
+    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)>, stickers: Vec<Id> },
     Download { url: String, path: PathBuf },
     Interact(Value),
     Edit { channel: Id, id: Id, content: String },
@@ -172,9 +172,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     }
                 });
             }
-            Cmd::Send { channel, content, nonce, reply, files } => {
+            Cmd::Send { channel, content, nonce, reply, files, stickers } => {
                 tokio::spawn(async move {
-                    if let Err(err) = a.send(channel, &content, &nonce, reply, &files).await {
+                    if let Err(err) = a.send(channel, &content, &nonce, reply, &files, &stickers).await {
                         tx.send(Ev::SendFailed { channel, nonce, err });
                     }
                 });

@@ -1,8 +1,9 @@
-//! Vector icons drawn straight onto the painter. Emoji glyphs made decent icons
-//! until a font lacked one or sat on the wrong baseline; these always line up.
+//! Icons. Discord's own SVGs (assets/icons, white so a tint colours them), rasterised once
+//! per size; the hand-drawn vectors below cover the first frame before a texture exists
+//! and the few glyphs Discord has no icon for (window buttons).
 //! Coordinates are on a 24x24 grid and scale with the target rect.
 
-use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, vec2};
+use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
 use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
 use crate::theme::pal;
@@ -47,6 +48,130 @@ pub enum Icon {
     Maximize,
     Restore,
     PersonAdd,
+    Bell,
+    BellOff,
+    Gift,
+    Gif,
+    Sticker,
+    Apps,
+    More,
+    Forward,
+    MicOff,
+    HeadphonesOff,
+    Video,
+    Screen,
+    Friends,
+    Nitro,
+    Shop,
+    Quests,
+    Discover,
+    Download,
+    Community,
+    Verified,
+    Discord,
+    Events,
+    ServerGuide,
+    ChannelsRoles,
+    NewDm,
+    Media,
+    Crown,
+    HangUp,
+    MoreVertical,
+    CirclePlus,
+}
+
+macro_rules! svg {
+    ($name:literal) => {
+        (concat!("bytes://icon/", $name, ".svg"), include_bytes!(concat!("../../assets/icons/", $name, ".svg")).as_slice())
+    };
+}
+
+type Svg = (&'static str, &'static [u8]);
+
+fn discord(icon: Icon) -> Option<Svg> {
+    Some(match icon {
+        Icon::Hash => svg!("hash"),
+        Icon::Speaker => svg!("voice"),
+        Icon::Megaphone => svg!("megaphone"),
+        Icon::Forum => svg!("forum"),
+        Icon::Stage => svg!("stage"),
+        Icon::Rules => svg!("rules"),
+        Icon::Thread => svg!("thread"),
+        Icon::People => svg!("people"),
+        Icon::Pin => svg!("pin"),
+        Icon::Gear => svg!("gear"),
+        Icon::Mic => svg!("mic"),
+        Icon::Headphones => svg!("headphones"),
+        Icon::Plus => svg!("plus"),
+        Icon::Smile => svg!("smile"),
+        Icon::AddReaction => svg!("add_reaction"),
+        Icon::Search => svg!("search"),
+        Icon::Reply => svg!("reply"),
+        Icon::Pencil => svg!("pencil"),
+        Icon::Trash => svg!("trash"),
+        Icon::Close => svg!("close"),
+        Icon::Check => svg!("check"),
+        Icon::ChevronDown => svg!("chevron_down"),
+        Icon::ChevronRight => svg!("chevron_right"),
+        Icon::Folder => svg!("folder"),
+        Icon::File => svg!("file"),
+        Icon::Play => svg!("play"),
+        Icon::Image => svg!("image"),
+        Icon::Gem => svg!("boosts"),
+        Icon::ArrowRight => svg!("arrow_right"),
+        Icon::ArrowLeft => svg!("arrow_left"),
+        Icon::Send => svg!("send"),
+        Icon::Inbox => svg!("inbox"),
+        Icon::Help => svg!("help"),
+        Icon::PersonAdd => svg!("person_add"),
+        Icon::Bell => svg!("bell"),
+        Icon::BellOff => svg!("bell_off"),
+        Icon::Gift => svg!("gift"),
+        Icon::Gif => svg!("gif"),
+        Icon::Sticker => svg!("sticker"),
+        Icon::Apps => svg!("apps"),
+        Icon::More => svg!("more"),
+        Icon::Forward => svg!("forward"),
+        Icon::MicOff => svg!("mic_off"),
+        Icon::HeadphonesOff => svg!("headphones_off"),
+        Icon::Video => svg!("video"),
+        Icon::Screen => svg!("screen"),
+        Icon::Friends => svg!("friends"),
+        Icon::Nitro => svg!("nitro"),
+        Icon::Shop => svg!("shop"),
+        Icon::Quests => svg!("quests"),
+        Icon::Discover => svg!("discover"),
+        Icon::Download => svg!("download"),
+        Icon::Community => svg!("community"),
+        Icon::Verified => svg!("verified"),
+        Icon::Discord => svg!("discord"),
+        Icon::Events => svg!("events"),
+        Icon::ServerGuide => svg!("server_guide"),
+        Icon::ChannelsRoles => svg!("channels_roles"),
+        Icon::NewDm => svg!("new_dm"),
+        Icon::Media => svg!("media"),
+        Icon::HangUp => svg!("hang_up"),
+        Icon::Crown => svg!("crown"),
+        Icon::MoreVertical => svg!("more_vertical"),
+        Icon::CirclePlus => svg!("circle_plus"),
+        Icon::Bubble => svg!("bubble"),
+        Icon::Minimize | Icon::Maximize | Icon::Restore => return None,
+    })
+}
+
+/// Paint one of Discord's icons tinted `c`, square and centred in `rect`. False until the
+/// texture for this size exists.
+fn paint_svg(p: &Painter, (uri, bytes): Svg, rect: Rect, c: Color32) -> bool {
+    let side = rect.width().min(rect.height());
+    let r = Rect::from_center_size(rect.center(), vec2(side, side));
+    let src = egui::ImageSource::Bytes { uri: uri.into(), bytes: egui::load::Bytes::Static(bytes) };
+    match egui::Image::new(src).load_for_size(p.ctx(), r.size()) {
+        Ok(egui::load::TexturePoll::Ready { texture }) => {
+            p.image(texture.id, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), c);
+            true
+        }
+        _ => false,
+    }
 }
 
 struct G<'a> {
@@ -124,8 +249,26 @@ pub enum Mark {
     Warn,
 }
 
-/// A channel glyph with the top-right corner cut away for a small lock or warning triangle.
+/// A channel glyph with Discord's lock or warning variant; the cut-corner drawing below is
+/// the fallback.
 pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) {
+    let named = match (icon, mark) {
+        (Icon::Hash, Mark::Lock) => Some(svg!("hash_lock")),
+        (Icon::Hash, Mark::Warn) => Some(svg!("hash_nsfw")),
+        (Icon::Speaker, Mark::Lock) => Some(svg!("voice_lock")),
+        (Icon::Speaker, Mark::Warn) => Some(svg!("voice_nsfw")),
+        (Icon::Megaphone, Mark::Lock) => Some(svg!("megaphone_lock")),
+        (Icon::Megaphone, Mark::Warn) => Some(svg!("megaphone_nsfw")),
+        (Icon::Forum, Mark::Lock) => Some(svg!("forum_lock")),
+        (Icon::Forum, Mark::Warn) => Some(svg!("forum_nsfw")),
+        (Icon::Stage, Mark::Lock) => Some(svg!("stage_lock")),
+        _ => None,
+    };
+    if let Some(s) = named
+        && paint_svg(p, s, rect, c)
+    {
+        return;
+    }
     let side = rect.width().min(rect.height());
     let o = rect.center() - vec2(side, side) / 2.0;
     let k = side / 24.0;
@@ -148,6 +291,11 @@ pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) 
 }
 
 pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
+    if let Some(s) = discord(icon)
+        && paint_svg(p, s, rect, c)
+    {
+        return;
+    }
     let side = rect.width().min(rect.height());
     let g = G { p, o: rect.center() - vec2(side, side) / 2.0, s: side / 24.0, c };
     match icon {
@@ -344,5 +492,6 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             g.rect(3.0, 4.0, 21.0, 17.0, 4.0);
             g.fill(&[(6.0, 16.0), (11.0, 16.0), (6.0, 21.0)]);
         }
+        _ => {}
     }
 }

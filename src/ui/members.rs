@@ -67,14 +67,18 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let inner = row.shrink2(vec2(8.0, 0.0));
                     let hovered = resp.hovered();
                     if hovered {
-                        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
+                        ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
                     }
-                    let fade = if offline && !hovered { 0.3 } else { 1.0 };
+                    // discord fades the whole offline row to .3, except your own
+                    let fade = if offline && !hovered && *uid != store.me { 0.3 } else { 1.0 };
                     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
                     if let Some(u) = store.user(*uid) {
                         avatar(ui, av, &u.avatar_url());
+                        if let Some(d) = u.decoration_url() {
+                            super::text::image(ui.painter(), &d, Rect::from_center_size(av.center(), av.size() * 1.2));
+                        }
                         if fade < 1.0 {
-                            ui.painter().circle_filled(av.center(), 16.5, pal().bg_primary.gamma_multiply(0.7));
+                            ui.painter().circle_filled(av.center(), 19.5, pal().bg_primary.gamma_multiply(0.7));
                         }
                     }
                     let st = store.status(*uid);
@@ -84,12 +88,41 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let color = store.role_color(gid, *uid).map(role_color).unwrap_or(pal().header_secondary);
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
-                    let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 36.0 } else { 0.0 };
-                    let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, &name, reg(16.0), color.gamma_multiply(fade), tw, 1.0);
-                    if bot {
-                        let tag = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.5), vec2(30.0, 15.0));
-                        ui.painter().rect_filled(tag, CornerRadius::same(3), BLURPLE.gamma_multiply(fade.max(0.5)));
-                        ui.painter().text(tag.center(), Align2::CENTER_CENTER, "APP", semi(10.0), egui::Color32::WHITE);
+                    let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
+                    // with an activity the name rides up and the line sits under it
+                    let line = if offline { None } else { store.activity_line(*uid) };
+                    let ny = if line.is_some() { row.center().y - 8.0 } else { row.center().y };
+                    let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, ny), Align2::LEFT_CENTER, &name, medium(16.0), color.gamma_multiply(fade), tw, 1.0);
+                    if let Some((emoji, plain, bold)) = line {
+                        let mut x = av.right() + 12.0;
+                        let y = row.center().y + 10.0;
+                        if let Some(url) = emoji {
+                            super::text::image(ui.painter(), &url, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)));
+                            x += 18.0;
+                        }
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap.max_width = inner.right() - 8.0 - x;
+                        job.wrap.max_rows = 1;
+                        job.wrap.break_anywhere = true;
+                        job.append(&plain, 0.0, egui::TextFormat { font_id: medium(12.0), color: pal().text_muted, ..Default::default() });
+                        job.append(&bold, 0.0, egui::TextFormat { font_id: semi(12.0), color: pal().text_muted, ..Default::default() });
+                        let g = ui.painter().layout_job(job);
+                        ui.painter().galley(pos2(x, y - g.size().y / 2.0), g, pal().text_muted);
+                    }
+                    let mut tx = nr.right() + 4.0;
+                    // discord leaves the crown off while the owner sits in the offline group
+                    if !offline && store.guilds.get(&gid).is_some_and(|g| g.owner == *uid) {
+                        let cr = Rect::from_min_size(pos2(tx, ny - 7.0), vec2(14.0, 14.0));
+                        super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
+                        ui.interact(cr, ui.id().with(("owner", *uid)), Sense::hover()).on_hover_text("Server Owner");
+                        tx = cr.right() + 4.0;
+                    }
+                    if let Some(u) = store.user(*uid) {
+                        if bot {
+                            super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade);
+                        } else {
+                            super::tag_chip(ui.painter(), u, pos2(tx, ny), fade);
+                        }
                     }
                 }
             }
