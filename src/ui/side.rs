@@ -44,12 +44,18 @@ pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
+    // discord floats the account card 8 above the bottom and in from the sides
     egui::Panel::bottom("me")
-        .exact_size(52.0)
+        .exact_size(64.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_secondary_alt).inner_margin(egui::Margin::symmetric(8, 0)))
-        .show(ui, |ui| user_panel(app, ui));
+        .frame(Frame::new().inner_margin(egui::Margin { left: 8, right: 8, top: 0, bottom: 8 }))
+        .show(ui, |ui| {
+            let card = ui.max_rect();
+            ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().bg_mod_hover), egui::StrokeKind::Inside);
+            app.rects.insert("userpanel".into(), card);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(card.shrink2(vec2(8.0, 0.0))), |ui| user_panel(app, ui));
+        });
     if app.voice.chan.is_some() {
         egui::Panel::bottom("voice")
             .exact_size(60.0)
@@ -114,9 +120,13 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     if collapsed && !selected && !unread {
                         continue;
                     }
-                    let muted = store.muted.contains(&c.id);
-                    let r = channel_row(ui, c, selected, unread, store.mentions(c.id), muted);
+                    let muted = store.is_muted(c);
+                    let (r, emoji) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted);
                     app.rects.insert(format!("chan:{}", c.id), r.rect);
+                    if let Some(e) = emoji {
+                        app.rects.insert(format!("chanemoji:{}", c.id), e);
+                    }
+                    app.rects.insert(format!("chanicon:{}", c.id), Rect::from_center_size(pos2(r.rect.left() + 26.0, r.rect.center().y), vec2(20.0, 20.0)));
                     if r.clicked() {
                         open = Some(c.id);
                     }
@@ -129,7 +139,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         if r.clicked() {
                             open = Some(t.id);
                         }
-                        channel_menu(&r, t.id, store.muted.contains(&t.id), dev, &mut menu);
+                        channel_menu(&r, t.id, store.is_muted(t), dev, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
                         voice_users(ui, store, &app.voice, gid, c.id);
@@ -214,7 +224,7 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
         pal().channel_default
     };
     let font = if selected || unread { semi(15.0) } else { reg(15.0) };
-    text::paint(ui.painter(), pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col, inner.width() - 16.0);
+    text::paint_em(ui.painter(), pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col, inner.width() - 16.0, 1.0);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -234,18 +244,31 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool) -> egui::Response {
     resp
 }
 
+/// The channel's icon with the lock or warning discord adds for private and age-gated ones.
+pub fn chan_icon(store: &Store, p: &egui::Painter, c: &Channel, rect: Rect, col: Color32) {
+    let icon = if store.guilds.get(&c.guild).is_some_and(|g| g.rules == c.id) { Icon::Rules } else { glyph(c) };
+    if store.locked(c) {
+        icons::draw_marked(p, icon, icons::Mark::Lock, rect, col);
+    } else if c.nsfw && !c.is_thread() {
+        icons::draw_marked(p, icon, icons::Mark::Warn, rect, col);
+    } else {
+        icons::draw(p, icon, rect, col);
+    }
+}
+
 pub fn glyph(c: &Channel) -> Icon {
     match c.kind {
         2 => Icon::Speaker,
         13 => Icon::Stage,
         5 => Icon::Megaphone,
-        15 | 16 => Icon::Forum,
+        15 => Icon::Forum,
+        16 => Icon::Image,
         10..=12 => Icon::Thread,
         _ => Icon::Hash,
     }
 }
 
-fn channel_row(ui: &mut Ui, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> egui::Response {
+fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> (egui::Response, Option<Rect>) {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -278,18 +301,21 @@ fn channel_row(ui: &mut Ui, c: &Channel, selected: bool, unread: bool, mentions:
         pal().channel_default
     };
     let ir = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
-    icons::draw(ui.painter(), glyph(c), ir, icon_col);
+    chan_icon(store, ui.painter(), c, ir, icon_col);
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if selected || unread { semi(16.0) } else { reg(16.0) };
     let left = inner.left() + 34.0;
-    text::paint(ui.painter(), pos2(left, row.center().y), Align2::LEFT_CENTER, &c.name, font, col, right - left);
+    let name = text::layout_em(ui.ctx(), &c.name, font, col, right - left, 1.0);
+    let at = pos2(left, row.center().y - name.size().y / 2.0);
+    name.paint(ui.painter(), at);
+    let emoji = name.emoji_rects(at).next().map(|(_, r)| r);
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
     }
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp
+    (resp, emoji)
 }
 
 fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
@@ -306,7 +332,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             super::call::ring(ui, av);
         }
         let used = super::call::badges(ui, voice, u, row);
-        text::paint(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), pal().channel_default, row.right() - av.right() - 16.0 - used);
+        text::paint_em(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), pal().channel_default, row.right() - av.right() - 16.0 - used, 1.0);
     }
 }
 
@@ -407,7 +433,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     if c.kind == 3 {
-        text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 8.0), Align2::LEFT_CENTER, title, font, col, tw);
+        text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y - 8.0), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
         clip.text(
             pos2(av.right() + 12.0, row.center().y + 9.0),
             Align2::LEFT_CENTER,
@@ -416,7 +442,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             pal().text_muted,
         );
     } else {
-        text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw);
+        text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
     }
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
