@@ -322,7 +322,7 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
         Icon::Help => {
             // the question mark is a hole in the disc, which one colour can't do; this only ever sits on the title bar
             g.circle(12.0, 12.0, 10.0);
-            let h = G { c: pal().bg_tertiary, ..g };
+            let h = G { c: pal().frame_bg, ..g };
             h.arc(12.0, 9.5, 3.2, -PI, FRAC_PI_4, 2.4);
             h.line(&[(14.3, 11.8), (12.0, 14.0), (12.0, 15.5)], 2.4);
             h.circle(12.0, 18.4, 1.3);
