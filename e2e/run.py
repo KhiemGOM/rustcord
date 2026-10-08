@@ -164,14 +164,15 @@ def main():
             and near(g("userpanel")[3], 56, 8.5)
             and near(g("member:101")[3], 42)
             and g("voicebadge:1008")[2] is not None and g("voicebadge:1004")[2] is None
-            and rc.get("side_unread_1007") is True
-            and not any(rc.get(f"side_unread_{i}") for i in (1003, 1004, 1005, 1006, 1008))
+            # muting hides unreads; an "only @mentions" notification level doesn't (1006)
+            and rc.get("side_unread_1007") is True and rc.get("side_unread_1006") is True
+            and not any(rc.get(f"side_unread_{i}") for i in (1003, 1004, 1005, 1008))
             and rc.get("side_locked_2302") is True and rc.get("side_locked_2303") is False
             and rc.get("side_locked_2309") is True and rc.get("side_locked_2310") is False
         )
 
     checks = {
-        "side: rail icons 40pt at a 48pt pitch, emoji at text size, unread pills only where discord shows them": side_ok(cold) and side_ok(warm),
+        "side: rail icons 40pt at a 48pt pitch, emoji at text size, unread pills where discord shows them (mutes hide them, notification levels don't)": side_ok(cold) and side_ok(warm),
         "cold run finished its script": cold.get("ok") is True,
         "warm run finished its script": warm.get("ok") is True,
         f"cold: spawn -> first frame < {BUDGET_MS}ms": (cold.get("spawn_to_first_frame_ms") or 1e9) < BUDGET_MS,
