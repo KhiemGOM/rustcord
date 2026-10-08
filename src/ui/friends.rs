@@ -155,21 +155,33 @@ fn list(app: &mut App, ui: &mut Ui) {
             if resp.hovered() {
                 ui.painter().rect_filled(row.shrink2(vec2(-10.0, 1.0)), CornerRadius::same(8), pal().bg_mod_hover);
             }
-            let av = Rect::from_min_size(pos2(row.left(), row.center().y - 20.0), vec2(40.0, 40.0));
+            let av = Rect::from_min_size(pos2(row.left(), row.center().y - 16.0), vec2(32.0, 32.0));
             let Some(u) = app.store.user(uid) else { continue };
             avatar(ui, av, &u.avatar_url());
+            if let Some(d) = u.decoration_url() {
+                super::text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(38.0, 38.0)));
+            }
             let st = app.store.status(uid);
             if kind == FRIEND {
                 status_dot(ui, av, st, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary });
             }
-            super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), pal().header_primary, row.width() - 160.0);
+            let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), pal().header_primary, row.width() - 220.0);
+            super::tag_chip(ui.painter(), u, pos2(nr.right() + 9.0, nr.center().y), 1.0);
+            // a custom status shows in place of the status, as discord does
+            let custom = app.store.activity_line(uid).filter(|(_, _, game)| game.is_empty());
             let sub = match kind {
                 INCOMING => "Incoming Friend Request".to_string(),
                 OUTGOING => "Outgoing Friend Request".to_string(),
                 BLOCKED => "Blocked".to_string(),
+                _ if custom.is_some() => custom.as_ref().map(|c| c.1.clone()).unwrap_or_default(),
                 _ => format!("{st:?}").replace("Dnd", "Do Not Disturb"),
             };
-            ui.painter().text(pos2(av.right() + 12.0, row.center().y + 10.0), Align2::LEFT_CENTER, sub, medium(14.0), pal().header_secondary);
+            let mut x = av.right() + 12.0;
+            if let Some(url) = custom.as_ref().and_then(|c| c.0.clone()).filter(|_| kind == FRIEND) {
+                super::text::image(ui.painter(), &url, Rect::from_min_size(pos2(x, row.center().y + 2.0), vec2(16.0, 16.0)));
+                x += 20.0;
+            }
+            super::text::paint(ui.painter(), pos2(x, row.center().y + 10.0), Align2::LEFT_CENTER, &sub, medium(14.0), pal().text_muted, row.width() - 220.0);
 
             let mut br = ui.new_child(
                 egui::UiBuilder::new()
