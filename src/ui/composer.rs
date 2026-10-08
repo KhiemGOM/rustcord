@@ -442,7 +442,7 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
 
     // the little action strip that floats over the top-right corner
     let bar = Rect::from_min_size(pos2(r.right() - 76.0, r.top() - 12.0), vec2(80.0, 32.0));
-    p.rect(bar, CornerRadius::same(4), pal().bg_primary, Stroke::new(1.0, pal().bg_tertiary), egui::StrokeKind::Inside);
+    p.rect(bar, CornerRadius::same(4), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let mut act = None;
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink(2.0)).layout(Layout::left_to_right(Align::Center)));
     b.spacing_mut().item_spacing.x = 0.0;
@@ -519,8 +519,11 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
         }
         Item::Channel(id, name) => {
-            let icon = app.store.channels.get(id).map(super::side::glyph).unwrap_or(Icon::Hash);
-            icons::draw(p, icon, Rect::from_center_size(pos2(x + 10.0, y), vec2(18.0, 18.0)), pal().channel_default);
+            let ir = Rect::from_center_size(pos2(x + 10.0, y), vec2(18.0, 18.0));
+            match app.store.channels.get(id) {
+                Some(c) => super::side::chan_icon(&app.store, p, c, ir, pal().channel_default),
+                None => icons::draw(p, Icon::Hash, ir, pal().channel_default),
+            }
             text::paint(p, pos2(x + 28.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary, r.width() - 160.0);
             let cat = app
                 .store

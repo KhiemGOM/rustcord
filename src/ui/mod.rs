@@ -923,7 +923,7 @@ impl App {
         if let Some((ch, id)) = self.confirm_delete {
             let mut close = false;
             let modal = egui::Modal::new("delete".into())
-                .frame(Frame::new().fill(pal().bg_primary).corner_radius(8).inner_margin(16))
+                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
                 .show(&ctx, |ui| {
                     ui.set_width(440.0);
                     ui.label(egui::RichText::new("Delete Message").font(bold(20.0)).color(pal().header_primary));

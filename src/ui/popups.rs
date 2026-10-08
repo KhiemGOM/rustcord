@@ -115,7 +115,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 ui.set_width(420.0);
-                Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+                input_frame().corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut g.query)
                             .frame(Frame::NONE)
@@ -210,7 +210,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     let mut join = None;
     let mut close = false;
     let modal = egui::Modal::new("invite".into())
-        .frame(Frame::new().fill(pal().bg_primary).corner_radius(8).inner_margin(16))
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
         .show(ctx, |ui| {
             ui.set_width(440.0);
             ui.vertical_centered(|ui| {
@@ -221,7 +221,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
             ui.add_space(16.0);
             ui.label(RichText::new("INVITE pal().link").font(bold(12.0)).color(pal().header_secondary));
             ui.add_space(8.0);
-            Frame::new().fill(pal().bg_tertiary).corner_radius(3).inner_margin(10).show(ui, |ui| {
+            input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::singleline(text)
                         .frame(Frame::NONE)
@@ -305,7 +305,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(20))
         .show(ctx, |ui| {
             ui.set_width(530.0);
-            Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
+            input_frame().corner_radius(4).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::singleline(q)
                         .frame(Frame::NONE)

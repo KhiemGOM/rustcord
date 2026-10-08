@@ -44,26 +44,26 @@ pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    // discord floats the account card 8 above the bottom and in from the sides
+    // discord floats the account card 8 above the bottom and in from the sides, with the
+    // voice controls as its top half while connected
+    let voice_h = if app.voice.chan.is_some() { 102.0 } else { 0.0 };
     egui::Panel::bottom("me")
-        .exact_size(64.0)
+        .exact_size(64.0 + voice_h)
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().inner_margin(egui::Margin { left: 8, right: 8, top: 0, bottom: 8 }))
         .show(ui, |ui| {
             let card = ui.max_rect();
-            ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().bg_mod_hover), egui::StrokeKind::Inside);
-            app.rects.insert("userpanel".into(), card);
-            ui.scope_builder(egui::UiBuilder::new().max_rect(card.shrink2(vec2(8.0, 0.0))), |ui| user_panel(app, ui));
+            ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+            let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 56.0), card.max);
+            if voice_h > 0.0 {
+                ui.painter().hline(card.x_range().shrink(1.0), user.top() - 0.5, egui::Stroke::new(1.0, pal().border_muted));
+                let area = Rect::from_min_max(card.min + vec2(1.0, 1.0), pos2(card.right() - 1.0, user.top() - 1.0)).shrink(12.0);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| super::call::panel(app, ui));
+            }
+            app.rects.insert("userpanel".into(), user);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(user.shrink2(vec2(8.0, 0.0))), |ui| user_panel(app, ui));
         });
-    if app.voice.chan.is_some() {
-        egui::Panel::bottom("voice")
-            .exact_size(60.0)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(Frame::new().fill(pal().bg_secondary_alt).inner_margin(egui::Margin::symmetric(8, 0)))
-            .show(ui, |ui| super::call::panel(app, ui));
-    }
 
     match app.ui.guild {
         Some(gid) => guild(app, ui, gid),
@@ -79,7 +79,7 @@ fn header(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
         .frame(Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), egui::Stroke::new(1.0, pal().bg_tertiary));
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), egui::Stroke::new(1.0, pal().border_subtle));
             ui.horizontal_centered(add);
         });
 }
@@ -340,7 +340,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
     header(ui, |ui| {
         let w = ui.available_width();
         ui.allocate_ui_with_layout(vec2(w, 28.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+            input_frame().corner_radius(4).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut app.dm_filter)
                         .frame(Frame::NONE)
@@ -411,7 +411,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     }
     let unread = store.unread(c);
     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
-    let ring = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_secondary };
+    let ring = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };
     if c.kind == 1 {
         if let Some(u) = c.recipients.first().and_then(|u| store.user(*u)) {
             avatar(ui, av, &u.avatar_url());

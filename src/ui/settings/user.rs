@@ -221,7 +221,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
     let mut submit = false;
     let mut close = false;
     let r = egui::Modal::new("settings_modal".into())
-        .frame(Frame::new().fill(pal().bg_primary).corner_radius(8))
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8))
         .show(ctx, |ui| {
             ui.set_width(440.0);
             Frame::new().inner_margin(16).show(ui, |ui| {
@@ -438,7 +438,7 @@ pub fn profiles(app: &mut App, ui: &mut Ui) -> bool {
         ui.add_space(12.0);
         h5(ui, "About Me");
         note(ui, "You can use markdown and links if you'd like.");
-        Frame::new().fill(pal().bg_tertiary).corner_radius(3).inner_margin(10).show(ui, |ui| {
+        input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
             ui.add(
                 egui::TextEdit::multiline(&mut draft.bio)
                     .frame(Frame::NONE)
