@@ -1497,14 +1497,14 @@ impl Run {
                 self.next(1200);
             }
 341 => {
-                // the code message sits a few above the newest; the scroll from look_steps may not have settled
+                // the code message sits a few above the newest; older than the viewport after the earlier steps sent more
                 let Some(code) = rect(app, "codeblock") else {
                     if self.tries < 20 {
                         self.tries += 1;
                         self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
                         self.queue.push_back(vec![Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
-                            delta: vec2(0.0, -300.0),
+                            delta: vec2(0.0, 150.0),
                             phase: egui::TouchPhase::Move,
                             modifiers: Modifiers::NONE,
                         }]);
@@ -1512,6 +1512,12 @@ impl Run {
                     }
                     return;
                 };
+                // off the message, so the hover wash doesn't tint the probes
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(30.0, 300.0))]);
+                self.next(500);
+            }
+            342 => {
+                let Some(code) = rect(app, "codeblock") else { return };
                 let probes = vec![
                     ("fill".into(), Probe::At(code.min + vec2(4.0, 4.0))),
                     ("edge".into(), Probe::At(code.left_center() + vec2(0.4, 0.0))),
