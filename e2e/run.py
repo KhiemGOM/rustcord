@@ -154,6 +154,15 @@ def main():
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
         "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
+        **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("animated emoji, mp4 gifv, gif upload and ?query gif each cycled through 3+ distinct frames", "media_animates"),
+                              ("rendered pixels of the gifv and the gif upload differ between two screenshots 150ms apart", "media_pixels_change"),
+                              ("animations hold still while the window is unfocused", "media_pauses_unfocused"),
+                              ("animations pick up again when focus returns", "media_resumes_focused"),
+                              ("gif autoplay off holds gifs and clips on frame 0", "media_autoplay_off"),
+                              ("hovering a gif with autoplay off plays it", "media_hover_plays")]},
+        "media: gifv titled by its provider drew as bare 160x120 media, not a card": all(
+            (r.get("rects", {}).get("media_gifv") or [0, 0, 0, 0])[2:] == [160, 120] for r in (cold, warm)),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

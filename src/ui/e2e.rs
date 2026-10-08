@@ -42,6 +42,7 @@ pub struct Run {
     pub tour: bool,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
+    blur: bool,
 }
 
 impl Run {
@@ -49,6 +50,7 @@ impl Run {
         let tour = std::env::var_os("FASTCORD_TOUR").is_some();
         let dir = PathBuf::from(std::env::var_os("FASTCORD_E2E").or_else(|| std::env::var_os("FASTCORD_TOUR"))?);
         let _ = std::fs::create_dir_all(&dir);
+        crate::gif::trace();
         Some(Run {
             dir,
             t0,
@@ -72,6 +74,7 @@ impl Run {
             tour,
             cache_guilds: None,
             slow: Vec::new(),
+            blur: false,
         })
     }
 
@@ -111,7 +114,7 @@ impl Run {
 
     pub fn inject(&mut self, raw: &mut egui::RawInput) {
         // the harness launches us in the background; a user would be looking at the window
-        raw.focused = true;
+        raw.focused = !self.blur;
         if let Some(batch) = self.queue.pop_front() {
             raw.events.extend(batch);
         }
@@ -1106,9 +1109,130 @@ impl Run {
         }
     }
 
+    /// How many pixels inside `r` differ between two screenshots.
+    fn changed(&self, a: &str, b: &str, r: egui::Rect, ppp: f32) -> usize {
+        let (Ok(a), Ok(b)) = (image::open(self.dir.join(a)), image::open(self.dir.join(b))) else { return 0 };
+        let (a, b) = (a.to_rgba8(), b.to_rgba8());
+        let (x0, y0, x1, y1) = ((r.left() * ppp) as u32, (r.top() * ppp) as u32, (r.right() * ppp) as u32, (r.bottom() * ppp) as u32);
+        let mut n = 0;
+        for y in y0..y1.min(a.height()).min(b.height()) {
+            for x in x0..x1.min(a.width()).min(b.width()) {
+                n += (a.get_pixel(x, y) != b.get_pixel(x, y)) as usize;
+            }
+        }
+        n
+    }
+
     /// Animated emoji and gifs, media embeds.
-    fn media_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 220;
+    fn media_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        const MEDIA: Id = 2060;
+        const EMOJI: &str = "emojis/5100";
+        // every url shape that used to draw as a still: query string, mp4, plain gif
+        const SOURCES: [&str; 4] = [EMOJI, "spin.mp4", "wave.gif", "dance.gif"];
+        let gif_rect = |app: &App, k: &str| app.rects.iter().find(|(n, _)| n.starts_with(k)).map(|(_, r)| *r);
+        match self.step {
+            200 => {
+                // the dm call left us in the home view
+                let Some(r) = app.rects.get(&format!("guild:{}", self.target.0)).copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            201 => {
+                let Some(r) = app.rects.get(&format!("chan:{MEDIA}")).copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            202 => {
+                let ready = app.store.msgs.get(&MEDIA).is_some_and(|e| e.list.len() >= 5 && e.fresh && !e.loading);
+                if app.cur() == Some(MEDIA) && ready {
+                    self.mark("media_channel");
+                    self.next(300);
+                }
+            }
+            203 => {
+                let n: Vec<usize> = SOURCES.iter().map(|s| crate::gif::shown(s)).collect();
+                self.rects.insert("media_frames_seen".into(), json!(n));
+                if n.iter().all(|f| *f >= 3) {
+                    self.mark("media_animates");
+                    self.next(0);
+                } else if self.step_at.elapsed() > Duration::from_secs(15) {
+                    self.fail(format!("animations never advanced, distinct frames shown per source {SOURCES:?}: {n:?}"));
+                }
+            }
+            204 => {
+                let (Some(g), Some(i)) = (gif_rect(app, "gifv:"), app.rects.get("image").copied()) else {
+                    return self.fail("gifv embed or gif attachment was not drawn".into());
+                };
+                self.rects.insert("media_gifv".into(), json!([g.min.x, g.min.y, g.width(), g.height()]));
+                self.rects.insert("media_gif_attachment".into(), json!([i.min.x, i.min.y, i.width(), i.height()]));
+                self.shot(ctx, "media_t0.png");
+                self.next(0);
+            }
+            205 => {
+                if self.pending_shots == 0 {
+                    self.next(150);
+                }
+            }
+            206 => {
+                self.shot(ctx, "media_t1.png");
+                self.next(0);
+            }
+            207 => {
+                if self.pending_shots > 0 {
+                    return;
+                }
+                let (Some(g), Some(i)) = (gif_rect(app, "gifv:"), app.rects.get("image").copied()) else { return };
+                let ppp = ctx.pixels_per_point();
+                let (a, b) = (self.changed("media_t0.png", "media_t1.png", g, ppp), self.changed("media_t0.png", "media_t1.png", i, ppp));
+                self.rects.insert("media_pixels_changed".into(), json!({ "gifv": a, "gif_attachment": b }));
+                if a > 0 && b > 0 {
+                    self.mark("media_pixels_change");
+                }
+                self.shot(ctx, "media.png");
+                self.blur = true;
+                self.next(700);
+            }
+            208 => {
+                let still: Vec<usize> = SOURCES.iter().map(|s| crate::gif::current(s)).collect();
+                if still.iter().any(|f| *f != 0) {
+                    return self.fail(format!("animations kept running in an unfocused window: {still:?}"));
+                }
+                self.mark("media_pauses_unfocused");
+                self.blur = false;
+                self.next(0);
+            }
+            209 => {
+                if crate::gif::current(EMOJI) != 0 && crate::gif::current("spin.mp4") != 0 {
+                    self.mark("media_resumes_focused");
+                    app.settings.gif_autoplay = false;
+                    self.next(800);
+                } else if self.step_at.elapsed() > Duration::from_secs(3) {
+                    self.fail("animations did not resume when the window got focus back".into());
+                }
+            }
+            210 => {
+                // autoplay off: gifs and clips hold their first frame, emoji have their own switch
+                let (g, v) = (crate::gif::current("dance.gif"), crate::gif::current("spin.mp4"));
+                if g != 0 || v != 0 {
+                    return self.fail(format!("gif autoplay off but dance.gif is on frame {g} and spin.mp4 on {v}"));
+                }
+                self.mark("media_autoplay_off");
+                let Some(i) = app.rects.get("image").copied() else { return };
+                self.queue.push_back(vec![Event::PointerMoved(i.center())]);
+                self.next(0);
+            }
+            211 => {
+                if crate::gif::current("dance.gif") != 0 {
+                    self.mark("media_hover_plays");
+                    app.settings.gif_autoplay = true;
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(2.0, 2.0))]);
+                    self.next(300);
+                } else if self.step_at.elapsed() > Duration::from_secs(3) {
+                    self.fail("hovering a gif with autoplay off did not play it".into());
+                }
+            }
+            _ => self.step = 220,
+        }
     }
 
     /// Server rail, channel list, member list, user panel.

@@ -337,6 +337,7 @@ pub struct Embed {
     pub fields: Vec<(String, String, bool)>,
     pub image: Option<Media>,
     pub thumb: Option<Media>,
+    pub video: Option<Media>,
 }
 
 impl Embed {
@@ -362,6 +363,7 @@ impl Embed {
                 .unwrap_or_default(),
             image: Media::parse(&v["image"]),
             thumb: Media::parse(&v["thumbnail"]),
+            video: Media::parse(&v["video"]),
         }
     }
 }

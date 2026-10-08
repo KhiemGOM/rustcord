@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use super::{App, Pick, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
 use super::{side, text};
+use crate::gif;
 use crate::markdown::{self, Block, Cx, Link};
 use crate::net::Cmd;
 use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Store};
@@ -624,7 +625,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         let editing = d.editing.as_ref().is_some_and(|(id, _)| *id == m.id);
         if editing {
             edit_box(&mut cui, d, m.id);
-        } else if !m.content.is_empty() {
+        } else if !m.content.is_empty() && !(d.embeds && d.s.inline_links && link_only(m)) {
             let color = if m.failed {
                 RED
             } else if m.pending {
@@ -652,12 +653,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             if a.is_image() && d.s.inline_uploads {
                 let sep = if a.proxy.contains('?') { '&' } else { '?' };
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
-                let mut url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
-                if !d.s.gif_autoplay && a.filename.to_ascii_lowercase().ends_with(".gif") {
-                    // the media proxy hands back the first frame as a still
-                    url.push_str("&format=png");
-                }
-                let r = media(&mut cui, d, &url, &a.url, w, h);
+                let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
+                let r = media(&mut cui, d, &url, &a.url, w, h, None);
                 if cui.clip_rect().contains(r.rect.center()) {
                     d.rects.push(("image".into(), r.rect.intersect(cui.clip_rect())));
                 }
@@ -675,7 +672,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             } else {
                 let ext = if *fmt == 4 { "gif" } else { "png" };
                 let url = format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160");
-                media(&mut cui, d, &url, &url, 160.0, 160.0).on_hover_text(name);
+                media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
             }
         }
         let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
@@ -932,7 +929,7 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     let c = galley.pos_from_cursor(CCursor::new(*idx));
                     let x = origin.x + (c.min.x - lead).max(0.0);
                     let rect = Rect::from_min_size(pos2(x, origin.y + c.center().y - size / 2.0), vec2(*size, *size));
-                    Image::from_uri(url.clone()).show_loading_spinner(false).paint_at(ui, rect);
+                    Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).show_loading_spinner(false).paint_at(ui, rect);
                 }
                 if !t.links.is_empty()
                     && let Some(p) = resp.hover_pos()
@@ -997,7 +994,8 @@ fn fit(w: u32, h: u32, max_w: f32, max_h: f32, avail: f32) -> (f32, f32) {
     ((w * s).round(), (h * s).round())
 }
 
-fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32) -> egui::Response {
+/// `poster` is a still drawn underneath while the animation downloads and decodes.
+fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: Option<&str>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     resp.context_menu(|ui| {
         ui.set_min_width(180.0);
@@ -1015,7 +1013,11 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32) -> egui:
         }
     });
     ui.painter().rect_filled(rect, CornerRadius::same(8), pal().bg_secondary);
-    Image::from_uri(url.to_string())
+    if let Some(p) = poster {
+        Image::from_uri(p.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, rect);
+    }
+    let play = (d.s.gif_autoplay || resp.hovered()) && ui.is_rect_visible(rect);
+    Image::from_uri(gif::uri(ui.ctx(), url, play))
         .corner_radius(CornerRadius::same(8))
         .show_loading_spinner(false)
         .paint_at(ui, rect);
@@ -1052,18 +1054,33 @@ fn file_card(ui: &mut Ui, name: &str, size: u64, video: bool) -> egui::Response 
     resp
 }
 
+/// Discord drops the text of a message that is nothing but the link its image or gifv embed came from.
+fn link_only(m: &Message) -> bool {
+    let c = m.content.trim();
+    m.embeds.iter().any(|e| matches!(e.kind.as_str(), "image" | "gifv") && e.url.as_deref() == Some(c))
+}
+
 fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
     let bare = e.title.is_none() && e.desc.is_none() && e.author.is_none() && e.fields.is_empty();
     let media_ok = d.s.inline_links;
-    if bare && matches!(e.kind.as_str(), "image" | "gifv") {
+    // gifv is always just the looping clip, whatever title the provider gave it
+    let gifv = e.kind == "gifv";
+    if gifv || (bare && e.kind == "image") {
         if !media_ok {
             return;
         }
-        if let Some(m) = e.thumb.as_ref().or(e.image.as_ref()) {
-            let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
-            if media(ui, d, &m.url, &m.url, w, h).clicked() {
+        let still = e.thumb.as_ref().or(e.image.as_ref());
+        if let Some(m) = e.video.as_ref().filter(|_| gifv).or(still) {
+            let (mw, mh) = if m.w > 0 { (m.w, m.h) } else { still.map_or((0, 0), |s| (s.w, s.h)) };
+            let (w, h) = fit(mw, mh, 400.0, 300.0, ui.available_width());
+            let poster = still.filter(|s| gifv && s.url != m.url).map(|s| s.url.as_str());
+            let r = media(ui, d, &m.url, e.url.as_deref().unwrap_or(&m.url), w, h, poster);
+            if ui.clip_rect().contains(r.rect.center()) {
+                d.rects.push((format!("{}:{msg}", if gifv { "gifv" } else { "embed_image" }), r.rect.intersect(ui.clip_rect())));
+            }
+            if r.clicked() {
                 let open = e.url.clone().unwrap_or_else(|| m.url.clone());
-                d.acts.push(Act::View(m.url.clone(), open, m.w, m.h));
+                d.acts.push(Act::View(m.url.clone(), open, mw, mh));
             }
         }
         return;
@@ -1137,13 +1154,13 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                 });
                 if let Some(t) = thumb {
                     let (w, h) = fit(t.w, t.h, 80.0, 80.0, 80.0);
-                    media(ui, d, &t.url, &t.url, w, h);
+                    media(ui, d, &t.url, &t.url, w, h, None);
                 }
             });
             if let Some(m) = e.image.as_ref().or(if e.kind == "video" { e.thumb.as_ref() } else { None }).filter(|_| media_ok) {
                 ui.add_space(8.0);
                 let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
-                let r = media(ui, d, &m.url, &m.url, w, h);
+                let r = media(ui, d, &m.url, &m.url, w, h, None);
                 if e.kind == "video" {
                     ui.painter().circle_filled(r.rect.center(), 24.0, Color32::from_black_alpha(160));
                     icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(r.rect.center() + vec2(2.0, 0.0), vec2(22.0, 22.0)), Color32::WHITE);
@@ -1285,7 +1302,7 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             };
             ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
             let er = Rect::from_min_size(pos2(rect.left() + 7.0, rect.center().y - 8.0), vec2(16.0, 16.0));
-            Image::from_uri(emoji_url(&r.emoji)).show_loading_spinner(false).paint_at(ui, er);
+            Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
             ui.painter().galley(pos2(er.right() + 6.0, rect.center().y - g.size().y / 2.0), g, pal().header_secondary);
             if resp.clicked() {
                 d.acts.push(Act::React(m.id, r.emoji.clone(), !r.me));

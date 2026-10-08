@@ -14,7 +14,7 @@ mod settings;
 mod side;
 pub mod text;
 
-use egui::{Color32, CornerRadius, Frame, Image, Pos2, Rect, Sense, Ui, pos2, vec2};
+use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -1033,10 +1033,7 @@ impl eframe::App for App {
 
 pub fn avatar(ui: &Ui, rect: Rect, url: &str) {
     ui.painter().circle_filled(rect.center(), rect.width() / 2.0, pal().bg_accent);
-    Image::from_uri(url.to_string())
-        .corner_radius(CornerRadius::same((rect.width() / 2.0) as u8))
-        .show_loading_spinner(false)
-        .paint_at(ui, rect);
+    crate::gif::paint_still(ui, url, rect, CornerRadius::same((rect.width() / 2.0) as u8), ui.rect_contains_pointer(rect));
 }
 
 pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
