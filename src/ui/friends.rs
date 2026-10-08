@@ -68,7 +68,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 fn add_friend(app: &mut App, ui: &mut Ui) {
-    ui.label(RichText::new("ADD FRIEND").font(bold(16.0)).color(pal().header_primary));
+    ui.label(RichText::new("Add Friend").font(semi(16.0)).color(pal().header_primary));
     ui.add_space(8.0);
     ui.label(RichText::new("You can add friends with their Discord username.").color(pal().header_secondary));
     ui.add_space(16.0);
@@ -112,8 +112,8 @@ fn list(app: &mut App, ui: &mut Ui) {
         })
         .collect();
     people.sort_by_key(|(u, _)| app.store.name_in(0, *u).to_lowercase());
-    let heading = format!("{} — {}", ["ONLINE", "ALL FRIENDS", "PENDING", "BLOCKED"][tab as usize], people.len());
-    ui.label(RichText::new(heading).font(semi(12.0)).color(pal().header_secondary));
+    let heading = format!("{} — {}", ["Online", "All Friends", "Pending", "Blocked"][tab as usize], people.len());
+    ui.label(RichText::new(heading).font(medium(14.0)).color(pal().header_secondary));
     ui.add_space(12.0);
 
     let mut act: Option<(Id, &'static str)> = None;

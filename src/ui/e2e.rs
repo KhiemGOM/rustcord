@@ -587,7 +587,25 @@ impl Run {
                 self.next(600);
             }
             40 => {
-                let Some(r) = app.rects.get("image").copied() else { return };
+                // the wheel scroll glides on, and can carry the image back out below the fold
+                let Some(r) = app.rects.get("image").copied() else {
+                    if let Some(c) = app.rects.get("composer").copied() {
+                        self.queue.push_back(vec![Event::PointerMoved(c.center() - vec2(0.0, 200.0))]);
+                        self.queue.push_back(vec![Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0.0, -60.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: Modifiers::NONE,
+                        }]);
+                        self.wait = Instant::now() + Duration::from_millis(300);
+                    }
+                    return;
+                };
+                if self.steady != Some(r) {
+                    self.steady = Some(r);
+                    return;
+                }
+                self.steady = None;
                 self.click(r.center());
                 self.next(0);
             }
@@ -1120,7 +1138,7 @@ impl Run {
                 self.next(600);
             }
             130 => {
-                let Some(r) = Self::at(ctx, "edit:DISPLAY NAME") else { return };
+                let Some(r) = Self::at(ctx, "edit:Display Name") else { return };
                 self.click(r.center());
                 self.next(500);
             }
@@ -1348,8 +1366,8 @@ impl Run {
     /// Dragging panel edges.
     fn layout_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let chat_w = |app: &App| app.rects.get("composer").map(|r| r.width());
-        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { 240.0 };
-        let members_w = |app: &App| if app.ui.members_w > 0.0 { app.ui.members_w } else { 240.0 };
+        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
+        let members_w = |app: &App| if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
         let drag = |run: &mut Self, from: Pos2, dx: f32| {
             run.queue.push_back(vec![Event::PointerMoved(from)]);
             run.queue.push_back(vec![Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
@@ -1384,7 +1402,8 @@ impl Run {
                 self.next(300);
             }
             243 => {
-                drag(self, pos2(72.0 + side_w(app), 400.0), 60.0);
+                // narrower: the warm run starts where the cold one left it, which can be discord's 359 max
+                drag(self, pos2(72.0 + side_w(app), 400.0), -50.0);
                 self.next(400);
             }
             244 => {

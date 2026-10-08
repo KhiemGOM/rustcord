@@ -34,14 +34,14 @@ fn emoji_list(group: Option<emojis::Group>) -> impl Iterator<Item = (&'static st
 }
 
 const GROUPS: [(emojis::Group, &str); 8] = [
-    (emojis::Group::SmileysAndEmotion, "PEOPLE"),
-    (emojis::Group::AnimalsAndNature, "NATURE"),
-    (emojis::Group::FoodAndDrink, "FOOD"),
-    (emojis::Group::Activities, "ACTIVITIES"),
-    (emojis::Group::TravelAndPlaces, "TRAVEL"),
-    (emojis::Group::Objects, "OBJECTS"),
-    (emojis::Group::Symbols, "SYMBOLS"),
-    (emojis::Group::Flags, "FLAGS"),
+    (emojis::Group::SmileysAndEmotion, "People"),
+    (emojis::Group::AnimalsAndNature, "Nature"),
+    (emojis::Group::FoodAndDrink, "Food"),
+    (emojis::Group::Activities, "Activities"),
+    (emojis::Group::TravelAndPlaces, "Travel"),
+    (emojis::Group::Objects, "Objects"),
+    (emojis::Group::Symbols, "Symbols"),
+    (emojis::Group::Flags, "Flags"),
 ];
 
 enum Chosen {
@@ -163,7 +163,7 @@ fn section(ui: &mut Ui, title: &str) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.add_space(12.0);
-        ui.label(RichText::new(title).font(semi(12.0)).color(pal().header_secondary));
+        ui.label(RichText::new(title).font(medium(14.0)).color(pal().header_secondary));
     });
     ui.add_space(6.0);
 }

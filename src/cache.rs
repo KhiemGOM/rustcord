@@ -13,7 +13,10 @@ pub struct UiState {
     pub recent: Vec<Id>,
     pub hide_members: bool,
     pub open_folders: HashSet<Id>,
+    // new keys: beta 2 saved its 240 defaults whether or not anyone dragged
+    #[serde(rename = "channels_w")]
     pub side_w: f32,
+    #[serde(rename = "member_list_w")]
     pub members_w: f32,
     pub search_w: f32,
     pub dm_call_h: f32,

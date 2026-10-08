@@ -108,6 +108,30 @@ pub fn guild_folders(settings: &[u8]) -> Vec<Folder> {
     out
 }
 
+/// The account's own custom status text (status settings 11, custom_status 2), unless it ran out.
+/// None when the blob has no status settings at all, so a partial update leaves it be.
+pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {
+    let status = fields(settings).into_iter().find_map(|(n, v)| match (n, v) {
+        (11, Val::Bytes(b)) => Some(b),
+        _ => None,
+    })?;
+    let Some(custom) = fields(status).into_iter().find_map(|(n, v)| match (n, v) {
+        (2, Val::Bytes(b)) => Some(b),
+        _ => None,
+    }) else {
+        return Some(None);
+    };
+    let mut text = None;
+    for (n, v) in fields(custom) {
+        match (n, v) {
+            (1, Val::Bytes(t)) => text = Some(String::from_utf8_lossy(t).into_owned()),
+            (4, Val::Fixed(exp)) if exp != 0 && exp <= now_ms => return Some(None),
+            _ => {}
+        }
+    }
+    Some(text.filter(|t| !t.is_empty()))
+}
+
 macro_rules! account {
     ($($f:ident: $t:ty),* $(,)?) => {
         /// What the account says for the settings we mirror; None = not in the blob.

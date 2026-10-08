@@ -9,13 +9,13 @@ theme-midnight (Onyx), theme-darker (Dark), theme-dark (Ash), theme-light.
 OVERLAY = (0x97, 0x97, 0x9F)
 HOVER_ALPHA = 0.122  # --message-background-hover
 
-# rail/channel list = --background-base-lowest, chat/members = base-lower,
-# header = surface-high, input = --chat-background-default
+# rail = --background-base-lowest; channel list (.sidebar), chat, members and the channel
+# header (.headerBar) = base-lower; input = --chat-background-default
 SURFACES = {
-    "Onyx": dict(rail="000000", side="000000", chat="000000", members="000000", header="0a0a0c", input="101013"),
-    "Dark": dict(rail="121214", side="121214", chat="1a1a1e", members="1a1a1e", header="242429", input="222327"),
-    "Ash": dict(rail="2c2d32", side="2c2d32", chat="323339", members="323339", header="393a41", input="393a41"),
-    "Light": dict(rail="f3f3f4", side="f3f3f4", chat="fbfbfb", members="fbfbfb", header="ffffff", input="ffffff"),
+    "Onyx": dict(rail="000000", side="000000", chat="000000", members="000000", header="000000", input="101013"),
+    "Dark": dict(rail="121214", side="1a1a1e", chat="1a1a1e", members="1a1a1e", header="1a1a1e", input="222327"),
+    "Ash": dict(rail="2c2d32", side="323339", chat="323339", members="323339", header="323339", input="393a41"),
+    "Light": dict(rail="f3f3f4", side="fbfbfb", chat="fbfbfb", members="fbfbfb", header="fbfbfb", input="ffffff"),
 }
 FONTS = ("400", "500", "600", "700")
 

@@ -56,6 +56,8 @@ pub struct App {
     pub heights: HashMap<(Id, bool), f32>,
     pub heights_w: f32,
     pub offsets: HashMap<Id, f32>,
+    // channels whose message list sat at the bottom last frame
+    pub pinned: HashSet<Id>,
     pub scroll_fix: Option<(Id, f32)>,
     pub revealed: HashSet<Id>,
     pub picker: Option<(Pick, Pos2)>,
@@ -70,6 +72,8 @@ pub struct App {
     pub settings: Settings,
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
+    // "invite people" from a channel row: the channel, and the code once discord made one
+    pub made_invite: Option<(Id, Option<String>)>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: HashMap<Id, serde_json::Value>,
@@ -151,6 +155,7 @@ impl App {
             heights: HashMap::new(),
             heights_w: 0.0,
             offsets: HashMap::new(),
+            pinned: HashSet::new(),
             scroll_fix: None,
             revealed: HashSet::new(),
             picker: None,
@@ -168,6 +173,7 @@ impl App {
             settings: cache::settings(),
             settings_page: None,
             invite: None,
+            made_invite: None,
             switcher: None,
             profile: None,
             profiles: HashMap::new(),
@@ -301,14 +307,14 @@ impl App {
         })));
     }
 
-    /// Width a panel ended up at; only counts as the user's choice while a button is held, so
-    /// a shrinking window doesn't overwrite what they picked.
-    pub fn dragged(&mut self, ctx: &egui::Context, now: f32, was: f32) -> f32 {
+    /// The size a panel was dragged to, if it was; only counts while a button is held, so a
+    /// shrinking window doesn't overwrite what the user picked, and an untouched default isn't saved.
+    pub fn dragged(&mut self, ctx: &egui::Context, now: f32, was: f32) -> Option<f32> {
         if (now - was).abs() < 0.5 || !ctx.input(|i| i.pointer.any_down()) {
-            return was;
+            return None;
         }
         self.save_at = Some(Instant::now() + Duration::from_secs(1));
-        now
+        Some(now)
     }
 
     /// Open a channel scrolled to one message, fetching the history around it if needed.
@@ -740,6 +746,11 @@ impl App {
                 let name = v["guild"]["name"].as_str().unwrap_or("the server").to_string();
                 self.toast(format!("Joined {name}"));
             }
+            Tag::MadeInvite => {
+                if let (Some((_, code)), Some(c)) = (&mut self.made_invite, v["code"].as_str()) {
+                    *code = Some(c.to_string());
+                }
+            }
             Tag::OpenDm => {
                 self.store.apply("CHANNEL_CREATE", &v);
                 let id = crate::state::sid(&v["id"]);
@@ -928,7 +939,7 @@ impl App {
                 .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
                 .show(&ctx, |ui| {
                     ui.set_width(440.0);
-                    ui.label(egui::RichText::new("Delete Message").font(bold(20.0)).color(pal().header_primary));
+                    ui.label(egui::RichText::new("Delete Message").font(semi(20.0)).color(pal().header_primary));
                     ui.add_space(12.0);
                     ui.label(egui::RichText::new("Are you sure you want to delete this message?").color(pal().text_normal));
                     ui.add_space(20.0);
@@ -1014,15 +1025,19 @@ impl eframe::App for App {
                 .show_separator_line(false)
                 .frame(Frame::new().fill(pal().bg_tertiary))
                 .show(ui, |ui| rail::show(self, ui));
-            let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 240.0 };
+            // discord: 375 wide with the rail and its 1px frame line, draggable between 264 and 432
+            let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 302.0 };
             let r = egui::Panel::left("side")
                 .default_size(side_w)
-                .size_range(240.0..=(w - 72.0 - 420.0).clamp(240.0, 480.0))
+                .size_range(191.0..=(w - 72.0 - 420.0).clamp(191.0, 359.0))
                 .resizable(true)
                 .show_separator_line(false)
-                .frame(Frame::new().fill(pal().bg_tertiary))
+                .frame(Frame::new().fill(pal().bg_primary))
                 .show(ui, |ui| side::show(self, ui));
-            self.ui.side_w = self.dragged(&ctx, r.response.rect.width(), side_w);
+            side_edge(ui.painter(), r.response.rect);
+            if let Some(w) = self.dragged(&ctx, r.response.rect.width(), side_w) {
+                self.ui.side_w = w;
+            }
             egui::CentralPanel::default()
                 .frame(Frame::new().fill(pal().bg_primary))
                 .show(ui, |ui| chat::show(self, ui));
@@ -1130,7 +1145,7 @@ pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
 
 pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
     let text = if n > 99 { "99+".to_string() } else { n.to_string() };
-    let galley = ui.painter().layout_no_wrap(text, bold(12.0), Color32::WHITE);
+    let galley = ui.painter().layout_no_wrap(text, semi(12.0), Color32::WHITE);
     let w = (galley.size().x + 10.0).max(16.0);
     let rect = Rect::from_min_size(pos2(right_center.x - w, right_center.y - 8.0), vec2(w, 16.0));
     if let Some(ring) = ring {
@@ -1196,6 +1211,38 @@ pub fn take_key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key)
         !m
     });
     hit
+}
+
+/// Discord's channel list sits in the app frame: a hairline down its left and along its top
+/// with a 12px rounded corner where they meet, the frame colour showing outside the curve, an
+/// 8px strip of frame below the account card, and on onyx a line where the chat page starts.
+fn side_edge(p: &egui::Painter, r: Rect) {
+    let rad = 12.0;
+    let c = pos2(r.left() + rad, r.top() + rad);
+    let arc: Vec<Pos2> = (0..=12)
+        .map(|i| {
+            let a = std::f32::consts::PI * (1.0 + i as f32 / 24.0);
+            c + vec2(a.cos(), a.sin()) * rad
+        })
+        .collect();
+    let mut corner = egui::Mesh::default();
+    corner.colored_vertex(r.left_top(), pal().bg_tertiary);
+    for q in &arc {
+        corner.colored_vertex(*q, pal().bg_tertiary);
+    }
+    for i in 1..arc.len() as u32 {
+        corner.add_triangle(0, i, i + 1);
+    }
+    p.add(corner);
+    p.rect_filled(Rect::from_min_max(pos2(r.left(), r.bottom() - 8.0), r.max), CornerRadius::ZERO, pal().bg_tertiary);
+    let h = 0.5;
+    let mut edge = vec![pos2(r.left() + h, r.bottom())];
+    edge.extend(arc.iter().map(|q| *q + vec2(h, h)));
+    edge.push(pos2(r.right(), r.top() + h));
+    p.add(egui::Shape::line(edge, egui::Stroke::new(1.0, pal().frame_border)));
+    if onyx() {
+        p.vline(r.right() - h, r.y_range(), egui::Stroke::new(1.0, pal().border_subtle));
+    }
 }
 
 /// ":)" and friends become emoji, but only as whole words, so urls and

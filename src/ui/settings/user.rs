@@ -82,7 +82,7 @@ fn field(ui: &mut Ui, label: &str, value: &str, reveal: Option<&mut bool>, edit:
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.set_width(ui.available_width() - 90.0);
-            ui.label(RichText::new(label).font(bold(12.0)).color(pal().header_secondary));
+            ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
             ui.horizontal(|ui| {
                 text::label(ui, value, reg(16.0), pal().header_primary, Sense::hover());
                 if let Some(r) = reveal {
@@ -122,7 +122,7 @@ pub fn account(app: &mut App, ui: &mut Ui) -> bool {
         avatar(ui, av, &me.avatar_url());
         ui.horizontal(|ui| {
             ui.add_space(112.0);
-            text::label(ui, me.display(), bold(20.0), pal().header_primary, Sense::hover());
+            text::label(ui, me.display(), semi(20.0), pal().header_primary, Sense::hover());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(16.0);
                 to_profile = primary(ui, "Edit User Profile").clicked();
@@ -131,16 +131,16 @@ pub fn account(app: &mut App, ui: &mut Ui) -> bool {
         ui.add_space(12.0);
         Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).outer_margin(16).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            if field(ui, "DISPLAY NAME", me.global_name.as_deref().unwrap_or("You haven't set one yet."), None, Some("Edit")) {
+            if field(ui, "Display Name", me.global_name.as_deref().unwrap_or("You haven't set one yet."), None, Some("Edit")) {
                 edit = Some(Edit::DisplayName);
             }
-            if field(ui, "USERNAME", &me.username, None, Some("Edit")) {
+            if field(ui, "Username", &me.username, None, Some("Edit")) {
                 edit = Some(Edit::Username);
             }
             let email = app.store.email.clone().unwrap_or_else(|| "You haven't added an email yet.".into());
             let shown = if app.sform.reveal_email && !hide { email } else { masked(&email) };
             let mut rev = app.sform.reveal_email;
-            if field(ui, "EMAIL", &shown, (!hide).then_some(&mut rev), Some("Edit")) {
+            if field(ui, "Email", &shown, (!hide).then_some(&mut rev), Some("Edit")) {
                 edit = Some(Edit::Email);
             }
             app.sform.reveal_email = rev;
@@ -151,7 +151,7 @@ pub fn account(app: &mut App, ui: &mut Ui) -> bool {
                 None => "You haven't added a phone number yet.".into(),
             };
             let mut rev = app.sform.reveal_phone;
-            if field(ui, "PHONE NUMBER", &shown, (phone.is_some() && !hide).then_some(&mut rev), Some(if phone.is_some() { "Edit" } else { "Add" })) {
+            if field(ui, "Phone Number", &shown, (phone.is_some() && !hide).then_some(&mut rev), Some(if phone.is_some() { "Edit" } else { "Add" })) {
                 // phone numbers need an sms code, which only discord's own flow can do
                 open_web("/settings/account");
             }
@@ -228,7 +228,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(408.0);
                 let danger_kind = matches!(m.kind, Edit::Disable | Edit::Delete);
                 if danger_kind {
-                    ui.label(RichText::new(head).font(bold(20.0)).color(pal().header_primary));
+                    ui.label(RichText::new(head).font(semi(20.0)).color(pal().header_primary));
                     ui.add_space(8.0);
                     Frame::new().fill(YELLOW).corner_radius(4).inner_margin(10).show(ui, |ui| {
                         ui.set_width(ui.available_width());
@@ -236,7 +236,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
                     });
                 } else {
                     ui.vertical_centered(|ui| {
-                        ui.label(RichText::new(head).font(bold(24.0)).color(pal().header_primary));
+                        ui.label(RichText::new(head).font(semi(24.0)).color(pal().header_primary));
                         if !sub.is_empty() {
                             ui.label(RichText::new(sub).font(reg(16.0)).color(pal().header_secondary));
                         }
@@ -244,33 +244,33 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
                 }
                 ui.add_space(12.0);
                 let label = |ui: &mut Ui, s: &str| {
-                    ui.label(RichText::new(s).font(bold(12.0)).color(pal().header_secondary));
+                    ui.label(RichText::new(s).font(medium(14.0)).color(pal().header_secondary));
                 };
                 match m.kind {
                     Edit::DisplayName => {
-                        label(ui, "DISPLAY NAME");
+                        label(ui, "Display Name");
                         let r = input(ui, &mut m.a, "", false);
                         super::mark(ui, "modal_input", r.rect);
                     }
                     Edit::Username | Edit::Email => {
-                        label(ui, if m.kind == Edit::Username { "USERNAME" } else { "EMAIL" });
+                        label(ui, if m.kind == Edit::Username { "Username" } else { "Email" });
                         input(ui, &mut m.a, "", false);
                         ui.add_space(8.0);
-                        label(ui, "CURRENT PASSWORD");
+                        label(ui, "Current Password");
                         input(ui, &mut m.b, "", true);
                     }
                     Edit::Password => {
-                        label(ui, "CURRENT PASSWORD");
+                        label(ui, "Current Password");
                         input(ui, &mut m.a, "", true);
                         ui.add_space(8.0);
-                        label(ui, "NEW PASSWORD");
+                        label(ui, "New Password");
                         input(ui, &mut m.b, "", true);
                         ui.add_space(8.0);
-                        label(ui, "CONFIRM NEW PASSWORD");
+                        label(ui, "Confirm New Password");
                         input(ui, &mut m.c, "", true);
                     }
                     Edit::Disable | Edit::Delete => {
-                        label(ui, "PASSWORD");
+                        label(ui, "Password");
                         input(ui, &mut m.a, "", true);
                     }
                 }
@@ -501,7 +501,7 @@ fn preview(ui: &mut Ui, user: &crate::state::User, d: &Profile) {
         Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             let name = if d.name.trim().is_empty() { user.username.clone() } else { d.name.clone() };
-            text::label(ui, &name, bold(20.0), pal().header_primary, Sense::hover());
+            text::label(ui, &name, semi(20.0), pal().header_primary, Sense::hover());
             ui.label(RichText::new(&user.username).font(reg(14.0)).color(pal().header_primary));
             if !d.pronouns.is_empty() {
                 ui.label(RichText::new(&d.pronouns).font(reg(14.0)).color(pal().header_secondary));
@@ -510,7 +510,7 @@ fn preview(ui: &mut Ui, user: &crate::state::User, d: &Profile) {
                 ui.add_space(8.0);
                 Frame::new().fill(pal().bg_secondary_alt).corner_radius(8).inner_margin(12).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("ABOUT ME").font(bold(12.0)).color(pal().header_primary));
+                    ui.label(RichText::new("About Me").font(medium(14.0)).color(pal().header_primary));
                     ui.label(RichText::new(&d.bio).font(reg(14.0)).color(pal().text_normal));
                 });
             }
@@ -784,7 +784,7 @@ pub fn apps(app: &mut App, ui: &mut Ui) -> bool {
                 });
             });
             ui.add_space(8.0);
-            ui.label(RichText::new("ABOUT THIS APP").font(bold(12.0)).color(pal().header_secondary));
+            ui.label(RichText::new("About This App").font(medium(14.0)).color(pal().header_secondary));
             for s in t["scopes"].as_array().into_iter().flatten() {
                 ui.label(RichText::new(format!("✓ {}", s.as_str().unwrap_or(""))).font(reg(14.0)).color(pal().text_normal));
             }
@@ -826,7 +826,7 @@ pub fn devices(app: &mut App, ui: &mut Ui) -> bool {
         crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Gear, icon_r.shrink(10.0), pal().header_secondary);
         let os = ci["os"].as_str().unwrap_or("Unknown");
         let client = ci["platform"].as_str().or(ci["client"].as_str()).unwrap_or("");
-        ui.painter().text(pos2(r.left() + 52.0, r.center().y - 9.0), Align2::LEFT_CENTER, format!("{} · {}", os.to_uppercase(), client.to_uppercase()), bold(13.0), pal().header_primary);
+        ui.painter().text(pos2(r.left() + 52.0, r.center().y - 9.0), Align2::LEFT_CENTER, format!("{} · {}", os.to_uppercase(), client.to_uppercase()), semi(13.0), pal().header_primary);
         let loc = ci["location"].as_str().unwrap_or("");
         let when = s["approx_last_used_time"].as_str().map(ago).unwrap_or_default();
         ui.painter().text(pos2(r.left() + 52.0, r.center().y + 10.0), Align2::LEFT_CENTER, format!("{loc} · {when}"), reg(14.0), pal().header_secondary);
@@ -862,7 +862,7 @@ pub fn connections(app: &mut App, ui: &mut Ui) -> bool {
         return false;
     }
     card(ui, |ui| {
-        ui.label(RichText::new("ADD ACCOUNTS TO YOUR PROFILE").font(bold(12.0)).color(pal().header_secondary));
+        ui.label(RichText::new("Add Accounts to Your Profile").font(medium(14.0)).color(pal().header_secondary));
         note(ui, "Connecting accounts happens in your browser, since each service has its own sign in.");
         ui.add_space(6.0);
         if primary(ui, "Add a Connection").clicked() {
@@ -929,11 +929,11 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
         ui.set_width(ui.available_width());
         match tier {
             Some(t) => {
-                ui.label(RichText::new(format!("You have {t}")).font(bold(24.0)).color(Color32::WHITE));
+                ui.label(RichText::new(format!("You have {t}")).font(semi(24.0)).color(Color32::WHITE));
                 ui.label(RichText::new("Thanks for supporting Discord.").font(reg(16.0)).color(Color32::WHITE));
             }
             None => {
-                ui.label(RichText::new("Unleash more fun with Nitro").font(bold(24.0)).color(Color32::WHITE));
+                ui.label(RichText::new("Unleash more fun with Nitro").font(semi(24.0)).color(Color32::WHITE));
                 ui.label(RichText::new("Bigger uploads, HD streaming, custom emoji anywhere and more.").font(reg(16.0)).color(Color32::WHITE));
             }
         }
