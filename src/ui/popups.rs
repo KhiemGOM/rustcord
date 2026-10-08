@@ -103,6 +103,7 @@ impl App {
 }
 
 fn gifs(app: &mut App, ctx: &egui::Context) {
+    let autoplay = app.settings.gif_autoplay;
     let Some(g) = &mut app.gifs else { return };
     let mut pick = None;
     let mut search = None;
@@ -147,7 +148,8 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                             let resp = ui.interact(r, egui::Id::new(("gif", i)), Sense::click());
                             if ui.is_rect_visible(r) {
                                 ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_tertiary);
-                                egui::Image::from_uri(gif.src.clone()).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, r);
+                                let play = autoplay || resp.hovered();
+                                egui::Image::from_uri(crate::gif::uri(ui.ctx(), &gif.src, play)).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, r);
                             }
                             if resp.hovered() {
                                 ui.painter().rect_stroke(r, CornerRadius::same(4), egui::Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
@@ -387,10 +389,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 let (top, _) = ui.allocate_exact_size(vec2(300.0, 60.0), Sense::hover());
                 ui.painter().rect_filled(top, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, accent);
                 if let Some(b) = &banner {
-                    egui::Image::from_uri(b.clone())
-                        .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
-                        .show_loading_spinner(false)
-                        .paint_at(ui, top);
+                    crate::gif::paint_still(ui, b, top, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, ui.rect_contains_pointer(top));
                 }
                 let av = Rect::from_min_size(pos2(top.left() + 16.0, top.bottom() - 40.0), vec2(80.0, 80.0));
                 ui.painter().circle_filled(av.center(), 46.0, pal().bg_tertiary);
@@ -607,9 +606,9 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
             let size = if w == 0 { vec2(screen.width() * 0.6, screen.height() * 0.6) } else { vec2(iw * s, ih * s) };
             let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size);
             let sep = if img.contains('?') { '&' } else { '?' };
-            let url = if w > 0 { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() };
+            let url = if w > 0 && !img.contains(".mp4") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() };
             let ir = ui.interact(rect, egui::Id::new("viewer_img"), Sense::click());
-            egui::Image::from_uri(url).show_loading_spinner(true).paint_at(ui, rect);
+            egui::Image::from_uri(crate::gif::uri(ctx, &url, true)).show_loading_spinner(true).paint_at(ui, rect);
             let link = pos2(rect.left(), rect.bottom() + 12.0);
             let lr = ui.painter().text(link, Align2::LEFT_TOP, "Open in Browser", semi(14.0), pal().header_secondary);
             let lresp = ui.interact(lr, egui::Id::new("viewer_link"), Sense::click());
