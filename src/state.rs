@@ -75,16 +75,22 @@ pub struct User {
     pub global_name: Option<String>,
     pub avatar: Option<String>,
     pub bot: bool,
+    /// nitro display name style: effect id and colours (the font is ignored)
+    #[serde(default)]
+    pub style: Option<(u8, Vec<u32>)>,
 }
 
 impl User {
     pub fn parse(v: &Value) -> Self {
+        let s = &v["display_name_styles"];
+        let colors: Vec<u32> = s["colors"].as_array().map(|a| a.iter().filter_map(|c| c.as_u64()).map(|c| c as u32).collect()).unwrap_or_default();
         User {
             id: sid(&v["id"]),
             username: st(&v["username"]),
             global_name: ost(&v["global_name"]),
             avatar: ost(&v["avatar"]),
             bot: v["bot"].as_bool().unwrap_or(false),
+            style: (!colors.is_empty()).then(|| (s["effect_id"].as_u64().unwrap_or(1) as u8, colors)),
         }
     }
 
@@ -208,6 +214,13 @@ pub struct Role {
     pub position: i32,
     pub perms: u64,
     pub hoist: bool,
+    /// primary, secondary and optional tertiary colour when the role is a gradient
+    #[serde(default)]
+    pub grad: Vec<u32>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub emoji: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -632,14 +645,21 @@ impl Store {
     }
 
     pub fn role_color(&self, guild: Id, user: Id) -> Option<u32> {
+        self.role_look(guild, user).map(|r| r.color)
+    }
+
+    /// The role that colours a member's name: highest of their roles that has a colour.
+    pub fn role_look(&self, guild: Id, user: Id) -> Option<&Role> {
         let g = self.guilds.get(&guild)?;
         let m = self.members.get(&guild)?.get(&user)?;
-        m.roles
-            .iter()
-            .filter_map(|r| g.roles.get(r))
-            .filter(|r| r.color != 0)
-            .max_by_key(|r| r.position)
-            .map(|r| r.color)
+        m.roles.iter().filter_map(|r| g.roles.get(r)).filter(|r| r.color != 0).max_by_key(|r| r.position)
+    }
+
+    /// The role whose icon or emoji shows next to a member's name.
+    pub fn role_icon(&self, guild: Id, user: Id) -> Option<&Role> {
+        let g = self.guilds.get(&guild)?;
+        let m = self.members.get(&guild)?.get(&user)?;
+        m.roles.iter().filter_map(|r| g.roles.get(r)).filter(|r| r.icon.is_some() || r.emoji.is_some()).max_by_key(|r| r.position)
     }
 
     pub fn status(&self, user: Id) -> Status {
@@ -1475,6 +1495,17 @@ fn parse_role(r: &Value) -> Role {
         position: r["position"].as_i64().unwrap_or(0) as i32,
         perms: perm(&r["permissions"]),
         hoist: r["hoist"].as_bool().unwrap_or(false),
+        grad: role_grad(&r["colors"]),
+        icon: ost(&r["icon"]),
+        emoji: ost(&r["unicode_emoji"]),
+    }
+}
+
+fn role_grad(c: &Value) -> Vec<u32> {
+    let at = |k: &str| c[k].as_u64().map(|v| v as u32);
+    match (at("primary_color"), at("secondary_color")) {
+        (Some(a), Some(b)) => [Some(a), Some(b), at("tertiary_color")].into_iter().flatten().collect(),
+        _ => Vec::new(),
     }
 }
 
