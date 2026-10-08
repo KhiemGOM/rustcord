@@ -126,7 +126,33 @@ def main():
     e2ee = [r for r in rtp if r.get("e2ee")]
 
     lay = lambda r, k: r.get("rects", {}).get("layout_" + k, 0)
+    def near(v, want, tol=0.6):
+        return v is not None and abs(v - want) <= tol
+
+    def side_ok(r):
+        rc = r.get("rects", {})
+        g = lambda k: rc.get(k) or [None] * 4
+        pitch = (g("guildicon:1008")[1] or 0) - (g("guildicon:1007")[1] or 0)
+        return (
+            "side" in r.get("marks_ms", {})
+            and all(near(g(f"guildicon:{i}")[2], 40) and near(g(f"guildicon:{i}")[3], 40) for i in (1003, 1007, 1008))
+            and near(pitch, 48)
+            and near(g("folderbg:78")[2], 48)
+            and near(g("chan:2303")[3], 32)
+            and near(g("chanicon:2303")[2], 20)
+            # discord draws emoji in names at about the text size, not 1.25x of it
+            and 14 <= (g("chanemoji:2303")[3] or 0) <= 18
+            and near(g("userpanel")[3], 56, 8.5)
+            and near(g("member:101")[3], 42)
+            and g("voicebadge:1008")[2] is not None and g("voicebadge:1004")[2] is None
+            and rc.get("side_unread_1007") is True
+            and not any(rc.get(f"side_unread_{i}") for i in (1003, 1004, 1005, 1006, 1008))
+            and rc.get("side_locked_2302") is True and rc.get("side_locked_2303") is False
+            and rc.get("side_locked_2309") is True and rc.get("side_locked_2310") is False
+        )
+
     checks = {
+        "side: rail icons 40pt at a 48pt pitch, emoji at text size, unread pills only where discord shows them": side_ok(cold) and side_ok(warm),
         "cold run finished its script": cold.get("ok") is True,
         "warm run finished its script": warm.get("ok") is True,
         f"cold: spawn -> first frame < {BUDGET_MS}ms": (cold.get("spawn_to_first_frame_ms") or 1e9) < BUDGET_MS,

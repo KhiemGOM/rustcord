@@ -5,7 +5,8 @@ use super::{App, badge, text};
 use crate::state::{Folder, Id};
 use crate::theme::*;
 
-const FOLDER_DEFAULT: u32 = 0x5865f2;
+const ICON: f32 = 40.0;
+const RADIUS: u8 = 12;
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     egui::ScrollArea::vertical()
@@ -13,7 +14,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
-            ui.add_space(12.0);
+            ui.add_space(8.0);
 
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
@@ -52,7 +53,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     if let Some(u) = &url {
                         Image::from_uri(u.clone()).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
                     } else {
-                        icons::draw(ui.painter(), Icon::People, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), Color32::WHITE);
+                        icons::draw(ui.painter(), Icon::People, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), Color32::WHITE);
                     }
                 });
                 badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(pal().bg_tertiary));
@@ -82,7 +83,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             separator(ui);
             let r = item(ui, egui::Id::new("add_server"), false, false, |ui, rect, radius, hot| {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
-                icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { GREEN });
+                icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { GREEN });
             });
             if r.on_hover_text("Join a Server").clicked() {
                 app.invite = Some(String::new());
@@ -96,22 +97,23 @@ fn separator(ui: &mut Ui) {
     ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 2.0)), CornerRadius::same(1), pal().bg_mod_hover);
 }
 
-fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: u8, hot: bool) {
+fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool) {
     let Some(g) = app.store.guilds.get(&gid) else { return };
+    let radius = radius.into();
     match g.icon_url() {
         Some(url) => {
-            ui.painter().rect_filled(rect, CornerRadius::same(radius), pal().bg_primary);
-            Image::from_uri(url).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
+            Image::from_uri(url).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
         }
         None => {
-            ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { BLURPLE } else { pal().bg_primary });
+            ui.painter().rect_filled(rect, radius, if hot { BLURPLE } else { pal().bg_mod_selected });
             let acr = g.acronym();
             let size = match acr.chars().count() {
-                0..=2 => 18.0,
-                3 => 16.0,
-                _ => 12.0,
+                0..=2 => 17.0,
+                3 => 15.0,
+                4..=5 => 13.0,
+                _ => 11.0,
             } * rect.width()
-                / 48.0;
+                / ICON;
             let col = if hot { Color32::WHITE } else { pal().text_normal };
             text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
         }
@@ -128,7 +130,15 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     if mentions > 0 {
         badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
     }
+    if let Some(mine) = voice_badge(app, gid) {
+        let at = Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)).right_top() + vec2(-7.0, 7.0);
+        ui.painter().circle_filled(at, 11.0, pal().bg_tertiary);
+        ui.painter().circle_filled(at, 9.0, if mine { GREEN } else { Color32::BLACK });
+        icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(at, vec2(12.0, 12.0)), Color32::WHITE);
+        app.rects.insert(format!("voicebadge:{gid}"), Rect::from_center_size(at, vec2(18.0, 18.0)));
+    }
     app.rects.insert(format!("guild:{gid}"), r.rect);
+    app.rects.insert(format!("guildicon:{gid}"), Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)));
     let r = tip(r, &name);
     if r.clicked() {
         app.select_guild(Some(gid));
@@ -152,9 +162,16 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     });
 }
 
+/// Some(true) when we're connected to voice in this server, Some(false) when someone else is.
+fn voice_badge(app: &App, gid: Id) -> Option<bool> {
+    let mine = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid);
+    let busy = app.store.guilds.get(&gid).is_some_and(|g| g.voice.values().any(|c| *c != 0));
+    (mine || busy).then_some(mine)
+}
+
 fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let open = app.ui.open_folders.contains(&f.id);
-    let color = role_color(f.color.unwrap_or(FOLDER_DEFAULT));
+    let color = f.color.map(role_color);
     let mut unread = false;
     let mut mentions = 0;
     for g in &f.guilds {
@@ -166,23 +183,36 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
 
-    let r = item(ui, egui::Id::new(("folder", f.id)), selected_inside && !open, unread && !open, |ui, rect, radius, _hot| {
+    let r = item(ui, egui::Id::new(("folder", f.id)), selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
         if open {
-            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), color);
+            if hot {
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), subtle());
+            }
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), color.unwrap_or(BLURPLE));
             return;
         }
-        ui.painter().rect_filled(rect, CornerRadius::same(radius), color.gamma_multiply(0.4));
+        let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
+        ui.painter().rect_filled(rect, CornerRadius::same(radius), tint);
         for (i, g) in f.guilds.iter().take(4).enumerate() {
             let cell = Rect::from_min_size(
-                rect.min + vec2(6.0 + (i % 2) as f32 * 19.0, 6.0 + (i / 2) as f32 * 19.0),
-                vec2(17.0, 17.0),
+                rect.min + vec2(3.0 + (i % 2) as f32 * 18.0, 3.0 + (i / 2) as f32 * 18.0),
+                vec2(16.0, 16.0),
             );
-            guild_icon(app, ui, *g, cell, 6, false);
+            // the corner on the folder's outside edge is the round one
+            let mut cr = CornerRadius::same(4);
+            match i {
+                0 => cr.nw = 10,
+                1 => cr.ne = 10,
+                2 => cr.sw = 10,
+                _ => cr.se = 10,
+            }
+            guild_icon(app, ui, *g, cell, cr, false);
         }
     });
     if mentions > 0 && !open {
         badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
     }
+    app.rects.insert(format!("folder:{}", f.id), r.rect);
     let name = f.name.clone().unwrap_or_else(|| {
         f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).map(|g| g.name.clone()).collect::<Vec<_>>().join(", ")
     });
@@ -193,13 +223,20 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
         for g in &f.guilds {
             guild(app, ui, *g);
         }
-        let back = Rect::from_min_max(pos2(12.0, top), pos2(60.0, ui.cursor().top() - 8.0));
+        let back = Rect::from_min_max(pos2(12.0, top - 4.0), pos2(60.0, ui.cursor().top() - 4.0));
         let back = back.translate(vec2(ui.max_rect().left(), 0.0));
+        let fill = color.map_or(subtle(), |c| c.gamma_multiply(0.15));
+        app.rects.insert(format!("folderbg:{}", f.id), back);
         ui.painter().set(
             bg,
-            egui::epaint::RectShape::filled(back, CornerRadius::same(16), color.gamma_multiply(0.15)),
+            egui::epaint::RectShape::new(back, CornerRadius::same(16), fill, egui::Stroke::new(1.0, pal().bg_mod_hover), egui::StrokeKind::Inside),
         );
     }
+}
+
+// discord's background-mod-subtle: a faint grey wash that works on any rail colour
+fn subtle() -> Color32 {
+    Color32::from_rgba_unmultiplied(0x97, 0x97, 0x9f, 31)
 }
 
 fn item(
@@ -209,12 +246,11 @@ fn item(
     unread: bool,
     paint: impl FnOnce(&Ui, Rect, u8, bool),
 ) -> egui::Response {
-    let (row, resp) = ui.allocate_exact_size(vec2(72.0, 48.0), Sense::click());
-    let rect = Rect::from_center_size(row.center(), vec2(48.0, 48.0));
+    let (row, resp) = ui.allocate_exact_size(vec2(72.0, ICON), Sense::click());
+    let rect = Rect::from_center_size(row.center(), vec2(ICON, ICON));
     let hovered = resp.hovered();
     let hot = hovered || selected;
-    let t = ui.ctx().animate_bool_with_time(id.with("r"), hot, anim(0.15));
-    let radius = (24.0 - 8.0 * t).round() as u8;
+    let radius = RADIUS;
     let pill_target = if selected {
         40.0
     } else if hovered {

@@ -47,6 +47,7 @@ pub fn make_nonce() -> String {
 pub const VIEW_CHANNEL: u64 = 1 << 10;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
+pub const CONNECT: u64 = 1 << 20;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub enum Status {
@@ -133,6 +134,8 @@ pub struct Channel {
     pub tags: Vec<Tag>,
     #[serde(default)]
     pub applied: Vec<Id>,
+    #[serde(default)]
+    pub nsfw: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -180,6 +183,7 @@ impl Channel {
                 .map(|t| Tag { id: sid(&t["id"]), name: st(&t["name"]), emoji: ost(&t["emoji_name"]) })
                 .collect(),
             applied: ids(&v["applied_tags"]),
+            nsfw: v["nsfw"].as_bool().unwrap_or(false),
         }
     }
 
@@ -243,6 +247,11 @@ pub struct Guild {
     pub channels: Vec<Id>,
     pub my_roles: Vec<Id>,
     pub member_count: u32,
+    // 0 all messages, 1 only mentions; what the server picked for people who haven't chosen
+    #[serde(default)]
+    pub default_notif: u8,
+    #[serde(default)]
+    pub rules: Id,
     #[serde(skip)]
     pub voice: HashMap<Id, Id>,
     #[serde(skip)]
@@ -593,6 +602,9 @@ pub struct Store {
     pub reads: HashMap<Id, ReadState>,
     pub members: HashMap<Id, HashMap<Id, Member>>,
     pub muted: HashSet<Id>,
+    // message_notifications overrides by guild or channel id, only the ones that aren't "inherit"
+    #[serde(default)]
+    pub notif: HashMap<Id, u8>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(default)]
@@ -690,8 +702,55 @@ impl Store {
         p
     }
 
+    /// Whether @everyone is kept out of the channel (or, for voice, kept from joining).
+    pub fn locked(&self, c: &Channel) -> bool {
+        let Some(g) = self.guilds.get(&c.guild) else { return false };
+        let mut p = g.roles.get(&g.id).map_or(0, |r| r.perms);
+        if let Some(o) = c.overwrites.iter().find(|o| o.id == g.id) {
+            p = (p & !o.deny) | o.allow;
+        }
+        let bit = if c.is_voice() { CONNECT } else { VIEW_CHANNEL };
+        p & bit == 0 || p & VIEW_CHANNEL == 0
+    }
+
+    /// Muted itself, or through its category or parent channel.
+    pub fn is_muted(&self, c: &Channel) -> bool {
+        let mut id = c.id;
+        for _ in 0..3 {
+            if self.muted.contains(&id) {
+                return true;
+            }
+            match self.channels.get(&id) {
+                Some(c) if c.parent != 0 => id = c.parent,
+                _ => break,
+            }
+        }
+        false
+    }
+
+    /// Channels set to "only @mentions" never show unread, same for servers that default to it.
+    fn mentions_only(&self, c: &Channel) -> bool {
+        let mut id = c.id;
+        for _ in 0..3 {
+            if let Some(n) = self.notif.get(&id) {
+                return *n != 0;
+            }
+            match self.channels.get(&id) {
+                Some(c) if c.parent != 0 => id = c.parent,
+                _ => break,
+            }
+        }
+        match self.notif.get(&c.guild) {
+            Some(n) => *n != 0,
+            None => self.guilds.get(&c.guild).is_some_and(|g| g.default_notif != 0),
+        }
+    }
+
     pub fn unread(&self, c: &Channel) -> bool {
-        if c.last_msg == 0 || self.muted.contains(&c.id) || (c.is_thread() && !c.joined) {
+        if c.last_msg == 0 || self.is_muted(c) || (c.is_thread() && !c.joined) {
+            return false;
+        }
+        if c.guild != 0 && self.mentions_only(c) {
             return false;
         }
         match self.reads.get(&c.id) {
@@ -765,6 +824,8 @@ impl Store {
         g.name = st(&p["name"]);
         g.icon = ost(&p["icon"]);
         g.owner = sid(&p["owner_id"]);
+        g.rules = sid(&p["rules_channel_id"]);
+        g.default_notif = p["default_message_notifications"].as_u64().unwrap_or(0) as u8;
         if let Some(n) = v["member_count"].as_u64() {
             g.member_count = n as u32;
         }
@@ -872,13 +933,31 @@ impl Store {
             &d["user_guild_settings"]["entries"]
         };
         self.muted.clear();
+        self.notif.clear();
+        let now = chrono::Utc::now();
+        // a timed mute that already ran out still says muted: true until the client notices
+        let on = |o: &Value| {
+            o["muted"].as_bool() == Some(true)
+                && o["mute_config"]["end_time"]
+                    .as_str()
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                    .is_none_or(|t| t > now)
+        };
         for s in ugs.as_array().into_iter().flatten() {
-            if s["muted"].as_bool() == Some(true) {
-                self.muted.insert(sid(&s["guild_id"]));
+            let gid = sid(&s["guild_id"]);
+            if on(s) {
+                self.muted.insert(gid);
+            }
+            if let Some(n) = s["message_notifications"].as_u64().filter(|n| *n < 3) {
+                self.notif.insert(gid, n as u8);
             }
             for o in s["channel_overrides"].as_array().into_iter().flatten() {
-                if o["muted"].as_bool() == Some(true) {
-                    self.muted.insert(sid(&o["channel_id"]));
+                let cid = sid(&o["channel_id"]);
+                if on(o) {
+                    self.muted.insert(cid);
+                }
+                if let Some(n) = o["message_notifications"].as_u64().filter(|n| *n < 3) {
+                    self.notif.insert(cid, n as u8);
                 }
             }
         }

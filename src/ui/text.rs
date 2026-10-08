@@ -18,6 +18,12 @@ fn has_emoji(s: &str) -> bool {
 }
 
 pub fn layout(ctx: &egui::Context, text: &str, font: FontId, color: Color32, max_w: f32) -> Rich {
+    layout_em(ctx, text, font, color, max_w, 1.25)
+}
+
+/// `em` is the emoji size relative to the font size. The sidebars want 1.0, which is
+/// what discord's own emoji font draws at in channel and member names.
+pub fn layout_em(ctx: &egui::Context, text: &str, font: FontId, color: Color32, max_w: f32, em: f32) -> Rich {
     crate::theme::note_text(text);
     let mut job = LayoutJob::default();
     job.wrap = TextWrapping {
@@ -31,7 +37,7 @@ pub fn layout(ctx: &egui::Context, text: &str, font: FontId, color: Color32, max
     if !has_emoji(text) {
         job.append(text, 0.0, fmt);
     } else {
-        let size = (font.size * 1.25).round();
+        let size = (font.size * em).round();
         let w = ctx.fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
         let gap = TextFormat { color: Color32::TRANSPARENT, ..fmt.clone() };
         let (mut chars, mut plain, mut i) = (0usize, 0usize, 0usize);
@@ -65,14 +71,20 @@ impl Rich {
 
     pub fn paint(&self, p: &Painter, pos: Pos2) {
         p.galley(pos, self.galley.clone(), Color32::WHITE);
-        for (idx, url, size, lead) in &self.emojis {
-            let c = self.galley.pos_from_cursor(CCursor::new(*idx));
-            if c.min.x - lead > self.galley.size().x {
-                continue; // elided away
-            }
-            let r = Rect::from_min_size(pos2(pos.x + (c.min.x - lead).max(0.0), pos.y + c.center().y - size / 2.0), vec2(*size, *size));
+        for (url, r) in self.emoji_rects(pos) {
             image(p, url, r);
         }
+    }
+
+    /// Where each emoji image lands when the text is painted at `pos`.
+    pub fn emoji_rects(&self, pos: Pos2) -> impl Iterator<Item = (&str, Rect)> {
+        self.emojis.iter().filter_map(move |(idx, url, size, lead)| {
+            let c = self.galley.pos_from_cursor(CCursor::new(*idx));
+            if c.min.x - lead > self.galley.size().x {
+                return None; // elided away
+            }
+            Some((url.as_str(), Rect::from_min_size(pos2(pos.x + (c.min.x - lead).max(0.0), pos.y + c.center().y - size / 2.0), vec2(*size, *size))))
+        })
     }
 }
 
@@ -87,7 +99,11 @@ pub fn image(p: &Painter, url: &str, rect: Rect) {
 
 /// Like `Painter::text`, with emoji and an optional width limit (elides with …).
 pub fn paint(p: &Painter, pos: Pos2, align: Align2, text: &str, font: FontId, color: Color32, max_w: f32) -> Rect {
-    let r = layout(p.ctx(), text, font, color, max_w);
+    paint_em(p, pos, align, text, font, color, max_w, 1.25)
+}
+
+pub fn paint_em(p: &Painter, pos: Pos2, align: Align2, text: &str, font: FontId, color: Color32, max_w: f32, em: f32) -> Rect {
+    let r = layout_em(p.ctx(), text, font, color, max_w, em);
     let rect = align.anchor_size(pos, r.size());
     r.paint(p, rect.min);
     rect

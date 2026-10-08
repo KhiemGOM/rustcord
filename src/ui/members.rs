@@ -85,7 +85,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
                     let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 36.0 } else { 0.0 };
-                    let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, &name, semi(15.0), color.gamma_multiply(fade), tw);
+                    let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, &name, reg(16.0), color.gamma_multiply(fade), tw, 1.0);
                     if bot {
                         let tag = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.5), vec2(30.0, 15.0));
                         ui.painter().rect_filled(tag, CornerRadius::same(3), BLURPLE.gamma_multiply(fade.max(0.5)));
