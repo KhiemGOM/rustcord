@@ -448,7 +448,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             Act::SaveEdit(id, text) => {
                 app.editing = None;
-                let text = text.trim().to_string();
+                let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+                let text = app.convert_emoji(guild, text.trim());
                 if text.is_empty() {
                     app.confirm_delete = Some((ch, id));
                 } else if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {

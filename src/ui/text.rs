@@ -115,10 +115,14 @@ pub fn baseline(g: &Galley) -> f32 {
 
 /// Paint an http image with any painter, so clip rects are honoured.
 pub fn image(p: &Painter, url: &str, rect: Rect) {
+    image_tint(p, url, rect, Color32::WHITE);
+}
+
+pub fn image_tint(p: &Painter, url: &str, rect: Rect, tint: Color32) {
     let poll = egui::Image::new(crate::gif::uri(p.ctx(), url, p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
     if let Ok(egui::load::TexturePoll::Ready { texture }) = poll {
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-        p.image(texture.id, rect, uv, Color32::WHITE);
+        p.image(texture.id, rect, uv, tint);
     }
 }
 

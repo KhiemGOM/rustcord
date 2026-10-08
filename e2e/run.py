@@ -221,6 +221,17 @@ def main():
         "title bar: every edge and corner answers WM_NCHITTEST with its resize zone": all(
             r.get("rects", {}).get("edge_hits") == [10, 11, 12, 15, 13, 14, 16, 17, 1] for r in (cold, warm)),
         "title bar: inbox fetched /users/@me/mentions": sum("/users/@me/mentions?limit=25&roles=true&everyone=true" in r.get("path", "") for r in reqs) == 2,
+        **{f"emoji: {what}": sent_bodies.count(body) == 2
+           for what, body in [("a locked emoji picked from the popup stays literal text", ":omgParty: locked"),
+                              ("typed :ferris: became the current server's emoji without nitro", "<:ferris:5000> static"),
+                              ("typed :smile: became the glyph on the closing colon", "\U0001F604 hi"),
+                              ("unknown names and code spans stayed as typed", ":nosuchemoji: `:ferris:` `:smile:`"),
+                              ("another server's emoji stayed literal without nitro", ":omgBruh: far"),
+                              ("nitro: animated emoji picked from the popup", "<a:omgParty:5101> anim"),
+                              ("nitro: other server's emoji picked from the popup", "<:omgBruh:5200> picked"),
+                              ("nitro: other server's emoji typed in full", "<:omgBruh:5200> typed"),
+                              ("role-locked and unavailable emojis stayed literal even with nitro", ":omgMods: :omgLapsed: no")]},
+        "emoji: popup opened for both the locked and the nitro run": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("emoji_locked_ac", "emoji")),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

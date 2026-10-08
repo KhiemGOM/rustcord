@@ -1,14 +1,29 @@
-use egui::{CornerRadius, Frame, Image, Margin, Rect, RichText, Sense, Ui, vec2};
+use egui::{Color32, CornerRadius, Frame, Image, Margin, Rect, RichText, Sense, Ui, vec2};
 
 use super::{App, Pick};
 use crate::markdown::twemoji;
-use crate::state::{Emoji, ReactEmoji};
+use crate::state::{Emoji, Id, ReactEmoji};
 use crate::theme::*;
 
 
-/// Every emoji that has a shortcode, default skin tone only.
-pub fn common() -> impl Iterator<Item = (&'static str, &'static str)> {
-    emoji_list(None)
+/// Every name that types an emoji, default skin tone only. Gemoji gives several per emoji
+/// (`+1` and `thumbsup`), and discord spells flags `flag_us` where gemoji says `us`.
+pub fn common() -> impl Iterator<Item = (&'static str, String)> {
+    emojis::iter()
+        .filter(|e| e.skin_tone().is_none_or(|t| t == emojis::SkinTone::Default))
+        .flat_map(|e| {
+            let flag = e.group() == emojis::Group::Flags;
+            e.shortcodes().flat_map(move |n| {
+                let alias = (flag && n.len() == 2).then(|| format!("flag_{n}"));
+                [Some(n.to_string()), alias].into_iter().flatten().map(move |n| (e.as_str(), n))
+            })
+        })
+}
+
+pub fn unicode(name: &str) -> Option<&'static str> {
+    let name = name.to_lowercase();
+    let name = name.strip_prefix("flag_").filter(|n| n.len() == 2).unwrap_or(&name);
+    emojis::get_by_shortcode(name).map(|e| e.as_str())
 }
 
 fn emoji_list(group: Option<emojis::Group>) -> impl Iterator<Item = (&'static str, &'static str)> {
@@ -38,7 +53,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some((target, at)) = &app.picker else { return };
     let at = *at;
     let guild = app.ui.guild.unwrap_or(0);
-    let customs: Vec<Emoji> = app.store.guilds.get(&guild).map(|g| g.emojis.clone()).unwrap_or_default();
+    let mut servers: Vec<(Id, String, Vec<(Emoji, bool)>)> = Vec::new();
+    for (g, e, ok) in app.store.emojis_for(guild) {
+        match servers.last_mut() {
+            Some((id, _, list)) if *id == g.id => list.push((e.clone(), ok)),
+            _ => servers.push((g.id, g.name.clone(), vec![(e.clone(), ok)])),
+        }
+    }
     let query_id = egui::Id::new("picker_q");
     let mut q: String = ctx.data_mut(|d| d.get_temp(query_id).unwrap_or_default());
     let mut chosen = None;
@@ -65,17 +86,29 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let ql = q.to_lowercase();
                 egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    let customs: Vec<&Emoji> = customs.iter().filter(|e| ql.is_empty() || e.name.to_lowercase().contains(&ql)).collect();
-                    if !customs.is_empty() {
-                        section(ui, "SERVER EMOJI");
+                    for (_, name, list) in &servers {
+                        let customs: Vec<&(Emoji, bool)> = list.iter().filter(|(e, _)| ql.is_empty() || e.name.to_lowercase().contains(&ql)).collect();
+                        if customs.is_empty() {
+                            continue;
+                        }
+                        section(ui, name);
                         grid(ui, customs.len(), |ui, i, r| {
-                            Image::from_uri(crate::gif::uri(ui.ctx(), &customs[i].url(), ui.is_rect_visible(r))).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
+                            let (e, ok) = customs[i];
+                            let tint = if *ok { Color32::WHITE } else { Color32::from_white_alpha(90) };
+                            Image::from_uri(crate::gif::uri(ui.ctx(), &e.url(), ui.is_rect_visible(r))).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                         }, |i| {
-                            chosen = Some(Chosen::Custom(customs[i].clone()));
-                        }, |i| format!(":{}:", customs[i].name));
+                            if customs[i].1 {
+                                chosen = Some(Chosen::Custom(customs[i].0.clone()));
+                            }
+                        }, |i| {
+                            let (e, ok) = customs[i];
+                            if *ok { format!(":{}:", e.name) } else { format!(":{}: needs Nitro or a role here", e.name) }
+                        });
                     }
                     for (group, title) in GROUPS {
-                        let uni: Vec<(&str, &str)> = emoji_list(Some(group)).filter(|(_, n)| ql.is_empty() || n.contains(&ql)).collect();
+                        let uni: Vec<(&str, &str)> = emoji_list(Some(group))
+                            .filter(|(g, n)| ql.is_empty() || n.contains(&ql) || emojis::get(g).is_some_and(|e| e.shortcodes().any(|s| s.contains(&ql))))
+                            .collect();
                         if uni.is_empty() {
                             continue;
                         }
