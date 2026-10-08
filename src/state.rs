@@ -632,9 +632,12 @@ pub struct Store {
     pub reads: HashMap<Id, ReadState>,
     pub members: HashMap<Id, HashMap<Id, Member>>,
     pub muted: HashSet<Id>,
-    // message_notifications overrides by guild or channel id, only the ones that aren't "inherit"
+    // "unreads" overrides by guild or channel id: true for all messages, false for only @mentions
     #[serde(default)]
-    pub notif: HashMap<Id, u8>,
+    pub unreads: HashMap<Id, bool>,
+    // the account opted into discord's newer notification settings, which is what makes the above count
+    #[serde(default)]
+    pub new_notifs: bool,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -788,21 +791,67 @@ impl Store {
         false
     }
 
-    /// Channels set to "only @mentions" never show unread, same for servers that default to it.
-    fn mentions_only(&self, c: &Channel) -> bool {
+    /// One user_guild_settings entry: mutes and "unreads" overrides for a server and its channels.
+    /// Notification levels don't hide unreads, only these do.
+    fn guild_settings(&mut self, s: &Value) {
+        let gid = sid(&s["guild_id"]);
+        let now = chrono::Utc::now();
+        // a timed mute that already ran out still says muted: true until the client notices
+        let on = |o: &Value| {
+            o["muted"].as_bool() == Some(true)
+                && o["mute_config"]["end_time"]
+                    .as_str()
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                    .is_none_or(|t| t > now)
+        };
+        // the flag bits differ between the guild entry and channel overrides
+        let unreads = |o: &Value, all: u64, mentions: u64| {
+            let f = o["flags"].as_u64().unwrap_or(0);
+            if f & all != 0 {
+                Some(true)
+            } else if f & mentions != 0 {
+                Some(false)
+            } else {
+                None
+            }
+        };
+        if on(s) {
+            self.muted.insert(gid);
+        }
+        if let Some(all) = unreads(s, 2048, 4096) {
+            self.unreads.insert(gid, all);
+        }
+        for o in s["channel_overrides"].as_array().into_iter().flatten() {
+            let cid = sid(&o["channel_id"]);
+            if on(o) {
+                self.muted.insert(cid);
+            }
+            if let Some(all) = unreads(o, 1024, 512) {
+                self.unreads.insert(cid, all);
+            }
+        }
+    }
+
+    /// Whether every new message counts as unread, rather than only @mentions. Without the newer
+    /// notification settings that's always so; with them the channel's (or its parent's) unread
+    /// setting wins, then the server's, then the server's default notification level.
+    fn unreads_all(&self, c: &Channel) -> bool {
+        if !self.new_notifs {
+            return true;
+        }
         let mut id = c.id;
         for _ in 0..3 {
-            if let Some(n) = self.notif.get(&id) {
-                return *n != 0;
+            if let Some(all) = self.unreads.get(&id) {
+                return *all;
             }
             match self.channels.get(&id) {
                 Some(c) if c.parent != 0 => id = c.parent,
                 _ => break,
             }
         }
-        match self.notif.get(&c.guild) {
-            Some(n) => *n != 0,
-            None => self.guilds.get(&c.guild).is_some_and(|g| g.default_notif != 0),
+        match self.unreads.get(&c.guild) {
+            Some(all) => *all,
+            None => self.guilds.get(&c.guild).is_none_or(|g| g.default_notif == 0),
         }
     }
 
@@ -810,7 +859,7 @@ impl Store {
         if c.last_msg == 0 || self.is_muted(c) || (c.is_thread() && !c.joined) {
             return false;
         }
-        if c.guild != 0 && self.mentions_only(c) {
+        if c.guild != 0 && !self.unreads_all(c) {
             return false;
         }
         match self.reads.get(&c.id) {
@@ -986,33 +1035,10 @@ impl Store {
             &d["user_guild_settings"]["entries"]
         };
         self.muted.clear();
-        self.notif.clear();
-        let now = chrono::Utc::now();
-        // a timed mute that already ran out still says muted: true until the client notices
-        let on = |o: &Value| {
-            o["muted"].as_bool() == Some(true)
-                && o["mute_config"]["end_time"]
-                    .as_str()
-                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-                    .is_none_or(|t| t > now)
-        };
+        self.unreads.clear();
+        self.new_notifs = d["notification_settings"]["flags"].as_u64().unwrap_or(0) & 16 != 0;
         for s in ugs.as_array().into_iter().flatten() {
-            let gid = sid(&s["guild_id"]);
-            if on(s) {
-                self.muted.insert(gid);
-            }
-            if let Some(n) = s["message_notifications"].as_u64().filter(|n| *n < 3) {
-                self.notif.insert(gid, n as u8);
-            }
-            for o in s["channel_overrides"].as_array().into_iter().flatten() {
-                let cid = sid(&o["channel_id"]);
-                if on(o) {
-                    self.muted.insert(cid);
-                }
-                if let Some(n) = o["message_notifications"].as_u64().filter(|n| *n < 3) {
-                    self.notif.insert(cid, n as u8);
-                }
-            }
+            self.guild_settings(s);
         }
 
         self.email = ost(&d["user"]["email"]);
@@ -1463,6 +1489,17 @@ impl Store {
                     }
                 }
             }
+            "USER_GUILD_SETTINGS_UPDATE" => {
+                // the event carries the whole entry, so drop what the server and its channels had
+                let gid = sid(&d["guild_id"]);
+                let chans = self.guilds.get(&gid).map(|g| g.channels.clone()).unwrap_or_default();
+                for id in chans.iter().chain([&gid]) {
+                    self.muted.remove(id);
+                    self.unreads.remove(id);
+                }
+                self.guild_settings(d);
+            }
+            "NOTIFICATION_SETTINGS_UPDATE" => self.new_notifs = d["flags"].as_u64().unwrap_or(0) & 16 != 0,
             "USER_UPDATE" => {
                 if sid(&d["id"]) == self.me && d.get("premium_type").is_some() {
                     self.me_raw["premium_type"] = d["premium_type"].clone();
