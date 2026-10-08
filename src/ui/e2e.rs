@@ -886,6 +886,7 @@ impl Run {
             260..=279 => self.title_steps(app, ctx),
             280..=299 => self.look_steps(app, ctx),
             330..=349 => self.polish_steps(app, ctx),
+            350..=369 => self.sync_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1138,7 +1139,7 @@ impl Run {
                 if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
                     self.mark("display_name");
                     self.key(Key::Escape);
-                    self.step = 280;
+                    self.step = 350;
                 }
             }
             _ => self.step = 99,
@@ -1968,6 +1969,11 @@ impl Run {
             }
             _ => self.step = 200,
         }
+    }
+
+    /// Settings that follow the account: theme and friends, from user_settings_proto.
+    fn sync_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
+        self.step = 280;
     }
 
     /// Theme colours, fonts, message headers.
