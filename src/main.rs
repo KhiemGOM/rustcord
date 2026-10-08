@@ -24,6 +24,7 @@ fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Fastcord")
+            .with_decorations(false)
             .with_app_id("fastcord")
             .with_inner_size(size)
             .with_min_inner_size([940.0, 500.0]),

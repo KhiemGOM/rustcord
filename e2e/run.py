@@ -154,6 +154,18 @@ def main():
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
         "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
+        **{f"title bar: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("drawn with back, forward, inbox, help and the window buttons", "title_bar"),
+                              ("back and forward buttons walked the history", "nav_buttons"),
+                              ("alt+left and the mouse side button walked it too", "nav_keys"),
+                              ("the friends page is a history entry", "nav_friends"),
+                              ("inbox listed the mentions", "inbox_listed"), ("clicking a mention jumped to it", "inbox_jump"),
+                              ("double click on the bar maximized the window", "maximize"), ("the maximize button restored it", "restore")]},
+        "title bar: 30pt tall, flush with the top of the window": all(
+            r.get("rects", {}).get("title_bar", [0, 1, 0, 0])[1] == 0 and abs(r.get("rects", {}).get("title_bar", [0, 0, 0, 0])[3] - 30) < 0.5 for r in (cold, warm)),
+        "title bar: every edge and corner answers WM_NCHITTEST with its resize zone": all(
+            r.get("rects", {}).get("edge_hits") == [10, 11, 12, 15, 13, 14, 16, 17, 1] for r in (cold, warm)),
+        "title bar: inbox fetched /users/@me/mentions": sum("/users/@me/mentions?limit=25&roles=true&everyone=true" in r.get("path", "") for r in reqs) == 2,
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

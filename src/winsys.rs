@@ -1,5 +1,6 @@
-//! The few Windows-specific things settings need: run on startup, hiding the
-//! window from screen capture, and spotting a running OBS for streamer mode.
+//! The few Windows-specific things the app needs: run on startup, hiding the
+//! window from screen capture, spotting a running OBS for streamer mode, and
+//! the resize border of the frameless window.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -76,4 +77,83 @@ pub fn watch_streaming(ctx: egui::Context) {
             }
         })
         .ok();
+}
+
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+
+static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+// width of the invisible resize border, in points
+const EDGE: f32 = 6.0;
+
+/// winit leaves an undecorated window with no resize border at all, so answer
+/// WM_NCHITTEST ourselves; the system then does the cursor, the drag and Aero Snap.
+unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if msg == WM_NCHITTEST && unsafe { IsZoomed(hwnd) } == 0 {
+        let (x, y) = (lp as i16 as i32, ((lp >> 16) as i16) as i32);
+        let mut r: RECT = unsafe { std::mem::zeroed() };
+        unsafe { GetWindowRect(hwnd, &mut r) };
+        let e = (EDGE * unsafe { GetDpiForWindow(hwnd) } as f32 / 96.0).round() as i32;
+        // corners reach further along the edge, like the system's own frames
+        let c = e * 3;
+        let left = x < r.left + e;
+        let right = x >= r.right - e;
+        let top = y < r.top + e;
+        let bottom = y >= r.bottom - e;
+        let near_l = x < r.left + c;
+        let near_r = x >= r.right - c;
+        let near_t = y < r.top + c;
+        let near_b = y >= r.bottom - c;
+        let hit = match () {
+            _ if (left && near_t) || (top && near_l) => HTTOPLEFT,
+            _ if (right && near_t) || (top && near_r) => HTTOPRIGHT,
+            _ if (left && near_b) || (bottom && near_l) => HTBOTTOMLEFT,
+            _ if (right && near_b) || (bottom && near_r) => HTBOTTOMRIGHT,
+            _ if left => HTLEFT,
+            _ if right => HTRIGHT,
+            _ if top => HTTOP,
+            _ if bottom => HTBOTTOM,
+            _ => 0,
+        };
+        if hit != 0 {
+            return hit as isize;
+        }
+    }
+    let old: WNDPROC = unsafe { std::mem::transmute(OLD_PROC.load(Ordering::Relaxed)) };
+    unsafe { CallWindowProcW(old, hwnd, msg, wp, lp) }
+}
+
+/// Resize borders and Windows 11 rounded corners for the frameless window. Call once.
+pub fn frameless(frame: &eframe::Frame) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GWLP_WNDPROC, SetWindowLongPtrW};
+    let Ok(h) = frame.window_handle() else { return };
+    let RawWindowHandle::Win32(w) = h.as_raw() else { return };
+    let hwnd = w.hwnd.get() as HWND;
+    unsafe {
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE as u32, (&DWMWCP_ROUND as *const i32).cast(), 4);
+        let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
+        OLD_PROC.store(old, Ordering::Relaxed);
+    }
+    WINDOW.store(hwnd as isize, Ordering::Relaxed);
+}
+
+/// What the window answers for a point at each edge and corner plus the middle, for the e2e run.
+pub fn probe_edges() -> Vec<u32> {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, SendMessageW, WM_NCHITTEST};
+    let hwnd = WINDOW.load(Ordering::Relaxed) as HWND;
+    let mut r: RECT = unsafe { std::mem::zeroed() };
+    unsafe { GetWindowRect(hwnd, &mut r) };
+    let (l, t, rt, b) = (r.left + 1, r.top + 1, r.right - 2, r.bottom - 2);
+    let (mx, my) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    [(l, my), (rt, my), (mx, t), (mx, b), (l, t), (rt, t), (l, b), (rt, b), (mx, my)]
+        .iter()
+        .map(|(x, y)| unsafe { SendMessageW(hwnd, WM_NCHITTEST, 0, ((*y as u16 as isize) << 16) | (*x as u16 as isize)) as u32 })
+        .collect()
 }
