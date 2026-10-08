@@ -70,6 +70,22 @@ pub enum Cmd {
     Voice(voice::Cmd),
 }
 
+/// With FASTCORD_READONLY set, nothing goes out that would change the account or
+/// that other people could see: no messages, reactions, acks, typing, voice,
+/// presence, or non-GET REST calls. Used when touring a real account.
+pub static BLOCKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn allowed(c: &Cmd) -> bool {
+    match c {
+        Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
+        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) => false,
+        Cmd::Rest { method, .. } => *method == "GET",
+        // member requests and lazy member-list subscriptions only read
+        Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
+        _ => true,
+    }
+}
+
 #[derive(Clone)]
 pub struct Tx {
     tx: smpsc::Sender<Ev>,
@@ -116,7 +132,12 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let mut gw: Option<mpsc::UnboundedSender<Value>> = None;
     let mut voice = voice::Link::default();
 
+    let readonly = std::env::var_os("FASTCORD_READONLY").is_some();
     while let Some(cmd) = rx.recv().await {
+        if readonly && !allowed(&cmd) {
+            BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            continue;
+        }
         let a = api.clone();
         let tx = tx.clone();
         match cmd {

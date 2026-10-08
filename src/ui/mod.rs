@@ -108,6 +108,7 @@ impl App {
         let ctx = cc.egui_ctx.clone();
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
+        ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
         let (net, rx) = Net::new(ctx.clone());
         ctx.add_bytes_loader(std::sync::Arc::new(crate::imgcache::DiskLoader::new(
             cache::dir().join("img"),
@@ -759,7 +760,13 @@ impl App {
                     }
                     self.voice_cues(&t, &d);
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
+                    let took = Instant::now();
                     self.store.apply(&t, &d);
+                    if t == "READY"
+                        && let Some(e) = &mut self.e2e
+                    {
+                        e.cost("ready_apply", took.elapsed());
+                    }
                     if t == "READY" {
                         // cached channel lists can be stale, refetch whatever is open
                         for m in self.store.msgs.values_mut() {
@@ -821,6 +828,9 @@ impl App {
     }
 
     fn ack_current(&mut self, ctx: &egui::Context) {
+        if self.e2e.as_ref().is_some_and(|e| e.tour) {
+            return;
+        }
         if !ctx.input(|i| i.focused) {
             return;
         }
@@ -911,8 +921,12 @@ impl eframe::App for App {
             self.fonts_rx = Some(rx);
         }
         if let Some(f) = self.fonts_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            let took = Instant::now();
             ctx.set_fonts(f);
             self.fonts_rx = None;
+            if let Some(e) = &mut self.e2e {
+                e.cost("cjk_fonts", took.elapsed());
+            }
         }
         // rebuilt every frame by whatever gets drawn, so nothing points at last frame's layout
         self.rects.clear();
@@ -972,7 +986,11 @@ impl eframe::App for App {
 
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
             self.save_at = None;
+            let took = Instant::now();
             cache::save(&self.store, &self.ui);
+            if let Some(e) = &mut self.e2e {
+                e.cost("cache_save", took.elapsed());
+            }
         }
         if let Some(mut e) = self.e2e.take() {
             e.step(self, &ctx);
