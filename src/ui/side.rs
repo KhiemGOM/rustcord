@@ -799,11 +799,13 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     let unread = store.unread(c);
     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
     let ring = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };
-    if c.kind == 1 {
-        if let Some(u) = c.recipients.first().and_then(|u| store.user(*u)) {
-            avatar(ui, av, &u.avatar_url());
-            status_dot(ui, av, store.status(u.id), ring);
+    let person = if c.kind == 1 { c.recipients.first().and_then(|u| store.user(*u)) } else { None };
+    if let Some(u) = person {
+        avatar(ui, av, &u.avatar_url());
+        if let Some(d) = u.decoration_url() {
+            text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(38.0, 38.0)));
         }
+        status_dot(ui, av, store.status(u.id), ring);
     } else {
         match &c.icon {
             Some(icon) => avatar(ui, av, &format!("{}/channel-icons/{}/{}.png?size=64", crate::api::cdn(), c.id, icon)),
@@ -816,7 +818,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     let col = if selected || unread { pal().header_primary } else if hovered { pal().interactive_hover } else { pal().channel_default };
     let mentions = store.mentions(c.id);
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    let font = if unread { semi(16.0) } else { reg(16.0) };
+    let font = if unread { semi(16.0) } else { medium(16.0) };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     if c.kind == 3 {
@@ -829,7 +831,10 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             pal().text_muted,
         );
     } else {
-        text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
+        let r = text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
+        if let Some(u) = person {
+            super::tag_chip(&clip, u, pos2(r.right() + 4.0, row.center().y), 1.0);
+        }
     }
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
