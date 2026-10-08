@@ -125,6 +125,7 @@ def main():
     video_marks = ("video_in", "camera_on", "stream_in", "stream_out")
     e2ee = [r for r in rtp if r.get("e2ee")]
 
+    lay = lambda r, k: r.get("rects", {}).get("layout_" + k, 0)
     checks = {
         "cold run finished its script": cold.get("ok") is True,
         "warm run finished its script": warm.get("ok") is True,
@@ -205,6 +206,14 @@ def main():
             bool(gw(20)) and any(i.get("server_id") == "5001" for i in idents)
             and sum(1 for r in vbin if r.get("server") == "watch_stream" and r.get("alice_welcomed")) >= 2,
         "rtcp: client asked for keyframes with PLI": any(r.get("rtcp") == 206 and r.get("fmt") == 1 for r in reqs),
+        "layout: dragging the channel list edge widened it by ~60 and the chat column reflowed (both runs)":
+            all(lay(r, "side_dragged") - lay(r, "side_start") > 50 and lay(r, "chat_after_side") < lay(r, "chat_start") - 50 for r in (cold, warm)),
+        "layout: dragging the member list edge left widened it and the chat column reflowed again (both runs)":
+            all(lay(r, "members_dragged") - lay(r, "members_start") > 30 and lay(r, "chat_after_members") < lay(r, "chat_after_side") - 30 for r in (cold, warm)),
+        "layout: dragging the channel list far past its limit stops at 480 and leaves the chat column >= 400 (both runs)":
+            all(lay(r, "side_max") <= 480.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
+        "layout: warm run starts with the panel widths the cold run left":
+            abs(lay(warm, "side_start") - lay(cold, "side_end")) < 1 and abs(lay(warm, "members_start") - lay(cold, "members_dragged")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
     }
