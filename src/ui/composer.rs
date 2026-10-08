@@ -47,8 +47,17 @@ enum Item {
     Role(Id, String, u32),
     Everyone(&'static str),
     Channel(Id, String),
-    Emoji(String, String, Option<String>),
+    Emoji(Em),
     Command(usize),
+}
+
+struct Em {
+    name: String,
+    // what goes into the message: `<:name:id>`, or the glyph
+    raw: String,
+    url: Option<String>,
+    server: Option<String>,
+    locked: bool,
 }
 
 /// The word the cursor sits in, when it's one autocomplete cares about.
@@ -81,7 +90,7 @@ fn score(hay: &str, q: &str) -> Option<u8> {
 fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
     let q = q.to_lowercase();
     let store = &app.store;
-    let mut out: Vec<(u8, Item)> = Vec::new();
+    let mut out: Vec<(u16, Item)> = Vec::new();
     match kind {
         '@' => {
             let mut ids: Vec<Id> = if chan.guild == 0 {
@@ -95,7 +104,7 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                 let Some(user) = store.user(u) else { continue };
                 let name = store.name_in(chan.guild, u);
                 if let Some(s) = score(&name, &q).or_else(|| score(&user.username, &q)) {
-                    out.push((s, Item::User(u, name, user.username.clone())));
+                    out.push((s as u16, Item::User(u, name, user.username.clone())));
                 }
             }
             if chan.guild != 0 {
@@ -107,7 +116,7 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                 if let Some(g) = store.guilds.get(&chan.guild) {
                     for r in g.roles.values().filter(|r| r.id != g.id) {
                         if let Some(s) = score(&r.name, &q) {
-                            out.push((s + 2, Item::Role(r.id, r.name.clone(), r.color)));
+                            out.push(((s + 2) as u16, Item::Role(r.id, r.name.clone(), r.color)));
                         }
                     }
                 }
@@ -120,23 +129,30 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                         continue;
                     }
                     if let Some(s) = score(&c.name, &q) {
-                        out.push((s, Item::Channel(c.id, c.name.clone())));
+                        out.push((s as u16, Item::Channel(c.id, c.name.clone())));
                     }
                 }
             }
         }
         ':' => {
-            if let Some(g) = store.guilds.get(&chan.guild) {
-                for e in &g.emojis {
-                    if let Some(s) = score(&e.name, &q) {
-                        let raw = format!("<{}:{}:{}>", if e.animated { "a" } else { "" }, e.name, e.id);
-                        out.push((s, Item::Emoji(e.name.clone(), raw, Some(e.url()))));
-                    }
+            // current server first, then prefix hits anywhere, then substring hits; locked ones trail their group
+            let rank = |name: &str, home: bool, locked: bool, unicode: bool| {
+                let m = if name.eq_ignore_ascii_case(&q) { 0 } else { score(name, &q)? + 1 };
+                let tier = if home { 0 } else if m < 2 { 1 } else { 2 };
+                Some(tier * 100 + locked as u16 * 30 + m as u16 * 10 + unicode as u16)
+            };
+            for (g, e, ok) in store.emojis_for(chan.guild) {
+                if let Some(k) = rank(&e.name, g.id == chan.guild, !ok, false) {
+                    let raw = format!("<{}:{}:{}>", if e.animated { "a" } else { "" }, e.name, e.id);
+                    out.push((k, Item::Emoji(Em { name: e.name.clone(), raw, url: Some(e.url()), server: Some(g.name.clone()), locked: !ok })));
                 }
             }
+            let mut seen = std::collections::HashSet::new();
             for (glyph, name) in super::picker::common() {
-                if let Some(s) = score(name, &q) {
-                    out.push((s, Item::Emoji(name.to_string(), glyph.to_string(), None)));
+                if let Some(k) = rank(&name, false, false, true)
+                    && seen.insert(glyph)
+                {
+                    out.push((k, Item::Emoji(Em { name, raw: glyph.to_string(), url: None, server: None, locked: false })));
                 }
             }
         }
@@ -148,7 +164,7 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                         continue;
                     }
                     if let Some(s) = score(c["name"].as_str().unwrap_or(""), &q) {
-                        out.push((s, Item::Command(i)));
+                        out.push((s as u16, Item::Command(i)));
                     }
                 }
             }
@@ -265,6 +281,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut gif_rect = None;
     let mut remove = None;
     let mut new_cursor = None;
+    let mut colon_at = None;
+    let colon = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == ":")));
     let before = draft_now.len();
     let r = Frame::new()
         .fill(pal().bg_input)
@@ -311,7 +329,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         // the row is horizontal; padding above and below the text has to be vertical
                         ui.vertical(|ui| {
                             ui.add_space(11.0);
-                            text_pos = egui::TextEdit::multiline(draft)
+                            let out = egui::TextEdit::multiline(draft)
                                 .id(tid)
                                 .frame(Frame::NONE)
                                 .desired_rows(1)
@@ -321,8 +339,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .hint_text(RichText::new(&hint).color(pal().channel_default))
                                 .desired_width(w)
                                 .lock_focus(true)
-                                .show(ui)
-                                .galley_pos;
+                                .show(ui);
+                            text_pos = out.galley_pos;
+                            if colon {
+                                colon_at = out.cursor_range.map(|r| r.primary.index.0);
+                            }
                             ui.add_space(11.0);
                         });
                     });
@@ -372,6 +393,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     if let (Some(i), Some((start, _, _))) = (accept, &tok) {
         new_cursor = complete(app, chan, &items[i], *start, cursor);
+    }
+    if let Some(c) = colon_at {
+        new_cursor = new_cursor.or(close_colon(app, chan, c));
     }
     if let Some(c) = new_cursor {
         if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), tid) {
@@ -477,7 +501,9 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
                 ui.painter().text(pos2(hr.left() + 8.0, hr.center().y), Align2::LEFT_CENTER, title, bold(12.0), pal().header_secondary);
-                egui::ScrollArea::vertical().max_height(row_h * 10.0).show(ui, |ui| {
+                // the area only offers the space below the composer, so the list has to ask for its height
+                let list_h = row_h * items.len().min(10) as f32;
+                egui::ScrollArea::vertical().min_scrolled_height(list_h).max_height(list_h).show(ui, |ui| {
                     for (i, it) in items.iter().enumerate() {
                         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
                         if resp.hovered() && ui.input(|inp| inp.pointer.delta() != egui::Vec2::ZERO) {
@@ -487,6 +513,9 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
                             ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
                         }
                         row(app, ui, chan, it, r);
+                        if matches!(it, Item::Emoji(e) if e.locked) {
+                            resp.clone().on_hover_text("Get Nitro, or the role this emoji needs, to use it here");
+                        }
                         if resp.clicked() {
                             picked = Some(i);
                         }
@@ -534,13 +563,17 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
                 .unwrap_or_default();
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, cat, semi(12.0), pal().header_secondary);
         }
-        Item::Emoji(name, raw, url) => {
+        Item::Emoji(e) => {
             let er = Rect::from_center_size(pos2(x + 12.0, y), vec2(22.0, 22.0));
-            match url {
-                Some(u) => text::image(p, u, er),
-                None => text::image(p, &crate::markdown::twemoji(raw), er),
+            let fade = if e.locked { 0.4 } else { 1.0 };
+            match &e.url {
+                Some(u) => text::image_tint(p, u, er, Color32::WHITE.gamma_multiply(fade)),
+                None => text::image(p, &crate::markdown::twemoji(&e.raw), er),
             }
-            p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, format!(":{name}:"), semi(15.0), pal().header_primary);
+            p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, format!(":{}:", e.name), semi(15.0), pal().header_primary.gamma_multiply(fade));
+            if let Some(srv) = &e.server {
+                text::paint(p, pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, srv, semi(12.0), pal().header_secondary.gamma_multiply(fade), r.width() * 0.4);
+            }
         }
         Item::Command(i) => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
@@ -584,8 +617,9 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         Item::Role(id, name, _) => (format!("@{name}"), format!("<@&{id}>")),
         Item::Everyone(e) => (format!("@{e}"), format!("@{e}")),
         Item::Channel(id, name) => (format!("#{name}"), format!("<#{id}>")),
-        Item::Emoji(name, raw, Some(_)) => (format!(":{name}:"), raw.clone()),
-        Item::Emoji(_, glyph, None) => (glyph.clone(), glyph.clone()),
+        Item::Emoji(e) if e.locked => (format!(":{}:", e.name), String::new()),
+        Item::Emoji(e) if e.url.is_some() => (format!(":{}:", e.name), e.raw.clone()),
+        Item::Emoji(e) => (e.raw.clone(), e.raw.clone()),
         Item::Command(i) => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
             let name = app.commands.get(&scope).and_then(|c| c.list.get(*i)).and_then(|c| c["name"].as_str()).unwrap_or("").to_string();
@@ -600,6 +634,71 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
     let new_cursor = draft[..start + insert.len()].chars().count();
     app.ac_sel = 0;
     Some(new_cursor)
+}
+
+/// The `:name:` that ends `before`, as (byte offset of the opening colon, name).
+fn typed_name(before: &str) -> Option<(usize, &str)> {
+    let body = before.strip_suffix(':')?;
+    let start = body.rfind(':')?;
+    let name = &body[start + 1..];
+    let fine = name.len() >= 2 && name.chars().all(|c| c.is_ascii_alphanumeric() || "_+-".contains(c));
+    (fine && !body[..start].chars().last().is_some_and(char::is_alphanumeric)).then_some((start, name))
+}
+
+/// Typing the closing colon of a unicode name swaps in the glyph, like discord. Custom names
+/// stay as typed and turn into the emoji when the message goes out.
+fn close_colon(app: &mut App, chan: &Channel, cursor: usize) -> Option<usize> {
+    let draft = app.drafts.get(&chan.id)?;
+    let end = draft.char_indices().nth(cursor).map(|(b, _)| b).unwrap_or(draft.len());
+    let (start, name) = typed_name(&draft[..end])?;
+    if draft[..start].matches('`').count() % 2 == 1 {
+        return None;
+    }
+    let glyph = match app.emoji_named(chan.guild, name)? {
+        (_, true) => return None,
+        (glyph, false) => glyph,
+    };
+    let draft = app.drafts.get_mut(&chan.id)?;
+    draft.replace_range(start..end, &glyph);
+    Some(draft[..start + glyph.len()].chars().count())
+}
+
+/// Runs `f` over the stretches of `text` that aren't code, so nothing gets rewritten inside
+/// `inline` spans or fenced blocks.
+fn outside_code(text: &str, f: impl Fn(&str) -> String) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find('`') {
+        out.push_str(&f(&rest[..i]));
+        let n = rest[i..].chars().take_while(|c| *c == '`').count();
+        let after = &rest[i + n..];
+        // a span closes on the next run of the same length; with no closer the ticks are plain text
+        let mut at = 0;
+        let close = loop {
+            let Some(j) = after[at..].find('`') else { break None };
+            let run = after[at + j..].chars().take_while(|c| *c == '`').count();
+            if run == n {
+                break Some(at + j + n);
+            }
+            at += j + run;
+        };
+        let end = close.unwrap_or(0);
+        out.push_str(&rest[i..i + n + end]);
+        rest = &after[end..];
+    }
+    out.push_str(&f(rest));
+    out
+}
+
+/// Length of a ready-made `<:name:id>` / `<a:name:id>` at the start of `s`.
+fn custom_len(s: &str) -> Option<usize> {
+    let body = s.strip_prefix('<')?;
+    let end = body.find('>')?;
+    let inner = body[..end].strip_prefix('a').unwrap_or(&body[..end]);
+    let mut parts = inner.strip_prefix(':')?.split(':');
+    let (name, id) = (parts.next()?, parts.next()?);
+    let ok = parts.next().is_none() && !name.is_empty() && !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit());
+    ok.then_some(end + 2)
 }
 
 fn typing_line(app: &App, ui: &mut Ui, chan: &Channel) {
@@ -723,16 +822,52 @@ impl App {
     }
 
     pub fn resolve_aliases(&self, ch: Id, text: &str) -> String {
-        let mut out = text.to_string();
-        if let Some(list) = self.aliases.get(&ch) {
-            // longest first so "@ann" never eats half of "@anna"
-            let mut list = list.clone();
-            list.sort_by_key(|(s, _)| std::cmp::Reverse(s.len()));
-            for (shown, raw) in list {
-                out = out.replace(&shown, &raw);
-            }
+        let Some(list) = self.aliases.get(&ch) else { return text.to_string() };
+        // longest first so "@ann" never eats half of "@anna"
+        let mut list = list.clone();
+        list.sort_by_key(|(s, _)| std::cmp::Reverse(s.len()));
+        outside_code(text, |part| list.iter().fold(part.to_string(), |acc, (shown, raw)| acc.replace(shown, raw)))
+    }
+
+    /// What `:name:` turns into here: the custom emoji we may use (this server's first), else a
+    /// unicode glyph. The flag says which of the two it was.
+    pub fn emoji_named(&self, guild: Id, name: &str) -> Option<(String, bool)> {
+        let custom = self.store.emojis_for(guild).into_iter().find(|(_, e, ok)| *ok && e.name.eq_ignore_ascii_case(name));
+        if let Some((_, e, _)) = custom {
+            return Some((format!("<{}:{}:{}>", if e.animated { "a" } else { "" }, e.name, e.id), true));
         }
-        out
+        super::picker::unicode(name).map(|g| (g.to_string(), false))
+    }
+
+    /// Typed `:name:`s that name an emoji we may send become the real thing; anything else,
+    /// and anything in code, stays as typed.
+    pub fn convert_emoji(&self, guild: Id, text: &str) -> String {
+        outside_code(text, |part| {
+            let mut out = String::new();
+            let mut i = 0;
+            while i < part.len() {
+                let rest = &part[i..];
+                if let Some(n) = custom_len(rest) {
+                    out.push_str(&rest[..n]);
+                    i += n;
+                    continue;
+                }
+                let c = rest.chars().next().unwrap_or(':');
+                if c == ':'
+                    && let Some(end) = rest[1..].find(':').map(|e| i + e + 2)
+                    && let Some((start, name)) = typed_name(&part[..end])
+                    && start == i
+                    && let Some((raw, _)) = self.emoji_named(guild, name)
+                {
+                    out.push_str(&raw);
+                    i = end;
+                    continue;
+                }
+                out.push(c);
+                i += c.len_utf8();
+            }
+            out
+        })
     }
 }
 

@@ -341,6 +341,8 @@ impl App {
     pub fn send_message(&mut self, ch: Id) {
         let text = self.drafts.remove(&ch).unwrap_or_default();
         let mut text = self.resolve_aliases(ch, text.trim());
+        let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+        text = self.convert_emoji(guild, &text);
         if self.settings.emoticons {
             text = emoticons(&text);
         }

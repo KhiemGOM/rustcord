@@ -232,9 +232,24 @@ pub struct Emoji {
     pub id: Id,
     pub name: String,
     pub animated: bool,
+    #[serde(default)]
+    pub roles: Vec<Id>,
+    // `available: false` from the api: the server lost the boost slot for it
+    #[serde(default)]
+    pub unavailable: bool,
 }
 
 impl Emoji {
+    fn parse(v: &Value) -> Emoji {
+        Emoji {
+            id: sid(&v["id"]),
+            name: st(&v["name"]),
+            animated: v["animated"].as_bool().unwrap_or(false),
+            roles: ids(&v["roles"]),
+            unavailable: v["available"].as_bool() == Some(false),
+        }
+    }
+
     pub fn url(&self) -> String {
         format!(
             "{}",
@@ -682,6 +697,27 @@ impl Store {
         self.presence.get(&user).copied().unwrap_or_default()
     }
 
+    pub fn nitro(&self) -> bool {
+        self.me_raw["premium_type"].as_u64().unwrap_or(0) != 0
+    }
+
+    /// Every custom emoji we know, with the server it lives in and whether it can be sent from
+    /// `here`. The current server comes first, the rest follow in rail order.
+    pub fn emojis_for(&self, here: Id) -> Vec<(&Guild, &Emoji, bool)> {
+        let nitro = self.nitro();
+        let order = std::iter::once(here).chain(self.guild_order.iter().copied().filter(|g| *g != here));
+        let mut out = Vec::new();
+        for g in order.filter_map(|g| self.guilds.get(&g)) {
+            for e in &g.emojis {
+                let ok = !e.unavailable
+                    && (e.roles.is_empty() || e.roles.iter().any(|r| g.my_roles.contains(r)))
+                    && (nitro || (g.id == here && !e.animated));
+                out.push((g, e, ok));
+            }
+        }
+        out
+    }
+
     pub fn can_view(&self, c: &Channel) -> bool {
         self.perms(c) & VIEW_CHANNEL != 0
     }
@@ -857,14 +893,7 @@ impl Store {
             g.roles = roles.iter().map(parse_role).map(|r| (r.id, r)).collect();
         }
         if let Some(e) = v["emojis"].as_array() {
-            g.emojis = e
-                .iter()
-                .map(|e| Emoji {
-                    id: sid(&e["id"]),
-                    name: st(&e["name"]),
-                    animated: e["animated"].as_bool().unwrap_or(false),
-                })
-                .collect();
+            g.emojis = e.iter().map(Emoji::parse).collect();
         }
         for vs in v["voice_states"].as_array().into_iter().flatten() {
             g.voice.insert(sid(&vs["user_id"]), sid(&vs["channel_id"]));
@@ -1334,16 +1363,7 @@ impl Store {
             }
             "GUILD_EMOJIS_UPDATE" => {
                 if let Some(g) = self.guilds.get_mut(&sid(&d["guild_id"])) {
-                    g.emojis = d["emojis"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .map(|e| Emoji {
-                            id: sid(&e["id"]),
-                            name: st(&e["name"]),
-                            animated: e["animated"].as_bool().unwrap_or(false),
-                        })
-                        .collect();
+                    g.emojis = d["emojis"].as_array().into_iter().flatten().map(Emoji::parse).collect();
                 }
             }
             "GUILD_MEMBER_LIST_UPDATE" => self.member_list(d),
@@ -1444,6 +1464,9 @@ impl Store {
                 }
             }
             "USER_UPDATE" => {
+                if sid(&d["id"]) == self.me && d.get("premium_type").is_some() {
+                    self.me_raw["premium_type"] = d["premium_type"].clone();
+                }
                 self.upsert_user(d);
             }
             "USER_SETTINGS_PROTO_UPDATE" if d["settings"]["type"].as_u64() == Some(1) => {

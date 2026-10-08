@@ -1499,7 +1499,7 @@ impl Run {
             }
 341 => {
                 // the code message sits a few above the newest; older than the viewport after the earlier steps sent more
-                let Some(code) = rect(app, "codeblock") else {
+                if rect(app, "codeblock").is_none() {
                     if self.tries < 20 {
                         self.tries += 1;
                         self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
@@ -1512,7 +1512,7 @@ impl Run {
                         self.wait = Instant::now() + Duration::from_millis(250);
                     }
                     return;
-                };
+                }
                 // off the message, so the hover wash doesn't tint the probes
                 self.queue.push_back(vec![Event::PointerMoved(egui::pos2(30.0, 300.0))]);
                 self.next(500);
@@ -1979,8 +1979,76 @@ impl Run {
     }
 
     /// Custom emoji: `:` autocomplete across servers, typed :name: on send, nitro rules.
-    fn emoji_steps(&mut self, _app: &mut App, _ctx: &egui::Context) {
-        self.step = 99;
+    fn emoji_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::net::Tag;
+        let general = self.target.1;
+        let say = |me: &mut Self, parts: &[&str]| {
+            for p in parts {
+                me.queue.push_back(vec![Event::Text(p.to_string())]);
+            }
+            me.key(Key::Enter);
+            me.next(500);
+        };
+        match self.step {
+            370 => {
+                app.open(general);
+                self.next(700);
+            }
+            371 => {
+                // the mock account has no nitro yet: omgParty is animated, omgMods wants a role, omgBruh lives elsewhere
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text(":omg".into())]);
+                self.next(500);
+            }
+            372 => {
+                if app.ac_open {
+                    self.shot(ctx, "emoji_locked.png");
+                    self.key(Key::Tab);
+                    self.mark("emoji_locked_ac");
+                    say(self, &["locked"]);
+                }
+            }
+            373 => say(self, &[":ferris: static"]),
+            374 => say(self, &[":smile", ":", " hi"]),
+            375 => say(self, &[":nosuchemoji: `:ferris:` `:smile:`"]),
+            376 => say(self, &[":omgBruh: far"]),
+            377 => {
+                app.rest("POST", "/mock/premium".into(), Some(json!({ "type": 2 })), Tag::Quiet);
+                self.next(0);
+            }
+            378 => {
+                if !app.store.nitro() {
+                    return;
+                }
+                self.queue.push_back(vec![Event::Text(":omg".into())]);
+                self.next(500);
+            }
+            379 => {
+                if app.ac_open {
+                    self.shot(ctx, "emoji_nitro.png");
+                    self.key(Key::Tab);
+                    say(self, &["anim"]);
+                }
+            }
+            380 => {
+                self.queue.push_back(vec![Event::Text(":omgB".into())]);
+                self.next(500);
+            }
+            381 => {
+                if app.ac_open {
+                    self.key(Key::Tab);
+                    say(self, &["picked"]);
+                }
+            }
+            382 => say(self, &[":omgBruh: typed"]),
+            383 => say(self, &[":omgMods: :omgLapsed: no"]),
+            384 => {
+                self.mark("emoji");
+                self.next(800);
+            }
+            _ => self.step = 99,
+        }
     }
 
     /// Settings that follow the account: theme and friends, from user_settings_proto.

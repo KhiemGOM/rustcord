@@ -439,7 +439,11 @@ fn ready(last_general: u64) -> Value {
     ]);
     let g1 = json!({
         "id": "1000", "name": "Rust Lounge", "icon": "icon1000", "owner_id": "101", "member_count": 6,
-        "roles": roles, "emojis": [{ "id": "5000", "name": "ferris", "animated": false }, { "id": "5100", "name": "party", "animated": true }],
+        "roles": roles, "emojis": [
+            { "id": "5000", "name": "ferris", "animated": false }, { "id": "5100", "name": "party", "animated": true },
+            { "id": "5101", "name": "omgParty", "animated": true },
+            { "id": "5300", "name": "omgMods", "animated": false, "roles": ["1100"] },
+        ],
         "channels": [
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "📢・announcements", 1, Some(2000)),
@@ -456,6 +460,10 @@ fn ready(last_general: u64) -> Value {
     };
     let mut guilds = vec![g1, simple(1001, "Gamers United", None, &[(2100, "lobby"), (2101, "lfg")]),
                           simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])];
+    guilds[1]["emojis"] = json!([
+        { "id": "5200", "name": "omgBruh", "animated": false },
+        { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
+    ]);
     guilds.extend(side_guilds());
     let mut reads = vec![
         json!({ "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1 }),
@@ -465,7 +473,7 @@ fn ready(last_general: u64) -> Value {
     reads.extend(side_reads());
     json!({
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
-        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com" },
+        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0 },
         "users": [user(101), user(102), user(103), user(104), user(105), user(106)],
         "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
         "guilds": guilds,
@@ -636,6 +644,13 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let proto = settings_proto(b["theme"].as_u64().unwrap_or(1), b["compact_avatars"].as_bool().unwrap_or(false));
             let tx = w.lock().unwrap().events.clone();
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "premium"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let tx = w.lock().unwrap().events.clone();
+            let me = json!({ "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "premium_type": b["type"] });
+            let _ = tx.send(json!({ "t": "USER_UPDATE", "d": me }));
             ok(json!({}))
         }
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
