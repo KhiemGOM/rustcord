@@ -1120,11 +1120,13 @@ impl eframe::App for App {
         titlebar::show(self, ui);
         if self.token.is_none() {
             login::show(self, ui);
-        } else if self.settings_page.is_some() {
-            self.streamer_banner(ui);
-            settings::show(self, ui);
         } else {
             self.streamer_banner(ui);
+            // a modal over the app; shown first so it takes ESC before the chat does
+            let settings_open = self.settings_page.is_some();
+            if settings_open {
+                settings::show(self, ui);
+            }
             let w = ctx.content_rect().width();
             if (w - self.heights_w).abs() > 0.5 {
                 self.heights.clear();
@@ -1153,12 +1155,14 @@ impl eframe::App for App {
                 .frame(Frame::new().fill(pal().bg_primary))
                 .show(ui, |ui| chat::show(self, ui));
             self.overlays(ui);
-            self.ack_current(&ctx);
             self.update_title(&ctx);
-            if ctx.input_mut(|i| take_key(i, egui::Modifiers::COMMAND, egui::Key::K)) {
-                self.switcher = Some(String::new());
+            if !settings_open {
+                self.ack_current(&ctx);
+                if ctx.input_mut(|i| take_key(i, egui::Modifiers::COMMAND, egui::Key::K)) {
+                    self.switcher = Some(String::new());
+                }
+                self.shortcuts(&ctx);
             }
-            self.shortcuts(&ctx);
             if self.store.prune_typing() {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }

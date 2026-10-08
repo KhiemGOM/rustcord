@@ -307,16 +307,6 @@ pub fn input_frame() -> egui::Frame {
     egui::Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal))
 }
 
-/// A theme's palette without switching to it (settings swatches); `Sync` shows as ash.
-pub fn palette(t: Theme) -> &'static Palette {
-    &PALETTES[match t {
-        Theme::Light => 0,
-        Theme::Dark => 2,
-        Theme::Onyx => 3,
-        _ => 1,
-    }]
-}
-
 /// Switch the live palette. `Sync` follows the system's light/dark setting.
 pub fn set_theme(ctx: &egui::Context, t: Theme) {
     let idx = match t {

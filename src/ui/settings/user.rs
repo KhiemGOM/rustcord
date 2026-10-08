@@ -1,7 +1,7 @@
-use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::{card, danger, divider, h5, input, link, loading, note, open_web, primary, radio, refetch, remote, secondary, title, toggle};
+use super::{Look, action, card, h5, input, link, loading, note, open_web, primary, radio, refetch, remote, secondary, section, sub, toggle};
 use crate::net::Tag;
 use crate::state::{Id, sid};
 use crate::theme::*;
@@ -22,6 +22,11 @@ pub struct Forms {
     pub rec_keys: Vec<u32>,
     pub reveal_email: bool,
     pub reveal_phone: bool,
+    pub devices_open: bool,
+    pub session: u32,
+    pub visit: u32,
+    pub page: Option<super::Page>,
+    pub gift_code: String,
 }
 
 impl Forms {
@@ -77,133 +82,117 @@ fn masked(s: &str) -> String {
     }
 }
 
-fn field(ui: &mut Ui, label: &str, value: &str, reveal: Option<&mut bool>, edit: Option<&str>) -> bool {
+/// A settings row: the label on the left, the value and an Edit button on the right.
+fn info(ui: &mut Ui, label: &str, value: &str, reveal: Option<&mut bool>, edit: Option<&str>) -> bool {
+    super::lead(ui);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, medium(16.0), pal().header_primary);
+    let mut c = ui.new_child(UiBuilder::new().max_rect(r).layout(Layout::right_to_left(Align::Center)));
     let mut clicked = false;
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width() - 90.0);
-            ui.label(RichText::new(label).font(medium(14.0)).color(pal().header_secondary));
-            ui.horizontal(|ui| {
-                text::label(ui, value, reg(16.0), pal().header_primary, Sense::hover());
-                if let Some(r) = reveal {
-                    ui.add_space(4.0);
-                    if link(ui, if *r { "Hide" } else { "Reveal" }).clicked() {
-                        *r = !*r;
-                    }
-                }
-            });
-        });
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if let Some(e) = edit {
-                let r = secondary(ui, e);
-                super::mark(ui, &format!("edit:{label}"), r.rect);
-                clicked = r.clicked();
-            }
-        });
-    });
-    ui.add_space(16.0);
+    if let Some(e) = edit {
+        let b = secondary(&mut c, e);
+        super::mark(ui, &format!("edit:{label}"), b.rect);
+        clicked = b.clicked();
+        c.add_space(16.0);
+    }
+    if let Some(shown) = reveal {
+        let l = c.add(egui::Label::new(RichText::new(if *shown { "Hide" } else { "Reveal" }).font(medium(16.0)).color(super::REVEAL)).sense(Sense::click()));
+        if l.hovered() {
+            c.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if l.clicked() {
+            *shown = !*shown;
+        }
+        c.add_space(4.0);
+    }
+    text::label(&mut c, value, medium(16.0), pal().text_normal, Sense::hover());
+    super::end(ui, 32.0);
     clicked
 }
 
+/// A row that leads somewhere: the current value and a chevron.
+fn nav(ui: &mut Ui, label: &str, value: &str) -> bool {
+    super::lead(ui);
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, medium(16.0), pal().header_primary);
+    ui.painter().text(pos2(r.right() - 36.0, r.center().y), Align2::RIGHT_CENTER, value, medium(16.0), pal().text_normal);
+    crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 12.0, r.center().y), vec2(24.0, 24.0)), pal().header_primary);
+    super::mark(ui, &format!("nav:{label}"), r);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    super::end(ui, 32.0);
+    resp.clicked()
+}
+
 pub fn account(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "My Account");
     let me = app.store.user(app.store.me).cloned().unwrap_or_default();
     let raw = app.store.me_raw.clone();
-    let accent = raw["accent_color"].as_u64().map(|c| role_color(c as u32)).unwrap_or(BLURPLE);
     let hide = app.settings.hiding_personal();
     let mut edit = None;
-    let mut to_profile = false;
-    Frame::new().fill(pal().bg_tertiary).corner_radius(8).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        let (banner, _) = ui.allocate_exact_size(vec2(ui.available_width(), 100.0), Sense::hover());
-        ui.painter().rect_filled(banner, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, accent);
-        let av = Rect::from_min_size(pos2(banner.left() + 16.0, banner.bottom() - 28.0), vec2(80.0, 80.0));
-        ui.painter().circle_filled(av.center(), 46.0, pal().bg_tertiary);
-        avatar(ui, av, &me.avatar_url());
-        ui.horizontal(|ui| {
-            ui.add_space(112.0);
-            text::label(ui, me.display(), semi(20.0), pal().header_primary, Sense::hover());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_space(16.0);
-                to_profile = primary(ui, "Edit User Profile").clicked();
-            });
-        });
-        ui.add_space(12.0);
-        Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).outer_margin(16).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            if field(ui, "Display Name", me.global_name.as_deref().unwrap_or("You haven't set one yet."), None, Some("Edit")) {
-                edit = Some(Edit::DisplayName);
-            }
-            if field(ui, "Username", &me.username, None, Some("Edit")) {
-                edit = Some(Edit::Username);
-            }
-            let email = app.store.email.clone().unwrap_or_else(|| "You haven't added an email yet.".into());
-            let shown = if app.sform.reveal_email && !hide { email } else { masked(&email) };
-            let mut rev = app.sform.reveal_email;
-            if field(ui, "Email", &shown, (!hide).then_some(&mut rev), Some("Edit")) {
-                edit = Some(Edit::Email);
-            }
-            app.sform.reveal_email = rev;
-            let phone = raw["phone"].as_str().map(str::to_string);
-            let shown = match &phone {
-                Some(p) if app.sform.reveal_phone && !hide => p.clone(),
-                Some(p) => masked(p),
-                None => "You haven't added a phone number yet.".into(),
-            };
-            let mut rev = app.sform.reveal_phone;
-            if field(ui, "Phone Number", &shown, (phone.is_some() && !hide).then_some(&mut rev), Some(if phone.is_some() { "Edit" } else { "Add" })) {
-                // phone numbers need an sms code, which only discord's own flow can do
-                open_web("/settings/account");
-            }
-            app.sform.reveal_phone = rev;
-        });
-    });
-    divider(ui);
-    ui.label(RichText::new("Password and Authentication").font(semi(20.0)).color(pal().header_primary));
-    ui.add_space(8.0);
-    if primary(ui, "Change Password").clicked() {
+
+    section(ui, "Account Info");
+    if info(ui, "Display Name", me.global_name.as_deref().unwrap_or("Not set"), None, Some("Edit")) {
+        edit = Some(Edit::DisplayName);
+    }
+    if info(ui, "Username", &me.username, None, Some("Edit")) {
+        edit = Some(Edit::Username);
+    }
+    let email = app.store.email.clone().unwrap_or_else(|| "Not added".into());
+    let shown = if app.sform.reveal_email && !hide { email } else { masked(&email) };
+    let mut rev = app.sform.reveal_email;
+    if info(ui, "Email", &shown, (!hide).then_some(&mut rev), Some("Edit")) {
+        edit = Some(Edit::Email);
+    }
+    app.sform.reveal_email = rev;
+    let phone = raw["phone"].as_str().map(str::to_string);
+    let shown = match &phone {
+        Some(p) if app.sform.reveal_phone && !hide => p.clone(),
+        Some(p) => masked(p),
+        None => "Not added".into(),
+    };
+    let mut rev = app.sform.reveal_phone;
+    if info(ui, "Phone Number", &shown, (phone.is_some() && !hide).then_some(&mut rev), Some(if phone.is_some() { "Edit" } else { "Add" })) {
+        // phone numbers need an sms code, which only discord's own flow can do
+        open_web("/settings/account");
+    }
+    app.sform.reveal_phone = rev;
+
+    section(ui, "Password & Security");
+    if info(ui, "Password", "", None, Some("Edit")) {
         edit = Some(Edit::Password);
     }
-    ui.add_space(12.0);
-    let mfa = raw["mfa_enabled"].as_bool().unwrap_or(false);
-    h5(ui, "Authenticator App");
-    if mfa {
-        ui.label(RichText::new("Multi-Factor Authentication enabled").font(semi(16.0)).color(GREEN));
-        note(ui, "Your account is protected by an authenticator app.");
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            if secondary(ui, "View Backup Codes").clicked() {
-                open_web("/settings/account");
-            }
-            if danger(ui, "Remove Authenticator App", false).clicked() {
-                open_web("/settings/account");
-            }
-        });
-    } else {
-        note(ui, "Protect your Discord account with an extra layer of security. Once configured, you'll be required to enter your password and complete one additional step in order to sign in.");
-        ui.add_space(4.0);
-        if primary(ui, "Enable Authenticator App").clicked() {
-            open_web("/settings/account");
-        }
+    if nav(ui, "Multi-Factor Authentication", if raw["mfa_enabled"].as_bool().unwrap_or(false) { "Enabled" } else { "Disabled" }) {
+        open_web("/settings/account");
     }
-    divider(ui);
-    h5(ui, "Account Removal");
-    note(ui, "Disabling your account means you can recover it at any time after taking this action.");
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        if danger(ui, "Disable Account", true).clicked() {
-            edit = Some(Edit::Disable);
-        }
-        ui.add_space(8.0);
-        if danger(ui, "Delete Account", false).clicked() {
-            edit = Some(Edit::Delete);
-        }
-    });
+    let count = match remote(app, "sessions", "/auth/sessions") {
+        Some(Ok(v)) => format!("{} devices", v["user_sessions"].as_array().map_or(0, Vec::len)),
+        _ => String::new(),
+    };
+    if nav(ui, "Logged-in Devices", &count) {
+        app.sform.devices_open = !app.sform.devices_open;
+    }
+    if app.sform.devices_open {
+        devices(app, ui);
+    }
+
+    section(ui, "Account Status");
+    if action(ui, "Disable Account", "Disabling your account means you can recover it at any time after taking this action.", "Disable Account", Look::Filled) {
+        edit = Some(Edit::Disable);
+    }
+    if action(ui, "Delete Account", "Deleting your account removes it for good.", "Delete Account", Look::Danger) {
+        edit = Some(Edit::Delete);
+    }
+
+    section(ui, "Family Center");
+    note(ui, "Family Center lets parents and guardians see who their teen is talking to on Discord, without seeing the content of their messages. Connecting a family is done with a QR code from the Discord mobile app.");
+    if secondary(ui, "Learn More").clicked() {
+        let _ = open::that_detached("https://discord.com/safety-family-center");
+    }
+
+    super::activity::hypesquad(app, ui);
     if let Some(k) = edit {
         open_modal(app, k);
-    }
-    if to_profile {
-        app.settings_page = Some(super::Page::Profiles);
     }
     false
 }
@@ -376,7 +365,8 @@ fn profile_from(v: &Value, me: &crate::state::User) -> Profile {
 }
 
 pub fn profiles(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Profiles");
+    section(ui, "Profiles");
+    super::lead(ui);
     ui.horizontal(|ui| {
         for (i, t) in ["User Profile", "Per-server Profiles"].iter().enumerate() {
             let sel = app.sform.profile_tab == i as u8;
@@ -393,7 +383,7 @@ pub fn profiles(app: &mut App, ui: &mut Ui) -> bool {
             ui.add_space(24.0);
         }
     });
-    divider(ui);
+    ui.add_space(24.0);
     if app.sform.profile_tab == 1 {
         return server_profile(app, ui);
     }
@@ -409,6 +399,7 @@ pub fn profiles(app: &mut App, ui: &mut Ui) -> bool {
     }
     let Some(draft) = &mut app.sform.profile else { return false };
     let mut pick = false;
+    ui.spacing_mut().item_spacing.x = 24.0;
     ui.columns(2, |cols| {
         let ui = &mut cols[0];
         ui.spacing_mut().item_spacing.y = 6.0;
@@ -529,9 +520,11 @@ fn server_profile(app: &mut App, ui: &mut Ui) -> bool {
     let cur = app.sform.nick_guild;
     let shown = guilds.iter().find(|g| Some(g.0) == cur).map(|g| g.1.clone()).unwrap_or_default();
     let mut pick = cur;
-    egui::ComboBox::from_id_salt("nick_guild").width(320.0).selected_text(shown).show_ui(ui, |ui| {
+    super::dropdown(ui, 320.0, None, &shown, |ui| {
         for (g, n) in &guilds {
-            ui.selectable_value(&mut pick, Some(*g), n);
+            if ui.selectable_label(pick == Some(*g), n).clicked() {
+                pick = Some(*g);
+            }
         }
     });
     let me = app.store.me;
@@ -548,7 +541,7 @@ fn server_profile(app: &mut App, ui: &mut Ui) -> bool {
     false
 }
 
-pub fn save_bar(app: &mut App, ui: &mut Ui) {
+pub fn save_bar(app: &mut App, ui: &mut Ui, area: Rect) {
     if app.settings_page != Some(super::Page::Profiles) {
         return;
     }
@@ -557,7 +550,6 @@ pub fn save_bar(app: &mut App, ui: &mut Ui) {
     if !dirty_profile && !dirty_nick {
         return;
     }
-    let area = ui.max_rect();
     let r = Rect::from_center_size(pos2(area.center().x, area.bottom() - 40.0), vec2(area.width().min(700.0) - 40.0, 52.0));
     ui.painter().rect_filled(r, CornerRadius::same(5), pal().bg_floating);
     ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful — you have unsaved changes!", semi(16.0), pal().header_primary);
@@ -625,18 +617,19 @@ pub fn profile_saved(app: &mut App, key: &str, res: Result<Value, String>) {
 
 /// The classic JSON settings object. Its fields have names, so writing one can
 /// never land on the wrong setting; if discord ever retires it, writes just fail.
-fn legacy(app: &mut App, ui: &mut Ui) -> Option<Value> {
+pub(super) fn legacy(app: &mut App, ui: &mut Ui) -> Option<Value> {
     let v = remote(app, "legacy", "/users/@me/settings").cloned();
     match v {
         Some(Ok(v)) => Some(v),
         None => {
+            super::lead(ui);
             ui.add(egui::Spinner::new().color(pal().text_muted));
             None
         }
         Some(Err(_)) => {
             card(ui, |ui| {
-                note(ui, "Discord didn't hand these settings to Fastcord. You can still change them in the browser.");
-                ui.add_space(6.0);
+                ui.label(RichText::new("Discord didn't hand these settings to Fastcord. You can still change them in the browser.").font(reg(14.0)).color(pal().header_secondary));
+                ui.add_space(8.0);
                 if primary(ui, "Open on discord.com").clicked() {
                     open_web("/settings");
                 }
@@ -646,7 +639,7 @@ fn legacy(app: &mut App, ui: &mut Ui) -> Option<Value> {
     }
 }
 
-fn set_legacy(app: &mut App, patch: Value) {
+pub(super) fn set_legacy(app: &mut App, patch: Value) {
     if let Some(Some(Ok(cur))) = app.remote.get_mut("legacy")
         && let (Some(c), Some(p)) = (cur.as_object_mut(), patch.as_object())
     {
@@ -657,12 +650,15 @@ fn set_legacy(app: &mut App, patch: Value) {
     app.rest("PATCH", "/users/@me/settings".into(), Some(patch), Tag::Remote("action"));
 }
 
-pub fn content(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Content & Social");
+pub fn messaging(app: &mut App, ui: &mut Ui) -> bool {
+    section(ui, "Messaging Permissions");
     let Some(s) = legacy(app, ui) else { return false };
-    h5(ui, "Sensitive media");
+    let mut dms = !s["default_guilds_restricted"].as_bool().unwrap_or(false);
+    if toggle(ui, &mut dms, "Allow DMs from other members in servers you join", "This setting is applied when you join a new server. It does not apply retroactively to your existing servers.") {
+        set_legacy(app, json!({ "default_guilds_restricted": !dms }));
+    }
+    sub(ui, "Sensitive media");
     note(ui, "Automatically scan and delete direct messages you receive that contain explicit media content.");
-    ui.add_space(4.0);
     let mut filter = s["explicit_content_filter"].as_u64().unwrap_or(1);
     let opts = [
         (2u64, "Keep me safe", "Scan direct messages from everyone."),
@@ -672,13 +668,54 @@ pub fn content(app: &mut App, ui: &mut Ui) -> bool {
     if radio(ui, &mut filter, &opts) {
         set_legacy(app, json!({ "explicit_content_filter": filter }));
     }
-    divider(ui);
-    h5(ui, "Social permissions");
-    let mut dms = !s["default_guilds_restricted"].as_bool().unwrap_or(false);
-    if toggle(ui, &mut dms, "Allow DMs from other members in servers you join", "This setting is applied when you join a new server. It does not apply retroactively to your existing servers.") {
-        set_legacy(app, json!({ "default_guilds_restricted": !dms }));
+    false
+}
+
+pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
+    section(ui, "How Discord Uses My Data");
+    super::caption(
+        ui,
+        "Use data to make Discord work",
+        "Discord needs to store and process some data in order to provide you the basic Discord service, such as your messages, what servers you're in and your Direct Messages. By using Discord, you allow Discord to provide this basic service. You can stop this by disabling or deleting your account.",
+    );
+    super::end(ui, 28.0);
+    if let Some(c) = loading(ui, remote(app, "consent", "/users/@me/consent")) {
+        let mut usage = c["usage_statistics"]["consented"].as_bool().unwrap_or(false);
+        let mut pers = c["personalization"]["consented"].as_bool().unwrap_or(false);
+        let mut change = None;
+        if toggle(ui, &mut usage, "Use data to improve Discord", "Allow Discord to use and process my information to understand and improve Discord's services.") {
+            change = Some(("usage_statistics", usage));
+        }
+        if toggle(ui, &mut pers, "Use data to personalize my Discord experience", "Allows Discord to use information, such as who you talk to and what games you play, to personalize Discord for you.") {
+            change = Some(("personalization", pers));
+        }
+        if let Some((k, on)) = change {
+            if let Some(Some(Ok(cur))) = app.remote.get_mut("consent") {
+                cur[k]["consented"] = json!(on);
+            }
+            let body = if on { json!({ "grant": [k], "revoke": [] }) } else { json!({ "grant": [], "revoke": [k] }) };
+            app.rest("POST", "/users/@me/consent".into(), Some(body), Tag::Remote("action"));
+        }
     }
-    h5(ui, "Who can send you a friend request");
+    super::end(ui, 28.0);
+    if action(ui, "Request my data", "If you need a copy of your personal data from your account's entire history, you can get it here. It can take up to 30 days to arrive in your email.", "Request Data", Look::Secondary) {
+        app.rest("POST", "/users/@me/harvest".into(), Some(json!({})), Tag::Remote("action"));
+        app.toast("Data request sent. Discord will email you when it's ready.");
+    }
+    super::lead(ui);
+    ui.horizontal(|ui| {
+        if link(ui, "Privacy Policy").clicked() {
+            let _ = open::that_detached("https://discord.com/privacy");
+        }
+        ui.add_space(12.0);
+        if link(ui, "Terms of Service").clicked() {
+            let _ = open::that_detached("https://discord.com/terms");
+        }
+    });
+
+    section(ui, "Profile Privacy");
+    let Some(s) = legacy(app, ui) else { return false };
+    sub(ui, "Who can send you a friend request");
     let f = &s["friend_source_flags"];
     let mut all = f["all"].as_bool().unwrap_or(true);
     let mut fof = f["mutual_friends"].as_bool().unwrap_or(true) || all;
@@ -692,69 +729,9 @@ pub fn content(app: &mut App, ui: &mut Ui) -> bool {
     false
 }
 
-pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Data & Privacy");
-    h5(ui, "How we use your data");
-    if let Some(c) = loading(ui, remote(app, "consent", "/users/@me/consent")) {
-        let mut usage = c["usage_statistics"]["consented"].as_bool().unwrap_or(false);
-        let mut pers = c["personalization"]["consented"].as_bool().unwrap_or(false);
-        let mut change = None;
-        if toggle(ui, &mut usage, "Use data to improve Discord", "This setting allows us to use and process information about how you navigate and use Discord for analytical purposes.") {
-            change = Some(("usage_statistics", usage));
-        }
-        if toggle(ui, &mut pers, "Use data to personalize my Discord experience", "This setting allows us to use information, such as who you talk to and what games you play, to personalize Discord for you.") {
-            change = Some(("personalization", pers));
-        }
-        if let Some((k, on)) = change {
-            if let Some(Some(Ok(cur))) = app.remote.get_mut("consent") {
-                cur[k]["consented"] = json!(on);
-            }
-            let body = if on { json!({ "grant": [k], "revoke": [] }) } else { json!({ "grant": [], "revoke": [k] }) };
-            app.rest("POST", "/users/@me/consent".into(), Some(body), Tag::Remote("action"));
-        }
-    }
-    if let Some(s) = legacy(app, ui) {
-        let mut sr = s["allow_accessibility_detection"].as_bool().unwrap_or(false);
-        if toggle(ui, &mut sr, "Allow Discord to track screen reader usage", "Lets Discord know whether you use a screen reader, to improve accessibility features.") {
-            set_legacy(app, json!({ "allow_accessibility_detection": sr }));
-        }
-    }
-    h5(ui, "Request all of my data");
-    note(ui, "Get a copy of the information Discord holds about you. It can take up to 30 days to arrive in your email.");
-    ui.add_space(6.0);
-    if primary(ui, "Request Data").clicked() {
-        app.rest("POST", "/users/@me/harvest".into(), Some(json!({})), Tag::Remote("action"));
-        app.toast("Data request sent. Discord will email you when it's ready.");
-    }
-    divider(ui);
-    ui.horizontal(|ui| {
-        if link(ui, "Privacy Policy").clicked() {
-            let _ = open::that_detached("https://discord.com/privacy");
-        }
-        ui.add_space(12.0);
-        if link(ui, "Terms of Service").clicked() {
-            let _ = open::that_detached("https://discord.com/terms");
-        }
-    });
-    false
-}
-
-pub fn family(ui: &mut Ui) -> bool {
-    title(ui, "Family Center");
-    card(ui, |ui| {
-        ui.label(RichText::new("Stay connected with your teen").font(semi(16.0)).color(pal().header_primary));
-        note(ui, "Family Center lets parents and guardians see who their teen is talking to on Discord, without seeing the content of their messages. Connecting a family is done with a QR code from the Discord mobile app.");
-        ui.add_space(8.0);
-        if primary(ui, "Learn More").clicked() {
-            let _ = open::that_detached("https://discord.com/safety-family-center");
-        }
-    });
-    false
-}
-
 pub fn apps(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Authorized Apps");
-    let Some(v) = loading(ui, remote(app, "oauth", "/oauth2/tokens")) else { return false };
+    section(ui, "Connected Apps");
+    let Some(v) = loading(ui, remote(app, "oauth", "/oauth2/tokens")) else { return connections(app, ui) };
     let list = v.as_array().cloned().unwrap_or_default();
     if list.is_empty() {
         note(ui, "You have no authorized apps.");
@@ -771,10 +748,11 @@ pub fn apps(app: &mut App, ui: &mut Ui) -> bool {
                         ui.painter().circle_filled(r.center(), 20.0, BLURPLE);
                     }
                 }
+                ui.add_space(12.0);
                 ui.vertical(|ui| {
-                    text::label(ui, a["name"].as_str().unwrap_or("Unknown app"), semi(16.0), pal().header_primary, Sense::hover());
+                    text::label(ui, a["name"].as_str().unwrap_or("Unknown app"), medium(16.0), pal().header_primary, Sense::hover());
                     if let Some(d) = a["description"].as_str().filter(|d| !d.is_empty()) {
-                        note(ui, d);
+                        ui.label(RichText::new(d).font(reg(14.0)).color(pal().header_secondary));
                     }
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -783,19 +761,18 @@ pub fn apps(app: &mut App, ui: &mut Ui) -> bool {
                     }
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(12.0);
             ui.label(RichText::new("About This App").font(medium(14.0)).color(pal().header_secondary));
             for s in t["scopes"].as_array().into_iter().flatten() {
                 ui.label(RichText::new(format!("✓ {}", s.as_str().unwrap_or(""))).font(reg(14.0)).color(pal().text_normal));
             }
         });
-        ui.add_space(8.0);
     }
     if let Some(id) = revoke {
         app.rest("DELETE", format!("/oauth2/tokens/{id}"), None, Tag::Remote("action"));
         refetch(app, "oauth");
     }
-    false
+    connections(app, ui)
 }
 
 fn ago(iso: &str) -> String {
@@ -809,20 +786,17 @@ fn ago(iso: &str) -> String {
     }
 }
 
-pub fn devices(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Devices");
-    note(ui, "Here are all the devices that are currently logged in with your Discord account. You can log out of each one individually or all other devices.");
-    note(ui, "If you see an entry you don't recognize, log out of that device and change your Discord account password immediately.");
-    ui.add_space(8.0);
-    let Some(v) = loading(ui, remote(app, "sessions", "/auth/sessions")) else { return false };
+/// The logged-in devices, unfolded under their row in Password & Security.
+fn devices(app: &mut App, ui: &mut Ui) {
+    let Some(v) = loading(ui, remote(app, "sessions", "/auth/sessions")) else { return };
     let list = v["user_sessions"].as_array().cloned().unwrap_or_default();
-    h5(ui, "Other devices");
     let mut out: Vec<String> = Vec::new();
     for s in &list {
         let ci = &s["client_info"];
+        super::lead(ui);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::hover());
         let icon_r = Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(40.0, 40.0));
-        ui.painter().circle_filled(icon_r.center(), 20.0, pal().bg_secondary);
+        ui.painter().circle_filled(icon_r.center(), 20.0, faint_fill());
         crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Gear, icon_r.shrink(10.0), pal().header_secondary);
         let os = ci["os"].as_str().unwrap_or("Unknown");
         let client = ci["platform"].as_str().or(ci["client"].as_str()).unwrap_or("");
@@ -836,40 +810,34 @@ pub fn devices(app: &mut App, ui: &mut Ui) -> bool {
         if resp.on_hover_text("Log out").clicked() {
             out.push(s["id_hash"].as_str().unwrap_or("").to_string());
         }
-        ui.painter().hline(r.x_range(), r.bottom(), Stroke::new(1.0, pal().bg_mod_hover));
+        super::end(ui, 8.0);
     }
     if list.is_empty() {
         note(ui, "No other devices are logged in.");
     }
-    divider(ui);
-    h5(ui, "Log out of all known devices");
-    note(ui, "You'll have to log back in on all logged out devices.");
-    ui.add_space(6.0);
-    if danger(ui, "Log Out All Known Devices", true).clicked() {
+    super::end(ui, 24.0);
+    if action(ui, "Log out of all known devices", "You'll have to log back in on all logged out devices.", "Log Out All Known Devices", Look::Filled) {
         out = list.iter().filter_map(|s| s["id_hash"].as_str().map(str::to_string)).collect();
     }
     if !out.is_empty() {
         app.rest("POST", "/auth/sessions/logout".into(), Some(json!({ "session_id_hashes": out })), Tag::Remote("action"));
         refetch(app, "sessions");
     }
-    false
 }
 
-pub fn connections(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Connections");
+fn faint_fill() -> Color32 {
+    Color32::from_rgba_unmultiplied(151, 151, 159, 31)
+}
+
+fn connections(app: &mut App, ui: &mut Ui) -> bool {
+    section(ui, "Connections");
     if app.settings.hiding_personal() {
         note(ui, "Hidden while Streamer Mode is on.");
         return false;
     }
-    card(ui, |ui| {
-        ui.label(RichText::new("Add Accounts to Your Profile").font(medium(14.0)).color(pal().header_secondary));
-        note(ui, "Connecting accounts happens in your browser, since each service has its own sign in.");
-        ui.add_space(6.0);
-        if primary(ui, "Add a Connection").clicked() {
-            open_web("/settings/connections");
-        }
-    });
-    ui.add_space(12.0);
+    if action(ui, "Add Accounts to Your Profile", "Connecting accounts happens in your browser, since each service has its own sign in.", "Add a Connection", Look::Primary) {
+        open_web("/settings/connections");
+    }
     let Some(v) = loading(ui, remote(app, "connections", "/users/@me/connections")) else { return false };
     let list = v.as_array().cloned().unwrap_or_default();
     let mut patch: Option<(String, Value)> = None;
@@ -884,7 +852,7 @@ pub fn connections(app: &mut App, ui: &mut Ui) -> bool {
                     f.make_ascii_uppercase();
                 }
                 ui.vertical(|ui| {
-                    text::label(ui, c["name"].as_str().unwrap_or(""), semi(16.0), pal().header_primary, Sense::hover());
+                    text::label(ui, c["name"].as_str().unwrap_or(""), medium(16.0), pal().header_primary, Sense::hover());
                     ui.label(RichText::new(kind_name).font(reg(12.0)).color(pal().header_secondary));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -894,7 +862,7 @@ pub fn connections(app: &mut App, ui: &mut Ui) -> bool {
                     }
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(16.0);
             let mut vis = c["visibility"].as_u64() == Some(1);
             if toggle(ui, &mut vis, "Display on profile", "") {
                 patch = Some((format!("{kind}/{id}"), json!({ "visibility": vis as u8 })));
@@ -904,7 +872,6 @@ pub fn connections(app: &mut App, ui: &mut Ui) -> bool {
                 patch = Some((format!("{kind}/{id}"), json!({ "show_activity": act })));
             }
         });
-        ui.add_space(8.0);
     }
     if let Some((p, body)) = patch {
         app.rest("PATCH", format!("/users/@me/connections/{p}"), Some(body), Tag::Remote("action"));
@@ -918,7 +885,7 @@ pub fn connections(app: &mut App, ui: &mut Ui) -> bool {
 }
 
 pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Nitro");
+    section(ui, "Nitro");
     let tier = match app.store.me_raw["premium_type"].as_u64().unwrap_or(0) {
         1 => Some("Nitro Classic"),
         2 => Some("Nitro"),
@@ -937,11 +904,19 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
                 ui.label(RichText::new("Bigger uploads, HD streaming, custom emoji anywhere and more.").font(reg(16.0)).color(Color32::WHITE));
             }
         }
-        ui.add_space(8.0);
+        ui.add_space(12.0);
         if crate::ui::button(ui, if tier.is_some() { "Manage" } else { "Subscribe" }, Color32::WHITE.gamma_multiply(0.25), 120.0).clicked() {
             open_web("/settings/premium");
         }
     });
+    false
+}
+
+pub fn boost(ui: &mut Ui) -> bool {
+    section(ui, "Server Boost");
+    if action(ui, "Boost your servers", "Server Boosts unlock perks like better audio, more emoji slots and larger uploads for everyone in a server. Boosts are managed on discord.com.", "Open", Look::Primary) {
+        open_web("/settings/premium-guild-subscriptions");
+    }
     false
 }
 
@@ -954,21 +929,20 @@ fn read_only_list(app: &mut App, ui: &mut Ui, key: &'static str, path: &str, emp
     for x in &list {
         let (a, b) = row(x);
         card(ui, |ui| {
-            ui.label(RichText::new(a).font(semi(16.0)).color(pal().header_primary));
+            ui.label(RichText::new(a).font(medium(16.0)).color(pal().header_primary));
             if !b.is_empty() {
-                note(ui, &b);
+                ui.label(RichText::new(b).font(reg(14.0)).color(pal().header_secondary));
             }
         });
-        ui.add_space(8.0);
     }
-    ui.add_space(8.0);
+    super::lead(ui);
     if link(ui, "Manage on discord.com").clicked() {
         open_web("/settings/billing");
     }
 }
 
 pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Subscriptions");
+    section(ui, "Subscriptions");
     read_only_list(app, ui, "subs", "/users/@me/billing/subscriptions", "You don't have any subscriptions.", |s| {
         let ends = s["current_period_end"].as_str().unwrap_or("").get(..10).unwrap_or("").to_string();
         let status = match s["status"].as_u64() {
@@ -983,7 +957,30 @@ pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
 }
 
 pub fn gifts(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Gift Inventory");
+    section(ui, "Redeem Codes");
+    super::caption(ui, "Received a code for Nitro or a game?", "That's exciting! Enter it below.");
+    super::lead(ui);
+    let mut code = std::mem::take(&mut app.sform.gift_code);
+    let mut redeem = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        let w = ui.available_width() - 110.0;
+        ui.allocate_ui(vec2(w, 40.0), |ui| input(ui, &mut code, "WUMP-AAAAA-BBBBB-CCCCC", false));
+        redeem = primary(ui, "Redeem").clicked();
+    });
+    if redeem && !code.trim().is_empty() {
+        app.rest("POST", format!("/entitlements/gift-codes/{}/redeem", code.trim()), Some(json!({})), Tag::Remote("action"));
+        refetch(app, "gifts");
+        code.clear();
+    }
+    app.sform.gift_code = code;
+
+    section(ui, "The Gifting Badge");
+    if action(ui, "Gift Nitro, earn a badge", "The more gifts you send, the higher your Gifting badge climbs.", "Send a Gift", Look::Primary) {
+        open_web("/settings/premium");
+    }
+
+    section(ui, "Gifts I Purchased");
     read_only_list(app, ui, "gifts", "/users/@me/entitlements/gifts", "You don't have any gifts. Gifts you buy for others show up here.", |g| {
         (g["sku"]["name"].as_str().unwrap_or("Gift").to_string(), String::new())
     });
@@ -991,8 +988,7 @@ pub fn gifts(app: &mut App, ui: &mut Ui) -> bool {
 }
 
 pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
-    title(ui, "Billing");
-    h5(ui, "Payment methods");
+    section(ui, "Payment Methods");
     read_only_list(app, ui, "sources", "/users/@me/billing/payment-sources", "You don't have any payment methods saved.", |p| {
         let brand = p["brand"].as_str().unwrap_or(if p["type"].as_u64() == Some(2) { "PayPal" } else { "Card" });
         let last4 = p["last_4"].as_str().map(|l| format!(" ending in {l}")).unwrap_or_default();
@@ -1002,8 +998,7 @@ pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
         };
         (format!("{brand}{last4}"), exp)
     });
-    divider(ui);
-    h5(ui, "Transaction history");
+    section(ui, "Transaction History");
     read_only_list(app, ui, "payments", "/users/@me/billing/payments?limit=20", "No transactions yet.", |p| {
         let amount = p["amount"].as_u64().unwrap_or(0) as f64 / 100.0;
         let cur = p["currency"].as_str().unwrap_or("usd").to_uppercase();
