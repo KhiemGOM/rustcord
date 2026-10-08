@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+import look
+
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
 def free_port():
@@ -49,6 +51,7 @@ def run_client(name, data_dir, extra=None):
         "FASTCORD_API": f"http://127.0.0.1:{HTTP}/api/v9",
         "FASTCORD_CDN": f"http://127.0.0.1:{HTTP}/cdn",
         "FASTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
+        "FASTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
         "FASTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
         "FASTCORD_TOKEN": "mock-token",
         "FASTCORD_DATA": str(data_dir),
@@ -207,6 +210,7 @@ def main():
         "rtcp: client asked for keyframes with PLI": any(r.get("rtcp") == 206 and r.get("fmt") == 1 for r in reqs),
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
+        **look.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

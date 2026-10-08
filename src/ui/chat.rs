@@ -93,8 +93,9 @@ fn stamp(ts: i64) -> String {
     let Some(d) = Local.timestamp_millis_opt(ts).single() else { return String::new() };
     let now = Local::now();
     let time = d.format(markdown::hm());
+    // discord's headers drop "Today at" and show just the time
     if d.date_naive() == now.date_naive() {
-        format!("Today at {time}")
+        time.to_string()
     } else if d.date_naive().succ_opt() == Some(now.date_naive()) {
         format!("Yesterday at {time}")
     } else {
@@ -125,14 +126,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .exact_size(420.0)
             .resizable(false)
             .show_separator_line(false)
-            .frame(Frame::new().fill(pal().bg_secondary))
+            .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::popups::search_panel(app, ui));
     } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() {
         egui::Panel::right("members")
             .exact_size(240.0)
             .resizable(false)
             .show_separator_line(false)
-            .frame(Frame::new().fill(pal().bg_secondary))
+            .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::members::show(app, ui, chan.guild));
     }
     if chan.is_forum() {
@@ -154,10 +155,10 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .exact_size(48.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().inner_margin(Margin::symmetric(16, 0)))
+        .frame(Frame::new().fill(pal().bg_secondary).inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().bg_tertiary));
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().border_muted));
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
                 let glyph = |ui: &mut Ui, icon: Icon| {
@@ -595,6 +596,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     cui.spacing_mut().item_spacing = vec2(4.0, 0.0);
 
     let me = d.store.me;
+    // last frame's row decides whether the pointer is over this message yet
+    let row_id = egui::Id::new(("row", m.id));
+    let hot = ui.data(|s| s.get_temp::<Rect>(row_id)).is_some_and(|r| ui.rect_contains_pointer(r));
     let mut head_top = top + 2.0;
     if !normal(m.kind) {
         system_line(&mut cui, d, m);
@@ -604,22 +608,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             head_top = cui.cursor().top();
         }
         let name = d.store.name_in(d.guild, m.author);
-        let role = d.store.role_color(d.guild, m.author).map(role_color);
-        let (color, dot) = match d.s.role_colors {
-            crate::cache::RoleColors::InNames => (role.unwrap_or(pal().header_primary), None),
-            crate::cache::RoleColors::NextToNames => (pal().header_primary, role),
-            crate::cache::RoleColors::Hidden => (pal().header_primary, None),
-        };
+        let (ink, dot) = name_ink(d, m.author);
+        let color = ink.stops[0];
         if start && !compact {
-            let bot = d.store.user(m.author).is_some_and(|u| u.bot);
-            let full = Local
-                .timestamp_millis_opt(m.ts())
-                .single()
-                .map(|t| format!("{} {}", t.format("%A, %B %-d, %Y"), t.format(markdown::hm())))
-                .unwrap_or_default();
-            if let Some(at) = author_line(&mut cui, &name, color, dot, bot, &stamp(m.ts()), &full, font) {
-                d.acts.push(Act::Profile(m.author, at));
-            }
+            author_line(&mut cui, d, m, &name, &ink, dot, font, hot);
         }
         let editing = d.editing.as_ref().is_some_and(|(id, _)| *id == m.id);
         if editing {
@@ -718,6 +710,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     let bottom = cui.min_rect().bottom().max(top + 22.0) + 2.0;
     let row = Rect::from_min_max(pos2(left, top), pos2(left + w, bottom));
     ui.advance_cursor_after_rect(row);
+    ui.data_mut(|s| s.insert_temp(row_id, row));
     if ui.clip_rect().contains_rect(row) && normal(m.kind) && !m.pending {
         d.rects.push(("msg:last".into(), row));
     }
@@ -747,11 +740,14 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     if compact && normal(m.kind) {
         // compact mode keeps the time in the gutter on every line
         let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format(markdown::hm()).to_string()).unwrap_or_default();
-        ui.painter().text(pos2(left + 64.0, head_top + font * 0.69), Align2::RIGHT_CENTER, t, reg((11.0 * font / 16.0).max(10.0)), pal().text_muted);
+        ui.painter().text(pos2(left + 64.0, head_top + font * 0.69), Align2::RIGHT_CENTER, t, medium((11.0 * font / 16.0).max(10.0)), pal().text_muted);
     } else if start && normal(m.kind) {
         if let Some(u) = d.store.user(m.author) {
-            let ar = Rect::from_min_size(pos2(left + 16.0, head_top), vec2(40.0, 40.0));
+            let ar = Rect::from_min_size(pos2(left + 16.0, head_top + 2.0), vec2(40.0, 40.0));
             avatar(ui, ar, &u.avatar_url());
+            if ui.clip_rect().contains_rect(ar) {
+                d.rects.push((format!("avatar:{}", m.author), ar));
+            }
             let r = ui.interact(ar, egui::Id::new(("avatar", m.id)), Sense::click());
             if r.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -762,7 +758,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
     } else if hovered && normal(m.kind) {
         let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format(markdown::hm()).to_string()).unwrap_or_default();
-        ui.painter().text(pos2(left + 64.0, top + 13.0), Align2::RIGHT_CENTER, t, reg(11.0), pal().text_muted);
+        ui.painter().text(pos2(left + 56.0, top + 13.0), Align2::RIGHT_CENTER, t, medium(11.0), pal().text_muted);
     }
 
     if hovered && !m.pending && !m.failed {
@@ -779,48 +775,160 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     }
 }
 
-/// Name, optional APP tag and timestamp on one 22px line. The timestamp shares the
+/// What a name is painted with. A role gradient tiles every 100px and drifts while
+/// the message is hovered, glowing as it goes; a nitro display style stretches its
+/// colours over the whole name.
+struct Ink {
+    stops: Vec<Color32>,
+    tile: bool,
+    glow: bool,
+}
+
+impl Ink {
+    fn flat(c: Color32) -> Self {
+        Ink { stops: vec![c], tile: false, glow: false }
+    }
+
+    fn at(&self, w: f32, phase: f32) -> impl Fn(f32) -> Color32 + '_ {
+        move |x| {
+            let t = if self.tile { (x - phase).rem_euclid(100.0) / 100.0 } else { (x / w - 0.1) / 0.8 };
+            ramp(&self.stops, t)
+        }
+    }
+
+    fn layout(&self, ctx: &egui::Context, name: &str, font: egui::FontId, max_w: f32, hot: bool) -> text::Rich {
+        if self.stops.len() < 2 {
+            return text::layout(ctx, name, font, self.stops[0], max_w);
+        }
+        let rich = text::layout(ctx, name, font, Color32::WHITE, max_w);
+        let phase = if hot && self.tile { ctx.input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
+        if phase > 0.0 {
+            ctx.request_repaint();
+        }
+        let w = rich.size().x.max(1.0);
+        rich.tint(self.at(w, phase))
+    }
+
+    fn paint(&self, p: &egui::Painter, rich: &text::Rich, pos: Pos2, hot: bool) {
+        if self.glow || (self.tile && hot) {
+            // css blurs a copy of the name by 4px; a few faint rings of it look about the same
+            let phase = if hot && self.tile { p.ctx().input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
+            let w = rich.size().x.max(1.0);
+            let at = self.at(w, phase);
+            for (r, a) in [(1.5, 0.03), (3.0, 0.025), (4.5, 0.018), (6.0, 0.012)] {
+                let tinted = rich.clone().tint(|x| at(x).gamma_multiply(a));
+                for k in 0..12 {
+                    let ang = k as f32 * std::f32::consts::TAU / 12.0;
+                    p.galley(pos + vec2(ang.cos(), ang.sin()) * r, tinted.galley.clone(), Color32::WHITE);
+                }
+            }
+        }
+        rich.paint(p, pos);
+    }
+}
+
+/// The ink for an author's name, and the role colour for the dot some people prefer.
+fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
+    use crate::cache::RoleColors::*;
+    if let Some((fx, cols)) = d.store.user(who).and_then(|u| u.style.clone()) {
+        let min = if matches!(fx, 2 | 6 | 7) { 2.5 } else { 3.0 };
+        let stops: Vec<Color32> = cols.iter().map(|c| contrast(role_color(*c), pal().bg_secondary_alt, min)).collect();
+        // gradient, glow and prism spread their colours; the other effects sit flat on the first
+        return match fx {
+            2 | 6 | 7 => (Ink { stops, tile: false, glow: fx == 6 }, None),
+            _ => (Ink::flat(stops[0]), None),
+        };
+    }
+    let role = d.store.role_look(d.guild, who);
+    let solid = role.map(|r| role_color(r.color));
+    match d.s.role_colors {
+        InNames => match role {
+            Some(r) if r.grad.len() >= 2 => {
+                // the light theme darkens gradient names to 85% brightness
+                let k = if pal().dark { 1.0 } else { 0.85 };
+                let dim = |c: u32| {
+                    let c = role_color(c);
+                    Color32::from_rgb((c.r() as f32 * k) as u8, (c.g() as f32 * k) as u8, (c.b() as f32 * k) as u8)
+                };
+                let mut stops: Vec<Color32> = r.grad.iter().map(|c| dim(*c)).collect();
+                stops.push(stops[0]);
+                (Ink { stops, tile: true, glow: false }, None)
+            }
+            _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), None),
+        },
+        NextToNames => (Ink::flat(pal().header_primary), solid),
+        Hidden => (Ink::flat(pal().header_primary), None),
+    }
+}
+
+/// Name, role icon, optional APP tag and timestamp on one 22px line. The timestamp shares the
 /// name's baseline rather than its centre, which is what makes discord's header read right.
-/// Returns where to open the profile popout when the name was clicked.
 #[allow(clippy::too_many_arguments)]
-fn author_line(ui: &mut Ui, name: &str, color: Color32, dot: Option<Color32>, bot: bool, when: &str, full: &str, font: f32) -> Option<Pos2> {
+fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: Option<Color32>, font: f32, hot: bool) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), (font * 1.375).round()), Sense::hover());
-    let n = text::layout(ui.ctx(), name, semi(font), color, row.width() - 160.0);
+    let n = ink.layout(ui.ctx(), name, medium(font), row.width() - 160.0, hot);
     let ny = row.center().y - n.size().y / 2.0;
     let name_rect = Rect::from_min_size(pos2(row.left(), ny), n.size());
     let resp = ui.interact(name_rect, ui.id().with(("author", name)), Sense::click());
-    n.paint(ui.painter(), name_rect.min);
+    ink.paint(ui.painter(), &n, name_rect.min, hot);
     if resp.hovered() {
-        ui.painter().hline(name_rect.x_range(), name_rect.bottom() - 2.0, Stroke::new(1.0, color));
+        ui.painter().hline(name_rect.x_range(), name_rect.bottom() - 2.0, Stroke::new(1.0, ink.stops[0]));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
+    let vis = ui.clip_rect().contains_rect(row);
+    if vis {
+        d.rects.push((format!("name:{}", m.author), name_rect));
+    }
+    let base = ny + n.baseline();
+    // headerText's 4px margin; the icon (which has none after it) and the timestamp bring their own
     let mut x = name_rect.right() + 4.0;
     if let Some(c) = dot {
         ui.painter().circle_filled(pos2(x + 5.0, row.center().y), 5.0, c);
         x += 14.0;
     }
-    // ascent is ~81% of a segoe ui row, use it to put both baselines on the same y
-    let base = ny + n.size().y * 0.81;
-    if bot {
+    if let Some(r) = d.store.role_icon(d.guild, m.author) {
+        let url = match &r.icon {
+            Some(h) => format!("{}/role-icons/{}/{h}.png?size=40", crate::api::cdn(), r.id),
+            None => markdown::twemoji(r.emoji.as_deref().unwrap_or_default()),
+        };
+        let ir = Rect::from_min_size(pos2(x, row.top() + 1.0), vec2(20.0, 20.0));
+        text::image(ui.painter(), &url, ir);
+        ui.interact(ir, ui.id().with(("role_icon", m.id)), Sense::hover()).on_hover_text(&r.name);
+        if vis {
+            d.rects.push((format!("role_icon:{}", m.author), ir));
+        }
+        x = ir.right();
+    }
+    if d.store.user(m.author).is_some_and(|u| u.bot) {
         let g = ui.painter().layout_no_wrap("APP".into(), semi(10.0), Color32::WHITE);
         let r = Rect::from_min_size(pos2(x, base - 12.5), vec2(g.size().x + 8.0, 15.0));
         ui.painter().rect_filled(r, CornerRadius::same(3), BLURPLE);
         ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
         x = r.right() + 4.0;
     }
-    let t = ui.painter().layout_no_wrap(when.to_string(), reg(12.0 * font / 16.0), pal().text_muted);
-    let ty = base - t.size().y * 0.81;
-    let tr = Rect::from_min_size(pos2(x + 2.0, ty), t.size());
-    ui.painter().galley(tr.min, t, pal().text_muted);
-    ui.interact(tr, ui.id().with(("stamp", name, when)), Sense::hover()).on_hover_text(full);
-    resp.clicked().then(|| name_rect.right_top() + vec2(8.0, 0.0))
+    let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
+    let ty = base - text::baseline(&t);
+    let tr = Rect::from_min_size(pos2(x + 4.0, ty), t.size());
+    ui.painter().galley(tr.min, t, pal().chat_muted);
+    let full = Local
+        .timestamp_millis_opt(m.ts())
+        .single()
+        .map(|t| format!("{} {}", t.format("%A, %B %-d, %Y"), t.format(markdown::hm())))
+        .unwrap_or_default();
+    ui.interact(tr, ui.id().with(("stamp", name, m.id)), Sense::hover()).on_hover_text(full);
+    if vis {
+        d.rects.push((format!("stamp:{}", m.author), tr));
+    }
+    if resp.clicked() {
+        d.acts.push(Act::Profile(m.author, name_rect.right_top() + vec2(8.0, 0.0)));
+    }
 }
 
 // compact mode: "Name  message text" on one line, the name clickable like everywhere else
 fn compact_prefix(d: &D, m: &Message, blocks: &mut [Block], name: &str, color: Color32, font: f32) {
     let Some(Block::Text(t)) = blocks.first_mut() else { return };
     let fmt = egui::text::TextFormat {
-        font_id: semi(font),
+        font_id: medium(font),
         color,
         line_height: Some((font * 1.375).round()),
         valign: Align::Center,
@@ -840,7 +948,7 @@ fn compact_prefix(d: &D, m: &Message, blocks: &mut [Block], name: &str, color: C
 }
 
 fn compact_name_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, color: Color32, font: f32) {
-    let r = text::label(ui, name, semi(font), color, Sense::click());
+    let r = text::label(ui, name, medium(font), color, Sense::click());
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -867,13 +975,13 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message) {
     icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(left - 36.0, y), vec2(16.0, 16.0)), col);
     ui.horizontal_wrapped(|ui| {
         text::label(ui, &text, reg(16.0), pal().header_secondary, Sense::hover());
-        ui.add(Label::new(RichText::new(stamp(m.ts())).font(reg(12.0)).color(pal().text_muted)).selectable(false));
+        ui.add(Label::new(RichText::new(stamp(m.ts())).font(medium(12.0)).color(pal().chat_muted)).selectable(false));
     });
 }
 
 fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
-    let spine = Stroke::new(2.0, pal().bg_accent);
+    let spine = Stroke::new(2.0, pal().spine);
     let x = row_left + 36.0;
     let y = r.center().y;
     let p = ui.painter();
@@ -896,9 +1004,11 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         cx += 20.0;
     }
     let name = format!("@{}", d.store.name_in(d.guild, rm.author));
-    let color = d.store.role_color(d.guild, rm.author).map(role_color).unwrap_or(pal().header_primary);
-    let nr = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &name, semi(14.0), color, 200.0);
-    cx = nr.right() + 6.0;
+    let (ink, _) = name_ink(d, rm.author);
+    let rich = ink.layout(ui.ctx(), &name, medium(14.0), 200.0, false);
+    let nr = Align2::LEFT_CENTER.anchor_size(pos2(cx, y), rich.size());
+    ink.paint(p, &rich, nr.min, false);
+    cx = nr.right() + 4.0;
     let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
@@ -1506,8 +1616,8 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     let color = store.role_color(guild, m.author).map(role_color).unwrap_or(pal().header_primary);
-                    ui.label(RichText::new(store.name_in(guild, m.author)).font(semi(16.0)).color(color));
-                    ui.label(RichText::new(stamp(m.ts())).font(reg(12.0)).color(pal().text_muted));
+                    ui.label(RichText::new(store.name_in(guild, m.author)).font(medium(16.0)).color(color));
+                    ui.label(RichText::new(stamp(m.ts())).font(medium(12.0)).color(pal().chat_muted));
                 });
                 let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: pal().text_normal, revealed: false, edited: m.edited };
                 let blocks = markdown::parse(&m.content, &cx);

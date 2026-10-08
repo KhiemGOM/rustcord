@@ -2,6 +2,7 @@
 
 mod api;
 mod cache;
+mod fonts;
 mod gateway;
 mod gif;
 mod hotkeys;
