@@ -1,7 +1,11 @@
-//! Just enough protobuf to pull guild folders out of the READY settings blob
-//! (PreloadedUserSettings, field 14 = GuildFolders).
+//! Just enough protobuf to pull guild folders and the settings Fastcord has a
+//! twin for out of the READY settings blob (PreloadedUserSettings: 6 = text and
+//! images, 12 = localization, 13 = appearance, 14 = guild folders). Field numbers
+//! are from dolfies/discord-protos.
 
+use crate::cache::{Settings, Spoilers};
 use crate::state::{Folder, Id};
+use crate::theme::Theme;
 
 enum Val<'a> {
     Int(u64),
@@ -102,4 +106,133 @@ pub fn guild_folders(settings: &[u8]) -> Vec<Folder> {
         }
     }
     out
+}
+
+macro_rules! account {
+    ($($f:ident: $t:ty),* $(,)?) => {
+        /// What the account says for the settings we mirror; None = not in the blob.
+        #[derive(Default, Clone, PartialEq)]
+        pub struct Account {
+            $(pub $f: Option<$t>),*
+        }
+
+        impl Account {
+            pub fn merge(&mut self, o: Account) {
+                $(self.$f = o.$f.or(self.$f.take());)*
+            }
+
+            /// Only the values that differ from what we saw last time.
+            pub fn changed(&self, old: Option<&Account>) -> Account {
+                Account { $($f: self.$f.clone().filter(|n| old.is_none_or(|o| o.$f.as_ref() != Some(n)))),* }
+            }
+
+            pub fn apply(&self, s: &mut Settings) {
+                $(if let Some(v) = &self.$f {
+                    s.$f = v.clone();
+                })*
+            }
+        }
+    };
+}
+
+account! {
+    theme: Theme,
+    dev: bool,
+    clock24: bool,
+    compact: bool,
+    compact_avatars: bool,
+    inline_links: bool,
+    inline_uploads: bool,
+    embeds: bool,
+    reactions: bool,
+    emoticons: bool,
+    animate_emoji: bool,
+    gif_autoplay: bool,
+    spoilers: Spoilers,
+    locale: String,
+}
+
+fn flag(w: &[u8]) -> bool {
+    matches!(wrapped(w), Some(Val::Int(v)) if v != 0)
+}
+
+fn text(w: &[u8]) -> Option<String> {
+    match wrapped(w) {
+        Some(Val::Bytes(s)) => Some(String::from_utf8_lossy(s).into_owned()),
+        _ => None,
+    }
+}
+
+/// `full` = the blob is a whole snapshot, so a missing developer_mode (a plain
+/// bool, never written when false) means off rather than "not mentioned".
+pub fn account(settings: &[u8], full: bool) -> Account {
+    let mut a = Account::default();
+    for (n, v) in fields(settings) {
+        let Val::Bytes(b) = v else { continue };
+        match n {
+            6 => {
+                for (n, v) in fields(b) {
+                    let Val::Bytes(w) = v else { continue };
+                    match n {
+                        4 => {
+                            a.spoilers = match text(w).as_deref() {
+                                Some("ALWAYS") => Some(Spoilers::Always),
+                                Some("ON_CLICK") => Some(Spoilers::OnClick),
+                                Some("IF_MODERATOR") => Some(Spoilers::Moderated),
+                                _ => None,
+                            }
+                        }
+                        9 => a.inline_uploads = Some(flag(w)),
+                        10 => a.inline_links = Some(flag(w)),
+                        11 => a.gif_autoplay = Some(flag(w)),
+                        12 => a.embeds = Some(flag(w)),
+                        13 => a.reactions = Some(flag(w)),
+                        14 => a.animate_emoji = Some(flag(w)),
+                        17 => a.compact = Some(flag(w)),
+                        21 => a.emoticons = Some(flag(w)),
+                        41 => a.compact_avatars = Some(flag(w)),
+                        _ => {}
+                    }
+                }
+            }
+            12 => {
+                for (n, v) in fields(b) {
+                    if let (1, Val::Bytes(w)) = (n, v) {
+                        a.locale = text(w).filter(|l| !l.is_empty());
+                    }
+                }
+            }
+            13 => {
+                if full {
+                    a.dev = Some(false);
+                }
+                for (n, v) in fields(b) {
+                    let Val::Int(i) = v else { continue };
+                    match n {
+                        // 1 dark, 2 light, 3 darker, 4 midnight; the 2025 names are Ash, Light, Dark, Onyx
+                        1 => {
+                            a.theme = match i {
+                                1 => Some(Theme::Ash),
+                                2 => Some(Theme::Light),
+                                3 => Some(Theme::Dark),
+                                4 => Some(Theme::Onyx),
+                                _ => None,
+                            }
+                        }
+                        2 => a.dev = Some(i != 0),
+                        9 => {
+                            a.clock24 = match i {
+                                1 => Some(false),
+                                2 => Some(true),
+                                _ => None,
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    a
 }

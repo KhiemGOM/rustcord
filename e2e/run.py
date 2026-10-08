@@ -266,6 +266,14 @@ def main():
             abs(lay(warm, "side_start") - lay(cold, "side_end")) < 1 and abs(lay(warm, "members_start") - lay(cold, "members_dragged")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
+        **{f"account sync: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("READY's proto set the account's compact avatars at login", "sync_login"),
+                              ("USER_SETTINGS_PROTO_UPDATE switched the theme to Onyx live", "sync_live_theme"),
+                              ("an unchanged account value left the local edit alone", "sync_local_kept"),
+                              ("a local theme pick survived the account repeating its value", "sync_override_kept"),
+                              ("a second update switched back to Ash", "sync_back")]},
+        "account sync: Onyx update painted the rail #000000 (both runs)": all(
+            r.get("rects", {}).get("look:sync_onyx:rail") == "#000000" for r in (cold, warm)),
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
