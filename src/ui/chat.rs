@@ -28,6 +28,7 @@ enum Act {
     SaveEdit(Id, String),
     CancelEdit,
     Profile(Id, Pos2),
+    UserMenu(Id, Pos2),
     Jump(Id),
     Component(Id, String, Option<Vec<String>>),
     View(String, String, u32, u32),
@@ -213,8 +214,12 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         app.rects.insert("header:icon".into(), r);
                     }
                 }
-                text::label(ui, &title, semi(16.0), pal().header_primary, Sense::hover());
                 let tools = if chan.guild != 0 { 420.0 } else { 300.0 };
+                // a narrow window elides the name rather than running it under the buttons
+                let w = (ui.available_width() - tools).max(24.0);
+                ui.allocate_ui_with_layout(vec2(w, 24.0), Layout::left_to_right(Align::Center), |ui| {
+                    text::label(ui, &title, semi(16.0), pal().header_primary, Sense::hover());
+                });
                 if let Some(topic) = &chan.topic {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
                     ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
@@ -243,7 +248,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                     let r = ui.add(
                                         egui::TextEdit::singleline(&mut q)
                                             .frame(Frame::NONE)
-                                            .font(reg(16.0))
+                                            .font(medium(14.0))
                                             .hint_text(RichText::new(hint).color(pal().text_muted))
                                             .desired_width(sw - 42.0),
                                     );
@@ -257,6 +262,10 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     app.rects.insert("search".into(), r.rect);
                     if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
                         app.start_search(chan.id, q.trim().to_string());
+                    }
+                    if let Some(past) = super::popups::search_options(app, ui.ctx(), &r, &mut q) {
+                        app.start_search(chan.id, past.clone());
+                        q = past;
                     }
                     ui.data_mut(|d| d.insert_temp(qid, q));
                     ui.add_space(8.0);
@@ -283,6 +292,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     if chan.guild != 0 && matches!(chan.kind, 0 | 5) {
                         let t = icon_button(ui, Icon::Thread, 32.0, "Threads");
+                        app.rects.insert("threads_button".into(), t.rect);
                         super::popups::threads_menu(app, &t, chan.id);
                     }
                     if chan.guild == 0 {
@@ -295,25 +305,34 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
 /// The header's notification bell: Discord's menu to mute the channel or pick its level.
 fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
-    let muted = app.store.is_muted(chan);
-    let b = icon_button(ui, if muted { Icon::BellOff } else { Icon::Bell }, 32.0, "Notification Settings");
+    use super::{Trail, menu_item, menu_row, menu_sep};
+    let muted = app.store.muted.contains(&chan.id);
+    let b = icon_button(ui, if app.store.is_muted(chan) { Icon::BellOff } else { Icon::Bell }, 32.0, "Notification Settings");
+    app.rects.insert("bell".into(), b.rect);
     let level = app.store.levels.get(&chan.id).copied();
+    let inherited = app.store.inherited_level(chan);
     let mut pick: Option<Option<u8>> = None;
     let mut mute = None;
-    egui::Popup::menu(&b).show(|ui| {
-        ui.set_min_width(220.0);
-        if ui.button(if muted { "Unmute Channel" } else { "Mute Channel" }).clicked() {
-            mute = Some(!muted);
-        }
-        ui.separator();
-        for (label, v) in [("Use Category Default", None), ("All Messages", Some(0)), ("Only @mentions", Some(1)), ("Nothing", Some(2))] {
-            if ui.radio(level == v, label).clicked() {
-                pick = Some(v);
+    egui::Popup::menu(&b).gap(4.0).show(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if muted {
+            if menu_item(ui, None, "Unmute Channel", false) {
+                mute = Some((false, None));
             }
+        } else {
+            let m = menu_row(ui, None, "Mute Channel", None, false, Trail::Caret);
+            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+                if let Some(secs) = super::mute_menu(ui) {
+                    mute = Some((true, secs));
+                }
+            });
         }
+        menu_sep(ui);
+        let default = if chan.parent != 0 && !chan.is_thread() { "Use Category Default" } else { "Use Server Default" };
+        pick = super::level_menu(ui, level, inherited, default);
     });
-    if let Some(m) = mute {
-        app.set_muted(chan.id, false, m);
+    if let Some((m, secs)) = mute {
+        app.mute_for(chan.id, false, m, secs);
     }
     if let Some(v) = pick {
         app.set_level(chan.id, v);
@@ -517,6 +536,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.focus_composer = true;
             }
             Act::Profile(u, at) => app.open_profile(u, chan.guild, at),
+            Act::UserMenu(u, at) => app.user_menu = Some((u, chan.guild, None, at)),
             Act::Jump(id) => app.jump_to(ch, id),
             Act::Component(id, custom_id, values) => app.press(ch, id, &custom_id, values),
             Act::View(img, open, w, h) => app.viewer = Some((img, open, w, h)),
@@ -826,6 +846,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             if r.clicked() {
                 d.acts.push(Act::Profile(m.author, ar.right_top() + vec2(8.0, 0.0)));
             }
+            if r.secondary_clicked() {
+                d.acts.push(Act::UserMenu(m.author, r.interact_pointer_pos().unwrap_or(ar.center())));
+            }
         }
     } else if hovered && normal(m.kind) {
         let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format(markdown::hm()).to_string()).unwrap_or_default();
@@ -839,6 +862,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
         action_bar(d, m, row);
         if ui.input(|i| i.pointer.secondary_clicked())
+            && !d.acts.iter().any(|a| matches!(a, Act::UserMenu(..)))
             && let Some(p) = ui.ctx().pointer_interact_pos()
         {
             d.acts.push(Act::Menu(m.id, p));
@@ -994,6 +1018,9 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     if resp.clicked() {
         d.acts.push(Act::Profile(m.author, name_rect.right_top() + vec2(8.0, 0.0)));
     }
+    if resp.secondary_clicked() {
+        d.acts.push(Act::UserMenu(m.author, resp.interact_pointer_pos().unwrap_or(name_rect.center())));
+    }
 }
 
 // compact mode: "Name  message text" on one line, the name clickable like everywhere else
@@ -1026,6 +1053,9 @@ fn compact_name_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, color: Col
     }
     if r.clicked() {
         d.acts.push(Act::Profile(m.author, r.rect.right_top() + vec2(8.0, 0.0)));
+    }
+    if r.secondary_clicked() {
+        d.acts.push(Act::UserMenu(m.author, r.interact_pointer_pos().unwrap_or(r.rect.center())));
     }
 }
 
@@ -1191,18 +1221,16 @@ fn fit(w: u32, h: u32, max_w: f32, max_h: f32, avail: f32) -> (f32, f32) {
 fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: Option<&str>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     resp.context_menu(|ui| {
-        ui.set_min_width(180.0);
-        if ui.button("Copy Link").clicked() {
-            ui.ctx().copy_text(full.to_string());
-            ui.close();
-        }
-        if ui.button("Open Link").clicked() {
-            d.acts.push(Act::Url(full.to_string()));
-            ui.close();
-        }
-        if ui.button("Save Image").clicked() {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if super::menu_item(ui, None, "Save Image", false) {
             d.acts.push(Act::Save(full.to_string()));
-            ui.close();
+        }
+        super::menu_sep(ui);
+        if super::menu_item(ui, None, "Copy Link", false) {
+            ui.ctx().copy_text(full.to_string());
+        }
+        if super::menu_item(ui, None, "Open Link", false) {
+            d.acts.push(Act::Url(full.to_string()));
         }
     });
     ui.painter().rect_filled(rect, CornerRadius::same(8), pal().bg_secondary);
@@ -1625,61 +1653,95 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     };
     let own = m.author == app.store.me;
     let content = m.content.clone();
-    let author = m.author;
     let pinned = m.pinned;
     let dev = app.settings.dev;
+    let mut frequent: Vec<ReactEmoji> = app.ui.quick.clone();
+    for n in ["✅", "❤️", "🔥", "😂", "👍", "😭", "💀", "👀", "🙏", "😊"] {
+        if !frequent.iter().any(|q| q.id == 0 && q.name == n) {
+            frequent.push(ReactEmoji { id: 0, name: n.to_string(), animated: false });
+        }
+    }
+    frequent.truncate(10);
+    let quick = frequent[..4].to_vec();
+    let chan = app.store.channels.get(&ch);
+    // pinning and deleting other people's messages take manage messages, except in dms
+    let manage = chan.is_some_and(|c| c.guild == 0 || app.store.perms(c) & crate::state::MANAGE_MESSAGES != 0);
     let mut pick = None;
-    let area = egui::Area::new(egui::Id::new("msg_menu"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(at)
-        .constrain(true)
-        .show(ctx, |ui| {
-            Frame::new().fill(pal().bg_floating).corner_radius(4).inner_margin(6).show(ui, |ui| {
-                ui.set_width(188.0);
-                ui.spacing_mut().item_spacing.y = 2.0;
-                let item = |ui: &mut Ui, label: &str, danger: bool| {
-                    let (r, resp) = ui.allocate_exact_size(vec2(188.0, 32.0), Sense::click());
-                    let hot = resp.hovered();
-                    if hot {
-                        ui.painter().rect_filled(r, CornerRadius::same(2), if danger { RED } else { BLURPLE });
-                    }
-                    let col = if hot { Color32::WHITE } else if danger { RED } else { pal().text_normal };
-                    ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, label, reg(14.0), col);
-                    resp.clicked()
-                };
-                if item(ui, "Add Reaction", false) {
-                    pick = Some(0);
+    let mut react = None;
+    // discord's message menu: one-click reactions on top, then its groups
+    let open = super::float_menu(ctx, &format!("msg_menu{id}"), at, |ui| {
+        use super::{Trail, menu_item, menu_row, menu_sep};
+        ui.set_min_width(204.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for e in &quick {
+                let (r, resp) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::click());
+                ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
+                let er = Rect::from_center_size(r.center(), vec2(24.0, 24.0));
+                Image::from_uri(gif::uri(ui.ctx(), &emoji_url(e), true)).show_loading_spinner(false).paint_at(ui, er);
+                if resp.clicked() {
+                    react = Some(e.clone());
                 }
-                if own && item(ui, "Edit Message", false) {
-                    pick = Some(1);
-                }
-                if item(ui, "Reply", false) {
-                    pick = Some(2);
-                }
-                if item(ui, if pinned { "Unpin Message" } else { "Pin Message" }, false) {
-                    pick = Some(6);
-                }
-                if item(ui, "Mark Unread", false) {
-                    pick = Some(7);
-                }
-                if item(ui, "Copy Text", false) {
-                    pick = Some(3);
-                }
-                if item(ui, "Copy Message Link", false) {
-                    pick = Some(8);
-                }
-                if dev && item(ui, "Copy Message ID", false) {
-                    pick = Some(4);
-                }
-                if dev && item(ui, "Copy User ID", false) {
-                    pick = Some(9);
-                }
-                if own && item(ui, "Delete Message", true) {
-                    pick = Some(5);
-                }
-            });
+            }
         });
-    let clicked_out = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() && pick.is_none();
+        menu_sep(ui);
+        let add = menu_row(ui, Some(Icon::AddReaction), "Add Reaction", None, false, Trail::Caret);
+        if add.clicked() {
+            pick = Some(0);
+        }
+        egui::containers::menu::SubMenu::new().show(ui, &add, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for e in &frequent {
+                let name = if e.id != 0 { e.name.clone() } else { emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name).to_string() };
+                let url = gif::uri(ui.ctx(), &emoji_url(e), true);
+                if menu_row(ui, None, &format!(":{name}:"), None, false, Trail::Image(url)).clicked() {
+                    react = Some(e.clone());
+                }
+            }
+            menu_sep(ui);
+            if menu_item(ui, None, "View More", false) {
+                pick = Some(0);
+            }
+        });
+        menu_sep(ui);
+        if own && menu_item(ui, Some(Icon::Pencil), "Edit Message", false) {
+            pick = Some(1);
+        }
+        if menu_item(ui, Some(Icon::Reply), "Reply", false) {
+            pick = Some(2);
+        }
+        menu_sep(ui);
+        if menu_item(ui, Some(Icon::Copy), "Copy Text", false) {
+            pick = Some(3);
+        }
+        if manage && menu_item(ui, Some(Icon::Pin), if pinned { "Unpin Message" } else { "Pin Message" }, false) {
+            pick = Some(6);
+        }
+        if menu_item(ui, Some(Icon::MarkUnread), "Mark Unread", false) {
+            pick = Some(7);
+        }
+        if menu_item(ui, Some(Icon::Link), "Copy Message Link", false) {
+            pick = Some(8);
+        }
+        menu_sep(ui);
+        if (own || manage) && menu_item(ui, Some(Icon::Trash), "Delete Message", true) {
+            pick = Some(5);
+        }
+        if !own && menu_item(ui, Some(Icon::Flag), "Report Message", true) {
+            pick = Some(10);
+        }
+        if dev {
+            menu_sep(ui);
+            if menu_item(ui, Some(Icon::Id), "Copy Message ID", false) {
+                pick = Some(4);
+            }
+        }
+    });
+    if let Some(e) = react {
+        app.react(ch, id, e, true);
+        app.menu = None;
+        return;
+    }
     match pick {
         Some(0) => app.picker = Some((Pick::React(ch, id), at)),
         Some(1) => app.editing = Some((id, content)),
@@ -1703,10 +1765,15 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
             let g = g.map(|g| g.to_string()).unwrap_or_else(|| "@me".into());
             ctx.copy_text(format!("https://discord.com/channels/{g}/{ch}/{id}"));
         }
-        Some(9) => ctx.copy_text(author.to_string()),
+        // reporting has no flow of its own here; discord's web client handles it
+        Some(10) => {
+            let g = app.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0);
+            let g = g.map(|g| g.to_string()).unwrap_or_else(|| "@me".into());
+            ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{g}/{ch}/{id}")));
+        }
         _ => {}
     }
-    if pick.is_some() || clicked_out || ctx.input(|i| i.key_pressed(Key::Escape)) {
+    if pick.is_some() || !open {
         app.menu = None;
     }
 }

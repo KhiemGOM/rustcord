@@ -15,7 +15,7 @@ pub const HEIGHT: f32 = 32.0;
 const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 31);
 const CLOSE: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 
-const INBOX_W: f32 = 440.0;
+const INBOX_W: f32 = 597.0;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Loc {
@@ -301,14 +301,15 @@ fn keys(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+/// Discord's inbox tabs each take a quarter of the width, the open one underlined in brand.
 fn tab(ui: &mut Ui, app: &mut App, name: &str, label: &str, on: bool) -> bool {
-    let col = if on { pal().header_primary } else { pal().header_secondary };
-    let galley = ui.painter().layout_no_wrap(label.into(), semi(14.0), col);
-    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 20.0, 28.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(INBOX_W / 4.0, 40.0), Sense::click());
+    let col = if on { BLURPLE } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let galley = ui.painter().layout_no_wrap(label.into(), medium(14.0), col);
     app.rects.insert(format!("inbox:{name}"), rect);
-    if on || resp.hovered() {
-        let fill = if on { pal().bg_mod_selected } else { pal().bg_mod_hover };
-        ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
+    if on {
+        let w = galley.size().x + 32.0;
+        ui.painter().rect_filled(Rect::from_center_size(pos2(rect.center().x, rect.bottom() - 1.0), vec2(w, 2.0)), CornerRadius::same(1), BLURPLE);
     }
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, col);
     if resp.hovered() {
@@ -332,30 +333,31 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
-            Frame::new().fill(pal().bg_secondary).corner_radius(8).show(ui, |ui| {
+            let shadow = ui.style().visuals.popup_shadow;
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(INBOX_W);
-                Frame::new()
-                    .fill(pal().bg_tertiary)
-                    .corner_radius(egui::CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
-                    .inner_margin(Margin::symmetric(16, 10))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-                            icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
-                            ui.label(RichText::new("Inbox").font(semi(16.0)).color(pal().header_primary));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if tab(ui, app, "mentions", "Mentions", !unreads) {
-                                    switch = Some(false);
-                                }
-                                if tab(ui, app, "unreads", "Unreads", unreads) {
-                                    switch = Some(true);
-                                }
-                            });
-                        });
+                ui.spacing_mut().item_spacing.y = 0.0;
+                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 4 }).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                        icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
+                        ui.label(RichText::new("Inbox").font(semi(20.0)).color(pal().header_primary));
                     });
+                });
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    if tab(ui, app, "unreads", "Unreads", unreads) {
+                        switch = Some(true);
+                    }
+                    if tab(ui, app, "mentions", "Mentions", !unreads) {
+                        switch = Some(false);
+                    }
+                });
+                let r = ui.min_rect();
+                ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, pal().border_subtle));
                 let mut list = |ui: &mut Ui| {
-                    Frame::new().inner_margin(12).show(ui, |ui| {
+                    Frame::new().inner_margin(16).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         if unreads {
                             open_ch = unread_list(ui, app);
@@ -409,7 +411,7 @@ fn body_height(app: &App) -> f32 {
     match &i.mentions {
         None => 90.0,
         Some(l) if l.is_empty() => 100.0,
-        Some(l) => l.iter().map(|m| 24.0 + 98.0 + 20.0 * (m.content.lines().count().max(1) - 1 + m.content.len() / 60) as f32 + 24.0 * m.attachments.len() as f32).sum(),
+        Some(l) => l.iter().map(|m| 58.0 + 98.0 + 20.0 * (m.content.lines().count().max(1) - 1 + m.content.len() / 60) as f32 + 24.0 * m.attachments.len() as f32).sum(),
     }
 }
 
@@ -434,29 +436,36 @@ fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
     let mut jump = None;
     for m in list {
         let c = s.channels.get(&m.channel);
-        ui.horizontal(|ui| {
-            let g = c.map(|c| c.guild).unwrap_or(0);
-            if g != 0 {
-                let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                guild_mark(ui, s, g, r);
-            }
-            let name = match c {
-                Some(c) if c.guild != 0 => format!("# {}", c.name),
-                Some(c) => super::channel_title(s, c.id),
-                None => "Unknown channel".into(),
-            };
-            ui.label(RichText::new(name).font(semi(14.0)).color(pal().header_primary));
-            if let Some(g) = s.guilds.get(&g) {
-                ui.label(RichText::new(format!("· {}", g.name)).font(reg(12.0)).color(pal().text_muted));
+        Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(12).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                let g = c.map(|c| c.guild).unwrap_or(0);
+                if g != 0 {
+                    let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                    guild_mark(ui, s, g, r);
+                }
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let name = match c {
+                        Some(c) if c.guild != 0 => format!("# {}", c.name),
+                        Some(c) => super::channel_title(s, c.id),
+                        None => "Unknown channel".into(),
+                    };
+                    ui.label(RichText::new(name).font(semi(16.0)).color(pal().header_primary));
+                    if let Some(g) = s.guilds.get(&g) {
+                        ui.label(RichText::new(&g.name).font(reg(12.0)).color(pal().header_secondary));
+                    }
+                });
+            });
+            ui.add_space(8.0);
+            let r = chat::preview(ui, s, m);
+            app.rects.insert(format!("inbox:mention:{}", m.id), r.rect);
+            if r.clicked() {
+                jump = Some((m.channel, m.id));
             }
         });
-        ui.add_space(4.0);
-        let r = chat::preview(ui, s, m);
-        app.rects.insert(format!("inbox:mention:{}", m.id), r.rect);
-        if r.clicked() {
-            jump = Some((m.channel, m.id));
-        }
-        ui.add_space(12.0);
+        ui.add_space(16.0);
     }
     jump
 }

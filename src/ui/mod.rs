@@ -64,7 +64,11 @@ pub struct App {
     // the sticker picker, anchored where it opened
     pub stickers: Option<Pos2>,
     pub menu: Option<(Id, Id, Pos2)>,
+    // a person's right-click menu: user, server, the dm it came from, where
+    pub user_menu: Option<(Id, Id, Option<Id>, Pos2)>,
     pub confirm_delete: Option<(Id, Id)>,
+    pub confirm: Option<Confirm>,
+    pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
     pub marker: Option<(Id, Id)>,
@@ -163,6 +167,9 @@ impl App {
             stickers: None,
             menu: None,
             confirm_delete: None,
+            confirm: None,
+            user_menu: None,
+            guild_notifs: None,
             bar: None,
             toast: None,
             marker: None,
@@ -405,17 +412,26 @@ impl App {
     }
 
     pub fn set_muted(&mut self, id: Id, guild: bool, muted: bool) {
+        self.mute_for(id, guild, muted, None);
+    }
+
+    /// Muting with discord's mute_config: a window in seconds, or None for until turned back on.
+    pub fn mute_for(&mut self, id: Id, guild: bool, muted: bool, secs: Option<i64>) {
+        let cfg = match secs {
+            Some(s) if muted => json!({ "selected_time_window": s, "end_time": (chrono::Utc::now() + chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true) }),
+            _ => json!({ "selected_time_window": -1, "end_time": null }),
+        };
         if muted {
             self.store.muted.insert(id);
         } else {
             self.store.muted.remove(&id);
         }
         if guild {
-            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted })), Tag::Quiet);
+            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted, "mute_config": cfg })), Tag::Quiet);
         } else {
             let g = self.store.channels.get(&id).map(|c| c.guild).unwrap_or(0);
             let path = if g == 0 { "@me".to_string() } else { g.to_string() };
-            let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted } } });
+            let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted, "mute_config": cfg } } });
             self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
         }
     }
@@ -423,6 +439,13 @@ impl App {
     /// A channel's notification level, as Discord's bell menu sets it; None goes back to the
     /// category or server default.
     pub fn set_level(&mut self, ch: Id, level: Option<u8>) {
+        if self.store.guilds.contains_key(&ch) {
+            if let Some(n) = level {
+                self.store.levels.insert(ch, n);
+            }
+            self.rest("PATCH", format!("/users/@me/guilds/{ch}/settings"), Some(json!({ "message_notifications": level.unwrap_or(3) })), Tag::Quiet);
+            return;
+        }
         match level {
             Some(n) => self.store.levels.insert(ch, n),
             None => self.store.levels.remove(&ch),
@@ -751,6 +774,9 @@ impl App {
                 if v["user"].is_object() {
                     self.store.apply("USER_UPDATE", &v["user"]);
                 }
+                for f in v["mutual_friends"].as_array().into_iter().flatten() {
+                    self.store.apply("USER_UPDATE", f);
+                }
                 self.profiles.insert(u, v);
             }
             Tag::Inbox => {
@@ -778,6 +804,7 @@ impl App {
             Tag::Friend => self.toast("Friend request sent."),
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
+            Tag::GifCats => self.set_gif_cats(&v),
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Quiet => {}
         }
@@ -980,9 +1007,74 @@ impl App {
                 self.confirm_delete = None;
             }
         }
+        if let Some(c) = &self.confirm {
+            let (mut close, mut go) = (false, false);
+            let modal = egui::Modal::new("confirm".into())
+                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
+                .show(&ctx, |ui| {
+                    ui.set_width(440.0);
+                    ui.label(egui::RichText::new(&c.title).font(semi(20.0)).color(pal().header_primary));
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new(&c.body).color(pal().text_normal));
+                    ui.add_space(20.0);
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let w = ui.painter().layout_no_wrap(c.button.to_string(), medium(14.0), Color32::WHITE).size().x + 32.0;
+                            go = button(ui, c.button, RED, w.max(96.0)).clicked();
+                            if ui.add(egui::Label::new(egui::RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click())).clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+                });
+            if go && let Some(c) = self.confirm.take() {
+                (c.run)(self);
+            } else if close || modal.should_close() {
+                self.confirm = None;
+            }
+        }
+        if let Some(gid) = self.guild_notifs {
+            let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+            let default = self.store.guilds.get(&gid).map(|g| g.default_notif).unwrap_or(0);
+            let level = self.store.levels.get(&gid).copied().unwrap_or(default);
+            let muted = self.store.muted.contains(&gid);
+            let (mut pick, mut mute) = (None, None);
+            let modal = egui::Modal::new("guild_notifs".into())
+                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
+                .show(&ctx, |ui| {
+                    ui.set_width(440.0);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    ui.label(egui::RichText::new("Notification Settings").font(semi(20.0)).color(pal().header_primary));
+                    ui.label(egui::RichText::new(&name).font(reg(14.0)).color(pal().header_secondary));
+                    ui.add_space(16.0);
+                    if menu_row(ui, None, &format!("Mute {name}"), None, false, Trail::Check(muted)).clicked() {
+                        mute = Some(!muted);
+                    }
+                    ui.add_space(16.0);
+                    ui.label(egui::RichText::new("Server Notification Settings").font(medium(14.0)).color(pal().header_secondary));
+                    ui.add_space(8.0);
+                    for (label, v) in [("All Messages", 0), ("Only @mentions", 1), ("Nothing", 2)] {
+                        if menu_row(ui, None, label, None, false, Trail::Radio(level == v)).clicked() {
+                            pick = Some(v);
+                        }
+                    }
+                    });
+                });
+            if let Some(m) = mute {
+                self.set_muted(gid, true, m);
+            }
+            if let Some(v) = pick {
+                self.set_level(gid, Some(v));
+            }
+            if modal.should_close() {
+                self.guild_notifs = None;
+            }
+        }
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);
+        popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
         popups::viewer(self, &ctx);
     }
@@ -1199,6 +1291,146 @@ pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui
     let s = if size >= 32.0 { 20.0 } else { (size * 0.86).min(24.0) };
     icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(s, s)), col);
     resp.on_hover_text(tip)
+}
+
+/// A context menu row the way discord draws them: icon on the left, 14 medium label,
+/// red for destructive ones, a soft wash on hover.
+pub fn menu_item(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, danger: bool) -> bool {
+    menu_row(ui, icon, label, None, danger, Trail::None).clicked()
+}
+
+/// A red-button confirmation like discord's, for leaving servers, blocking and so on.
+pub struct Confirm {
+    pub title: String,
+    pub body: String,
+    pub button: &'static str,
+    pub run: Box<dyn FnOnce(&mut App)>,
+}
+
+/// A menu that opens at a point, like a right click, with room for submenus. False once closed.
+pub fn float_menu(ctx: &egui::Context, id: &str, at: Pos2, content: impl FnOnce(&mut Ui)) -> bool {
+    let mut open = true;
+    egui::Popup::new(egui::Id::new(id), ctx.clone(), egui::PopupAnchor::Position(at), egui::LayerId::background())
+        .kind(egui::PopupKind::Menu)
+        .layout(egui::Layout::top_down_justified(egui::Align::Min))
+        .style(egui::containers::menu::menu_style)
+        .frame(Frame::menu(&ctx.global_style()))
+        .align(egui::RectAlign::BOTTOM_START)
+        .open_bool(&mut open)
+        .show(|ui| menu_body(ui, content));
+    open
+}
+
+/// Long menus scroll rather than run off a small window.
+pub fn menu_body(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
+    let h = ui.ctx().content_rect().height() - 32.0;
+    egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        content(ui)
+    });
+}
+
+/// Discord's mute durations, in seconds; None is until turned back on.
+pub fn mute_menu(ui: &mut Ui) -> Option<Option<i64>> {
+    let mut pick = None;
+    for (label, secs) in [
+        ("For 15 Minutes", Some(900)),
+        ("For 1 Hour", Some(3600)),
+        ("For 3 Hours", Some(10800)),
+        ("For 8 Hours", Some(28800)),
+        ("For 24 Hours", Some(86400)),
+        ("Until I turn it back on", None),
+    ] {
+        if menu_item(ui, None, label, false) {
+            pick = Some(secs);
+        }
+    }
+    pick
+}
+
+pub const LEVELS: [&str; 3] = ["All Messages", "Only @mentions", "Nothing"];
+
+/// The radio rows under a channel's Notification Settings. Some(None) goes back to the default.
+pub fn level_menu(ui: &mut Ui, level: Option<u8>, inherited: u8, default_label: &str) -> Option<Option<u8>> {
+    let mut pick = None;
+    if menu_row(ui, None, default_label, Some(LEVELS[inherited.min(2) as usize]), false, Trail::Radio(level.is_none())).clicked() {
+        pick = Some(None);
+    }
+    for (i, label) in LEVELS.iter().enumerate() {
+        if menu_row(ui, None, label, None, false, Trail::Radio(level == Some(i as u8))).clicked() {
+            pick = Some(Some(i as u8));
+        }
+    }
+    pick
+}
+
+/// What sits at the right end of a menu row.
+#[derive(PartialEq)]
+pub enum Trail {
+    None,
+    Caret,
+    Check(bool),
+    Radio(bool),
+    Image(String),
+}
+
+/// One row of discord's menus. Rows size the menu to the widest of them, 34 tall, or 36 with
+/// an icon at either end, or 52 with a grey line under the label.
+pub fn menu_row(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, sub: Option<&str>, danger: bool, trail: Trail) -> egui::Response {
+    let (resp, lead) = menu_row_at(ui, icon.is_some(), label, sub, danger, trail);
+    if let Some(i) = icon {
+        icons::draw(ui.painter(), i, lead, if danger { pal().critical } else { pal().header_primary });
+    }
+    resp
+}
+
+/// A menu row that leaves its leading 20x20 for the caller to paint.
+pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, danger: bool, trail: Trail) -> (egui::Response, Rect) {
+    let ink = if danger { pal().critical } else { pal().header_primary };
+    let text = ui.painter().layout_no_wrap(label.to_string(), medium(14.0), ink);
+    let sub = sub.map(|s| ui.painter().layout_no_wrap(s.to_string(), reg(12.0), pal().text_muted));
+    let indent = if lead { 36.0 } else { 8.0 };
+    let tail = if trail == Trail::None { 8.0 } else { 36.0 };
+    let w = indent + text.size().x.max(sub.as_ref().map_or(0.0, |s| s.size().x)) + tail;
+    let h = if sub.is_some() { 52.0 } else if lead || trail != Trail::None { 36.0 } else { 34.0 };
+    let (r, resp) = ui.allocate_at_least(vec2(w, h), Sense::click());
+    let p = ui.painter();
+    if resp.hovered() {
+        p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });
+    }
+    let top = if sub.is_some() { r.top() + 8.0 } else { r.center().y - text.size().y / 2.0 };
+    if let Some(s) = sub {
+        p.galley(pos2(r.left() + indent, r.top() + 28.0), s, pal().text_muted);
+    }
+    p.galley(pos2(r.left() + indent, top), text, ink);
+    let at = Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(20.0, 20.0));
+    match trail {
+        Trail::None => {}
+        Trail::Caret => icons::draw(p, icons::Icon::ChevronRight, at, pal().text_muted),
+        Trail::Check(true) => {
+            p.rect_filled(at.shrink(1.0), CornerRadius::same(4), BLURPLE);
+            icons::draw(p, icons::Icon::Check, at.shrink(3.0), Color32::WHITE);
+        }
+        Trail::Check(false) => {
+            p.rect_stroke(at.shrink(1.0), CornerRadius::same(4), egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+        }
+        Trail::Radio(true) => {
+            p.circle_filled(at.center(), 9.0, BLURPLE);
+            p.circle_filled(at.center(), 4.0, Color32::WHITE);
+        }
+        Trail::Image(url) => {
+            egui::Image::from_uri(url).show_loading_spinner(false).paint_at(ui, at);
+        }
+        Trail::Radio(false) => {
+            p.circle_stroke(at.center(), 8.5, egui::Stroke::new(1.5, pal().header_secondary));
+        }
+    }
+    (resp, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)))
+}
+
+pub fn menu_sep(ui: &mut Ui) {
+    let (r, _) = ui.allocate_at_least(vec2(0.0, 17.0), Sense::hover());
+    ui.painter().hline(r.x_range().shrink(8.0), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
 }
 
 /// Discord's server tag chip after a name: badge and tag on a grey wash, 16 tall.
