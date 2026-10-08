@@ -3,14 +3,17 @@
 mod api;
 mod cache;
 mod gateway;
+mod hotkeys;
 mod imgcache;
 mod markdown;
 mod net;
 mod proto;
+mod sound;
 mod state;
 mod theme;
 mod ui;
 mod voice;
+mod winsys;
 
 fn main() -> eframe::Result {
     let t0 = std::time::Instant::now();

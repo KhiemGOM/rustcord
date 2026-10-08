@@ -59,7 +59,7 @@ def run_client(name, data_dir, extra=None):
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     try:
-        code = p.wait(timeout=90)
+        code = p.wait(timeout=300)
     except subprocess.TimeoutExpired:
         p.kill()
         code = "timeout"
@@ -145,6 +145,15 @@ def main():
                               ("gif picked from the picker was sent", "gif"), ("reply sent with ping off", "reply_quiet")]},
         "reply with @ OFF told discord not to ping": sum('"replied_user":false' in r.get("body", "") for r in sends) == 2,
         "shift+enter made a newline instead of sending": sum("quiet reply\nsecond line" in b for b in sent_bodies) == 2,
+        **{f"settings: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("every page opened and was captured", "settings_tour"), ("profile edit saved via the unsaved-changes bar", "profile_saved"),
+                              ("light theme applied", "theme_light"), ("compact mode applied", "compact"), ("streamer mode toggled", "streamer"),
+                              ("display name changed through the modal", "display_name")]},
+        "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
+        "settings: content filter PATCHed to the legacy settings": sum('"explicit_content_filter":2' in r.get("body", "") for r in reqs if r.get("method") == "PATCH") == 2,
+        "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
+        "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
+        "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

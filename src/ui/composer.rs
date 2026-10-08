@@ -166,20 +166,20 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if let Some(rid) = app.reply {
         let name = app.store.find_msg(ch, rid).map(|m| app.store.name_in(chan.guild, m.author)).unwrap_or_default();
         Frame::new()
-            .fill(BG_SECONDARY)
+            .fill(pal().bg_secondary)
             .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
             .inner_margin(Margin::symmetric(16, 8))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Replying to").font(reg(14.0)).color(HEADER_SECONDARY));
-                    text::label(ui, &name, semi(14.0), HEADER_SECONDARY, Sense::hover());
+                    ui.label(RichText::new("Replying to").font(reg(14.0)).color(pal().header_secondary));
+                    text::label(ui, &name, semi(14.0), pal().header_secondary, Sense::hover());
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icon_button(ui, Icon::Close, 20.0, "Cancel reply").clicked() {
                             app.reply = None;
                         }
                         ui.add_space(8.0);
                         // the "@ ON" toggle: whether the reply pings its author
-                        let (label, col) = if app.reply_ping { ("@ ON", LINK) } else { ("@ OFF", HEADER_SECONDARY) };
+                        let (label, col) = if app.reply_ping { ("@ ON", pal().link) } else { ("@ OFF", pal().header_secondary) };
                         let r = ui.add(egui::Label::new(RichText::new(label).font(bold(12.0)).color(col)).sense(Sense::click()));
                         app.rects.insert("ping_toggle".into(), r.rect);
                         if r.on_hover_text("Click to toggle mentioning the author").clicked() {
@@ -260,13 +260,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let top_r = if app.reply.is_some() { 0 } else { 8 };
     let mut attach = false;
     let mut emoji_at = None;
+    let mut send_click = false;
     let mut gif_at = None;
     let mut gif_rect = None;
     let mut remove = None;
     let mut new_cursor = None;
     let before = draft_now.len();
     let r = Frame::new()
-        .fill(BG_INPUT)
+        .fill(pal().bg_input)
         .corner_radius(CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -286,16 +287,16 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     });
                 });
                 let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                ui.painter().hline(sep.x_range(), sep.center().y, Stroke::new(1.0, BG_ACCENT.gamma_multiply(0.5)));
+                ui.painter().hline(sep.x_range(), sep.center().y, Stroke::new(1.0, pal().bg_accent.gamma_multiply(0.5)));
             }
             Frame::new().inner_margin(Margin { left: 16, right: 10, top: 0, bottom: 0 }).show(ui, |ui| {
                 ui.set_min_height(44.0);
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 44.0), Sense::click());
-                    let col = if presp.hovered() { HEADER_PRIMARY } else { HEADER_SECONDARY };
+                    let col = if presp.hovered() { pal().header_primary } else { pal().header_secondary };
                     ui.painter().circle_filled(pr.center(), 12.0, col);
-                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(16.0, 16.0)), BG_INPUT);
+                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(16.0, 16.0)), pal().bg_input);
                     if presp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -316,8 +317,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .desired_rows(1)
                                 .margin(Margin::ZERO)
                                 .font(reg(16.0))
-                                .text_color(TEXT_NORMAL)
-                                .hint_text(RichText::new(&hint).color(CHANNEL_DEFAULT))
+                                .text_color(pal().text_normal)
+                                .hint_text(RichText::new(&hint).color(pal().channel_default))
                                 .desired_width(w)
                                 .lock_focus(true)
                                 .show(ui)
@@ -328,7 +329,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                         let (er, eresp) = ui.allocate_exact_size(vec2(36.0, 44.0), Sense::click());
-                        let col = if eresp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
+                        let col = if eresp.hovered() { pal().interactive_hover } else { pal().header_secondary };
                         icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(er.center(), vec2(24.0, 24.0)), col);
                         if eresp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -336,8 +337,16 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         if eresp.on_hover_text("Select emoji").clicked() {
                             emoji_at = Some(er.left_top());
                         }
+                        if app.settings.send_button {
+                            let (sr, sresp) = ui.allocate_exact_size(vec2(36.0, 44.0), Sense::click());
+                            let col = if sresp.hovered() { BLURPLE } else { pal().header_secondary };
+                            icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(22.0, 22.0)), col);
+                            if sresp.on_hover_text("Send Message").clicked() {
+                                send_click = true;
+                            }
+                        }
                         let (gr, gresp) = ui.allocate_exact_size(vec2(40.0, 44.0), Sense::click());
-                        let col = if gresp.hovered() { INTERACTIVE_HOVER } else { HEADER_SECONDARY };
+                        let col = if gresp.hovered() { pal().interactive_hover } else { pal().header_secondary };
                         let badge = Rect::from_center_size(gr.center(), vec2(28.0, 20.0));
                         ui.painter().rect_stroke(badge, CornerRadius::same(4), Stroke::new(2.0, col), egui::StrokeKind::Inside);
                         ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", bold(11.0), col);
@@ -397,7 +406,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if app.drafts.get(&ch).is_some_and(|d| d.is_empty()) {
         app.ac_dismissed = None;
     }
-    if send {
+    if send || send_click {
         if !app.try_command(chan) {
             app.send_message(ch);
         }
@@ -413,7 +422,7 @@ enum CardAct {
 fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
     let (r, _) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::hover());
     let p = ui.painter();
-    p.rect_filled(r, CornerRadius::same(4), BG_SECONDARY);
+    p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
     let thumb = Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(200.0, 160.0));
     if let Some(bytes) = &f.thumb {
         let uri = format!("bytes://upload/{}", f.path.to_string_lossy());
@@ -429,11 +438,11 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
     } else {
         icons::draw(p, Icon::File, Rect::from_center_size(thumb.center(), vec2(72.0, 72.0)), BLURPLE);
     }
-    text::paint(p, pos2(r.left() + 8.0, r.bottom() - 24.0), Align2::LEFT_CENTER, &f.name, reg(14.0), TEXT_NORMAL, 200.0);
+    text::paint(p, pos2(r.left() + 8.0, r.bottom() - 24.0), Align2::LEFT_CENTER, &f.name, reg(14.0), pal().text_normal, 200.0);
 
     // the little action strip that floats over the top-right corner
     let bar = Rect::from_min_size(pos2(r.right() - 76.0, r.top() - 12.0), vec2(80.0, 32.0));
-    p.rect(bar, CornerRadius::same(4), BG_PRIMARY, Stroke::new(1.0, BG_TERTIARY), egui::StrokeKind::Inside);
+    p.rect(bar, CornerRadius::same(4), pal().bg_primary, Stroke::new(1.0, pal().bg_tertiary), egui::StrokeKind::Inside);
     let mut act = None;
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink(2.0)).layout(Layout::left_to_right(Align::Center)));
     b.spacing_mut().item_spacing.x = 0.0;
@@ -441,7 +450,7 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
         act = Some(CardAct::Spoiler);
     }
     let del = b.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    let col = if del.1.hovered() { RED } else { HEADER_SECONDARY };
+    let col = if del.1.hovered() { RED } else { pal().header_secondary };
     icons::draw(b.painter(), Icon::Trash, Rect::from_center_size(del.0.center(), vec2(20.0, 20.0)), col);
     if del.1.on_hover_text("Remove Attachment").clicked() {
         act = Some(CardAct::Remove);
@@ -463,11 +472,11 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
         .pivot(Align2::LEFT_BOTTOM)
         .fixed_pos(composer.left_top())
         .show(ctx, |ui| {
-            Frame::new().fill(BG_SECONDARY).corner_radius(8).inner_margin(Margin::symmetric(8, 8)).show(ui, |ui| {
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(Margin::symmetric(8, 8)).show(ui, |ui| {
                 ui.set_width(composer.width() - 16.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-                ui.painter().text(pos2(hr.left() + 8.0, hr.center().y), Align2::LEFT_CENTER, title, bold(12.0), HEADER_SECONDARY);
+                ui.painter().text(pos2(hr.left() + 8.0, hr.center().y), Align2::LEFT_CENTER, title, bold(12.0), pal().header_secondary);
                 egui::ScrollArea::vertical().max_height(row_h * 10.0).show(ui, |ui| {
                     for (i, it) in items.iter().enumerate() {
                         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
@@ -475,7 +484,7 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
                             app.ac_sel = i;
                         }
                         if i == app.ac_sel {
-                            ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_SELECTED);
+                            ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
                         }
                         row(app, ui, chan, it, r);
                         if resp.clicked() {
@@ -497,22 +506,22 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             if let Some(user) = app.store.user(*u) {
                 avatar(ui, Rect::from_center_size(pos2(x + 12.0, y), vec2(24.0, 24.0)), &user.avatar_url());
             }
-            let nr = text::paint(p, pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), HEADER_PRIMARY, r.width() * 0.5);
-            p.text(pos2(nr.right() + 8.0, y), Align2::LEFT_CENTER, username, reg(14.0), HEADER_SECONDARY);
+            let nr = text::paint(p, pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary, r.width() * 0.5);
+            p.text(pos2(nr.right() + 8.0, y), Align2::LEFT_CENTER, username, reg(14.0), pal().header_secondary);
         }
         Item::Role(_, name, color) => {
-            let col = if *color == 0 { HEADER_PRIMARY } else { role_color(*color) };
+            let col = if *color == 0 { pal().header_primary } else { role_color(*color) };
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{name}"), semi(15.0), col);
         }
         Item::Everyone(e) => {
-            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), HEADER_PRIMARY);
+            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), pal().header_primary);
             let note = if *e == "here" { "Notify everyone online in this channel." } else { "Notify everyone who has permission to view this channel." };
-            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), HEADER_SECONDARY);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
         }
         Item::Channel(id, name) => {
             let icon = app.store.channels.get(id).map(super::side::glyph).unwrap_or(Icon::Hash);
-            icons::draw(p, icon, Rect::from_center_size(pos2(x + 10.0, y), vec2(18.0, 18.0)), CHANNEL_DEFAULT);
-            text::paint(p, pos2(x + 28.0, y), Align2::LEFT_CENTER, name, semi(15.0), HEADER_PRIMARY, r.width() - 160.0);
+            icons::draw(p, icon, Rect::from_center_size(pos2(x + 10.0, y), vec2(18.0, 18.0)), pal().channel_default);
+            text::paint(p, pos2(x + 28.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary, r.width() - 160.0);
             let cat = app
                 .store
                 .channels
@@ -520,7 +529,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
                 .and_then(|c| app.store.channels.get(&c.parent))
                 .map(|c| c.name.to_uppercase())
                 .unwrap_or_default();
-            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, cat, semi(12.0), HEADER_SECONDARY);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, cat, semi(12.0), pal().header_secondary);
         }
         Item::Emoji(name, raw, url) => {
             let er = Rect::from_center_size(pos2(x + 12.0, y), vec2(22.0, 22.0));
@@ -528,7 +537,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
                 Some(u) => text::image(p, u, er),
                 None => text::image(p, &crate::markdown::twemoji(raw), er),
             }
-            p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, format!(":{name}:"), semi(15.0), HEADER_PRIMARY);
+            p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, format!(":{name}:"), semi(15.0), pal().header_primary);
         }
         Item::Command(i) => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
@@ -554,10 +563,10 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
                     args.push_str(&format!(" {}", o["name"].as_str().unwrap_or("")));
                 }
             }
-            let nr = p.text(pos2(x + 44.0, y - 9.0), Align2::LEFT_CENTER, format!("/{name}"), semi(15.0), HEADER_PRIMARY);
-            p.text(pos2(nr.right() + 6.0, y - 9.0), Align2::LEFT_CENTER, args, reg(14.0), HEADER_SECONDARY);
-            text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, c["description"].as_str().unwrap_or(""), reg(13.0), HEADER_SECONDARY, r.width() - 200.0);
-            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, app_name, semi(13.0), HEADER_SECONDARY);
+            let nr = p.text(pos2(x + 44.0, y - 9.0), Align2::LEFT_CENTER, format!("/{name}"), semi(15.0), pal().header_primary);
+            p.text(pos2(nr.right() + 6.0, y - 9.0), Align2::LEFT_CENTER, args, reg(14.0), pal().header_secondary);
+            text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, c["description"].as_str().unwrap_or(""), reg(13.0), pal().header_secondary, r.width() - 200.0);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, app_name, semi(13.0), pal().header_secondary);
         }
     }
 }
@@ -602,7 +611,7 @@ fn typing_line(app: &App, ui: &mut Ui, chan: &Channel) {
         ui.painter().circle_filled(
             pos2(r.left() + 6.0 + i as f32 * 7.0, r.center().y),
             2.5,
-            HEADER_PRIMARY.gamma_multiply(0.4 + 0.6 * phase),
+            pal().header_primary.gamma_multiply(0.4 + 0.6 * phase),
         );
     }
     let names: Vec<String> = users.iter().map(|u| app.store.name_in(chan.guild, *u)).collect();
@@ -612,7 +621,7 @@ fn typing_line(app: &App, ui: &mut Ui, chan: &Channel) {
         3 => format!("{}, {}, and {} are typing…", names[0], names[1], names[2]),
         _ => "Several people are typing…".to_string(),
     };
-    text::paint(ui.painter(), pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, &text, reg(13.0), TEXT_NORMAL, r.width() - 40.0);
+    text::paint(ui.painter(), pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, &text, reg(13.0), pal().text_normal, r.width() - 40.0);
 }
 
 impl App {

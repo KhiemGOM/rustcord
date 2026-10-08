@@ -31,10 +31,10 @@ fn backdrop(ui: &Ui) {
 }
 
 fn field(ui: &mut Ui, label: &str, value: &mut String, password: bool) -> egui::Response {
-    ui.label(RichText::new(label).font(bold(12.0)).color(HEADER_SECONDARY));
+    ui.label(RichText::new(label).font(bold(12.0)).color(pal().header_secondary));
     ui.add_space(8.0);
     let r = Frame::new()
-        .fill(BG_TERTIARY)
+        .fill(pal().bg_tertiary)
         .corner_radius(3)
         .inner_margin(Margin::symmetric(10, 10))
         .show(ui, |ui| {
@@ -43,7 +43,7 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, password: bool) -> egui::
                     .frame(Frame::NONE)
                     .password(password)
                     .font(reg(16.0))
-                    .text_color(TEXT_NORMAL)
+                    .text_color(pal().text_normal)
                     .desired_width(ui.available_width()),
             )
         })
@@ -60,7 +60,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let h = ui.available_height();
         ui.add_space(((h - 420.0) / 2.0).max(16.0));
         Frame::new()
-            .fill(BG_PRIMARY)
+            .fill(pal().bg_primary)
             .corner_radius(5)
             .inner_margin(32)
             .shadow(egui::Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha(60) })
@@ -68,14 +68,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.set_width(416.0);
                 ui.vertical_centered(|ui| {
                     let title = if f.mfa.is_some() { "Multi-Factor Authentication" } else { "Welcome back!" };
-                    ui.label(RichText::new(title).font(semi(24.0)).color(HEADER_PRIMARY));
+                    ui.label(RichText::new(title).font(semi(24.0)).color(pal().header_primary));
                     ui.add_space(8.0);
                     let sub = if f.mfa.is_some() {
                         "Enter the 6-digit code from your authenticator app."
                     } else {
                         "We're so excited to see you again!"
                     };
-                    ui.label(RichText::new(sub).font(reg(16.0)).color(HEADER_SECONDARY));
+                    ui.label(RichText::new(sub).font(reg(16.0)).color(pal().header_secondary));
                 });
                 ui.add_space(20.0);
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -101,7 +101,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     let alt = if f.use_token { "Log in with email instead" } else { "Log in with a token instead" };
-                    let r = ui.add(egui::Label::new(RichText::new(alt).font(reg(14.0)).color(LINK)).sense(Sense::click()));
+                    let r = ui.add(egui::Label::new(RichText::new(alt).font(reg(14.0)).color(pal().link)).sense(Sense::click()));
                     if r.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }

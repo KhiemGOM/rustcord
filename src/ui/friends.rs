@@ -18,24 +18,24 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .frame(Frame::new().inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, BG_TERTIARY));
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().bg_tertiary));
             ui.horizontal_centered(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-                super::icons::draw(ui.painter(), super::icons::Icon::People, r, CHANNEL_DEFAULT);
-                ui.label(RichText::new("Friends").font(semi(16.0)).color(HEADER_PRIMARY));
+                super::icons::draw(ui.painter(), super::icons::Icon::People, r, pal().channel_default);
+                ui.label(RichText::new("Friends").font(semi(16.0)).color(pal().header_primary));
                 let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
-                ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, BG_ACCENT));
+                ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
                 for (i, t) in TABS.iter().enumerate() {
                     let sel = app.friends_tab == i as u8;
-                    let g = ui.painter().layout_no_wrap(t.to_string(), semi(16.0), HEADER_PRIMARY);
+                    let g = ui.painter().layout_no_wrap(t.to_string(), semi(16.0), pal().header_primary);
                     let extra = if i == 2 && pending > 0 { 24.0 } else { 0.0 };
                     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 16.0 + extra, 26.0), Sense::click());
                     if sel {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_SELECTED);
+                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
                     } else if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), BG_MOD_HOVER);
+                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
                     }
-                    let col = if sel { HEADER_PRIMARY } else { HEADER_SECONDARY };
+                    let col = if sel { pal().header_primary } else { pal().header_secondary };
                     ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, *t, semi(16.0), col);
                     if extra > 0.0 {
                         super::badge(ui, pos2(r.right() - 6.0, r.center().y), pending, None);
@@ -68,12 +68,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 fn add_friend(app: &mut App, ui: &mut Ui) {
-    ui.label(RichText::new("ADD FRIEND").font(bold(16.0)).color(HEADER_PRIMARY));
+    ui.label(RichText::new("ADD FRIEND").font(bold(16.0)).color(pal().header_primary));
     ui.add_space(8.0);
-    ui.label(RichText::new("You can add friends with their Discord username.").color(HEADER_SECONDARY));
+    ui.label(RichText::new("You can add friends with their Discord username.").color(pal().header_secondary));
     ui.add_space(16.0);
     let mut send = false;
-    Frame::new().fill(BG_TERTIARY).corner_radius(8).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    Frame::new().fill(pal().bg_tertiary).corner_radius(8).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut app.add_friend)
@@ -113,32 +113,32 @@ fn list(app: &mut App, ui: &mut Ui) {
         .collect();
     people.sort_by_key(|(u, _)| app.store.name_in(0, *u).to_lowercase());
     let heading = format!("{} — {}", ["ONLINE", "ALL FRIENDS", "PENDING", "BLOCKED"][tab as usize], people.len());
-    ui.label(RichText::new(heading).font(semi(12.0)).color(HEADER_SECONDARY));
+    ui.label(RichText::new(heading).font(semi(12.0)).color(pal().header_secondary));
     ui.add_space(12.0);
 
     let mut act: Option<(Id, &'static str)> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (uid, kind) in people {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
-            ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, BG_MOD_HOVER));
+            ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
             if resp.hovered() {
-                ui.painter().rect_filled(row.shrink2(vec2(-10.0, 1.0)), CornerRadius::same(8), BG_MOD_HOVER);
+                ui.painter().rect_filled(row.shrink2(vec2(-10.0, 1.0)), CornerRadius::same(8), pal().bg_mod_hover);
             }
             let av = Rect::from_min_size(pos2(row.left(), row.center().y - 16.0), vec2(32.0, 32.0));
             let Some(u) = app.store.user(uid) else { continue };
             avatar(ui, av, &u.avatar_url());
             let st = app.store.status(uid);
             if kind == FRIEND {
-                status_dot(ui, av, st, if resp.hovered() { BG_MOD_HOVER } else { BG_PRIMARY });
+                status_dot(ui, av, st, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary });
             }
-            super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), HEADER_PRIMARY, row.width() - 160.0);
+            super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), pal().header_primary, row.width() - 160.0);
             let sub = match kind {
                 INCOMING => "Incoming Friend Request".to_string(),
                 OUTGOING => "Outgoing Friend Request".to_string(),
                 BLOCKED => "Blocked".to_string(),
                 _ => format!("{st:?}").replace("Dnd", "Do Not Disturb"),
             };
-            ui.painter().text(pos2(av.right() + 12.0, row.center().y + 10.0), Align2::LEFT_CENTER, sub, reg(14.0), HEADER_SECONDARY);
+            ui.painter().text(pos2(av.right() + 12.0, row.center().y + 10.0), Align2::LEFT_CENTER, sub, reg(14.0), pal().header_secondary);
 
             let mut br = ui.new_child(
                 egui::UiBuilder::new()

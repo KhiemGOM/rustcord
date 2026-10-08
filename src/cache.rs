@@ -18,22 +18,136 @@ pub struct UiState {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Settings {
+    // notifications
     pub notify: bool,
     pub notify_all_dms: bool,
     pub flash: bool,
+    pub badge: bool,
+    pub sounds: bool,
+    pub muted_sounds: Vec<String>,
+    // appearance
+    pub theme: crate::theme::Theme,
+    pub compact: bool,
+    pub compact_avatars: bool,
+    pub font_size: f32,
+    pub group_space: f32,
     pub zoom: f32,
     pub clock24: bool,
-    pub dev: bool,
+    // accessibility
+    pub underline_links: bool,
+    pub role_colors: RoleColors,
+    pub reduced_motion: bool,
+    pub send_button: bool,
+    // chat
     pub embeds: bool,
+    pub inline_links: bool,
+    pub inline_uploads: bool,
+    pub reactions: bool,
+    pub emoticons: bool,
+    pub spoilers: Spoilers,
+    pub animate_emoji: bool,
+    pub gif_autoplay: bool,
+    // advanced
+    pub dev: bool,
+    // voice
     pub mic: Option<String>,
     pub speaker: Option<String>,
     pub vad_db: i32,
+    pub auto_sensitivity: bool,
+    pub ptt: bool,
+    pub ptt_delay_ms: u32,
+    pub input_volume: f32,
+    pub output_volume: f32,
+    // keybinds: (action, windows virtual-key codes)
+    pub keybinds: Vec<(String, Vec<u32>)>,
+    // language
+    pub locale: String,
+    // windows
+    pub open_on_startup: bool,
+    pub start_minimized: bool,
+    // streamer mode
+    pub streamer: bool,
+    pub streamer_auto: bool,
+    pub hide_personal: bool,
+    pub hide_invites: bool,
+    pub streamer_no_sounds: bool,
+    pub streamer_no_notifications: bool,
+    pub hide_window: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum RoleColors {
+    #[default]
+    InNames,
+    NextToNames,
+    Hidden,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum Spoilers {
+    #[default]
+    OnClick,
+    Moderated,
+    Always,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { notify: true, notify_all_dms: true, flash: true, zoom: 1.0, clock24: false, dev: false, embeds: true, mic: None, speaker: None, vad_db: -50 }
+        Settings {
+            notify: true,
+            notify_all_dms: true,
+            flash: true,
+            badge: true,
+            sounds: true,
+            muted_sounds: Vec::new(),
+            theme: Default::default(),
+            compact: false,
+            compact_avatars: false,
+            font_size: 16.0,
+            group_space: 16.0,
+            zoom: 1.0,
+            clock24: false,
+            underline_links: false,
+            role_colors: RoleColors::InNames,
+            reduced_motion: false,
+            send_button: false,
+            embeds: true,
+            inline_links: true,
+            inline_uploads: true,
+            reactions: true,
+            emoticons: true,
+            spoilers: Spoilers::OnClick,
+            animate_emoji: true,
+            gif_autoplay: true,
+            dev: false,
+            mic: None,
+            speaker: None,
+            vad_db: -50,
+            auto_sensitivity: true,
+            ptt: false,
+            ptt_delay_ms: 20,
+            input_volume: 1.0,
+            output_volume: 1.0,
+            keybinds: Vec::new(),
+            locale: "en-US".into(),
+            open_on_startup: false,
+            start_minimized: false,
+            streamer: false,
+            streamer_auto: false,
+            hide_personal: true,
+            hide_invites: true,
+            streamer_no_sounds: false,
+            streamer_no_notifications: true,
+            hide_window: false,
+        }
     }
+}
+
+impl Settings {
+    pub fn hiding_personal(&self) -> bool {
+        self.streamer && self.hide_personal
+    }
+
 }
 
 pub fn settings() -> Settings {

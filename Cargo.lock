@@ -1405,6 +1405,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "opus-rs",
+ "raw-window-handle",
  "reqwest",
  "rfd",
  "rtrb",

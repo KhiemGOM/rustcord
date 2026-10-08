@@ -37,6 +37,7 @@ pub enum Icon {
     ArrowRight,
     ArrowLeft,
     Bubble,
+    Send,
 }
 
 struct G<'a> {
@@ -257,6 +258,9 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
         Icon::ArrowLeft => {
             g.line(&[(20.0, 12.0), (5.0, 12.0)], 2.0);
             g.line(&[(11.0, 6.0), (5.0, 12.0), (11.0, 18.0)], 2.0);
+        }
+        Icon::Send => {
+            g.fill(&[(3.0, 4.0), (21.0, 12.0), (3.0, 20.0), (6.0, 12.0)]);
         }
         Icon::Bubble => {
             g.rect(3.0, 4.0, 21.0, 17.0, 4.0);

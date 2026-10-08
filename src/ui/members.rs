@@ -52,7 +52,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         Align2::LEFT_CENTER,
                         format!("{} — {}", name.to_uppercase(), count),
                         semi(12.0),
-                        CHANNEL_DEFAULT,
+                        pal().channel_default,
                     );
                 }
                 ListItem::Member(uid) => {
@@ -67,21 +67,21 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let inner = row.shrink2(vec2(8.0, 0.0));
                     let hovered = resp.hovered();
                     if hovered {
-                        ui.painter().rect_filled(inner, CornerRadius::same(4), BG_MOD_HOVER);
+                        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
                     }
                     let fade = if offline && !hovered { 0.3 } else { 1.0 };
                     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
                     if let Some(u) = store.user(*uid) {
                         avatar(ui, av, &u.avatar_url());
                         if fade < 1.0 {
-                            ui.painter().circle_filled(av.center(), 16.5, BG_SECONDARY.gamma_multiply(0.7));
+                            ui.painter().circle_filled(av.center(), 16.5, pal().bg_secondary.gamma_multiply(0.7));
                         }
                     }
                     let st = store.status(*uid);
                     if st != Status::Offline {
-                        status_dot(ui, av, st, if hovered { BG_MOD_HOVER } else { BG_SECONDARY });
+                        status_dot(ui, av, st, if hovered { pal().bg_mod_hover } else { pal().bg_secondary });
                     }
-                    let color = store.role_color(gid, *uid).map(role_color).unwrap_or(HEADER_SECONDARY);
+                    let color = store.role_color(gid, *uid).map(role_color).unwrap_or(pal().header_secondary);
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
                     let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 36.0 } else { 0.0 };

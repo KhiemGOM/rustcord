@@ -185,6 +185,7 @@ impl VoiceUi {
         if self.chan.is_none() {
             return;
         }
+        crate::sound::cue("disconnect");
         self.chan = None;
         self.op4(net);
         self.reset(net);
@@ -208,6 +209,7 @@ impl VoiceUi {
     }
 
     pub fn set_mute(&mut self, net: &Net, on: bool) {
+        crate::sound::cue(if on { "mute" } else { "unmute" });
         self.mute = on;
         // undeafening by unmuting matches the official client
         if !on && self.deaf {
@@ -217,6 +219,7 @@ impl VoiceUi {
     }
 
     pub fn set_deaf(&mut self, net: &Net, on: bool) {
+        crate::sound::cue(if on { "deafen" } else { "undeafen" });
         self.deaf = on;
         self.sync(net);
     }
@@ -494,6 +497,11 @@ impl VoiceUi {
     /// Device choice is read when a call starts; the VAD threshold applies live.
     pub fn configure(&self, s: &crate::cache::Settings) {
         self.shared.vad_db.store(s.vad_db, Relaxed);
+        self.shared.auto_vad.store(s.auto_sensitivity, Relaxed);
+        self.shared.ptt.store(s.ptt, Relaxed);
+        self.shared.ptt_delay_ms.store(s.ptt_delay_ms, Relaxed);
+        self.shared.in_gain.store(s.input_volume.to_bits(), Relaxed);
+        self.shared.out_gain.store(s.output_volume.to_bits(), Relaxed);
         if let Ok(mut d) = self.shared.devices.lock() {
             *d = (s.mic.clone(), s.speaker.clone());
         }

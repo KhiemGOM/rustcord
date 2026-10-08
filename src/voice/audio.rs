@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::f32::consts::TAU;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -41,6 +41,13 @@ pub struct Shared {
     pub video_in: AtomicU64,
     pub video_out: AtomicU64,
     pub mic: AtomicI32,
+    /// voice settings: push-to-talk, its release delay, input/output gain (f32 bits),
+    /// and whether the vad threshold follows the noise floor
+    pub ptt: AtomicBool,
+    pub ptt_delay_ms: AtomicU32,
+    pub in_gain: AtomicU32,
+    pub out_gain: AtomicU32,
+    pub auto_vad: AtomicBool,
 }
 
 impl Default for Shared {
@@ -60,6 +67,11 @@ impl Default for Shared {
             video_in: AtomicU64::new(0),
             video_out: AtomicU64::new(0),
             mic: AtomicI32::new(MIC_UNKNOWN),
+            ptt: AtomicBool::new(false),
+            ptt_delay_ms: AtomicU32::new(20),
+            in_gain: AtomicU32::new(1.0f32.to_bits()),
+            out_gain: AtomicU32::new(1.0f32.to_bits()),
+            auto_vad: AtomicBool::new(true),
         }
     }
 }
@@ -186,6 +198,8 @@ struct Tx {
     tail: u8,
     stereo: Vec<f32>,
     pkt: [u8; 1276],
+    floor: f32,
+    released: Option<Instant>,
 }
 
 impl Tx {
@@ -194,15 +208,36 @@ impl Tx {
             e.bitrate_bps = 64_000;
             e
         });
-        Tx { shared, out, enc, hang: 0, talking: false, tail: 0, stereo: vec![0.0; FRAME * 2], pkt: [0; 1276] }
+        Tx { shared, out, enc, hang: 0, talking: false, tail: 0, stereo: vec![0.0; FRAME * 2], pkt: [0; 1276], floor: -60.0, released: None }
     }
 
     fn frame(&mut self, pcm: &[f32]) {
+        let gain = f32::from_bits(self.shared.in_gain.load(Relaxed));
+        let pcm: Vec<f32> = pcm.iter().map(|x| (x * gain).clamp(-1.0, 1.0)).collect();
+        let pcm = pcm.as_slice();
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
         let db = 20.0 * (rms + 1e-9).log10();
         self.shared.level.store(db.max(-100.0) as i32, Relaxed);
         let muted = self.shared.mute.load(Relaxed) || self.shared.deaf.load(Relaxed);
-        if !muted && db > self.shared.vad_db.load(Relaxed) as f32 {
+        // automatic sensitivity: follow the noise floor down fast and up slowly, open 15 dB above it
+        self.floor = if db < self.floor { db } else { self.floor + (db - self.floor) * 0.002 };
+        let threshold = if self.shared.auto_vad.load(Relaxed) {
+            (self.floor + 15.0).clamp(-70.0, -25.0)
+        } else {
+            self.shared.vad_db.load(Relaxed) as f32
+        };
+        let open = if self.shared.ptt.load(Relaxed) {
+            if crate::hotkeys::PTT_HELD.load(Relaxed) {
+                self.released = None;
+                true
+            } else {
+                let at = *self.released.get_or_insert_with(Instant::now);
+                at.elapsed().as_millis() < self.shared.ptt_delay_ms.load(Relaxed) as u128
+            }
+        } else {
+            db > threshold
+        };
+        if !muted && open {
             self.hang = HANG;
         } else if muted {
             self.hang = 0;
@@ -347,6 +382,10 @@ impl Mix {
         }
         if self.shared.deaf.load(Relaxed) {
             mix.fill(0.0);
+        }
+        let gain = f32::from_bits(self.shared.out_gain.load(Relaxed));
+        if (gain - 1.0).abs() > 0.001 {
+            mix.iter_mut().for_each(|x| *x *= gain);
         }
         let mut i = 0;
         let mut next = || {

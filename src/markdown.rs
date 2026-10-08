@@ -70,7 +70,7 @@ impl B<'_, '_> {
             reg(st.size)
         };
         let (color, bg) = if st.spoiler && !self.cx.revealed {
-            (BG_TERTIARY, BG_TERTIARY)
+            (pal().bg_tertiary, pal().bg_tertiary)
         } else if st.spoiler {
             (st.color, Color32::from_white_alpha(25))
         } else {
@@ -80,7 +80,7 @@ impl B<'_, '_> {
             font_id: family,
             line_height: Some((st.size * 1.375).round()),
             color,
-            background: if st.code { BG_SECONDARY_ALT } else { bg },
+            background: if st.code { pal().bg_secondary_alt } else { bg },
             italics: st.italic,
             underline: if st.under { Stroke::new(1.0, color) } else { Stroke::NONE },
             strikethrough: if st.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
@@ -223,6 +223,31 @@ pub fn plain(src: &str, store: &Store, guild: Id) -> String {
     s.trim().to_string()
 }
 
+/// Put `text` in front of a block (compact mode's author name), shifting the
+/// emoji and link positions that point into it. The prefix can be a link itself.
+pub fn prepend(t: &mut Inline, text: &str, fmt: TextFormat, link: Option<Link>) {
+    let bytes = text.len();
+    let chars = text.chars().count();
+    let mut job = LayoutJob { wrap: t.job.wrap.clone(), ..Default::default() };
+    job.append(text, 0.0, fmt);
+    job.text.push_str(&t.job.text);
+    for s in &t.job.sections {
+        let mut s = s.clone();
+        s.byte_range = s.byte_range.start + bytes..s.byte_range.end + bytes;
+        job.sections.push(s);
+    }
+    t.job = job;
+    for e in &mut t.emojis {
+        e.0 += chars;
+    }
+    for (r, _) in &mut t.links {
+        *r = r.start + chars..r.end + chars;
+    }
+    if let Some(l) = link {
+        t.links.push((0..chars, l));
+    }
+}
+
 pub fn twemoji(seq: &str) -> String {
     let zwj = seq.contains('\u{200d}');
     let parts: Vec<String> = seq
@@ -245,8 +270,13 @@ fn custom_emoji(s: &str) -> Option<(usize, String, Id, bool)> {
     Some((end + if animated { 4 } else { 3 }, name.to_string(), id, animated))
 }
 
-fn emoji_url(id: Id, animated: bool) -> String {
-    format!("{}/emojis/{}.{}?size=48", api::cdn(), id, if animated { "gif" } else { "png" })
+pub fn emoji_url(id: Id, animated: bool) -> String {
+    let gif = animated && view().animate_emoji;
+    format!("{}/emojis/{}.{}?size=48", api::cdn(), id, if gif { "gif" } else { "png" })
+}
+
+fn is_invite(url: &str) -> bool {
+    ["discord.gg/", "discord.com/invite/", "discordapp.com/invite/"].iter().any(|p| url.contains(p))
 }
 
 fn is_jumbo(s: &str) -> bool {
@@ -381,15 +411,27 @@ fn inline(b: &mut B, s: &str, st: St) {
         } else if rest.starts_with("https://") || rest.starts_with("http://") {
             let n = url_len(rest);
             b.text(&s[plain..i], st);
-            let mut s2 = st;
-            s2.color = LINK;
-            b.linked(&rest[..n], s2, Link::Url(rest[..n].to_string()));
+            let url = &rest[..n];
+            let v = view();
+            if v.hide_invites && is_invite(url) {
+                // streamer mode: never show an invite code on stream
+                let mut s2 = st;
+                s2.color = pal().text_muted;
+                s2.italic = true;
+                b.text("invite link hidden", s2);
+            } else {
+                let mut s2 = st;
+                s2.color = pal().link;
+                s2.under |= v.underline_links;
+                b.linked(url, s2, Link::Url(url.to_string()));
+            }
             Some(n)
         } else if rest.starts_with('[') {
             masked(rest).map(|(n, text, url)| {
                 b.text(&s[plain..i], st);
                 let mut s2 = st;
-                s2.color = LINK;
+                s2.color = pal().link;
+                s2.under |= view().underline_links;
                 b.linked(text, s2, Link::Url(url.to_string()));
                 n
             })
@@ -397,8 +439,8 @@ fn inline(b: &mut B, s: &str, st: St) {
             let n = if rest.starts_with("@here") { 5 } else { 9 };
             b.text(&s[plain..i], st);
             let mut s2 = st;
-            s2.color = MENTION_FG;
-            s2.bg = MENTION_BG;
+            s2.color = pal().mention_fg;
+            s2.bg = pal().mention_bg;
             b.text(&rest[..n], s2);
             Some(n)
         } else if let Some(n) = take_emoji(rest) {
@@ -477,14 +519,14 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
                 let c = role_color(r.color);
                 (c, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 30))
             }
-            None => (MENTION_FG, MENTION_BG),
+            None => (pal().mention_fg, pal().mention_bg),
         };
         pill(b, &name, None, fg, bg);
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
         let name = format!("@{}", b.cx.store.name_in(b.cx.guild, id));
-        pill(b, &name, Some(Link::User(id)), MENTION_FG, MENTION_BG);
+        pill(b, &name, Some(Link::User(id)), pal().mention_fg, pal().mention_bg);
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('#').and_then(|x| x.parse::<Id>().ok()) {
@@ -495,7 +537,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
             .get(&id)
             .map(|c| format!("#{}", c.name))
             .unwrap_or_else(|| "#unknown".into());
-        pill(b, &name, Some(Link::Channel(id)), MENTION_FG, MENTION_BG);
+        pill(b, &name, Some(Link::Channel(id)), pal().mention_fg, pal().mention_bg);
         return Some(n);
     }
     if let Some(t) = inner.strip_prefix("t:") {
@@ -506,7 +548,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
         return Some(n);
     }
     if (inner.starts_with("https://") || inner.starts_with("http://")) && !inner.contains(char::is_whitespace) {
-        pill(b, inner, Some(Link::Url(inner.to_string())), LINK, Color32::TRANSPARENT);
+        pill(b, inner, Some(Link::Url(inner.to_string())), pal().link, Color32::TRANSPARENT);
         return Some(n);
     }
     None
@@ -579,7 +621,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
             if let Some(rest) = line.strip_prefix(p) {
                 st.size = size;
                 st.bold = true;
-                st.color = HEADER_PRIMARY;
+                st.color = pal().header_primary;
                 body = rest;
                 break;
             }
@@ -591,7 +633,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
             body = item;
         } else if let Some(rest) = trimmed.strip_prefix("-# ") {
             st.size = 13.0;
-            st.color = TEXT_MUTED;
+            st.color = pal().text_muted;
             body = rest;
         }
         inline(&mut b, body, st);
@@ -633,11 +675,11 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
     if cx.edited {
         let mut st = base(cx);
         st.size = 10.0;
-        st.color = TEXT_MUTED;
+        st.color = pal().text_muted;
         if let Some(Block::Text(t)) = out.last_mut() {
             let f = TextFormat {
                 font_id: reg(10.0),
-                color: TEXT_MUTED,
+                color: pal().text_muted,
                 line_height: Some((cx.size * 1.375).round()),
                 valign: Align::Center,
                 ..Default::default()
