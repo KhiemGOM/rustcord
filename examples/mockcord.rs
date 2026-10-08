@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 const GENERAL: u64 = 2011;
+const MEDIA: u64 = 2060;
 const SPEAKER: u64 = 101;
 const SPEAKER_SSRC: u32 = 2001;
 const CLIENT_SSRC: u32 = 1001;
@@ -214,12 +215,74 @@ fn seed(cdn: &str) -> Vec<Value> {
         }
         out.push(m);
     }
+    out.extend(media_msgs(cdn));
     let t0 = now_ms() - 30 * 60_000;
     for (i, (a, text)) in [(101, "ok what's left for 1.3?"), (102, "voice + video, then polish"), (100, "I'll take the settings screen"), (103, "forums too 🙏")].iter().enumerate() {
         out.push(msg(snow(t0 + i as u64 * 60_000), THREAD, *a, text));
     }
     for (post, a, text) in [(POST_A, 103, "Could we get a compact message mode? Long threads get tall fast."), (POST_B, 105, "Emoji picker should remember recently used ones.")] {
         out.push(msg(post, FORUM, a, text));
+    }
+    out
+}
+
+// animated emoji, a gifv with a title, and gifs behind urls with query strings
+fn media_msgs(cdn: &str) -> Vec<Value> {
+    let t0 = now_ms() - 12 * 60_000;
+    let at = |i: u64| snow(t0 + i * 60_000);
+    let mut out = Vec::new();
+
+    let mut m = msg(at(0), MEDIA, 101, "party time <a:party:5100> and a static <:ferris:5000> in one line <a:party:5100>");
+    m["reactions"] = json!([
+        { "emoji": { "id": "5100", "name": "party", "animated": true }, "count": 3, "me": false },
+        { "emoji": { "id": null, "name": "🔥" }, "count": 1, "me": false },
+    ]);
+    out.push(m);
+
+    out.push(msg(at(1), MEDIA, 101, "<a:party:5100>"));
+
+    let link = "https://klipy.com/gifs/mock-spin";
+    let mut m = msg(at(2), MEDIA, 103, link);
+    m["embeds"] = json!([{ "type": "gifv", "url": link, "title": "Mock Spin Dance", "provider": { "name": "Klipy" },
+        "thumbnail": { "url": format!("{cdn}/media/spin.png"), "proxy_url": format!("{cdn}/media/spin.png"), "width": 160, "height": 120 },
+        "video": { "url": format!("{cdn}/media/spin.mp4"), "proxy_url": format!("{cdn}/media/spin.mp4"), "width": 160, "height": 120 } }]);
+    out.push(m);
+
+    let link = format!("{cdn}/media/wave.gif?size=96&name=wave");
+    let mut m = msg(at(3), MEDIA, 101, &link);
+    m["embeds"] = json!([{ "type": "image", "url": link,
+        "thumbnail": { "url": link, "proxy_url": link, "width": 96, "height": 72 } }]);
+    out.push(m);
+
+    let mut m = msg(at(4), MEDIA, 102, "dance.gif as an upload");
+    let dance = format!("{cdn}/media/dance.gif?ex=65f0a1b2&is=65ee2cb2&hm=abc");
+    m["attachments"] = json!([{ "id": "2", "filename": "dance.gif", "size": 41_000, "url": dance, "proxy_url": dance,
+        "width": 120, "height": 90, "content_type": "image/gif" }]);
+    out.push(m);
+    out
+}
+
+// six 100ms frames that all look different, so a screenshot tells which one was up
+fn anim_gif(w: u32, h: u32, hue: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut enc = image::codecs::gif::GifEncoder::new(&mut out);
+        enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+        let frames = (0..6u32).map(|f| {
+            let a = f as f32 / 6.0 * std::f32::consts::TAU;
+            let (cx, cy) = (0.5 + 0.3 * a.cos(), 0.5 + 0.3 * a.sin());
+            let base = [(0xed, 0x42, 0x45), (0xfa, 0xa6, 0x1a), (0x3b, 0xa5, 0x5c), (0x58, 0x65, 0xf2), (0xeb, 0x45, 0x9e), (0x1a, 0xbc, 0x9c)][((hue + f) % 6) as usize];
+            let img = image::RgbaImage::from_fn(w, h, |x, y| {
+                let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+                if ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() < 0.18 {
+                    image::Rgba([255, 255, 255, 255])
+                } else {
+                    image::Rgba([base.0, base.1, base.2, 255])
+                }
+            });
+            image::Frame::from_parts(img, 0, 0, image::Delay::from_numer_denom_ms(100, 1))
+        });
+        enc.encode_frames(frames).unwrap();
     }
     out
 }
@@ -334,12 +397,12 @@ fn ready(last_general: u64) -> Value {
     ]);
     let g1 = json!({
         "id": "1000", "name": "Rust Lounge", "icon": "icon1000", "owner_id": "101", "member_count": 6,
-        "roles": roles, "emojis": [{ "id": "5000", "name": "ferris", "animated": false }],
+        "roles": roles, "emojis": [{ "id": "5000", "name": "ferris", "animated": false }, { "id": "5100", "name": "party", "animated": true }],
         "channels": [
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "📢・announcements", 1, Some(2000)),
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum,
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)),
         ],
         "threads": [thread()],
         "voice_states": [{ "user_id": "101", "channel_id": "2021" }, { "user_id": "103", "channel_id": "2021" }],
@@ -560,6 +623,10 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ])),
         ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => ok(json!([])),
         (_, ["api", ..]) => ok(json!({})),
+        ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
+        ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
+        ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
+        ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
         ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {
