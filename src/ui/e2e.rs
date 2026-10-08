@@ -1695,10 +1695,18 @@ impl Run {
                 self.wait = Instant::now() + Duration::from_millis(300);
             }
             // discord's menus and popouts, each opened, shot and closed again
-            340..=349 => {
-                const SHOTS: [&str; 10] = [
+            // back to the server the rest of the tour expects, a frame after the last shot
+            353 => {
+                app.select_guild(Some(self.target.0));
+                self.step = 304;
+                self.step_at = Instant::now();
+                self.wait = Instant::now() + Duration::from_millis(800);
+            }
+            340..=352 => {
+                const SHOTS: [&str; 13] = [
                     "11_menu_message", "12_menu_channel", "13_menu_guild", "14_server_dropdown", "15_menu_user",
-                    "16_account", "17_bell", "18_threads", "19_inbox", "20_search_options",
+                    "16_account", "17_bell", "18_threads", "19_inbox", "20_search_options", "21_stickers", "22_forward",
+                    "23_dm_profile",
                 ];
                 let i = (self.step - 340) as usize;
                 if self.loaded == 0 {
@@ -1715,7 +1723,23 @@ impl Run {
                         6 => (app.rects.get("bell").copied(), false),
                         7 => (app.rects.get("threads_button").copied(), false),
                         8 => (app.rects.get("title:inbox").copied(), false),
-                        _ => (app.rects.get("search").copied(), false),
+                        9 => (app.rects.get("search").copied(), false),
+                        10 => (app.rects.get("sticker_button").copied(), false),
+                        11 => {
+                            let last = app.store.msgs.get(&cur).and_then(|e| e.list.last()).map(|m| m.id);
+                            if let Some(m) = last {
+                                app.forward = Some(crate::ui::popups::Forward::new(cur, m));
+                            }
+                            (None, false)
+                        }
+                        _ => {
+                            let dm = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1));
+                            if let Some(c) = dm {
+                                app.ui.guild = None;
+                                app.open(c);
+                            }
+                            (None, false)
+                        }
                     };
                     match r {
                         Some(r) if right => self.rclick(r.center()),
@@ -1728,7 +1752,7 @@ impl Run {
                     self.shot(ctx, &format!("{}.png", SHOTS[i]));
                     self.key(Key::Escape);
                     self.loaded = 0;
-                    self.step = if i == 9 { 304 } else { self.step + 1 };
+                    self.step += 1;
                     self.step_at = Instant::now();
                     self.wait = Instant::now() + Duration::from_millis(500);
                 }

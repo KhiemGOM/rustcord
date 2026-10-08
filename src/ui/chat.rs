@@ -140,6 +140,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), search_w) {
             app.ui.search_w = w;
         }
+    } else if chan.kind == 1 && !app.ui.hide_dm_profile && room >= 320.0 + 420.0 {
+        if let Some(&uid) = chan.recipients.first() {
+            egui::Panel::right("dm_profile")
+                .exact_size(320.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(pal().bg_primary).inner_margin(8))
+                .show(ui, |ui| super::popups::dm_profile(app, ui, uid));
+        }
     } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() && room >= members_w + 420.0 {
         let r = egui::Panel::right("members")
             .default_size(members_w)
@@ -271,6 +280,13 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     ui.data_mut(|d| d.insert_temp(qid, q));
                     ui.add_space(8.0);
                     ui.spacing_mut().item_spacing.x = 8.0;
+                    if chan.kind == 1 {
+                        let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };
+                        if icon_button(ui, Icon::UserProfile, 32.0, tip).clicked() {
+                            app.ui.hide_dm_profile = !app.ui.hide_dm_profile;
+                            app.search = None;
+                        }
+                    }
                     if chan.guild != 0 && !chan.is_forum() {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
                         if icon_button(ui, Icon::People, 32.0, tip).clicked() {
