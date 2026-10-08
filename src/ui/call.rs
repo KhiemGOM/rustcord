@@ -8,7 +8,8 @@ use crate::state::{Channel, Id};
 use crate::theme::*;
 use crate::voice::{State, audio};
 
-/// "Voice Connected" box that sits above the user panel.
+/// "Voice Connected" half of the account card: status and disconnect on top,
+/// camera and screen share underneath, laid out in the area `ui` was given.
 pub fn panel(app: &mut App, ui: &mut Ui) {
     let Some(ch) = app.voice.chan else { return };
     let (text, col) = match app.voice.state {
@@ -26,11 +27,10 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     };
     let r = ui.max_rect();
     let p = ui.painter();
-    p.hline(r.x_range().expand(8.0), r.top(), Stroke::new(1.0, pal().bg_mod_hover));
-    let y = r.center().y;
+    let y = r.top() + 16.0;
     bars(ui, pos2(r.left() + 2.0, y - 7.0), col);
-    p.text(pos2(r.left() + 22.0, y - 9.0), Align2::LEFT_CENTER, text, semi(14.0), col);
-    let sub = Rect::from_min_max(pos2(r.left(), y + 1.0), pos2(r.right() - 40.0, y + 19.0));
+    p.text(pos2(r.left() + 22.0, y - 8.0), Align2::LEFT_CENTER, text, semi(14.0), col);
+    let sub = Rect::from_min_max(pos2(r.left(), y + 2.0), pos2(r.right() - 40.0, y + 18.0));
     let sub_r = ui.interact(sub, egui::Id::new("voice_place"), Sense::click());
     ui.painter().with_clip_rect(sub).text(
         pos2(sub.left(), sub.center().y),
@@ -52,6 +52,39 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     app.rects.insert("voice:disconnect".into(), b);
     if leave.on_hover_text("Disconnect").clicked() {
         app.voice.leave(&app.net);
+    }
+
+    let cam = app.voice.camera;
+    let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
+    let me = app.store.me;
+    let w = (r.width() - 8.0) / 2.0;
+    for i in 0..2 {
+        let b = Rect::from_min_size(pos2(r.left() + i as f32 * (w + 8.0), r.bottom() - 32.0), vec2(w, 32.0));
+        let (on, tip, key) = match i {
+            0 => (cam, if cam { "Turn Off Camera" } else { "Turn On Camera" }, "voice:panel_camera"),
+            _ => (sharing, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:panel_screen"),
+        };
+        let resp = ui.interact(b, egui::Id::new(("voice_panel_btn", i)), Sense::click());
+        let fill = match (on, resp.hovered()) {
+            (true, false) => GREEN.gamma_multiply(0.12),
+            (true, true) => GREEN.gamma_multiply(0.24),
+            (false, false) => pal().control,
+            (false, true) => pal().control_hover,
+        };
+        ui.painter().rect_filled(b, CornerRadius::same(8), fill);
+        let fg = if on { GREEN } else { pal().header_primary };
+        if i == 0 { camera(ui, b.center(), 1.0, fg) } else { screen(ui, b.center(), 1.0, fg) }
+        app.rects.insert(key.into(), b);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.on_hover_text(tip).clicked() {
+            match i {
+                0 => app.voice.set_camera(&app.net, me, !cam),
+                _ if sharing => app.voice.end_stream(&app.net),
+                _ => app.voice.go_live(&app.net, me),
+            }
+        }
     }
 }
 

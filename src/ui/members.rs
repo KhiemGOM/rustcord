@@ -74,12 +74,12 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     if let Some(u) = store.user(*uid) {
                         avatar(ui, av, &u.avatar_url());
                         if fade < 1.0 {
-                            ui.painter().circle_filled(av.center(), 16.5, pal().bg_secondary.gamma_multiply(0.7));
+                            ui.painter().circle_filled(av.center(), 16.5, pal().bg_primary.gamma_multiply(0.7));
                         }
                     }
                     let st = store.status(*uid);
                     if st != Status::Offline {
-                        status_dot(ui, av, st, if hovered { pal().bg_mod_hover } else { pal().bg_secondary });
+                        status_dot(ui, av, st, if hovered { pal().bg_mod_hover } else { pal().bg_primary });
                     }
                     let color = store.role_color(gid, *uid).map(role_color).unwrap_or(pal().header_secondary);
                     let name = store.name_in(gid, *uid);

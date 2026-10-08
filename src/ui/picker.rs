@@ -51,7 +51,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(0).show(ui, |ui| {
                 ui.set_width(418.0);
                 Frame::new().inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
-                    Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+                    input_frame().corner_radius(4).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
                         let r = ui.add(
                             egui::TextEdit::singleline(&mut q)
                                 .frame(Frame::NONE)

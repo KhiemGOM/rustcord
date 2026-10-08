@@ -18,7 +18,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .frame(Frame::new().inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().bg_tertiary));
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().border_subtle));
             ui.horizontal_centered(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
                 super::icons::draw(ui.painter(), super::icons::Icon::People, r, pal().channel_default);
@@ -73,7 +73,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
     ui.label(RichText::new("You can add friends with their Discord username.").color(pal().header_secondary));
     ui.add_space(16.0);
     let mut send = false;
-    Frame::new().fill(pal().bg_tertiary).corner_radius(8).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    input_frame().corner_radius(8).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut app.add_friend)

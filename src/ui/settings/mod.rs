@@ -106,7 +106,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .exact_size(side_w)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_secondary))
+        .frame(Frame::new().fill(pal().bg_tertiary))
         .show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
@@ -114,7 +114,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let x = ui.max_rect().right() - 218.0;
                 // the search box discord grew in 2024
                 let sr = Rect::from_min_size(pos2(x + 6.0, ui.cursor().top()), vec2(180.0, 28.0));
-                ui.painter().rect_filled(sr, CornerRadius::same(4), pal().bg_tertiary);
+                ui.painter().rect(sr, CornerRadius::same(4), pal().input_bg, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(sr.shrink2(vec2(6.0, 4.0))));
                 child.add(
                     egui::TextEdit::singleline(&mut app.sform.search)
@@ -196,8 +196,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         v.slider_trailing_fill = true;
                         v.selection.bg_fill = BLURPLE;
                         for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
-                            w.weak_bg_fill = pal().bg_tertiary;
-                            w.bg_fill = pal().bg_tertiary;
+                            w.weak_bg_fill = pal().input_bg;
+                            w.bg_fill = pal().input_bg;
+                            w.bg_stroke = Stroke::new(1.0, pal().border_normal);
                             w.corner_radius = 4.into();
                         }
                         v.widgets.hovered.bg_stroke = Stroke::new(1.0, pal().bg_accent);
@@ -449,8 +450,7 @@ pub fn link(ui: &mut Ui, text: &str) -> egui::Response {
 
 /// The dark text box discord uses in forms.
 pub fn input(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egui::Response {
-    Frame::new()
-        .fill(pal().bg_tertiary)
+    input_frame()
         .corner_radius(3)
         .inner_margin(Margin::symmetric(10, 10))
         .show(ui, |ui| {

@@ -26,7 +26,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             match &mut app.post {
                 None => {
                     ui.horizontal(|ui| {
-                        Frame::new().fill(pal().bg_tertiary).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
+                        input_frame().corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
                             ui.set_width(ui.available_width() - 130.0);
                             ui.label(RichText::new("Search or create a post…").color(pal().text_muted));
                         });

@@ -27,8 +27,17 @@ pub struct Palette {
     pub bg_mod_selected: Color32,
     /// --border-subtle over base-lower, for rules and outlines that must be opaque
     pub bg_accent: Color32,
-    /// --border-muted as an overlay: header rule
+    /// --border-muted as an overlay: header rule, the account card's outline
     pub border_muted: Color32,
+    /// --border-normal as an overlay: code block outline, embed bars, input outlines
+    pub border_normal: Color32,
+    /// --border-subtle as an overlay: embed and file card outlines, rules in the channel list
+    pub border_subtle: Color32,
+    /// --input-background-default: text fields, a black wash over whatever they sit on
+    pub input_bg: Color32,
+    /// --control-secondary-background-default and -hover: buttons on the account card
+    pub control: Color32,
+    pub control_hover: Color32,
     /// --spine-default: reply spine
     pub spine: Color32,
     /// --background-code
@@ -100,6 +109,11 @@ const ASH: Palette = Palette {
     bg_mod_selected: mix(OVERLAY, 200, 0x2c2d32),
     bg_accent: mix(OVERLAY, 122, 0x323339),
     border_muted: tint(OVERLAY, 39),
+    border_normal: tint(OVERLAY, 200),
+    border_subtle: tint(OVERLAY, 122),
+    input_bg: tint(0x000000, 78),
+    control: tint(OVERLAY, 122),
+    control_hover: tint(OVERLAY, 161),
     spine: rgb(0x595a63),
     bg_code: tint(0x5865f2, 78),
     spoiler: rgb(0x7d7e87),
@@ -131,6 +145,7 @@ const DARK: Palette = Palette {
     bg_mod_hover: mix(OVERLAY, 122, 0x121214),
     bg_mod_selected: mix(OVERLAY, 200, 0x121214),
     bg_accent: mix(OVERLAY, 122, 0x1a1a1e),
+    input_bg: tint(0x000000, 122),
     spine: rgb(0x474851),
     spoiler: rgb(0x666770),
     spoiler_revealed: tint(0x6c6f7c, 160),
@@ -160,6 +175,10 @@ const ONYX: Palette = Palette {
     bg_mod_selected: mix(OVERLAY, 239, 0x000000),
     bg_accent: mix(OVERLAY, 200, 0x000000),
     border_muted: tint(OVERLAY, 161),
+    border_normal: tint(OVERLAY, 239),
+    border_subtle: tint(OVERLAY, 200),
+    input_bg: tint(0x000000, 122),
+    control_hover: tint(OVERLAY, 200),
     spine: rgb(0x383940),
     spoiler: rgb(0x595a63),
     spoiler_revealed: tint(0x6c6f7c, 160),
@@ -188,6 +207,9 @@ const LIGHT: Palette = Palette {
     bg_mod_selected: mix(OVERLAY, 239, 0xf3f3f4),
     bg_accent: mix(OVERLAY, 278, 0xfbfbfb),
     border_muted: tint(OVERLAY, 200),
+    border_normal: tint(OVERLAY, 400),
+    border_subtle: tint(OVERLAY, 278),
+    input_bg: tint(0x000000, 20),
     spine: rgb(0xc5c6ca),
     bg_code: tint(0x5865f2, 39),
     spoiler: rgb(0x8f9097),
@@ -254,6 +276,11 @@ pub fn anim(secs: f32) -> f32 {
 
 pub fn pal() -> &'static Palette {
     &PALETTES[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize]
+}
+
+/// The wash and outline discord gives every text field.
+pub fn input_frame() -> egui::Frame {
+    egui::Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal))
 }
 
 /// A theme's palette without switching to it (settings swatches); `Sync` shows as ash.
