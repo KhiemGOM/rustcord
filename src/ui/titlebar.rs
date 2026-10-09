@@ -333,6 +333,8 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
+            // an area only offers last frame's size; the scrolled list has to ask for its room
+            ui.set_max_height(room + 120.0);
             let shadow = ui.style().visuals.popup_shadow;
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(INBOX_W);

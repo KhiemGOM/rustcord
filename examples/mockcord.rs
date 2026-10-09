@@ -484,6 +484,8 @@ fn ready(last_general: u64) -> Value {
         ],
         "read_state": { "entries": reads, "partial": false, "version": 1 },
         "user_guild_settings": { "entries": [
+            // onboarding's opt-in: only lobby was picked
+            { "guild_id": "1001", "flags": 16384, "channel_overrides": [{ "channel_id": "2100", "flags": 4096 }] },
             { "guild_id": "1004", "channel_overrides": [{ "channel_id": "2400", "muted": true }] },
             { "guild_id": "1005", "channel_overrides": [{ "channel_id": "2500", "muted": true }] },
             { "guild_id": "1006", "message_notifications": 1, "channel_overrides": [] },
@@ -696,6 +698,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         })),
         ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "guilds", _, "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let mut u = user(ME);

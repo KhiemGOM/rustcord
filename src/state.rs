@@ -49,11 +49,13 @@ pub const VIEW_CHANNEL: u64 = 1 << 10;
 pub const KICK_MEMBERS: u64 = 1 << 1;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
+pub const SEND_MESSAGES: u64 = 1 << 11;
 pub const CONNECT: u64 = 1 << 20;
 pub const MANAGE_CHANNELS: u64 = 1 << 4;
 pub const MANAGE_GUILD: u64 = 1 << 5;
 pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
 pub const MANAGE_EVENTS: u64 = 1 << 33;
+pub const CREATE_EVENTS: u64 = 1 << 44;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub enum Status {
@@ -181,6 +183,9 @@ pub struct Channel {
     pub applied: Vec<Id>,
     #[serde(default)]
     pub nsfw: bool,
+    // a forum's default view: 1 list, 2 gallery
+    #[serde(default)]
+    pub layout: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -229,6 +234,7 @@ impl Channel {
                 .collect(),
             applied: ids(&v["applied_tags"]),
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
+            layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
         }
     }
 
@@ -332,6 +338,13 @@ pub struct Guild {
     pub boost_bar: bool,
     #[serde(default)]
     pub tier: u8,
+    #[serde(default)]
+    pub events: u32,
+    // our member flags here and when we joined (unix seconds), for the server guide's checklist
+    #[serde(default)]
+    pub my_flags: u64,
+    #[serde(default)]
+    pub joined: i64,
     #[serde(skip)]
     pub voice: HashMap<Id, Id>,
     #[serde(skip)]
@@ -339,6 +352,12 @@ pub struct Guild {
 }
 
 impl Guild {
+    /// Discord keeps the "Get Started" checklist for members who joined in the last month and
+    /// haven't finished it: started home actions, not completed.
+    pub fn new_member(&self) -> bool {
+        self.my_flags & 32 != 0 && self.my_flags & 64 == 0 && chrono::Utc::now().timestamp() - self.joined < 30 * 86400
+    }
+
     pub fn banner_url(&self) -> Option<String> {
         self.banner.as_ref().map(|h| format!("{}/banners/{}/{h}.png?size=480", api::cdn(), self.id))
     }
@@ -700,6 +719,11 @@ pub struct Store {
     // servers where muted channels are left out of the list
     #[serde(default)]
     pub hide_muted: HashSet<Id>,
+    // servers that only list the channels picked in onboarding or browse channels, and the picks
+    #[serde(default)]
+    pub opt_in: HashSet<Id>,
+    #[serde(default)]
+    pub opted: HashSet<Id>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -790,6 +814,25 @@ impl Store {
 
     pub fn can_view(&self, c: &Channel) -> bool {
         self.perms(c) & VIEW_CHANNEL != 0
+    }
+
+    /// Whether the channel list shows it: in servers with onboarding's opt-in, only channels picked
+    /// there (or whose category or parent was) make the list.
+    pub fn listed(&self, c: &Channel) -> bool {
+        if !self.opt_in.contains(&c.guild) {
+            return true;
+        }
+        let mut id = c.id;
+        for _ in 0..3 {
+            if self.opted.contains(&id) {
+                return true;
+            }
+            match self.channels.get(&id) {
+                Some(c) if c.parent != 0 => id = c.parent,
+                _ => break,
+            }
+        }
+        false
     }
 
     /// Our effective permission bits in a channel. DMs and owners get everything.
@@ -921,8 +964,18 @@ impl Store {
         if let Some(n) = s["message_notifications"].as_u64().filter(|n| *n < 3) {
             self.levels.insert(gid, n as u8);
         }
+        if s["flags"].as_u64().unwrap_or(0) & (1 << 14) != 0 {
+            self.opt_in.insert(gid);
+        } else {
+            self.opt_in.remove(&gid);
+        }
         for o in s["channel_overrides"].as_array().into_iter().flatten() {
             let cid = sid(&o["channel_id"]);
+            if o["flags"].as_u64().unwrap_or(0) & (1 << 12) != 0 {
+                self.opted.insert(cid);
+            } else {
+                self.opted.remove(&cid);
+            }
             if on(o) {
                 self.muted.insert(cid);
             }
@@ -986,7 +1039,7 @@ impl Store {
                 continue;
             }
             men += self.mentions(c.id);
-            if !unread && !self.muted.contains(&gid) && self.unread(c) && self.can_view(c) {
+            if !unread && !self.muted.contains(&gid) && self.unread(c) && self.can_view(c) && self.listed(c) {
                 unread = true;
             }
         }
@@ -1053,6 +1106,10 @@ impl Store {
             && let Some(g) = self.guilds.get_mut(&guild)
         {
             g.my_roles = m.roles.clone();
+            g.my_flags = v["flags"].as_u64().unwrap_or(g.my_flags);
+            if let Some(t) = v["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
+                g.joined = t.timestamp();
+            }
         }
         self.members.entry(guild).or_default().insert(user, m);
     }
@@ -1084,6 +1141,12 @@ impl Store {
         g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
         g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
         g.tier = p["premium_tier"].as_u64().or(v["premium_tier"].as_u64()).unwrap_or(0) as u8;
+        if let Some(e) = v["guild_scheduled_events"].as_array() {
+            g.events = e.len() as u32;
+        }
+        if let Some(t) = v["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
+            g.joined = t.timestamp();
+        }
         if let Some(n) = v["member_count"].as_u64() {
             g.member_count = n as u32;
         }
@@ -1192,6 +1255,8 @@ impl Store {
         self.muted.clear();
         self.unreads.clear();
         self.levels.clear();
+        self.opt_in.clear();
+        self.opted.clear();
         self.new_notifs = d["notification_settings"]["flags"].as_u64().unwrap_or(0) & 16 != 0;
         for s in ugs.as_array().into_iter().flatten() {
             self.guild_settings(s);

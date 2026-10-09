@@ -40,21 +40,27 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
             match it {
                 ListItem::Group { id, count } => {
                     offline = id == "offline";
+                    let role = id.parse::<Id>().ok().and_then(|r| g.roles.get(&r));
                     let name = match id.as_str() {
                         "online" => "Online".to_string(),
                         "offline" => "Offline".to_string(),
-                        r => r.parse::<Id>().ok().and_then(|r| g.roles.get(&r)).map(|r| r.name.clone()).unwrap_or_default(),
+                        _ => role.map(|r| r.name.clone()).unwrap_or_default(),
                     };
                     ui.add_space(if first { 16.0 } else { 20.0 });
                     first = false;
                     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-                    ui.painter().text(
-                        pos2(r.left() + 16.0, r.center().y),
-                        Align2::LEFT_CENTER,
-                        format!("{} — {}", name, count),
-                        medium(14.0),
-                        pal().channel_default,
-                    );
+                    // discord puts the role's icon in front of its group
+                    let icon = role.and_then(|r| match (&r.icon, &r.emoji) {
+                        (Some(h), _) => Some(format!("{}/role-icons/{}/{h}.png?size=32", crate::api::cdn(), r.id)),
+                        (None, Some(e)) => Some(crate::markdown::twemoji(e)),
+                        _ => None,
+                    });
+                    let mut x = r.left() + 16.0;
+                    if let Some(url) = icon {
+                        super::text::image(ui.painter(), &url, Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0)));
+                        x += 20.0;
+                    }
+                    ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, format!("{} — {}", name, count), medium(14.0), pal().channel_default);
                 }
                 ListItem::Member(uid) => {
                     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());

@@ -736,7 +736,7 @@ impl Run {
                 self.next(300);
             }
             54 => {
-                let Some(vc) = side::tree(&app.store, self.target.0).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
+                let Some(vc) = side::tree(&app.store, self.target.0, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
                     return self.fail("no voice channel".into());
                 };
                 let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
@@ -1718,8 +1718,86 @@ impl Run {
             354 => {
                 app.select_guild(Some(self.target.0));
                 self.step = 304;
+                if std::env::var_os("FASTCORD_TOUR_CHANNEL").is_some() {
+                    self.step = 360;
+                    self.loaded = 0;
+                }
                 self.step_at = Instant::now();
                 self.wait = Instant::now() + Duration::from_millis(800);
+            }
+            // side by side with captures of discord: a busy channel, its history, the switcher and
+            // pins there, a forum and a post in it, then home. FASTCORD_TOUR_CHANNEL and
+            // FASTCORD_TOUR_FORUM name them as guild/channel.
+            360..=368 => {
+                let pick = |k: &str| {
+                    let v = std::env::var(k).ok()?;
+                    let (g, c) = v.split_once('/')?;
+                    Some((g.parse::<Id>().ok()?, c.parse::<Id>().ok()?))
+                };
+                let chat = pick("FASTCORD_TOUR_CHANNEL");
+                let forum = pick("FASTCORD_TOUR_FORUM");
+                let middle = |app: &App| app.rects.get("composer").map(|c| egui::pos2(c.center().x, (c.top() + 90.0) / 2.0));
+                let i = self.step - 360;
+                if self.loaded == 0 {
+                    match i {
+                        0 => {
+                            if let Some((g, c)) = chat {
+                                app.ui.guild = Some(g);
+                                app.open(c);
+                            }
+                        }
+                        1 => {
+                            if let Some(at) = middle(app) {
+                                self.queue.push_back(vec![Event::PointerMoved(at)]);
+                                for _ in 0..8 {
+                                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 150.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                                }
+                            }
+                        }
+                        2 => {
+                            let k = |pressed| Event::Key { key: Key::K, physical_key: None, pressed, repeat: false, modifiers: Modifiers::COMMAND };
+                            self.queue.push_back(vec![k(true)]);
+                            self.queue.push_back(vec![k(false)]);
+                        }
+                        3 => {
+                            if let Some(r) = app.rects.get("pins_button").copied() {
+                                self.click(r.center());
+                            }
+                        }
+                        4 => {
+                            if let Some((g, c)) = forum {
+                                app.ui.guild = Some(g);
+                                app.open(c);
+                            }
+                        }
+                        5 => {
+                            if let Some(r) = app.rects.iter().filter(|(k, _)| k.starts_with("post:")).map(|(_, r)| *r).min_by(|a, b| a.top().total_cmp(&b.top())) {
+                                self.click(r.center());
+                            }
+                        }
+                        6 => app.select_guild(None),
+                        _ => {}
+                    }
+                    self.loaded = 1;
+                    self.wait = Instant::now() + Duration::from_millis(if matches!(i, 0 | 4 | 5) { 5000 } else { 1800 });
+                } else {
+                    const SHOTS: [&str; 7] = ["30_chat", "31_chat_up", "32_switcher", "33_pins", "34_forum", "35_forum_post", "36_home"];
+                    if let Some(name) = SHOTS.get(i as usize) {
+                        self.shot(ctx, &format!("{name}.png"));
+                    }
+                    if matches!(i, 2 | 3) {
+                        self.key(Key::Escape);
+                    }
+                    self.loaded = 0;
+                    self.step += 1;
+                    // one idle step first, so the last shot is saved before the restore
+                    if self.step == 368 {
+                        app.select_guild(Some(self.target.0));
+                        self.step = 304;
+                    }
+                    self.step_at = Instant::now();
+                    self.wait = Instant::now() + Duration::from_millis(600);
+                }
             }
             340..=353 => {
                 const SHOTS: [&str; 14] = [
@@ -2278,6 +2356,39 @@ impl Run {
                 if self.step == 392 {
                     self.mark("menus");
                 }
+                self.next(500);
+            }
+            // Gamers United only lists what onboarding picked: lobby, not lfg, until it's added back
+            393 => {
+                // a warm start comes back with the cold run's pick cached and lfg as the server's
+                // last channel, which the list always keeps; start from lobby with lfg unpicked
+                app.store.opted.remove(&2101);
+                app.ui.guild = Some(1001);
+                app.open(2100);
+                self.next(800);
+            }
+            394 => {
+                if !app.rects.contains_key("chan:2100") {
+                    return;
+                }
+                if app.rects.contains_key("chan:2101") {
+                    return self.fail("lfg is listed though onboarding never picked it".into());
+                }
+                app.open(2101);
+                self.next(800);
+            }
+            395 => {
+                let Some(r) = app.rects.get("add_to_list").copied() else { return };
+                self.shot(ctx, "unlisted.png");
+                self.click(r.center());
+                self.next(800);
+            }
+            396 => {
+                if !app.store.channels.get(&2101).is_some_and(|c| app.store.listed(c)) {
+                    return;
+                }
+                self.mark("opt_in");
+                app.select_guild(Some(self.target.0));
                 self.next(500);
             }
             _ => self.step = 99,
