@@ -252,6 +252,7 @@ def main():
         "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),
         "fullscreen: F11 went fullscreen and back": all("fullscreen" in r.get("marks_ms", {}) for r in (cold, warm)),
         "zoom: a ctrl+wheel notch went up one level (100% to 110%), ctrl+0 came back": all("zoom" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "name fonts: a nitro display name font was fetched and the user's name uses it": all("name_font" in r.get("marks_ms", {}) for r in (cold, warm)),
         "profile: the avatar on a server profile opens the main one, and its \"...\" opens the menu with the profile still up": all("profile_more" in r.get("marks_ms", {}) for r in (cold, warm)),
         "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
             and sum('"flags":4096' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) == 2,

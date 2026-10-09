@@ -57,15 +57,15 @@ def checks(runs, reqs, data):
             look.get("look:font") == "gg400" and look.get("look:font_medium") == "gg500")
 
         c = lambda k: rgb(look[f"look:look_Ash:{k}"]) if f"look:look_Ash:{k}" in look else (0, 0, 0)
-        # carol: two-tone role, tiled every 100px; eve: holographic role; frank: nitro glow style
+        # carol: two-tone role, tiled every 100px; eve: holographic role; frank: a nitro glow style,
+        # which in a server gives way to his role's colour like discord's
         out[f"look: {tag}: duo role gradient runs magenta to cyan across the name"] = (
             c("name103_l")[0] - c("name103_r")[0] >= 30 and c("name103_r")[1] - c("name103_l")[1] >= 25)
         out[f"look: {tag}: holographic role gradient goes from blue to pink"] = c("name105_r")[0] - c("name105_l")[0] >= 25
-        out[f"look: {tag}: nitro glow style spreads its colours over the name"] = (
-            c("name106_r")[1] - c("name106_l")[1] >= 8 and 0xB0 <= c("name106_l")[1] <= 0xD0)
-        out[f"look: {tag}: glow style has a halo, plain names don't"] = (
-            max(abs(a - b) for a, b in zip(c("halo106_near"), c("halo106_far"))) >= 3
-            and max(abs(a - b) for a, b in zip(c("halo105_near"), c("halo105_far"))) <= 1)
+        out[f"look: {tag}: in a server a nitro style gives way to the role colour, flat and without a halo"] = (
+            max(abs(a - b) for a, b in zip(c("name106_l"), c("name106_r"))) <= 12
+            and c("name106_l")[2] - c("name106_l")[0] >= 100
+            and max(abs(a - b) for a, b in zip(c("halo106_near"), c("halo106_far"))) <= 1)
         chat = rgb("#" + SURFACES["Ash"]["chat"])
         out[f"look: {tag}: role icon (image) and role emoji drew something"] = all(
             max(abs(a - b) for a, b in zip(c(k), chat)) >= 40 for k in ("icon105", "icon103"))

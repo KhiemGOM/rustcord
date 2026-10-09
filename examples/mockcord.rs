@@ -134,6 +134,10 @@ fn user(id: u64) -> Value {
     if id == 106 {
         u["display_name_styles"] = json!({ "font_id": 11, "effect_id": 6, "colors": [0xE1C2FB, 0xEDE9FE] });
     }
+    // a name font with no colours: Medieval
+    if id == 103 {
+        u["display_name_styles"] = json!({ "font_id": 7, "effect_id": 1, "colors": [] });
+    }
     u
 }
 
@@ -539,6 +543,11 @@ fn query(path: &str, key: &str) -> Option<u64> {
 }
 
 /// Windows ships no gg sans, so the download path gets a system font in woff2 clothes.
+const NAME_FONT_ASSETS: [&str; 11] = [
+    "33d4f12a85e1f736", "e6f5f44abb520735", "c560709c3470bb66", "52b541f86401a5b6", "69c735ca5c604de7", "8f20cb550d739cea",
+    "27b34a77ba5d693e", "45ef50dce38a931a", "4841dace333e9054", "c00df4f25667809b", "aa59ae54ce7e540a",
+];
+
 fn gg_stand_in(weight: u16) -> Vec<u8> {
     static CACHE: Mutex<Vec<(u16, Vec<u8>)>> = Mutex::new(Vec::new());
     if let Some((_, b)) = CACHE.lock().unwrap().iter().find(|(w, _)| *w == weight) {
@@ -739,6 +748,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             css += &face("gg mono", "normal", 400);
             (200, "text/css", css.into_bytes())
         }
+        // the nitro display name fonts, by their real asset names
+        ("GET", ["assets", f]) if NAME_FONT_ASSETS.iter().any(|h| f.strip_suffix(".woff2") == Some(*h)) => (200, "font/woff2", gg_stand_in(400)),
         ("GET", ["assets", f]) if f.starts_with("mock") && f.ends_with("normal.woff2") => {
             let w: u16 = f[4..7].parse().unwrap_or(400);
             (200, "font/woff2", gg_stand_in(w))

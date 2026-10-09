@@ -272,7 +272,8 @@ fn custom_emoji(s: &str) -> Option<(usize, String, Id, bool)> {
 
 pub fn emoji_url(id: Id, animated: bool) -> String {
     let gif = animated && view().animate_emoji;
-    format!("{}/emojis/{}.{}?size=48", api::cdn(), id, if gif { "gif" } else { "png" })
+    // 96 like discord's jumbo: a 48pt emoji at 150% or 200% scale would blur from 48
+    format!("{}/emojis/{}.{}?size=96", api::cdn(), id, if gif { "gif" } else { "png" })
 }
 
 fn is_invite(url: &str) -> bool {

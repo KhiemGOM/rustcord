@@ -871,7 +871,8 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            let r = text::label(ui, name, bold(20.0), pal().header_primary, Sense::hover());
+            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { bold(20.0) };
+            let r = text::label(ui, name, face, pal().header_primary, Sense::hover());
             if user.bot {
                 super::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0);
             }

@@ -908,12 +908,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         None => ui.rect_contains_pointer(row),
     };
     let fill = if d.store.mentions_me(m) && m.author != me {
-        ui.painter().rect_filled(
-            Rect::from_min_size(row.min, vec2(2.0, row.height())),
-            CornerRadius::ZERO,
-            YELLOW,
-        );
-        if hovered { Color32::from_rgba_premultiplied(30, 23, 8, 36) } else { pal().highlight_bg }
+        ui.painter().rect_filled(Rect::from_min_size(row.min, vec2(2.0, row.height())), CornerRadius::ZERO, pal().mention_bar);
+        // discord's hover over a mention is the lighter of the two
+        if hovered { pal().highlight_hover } else { pal().highlight_bg }
     } else if let Some((_, t)) = d.flash.filter(|(id, _)| *id == m.id) {
         // jumped-to message glows and fades out over two seconds
         let a = (1.0 - t.elapsed().as_secs_f32() / 2.0).clamp(0.0, 1.0);
@@ -1022,7 +1019,11 @@ impl Ink {
 /// The ink for an author's name, and the role colour for the dot some people prefer.
 fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     use crate::cache::RoleColors::*;
-    if let Some((fx, cols)) = d.store.user(who).and_then(|u| u.style.clone()) {
+    // discord paints a nitro style's colours only outside servers; in one, roles colour the name
+    // and the style lends just its font
+    if d.guild == 0
+        && let Some((fx, cols)) = d.store.user(who).and_then(|u| u.style.clone())
+    {
         let min = if matches!(fx, 2 | 6 | 7) { 2.5 } else { 3.0 };
         let stops: Vec<Color32> = cols.iter().map(|c| contrast(role_color(*c), pal().bg_primary, min)).collect();
         // gradient, glow and prism spread their colours; the other effects sit flat on the first
@@ -1058,7 +1059,8 @@ fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
 #[allow(clippy::too_many_arguments)]
 fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: Option<Color32>, font: f32, hot: bool) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), (font * 1.375).round()), Sense::hover());
-    let n = ink.layout(ui.ctx(), name, medium(font), row.width() - 160.0, hot);
+    let face = name_font(d.store.user(m.author).map_or(0, |u| u.font), font);
+    let n = ink.layout(ui.ctx(), name, face, row.width() - 160.0, hot);
     let ny = row.center().y - n.size().y / 2.0;
     let name_rect = Rect::from_min_size(pos2(row.left(), ny), n.size());
     let resp = ui.interact(name_rect, ui.id().with(("author", name)), Sense::click());
@@ -1078,6 +1080,11 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
         ui.painter().circle_filled(pos2(x + 5.0, row.center().y), 5.0, c);
         x += 14.0;
     }
+    let cy = row.center().y;
+    let user = d.store.user(m.author);
+    if let Some(r) = user.filter(|u| !u.bot).and_then(|u| super::tag_chip(ui.painter(), u, pos2(x, cy), 1.0)) {
+        x = r.right() + 4.0;
+    }
     if let Some(r) = d.store.role_icon(d.guild, m.author) {
         let url = match &r.icon {
             Some(h) => format!("{}/role-icons/{}/{h}.png?size=40", crate::api::cdn(), r.id),
@@ -1091,13 +1098,8 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
         }
         x = ir.right();
     }
-    if let Some(u) = d.store.user(m.author) {
-        let cy = row.center().y;
-        if u.bot {
-            x = super::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
-        } else if let Some(r) = super::tag_chip(ui.painter(), u, pos2(x, cy), 1.0) {
-            x = r.right() + 4.0;
-        }
+    if let Some(u) = user.filter(|u| u.bot) {
+        x = super::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
     }
     let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
     let ty = base - text::baseline(&t);
