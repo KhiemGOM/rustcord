@@ -9,6 +9,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut menu = None;
     let store = &app.store;
     let mut rects = Vec::new();
+    let mut boosts = Vec::new();
     let Some(g) = store.guilds.get(&gid) else { return };
 
     // until the gateway sends a member list, fall back to people we've seen talk
@@ -33,9 +34,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     };
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
+        // discord's rows sit flush; a group header is 20 above, 18 tall, 4 over its first row
+        ui.spacing_mut().item_spacing.y = 0.0;
         let mut offline = false;
-        let mut first = true;
         for it in items {
             match it {
                 ListItem::Group { id, count } => {
@@ -46,9 +47,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         "offline" => "Offline".to_string(),
                         _ => role.map(|r| r.name.clone()).unwrap_or_default(),
                     };
-                    ui.add_space(if first { 16.0 } else { 20.0 });
-                    first = false;
-                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+                    ui.add_space(20.0);
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::hover());
+                    ui.add_space(4.0);
                     // discord puts the role's icon in front of its group
                     let icon = role.and_then(|r| r.icon_url(32));
                     let mut x = r.left() + 16.0;
@@ -59,7 +60,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, format!("{} — {}", name, count), medium(14.0), pal().channel_default);
                 }
                 ListItem::Member(uid) => {
-                    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
+                    // with an activity the row is 44, the name rides up and the line sits under it
+                    let line = if offline { None } else { store.activity_line(*uid) };
+                    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if line.is_some() { 44.0 } else { 42.0 }), Sense::click());
                     rects.push((*uid, row));
                     if resp.clicked() {
                         clicked = Some((*uid, row.left_top() - vec2(310.0, 0.0)));
@@ -101,14 +104,12 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
                     let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
-                    // with an activity the name rides up and the line sits under it
-                    let line = if offline { None } else { store.activity_line(*uid) };
-                    let ny = if line.is_some() { row.center().y - 8.0 } else { row.center().y };
+                    let ny = if line.is_some() { row.top() + 15.0 } else { row.center().y };
                     let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
                     let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, ny), Align2::LEFT_CENTER, &name, face, color.gamma_multiply(fade), tw, 1.0);
                     if let Some((emoji, plain, bold)) = line {
                         let mut x = av.right() + 12.0;
-                        let y = row.center().y + 10.0;
+                        let y = row.top() + 33.0;
                         if let Some(url) = emoji {
                             super::text::image(ui.painter(), &url, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)));
                             x += 18.0;
@@ -143,11 +144,14 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                             tx = r.right() + 4.0;
                         }
                     }
-                    // the role icon follows the name and tag, as in discord's list
-                    if let Some((r, url)) = store.role_icon(gid, *uid).and_then(|r| Some((r, r.icon_url(32)?))) {
-                        let ir = Rect::from_min_size(pos2(tx, ny - 8.0), vec2(16.0, 16.0));
-                        super::text::image_tint(ui.painter(), &url, ir, egui::Color32::WHITE.gamma_multiply(fade));
-                        ui.interact(ir, ui.id().with(("member_role_icon", *uid)), Sense::hover()).on_hover_text(&r.name);
+                    // boosters get discord's pink gem after the name and tag; role icons stay in chat
+                    let since = store.members.get(&gid).and_then(|m| m.get(uid)).map_or(0, |m| m.boost);
+                    if since > 0 {
+                        let ir = Rect::from_min_size(pos2(tx - 1.0, ny - 7.0), vec2(14.0, 14.0));
+                        super::icons::draw(ui.painter(), super::icons::Icon::Gem, ir, egui::Color32::from_rgb(0xff, 0x73, 0xfa).gamma_multiply(fade));
+                        let date = chrono::DateTime::from_timestamp(since, 0).map(|t| t.with_timezone(&chrono::Local).format("%b %-d, %Y").to_string()).unwrap_or_default();
+                        ui.interact(ir, ui.id().with(("boosting", *uid)), Sense::hover()).on_hover_text(format!("Server boosting since {date}"));
+                        boosts.push((*uid, ir));
                     }
                 }
             }
@@ -156,6 +160,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     });
     for (u, r) in rects {
         app.rects.insert(format!("member:{u}"), r);
+    }
+    for (u, r) in boosts {
+        app.rects.insert(format!("boost:{u}"), r);
     }
     if let Some((u, at)) = clicked {
         app.open_profile(u, gid, at);

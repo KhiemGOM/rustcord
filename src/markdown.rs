@@ -20,6 +20,8 @@ pub struct Inline {
     // (char index of the placeholder, url, size, gap reserved before it)
     pub emojis: Vec<(usize, String, f32, f32)>,
     pub links: Vec<(Range<usize>, Link)>,
+    // mentions and timestamps: (chars, fill, line height, pill height), painted under the text
+    pub pills: Vec<(Range<usize>, Color32, f32, f32)>,
 }
 
 pub enum Block {
@@ -40,6 +42,13 @@ pub struct Cx<'a> {
     pub embed: bool,
 }
 
+impl Cx<'_> {
+    // messages are 16 on 22, embed text 14 on 18
+    fn line(&self, size: f32) -> f32 {
+        (size * if self.embed { 18.0 / 14.0 } else { 1.375 }).round()
+    }
+}
+
 #[derive(Clone, Copy)]
 struct St {
     bold: bool,
@@ -50,7 +59,6 @@ struct St {
     spoiler: bool,
     size: f32,
     color: Color32,
-    bg: Color32,
 }
 
 struct B<'a, 'b> {
@@ -59,6 +67,9 @@ struct B<'a, 'b> {
     chars: usize,
     emojis: Vec<(usize, String, f32, f32)>,
     links: Vec<(Range<usize>, Link)>,
+    pills: Vec<(Range<usize>, Color32, f32, f32)>,
+    // room left before the next text, the inside of a pill
+    pad: f32,
     jumbo: bool,
 }
 
@@ -76,17 +87,18 @@ impl B<'_, '_> {
         } else if st.spoiler {
             (st.color, pal().spoiler_revealed)
         } else {
-            (st.color, st.bg)
+            (st.color, Color32::TRANSPARENT)
         };
         TextFormat {
             font_id: family,
-            line_height: Some((st.size * 1.375).round()),
+            line_height: Some(self.cx.line(st.size)),
             color,
             background: if st.code { pal().bg_code } else { bg },
             italics: st.italic,
             underline: if st.under { Stroke::new(1.0, color) } else { Stroke::NONE },
             strikethrough: if st.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
             valign: Align::Center,
+            expand_bg: 0.0,
             ..Default::default()
         }
     }
@@ -96,8 +108,21 @@ impl B<'_, '_> {
             return;
         }
         let f = self.fmt(st);
-        self.job.append(s, 0.0, f);
+        self.job.append(s, std::mem::take(&mut self.pad), f);
         self.chars += s.chars().count();
+    }
+
+    /// Discord's mention pill: 2px of fill either side, radius 3, as tall as the font
+    /// rather than the line.
+    fn pill(&mut self, s: &str, st: St, fill: Color32, link: Option<Link>) {
+        let start = self.chars;
+        self.pad = 2.0;
+        match link {
+            Some(l) => self.linked(s, st, l),
+            None => self.text(s, st),
+        }
+        self.pills.push((start..self.chars, fill, self.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+        self.pad = 2.0;
     }
 
     fn linked(&mut self, s: &str, st: St, link: Link) {
@@ -107,19 +132,19 @@ impl B<'_, '_> {
     }
 
     fn emoji(&mut self, url: String, st: St) {
-        let size = if self.jumbo { 48.0 } else { (st.size * 1.375).round() };
+        let size = if self.jumbo { 48.0 } else { self.cx.line(st.size) };
         let font = reg(st.size);
         let w = self.cx.ctx.fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
         let f = TextFormat {
             font_id: font,
-            line_height: Some(size.max((st.size * 1.375).round())),
+            line_height: Some(size.max(self.cx.line(st.size))),
             color: Color32::TRANSPARENT,
             valign: Align::Center,
             ..Default::default()
         };
         // epaint skips letter spacing on a paragraph's first glyph, leading space it always honours
         let lead = size - w + 1.0;
-        self.job.append("\u{a0}", lead, f);
+        self.job.append("\u{a0}", lead + std::mem::take(&mut self.pad), f);
         self.emojis.push((self.chars, url, size, lead));
         self.chars += 1;
     }
@@ -244,6 +269,9 @@ pub fn prepend(t: &mut Inline, text: &str, fmt: TextFormat, link: Option<Link>) 
     }
     for (r, _) in &mut t.links {
         *r = r.start + chars..r.end + chars;
+    }
+    for p in &mut t.pills {
+        p.0 = p.0.start + chars..p.0.end + chars;
     }
     if let Some(l) = link {
         t.links.push((0..chars, l));
@@ -443,8 +471,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             b.text(&s[plain..i], st);
             let mut s2 = st;
             s2.color = pal().mention_fg;
-            s2.bg = pal().mention_bg;
-            b.text(&rest[..n], s2);
+            b.pill(&rest[..n], s2, pal().mention_bg, None);
             Some(n)
         } else if let Some(n) = take_emoji(rest) {
             b.text(&s[plain..i], st);
@@ -508,10 +535,9 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
         b.text(&s[plain..i], st);
         let mut s2 = st;
         s2.color = color;
-        s2.bg = bg;
         match link {
-            Some(l) => b.linked(text, s2, l),
-            None => b.text(text, s2),
+            Some(l) if bg == Color32::TRANSPARENT => b.linked(text, s2, l),
+            _ => b.pill(text, s2, bg, link),
         }
     };
     if let Some(id) = inner.strip_prefix("@&").and_then(|x| x.parse::<Id>().ok()) {
@@ -568,18 +594,17 @@ fn base(cx: &Cx) -> St {
         spoiler: false,
         size: cx.size,
         color: cx.color,
-        bg: Color32::TRANSPARENT,
     }
 }
 
 fn new_b<'a, 'b>(cx: &'b Cx<'a>, jumbo: bool) -> B<'a, 'b> {
     let mut job = LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
-    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), jumbo }
+    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), pad: 0.0, jumbo }
 }
 
 fn finish(b: B) -> Block {
-    Block::Text(Inline { job: b.job, emojis: b.emojis, links: b.links })
+    Block::Text(Inline { job: b.job, emojis: b.emojis, links: b.links, pills: b.pills })
 }
 
 fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
@@ -684,7 +709,7 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
             let f = TextFormat {
                 font_id: reg(10.0),
                 color: pal().text_muted,
-                line_height: Some((cx.size * 1.375).round()),
+                // its own height, so it sits on the line rather than at the top of it
                 valign: Align::Center,
                 ..Default::default()
             };

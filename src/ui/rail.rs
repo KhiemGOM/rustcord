@@ -15,13 +15,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            // discord's home tile sits flush with the top of the rail
             ui.spacing_mut().item_spacing.y = 8.0;
-            ui.add_space(8.0);
 
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
             let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, hot| {
-                let fill = if hot { BLURPLE } else { pal().bg_primary };
+                let fill = if hot { BLURPLE } else { subtle() };
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
                 icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
             });
@@ -274,7 +274,9 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
 
-    let r = item(ui, egui::Id::new(("folder", f.id)), selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
+    // closed, discord's folder is a 48 tile of four 19px icons; open, its header is an ordinary 40
+    let size = if open { ICON } else { 48.0 };
+    let r = item_sized(ui, egui::Id::new(("folder", f.id)), size, selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
         if open {
             if hot {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), subtle());
@@ -283,11 +285,11 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
             return;
         }
         let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
-        ui.painter().rect_filled(rect, CornerRadius::same(radius), tint);
+        ui.painter().rect_filled(rect, CornerRadius::same(16), tint);
         for (i, g) in f.guilds.iter().take(4).enumerate() {
             let cell = Rect::from_min_size(
-                rect.min + vec2(3.0 + (i % 2) as f32 * 18.0, 3.0 + (i / 2) as f32 * 18.0),
-                vec2(16.0, 16.0),
+                rect.min + vec2(4.0 + (i % 2) as f32 * 21.0, 4.0 + (i / 2) as f32 * 21.0),
+                vec2(19.0, 19.0),
             );
             // the corner on the folder's outside edge is the round one
             let mut cr = CornerRadius::same(4);
@@ -330,7 +332,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
         app.rects.insert(format!("folderbg:{}", f.id), back);
         ui.painter().set(
             bg,
-            egui::epaint::RectShape::new(back, CornerRadius::same(16), fill, egui::Stroke::new(1.0, pal().bg_mod_hover), egui::StrokeKind::Inside),
+            egui::epaint::RectShape::new(back, CornerRadius::same(16), fill, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x97, 0x97, 0x9f, 66)), egui::StrokeKind::Inside),
         );
     }
 }
@@ -340,15 +342,20 @@ fn subtle() -> Color32 {
     Color32::from_rgba_unmultiplied(0x97, 0x97, 0x9f, 31)
 }
 
-fn item(
+fn item(ui: &mut Ui, id: egui::Id, selected: bool, unread: bool, paint: impl FnOnce(&Ui, Rect, u8, bool)) -> egui::Response {
+    item_sized(ui, id, ICON, selected, unread, paint)
+}
+
+fn item_sized(
     ui: &mut Ui,
     id: egui::Id,
+    size: f32,
     selected: bool,
     unread: bool,
     paint: impl FnOnce(&Ui, Rect, u8, bool),
 ) -> egui::Response {
-    let (row, resp) = ui.allocate_exact_size(vec2(72.0, ICON), Sense::click());
-    let rect = Rect::from_center_size(row.center(), vec2(ICON, ICON));
+    let (row, resp) = ui.allocate_exact_size(vec2(72.0, size), Sense::click());
+    let rect = Rect::from_center_size(row.center(), vec2(size, size));
     let hovered = resp.hovered();
     let hot = hovered || selected;
     let radius = RADIUS;

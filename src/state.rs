@@ -409,6 +409,9 @@ impl Guild {
 pub struct Member {
     pub nick: Option<String>,
     pub roles: Vec<Id>,
+    // when they started boosting the server, unix secs, 0 if they aren't
+    #[serde(default)]
+    pub boost: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -1137,7 +1140,8 @@ impl Store {
         if guild == 0 || user == 0 || !v.is_object() {
             return;
         }
-        let m = Member { nick: ost(&v["nick"]), roles: ids(&v["roles"]) };
+        let boost = v["premium_since"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
+        let m = Member { nick: ost(&v["nick"]), roles: ids(&v["roles"]), boost };
         if user == self.me
             && let Some(g) = self.guilds.get_mut(&guild)
         {
