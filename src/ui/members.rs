@@ -108,7 +108,8 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     // with an activity the name rides up and the line sits under it
                     let line = if offline { None } else { store.activity_line(*uid) };
                     let ny = if line.is_some() { row.center().y - 8.0 } else { row.center().y };
-                    let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, ny), Align2::LEFT_CENTER, &name, medium(16.0), color.gamma_multiply(fade), tw, 1.0);
+                    let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
+                    let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, ny), Align2::LEFT_CENTER, &name, face, color.gamma_multiply(fade), tw, 1.0);
                     if let Some((emoji, plain, bold)) = line {
                         let mut x = av.right() + 12.0;
                         let y = row.center().y + 10.0;

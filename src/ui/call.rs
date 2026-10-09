@@ -27,7 +27,8 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let r = ui.max_rect();
     let p = ui.painter();
     let y = r.top() + 16.0;
-    bars(ui, pos2(r.left() + 2.0, y - 7.0), col);
+    // the 14px bars centre on the status text, clear of the channel line under it
+    bars(ui, pos2(r.left() + 2.0, y - 15.0), col);
     p.text(pos2(r.left() + 22.0, y - 8.0), Align2::LEFT_CENTER, text, semi(14.0), col);
     let sub = Rect::from_min_max(pos2(r.left(), y + 2.0), pos2(r.right() - 40.0, y + 18.0));
     let sub_r = ui.interact(sub, egui::Id::new("voice_place"), Sense::click());

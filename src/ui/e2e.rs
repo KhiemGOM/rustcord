@@ -2583,6 +2583,17 @@ impl Run {
                 self.click(egui::pos2(head.right() - 28.0, head.top() + 24.0));
                 self.next(600);
             }
+            // carol's nitro name font (Medieval): fetched, and her name asks for it
+            420 => {
+                if crate::fonts::cached_name(7).is_none() || app.store.user(103).is_none_or(|u| u.font != 7) {
+                    return;
+                }
+                if crate::theme::name_font(7, 16.0).family != egui::FontFamily::Name("name7".into()) {
+                    return self.fail("carol's name font isn't the Medieval face".into());
+                }
+                self.mark("name_font");
+                self.next(300);
+            }
             419 => {
                 if app.profile.is_none() || app.user_menu.is_none() {
                     return self.fail(format!("\"...\" on the profile left profile={} menu={}", app.profile.is_some(), app.user_menu.is_some()));

@@ -70,8 +70,10 @@ pub struct Palette {
     /// --mention-background and --mention-foreground
     pub mention_bg: Color32,
     pub mention_fg: Color32,
-    /// --message-mentioned-background-default
+    /// --message-mentioned-background-default and -hover, and the bar beside (--icon-feedback-warning)
     pub highlight_bg: Color32,
+    pub highlight_hover: Color32,
+    pub mention_bar: Color32,
     pub dark: bool,
 }
 
@@ -141,6 +143,8 @@ const ASH: Palette = Palette {
     mention_bg: tint(0x5865f2, 239),
     mention_fg: rgb(0xcdd7ff),
     highlight_bg: tint(0xf8a300, 78),
+    highlight_hover: tint(0xf8a300, 39),
+    mention_bar: rgb(0xfcb529),
     dark: true,
 };
 
@@ -172,6 +176,7 @@ const DARK: Palette = Palette {
     interactive_hover: rgb(0xfbfbfb),
     link: rgb(0x4d96ee),
     mention_fg: rgb(0xa9bbff),
+    mention_bar: rgb(0xea9800),
     ..ASH
 };
 
@@ -208,6 +213,7 @@ const ONYX: Palette = Palette {
     interactive_hover: rgb(0xdcdcdf),
     link: rgb(0x2781e7),
     mention_fg: rgb(0x8ca0fd),
+    mention_bar: rgb(0xce8100),
     ..ASH
 };
 
@@ -244,6 +250,7 @@ const LIGHT: Palette = Palette {
     link: rgb(0x006dd4),
     mention_fg: rgb(0x2e3c88),
     dark: false,
+    mention_bar: rgb(0x945300),
     ..ASH
 };
 
@@ -469,10 +476,26 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     f.families.insert(FontFamily::Name("medium".into()), m);
     f.families.insert(FontFamily::Name("semi".into()), s);
     f.families.insert(FontFamily::Name("bold".into()), b);
+    // every name font family exists from the start; until its file arrives it's just gg sans
+    for (id, ..) in crate::fonts::NAME_FONTS {
+        let key = format!("name{id}");
+        let have = crate::fonts::cached_name(id).map(|b| f.font_data.insert(key.clone(), Arc::new(FontData::from_owned(b)))).is_some();
+        let fam = chain(if have { Some(key.as_str()) } else if gg { Some("gg500") } else { None });
+        f.families.insert(FontFamily::Name(key.into()), fam);
+    }
     if code {
         f.families.get_mut(&FontFamily::Monospace).unwrap().insert(0, "code".into());
     }
     f
+}
+
+/// A nitro display name in its font, or gg sans medium when it has none.
+pub fn name_font(font: u8, size: f32) -> FontId {
+    if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == font) {
+        FontId::new(size, FontFamily::Name(format!("name{font}").into()))
+    } else {
+        medium(size)
+    }
 }
 
 pub fn install(ctx: &egui::Context) {

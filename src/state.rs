@@ -87,6 +87,9 @@ pub struct User {
     /// nitro display name style: effect id and colours (the font is ignored)
     #[serde(default)]
     pub style: Option<(u8, Vec<u32>)>,
+    /// nitro display name font, discord's font_id; 0 for none
+    #[serde(default)]
+    pub font: u8,
     /// server tag shown after the name: (tag, its server, badge hash)
     #[serde(default)]
     pub tag: Option<(String, Id, String)>,
@@ -111,6 +114,7 @@ impl User {
             avatar: ost(&v["avatar"]),
             bot: v["bot"].as_bool().unwrap_or(false),
             style: (!colors.is_empty()).then(|| (s["effect_id"].as_u64().unwrap_or(1) as u8, colors)),
+            font: s["font_id"].as_u64().unwrap_or(0) as u8,
             tag: {
                 let g = &v["primary_guild"];
                 (g["identity_enabled"].as_bool() == Some(true))
@@ -1089,11 +1093,29 @@ impl Store {
     }
 
     fn upsert_user(&mut self, v: &Value) -> Id {
-        let u = User::parse(v);
+        let mut u = User::parse(v);
         let id = u.id;
-        if id != 0 {
-            self.users.insert(id, u);
+        if id == 0 {
+            return id;
         }
+        // some payloads (member list sync among them) carry a trimmed user; what they leave out
+        // isn't gone
+        if let Some(old) = self.users.get(&id) {
+            if v.get("display_name_styles").is_none() {
+                u.style = old.style.clone();
+                u.font = old.font;
+            }
+            if v.get("primary_guild").is_none() {
+                u.tag = old.tag.clone();
+            }
+            if v.get("avatar_decoration_data").is_none() {
+                u.decoration = old.decoration.clone();
+            }
+            if v.get("collectibles").is_none() {
+                u.nameplate = old.nameplate.clone();
+            }
+        }
+        self.users.insert(id, u);
         id
     }
 
