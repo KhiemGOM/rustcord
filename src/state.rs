@@ -330,6 +330,8 @@ pub struct Guild {
     pub boosts: u32,
     #[serde(default)]
     pub boost_bar: bool,
+    #[serde(default)]
+    pub tier: u8,
     #[serde(skip)]
     pub voice: HashMap<Id, Id>,
     #[serde(skip)]
@@ -1081,6 +1083,7 @@ impl Store {
         g.banner = ost(&p["banner"]);
         g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
         g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
+        g.tier = p["premium_tier"].as_u64().or(v["premium_tier"].as_u64()).unwrap_or(0) as u8;
         if let Some(n) = v["member_count"].as_u64() {
             g.member_count = n as u32;
         }
