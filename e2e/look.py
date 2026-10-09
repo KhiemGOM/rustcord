@@ -18,6 +18,11 @@ SURFACES = {
     "Light": dict(rail="f3f3f4", side="fbfbfb", chat="fbfbfb", members="fbfbfb", header="fbfbfb", input="ffffff"),
 }
 FONTS = ("400", "500", "600", "700")
+# the nitro display name fonts' asset names (src/fonts.rs)
+NAME_FONTS = {
+    "33d4f12a85e1f736", "e6f5f44abb520735", "c560709c3470bb66", "52b541f86401a5b6", "69c735ca5c604de7", "8f20cb550d739cea",
+    "27b34a77ba5d693e", "45ef50dce38a931a", "4841dace333e9054", "c00df4f25667809b", "aa59ae54ce7e540a",
+}
 
 
 def rgb(h):
@@ -89,7 +94,12 @@ def checks(runs, reqs, data):
     out["look: gg sans was decoded to ttf in the cache dir"] = all(sfnt(p) for p in cached)
     paths = [r.get("path", "") for r in reqs]
     woff = [p for p in paths if p.endswith(".woff2")]
+    # the nitro display name fonts come by their real names; everything else is gg sans
+    names = [p for p in woff if p.split("/")[-1][:-6] in NAME_FONTS]
+    gg = [p for p in woff if p not in names]
     out["look: font download read the new names off /app after the built-in one 404ed, and the warm run reused the cache"] = (
         "/app" in paths and "/assets/fonts.css" in paths
-        and sum("/assets/mock" in p for p in woff) == 4 and len(woff) == 5)
+        and sum("/assets/mock" in p for p in gg) == 4 and len(gg) == 5)
+    out["look: the eleven nitro name fonts were each fetched once, the warm run reused them"] = (
+        len(names) == 11 and len(set(names)) == 11)
     return out

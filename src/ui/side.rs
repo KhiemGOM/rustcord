@@ -567,21 +567,22 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
     resp
 }
 
-/// Discord's boost goal pill: boosts against the next level, or past level 3 a full bar and
-/// the count. It opens the server's boost page, in the browser here.
+/// Discord's boost goal pill: boosts against the next level, then against everything boosts can
+/// unlock (levels 1-3 at 2+5+7, the perks at 3+3+3+5+3+2), or once that's covered a full bar
+/// and the count. It opens the server's boost page, in the browser here.
 fn boost_goal(ui: &mut Ui, gid: Id, boosts: u32, under_banner: bool) {
     ui.add_space(if under_banner { 17.0 } else { 4.0 });
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
     let pill = Rect::from_min_max(pos2(row.left() + 12.0, row.top()), pos2(row.right() - 13.0, row.bottom()));
     let p = ui.painter();
     p.rect_filled(pill, 13, pal().bg_tertiary);
-    let next = [2, 7, 14].into_iter().find(|n| boosts < *n);
+    let next = [2, 7, 14, 33].into_iter().find(|n| boosts < *n);
     let fill = next.map_or(1.0, |n| boosts as f32 / n as f32);
     let bar = pill.shrink(2.0);
     let done = Rect::from_min_size(bar.min, vec2(bar.width() * fill, bar.height()));
     if done.width() > done.height() {
-        // discord's boost gradient, purple into pink, with round ends
-        let (a, b) = (Color32::from_rgb(0x8a, 0x42, 0xde), Color32::from_rgb(0xe6, 0x5c, 0xd6));
+        // discord's fill is the boost pink, faint at the start and stronger where it ends
+        let (a, b) = (Color32::from_rgba_unmultiplied(0xe6, 0x5c, 0xd6, 50), Color32::from_rgba_unmultiplied(0xe6, 0x5c, 0xd6, 110));
         let rad = done.height() / 2.0;
         let mid = done.shrink2(vec2(rad, 0.0));
         let mut m = egui::Mesh::default();
@@ -596,14 +597,14 @@ fn boost_goal(ui: &mut Ui, gid: Id, boosts: u32, under_banner: bool) {
         p.add(m);
     }
     let left = if next.is_none() { "Boost Goal 🎉".to_string() } else { "Boost Goal".to_string() };
-    text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().text_normal, 160.0);
+    text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().header_primary, 160.0);
     let caret = Rect::from_center_size(pos2(bar.right() - 10.0, bar.center().y), vec2(12.0, 12.0));
-    icons::draw(p, Icon::ChevronRight, caret, pal().text_normal);
+    icons::draw(p, Icon::ChevronRight, caret, pal().header_secondary);
     let count = match next {
         Some(n) => format!("{boosts}/{n} Boosts"),
         None => format!("{boosts} Boosts"),
     };
-    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), pal().text_normal);
+    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), pal().header_secondary);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

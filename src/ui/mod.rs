@@ -139,6 +139,8 @@ impl App {
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
+        // added last so it's asked first: no other loader knows its scheme
+        ctx.add_image_loader(std::sync::Arc::new(crate::emoji_font::Loader::default()));
         let (net, rx) = Net::new(ctx.clone());
         crate::fonts::fetch(&net.rt, ctx.clone());
         ctx.add_bytes_loader(std::sync::Arc::new(crate::imgcache::DiskLoader::new(
@@ -317,15 +319,28 @@ impl App {
         }
     }
 
-    // history from REST has no member objects; ask the gateway for the authors we haven't seen
+    // history from REST has no member objects; ask the gateway for the authors we haven't seen,
+    // and whoever they mention, bots' embeds included, so mentions show nicknames like discord's
     fn request_members(&mut self, ch: Id) {
         let Some(guild) = self.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0) else { return };
         let known = self.store.members.get(&guild);
         let mut ids: Vec<String> = Vec::new();
+        let mut want = |id: Id| {
+            let s = id.to_string();
+            if id != 0 && !known.is_some_and(|k| k.contains_key(&id)) && !ids.contains(&s) {
+                ids.push(s);
+            }
+        };
         for m in self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default() {
-            let id = m.author.to_string();
-            if !known.is_some_and(|k| k.contains_key(&m.author)) && !ids.contains(&id) {
-                ids.push(id);
+            want(m.author);
+            m.mentions.iter().for_each(|u| want(*u));
+            let texts = m.embeds.iter().flat_map(|e| e.desc.iter().chain(e.fields.iter().map(|f| &f.1)));
+            for t in std::iter::once(&m.content).chain(texts) {
+                for part in t.split("<@").skip(1) {
+                    if let Some(id) = part.split('>').next().map(|x| x.trim_start_matches('!')).and_then(|x| x.parse().ok()) {
+                        want(id);
+                    }
+                }
             }
         }
         if ids.is_empty() {

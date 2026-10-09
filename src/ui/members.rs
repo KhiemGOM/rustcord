@@ -50,11 +50,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     first = false;
                     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
                     // discord puts the role's icon in front of its group
-                    let icon = role.and_then(|r| match (&r.icon, &r.emoji) {
-                        (Some(h), _) => Some(format!("{}/role-icons/{}/{h}.png?size=32", crate::api::cdn(), r.id)),
-                        (None, Some(e)) => Some(crate::markdown::twemoji(e)),
-                        _ => None,
-                    });
+                    let icon = role.and_then(|r| r.icon_url(32));
                     let mut x = r.left() + 16.0;
                     if let Some(url) = icon {
                         super::text::image(ui.painter(), &url, Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0)));
@@ -116,7 +112,13 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         if let Some(url) = emoji {
                             super::text::image(ui.painter(), &url, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)));
                             x += 18.0;
+                        } else if plain == "Playing " {
+                            // discord: a green controller and the game, no verb
+                            super::icons::draw(ui.painter(), super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), GREEN);
+                            x += 18.0;
                         }
+                        // watching and playing show just the name
+                        let (plain, bold) = if plain == "Playing " || plain == "Watching " { (bold, String::new()) } else { (plain, bold) };
                         let mut job = egui::text::LayoutJob::default();
                         job.wrap.max_width = inner.right() - 8.0 - x;
                         job.wrap.max_rows = 1;
@@ -136,10 +138,16 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     }
                     if let Some(u) = store.user(*uid) {
                         if bot {
-                            super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade);
-                        } else {
-                            super::tag_chip(ui.painter(), u, pos2(tx, ny), fade);
+                            tx = super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade).right() + 4.0;
+                        } else if let Some(r) = super::tag_chip(ui.painter(), u, pos2(tx, ny), fade) {
+                            tx = r.right() + 4.0;
                         }
+                    }
+                    // the role icon follows the name and tag, as in discord's list
+                    if let Some((r, url)) = store.role_icon(gid, *uid).and_then(|r| Some((r, r.icon_url(32)?))) {
+                        let ir = Rect::from_min_size(pos2(tx, ny - 8.0), vec2(16.0, 16.0));
+                        super::text::image_tint(ui.painter(), &url, ir, egui::Color32::WHITE.gamma_multiply(fade));
+                        ui.interact(ir, ui.id().with(("member_role_icon", *uid)), Sense::hover()).on_hover_text(&r.name);
                     }
                 }
             }

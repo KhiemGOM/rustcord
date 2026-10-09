@@ -36,6 +36,8 @@ pub struct Cx<'a> {
     pub color: Color32,
     pub revealed: bool,
     pub edited: bool,
+    // embeds show an unknown user's mention as written, <@id>, not "@Unknown User"
+    pub embed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -526,7 +528,8 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
-        let name = format!("@{}", b.cx.store.name_in(b.cx.guild, id));
+        let known = b.cx.store.users.contains_key(&id) || b.cx.store.members.get(&b.cx.guild).is_some_and(|m| m.contains_key(&id));
+        let name = if b.cx.embed && !known { format!("<@{id}>") } else { format!("@{}", b.cx.store.name_in(b.cx.guild, id)) };
         pill(b, &name, Some(Link::User(id)), pal().mention_fg, pal().mention_bg);
         return Some(n);
     }
