@@ -54,6 +54,8 @@ pub struct Run {
     tries: u32,
     // links the app asked to open in the browser
     pub opened: Vec<String>,
+    // the chat's scroll offset when a step began, for steps that scroll it
+    y0: f32,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -95,6 +97,7 @@ impl Run {
             probes: Vec::new(),
             tries: 0,
             opened: Vec::new(),
+            y0: 0.0,
         })
     }
 
@@ -949,7 +952,7 @@ impl Run {
             280..=299 => self.look_steps(app, ctx),
             330..=349 => self.polish_steps(app, ctx),
             350..=369 => self.sync_steps(app, ctx),
-            370..=409 => self.emoji_steps(app, ctx),
+            370..=429 => self.emoji_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -2469,6 +2472,125 @@ impl Run {
                 }
                 self.mark("bar_read");
                 self.next(300);
+            }
+            // middle-click autoscroll: a click turns it on, moving up scrolls up, a click ends it
+            406 => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                let at = egui::pos2(c.center().x, c.top() - 200.0);
+                let b = |pressed| Event::PointerButton { pos: at, button: PointerButton::Middle, pressed, modifiers: Modifiers::NONE };
+                self.queue.push_back(vec![Event::PointerMoved(at)]);
+                self.queue.push_back(vec![b(true)]);
+                self.queue.push_back(vec![b(false)]);
+                self.next(300);
+            }
+            407 => {
+                if app.autoscroll.is_none() {
+                    return self.fail("a middle click didn't start autoscroll".into());
+                }
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                self.y0 = app.offsets.get(&general).copied().unwrap_or(0.0);
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(c.center().x, c.top() - 340.0))]);
+                self.next(700);
+            }
+            408 => {
+                if app.offsets.get(&general).copied().unwrap_or(0.0) > self.y0 - 50.0 {
+                    return;
+                }
+                self.shot(ctx, "autoscroll.png");
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                self.click(egui::pos2(c.center().x, c.top() - 340.0));
+                self.next(300);
+            }
+            409 => {
+                if app.autoscroll.is_some() {
+                    return self.fail("a click didn't end autoscroll".into());
+                }
+                self.mark("autoscroll");
+                self.key(Key::F11);
+                self.next(800);
+            }
+            // F11 in and out of fullscreen
+            410 => {
+                if !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+                    return;
+                }
+                self.shot(ctx, "fullscreen.png");
+                self.key(Key::F11);
+                self.next(800);
+            }
+            411 => {
+                if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+                    return;
+                }
+                self.mark("fullscreen");
+                self.next(300);
+            }
+            // ctrl+0 to 100%, a ctrl+wheel notch up to the next level, ctrl+0 back
+            412 | 414 => {
+                let k = |pressed| Event::Key { key: Key::Num0, physical_key: None, pressed, repeat: false, modifiers: Modifiers::COMMAND };
+                if self.step == 414 {
+                    if (ctx.zoom_factor() - 1.1).abs() > 0.01 {
+                        return;
+                    }
+                    self.shot(ctx, "zoomed.png");
+                }
+                self.queue.push_back(vec![k(true)]);
+                self.queue.push_back(vec![k(false)]);
+                self.next(500);
+            }
+            413 => {
+                if (ctx.zoom_factor() - 1.0).abs() > 0.01 {
+                    return;
+                }
+                let wheel = Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::COMMAND };
+                self.queue.push_back(vec![wheel]);
+                self.next(500);
+            }
+            415 => {
+                if (ctx.zoom_factor() - 1.0).abs() > 0.01 {
+                    return;
+                }
+                self.mark("zoom");
+                self.next(300);
+            }
+            // a member's server profile: the avatar switches to the main one, "..." opens their menu
+            416 => {
+                let me = app.store.me;
+                let other = app.store.guilds.get(&self.target.0).and_then(|g| {
+                    g.list.iter().find_map(|i| match i {
+                        crate::state::ListItem::Member(u) if *u != me => Some(*u),
+                        _ => None,
+                    })
+                });
+                let Some(r) = other.and_then(|u| app.rects.get(&format!("member:{u}")).copied()) else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            417 => {
+                let Some(head) = app.rects.get("profile_head").copied().filter(|r| r.is_positive()) else { return };
+                if !app.profile.is_some_and(|(_, g, _)| g != 0) {
+                    return self.fail("the member list didn't open a server profile".into());
+                }
+                self.click(egui::pos2(head.left() + 56.0, head.top() + 101.0));
+                self.next(600);
+            }
+            418 => {
+                if !app.profile.is_some_and(|(_, g, _)| g == 0) {
+                    return self.fail("the avatar didn't switch to the main profile".into());
+                }
+                let Some(head) = app.rects.get("profile_head").copied() else { return };
+                // the "..." button, 12 in from the banner's corner
+                self.click(egui::pos2(head.right() - 28.0, head.top() + 24.0));
+                self.next(600);
+            }
+            419 => {
+                if app.profile.is_none() || app.user_menu.is_none() {
+                    return self.fail(format!("\"...\" on the profile left profile={} menu={}", app.profile.is_some(), app.user_menu.is_some()));
+                }
+                self.shot(ctx, "profile_more.png");
+                self.key(Key::Escape);
+                self.mark("profile_more");
+                self.next(500);
             }
             _ => self.step = 99,
         }

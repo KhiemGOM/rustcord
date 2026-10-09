@@ -177,9 +177,9 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Visual Density");
     caption(ui, "Space between message groups", "");
     changed |= markers(ui, &mut s.group_space, &[0.0, 4.0, 8.0, 16.0, 24.0], |v| format!("{v}px"), 16.0);
-    caption(ui, "Zoom level", "You can change the zoom level with Ctrl +/- and reset to the default with Ctrl+0.");
+    caption(ui, "Zoom level", "You can change the zoom level with Ctrl +/- or Ctrl and the scroll wheel, and reset to the default with Ctrl+0.");
     let mut pct = (s.zoom * 100.0).round();
-    if markers(ui, &mut pct, &[50.0, 67.0, 75.0, 80.0, 90.0, 100.0, 110.0, 125.0, 150.0, 175.0, 200.0], |v| format!("{v}"), 100.0) {
+    if markers(ui, &mut pct, &crate::ui::ZOOMS, |v| format!("{v}"), 100.0) {
         s.zoom = pct / 100.0;
         changed = true;
     }

@@ -154,9 +154,10 @@ fn place(app: &App) -> (Mark, String) {
     (mark, super::channel_title(s, c.id))
 }
 
+/// Double-clicking the bar or its middle button: out of fullscreen if in it, else maximise or restore.
 fn toggle_maximized(ctx: &egui::Context) {
-    let on = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-    ctx.send_viewport_cmd(ViewportCommand::Maximized(!on));
+    let (full, on) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
+    ctx.send_viewport_cmd(if full { ViewportCommand::Fullscreen(false) } else { ViewportCommand::Maximized(!on) });
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
@@ -169,7 +170,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         keys(app, &ctx);
     }
     let (mark, title) = place(app);
-    let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+    let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
     egui::Panel::top("titlebar")
         .exact_size(HEIGHT)
         .resizable(false)
@@ -227,11 +228,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
                     glyph(ui, icon, rect, 18.0, col);
                     if hit {
-                        ctx.send_viewport_cmd(match name {
-                            "close" => ViewportCommand::Close,
-                            "min" => ViewportCommand::Minimized(true),
-                            _ => ViewportCommand::Maximized(!maximized),
-                        });
+                        match name {
+                            "close" => ctx.send_viewport_cmd(ViewportCommand::Close),
+                            "min" => ctx.send_viewport_cmd(ViewportCommand::Minimized(true)),
+                            _ => toggle_maximized(&ctx),
+                        }
                     }
                     x -= 36.0;
                 }
