@@ -247,6 +247,8 @@ def main():
                               ("role-locked and unavailable emojis stayed literal even with nitro", ":omgMods: :omgLapsed: no")]},
         "emoji: popup opened for both the locked and the nitro run": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("emoji_locked_ac", "emoji")),
         "menus: channel, server dropdown, search filters and person menu all opened": all("menus" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
+            and sum('"flags":4096' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) == 2,
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

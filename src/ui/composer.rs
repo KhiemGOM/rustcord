@@ -451,7 +451,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             app.send_message(ch);
         }
     }
-    typing_line(app, ui, chan);
+    typing_line(app, ui, chan, crect);
 }
 
 enum CardAct {
@@ -717,29 +717,48 @@ fn custom_len(s: &str) -> Option<usize> {
     ok.then_some(end + 2)
 }
 
-fn typing_line(app: &App, ui: &mut Ui, chan: &Channel) {
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+/// Discord's sits in the 24 above the composer, over the bottom of the messages, which fade out
+/// under it. Below the composer there's only discord's 8.
+fn typing_line(app: &App, ui: &mut Ui, chan: &Channel, composer: Rect) {
+    ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
     let users: Vec<Id> = app.store.typing.get(&chan.id).map(|v| v.iter().map(|(u, _)| *u).collect()).unwrap_or_default();
     if users.is_empty() {
         return;
     }
+    let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("typing")));
+    let wide = ui.max_rect().x_range().expand(8.0);
+    let fade = Rect::from_x_y_ranges(wide, composer.top() - 16.0..=composer.top());
+    let mut m = egui::Mesh::default();
+    let (clear, bg) = (pal().bg_primary.gamma_multiply(0.0), pal().bg_primary);
+    m.colored_vertex(fade.left_top(), clear);
+    m.colored_vertex(fade.right_top(), clear);
+    m.colored_vertex(fade.right_bottom(), bg);
+    m.colored_vertex(fade.left_bottom(), bg);
+    m.add_triangle(0, 1, 2);
+    m.add_triangle(0, 2, 3);
+    p.add(m);
+
+    let y = composer.top() - 12.0;
     let t = ui.input(|i| i.time) as f32;
     for i in 0..3 {
         let phase = ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
-        ui.painter().circle_filled(
-            pos2(r.left() + 6.0 + i as f32 * 7.0, r.center().y),
-            2.5,
-            pal().header_primary.gamma_multiply(0.4 + 0.6 * phase),
-        );
+        p.circle_filled(pos2(composer.left() + 19.5 + i as f32 * 8.75, y), 3.5, pal().text_normal.gamma_multiply(0.3 + 0.7 * phase));
     }
     let names: Vec<String> = users.iter().map(|u| app.store.name_in(chan.guild, *u)).collect();
-    let text = match names.len() {
-        1 => format!("{} is typing…", names[0]),
-        2 => format!("{} and {} are typing…", names[0], names[1]),
-        3 => format!("{}, {}, and {} are typing…", names[0], names[1], names[2]),
-        _ => "Several people are typing…".to_string(),
+    let parts: Vec<(&str, bool)> = match names.as_slice() {
+        [a] => vec![(a, true), (" is typing...", false)],
+        [a, b] => vec![(a, true), (" and ", false), (b, true), (" are typing...", false)],
+        [a, b, c] => vec![(a, true), (", ", false), (b, true), (", and ", false), (c, true), (" are typing...", false)],
+        _ => vec![("Several people are typing...", false)],
     };
-    text::paint(ui.painter(), pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, &text, reg(13.0), pal().text_normal, r.width() - 40.0);
+    let mut job = egui::text::LayoutJob::default();
+    for (s, name) in parts {
+        let (font, color) = if name { (semi(12.0), pal().text_normal) } else { (medium(12.0), pal().header_secondary) };
+        job.append(s, 0.0, egui::TextFormat::simple(font, color));
+    }
+    job.wrap = egui::text::TextWrapping::truncate_at_width(composer.width() - 80.0);
+    let g = ui.painter().layout_job(job);
+    p.galley(pos2(composer.left() + 64.5, y - g.size().y / 2.0), g, pal().text_normal);
 }
 
 impl App {

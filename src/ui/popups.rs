@@ -385,40 +385,55 @@ enum Hit {
 }
 
 fn switcher(app: &mut App, ctx: &egui::Context) {
+    let cur = app.cur();
+    let here = app.ui.guild;
     let Some(q) = &mut app.switcher else { return };
     let sel_id = egui::Id::new("switcher_sel");
     let mut sel: usize = ctx.data(|d| d.get_temp(sel_id).unwrap_or(0));
     let ql = q.to_lowercase();
     let store = &app.store;
 
-    let mut hits: Vec<(Hit, String, String)> = Vec::new();
-    for &c in &store.dms {
-        let t = channel_title(store, c);
-        if t.to_lowercase().contains(&ql) {
-            hits.push((Hit::Channel(c), format!("@{t}"), String::new()));
+    // with nothing typed discord lists where you were and what's unread, each under a header
+    let mut hits: Vec<Hit> = Vec::new();
+    let mut heads: Vec<(usize, &str)> = Vec::new();
+    if ql.is_empty() {
+        let prev: Vec<Hit> = app.ui.recent.iter().filter(|c| Some(**c) != cur && store.channels.contains_key(c)).take(3).map(|c| Hit::Channel(*c)).collect();
+        if !prev.is_empty() {
+            heads.push((0, "Previous Channels"));
+            hits.extend(prev);
         }
-    }
-    for gid in &store.guild_order {
-        let Some(g) = store.guilds.get(gid) else { continue };
-        if !ql.is_empty() && g.name.to_lowercase().contains(&ql) {
-            hits.push((Hit::Guild(*gid), g.name.clone(), String::new()));
+        // this server's first, then the rest down the rail, each in sidebar order
+        let order = here.into_iter().chain(store.guild_order.iter().copied().filter(|g| Some(*g) != here));
+        let unread: Vec<Id> = order
+            .filter(|g| !store.muted.contains(g))
+            .flat_map(|g| super::side::tree(store, g, None).into_iter().flat_map(|(_, k)| k))
+            .filter(|c| c.is_text() && Some(c.id) != cur && store.unread(c))
+            .map(|c| c.id)
+            .take(20)
+            .collect();
+        if !unread.is_empty() {
+            heads.push((hits.len(), "Unread Channels"));
+            hits.extend(unread.into_iter().map(Hit::Channel));
         }
-        for c in g.channels.iter().filter_map(|c| store.channels.get(c)) {
-            if (c.is_text() || c.is_forum()) && c.name.to_lowercase().contains(&ql) && store.can_view(c) && !c.is_thread() {
-                hits.push((Hit::Channel(c.id), format!("# {}", c.name), g.name.split_whitespace().collect::<Vec<_>>().join(" ")));
+    } else {
+        for &c in &store.dms {
+            if channel_title(store, c).to_lowercase().contains(&ql) {
+                hits.push(Hit::Channel(c));
             }
         }
+        for gid in &store.guild_order {
+            let Some(g) = store.guilds.get(gid) else { continue };
+            if g.name.to_lowercase().contains(&ql) {
+                hits.push(Hit::Guild(*gid));
+            }
+            for c in g.channels.iter().filter_map(|c| store.channels.get(c)) {
+                if (c.is_text() || c.is_forum()) && c.name.to_lowercase().contains(&ql) && store.can_view(c) && !c.is_thread() {
+                    hits.push(Hit::Channel(c.id));
+                }
+            }
+        }
+        hits.truncate(10);
     }
-    // recent channels first when nothing is typed
-    if ql.is_empty() {
-        let recent = &app.ui.recent;
-        hits.retain(|(h, ..)| matches!(h, Hit::Channel(c) if recent.contains(c)));
-        hits.sort_by_key(|(h, ..)| match h {
-            Hit::Channel(c) => recent.iter().position(|r| r == c).unwrap_or(99),
-            Hit::Guild(_) => 99,
-        });
-    }
-    hits.truncate(10);
     if ctx.input(|i| i.key_pressed(Key::ArrowDown)) {
         sel = (sel + 1).min(hits.len().saturating_sub(1));
     }
@@ -444,7 +459,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                     egui::TextEdit::singleline(q)
                         .frame(Frame::NONE)
                         .font(reg(22.0))
-                        .hint_text(RichText::new("Where would you like to go?").color(pal().text_muted))
+                        .hint_text(RichText::new("Where would you like to go?").font(reg(22.0)).color(pal().text_muted))
                         .desired_width(ui.available_width()),
                 );
                 r.request_focus();
@@ -457,14 +472,13 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                         ui.label(RichText::new("Can't find what you're looking for?").font(medium(16.0)).color(pal().text_muted));
                     });
                 }
-                for (i, (_, label, sub)) in hits.iter().enumerate() {
-                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
-                    if i == sel || resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for (i, hit) in hits.iter().enumerate() {
+                    if let Some((_, h)) = heads.iter().find(|(at, _)| *at == i) {
+                        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                        ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, h.to_uppercase(), semi(12.0), pal().header_secondary);
                     }
-                    text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, semi(16.0), pal().header_primary, r.width() - 200.0);
-                    ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, sub, medium(12.0), pal().header_secondary.gamma_multiply(0.6));
-                    if resp.clicked() {
+                    if switch_row(ui, store, hit, i == sel).clicked() {
                         pick = Some(i);
                     }
                 }
@@ -488,7 +502,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     super::icons::draw(&p, super::icons::Icon::ArrowLeft, Rect::from_center_size(pos2(b.right() + 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
     ctx.data_mut(|d| d.insert_temp(sel_id, sel));
     if let Some(i) = pick.filter(|i| *i < hits.len()) {
-        match hits[i].0 {
+        match hits[i] {
             Hit::Channel(c) => {
                 let g = app.store.channels.get(&c).map(|c| c.guild).unwrap_or(0);
                 app.ui.guild = if g == 0 { None } else { Some(g) };
@@ -500,6 +514,63 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     } else if modal.should_close() {
         app.switcher = None;
     }
+}
+
+/// One result: a channel's icon, name and category with its server on the right, a person's
+/// avatar, name and username, or a server.
+fn switch_row(ui: &mut Ui, store: &crate::state::Store, hit: &Hit, sel: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+    if sel || resp.hovered() {
+        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+    }
+    let p = ui.painter();
+    let y = r.center().y;
+    let x = r.left() + 35.0;
+    let lit = if sel || resp.hovered() { pal().header_primary } else { pal().header_secondary };
+    let icon = Rect::from_center_size(pos2(r.left() + 20.0, y), vec2(20.0, 20.0));
+    match *hit {
+        Hit::Guild(g) => {
+            let Some(g) = store.guilds.get(&g) else { return resp };
+            match g.icon_url() {
+                Some(u) => avatar(ui, icon, &u),
+                None => {
+                    p.rect_filled(icon, CornerRadius::same(6), pal().bg_accent);
+                    p.text(icon.center(), Align2::CENTER_CENTER, g.acronym(), medium(9.0), pal().header_primary);
+                }
+            }
+            text::paint_em(p, pos2(x, y), Align2::LEFT_CENTER, &g.name, medium(16.0), lit, r.width() - 50.0, 1.0);
+        }
+        Hit::Channel(c) => {
+            let Some(c) = store.channels.get(&c) else { return resp };
+            if c.guild == 0 {
+                let person = if c.kind == 1 { c.recipients.first().and_then(|u| store.user(*u)) } else { None };
+                match person {
+                    Some(u) => avatar(ui, icon, &u.avatar_url()),
+                    None => {
+                        p.circle_filled(icon.center(), 10.0, pal().bg_accent);
+                        super::icons::draw(p, Icon::People, icon.shrink(4.0), pal().header_primary);
+                    }
+                }
+                let n = text::paint_em(p, pos2(x, y), Align2::LEFT_CENTER, &channel_title(store, c.id), medium(16.0), lit, r.width() - 200.0, 1.0);
+                if let Some(u) = person {
+                    text::paint(p, pos2(n.right() + 4.0, y), Align2::LEFT_CENTER, &u.username, reg(16.0), pal().header_secondary, r.right() - n.right() - 14.0);
+                }
+            } else {
+                super::side::chan_icon(store, p, c, icon.shrink(2.0), pal().header_secondary);
+                let col = if store.unread(c) { pal().header_primary } else { lit };
+                let guild = store.guilds.get(&c.guild).map(|g| g.name.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
+                let g = p.text(pos2(r.right() - 10.0, y), Align2::RIGHT_CENTER, guild, medium(14.0), pal().header_secondary);
+                let n = text::paint_em(p, pos2(x, y), Align2::LEFT_CENTER, &c.name, medium(16.0), col, g.left() - x - 120.0, 1.0);
+                if let Some(cat) = store.channels.get(&c.parent).filter(|k| k.kind == 4) {
+                    text::paint(p, pos2(n.right() + 4.0, y + 1.0), Align2::LEFT_CENTER, &cat.name.to_uppercase(), semi(10.0), pal().text_muted, g.left() - n.right() - 16.0);
+                }
+            }
+        }
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
 }
 
 fn profile(app: &mut App, ctx: &egui::Context) {
@@ -925,16 +996,21 @@ fn account_row(ui: &mut Ui, icon: Option<Icon>, label: &str, caret: bool, rule: 
 fn pins(app: &mut App, ctx: &egui::Context) {
     let Some((ch, list)) = &app.pins else { return };
     let ch = *ch;
-    let at = app.rects.get("pins_button").map(|r| r.left_bottom() + vec2(-380.0, 8.0)).unwrap_or(pos2(400.0, 60.0));
+    // right-aligned under the button, as tall as 80% of the window allows
+    let at = app.rects.get("pins_button").map(|r| pos2(r.right() - 420.0, r.bottom() + 9.0)).unwrap_or(pos2(400.0, 60.0));
+    let tall = ctx.content_rect().height() * 0.8 - 57.0;
     let mut jump = None;
     let area = egui::Area::new(egui::Id::new("pins"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
         .constrain(true)
         .show(ctx, |ui| {
+            // an area only offers last frame's size; without this the list never outgrows the spinner
+            ui.set_max_height(tall + 57.0);
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20))).show(ui, |ui| {
                 ui.set_width(420.0);
-                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 12 }).show(ui, |ui| {
+                ui.set_max_width(420.0);
+                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 17 }).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
@@ -942,8 +1018,8 @@ fn pins(app: &mut App, ctx: &egui::Context) {
                         ui.label(RichText::new("Pinned Messages").font(semi(20.0)).color(pal().header_primary));
                     });
                 });
-                egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
-                    Frame::new().inner_margin(12).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(tall).show(ui, |ui| {
+                    Frame::new().inner_margin(Margin { left: 8, right: 12, top: 0, bottom: 8 }).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         match list {
                             None => {
@@ -984,7 +1060,9 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
     if let Some(id) = jump {
         app.pins = None;
         app.jump_to(ch, id);
-    } else if dismissed(ctx, &area.response) && !app.rects.get("pins_button").is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p))) {
+    } else if ctx.input(|i| i.key_pressed(Key::Escape))
+        || dismissed(ctx, &area.response) && !app.rects.get("pins_button").is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)))
+    {
         app.pins = None;
     }
 }

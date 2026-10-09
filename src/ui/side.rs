@@ -10,15 +10,17 @@ fn sort_key(c: &Channel) -> (bool, i32, Id) {
     (c.is_voice(), c.position, c.id)
 }
 
-/// Visible channels grouped under their categories, in sidebar order.
-pub fn tree(store: &Store, gid: Id) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
+/// Visible channels grouped under their categories, in sidebar order. `keep` stays in even when
+/// onboarding's opt-in would leave it out, the way discord keeps the open channel.
+pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
     let Some(g) = store.guilds.get(&gid) else { return Vec::new() };
     let all: Vec<&Channel> = g.channels.iter().filter_map(|c| store.channels.get(c)).collect();
     let visible: Vec<&Channel> = all
         .iter()
         .copied()
-        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c))
+        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c) && (keep == Some(c.id) || store.listed(c)))
         .collect();
+    let opt_in = store.opt_in.contains(&gid);
     let mut cats: Vec<&Channel> = all.iter().copied().filter(|c| c.kind == 4).collect();
     cats.sort_by_key(|c| (c.position, c.id));
 
@@ -30,7 +32,7 @@ pub fn tree(store: &Store, gid: Id) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
     }
     for cat in cats {
         let mut kids: Vec<&Channel> = visible.iter().copied().filter(|c| c.parent == cat.id).collect();
-        if kids.is_empty() && !store.can_view(cat) {
+        if kids.is_empty() && (opt_in || !store.can_view(cat)) {
             continue;
         }
         kids.sort_by_key(|c| sort_key(c));
@@ -40,7 +42,7 @@ pub fn tree(store: &Store, gid: Id) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
 }
 
 pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
-    tree(store, gid).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
+    tree(store, gid, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
 }
 
 /// How much of the bottom the floating account card takes, its 8 margin included. The rail and
@@ -118,10 +120,12 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     // a boosted server's banner sits behind the header and scrolls away with the list
     let banner = app.store.guilds.get(&gid).and_then(|g| g.banner_url());
     let scroll_id = egui::Id::new(("side_scroll", gid));
-    if let Some(url) = &banner {
+    // and once it has gone behind the header, the header is a plain one again
+    let off: f32 = ui.ctx().data(|d| d.get_temp(scroll_id)).unwrap_or(0.0);
+    let shown = banner.as_ref().filter(|_| off < 81.0);
+    if let Some(url) = shown {
         let side = ui.available_rect_before_wrap();
-        let off: f32 = ui.ctx().data(|d| d.get_temp(scroll_id)).unwrap_or(0.0);
-        let r = Rect::from_min_size(pos2(side.left(), side.top() - off.min(81.0)), vec2(side.width(), 130.0));
+        let r = Rect::from_min_size(pos2(side.left(), side.top() - off), vec2(side.width(), 130.0));
         let p = ui.painter().with_clip_rect(side);
         p.rect_filled(r, 0, pal().bg_mod_selected);
         // banners are 16:9; cover the 21:9 strip by trimming top and bottom
@@ -140,8 +144,8 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         m.add_triangle(0, 2, 3);
         p.add(m);
     }
-    let ink = if banner.is_some() { Color32::WHITE } else { pal().header_primary };
-    header_ruled(ui, banner.is_none(), |ui| {
+    let ink = if shown.is_some() { Color32::WHITE } else { pal().header_primary };
+    header_ruled(ui, shown.is_none(), |ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         let head = ui.max_rect().expand2(vec2(16.0, 0.0));
         let id = ui.id().with("guild_menu");
@@ -215,17 +219,25 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 .filter(|c| c.guild == gid && c.is_thread() && c.joined && !c.archived)
                 .collect();
             threads.sort_by_key(|t| t.id);
+            // discord's "N New" on forums: open posts started since you last looked
+            let mut fresh: std::collections::HashMap<Id, usize> = Default::default();
+            for t in store.channels.values().filter(|t| t.guild == gid && t.is_thread() && !t.archived) {
+                if store.channels.get(&t.parent).is_some_and(|f| f.is_forum()) && store.reads.get(&t.parent).is_some_and(|r| t.id > r.last_acked) {
+                    *fresh.entry(t.parent).or_default() += 1;
+                }
+            }
+            let revealed = egui::Id::new("side_revealed");
             if let Some(g) = store.guilds.get(&gid).filter(|g| g.features.iter().any(|f| f == "COMMUNITY")) {
                 // discord counts only the steps in channels you can see
                 let acts: Vec<Id> = app.guides.get(&gid).map(|(a, _)| a.iter().copied().filter(|c| store.channels.get(c).is_some_and(|c| store.can_view(c))).collect()).unwrap_or_default();
-                if !acts.is_empty() {
+                if !acts.is_empty() && g.new_member() {
                     let done = app.guides.get(&gid).map_or(0, |(_, d)| acts.iter().filter(|c| d.contains(c)).count());
                     get_started(ui, gid, acts.len(), done);
                 }
                 home_rows(ui, g, store.my_perms(gid));
             }
             let hide = store.hide_muted.contains(&gid);
-            for (cat, kids) in tree(store, gid) {
+            for (cat, kids) in tree(store, gid, cur) {
                 // hiding muted channels takes empty categories with them, but never the open channel
                 let kids: Vec<&Channel> = kids.into_iter().filter(|c| !hide || cur == Some(c.id) || !store.is_muted(c)).collect();
                 if hide && kids.is_empty() && cat.is_some() {
@@ -246,12 +258,18 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 for c in kids {
                     let selected = cur == Some(c.id);
-                    let unread = c.is_text() && store.unread(c);
+                    let muted = store.is_muted(c);
+                    let new = if muted { 0 } else { fresh.get(&c.id).copied().unwrap_or(0) };
+                    let unread = (c.is_text() && store.unread(c)) || new > 0;
                     if collapsed && !selected && !unread {
                         continue;
                     }
-                    let muted = store.is_muted(c);
-                    let (r, emoji, invite, edit) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted);
+                    let (r, emoji, invite, edit) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted, new);
+                    // like discord, bring a newly opened channel into view, once
+                    if selected && ui.ctx().data(|d| d.get_temp::<Id>(revealed)) != Some(c.id) {
+                        ui.scroll_to_rect(r.rect, None);
+                        ui.ctx().data_mut(|d| d.insert_temp(revealed, c.id));
+                    }
                     if invite {
                         make_invite = Some(c.id);
                     }
@@ -633,7 +651,10 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
     if has("GUILD_SERVER_GUIDE") {
         rows.push((Icon::ServerGuide, "Server Guide", format!("https://discord.com/channels/{id}/@home")));
     }
-    rows.push((Icon::Events, "Events", format!("https://discord.com/channels/{id}/@home")));
+    // events only once there are some or you could make one, server boosts only for managers
+    if g.events > 0 || perms & (crate::state::MANAGE_EVENTS | crate::state::CREATE_EVENTS) != 0 {
+        rows.push((Icon::Events, "Events", format!("https://discord.com/channels/{id}/@home")));
+    }
     if has("GUILD_ONBOARDING") {
         rows.push((Icon::ChannelsRoles, "Channels & Roles", format!("https://discord.com/channels/{id}/customize-community")));
     } else {
@@ -642,7 +663,9 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
     if perms & (crate::state::KICK_MEMBERS | crate::state::ADMINISTRATOR) != 0 {
         rows.push((Icon::People, "Members", format!("https://discord.com/channels/{id}/member-safety")));
     }
-    rows.push((Icon::Gem, "Server Boosts", format!("https://discord.com/channels/{id}/@home")));
+    if perms & crate::state::MANAGE_GUILD != 0 {
+        rows.push((Icon::Gem, "Server Boosts", format!("https://discord.com/channels/{id}/@home")));
+    }
     for (icon, label, url) in rows {
         let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         let inner = row.shrink2(vec2(8.0, 0.0));
@@ -711,7 +734,7 @@ pub fn glyph(c: &Channel) -> Icon {
 
 /// A channel in the list. Besides the row, hands back where its name's emoji went and whether
 /// the invite or edit buttons were clicked.
-fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool) -> (egui::Response, Option<Rect>, bool, bool) {
+fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool, new: usize) -> (egui::Response, Option<Rect>, bool, bool) {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -764,6 +787,10 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         *out = hit.on_hover_text(tip).clicked();
         right = ir.left() - 6.0;
         x -= 22.0;
+    }
+    if new > 0 && mentions == 0 && x == inner.right() - 16.0 {
+        let n = ui.painter().text(pos2(inner.right() - 8.0, row.center().y), Align2::RIGHT_CENTER, format!("{new} New"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
+        right = n.left() - 6.0;
     }
     // channel names are medium; unread ones go semibold
     let font = if unread { semi(16.0) } else { medium(16.0) };

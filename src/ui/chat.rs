@@ -54,6 +54,8 @@ struct D<'a> {
     s: &'a crate::cache::Settings,
     quick: &'a [ReactEmoji],
     moderator: bool,
+    // a copy of the message shown outside its channel (pins, search, inbox)
+    popout: bool,
 }
 
 fn normal(kind: u8) -> bool {
@@ -156,7 +158,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::members::group(app, ui, &chan));
-    } else if chan.guild != 0 && !app.ui.hide_members && !chan.is_forum() && room >= members_w + 420.0 {
+    } else if chan.guild != 0 && !app.ui.hide_members && room >= members_w + 420.0 {
         let r = egui::Panel::right("members")
             .default_size(members_w)
             .size_range(200.0..=(room - 420.0).clamp(200.0, 480.0))
@@ -167,6 +169,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), members_w) {
             app.ui.members_w = w;
         }
+    }
+    // a channel opened from elsewhere in a server that only lists the ones you picked
+    if chan.guild != 0 && !chan.is_thread() && !app.store.listed(&chan) {
+        egui::Panel::top("unlisted")
+            .exact_size(49.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(pal().bg_secondary).inner_margin(Margin { left: 28, right: 16, top: 0, bottom: 0 }))
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.label(RichText::new("This channel is not on your channel list").font(reg(14.0)).color(pal().text_normal));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let g = ui.painter().layout_no_wrap("Add to Channel List".into(), medium(14.0), Color32::WHITE);
+                        let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
+                        app.rects.insert("add_to_list".into(), b);
+                        ui.painter().rect_filled(b, 8, if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+                        icons::draw(ui.painter(), Icon::Plus, Rect::from_min_size(pos2(b.left() + 12.0, b.center().y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
+                        ui.painter().galley(pos2(b.left() + 32.0, b.center().y - g.size().y / 2.0), g, Color32::WHITE);
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if resp.clicked() {
+                            app.opt_in(chan.id);
+                        }
+                    });
+                });
+            });
     }
     if chan.is_forum() {
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| super::forum::show(app, ui, &chan));
@@ -254,6 +283,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         Some(g) => format!("Search {}", g.name.split_whitespace().collect::<Vec<_>>().join(" ")),
                         None => "Search".to_string(),
                     };
+                    let mut clear = false;
                     let r = ui
                         .allocate_ui_with_layout(vec2(sw, 32.0), Layout::left_to_right(Align::Center), |ui| {
                             Frame::new()
@@ -269,14 +299,24 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                             .hint_text(RichText::new(hint).color(pal().text_muted))
                                             .desired_width(sw - 42.0),
                                     );
-                                    let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                                    icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
+                                    // the magnifier turns into a clear button once there's a query
+                                    let (ir, x) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::click());
+                                    if q.is_empty() {
+                                        icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
+                                    } else {
+                                        icons::draw(ui.painter(), Icon::Close, ir, if x.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                                        clear = x.clicked();
+                                    }
                                     r
                                 })
                                 .inner
                         })
                         .inner;
                     app.rects.insert("search".into(), r.rect);
+                    if clear {
+                        q.clear();
+                        app.search = None;
+                    }
                     if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
                         app.start_search(chan.id, q.trim().to_string());
                     }
@@ -294,7 +334,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             app.search = None;
                         }
                     }
-                    if (chan.guild != 0 && !chan.is_forum()) || chan.kind == 3 {
+                    if chan.guild != 0 || chan.kind == 3 {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
                         if icon_button(ui, Icon::People, 32.0, tip).clicked() {
                             app.ui.hide_members = !app.ui.hide_members;
@@ -412,6 +452,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         s: &app.settings,
         quick: &app.ui.quick,
         moderator: app.store.perms(chan) & crate::state::MANAGE_MESSAGES != 0,
+        popout: false,
     };
     if d.flash.is_some() {
         ctx.request_repaint();
@@ -465,7 +506,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             prev = Some(m);
         }
-        ui.add_space(12.0);
+        // discord's spacer: room for the typing line that sits over the bottom of the list
+        ui.add_space(24.0);
         if to_bottom {
             // instant: images still loading above would bend a smooth scroll through the anchor fix
             ui.scroll_to_cursor_animation(Some(Align::BOTTOM), egui::style::ScrollAnimation::none());
@@ -1140,7 +1182,8 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         // discord: a small reply arrow, then the notice in italics
         icons::draw(p, Icon::Reply, Rect::from_center_size(pos2(r.left() + 6.0, y), vec2(12.0, 12.0)), pal().text_muted);
         let mut job = egui::text::LayoutJob::default();
-        job.append("Original message was deleted", 0.0, egui::TextFormat { font_id: reg(14.0), color: pal().text_muted, italics: true, ..Default::default() });
+        let lost = if d.popout { "Message could not be loaded" } else { "Original message was deleted" };
+        job.append(lost, 0.0, egui::TextFormat { font_id: reg(14.0), color: pal().text_muted, italics: true, ..Default::default() });
         let g = ui.painter().layout_job(job);
         p.galley(pos2(r.left() + 16.0, y - g.size().y / 2.0), g, pal().text_muted);
         return;
@@ -1847,9 +1890,18 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         s: &settings,
         quick: &[],
         moderator: false,
+        popout: true,
     };
-    let r = Frame::new().fill(pal().bg_primary).corner_radius(4).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
+    // discord's cards: a raised fill and a hairline, the reply it answers above the author
+    let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {
         ui.set_width(ui.available_width());
+        if let Some(rid) = m.reply {
+            let left = ui.max_rect().left();
+            ui.horizontal(|ui| {
+                ui.add_space(56.0);
+                ui.vertical(|ui| reply_line(ui, &mut d, rid, left - 16.0));
+            });
+        }
         ui.horizontal_top(|ui| {
             let (av, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
             if let Some(u) = store.user(m.author) {
@@ -1865,11 +1917,15 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
                 let blocks = markdown::parse(&m.content, &cx);
                 blocks_ui(ui, &blocks, &mut d, m.id);
                 for a in &m.attachments {
-                    ui.horizontal(|ui| {
-                        let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                        icons::draw(ui.painter(), Icon::File, r, pal().link);
-                        text::label(ui, &a.filename, reg(14.0), pal().link, Sense::hover());
-                    });
+                    ui.add_space(4.0);
+                    if a.is_image() {
+                        let sep = if a.proxy.contains('?') { '&' } else { '?' };
+                        let (w, h) = fit(a.w, a.h, 550.0, 350.0, ui.available_width());
+                        let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
+                        media(ui, &mut d, &url, &a.url, w, h, None);
+                    } else {
+                        file_card(ui, &a.filename, a.size, a.ctype.starts_with("video/"));
+                    }
                 }
             });
         });

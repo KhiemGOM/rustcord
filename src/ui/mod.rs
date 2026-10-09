@@ -277,7 +277,7 @@ impl App {
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
         if forum {
-            let path = format!("/channels/{ch}/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
+            let path = format!("/channels/{ch}/threads/search?sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
             self.rest("GET", path, None, Tag::Forum(ch));
         } else {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
@@ -449,6 +449,20 @@ impl App {
         }
     }
 
+    /// Puts a channel on the list of a server that only lists picked channels, keeping its
+    /// unread setting, which shares the override's flags.
+    pub fn opt_in(&mut self, ch: Id) {
+        let Some(g) = self.store.channels.get(&ch).map(|c| c.guild) else { return };
+        let unreads = match self.store.unreads.get(&ch) {
+            Some(true) => 1024,
+            Some(false) => 512,
+            None => 0,
+        };
+        self.store.opted.insert(ch);
+        let body = json!({ "channel_overrides": { ch.to_string(): { "flags": 4096 | unreads } } });
+        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+    }
+
     /// A channel's notification level, as Discord's bell menu sets it; None goes back to the
     /// category or server default.
     pub fn set_level(&mut self, ch: Id, level: Option<u8>) {
@@ -484,7 +498,7 @@ impl App {
         });
         if up || down || uup || udown {
             let list: Vec<Id> = match self.ui.guild {
-                Some(g) => side::tree(&self.store, g)
+                Some(g) => side::tree(&self.store, g, self.cur())
                     .into_iter()
                     .flat_map(|(_, k)| k)
                     .filter(|c| c.is_text() || c.is_forum())
