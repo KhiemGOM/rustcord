@@ -75,6 +75,8 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     chat |= toggle(ui, &mut s.embeds, "Show embeds and preview website links pasted into chat", "");
     sub(ui, "Emoji");
     chat |= toggle(ui, &mut s.reactions, "Show emoji reactions on messages", "");
+    changed |= quick_reactions(app, ui);
+    let s = &mut app.settings;
     sub(ui, "Spoiler content");
     note(ui, "This controls when spoiler content is displayed.");
     chat |= radio(
@@ -109,6 +111,37 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     streamer |= toggle(ui, &mut s.streamer_no_notifications, "Disable Notifications", "All desktop notifications will be disabled.");
     streamer |= toggle(ui, &mut s.hide_window, "Hide Fastcord Window from Screen Capture", "Your stream or recording shows a blank area where Fastcord's window is.");
     changed | chat | streamer
+}
+
+/// The four reactions on top of the message menu. They're changed from there, by right-clicking
+/// one; here they can go back to following what was used last.
+fn quick_reactions(app: &mut App, ui: &mut Ui) -> bool {
+    super::lead(ui);
+    ui.label(RichText::new("Quick reactions").font(medium(16.0)).color(pal().header_primary));
+    ui.add_space(4.0);
+    let custom = !app.settings.quick_reactions.is_empty();
+    let how = if custom { "Picked by you. Right-click one in a message's menu to swap it." } else { "Your most recently used. Right-click one in a message's menu to pick your own." };
+    ui.add(egui::Label::new(RichText::new(how).font(reg(14.0)).color(pal().header_secondary)).selectable(false));
+    ui.add_space(8.0);
+    let mut reset = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for e in app.quick_reactions() {
+            let (r, _) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::hover());
+            ui.painter().rect_filled(r, CornerRadius::same(8), pal().control);
+            let url = crate::gif::uri(ui.ctx(), &crate::ui::chat::emoji_url(&e), true);
+            egui::Image::from_uri(url).show_loading_spinner(false).paint_at(ui, Rect::from_center_size(r.center(), vec2(24.0, 24.0)));
+        }
+        if custom {
+            ui.add_space(10.0);
+            reset = super::link(ui, "Use recently used").clicked();
+        }
+    });
+    super::end(ui, 16.0);
+    if reset {
+        app.settings.quick_reactions.clear();
+    }
+    reset
 }
 
 fn preview(ui: &mut Ui, app: &App) {

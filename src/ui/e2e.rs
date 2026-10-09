@@ -52,6 +52,8 @@ pub struct Run {
     blur: bool,
     probes: Vec<(String, Vec<(String, Probe)>)>,
     tries: u32,
+    // links the app asked to open in the browser
+    pub opened: Vec<String>,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -92,6 +94,7 @@ impl Run {
             blur: false,
             probes: Vec::new(),
             tries: 0,
+            opened: Vec::new(),
         })
     }
 
@@ -225,6 +228,13 @@ impl Run {
 
     pub fn step(&mut self, app: &mut App, ctx: &egui::Context) {
         if self.done {
+            return;
+        }
+        // something asked the window to close mid-script; say where instead of vanishing
+        if ctx.input(|i| i.viewport().close_requested()) {
+            let at = self.step;
+            self.fail(format!("window closed at step {at}"));
+            self.finish(ctx);
             return;
         }
         ctx.request_repaint();
@@ -939,7 +949,7 @@ impl Run {
             280..=299 => self.look_steps(app, ctx),
             330..=349 => self.polish_steps(app, ctx),
             350..=369 => self.sync_steps(app, ctx),
-            370..=399 => self.emoji_steps(app, ctx),
+            370..=409 => self.emoji_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -2323,6 +2333,9 @@ impl Run {
             }
             // the right-click menus, the server dropdown and the search filters each open
             385 | 387 | 389 | 391 => {
+                if self.step == 389 && !self.opened.iter().any(|u| u.contains("discord.com/channels/")) {
+                    return self.fail("Server Boost in the server dropdown opened nothing".into());
+                }
                 // the filters drop down from an empty search box; an earlier step left a query in it
                 ctx.data_mut(|d| d.remove::<String>(egui::Id::new("search_q")));
                 app.search = None;
@@ -2352,7 +2365,11 @@ impl Run {
                     return self.fail(format!("{name} didn't open"));
                 }
                 self.shot(ctx, &format!("{name}.png"));
-                self.key(Key::Escape);
+                // a dropdown item that hands off to the browser has to actually ask for it
+                match ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Server Boost")))) {
+                    Some(r) if self.step == 388 => self.click(r.center()),
+                    _ => self.key(Key::Escape),
+                }
                 if self.step == 392 {
                     self.mark("menus");
                 }
@@ -2390,6 +2407,68 @@ impl Run {
                 self.mark("opt_in");
                 app.select_guild(Some(self.target.0));
                 self.next(500);
+            }
+            // the message menu's quick reactions: right-click the last slot, search, Enter
+            397 => {
+                app.open(general);
+                self.next(800);
+            }
+            398 => {
+                let Some(id) = app.store.msgs.get(&general).and_then(|e| e.list.iter().rev().find(|m| !m.pending)).map(|m| m.id) else { return };
+                app.menu = Some((general, id, egui::pos2(500.0, 300.0)));
+                self.next(600);
+            }
+            399 => {
+                let Some(r) = app.rects.get("quick:3").copied() else { return };
+                self.rclick(r.center());
+                self.next(600);
+            }
+            400 => {
+                if !matches!(app.picker, Some((super::Pick::Quick(3), _))) {
+                    return self.fail("right-clicking a quick reaction didn't open the picker for it".into());
+                }
+                self.queue.push_back(vec![Event::Text("skull".into())]);
+                self.queue.push_back(vec![]);
+                self.key(Key::Enter);
+                self.next(800);
+            }
+            401 => {
+                if app.picker.is_some() || app.settings.quick_reactions.get(3).is_none_or(|q| q.name != "💀") {
+                    return;
+                }
+                app.menu = Some((general, app.store.msgs.get(&general).and_then(|e| e.list.last()).map_or(0, |m| m.id), egui::pos2(500.0, 300.0)));
+                self.next(600);
+            }
+            402 => {
+                self.shot(ctx, "quick_reactions.png");
+                self.key(Key::Escape);
+                self.mark("quick_reactions");
+                self.next(400);
+            }
+            // a few messages back marked unread brings the "new messages" bar; a wheel down at the
+            // bottom reads them and takes it away
+            403 => {
+                let Some(id) = app.store.msgs.get(&general).and_then(|e| e.list.iter().rev().nth(3)).map(|m| m.id) else { return };
+                app.mark_unread(general, id);
+                self.next(600);
+            }
+            404 => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                if !app.marker_bar {
+                    return self.fail("marking unread didn't bring the new messages bar".into());
+                }
+                let at = egui::pos2(c.center().x, c.top() - 120.0);
+                self.queue.push_back(vec![Event::PointerMoved(at)]);
+                let wheel = Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -120.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
+                self.queue.push_back(vec![wheel]);
+                self.next(600);
+            }
+            405 => {
+                if app.marker_bar {
+                    return;
+                }
+                self.mark("bar_read");
+                self.next(300);
             }
             _ => self.step = 99,
         }
