@@ -468,11 +468,17 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut anchor = 0.0f32;
     let target = app.scroll_to.filter(|(c, _)| *c == ch).map(|(_, id)| id);
     let mut target_y = None;
+    // like discord, a channel too short to scroll sits on the composer, not under the header;
+    // last frame's height says how much room to leave above it
+    let fill_id = egui::Id::new(("chat_fill", ch));
+    let natural: f32 = ctx.data(|d| d.get_temp(fill_id)).unwrap_or(f32::MAX);
     let out = sa.show_viewport(ui, |ui, vp| {
         if nudge != 0.0 {
             ui.scroll_with_delta_animation(vec2(0.0, nudge), egui::style::ScrollAnimation::none());
         }
         ui.spacing_mut().item_spacing.y = 0.0;
+        let fill = (vp.height() - natural).max(0.0);
+        ui.add_space(fill);
         let origin = ui.max_rect().top();
         let w = ui.available_width();
         if at_start {
@@ -509,6 +515,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         // discord's spacer: room for the typing line that sits over the bottom of the list
         ui.add_space(24.0);
+        let grown = ui.cursor().top() - origin - fill;
+        ctx.data_mut(|d| d.insert_temp(fill_id, grown));
         if to_bottom {
             // instant: images still loading above would bend a smooth scroll through the anchor fix
             ui.scroll_to_cursor_animation(Some(Align::BOTTOM), egui::style::ScrollAnimation::none());
