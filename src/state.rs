@@ -190,6 +190,9 @@ pub struct Channel {
     // a forum's default view: 1 list, 2 gallery
     #[serde(default)]
     pub layout: u8,
+    // when something was last pinned, unix ms
+    #[serde(default)]
+    pub last_pin: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -237,6 +240,7 @@ impl Channel {
                 .map(|t| Tag { id: sid(&t["id"]), name: st(&t["name"]), emoji: ost(&t["emoji_name"]) })
                 .collect(),
             applied: ids(&v["applied_tags"]),
+            last_pin: iso_ms(&v["last_pin_timestamp"]),
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
             layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
         }
@@ -679,6 +683,33 @@ impl Comp {
 pub struct ReadState {
     pub last_acked: Id,
     pub mentions: u32,
+    // the newest pin you've seen, unix ms
+    #[serde(default)]
+    pub last_pin: i64,
+}
+
+/// One card of discord's activity feed (the content inventory): a game played, an activity
+/// launched, a week's top artist or game.
+#[derive(Clone, Default)]
+pub struct FeedEntry {
+    // a snowflake for games and activities, so also when it happened
+    pub id: Id,
+    pub author: Id,
+    // content_type: 1 played game, 3 top game, 6 top artist, 8 launched activity
+    pub kind: u8,
+    pub title: String,
+    pub image: Option<String>,
+    pub app: Id,
+    pub live: bool,
+    // unix ms, 0 for never
+    pub expires: i64,
+    pub count: u64,
+    pub secs: u64,
+    pub streak: u64,
+    pub trending: bool,
+    pub marathon: bool,
+    pub returning: bool,
+    pub first: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -773,6 +804,11 @@ pub struct Store {
     pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
     #[serde(skip)]
     pub typing: HashMap<Id, Vec<(Id, Instant)>>,
+    // the activity feed, best first, and application icons by id (None once looked up and missing)
+    #[serde(skip)]
+    pub feed: Vec<FeedEntry>,
+    #[serde(skip)]
+    pub app_icons: HashMap<Id, Option<String>>,
 }
 
 impl Store {
@@ -930,6 +966,11 @@ impl Store {
             .filter(|id| **id != 0)
             .find_map(|id| self.levels.get(id).copied())
             .unwrap_or_else(|| self.guilds.get(&c.guild).map(|g| g.default_notif).unwrap_or(0))
+    }
+
+    /// A dm or group dm that's muted, or every dm when the direct messages entry itself is.
+    pub fn dm_muted(&self, ch: Id) -> bool {
+        self.muted.contains(&ch) || self.muted.contains(&0)
     }
 
     /// Muted itself, or through its category or parent channel.
@@ -1283,6 +1324,7 @@ impl Store {
                 ReadState {
                     last_acked: sid(&r["last_message_id"]),
                     mentions: r["mention_count"].as_u64().unwrap_or(0) as u32,
+                    last_pin: iso_ms(&r["last_pin_timestamp"]),
                 },
             );
         }
@@ -1496,6 +1538,53 @@ impl Store {
         self.msgs.get_mut(&channel)?.list.iter_mut().find(|m| m.id == id)
     }
 
+    /// Something was pinned since you last opened the pins, which is when discord dots the pin button.
+    pub fn pins_unread(&self, ch: Id) -> bool {
+        let seen = self.reads.get(&ch).map_or(0, |r| r.last_pin);
+        self.channels.get(&ch).is_some_and(|c| c.last_pin > seen)
+    }
+
+    /// The content inventory's inbox: what friends and people you share servers with played or
+    /// listened to. Cards discord can't draw (listening sessions, expired live games) are left out.
+    pub fn set_feed(&mut self, v: &Value) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.feed = v["entries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| {
+                let c = &e["content"];
+                let x = &c["extra"];
+                let trait_of = |t: u64| c["traits"].as_array().into_iter().flatten().find(|r| r["type"].as_u64() == Some(t));
+                let kind = c["content_type"].as_u64()? as u8;
+                let title = match kind {
+                    1 | 3 => st(&x["game_name"]),
+                    6 => st(&x["artist"]["name"]),
+                    8 => st(&x["activity_name"]),
+                    _ => return None,
+                };
+                let entry = FeedEntry {
+                    id: sid(&c["id"]),
+                    author: sid(&c["author_id"]),
+                    kind,
+                    title,
+                    image: ost(&x["media"]["image_url"]),
+                    app: sid(&x["application_id"]),
+                    live: trait_of(3).and_then(|t| t["is_live"].as_bool()).unwrap_or(false),
+                    expires: iso_ms(&c["expires_at"]),
+                    count: trait_of(12).and_then(|t| t["count"].as_u64()).unwrap_or(0),
+                    secs: trait_of(2).and_then(|t| t["duration_seconds"].as_u64()).unwrap_or(0),
+                    streak: trait_of(8).and_then(|t| t["streak_count_days"].as_u64()).unwrap_or(0),
+                    trending: trait_of(9).and_then(|t| t["trending"].as_u64()).unwrap_or(0) != 0,
+                    marathon: trait_of(6).and_then(|t| t["marathon"].as_bool()).unwrap_or(false),
+                    returning: trait_of(5).is_some_and(|t| t["resurrected_last_played"].is_string()),
+                    first: trait_of(1).and_then(|t| t["first_time"].as_bool()).unwrap_or(false),
+                };
+                (entry.expires == 0 || entry.expires > now).then_some(entry)
+            })
+            .collect();
+    }
+
     pub fn mentions_me(&self, m: &Message) -> bool {
         if m.mention_everyone || m.mentions.contains(&self.me) {
             return true;
@@ -1583,6 +1672,12 @@ impl Store {
                     m.reactions.retain(|r| r.emoji != em);
                 }
             }
+            "CHANNEL_PINS_UPDATE" => {
+                if let Some(c) = self.channels.get_mut(&sid(&d["channel_id"])) {
+                    c.last_pin = iso_ms(&d["last_pin_timestamp"]);
+                }
+            }
+            "CHANNEL_PINS_ACK" => self.reads.entry(sid(&d["channel_id"])).or_default().last_pin = iso_ms(&d["timestamp"]),
             "MESSAGE_ACK" => {
                 let r = self.reads.entry(sid(&d["channel_id"])).or_default();
                 r.last_acked = r.last_acked.max(sid(&d["message_id"]));
@@ -1932,6 +2027,11 @@ fn parse_role(r: &Value) -> Role {
         icon: ost(&r["icon"]),
         emoji: ost(&r["unicode_emoji"]),
     }
+}
+
+/// An ISO timestamp as unix ms, 0 when there isn't one.
+fn iso_ms(v: &Value) -> i64 {
+    v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp_millis())
 }
 
 fn role_grad(c: &Value) -> Vec<u32> {

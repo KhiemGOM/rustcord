@@ -934,7 +934,9 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     } else if hovered {
         ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
     }
-    let unread = store.unread(c);
+    // discord greys a muted dm out: muted text, the avatar at .3, no count and no bold
+    let muted = store.dm_muted(c.id);
+    let unread = store.unread(c) && !muted;
     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
     let ring = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };
     let person = if c.kind == 1 { c.recipients.first().and_then(|u| store.user(*u)) } else { None };
@@ -953,8 +955,20 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             }
         }
     }
-    let col = if selected || unread { pal().header_primary } else if hovered { pal().interactive_hover } else { pal().channel_default };
-    let mentions = store.mentions(c.id);
+    if muted {
+        let under = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };
+        ui.painter().circle_filled(av.center(), 17.0, under.gamma_multiply(0.7));
+    }
+    let col = if selected || unread {
+        pal().header_primary
+    } else if hovered {
+        pal().interactive_hover
+    } else if muted {
+        pal().text_muted
+    } else {
+        pal().channel_default
+    };
+    let mentions = if muted { 0 } else { store.mentions(c.id) };
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if unread { semi(16.0) } else { medium(16.0) };
     let tw = right - av.right() - 12.0;

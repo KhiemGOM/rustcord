@@ -120,6 +120,35 @@ fn snow(ms: u64) -> u64 {
     (ms - 1_420_070_400_000) << 22
 }
 
+fn iso(ms: u64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms as i64).unwrap_or_default().to_rfc3339()
+}
+
+/// The activity feed: alice's top artist, bob playing right now, carol's wordle yesterday, the
+/// holographic member's streak, and someone from outside the server who mustn't show.
+fn feed() -> Value {
+    let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+    let now = now_ms();
+    let entry = |author: u64, kind: u64, at: u64, traits: Value, extra: Value| {
+        json!({ "content": { "id": snow(at).to_string(), "author_id": author.to_string(), "author_type": 1, "content_type": kind, "traits": traits, "extra": extra, "participants": [author.to_string()] } })
+    };
+    json!({ "entries": [
+        { "content": { "id": "1478167121", "author_id": "101", "author_type": 1, "content_type": 6,
+            "traits": [{ "type": 4, "range": 1 }, { "type": 12, "count": 8 }],
+            "extra": { "type": "top_artist_extra", "artist": { "name": "Rocco" },
+                       "media": { "image_url": format!("http://127.0.0.1:{port}/cdn/media/album.png") } } } },
+        entry(102, 1, now - 754_000, json!([{ "type": 3, "is_live": true }]), json!({ "type": "played_game_extra", "game_name": "Factorio", "application_id": "9001" })),
+        entry(103, 8, now - 86_400_000, json!([{ "type": 2, "duration_seconds": 120 }, { "type": 8, "streak_count_days": 4 }]),
+              json!({ "type": "launched_activity_extra", "activity_name": "Wordle", "application_id": "9002" })),
+        entry(999, 1, now - 3_600_000, json!([]), json!({ "type": "played_game_extra", "game_name": "Outsider Game", "application_id": "9003" })),
+        entry(105, 1, now - 3_600_000, json!([{ "type": 2, "duration_seconds": 7415 }, { "type": 8, "streak_count_days": 14 }, { "type": 9, "trending": 1 }]),
+              json!({ "type": "played_game_extra", "game_name": "Genshin Impact", "application_id": "9004" })),
+        // a live game that has since ended doesn't get a card
+        { "content": { "id": snow(now - 7_200_000).to_string(), "author_id": "101", "author_type": 1, "content_type": 1, "traits": [{ "type": 3, "is_live": true }],
+            "extra": { "type": "played_game_extra", "game_name": "Expired", "application_id": "9001" }, "expires_at": iso(now - 60_000) } },
+    ] })
+}
+
 fn user(id: u64) -> Value {
     let (name, global, bot) = match id {
         100 => ("you", "You", false),
@@ -311,7 +340,9 @@ const POST_B: u64 = 2032;
 fn thread() -> Value {
     json!({ "id": THREAD.to_string(), "type": 11, "guild_id": "1000", "parent_id": GENERAL.to_string(), "name": "release planning",
             "owner_id": "101", "message_count": 4, "member_count": 4, "thread_metadata": { "archived": false },
-            "last_message_id": snow(now_ms() - 27 * 60_000).to_string(), "member": { "user_id": ME.to_string() } })
+            "last_message_id": snow(now_ms() - 27 * 60_000).to_string(), "member": { "user_id": ME.to_string() },
+            // pinned to, with no read state yet, so its pin button carries the dot
+            "last_pin_timestamp": iso(now_ms() - 3_600_000) })
 }
 
 fn bot_buttons() -> Value {
@@ -427,6 +458,8 @@ fn ready(last_general: u64) -> Value {
     let mut general = ch(GENERAL, 0, "general", 0, Some(2010));
     general["last_message_id"] = json!(last_general.to_string());
     general["topic"] = json!("Talk about anything. Be nice. Rust only on Tuesdays.");
+    // pinned since you last looked, so the pin button carries its dot
+    general["last_pin_timestamp"] = json!(iso(now_ms() - 3_600_000));
     let mut help = ch(2012, 0, "help", 1, Some(2010));
     help["last_message_id"] = json!(snow(now_ms() - 60_000).to_string());
     let mut forum = ch(FORUM, 15, "ideas", 4, Some(2010));
@@ -472,7 +505,8 @@ fn ready(last_general: u64) -> Value {
     ]);
     guilds.extend(side_guilds());
     let mut reads = vec![
-        json!({ "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1 }),
+        json!({ "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1,
+                "last_pin_timestamp": iso(now_ms() - 2 * 86_400_000) }),
         json!({ "id": "2012", "last_message_id": "0", "mention_count": 2 }),
         json!({ "id": "3000", "last_message_id": "0", "mention_count": 0 }),
     ];
@@ -487,6 +521,8 @@ fn ready(last_general: u64) -> Value {
         "private_channels": [
             { "id": "3000", "type": 1, "recipient_ids": ["101"], "last_message_id": snow(now_ms() - 3_600_000).to_string() },
             { "id": "3001", "type": 3, "name": "", "recipient_ids": ["102", "103"], "last_message_id": snow(now_ms() - 7_200_000).to_string() },
+            // muted below: its messages mustn't ping or pop up in the rail
+            { "id": "3002", "type": 1, "recipient_ids": ["105"], "last_message_id": snow(now_ms() - 9_000_000).to_string() },
         ],
         "read_state": { "entries": reads, "partial": false, "version": 1 },
         "user_guild_settings": { "entries": [
@@ -495,6 +531,7 @@ fn ready(last_general: u64) -> Value {
             { "guild_id": "1004", "channel_overrides": [{ "channel_id": "2400", "muted": true }] },
             { "guild_id": "1005", "channel_overrides": [{ "channel_id": "2500", "muted": true }] },
             { "guild_id": "1006", "message_notifications": 1, "channel_overrides": [] },
+            { "guild_id": null, "channel_overrides": [{ "channel_id": "3002", "muted": true }] },
         ] },
         "user_settings_proto": settings_proto(1, true),
         "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] },
@@ -652,8 +689,11 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(400)).await;
                 let _ = tx.send(json!({ "t": "TYPING_START", "d": { "channel_id": ch.to_string(), "user_id": "101", "guild_id": "1000" } }));
-                // a dm from someone else while you're busy elsewhere, so notifications have something to do
-                tokio::time::sleep(Duration::from_millis(600)).await;
+                // a dm from someone else while you're busy elsewhere, so notifications have something to do;
+                // the muted dm talks first and should stay quiet
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": msg(snow(now_ms()), 3002, 105, "you muted me, right?") }));
+                tokio::time::sleep(Duration::from_millis(300)).await;
                 let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": msg(snow(now_ms()), 3000, 101, "hey, saw your message — got a sec?") }));
             });
             ok(m)
@@ -723,6 +763,12 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id_hash": "aaa", "approx_last_used_time": "2026-10-07T10:00:00+00:00", "client_info": { "os": "Windows", "platform": "Discord Client", "location": "Bangkok, Thailand" } },
             { "id_hash": "bbb", "approx_last_used_time": "2026-10-01T10:00:00+00:00", "client_info": { "os": "Android", "platform": "Discord Android", "location": "Bangkok, Thailand" } },
         ] })),
+        ("GET", ["api", "v9", "content-inventory", "users", "@me"]) => ok(feed()),
+        ("GET", ["api", "v9", "applications", "public"]) => ok(json!([
+            { "id": "9001", "name": "Factorio", "icon": "appicon9001" },
+            { "id": "9002", "name": "Wordle", "icon": "appicon9002" },
+            { "id": "9004", "name": "Genshin Impact", "icon": "appicon9004" },
+        ])),
         ("GET", ["api", "v9", "oauth2", "tokens"]) => ok(json!([
             { "id": "77", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } },
         ])),

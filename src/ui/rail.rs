@@ -34,11 +34,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 app.select_guild(None);
             }
 
-            // dms with something waiting get their own bubble under home, like the official client
+            // dms with something waiting get their own bubble under home, like the official client;
+            // a muted one waits quietly in the list instead
             let waiting: Vec<(Id, u32)> = app
                 .store
                 .dms
                 .iter()
+                .filter(|c| !app.store.dm_muted(**c))
                 .map(|c| (*c, app.store.mentions(*c)))
                 .filter(|(_, n)| *n > 0)
                 .take(8)

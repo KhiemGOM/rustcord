@@ -63,6 +63,12 @@ impl App {
     pub fn open_pins(&mut self, ch: Id) {
         self.pins = Some((ch, None));
         self.rest("GET", format!("/channels/{ch}/pins"), None, Tag::Pins(ch));
+        // opening them is seeing them, which takes the dot off the pin button
+        if self.store.pins_unread(ch) {
+            let last = self.store.channels.get(&ch).map_or(0, |c| c.last_pin);
+            self.store.reads.entry(ch).or_default().last_pin = last;
+            self.rest("POST", format!("/channels/{ch}/pins/ack"), Some(serde_json::json!({})), Tag::Quiet);
+        }
     }
 
     pub fn open_profile(&mut self, user: Id, guild: Id, at: Pos2) {

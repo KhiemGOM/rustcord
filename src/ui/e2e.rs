@@ -54,6 +54,8 @@ pub struct Run {
     tries: u32,
     // links the app asked to open in the browser
     pub opened: Vec<String>,
+    // channels whose messages raised a notification
+    pub pinged: Vec<Id>,
     // the chat's scroll offset when a step began, for steps that scroll it
     y0: f32,
 }
@@ -97,6 +99,7 @@ impl Run {
             probes: Vec::new(),
             tries: 0,
             opened: Vec::new(),
+            pinged: Vec::new(),
             y0: 0.0,
         })
     }
@@ -477,6 +480,9 @@ impl Run {
             22 => {
                 self.shot(ctx, "search.png");
                 let Some(r) = app.rects.get("pins_button").copied() else { return };
+                if app.rects.contains_key("pins_dot") {
+                    self.mark("pins_dot");
+                }
                 self.click(r.center());
                 self.next(0);
             }
@@ -487,6 +493,9 @@ impl Run {
                 }
             }
             24 => {
+                if !app.rects.contains_key("pins_dot") {
+                    self.mark("pins_dot_gone");
+                }
                 self.shot(ctx, "pins.png");
                 self.key(Key::Escape);
                 let Some(r) = app.rects.get("gear").copied() else { return };
@@ -662,6 +671,10 @@ impl Run {
                 self.key(Key::Escape);
                 if app.rects.keys().any(|k| k.starts_with("dmbubble:")) {
                     self.mark("dm_bubble");
+                }
+                // the muted dm got its message but neither pinged nor popped up in the rail
+                if app.store.mentions(3002) > 0 && !app.rects.contains_key("dmbubble:3002") && !self.pinged.contains(&3002) && self.pinged.contains(&3000) {
+                    self.mark("muted_dm");
                 }
                 self.loaded = app.cur().unwrap_or(0) as usize;
                 let k = |pressed| Event::Key { key: Key::ArrowDown, physical_key: None, pressed, repeat: false, modifiers: Modifiers::ALT };
@@ -907,7 +920,8 @@ impl Run {
                 self.next(1200);
             }
             80 => {
-                let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else {
+                // the dm with alice, which this step has always meant; the muted one came later
+                let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1) && !app.store.dm_muted(*c)) else {
                     return self.fail("no dm".into());
                 };
                 let Some(r) = app.rects.get(&format!("chan:{dm}")).copied() else { return };
@@ -1461,6 +1475,18 @@ impl Run {
                 if rect(app, "boost:102").is_none() || rect(app, "boost:103").is_some() {
                     return self.fail("member list boost gem missing for 102 or shown for 103".into());
                 }
+                // the activity section: three cards from people here, the outsider and the ended game left out
+                if rect(app, "activity:4").is_none() {
+                    return;
+                }
+                let cards: Vec<&str> = ["101", "102", "103", "105", "999"].into_iter().filter(|u| rect(app, &format!("activity:card:{u}")).is_some()).collect();
+                if cards != ["101", "102", "103"] {
+                    return self.fail(format!("activity cards were {cards:?}, wanted alice, bob and carol"));
+                }
+                if rect(app, "member_grad:103").is_some() {
+                    self.mark("member_grad");
+                }
+                self.mark("activity");
                 self.snapshot_side(app);
                 self.shot(ctx, "side_members.png");
                 self.next(300);

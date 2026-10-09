@@ -264,7 +264,15 @@ def main():
            for name, what in [("quick switcher (ctrl+k) jumped to #help", "switcher"), ("forum posts loaded", "forum"),
                               ("thread opened from sidebar", "thread"), ("profile popout loaded", "profile"),
                               ("search returned results", "search"), ("pins loaded", "pins"), ("settings opened", "settings"),
-                              ("dm from someone else raised a notification", "notified")]},
+                              ("dm from someone else raised a notification", "notified"),
+                              ("a muted dm's message neither pinged nor popped up in the rail", "muted_dm"),
+                              ("pins: something pinned since you looked puts discord's dot on the pin button", "pins_dot"),
+                              ("pins: opening them takes the dot away", "pins_dot_gone"),
+                              ("activity: the member list leads with three cards from this server's people", "activity"),
+                              ("member list: a gradient role's name is drawn as its gradient", "member_grad")]},
+        "pins: opening them acked them": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2050/pins/ack") for r in reqs),
+        "activity: the feed and its apps' icons were fetched": any("/content-inventory/users/@me" in r.get("path", "") for r in reqs)
+            and any("/applications/public" in r.get("path", "") for r in reqs),
         "forum, pins, search and profile hit the api": all(any(k in r.get("path", "") for r in reqs) for k in ("/threads/search", "/pins", "/messages/search", "/profile")),
         "voice: op 4 joined the guild voice channel": any(d.get("guild_id") == "1000" and d.get("channel_id") == "2021" for d in op4),
         "voice: identify carried session, token and max_dave_protocol_version": len(idents) >= 4 and all(
