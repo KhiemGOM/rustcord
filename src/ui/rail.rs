@@ -9,6 +9,8 @@ const ICON: f32 = 40.0;
 const RADIUS: u8 = 12;
 
 pub fn show(app: &mut App, ui: &mut Ui) {
+    // the account card floats over the bottom of the rail
+    egui::Panel::bottom("rail_foot").exact_size(super::side::foot(app)).resizable(false).show_separator_line(false).frame(egui::Frame::NONE).show(ui, |_| {});
     egui::ScrollArea::vertical()
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
         .auto_shrink([false, false])

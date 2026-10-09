@@ -43,27 +43,31 @@ pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
     tree(store, gid).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
 }
 
+/// How much of the bottom the floating account card takes, its 8 margin included. The rail and
+/// the sidebar both stop short of it.
+pub fn foot(app: &App) -> f32 {
+    66.0 + if app.voice.chan.is_some() { 102.0 } else { 0.0 }
+}
+
+/// Discord's account card, floating 8 in from the left of the server rail, the bottom, and the
+/// sidebar's right edge, with the voice controls as its top half while connected.
+pub fn card(app: &mut App, ui: &mut Ui, rail: Rect, side: Rect) {
+    let voice_h = foot(app) - 66.0;
+    let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 8.0, side.bottom() - 8.0));
+    ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 58.0), card.max);
+    if voice_h > 0.0 {
+        ui.painter().hline(card.x_range().shrink(1.0), user.top() - 0.5, egui::Stroke::new(1.0, pal().border_muted));
+        let area = Rect::from_min_max(card.min + vec2(1.0, 1.0), pos2(card.right() - 1.0, user.top() - 1.0)).shrink(12.0);
+        // children that take no room from the window's layout; the chat panel comes after
+        super::call::panel(app, &mut ui.new_child(egui::UiBuilder::new().max_rect(area)));
+    }
+    app.rects.insert("userpanel".into(), user);
+    user_panel(app, &mut ui.new_child(egui::UiBuilder::new().max_rect(user.shrink2(vec2(12.0, 0.0)))));
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
-    // discord floats the account card 8 above the bottom and in from the sides, with the
-    // voice controls as its top half while connected
-    let voice_h = if app.voice.chan.is_some() { 102.0 } else { 0.0 };
-    egui::Panel::bottom("me")
-        .exact_size(64.0 + voice_h)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(Frame::new().inner_margin(egui::Margin { left: 8, right: 8, top: 0, bottom: 8 }))
-        .show(ui, |ui| {
-            let card = ui.max_rect();
-            ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
-            let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 56.0), card.max);
-            if voice_h > 0.0 {
-                ui.painter().hline(card.x_range().shrink(1.0), user.top() - 0.5, egui::Stroke::new(1.0, pal().border_muted));
-                let area = Rect::from_min_max(card.min + vec2(1.0, 1.0), pos2(card.right() - 1.0, user.top() - 1.0)).shrink(12.0);
-                ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| super::call::panel(app, ui));
-            }
-            app.rects.insert("userpanel".into(), user);
-            ui.scope_builder(egui::UiBuilder::new().max_rect(user.shrink2(vec2(8.0, 0.0))), |ui| user_panel(app, ui));
-        });
+    egui::Panel::bottom("me").exact_size(foot(app)).resizable(false).show_separator_line(false).frame(Frame::NONE).show(ui, |_| {});
 
     match app.ui.guild {
         Some(gid) => guild(app, ui, gid),
@@ -94,7 +98,16 @@ fn header_ruled(ui: &mut Ui, rule: bool, add: impl FnOnce(&mut Ui)) {
 fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     // html collapses runs of spaces in names, so discord never shows them
     let name = app.store.guilds.get(&gid).map(|g| g.name.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
-    let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
+    let badge = app.store.guilds.get(&gid).and_then(|g| {
+        let has = |f: &str| g.features.iter().any(|x| x == f);
+        if has("PARTNERED") {
+            Some(Icon::BadgePartner)
+        } else if has("COMMUNITY") {
+            Some(if g.tier > 0 || g.boosts >= 2 { Icon::BadgeCommunityBoosted } else { Icon::BadgeCommunity })
+        } else {
+            None
+        }
+    });
     let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.perms(c) & crate::state::CREATE_INVITE != 0);
     let perms = app.store.my_perms(gid);
     let dev = app.settings.dev;
@@ -135,9 +148,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         let open = egui::Popup::is_id_open(ui.ctx(), id.with("popup"));
         let bg = ui.painter().add(egui::Shape::Noop);
         let left = ui.cursor().left();
-        if community {
+        if let Some(b) = badge {
             let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-            icons::draw(ui.painter(), Icon::Community, r, pal().header_secondary);
+            icons::draw(ui.painter(), b, r, Color32::WHITE);
             ui.add_space(5.0);
         }
         text::label(ui, &name, semi(16.0), ink, Sense::hover());
@@ -623,6 +636,8 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
     rows.push((Icon::Events, "Events", format!("https://discord.com/channels/{id}/@home")));
     if has("GUILD_ONBOARDING") {
         rows.push((Icon::ChannelsRoles, "Channels & Roles", format!("https://discord.com/channels/{id}/customize-community")));
+    } else {
+        rows.push((Icon::ChannelsRoles, "Browse Channels", format!("https://discord.com/channels/{id}/channel-browser")));
     }
     if perms & (crate::state::KICK_MEMBERS | crate::state::ADMINISTRATOR) != 0 {
         rows.push((Icon::People, "Members", format!("https://discord.com/channels/{id}/member-safety")));
@@ -949,6 +964,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
     let me = app.store.me;
     let user = app.store.user(me).cloned();
     ui.horizontal_centered(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
         let bg = ui.painter().add(egui::Shape::Noop);
         let (av, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
         if let Some(u) = &user {
@@ -965,9 +981,9 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         let names = ui.vertical(|ui| {
             ui.set_width(col);
             ui.set_max_width(col);
-            ui.add_space(8.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
-            text::label(ui, &name, semi(14.0), pal().header_primary, Sense::hover());
+            text::label(ui, &name, medium(16.0), pal().header_primary, Sense::hover());
             let sub = match app.conn {
                 crate::net::Conn::Online if app.settings.hiding_personal() => "Streamer Mode".into(),
                 // discord shows the custom status, or the status itself, and the username on hover
@@ -985,7 +1001,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                 crate::net::Conn::Resuming => "Reconnecting…".into(),
                 crate::net::Conn::Offline => "Offline".into(),
             };
-            ui.add(egui::Label::new(egui::RichText::new(sub).font(reg(12.0)).color(pal().header_secondary)).truncate().selectable(false));
+            ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));
         });
         let hit = Rect::from_x_y_ranges(av.left() - 4.0..=names.response.rect.right() + 4.0, av.center().y - 20.0..=av.center().y + 20.0);
         let resp = ui.interact(hit, ui.id().with("account"), Sense::click());

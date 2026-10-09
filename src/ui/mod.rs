@@ -1155,12 +1155,14 @@ impl eframe::App for App {
                 self.heights.clear();
                 self.heights_w = w;
             }
-            egui::Panel::left("rail")
+            let rail = egui::Panel::left("rail")
                 .exact_size(72.0)
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(Frame::new().fill(pal().bg_tertiary))
-                .show(ui, |ui| rail::show(self, ui));
+                .show(ui, |ui| rail::show(self, ui))
+                .response
+                .rect;
             // discord: 375 wide with the rail and its 1px frame line, draggable between 264 and 432
             let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 302.0 };
             let r = egui::Panel::left("side")
@@ -1171,6 +1173,7 @@ impl eframe::App for App {
                 .frame(Frame::new().fill(pal().bg_primary))
                 .show(ui, |ui| side::show(self, ui));
             side_edge(ui.painter(), r.response.rect);
+            side::card(self, ui, rail, r.response.rect);
             if let Some(w) = self.dragged(&ctx, r.response.rect.width(), side_w) {
                 self.ui.side_w = w;
             }
