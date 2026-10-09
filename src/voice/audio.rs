@@ -120,6 +120,7 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
     let (want_in, want_out) = shared.devices.lock().map(|d| d.clone()).unwrap_or_default();
     let out_dev = want_out
         .and_then(|n| host.output_devices().ok()?.find(|d| name(d) == n))
+        .or_else(|| for_calls(&host, true))
         .or_else(|| host.default_output_device());
     // test runs shouldn't make noise; decoding still happens, only the speakers stay closed
     let silent = std::env::var_os("FASTCORD_SILENT").is_some();
@@ -129,6 +130,7 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
     if !fake {
         let dev = want_in
             .and_then(|n| host.input_devices().ok()?.find(|d| name(d) == n))
+            .or_else(|| for_calls(&host, false))
             .or_else(|| host.default_input_device());
         mic = dev.and_then(|d| capture(&d));
     }
@@ -265,6 +267,21 @@ impl Tx {
             }
         }
     }
+}
+
+/// Windows' default device for calls, its "communications" role, which is where voice goes when
+/// nothing was picked. cpal only knows the general default, often a monitor or the speakers.
+fn for_calls(host: &cpal::Host, output: bool) -> Option<cpal::Device> {
+    use windows::Win32::Media::Audio::{IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eCommunications, eRender};
+    use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
+    // listing first also has cpal set up COM on this thread
+    let mut list = if output { host.output_devices().ok()? } else { host.input_devices().ok()? };
+    let id = unsafe {
+        let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let d = en.GetDefaultAudioEndpoint(if output { eRender } else { eCapture }, eCommunications).ok()?;
+        d.GetId().ok()?.to_string().ok()?
+    };
+    list.find(|d| d.id().is_ok_and(|x| x.id() == id))
 }
 
 fn name(d: &cpal::Device) -> String {

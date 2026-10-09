@@ -249,6 +249,10 @@ def main():
         "menus: channel, server dropdown, search filters and person menu all opened, and a dropdown item opened its link": all("menus" in r.get("marks_ms", {}) for r in (cold, warm)),
         "quick reactions: right-clicking one in the message menu and picking an emoji replaced it": all("quick_reactions" in r.get("marks_ms", {}) for r in (cold, warm)),
         "new messages bar: a wheel down at the bottom of the channel takes it away": all("bar_read" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "fullscreen: F11 went fullscreen and back": all("fullscreen" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "zoom: a ctrl+wheel notch went up one level (100% to 110%), ctrl+0 came back": all("zoom" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "profile: the avatar on a server profile opens the main one, and its \"...\" opens the menu with the profile still up": all("profile_more" in r.get("marks_ms", {}) for r in (cold, warm)),
         "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
             and sum('"flags":4096' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) == 2,
         "older history was paged in via ?before=": len(history) >= 2,

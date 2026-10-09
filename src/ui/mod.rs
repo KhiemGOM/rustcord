@@ -1,3 +1,4 @@
+mod autoscroll;
 mod call;
 mod chat;
 mod composer;
@@ -26,6 +27,10 @@ use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
 use crate::state::{Id, Message, Page, ReactEmoji, Status, Store};
 use crate::theme::*;
+
+/// Discord's zoom levels, in percent: the accessibility slider's ticks, which ctrl+wheel and
+/// ctrl +/- step through.
+pub const ZOOMS: [f32; 11] = [50.0, 67.0, 75.0, 80.0, 90.0, 100.0, 110.0, 125.0, 150.0, 175.0, 200.0];
 
 pub enum Pick {
     Composer,
@@ -79,6 +84,9 @@ pub struct App {
     pub marker: Option<(Id, Id)>,
     // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
     pub marker_bar: bool,
+    pub autoscroll: Option<autoscroll::Auto>,
+    // ctrl+wheel travel not yet worth a zoom step
+    zoom_acc: f32,
     pub focus_composer: bool,
     pub rects: HashMap<String, Rect>,
     pub settings: Settings,
@@ -126,6 +134,8 @@ impl App {
         snap: std::thread::JoinHandle<Option<(Store, UiState)>>,
     ) -> Self {
         let ctx = cc.egui_ctx.clone();
+        // egui's own ctrl +/- zoom goes by 10%; ours steps through discord's levels
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
@@ -183,6 +193,8 @@ impl App {
             toast: None,
             marker: None,
             marker_bar: false,
+            autoscroll: None,
+            zoom_acc: 0.0,
             focus_composer: true,
             rects: HashMap::new(),
             voice: Default::default(),
@@ -417,6 +429,16 @@ impl App {
         }
         self.settings.quick_reactions = list;
         self.save_settings(ctx);
+    }
+
+    /// The next zoom level up or down from where it is now.
+    fn step_zoom(&mut self, ctx: &egui::Context, up: bool) {
+        let now = ctx.zoom_factor() * 100.0;
+        let next = if up { ZOOMS.iter().find(|z| **z > now + 0.5) } else { ZOOMS.iter().rev().find(|z| **z < now - 0.5) };
+        if let Some(z) = next {
+            ctx.set_zoom_factor(z / 100.0);
+            self.toast(format!("Zoom {z}%"));
+        }
     }
 
     pub fn react(&mut self, ch: Id, msg: Id, em: ReactEmoji, add: bool) {
@@ -1188,6 +1210,26 @@ impl eframe::App for App {
         if self.frames == 0 {
             crate::winsys::frameless(frame);
         }
+        let (zin, zout, zreset) = ctx.input_mut(|i| {
+            use egui::{Key, Modifiers};
+            (
+                take_key(i, Modifiers::COMMAND, Key::Equals) || take_key(i, Modifiers::COMMAND, Key::Plus),
+                take_key(i, Modifiers::COMMAND, Key::Minus),
+                take_key(i, Modifiers::COMMAND, Key::Num0),
+            )
+        });
+        if zin || zout {
+            self.step_zoom(&ctx, zin);
+        }
+        if zreset {
+            ctx.set_zoom_factor(1.0);
+            self.toast("Zoom 100%");
+        }
+        // F11, as in a browser
+        if ctx.input_mut(|i| take_key(i, egui::Modifiers::NONE, egui::Key::F11)) {
+            let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+        }
         titlebar::show(self, ui);
         if self.token.is_none() {
             login::show(self, ui);
@@ -1260,6 +1302,7 @@ impl eframe::App for App {
                 e.cost("cache_save", took.elapsed());
             }
         }
+        autoscroll::paint(&ctx, &self.autoscroll);
         // eframe opens links only with a feature we don't build, so hand them to the shell; under
         // e2e they're only written down
         let urls: Vec<String> = ctx.output_mut(|o| {
@@ -1287,12 +1330,35 @@ impl eframe::App for App {
             self.e2e = Some(e);
         }
         self.frames += 1;
-        self.win = ctx.input(|i| i.viewport().inner_rect).map(|r| [r.width(), r.height()]);
+        // fullscreen's size isn't the window's; keep the one to come back to
+        if !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+            self.win = ctx.input(|i| i.viewport().inner_rect).map(|r| [r.width(), r.height()]);
+        }
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         if let Some(e) = &mut self.e2e {
             e.inject(raw);
+        }
+        autoscroll::filter(&mut self.autoscroll, raw);
+        // ctrl+wheel: a zoom level a notch
+        let mut notches = 0.0;
+        raw.events.retain(|e| match e {
+            egui::Event::MouseWheel { unit, delta, modifiers, .. } if modifiers.command => {
+                notches += match unit {
+                    egui::MouseWheelUnit::Line => delta.y,
+                    egui::MouseWheelUnit::Point => delta.y / 50.0,
+                    egui::MouseWheelUnit::Page => delta.y * 3.0,
+                };
+                false
+            }
+            _ => true,
+        });
+        self.zoom_acc += notches;
+        while self.zoom_acc.abs() >= 1.0 {
+            let up = self.zoom_acc > 0.0;
+            self.zoom_acc -= if up { 1.0 } else { -1.0 };
+            self.step_zoom(ctx, up);
         }
         // dropping files on the window attaches them to the next message
         for f in raw.dropped_files.drain(..) {

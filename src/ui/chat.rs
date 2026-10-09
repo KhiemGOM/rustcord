@@ -429,7 +429,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let pointer = ui.ctx().pointer_hover_pos();
     let hover_lock = app.bar.and_then(|(id, r)| pointer.filter(|p| r.contains(*p)).map(|_| id));
     // the hover toolbar floats on its own layer; a wheel over it still scrolls the chat, like discord
-    let over_bar = pointer.and_then(|p| ui.ctx().layer_id_at(p)) == Some(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("msg_bar")));
+    let over_bar = pointer.and_then(|p| ui.ctx().layer_id_at(p)) == Some(egui::LayerId::new(egui::Order::Middle, egui::Id::new("msg_bar")));
     if (hover_lock.is_some() || over_bar) && !fixed {
         nudge += ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta.y));
     }
@@ -1643,8 +1643,9 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
     let rect = Rect::from_min_size(pos, size);
     d.bar = Some((m.id, rect));
+    // under popouts and menus, which would otherwise lose clicks to a toolbar left over them
     egui::Area::new(egui::Id::new("msg_bar"))
-        .order(egui::Order::Foreground)
+        .order(egui::Order::Middle)
         .fixed_pos(pos)
         .show(d.ctx, |ui| {
             Frame::new()

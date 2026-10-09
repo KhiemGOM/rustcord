@@ -597,7 +597,8 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let status = app.store.status(uid);
     let me = app.store.me;
     let stranger = !user.bot && uid != me && !app.store.relationships.contains_key(&uid);
-    let (mut message, mut more, mut add) = (false, None, false);
+    let (mut message, mut more, mut add, mut main) = (false, None, false, false);
+    let mut head = Rect::NOTHING;
     let store = &app.store;
 
     // discord's 2025 popout: a 105 banner, round buttons on it, then everything at 16 in
@@ -612,6 +613,15 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let wash = ui.painter().add(egui::Shape::Noop);
                 let top = card_head(ui, &user, p, &name, status);
+                head = top;
+                // from a server profile the avatar goes to the main one
+                if gid != 0 {
+                    let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
+                    if hit.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    main = hit.on_hover_text("View Main Profile").clicked();
+                }
                 if uid != me {
                     (more, add) = banner_buttons(ui, top, stranger);
                 }
@@ -677,9 +687,12 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 theme_wash(ui, wash, p, ui.min_rect());
             });
         });
+    app.rects.insert("profile_head".into(), head);
     if message {
         app.profile = None;
         app.open_dm(uid);
+    } else if main {
+        app.open_profile(uid, 0, at);
     } else if let Some(at) = more {
         app.user_menu = Some((uid, gid, None, at));
     } else if add {
@@ -825,6 +838,11 @@ fn theme_wash(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Valu
 
 /// The top of a profile card: banner, avatar with its decoration and status, then the names.
 /// Hands back the banner so buttons can go on it.
+/// Where a card's avatar sits under its banner.
+fn card_avatar(top: Rect) -> Rect {
+    Rect::from_min_size(pos2(top.left() + 16.0, top.top() + 61.0), vec2(80.0, 80.0))
+}
+
 pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
     let accent = p
         .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
@@ -838,7 +856,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
     if let Some(b) = &banner {
         crate::gif::paint_still(ui, b, top, cr, ui.rect_contains_pointer(top));
     }
-    let av = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + 61.0), vec2(80.0, 80.0));
+    let av = card_avatar(top);
     // the ring around the avatar is cut from the card, themed or not
     let ring = theme_top(p).unwrap_or(pal().bg_secondary);
     ui.painter().circle_filled(av.center(), 46.0, ring);
