@@ -199,6 +199,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let tops: Vec<f32> = ctx.data(|d| d.get_temp(tops_id)).unwrap_or_default();
     let mut new_tops = Vec::new();
     let mut chosen = None;
+    // the first usable hit, which Enter picks while searching
+    let mut best: Option<Chosen> = None;
     let mut hovered: Option<(String, String, Option<String>)> = None;
     let mut first: Option<(String, String, Option<String>)> = None;
     let mut go = None;
@@ -344,6 +346,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         if first.is_none() {
                             first = Some(it.clone());
                         }
+                        if best.is_none() && *ok {
+                            best = Some(Chosen::Custom(e.clone()));
+                        }
                         if hot {
                             hovered = Some(it);
                         }
@@ -366,6 +371,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         let it = (twemoji(uni[i].0), format!(":{}:", uni[i].1), None);
                         if first.is_none() {
                             first = Some(it.clone());
+                        }
+                        if best.is_none() {
+                            best = Some(Chosen::Unicode(uni[i].0));
                         }
                         if hot {
                             hovered = Some(it);
@@ -416,6 +424,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         d.insert_temp(shut_id, shut);
         d.insert_temp(tones_id, tones_open);
     });
+    let searching = !q.trim().is_empty();
     ctx.data_mut(|d| {
         d.insert_temp(query_id, q);
         d.insert_temp(tops_id, new_tops);
@@ -429,6 +438,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     let clicked_out = ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer() && !on_picker_button(app, ctx);
     let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    if chosen.is_none() && searching && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        chosen = best;
+    }
     if let Some(c) = chosen {
         match target {
             Pick::Composer => {
@@ -455,6 +467,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if !mine {
                     app.react(ch, id, em, true);
                 }
+            }
+            Pick::Quick(slot) => {
+                let em = match c {
+                    Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },
+                    Chosen::Unicode(s) => ReactEmoji { id: 0, name: s.to_string(), animated: false },
+                };
+                let slot = *slot;
+                app.set_quick(slot, em, ctx);
             }
         }
         app.picker = None;

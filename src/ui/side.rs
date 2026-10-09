@@ -1005,7 +1005,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         // leave room for the three buttons so long names elide instead of running under them
         let col = (ui.available_width() - 146.0).max(40.0);
         let hot = ui.rect_contains_pointer(ui.max_rect());
-        let names = ui.vertical(|ui| {
+        let names = ui.allocate_ui_with_layout(vec2(col, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
             ui.set_max_width(col);
             ui.spacing_mut().item_spacing.y = 2.0;

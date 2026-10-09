@@ -30,6 +30,8 @@ use crate::theme::*;
 pub enum Pick {
     Composer,
     React(Id, Id),
+    // a slot of the quick reactions
+    Quick(usize),
 }
 
 pub struct App {
@@ -75,6 +77,8 @@ pub struct App {
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
     pub marker: Option<(Id, Id)>,
+    // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
+    pub marker_bar: bool,
     pub focus_composer: bool,
     pub rects: HashMap<String, Rect>,
     pub settings: Settings,
@@ -178,6 +182,7 @@ impl App {
             bar: None,
             toast: None,
             marker: None,
+            marker_bar: false,
             focus_composer: true,
             rects: HashMap::new(),
             voice: Default::default(),
@@ -276,6 +281,7 @@ impl App {
         self.focus_composer = true;
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
+        self.marker_bar = self.marker.is_some();
         if forum {
             let path = format!("/channels/{ch}/threads/search?sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
             self.rest("GET", path, None, Tag::Forum(ch));
@@ -384,6 +390,33 @@ impl App {
         self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new() });
         self.hold_ack = None;
         self.last_typing = None;
+    }
+
+    /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
+    /// the ones picked by hand, else the latest used, topped up with discord's defaults.
+    pub fn quick_reactions(&self) -> Vec<ReactEmoji> {
+        let mut list = if self.settings.quick_reactions.is_empty() { self.ui.quick.clone() } else { self.settings.quick_reactions.clone() };
+        for n in ["✅", "❤️", "🔥", "😂"] {
+            if list.len() < 4 && !list.iter().any(|q| q.id == 0 && q.name == n) {
+                list.push(ReactEmoji { id: 0, name: n.to_string(), animated: false });
+            }
+        }
+        list.truncate(4);
+        list
+    }
+
+    /// Puts an emoji in one of the quick reaction slots; one already there trades places.
+    pub fn set_quick(&mut self, slot: usize, em: ReactEmoji, ctx: &egui::Context) {
+        let mut list = self.quick_reactions();
+        if slot >= list.len() {
+            return;
+        }
+        match list.iter().position(|q| *q == em) {
+            Some(i) => list.swap(slot, i),
+            None => list[slot] = em,
+        }
+        self.settings.quick_reactions = list;
+        self.save_settings(ctx);
     }
 
     pub fn react(&mut self, ch: Id, msg: Id, em: ReactEmoji, add: bool) {
@@ -570,6 +603,7 @@ impl App {
         self.store.reads.entry(ch).or_default().last_acked = prev;
         self.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(json!({ "manual": true, "token": null })), Tag::Quiet);
         self.marker = Some((ch, prev));
+        self.marker_bar = true;
         self.hold_ack = Some(ch);
     }
 
@@ -1226,6 +1260,27 @@ impl eframe::App for App {
                 e.cost("cache_save", took.elapsed());
             }
         }
+        // eframe opens links only with a feature we don't build, so hand them to the shell; under
+        // e2e they're only written down
+        let urls: Vec<String> = ctx.output_mut(|o| {
+            let mut urls = Vec::new();
+            o.commands.retain(|c| match c {
+                egui::OutputCommand::OpenUrl(u) => {
+                    urls.push(u.url.clone());
+                    false
+                }
+                _ => true,
+            });
+            urls
+        });
+        for u in urls {
+            match &mut self.e2e {
+                Some(e) => e.opened.push(u),
+                None => {
+                    let _ = open::that_detached(u);
+                }
+            }
+        }
         if let Some(mut e) = self.e2e.take() {
             e.step(self, &ctx);
             e.frame_time(started.elapsed());
@@ -1307,7 +1362,16 @@ pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
         ui.painter().rect_filled(rect.expand(3.0), CornerRadius::same(11), ring);
     }
     ui.painter().rect_filled(rect, CornerRadius::same(8), RED);
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, Color32::WHITE);
+    // centre the digits' ink, not the line box, which keeps room under them for descenders
+    let mut ink = (f32::MAX, f32::MIN);
+    for r in &galley.rows {
+        for g in &r.glyphs {
+            let top = r.pos.y + g.pos.y + g.uv_rect.offset.y;
+            ink = (ink.0.min(top), ink.1.max(top + g.uv_rect.size.y));
+        }
+    }
+    let mid = if ink.0 < ink.1 { (ink.0 + ink.1) / 2.0 } else { galley.size().y / 2.0 };
+    ui.painter().galley(pos2(rect.center().x - galley.size().x / 2.0, rect.center().y - mid), galley, Color32::WHITE);
 }
 
 pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
@@ -1438,6 +1502,8 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     let w = indent + text.size().x.max(sub.as_ref().map_or(0.0, |s| s.size().x)) + tail;
     let h = if sub.is_some() { 52.0 } else if lead || trail != Trail::None { 36.0 } else { 34.0 };
     let (r, resp) = ui.allocate_at_least(vec2(w, h), Sense::click());
+    // menus have no app to report to; the e2e driver finds rows here by label
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
     let p = ui.painter();
     if resp.hovered() {
         p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });

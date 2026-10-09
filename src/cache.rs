@@ -60,6 +60,8 @@ pub struct Settings {
     pub inline_links: bool,
     pub inline_uploads: bool,
     pub reactions: bool,
+    // the message menu's one-click reactions when picked by hand; empty follows recent use
+    pub quick_reactions: Vec<crate::state::ReactEmoji>,
     pub emoticons: bool,
     pub spoilers: Spoilers,
     pub animate_emoji: bool,
@@ -132,6 +134,7 @@ impl Default for Settings {
             inline_links: true,
             inline_uploads: true,
             reactions: true,
+            quick_reactions: Vec::new(),
             emoticons: true,
             spoilers: Spoilers::OnClick,
             animate_emoji: true,

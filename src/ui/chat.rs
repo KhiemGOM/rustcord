@@ -434,6 +434,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         nudge += ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta.y));
     }
     let marker = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m);
+    let quick = app.quick_reactions();
     let ctx = ui.ctx().clone();
     let mut d = D {
         store: &app.store,
@@ -450,7 +451,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         flash: app.flash.filter(|(_, t)| t.elapsed().as_secs_f32() < 2.0),
         rects: Vec::new(),
         s: &app.settings,
-        quick: &app.ui.quick,
+        quick: &quick,
         moderator: app.store.perms(chan) & crate::state::MANAGE_MESSAGES != 0,
         popout: false,
     };
@@ -567,6 +568,12 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             app.flash = Some((id, std::time::Instant::now()));
         }
     }
+    // scrolling down to the newest message reads it: the bar goes, the red line stays
+    let bottom = offset + out.inner_rect.height() >= out.content_size.y - 4.0;
+    let wheel_down = ui.input(|i| i.raw.events.iter().any(|e| matches!(e, egui::Event::MouseWheel { delta, .. } if delta.y < 0.0)));
+    if bottom && wheel_down && pointer.is_some_and(|p| out.inner_rect.contains(p)) {
+        app.marker_bar = false;
+    }
     bars(app, ui, ch, out.inner_rect, offset, out.content_size.y);
 
     for a in acts {
@@ -636,7 +643,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
 /// The "N new messages" strip on top and the "Jump To Present" strip at the bottom.
 fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: f32) {
     let detached = app.store.msgs.get(&ch).is_some_and(|e| e.detached);
-    if let Some(after) = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m) {
+    if let Some(after) = app.marker.filter(|(c, _)| *c == ch && app.marker_bar).map(|(_, m)| m) {
         let list = app.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default();
         let n = list.iter().filter(|m| m.id > after && !m.pending).count();
         let first = list.iter().find(|m| m.id > after).map(|m| m.id);
@@ -1622,11 +1629,7 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
 fn action_bar(d: &mut D, m: &Message, row: Rect) {
     let own = m.author == d.store.me;
     // discord's bar: three one-click reactions, a rule, then react, edit (own), reply, forward, more
-    let quick: Vec<ReactEmoji> = if d.quick.is_empty() {
-        ["✅", "❤️", "🔥"].iter().map(|n| ReactEmoji { id: 0, name: n.to_string(), animated: false }).collect()
-    } else {
-        d.quick.to_vec()
-    };
+    let quick: Vec<ReactEmoji> = d.quick.iter().take(3).cloned().collect();
     let n = quick.len() as f32 + if own { 5.0 } else { 4.0 };
     let size = vec2(n * 32.0 + 9.0 + 2.0, 34.0);
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
@@ -1746,24 +1749,31 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
     }
     frequent.truncate(10);
-    let quick = frequent[..4].to_vec();
+    let quick = app.quick_reactions();
     let chan = app.store.channels.get(&ch);
     // pinning and deleting other people's messages take manage messages, except in dms
     let manage = chan.is_some_and(|c| c.guild == 0 || app.store.perms(c) & crate::state::MANAGE_MESSAGES != 0);
     let mut pick = None;
     let mut react = None;
+    let mut swap = None;
+    let mut tiles = Vec::new();
     // discord's message menu: one-click reactions on top, then its groups
     let open = super::float_menu(ctx, &format!("msg_menu{id}"), at, |ui| {
         use super::{Trail, menu_item, menu_row, menu_sep};
         ui.set_min_width(204.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            for e in &quick {
+            for (i, e) in quick.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::click());
+                tiles.push(r);
                 ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
                 let er = Rect::from_center_size(r.center(), vec2(24.0, 24.0));
                 Image::from_uri(gif::uri(ui.ctx(), &emoji_url(e), true)).show_loading_spinner(false).paint_at(ui, er);
-                if resp.clicked() {
+                // not discord's: right-click a slot to put another emoji there
+                if resp.secondary_clicked() {
+                    swap = Some((i, r.left_bottom()));
+                }
+                if resp.on_hover_text("Right-click to change").clicked() {
                     react = Some(e.clone());
                 }
             }
@@ -1827,6 +1837,14 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     if let Some(e) = react {
         app.react(ch, id, e, true);
         app.menu = None;
+        return;
+    }
+    for (i, r) in tiles.into_iter().enumerate() {
+        app.rects.insert(format!("quick:{i}"), r);
+    }
+    if let Some((slot, under)) = swap {
+        app.menu = None;
+        app.picker = Some((Pick::Quick(slot), under));
         return;
     }
     match pick {
