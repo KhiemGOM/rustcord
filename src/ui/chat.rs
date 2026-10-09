@@ -353,6 +353,16 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     if !chan.is_forum() {
                         let pins = super::toggle_button(ui, Icon::Pin, 32.0, "Pinned Messages", app.pins.is_some());
+                        if app.store.pins_unread(chan.id) {
+                            // discord's new-pins dot sits on the icon's lower right, cut out of it
+                            let c = pins.rect.center() + vec2(4.5, 4.5);
+                            ui.painter().circle_filled(c, 6.0, pal().bg_primary);
+                            if pins.hovered() {
+                                ui.painter().circle_filled(c, 6.0, pal().control_hover);
+                            }
+                            ui.painter().circle_filled(c, 4.0, BLURPLE);
+                            app.rects.insert("pins_dot".into(), Rect::from_center_size(c, vec2(8.0, 8.0)));
+                        }
                         app.rects.insert("pins_button".into(), pins.rect);
                         if pins.clicked() {
                             match app.pins {
@@ -1005,8 +1015,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
 /// What a name is painted with. A role gradient tiles every 100px and drifts while
 /// the message is hovered, glowing as it goes; a nitro display style stretches its
 /// colours over the whole name.
-struct Ink {
-    stops: Vec<Color32>,
+pub(super) struct Ink {
+    pub stops: Vec<Color32>,
     tile: bool,
     glow: bool,
 }
@@ -1024,10 +1034,15 @@ impl Ink {
     }
 
     fn layout(&self, ctx: &egui::Context, name: &str, font: egui::FontId, max_w: f32, hot: bool) -> text::Rich {
+        self.layout_em(ctx, name, font, max_w, hot, 1.25)
+    }
+
+    /// `em` as in `text::layout_em`: 1.0 draws emoji with the system font, as the lists do.
+    pub(super) fn layout_em(&self, ctx: &egui::Context, name: &str, font: egui::FontId, max_w: f32, hot: bool, em: f32) -> text::Rich {
         if self.stops.len() < 2 {
-            return text::layout(ctx, name, font, self.stops[0], max_w);
+            return text::layout_em(ctx, name, font, self.stops[0], max_w, em);
         }
-        let rich = text::layout(ctx, name, font, Color32::WHITE, max_w);
+        let rich = text::layout_em(ctx, name, font, Color32::WHITE, max_w, em);
         let phase = if hot && self.tile { ctx.input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
         if phase > 0.0 {
             ctx.request_repaint();
@@ -1036,7 +1051,7 @@ impl Ink {
         rich.tint(self.at(w, phase))
     }
 
-    fn paint(&self, p: &egui::Painter, rich: &text::Rich, pos: Pos2, hot: bool) {
+    pub(super) fn paint(&self, p: &egui::Painter, rich: &text::Rich, pos: Pos2, hot: bool) {
         if self.glow || (self.tile && hot) {
             // css blurs a copy of the name by 4px; a few faint rings of it look about the same
             let phase = if hot && self.tile { p.ctx().input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
@@ -1052,6 +1067,19 @@ impl Ink {
         }
         rich.paint(p, pos);
     }
+}
+
+/// A gradient role's colours, repeating along the name.
+pub(super) fn grad_ink(r: &crate::state::Role) -> Ink {
+    // the light theme darkens gradient names to 85% brightness
+    let k = if pal().dark { 1.0 } else { 0.85 };
+    let dim = |c: u32| {
+        let c = role_color(c);
+        Color32::from_rgb((c.r() as f32 * k) as u8, (c.g() as f32 * k) as u8, (c.b() as f32 * k) as u8)
+    };
+    let mut stops: Vec<Color32> = r.grad.iter().map(|c| dim(*c)).collect();
+    stops.push(stops[0]);
+    Ink { stops, tile: true, glow: false }
 }
 
 /// The ink for an author's name, and the role colour for the dot some people prefer.
@@ -1074,17 +1102,7 @@ fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     let solid = role.map(|r| role_color(r.color));
     match d.s.role_colors {
         InNames => match role {
-            Some(r) if r.grad.len() >= 2 => {
-                // the light theme darkens gradient names to 85% brightness
-                let k = if pal().dark { 1.0 } else { 0.85 };
-                let dim = |c: u32| {
-                    let c = role_color(c);
-                    Color32::from_rgb((c.r() as f32 * k) as u8, (c.g() as f32 * k) as u8, (c.b() as f32 * k) as u8)
-                };
-                let mut stops: Vec<Color32> = r.grad.iter().map(|c| dim(*c)).collect();
-                stops.push(stops[0]);
-                (Ink { stops, tile: true, glow: false }, None)
-            }
+            Some(r) if r.grad.len() >= 2 => (grad_ink(r), None),
             _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), None),
         },
         NextToNames => (Ink::flat(pal().header_primary), solid),

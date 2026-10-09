@@ -44,6 +44,8 @@ pub struct Palette {
     /// --spine-default: reply spine
     pub spine: Color32,
     pub critical: Color32,
+    // --text-feedback-positive: live timers and the like
+    pub positive: Color32,
     /// --background-code
     pub bg_code: Color32,
     /// --spoiler-hidden-background and --spoiler-revealed-background
@@ -128,6 +130,7 @@ const ASH: Palette = Palette {
     control_hover: tint(OVERLAY, 161),
     spine: rgb(0x595a63),
     critical: rgb(0xffa09b),
+    positive: rgb(0x7ecb94),
     bg_code: tint(0x5865f2, 78),
     spoiler: rgb(0x7d7e87),
     spoiler_revealed: rgb(0x232428),
@@ -164,6 +167,7 @@ const DARK: Palette = Palette {
     frame_bg: rgb(0x070709),
     spine: rgb(0x474851),
     critical: rgb(0xf87e7a),
+    positive: rgb(0x5eb479),
     spoiler: rgb(0x666770),
     spoiler_revealed: tint(0x6c6f7c, 160),
     text_normal: rgb(0xefeff1),
@@ -201,6 +205,7 @@ const ONYX: Palette = Palette {
     control_hover: tint(OVERLAY, 200),
     spine: rgb(0x383940),
     critical: rgb(0xeb5f5e),
+    positive: rgb(0x41a063),
     spoiler: rgb(0x595a63),
     spoiler_revealed: tint(0x6c6f7c, 160),
     text_normal: rgb(0xd4d5d8),
@@ -236,6 +241,7 @@ const LIGHT: Palette = Palette {
     input_bg: tint(0x000000, 20),
     spine: rgb(0xc5c6ca),
     critical: rgb(0xb92733),
+    positive: rgb(0x01713a),
     bg_code: tint(0x5865f2, 39),
     spoiler: rgb(0x8f9097),
     spoiler_revealed: rgb(0xebedef),

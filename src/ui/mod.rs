@@ -124,6 +124,8 @@ pub struct App {
     win: Option<[f32; 2]>,
     frames: u64,
     save_at: Option<Instant>,
+    // when the activity feed is next fetched
+    feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
 }
 
@@ -232,6 +234,7 @@ impl App {
             title_count: None,
             frames: 0,
             save_at: None,
+            feed_at: None,
             synced: None,
         };
         app.apply_settings(&ctx);
@@ -719,6 +722,7 @@ impl App {
         crate::sound::cue("message");
         if let Some(e) = &mut self.e2e {
             e.mark_once("notified");
+            e.pinged.push(c.id);
         } else {
             std::thread::spawn(move || {
                 let _ = notify_rust::Notification::new().appname("Fastcord").summary(&title).body(&body).show();
@@ -843,6 +847,8 @@ impl App {
                 match tag {
                     Tag::Pins(_) => self.pins = None,
                     Tag::Inbox => self.inbox = None,
+                    // the feed is a nicety; when it fails there's just no activity section
+                    Tag::Feed | Tag::AppIcons(_) => return,
                     _ => {}
                 }
                 return self.toast(e);
@@ -884,6 +890,25 @@ impl App {
                 }
             }
             Tag::Forum(f) => self.store.load_forum(f, &v),
+            Tag::Feed => {
+                self.store.set_feed(&v);
+                let mut want: Vec<Id> = self.store.feed.iter().map(|e| e.app).filter(|a| *a != 0 && !self.store.app_icons.contains_key(a)).collect();
+                want.sort_unstable();
+                want.dedup();
+                want.truncate(50);
+                if !want.is_empty() {
+                    let q: Vec<String> = want.iter().map(|a| format!("application_ids={a}")).collect();
+                    self.rest("GET", format!("/applications/public?{}", q.join("&")), None, Tag::AppIcons(want));
+                }
+            }
+            Tag::AppIcons(asked) => {
+                for a in asked {
+                    self.store.app_icons.insert(a, None);
+                }
+                for a in v.as_array().into_iter().flatten() {
+                    self.store.app_icons.insert(crate::state::sid(&a["id"]), a["icon"].as_str().map(str::to_string));
+                }
+            }
             Tag::Invite => {
                 let name = v["guild"]["name"].as_str().unwrap_or("the server").to_string();
                 self.toast(format!("Joined {name}"));
@@ -969,6 +994,7 @@ impl App {
                         if let Some(e) = &mut self.e2e {
                             e.mark("ready");
                         }
+                        self.feed_at = Some(Instant::now());
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
                     }
                     self.voice_cues(&t, &d);
@@ -1312,6 +1338,11 @@ impl eframe::App for App {
             titlebar::inbox(self, &ctx);
         }
 
+        // discord refreshes its activity feed now and then; ten minutes is close enough
+        if self.feed_at.is_some_and(|t| Instant::now() >= t) {
+            self.feed_at = Some(Instant::now() + Duration::from_secs(600));
+            self.rest("GET", "/content-inventory/users/@me?for_game_profile=false&feature=inbox".into(), None, Tag::Feed);
+        }
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
             self.save_at = None;
             let took = Instant::now();

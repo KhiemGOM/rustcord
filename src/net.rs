@@ -51,6 +51,9 @@ pub enum Tag {
     Welcome(Id),
     MemberActions(Id),
     Inbox,
+    // the activity feed, and the icons of the apps in it
+    Feed,
+    AppIcons(Vec<Id>),
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
     Quiet,

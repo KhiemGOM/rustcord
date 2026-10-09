@@ -475,7 +475,7 @@ fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
 
 fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
     let s = &app.store;
-    let mut list: Vec<_> = s.channels.values().filter(|c| c.is_text() && !s.muted.contains(&c.guild) && s.unread(c) && s.can_view(c)).collect();
+    let mut list: Vec<_> = s.channels.values().filter(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c)).collect();
     list.sort_by_key(|c| std::cmp::Reverse(c.last_msg));
     if list.is_empty() {
         empty(ui, "You're all caught up.");

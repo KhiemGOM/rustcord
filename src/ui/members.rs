@@ -1,7 +1,8 @@
-use egui::{Align2, CornerRadius, Rect, Sense, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Rect, Sense, Ui, pos2, vec2};
 
+use super::icons::{self, Icon};
 use super::{App, avatar, status_dot};
-use crate::state::{Id, ListItem, Status};
+use crate::state::{FeedEntry, Id, ListItem, Status, Store, snowflake_ms};
 use crate::theme::*;
 
 pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
@@ -10,6 +11,8 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     let store = &app.store;
     let mut rects = Vec::new();
     let mut boosts = Vec::new();
+    // anything else worth a name in app.rects
+    let mut named: Vec<(String, Rect)> = Vec::new();
     let Some(g) = store.guilds.get(&gid) else { return };
 
     // until the gateway sends a member list, fall back to people we've seen talk
@@ -33,9 +36,16 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
         &g.list
     };
 
+    let mut gear = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // discord's rows sit flush; a group header is 20 above, 18 tall, 4 over its first row
         ui.spacing_mut().item_spacing.y = 0.0;
+        if let Some(a) = activity(ui, store, gid, &mut named) {
+            match a {
+                Pick::Gear => gear = true,
+                Pick::Card(u, r) => clicked = Some((u, r.left_top() - vec2(310.0, 0.0))),
+            }
+        }
         let mut offline = false;
         for it in items {
             match it {
@@ -106,7 +116,10 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
                     let ny = if line.is_some() { row.top() + 15.0 } else { row.center().y };
                     let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
-                    let nr = super::text::paint_em(ui.painter(), pos2(av.right() + 12.0, ny), Align2::LEFT_CENTER, &name, face, color.gamma_multiply(fade), tw, 1.0);
+                    let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
+                    if store.role_look(gid, *uid).is_some_and(|r| r.grad.len() >= 2) {
+                        named.push((format!("member_grad:{uid}"), nr));
+                    }
                     if let Some((emoji, plain, bold)) = line {
                         let mut x = av.right() + 12.0;
                         let y = row.top() + 33.0;
@@ -164,11 +177,188 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     for (u, r) in boosts {
         app.rects.insert(format!("boost:{u}"), r);
     }
+    app.rects.extend(named);
+    if gear {
+        app.settings_page = Some(super::settings::Page::Activity);
+    }
     if let Some((u, at)) = clicked {
         app.open_profile(u, gid, at);
     }
     if let Some((u, at)) = menu {
         app.user_menu = Some((u, gid, None, at));
+    }
+}
+
+/// A member's name as the list draws it: a gradient role's colours run along it, anything else
+/// is the flat colour given. Anchored left-centre at `at`.
+#[allow(clippy::too_many_arguments)]
+fn name_in(ui: &Ui, store: &Store, gid: Id, uid: Id, name: &str, face: egui::FontId, at: egui::Pos2, flat: Color32, fade: f32, max_w: f32, hot: bool) -> Rect {
+    match store.role_look(gid, uid).filter(|r| r.grad.len() >= 2) {
+        Some(r) => {
+            let mut ink = super::chat::grad_ink(r);
+            for s in &mut ink.stops {
+                *s = s.gamma_multiply(fade);
+            }
+            let rich = ink.layout_em(ui.ctx(), name, face, max_w, hot, 1.0);
+            let rect = Align2::LEFT_CENTER.anchor_size(at, rich.size());
+            ink.paint(ui.painter(), &rich, rect.min, hot);
+            rect
+        }
+        None => super::text::paint_em(ui.painter(), at, Align2::LEFT_CENTER, name, face, flat, max_w, 1.0),
+    }
+}
+
+enum Pick {
+    Gear,
+    Card(Id, Rect),
+}
+
+/// Discord's "Activity" section over the member list: what people in this server have been
+/// playing and listening to, from the activity feed. Three cards, or all of them opened up.
+fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>) -> Option<Pick> {
+    let members = store.members.get(&gid)?;
+    let cards: Vec<&FeedEntry> = store.feed.iter().filter(|e| e.author != store.me && members.contains_key(&e.author)).collect();
+    if cards.is_empty() {
+        return None;
+    }
+    let open_id = egui::Id::new(("activity_open", gid));
+    let mut open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+    let mut pick = None;
+
+    ui.add_space(20.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::hover());
+    ui.add_space(4.0);
+    let head = Rect::from_min_max(pos2(r.left() + 16.0, r.top() - 3.0), pos2(r.right() - 12.0, r.bottom() + 3.0));
+    let resp = ui.interact(head, ui.id().with("activity_head"), Sense::click());
+    let p = ui.painter();
+    let t = p.text(pos2(head.left(), r.center().y), Align2::LEFT_CENTER, format!("Activity — {}", cards.len()), medium(14.0), pal().channel_default);
+    named.push((format!("activity:{}", cards.len()), head));
+    let gr = Rect::from_min_size(pos2(t.right(), r.center().y - 12.0), vec2(24.0, 24.0));
+    let g = ui.interact(gr, ui.id().with("activity_gear"), Sense::click()).on_hover_text("Activity Settings");
+    icons::draw(p, Icon::Gear, Rect::from_center_size(gr.center(), vec2(12.0, 12.0)), if g.hovered() { pal().interactive_hover } else { pal().channel_default });
+    let chev = Rect::from_center_size(pos2(head.right() - 12.0, r.center().y), vec2(12.0, 12.0));
+    icons::draw(p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, chev, if resp.hovered() { pal().interactive_hover } else { pal().channel_default });
+    if g.clicked() {
+        pick = Some(Pick::Gear);
+    } else if resp.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(open_id, open));
+    }
+    if resp.hovered() || g.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    ui.add_space(4.0);
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut ticking = false;
+    for e in cards.iter().take(if open { usize::MAX } else { 3 }) {
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 70.0), Sense::hover());
+        ui.add_space(8.0);
+        let card = row.shrink2(vec2(8.0, 0.0));
+        named.push((format!("activity:card:{}", e.author), card));
+        let resp = ui.interact(card, ui.id().with(("activity_card", e.author, e.id, &e.title)), Sense::click());
+        let p = ui.painter();
+        // the card's 1px border sits on its own fill, as css draws it
+        p.rect_filled(card, CornerRadius::same(12), if resp.hovered() { pal().bg_floating } else { pal().bg_secondary });
+        p.rect_stroke(card, CornerRadius::same(12), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+        let x = card.left() + 9.0;
+        let info = card.width() - 18.0 - 56.0;
+        if let Some(u) = store.user(e.author) {
+            avatar(ui, Rect::from_min_size(pos2(x, card.top() + 10.0), vec2(16.0, 16.0)), &u.avatar_url());
+            let color = store.role_color(gid, e.author).map(role_color).unwrap_or(pal().header_secondary);
+            let name = store.name_in(gid, e.author);
+            name_in(ui, store, gid, e.author, &name, name_font(u.font, 14.0), pos2(x + 22.0, card.top() + 18.0), color, 1.0, info - 22.0, resp.hovered());
+        }
+        super::text::paint_em(p, pos2(x, card.top() + 38.0), Align2::LEFT_CENTER, &e.title, medium(14.0), pal().text_normal, info, 1.0);
+        let clip = p.with_clip_rect(Rect::from_min_size(pos2(x, card.top() + 47.0), vec2(info, 16.0)));
+        let mut bx = x;
+        for (icon, text, col) in badges(e, now) {
+            if col == pal().positive {
+                ticking = true;
+            }
+            icons::draw(&clip, icon, Rect::from_min_size(pos2(bx, card.top() + 49.0), vec2(12.0, 12.0)), col);
+            let g = clip.layout_no_wrap(text, reg(12.0), col);
+            let w = g.size().x;
+            clip.galley(pos2(bx + 16.0, card.top() + 55.0 - g.size().y / 2.0), g, col);
+            bx += 16.0 + w + 8.0;
+        }
+        let img = match e.kind {
+            6 => e.image.clone(),
+            _ => store.app_icons.get(&e.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), e.app)),
+        };
+        if let Some(url) = img {
+            let ir = Rect::from_min_size(pos2(card.right() - 57.0, card.top() + 11.0), vec2(48.0, 48.0));
+            egui::Image::from_uri(url).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, ir);
+        }
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.clicked() {
+            pick = Some(Pick::Card(e.author, card));
+        }
+    }
+    if ticking {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+    }
+    pick
+}
+
+/// A card's line of badges, in discord's order: how long ago (or a live timer), then whatever
+/// else the entry earned.
+fn badges(e: &FeedEntry, now: i64) -> Vec<(Icon, String, Color32)> {
+    let col = pal().header_secondary;
+    let at = snowflake_ms(e.id);
+    let mut out = Vec::new();
+    match e.kind {
+        6 if e.count > 0 => out.push((Icon::Trophy, format!("{} tracks this week", e.count), col)),
+        3 if e.secs > 0 => out.push((Icon::Trophy, format!("Most played — {}h this week", (e.secs as f32 / 3600.0).round()), col)),
+        1 | 8 => {
+            let icon = if e.kind == 8 { Icon::Launched } else { Icon::Controller };
+            if e.live {
+                // a running game counts up in green
+                let s = ((now - at).max(0) / 1000) as u64;
+                let t = if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) };
+                out.push((icon, t, pal().positive));
+            } else {
+                out.push((icon, ago(now - at), col));
+            }
+            // an app made in the last week is a new release
+            if e.app != 0 && now - snowflake_ms(e.app) <= 7 * 86_400_000 {
+                out.push((Icon::NewRelease, "New Release".into(), col));
+            }
+            if e.kind == 1 && e.first {
+                out.push((Icon::NewPlayer, "New Player".into(), col));
+            }
+            // streaks show from three days, and only while the entry is under two days old
+            if e.kind == 1 && e.streak >= 3 && now - at <= 48 * 3_600_000 {
+                out.push((Icon::Streak, format!("{}x Streak", e.streak), col));
+            }
+            if e.trending {
+                out.push((Icon::Fire, "Trending".into(), col));
+            }
+            if e.kind == 1 && e.returning {
+                out.push((Icon::Retry, "Returning".into(), col));
+            }
+            let h = (e.secs as f32 / 3600.0).round();
+            if e.marathon && h > 0.0 {
+                out.push((Icon::Marathon, format!("{h}h Marathon"), col));
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Discord's short relative time: 45s, 12m, 3h, 2d, 3w, then months.
+fn ago(ms: i64) -> String {
+    let s = (ms / 1000).max(0) as f64;
+    match s {
+        s if s < 60.0 => format!("{}s ago", s as i64),
+        s if s < 3600.0 => format!("{}m ago", (s / 60.0).round()),
+        s if s < 12.0 * 3600.0 => format!("{}h ago", (s / 3600.0).round()),
+        s if s < 9.0 * 86400.0 => format!("{}d ago", (s / 86400.0).round()),
+        s if s < 28.0 * 86400.0 => format!("{}w ago", (s / 604800.0).round()),
+        s => format!("{}mo ago", (s / 2_592_000.0).round()),
     }
 }
 
