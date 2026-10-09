@@ -815,7 +815,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 || d.s.spoilers == crate::cache::Spoilers::Always
                 || (d.s.spoilers == crate::cache::Spoilers::Moderated && d.moderator);
             // with no text the marker goes under the embeds and buttons instead
-            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color, revealed, edited: m.edited && !m.content.trim().is_empty() };
+            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color, revealed, edited: m.edited && !m.content.trim().is_empty(), embed: false };
             let mut blocks = markdown::parse(&m.content, &cx);
             if compact {
                 compact_prefix(d, m, &mut blocks, &name, color, font);
@@ -1085,11 +1085,7 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     if let Some(r) = user.filter(|u| !u.bot).and_then(|u| super::tag_chip(ui.painter(), u, pos2(x, cy), 1.0)) {
         x = r.right() + 4.0;
     }
-    if let Some(r) = d.store.role_icon(d.guild, m.author) {
-        let url = match &r.icon {
-            Some(h) => format!("{}/role-icons/{}/{h}.png?size=40", crate::api::cdn(), r.id),
-            None => markdown::twemoji(r.emoji.as_deref().unwrap_or_default()),
-        };
+    if let Some((r, url)) = d.store.role_icon(d.guild, m.author).and_then(|r| Some((r, r.icon_url(40)?))) {
         let ir = Rect::from_min_size(pos2(x, row.top() + 1.0), vec2(20.0, 20.0));
         text::image(ui.painter(), &url, ir);
         ui.interact(ir, ui.id().with(("role_icon", m.id)), Sense::hover()).on_hover_text(&r.name);
@@ -1216,6 +1212,9 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     let nr = Align2::LEFT_CENTER.anchor_size(pos2(cx, y), rich.size());
     ink.paint(p, &rich, nr.min, false);
     cx = nr.right() + 4.0;
+    if let Some(r) = d.store.user(rm.author).filter(|u| !u.bot).and_then(|u| super::tag_chip(p, u, pos2(cx, y), 1.0)) {
+        cx = r.right() + 4.0;
+    }
     let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
@@ -1223,7 +1222,11 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         cx += 20.0;
         p.text(pos2(cx, y), Align2::LEFT_CENTER, "Click to see attachment", reg(14.0), pal().header_secondary);
     } else {
-        text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().header_secondary, r.right() - cx);
+        let t = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().header_secondary, r.right() - cx - 50.0);
+        cx = t.right() + 4.0;
+    }
+    if rm.edited {
+        p.text(pos2(cx, y + 1.0), Align2::LEFT_CENTER, "(edited)", reg(10.0), pal().text_muted);
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1440,7 +1443,7 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                         }
                     }
                     if let Some(desc) = &e.desc {
-                        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false };
+                        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
                         let blocks = markdown::parse(desc, &cx);
                         blocks_ui(ui, &blocks, d, msg);
                     }
@@ -1493,7 +1496,15 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                     }
                 }
             }
-            if let Some(f) = &e.footer {
+            let when = e.timestamp.map(|t| {
+                let s = stamp(t);
+                if s.contains(',') || s.starts_with("Yesterday") { s } else { format!("Today at {s}") }
+            });
+            let foot = match (&e.footer, when) {
+                (Some(f), Some(w)) => Some(format!("{f} • {w}")),
+                (f, w) => f.clone().or(w),
+            };
+            if let Some(f) = foot {
                 ui.add_space(2.0);
                 ui.label(RichText::new(f).font(reg(12.0)).color(pal().header_secondary));
             }
@@ -1509,7 +1520,7 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
 fn field(ui: &mut Ui, d: &mut D, f: &(String, String, bool), msg: Id) {
     ui.vertical(|ui| {
         ui.label(RichText::new(&f.0).font(semi(14.0)).color(pal().header_primary));
-        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false };
+        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
         let blocks = markdown::parse(&f.1, &cx);
         blocks_ui(ui, &blocks, d, msg);
     });
@@ -1942,7 +1953,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
                     ui.label(RichText::new(store.name_in(guild, m.author)).font(medium(16.0)).color(color));
                     ui.label(RichText::new(stamp(m.ts())).font(medium(12.0)).color(pal().chat_muted));
                 });
-                let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: pal().text_normal, revealed: false, edited: m.edited };
+                let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: pal().text_normal, revealed: false, edited: m.edited, embed: false };
                 let blocks = markdown::parse(&m.content, &cx);
                 blocks_ui(ui, &blocks, &mut d, m.id);
                 for a in &m.attachments {

@@ -51,7 +51,9 @@ pub fn layout_em(ctx: &egui::Context, text: &str, font: FontId, color: Color32, 
                     chars += run.chars().count();
                     let lead = size - w + 1.0;
                     job.append("\u{a0}", lead, gap.clone());
-                    emojis.push((chars, twemoji(&rest[..n]), size, lead));
+                    // names (em 1.0) draw emoji with the system font like discord's; message text uses twemoji
+                    let url = if em == 1.0 { crate::emoji_font::uri(&rest[..n]) } else { twemoji(&rest[..n]) };
+                    emojis.push((chars, url, size, lead));
                     chars += 1;
                     i += n;
                     plain = i;

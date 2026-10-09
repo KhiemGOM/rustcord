@@ -276,6 +276,17 @@ pub struct Role {
     pub emoji: Option<String>,
 }
 
+impl Role {
+    /// The role's icon image, or its unicode emoji drawn by twemoji.
+    pub fn icon_url(&self, size: u32) -> Option<String> {
+        match (&self.icon, &self.emoji) {
+            (Some(h), _) => Some(format!("{}/role-icons/{}/{h}.png?size={size}", api::cdn(), self.id)),
+            (None, Some(e)) => Some(crate::markdown::twemoji(e)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Emoji {
     pub id: Id,
@@ -450,6 +461,8 @@ pub struct Embed {
     pub author: Option<String>,
     pub provider: Option<String>,
     pub footer: Option<String>,
+    // unix ms
+    pub timestamp: Option<i64>,
     pub fields: Vec<(String, String, bool)>,
     pub image: Option<Media>,
     pub thumb: Option<Media>,
@@ -467,6 +480,7 @@ impl Embed {
             author: ost(&v["author"]["name"]),
             provider: ost(&v["provider"]["name"]),
             footer: ost(&v["footer"]["text"]),
+            timestamp: v["timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
             fields: v["fields"]
                 .as_array()
                 .map(|a| {

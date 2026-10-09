@@ -2,6 +2,7 @@
 
 mod api;
 mod cache;
+mod emoji_font;
 mod fonts;
 mod gateway;
 mod gif;
