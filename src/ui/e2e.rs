@@ -1457,6 +1457,10 @@ impl Run {
                 if rect(app, "member:101").is_none() {
                     return;
                 }
+                // a booster gets the gem after their name, nobody else does
+                if rect(app, "boost:102").is_none() || rect(app, "boost:103").is_some() {
+                    return self.fail("member list boost gem missing for 102 or shown for 103".into());
+                }
                 self.snapshot_side(app);
                 self.shot(ctx, "side_members.png");
                 self.next(300);
@@ -1584,7 +1588,7 @@ impl Run {
                 let Some(icon) = rect(app, "header:icon").filter(|_| app.cur() == Some(want)) else { return };
                 // the corner of the glyph where the lock sits when a channel is private
                 let shot = if want == 2302 { "polish_private.png" } else { "polish_public.png" };
-                self.probes.push((shot.into(), vec![("lock".into(), Probe::At(icon.min + vec2(22.2, 9.0)))]));
+                self.probes.push((shot.into(), vec![("lock".into(), Probe::At(icon.min + icon.size() * vec2(0.86, 0.23)))]));
                 save(self, app, "header:icon");
                 self.shot(ctx, shot);
                 self.next(400);

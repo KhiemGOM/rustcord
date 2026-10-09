@@ -150,7 +150,9 @@ fn member(id: u64) -> Value {
         105 => vec!["1103".into()],
         _ => vec![],
     };
-    json!({ "roles": roles, "nick": null })
+    // 102 boosts the server, for the member list's gem
+    let since = if id == 102 { json!("2024-03-03T10:00:00+00:00") } else { Value::Null };
+    json!({ "roles": roles, "nick": null, "premium_since": since })
 }
 
 fn msg(id: u64, ch: u64, author: u64, content: &str) -> Value {
@@ -501,7 +503,7 @@ fn ready(last_general: u64) -> Value {
 }
 
 fn member_list() -> Value {
-    let item = |id: u64, status: &str| json!({ "member": { "user": user(id), "roles": member(id)["roles"], "nick": null, "presence": { "status": status } } });
+    let item = |id: u64, status: &str| json!({ "member": { "user": user(id), "roles": member(id)["roles"], "nick": null, "premium_since": member(id)["premium_since"], "presence": { "status": status } } });
     json!({
         "guild_id": "1000", "id": "everyone", "member_count": 6, "online_count": 4,
         "groups": [{ "id": "1100", "count": 1 }, { "id": "online", "count": 3 }, { "id": "offline", "count": 2 }],

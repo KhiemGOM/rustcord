@@ -166,6 +166,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::members::show(app, ui, chan.guild));
+        let mr = r.response.rect;
+        ui.painter().vline(mr.left() + 0.5, mr.y_range(), Stroke::new(1.0, pal().border_subtle));
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), members_w) {
             app.ui.members_w = w;
         }
@@ -216,19 +218,24 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .exact_size(49.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin::symmetric(16, 0)))
+        // discord's search box sits 8 from the window's edge
+        // and everything centres in the 48 above the border
+        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 16, right: 8, top: 0, bottom: 1 }))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.x_range().expand(16.0), r.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
+            ui.painter().hline(r.left() - 16.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
+                // discord's header icons are 20, the name 9 past them
                 let glyph = |ui: &mut Ui, icon: Icon| {
-                    let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                    let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                     icons::draw(ui.painter(), icon, r, pal().channel_default);
+                    ui.add_space(4.0);
                 };
                 let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
-                    let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                    let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                     side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
+                    ui.add_space(4.0);
                     r
                 };
                 match chan.kind {
@@ -243,7 +250,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         let parent = app.store.channels.get(&chan.parent).cloned();
                         if let Some(p) = parent {
                             chan_glyph(ui, &app.store, &p);
-                            let r = text::label(ui, &p.name, semi(16.0), pal().header_secondary, Sense::click());
+                            let r = text::label(ui, &p.name, medium(16.0), pal().header_secondary, Sense::click());
                             if r.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
@@ -264,7 +271,10 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 // a narrow window elides the name rather than running it under the buttons
                 let w = (ui.available_width() - tools).max(24.0);
                 ui.allocate_ui_with_layout(vec2(w, 24.0), Layout::left_to_right(Align::Center), |ui| {
-                    text::label(ui, &title, semi(16.0), pal().header_primary, Sense::hover());
+                    // discord draws the header's emoji with the system font, as in the channel list
+                    let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, ui.available_width(), 1.0);
+                    let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
+                    t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
                 });
                 if let Some(topic) = &chan.topic {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
@@ -290,7 +300,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .fill(pal().input_bg)
                                 .stroke(Stroke::new(1.0, pal().border_subtle))
                                 .corner_radius(8)
-                                .inner_margin(Margin::symmetric(8, 6))
+                                .inner_margin(Margin { left: 8, right: 8, top: 6, bottom: 5 })
                                 .show(ui, |ui| {
                                     let r = ui.add(
                                         egui::TextEdit::singleline(&mut q)
@@ -325,24 +335,24 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         q = past;
                     }
                     ui.data_mut(|d| d.insert_temp(qid, q));
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if chan.kind == 1 {
                         let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };
-                        if icon_button(ui, Icon::UserProfile, 32.0, tip).clicked() {
+                        if super::toggle_button(ui, Icon::UserProfile, 32.0, tip, !app.ui.hide_dm_profile).clicked() {
                             app.ui.hide_dm_profile = !app.ui.hide_dm_profile;
                             app.search = None;
                         }
                     }
                     if chan.guild != 0 || chan.kind == 3 {
                         let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
-                        if icon_button(ui, Icon::People, 32.0, tip).clicked() {
+                        if super::toggle_button(ui, Icon::People, 32.0, tip, !app.ui.hide_members).clicked() {
                             app.ui.hide_members = !app.ui.hide_members;
                             app.search = None;
                         }
                     }
                     if !chan.is_forum() {
-                        let pins = icon_button(ui, Icon::Pin, 32.0, "Pinned Messages");
+                        let pins = super::toggle_button(ui, Icon::Pin, 32.0, "Pinned Messages", app.pins.is_some());
                         app.rects.insert("pins_button".into(), pins.rect);
                         if pins.clicked() {
                             match app.pins {
@@ -732,46 +742,62 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) {
     });
 }
 
-fn divider(ui: &mut Ui, text: &str, color: Color32, pill: bool) {
-    let w = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(w, 24.0), Sense::hover());
-    let y = r.center().y;
+/// A rule across the chat at `y`, takes no room: the date in the middle if there is one, and
+/// the red NEW tab on the end for the first unread message.
+fn divider(ui: &Ui, y: f32, text: &str, unread: bool) {
+    let r = ui.max_rect();
     let left = r.left() + 16.0;
     let right = r.right() - 14.0;
-    if pill {
+    let y = y + 0.5;
+    let color = if unread { RED } else { pal().bg_accent };
+    if text.is_empty() {
         ui.painter().hline(left..=right, y, Stroke::new(1.0, color));
-        let g = ui.painter().layout_no_wrap("NEW".into(), bold(10.0), Color32::WHITE);
-        let pr = Rect::from_min_size(pos2(right - g.size().x - 8.0, y - 7.0), vec2(g.size().x + 8.0, 14.0));
-        ui.painter().rect_filled(pr, CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, color);
-        ui.painter().galley(pr.center() - g.size() / 2.0, g, Color32::WHITE);
-        return;
+    } else {
+        let g = ui.painter().layout_no_wrap(text.to_string(), semi(12.0), Color32::WHITE);
+        let gw = g.size().x + 8.0;
+        let mid = r.center().x;
+        ui.painter().hline(left..=mid - gw / 2.0, y, Stroke::new(1.0, color));
+        ui.painter().hline(mid + gw / 2.0..=right, y, Stroke::new(1.0, color));
+        let ink = if unread { RED } else { pal().text_muted };
+        ui.painter().galley(pos2(mid - g.size().x / 2.0, y - g.size().y / 2.0), g, ink);
     }
-    let g = ui.painter().layout_no_wrap(text.to_string(), semi(12.0), pal().text_muted);
-    let gw = g.size().x + 8.0;
-    let mid = r.center().x;
-    ui.painter().hline(left..=mid - gw / 2.0, y, Stroke::new(1.0, color));
-    ui.painter().hline(mid + gw / 2.0..=right, y, Stroke::new(1.0, color));
-    ui.painter().galley(pos2(mid - g.size().x / 2.0, y - g.size().y / 2.0), g, pal().text_muted);
+    if unread {
+        let g = ui.painter().layout_no_wrap("NEW".into(), bold(10.0), Color32::WHITE);
+        let pr = Rect::from_min_size(pos2(right - g.size().x - 5.0, y - 7.0), vec2(g.size().x + 5.0, 13.0));
+        ui.painter().rect_filled(pr, CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, RED);
+        // the tab's pointed end
+        let tip = vec![pos2(pr.left() - 7.0, pr.center().y), pos2(pr.left() + 0.5, pr.top()), pos2(pr.left() + 0.5, pr.bottom())];
+        ui.painter().add(egui::Shape::convex_polygon(tip, RED, Stroke::NONE));
+        ui.painter().galley(pos2(pr.left() + 1.0, pr.center().y - g.size().y / 2.0), g, Color32::WHITE);
+    }
 }
 
 fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: bool) {
+    let compact = d.s.compact;
+    let font = d.s.font_size;
+    // discord's group spacing N is N+1 above a group
+    let gs = d.s.group_space;
+    let mut gap = gs + 1.0;
+    let unread = d.marker.is_some_and(|after| prev.is_some_and(|p| p.id <= after) && m.id > after);
     if let Some(p) = prev
         && day(p.ts()) != day(m.ts())
     {
-        ui.add_space(8.0);
+        // the date sits 24 under the last message, then 24-N or the group's gap, whichever's more
+        ui.add_space(24.0);
         let label = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format("%B %-d, %Y").to_string()).unwrap_or_default();
-        divider(ui, &label, pal().bg_accent, false);
+        divider(ui, ui.cursor().top(), &label, unread);
+        ui.add_space(1.0);
+        gap = gap.max(24.0 - gs);
+    } else if unread && start {
+        // over the gap above a group, 8 under the last message
+        divider(ui, ui.cursor().top() + 8.0, "", true);
+    } else if unread {
+        ui.add_space(4.0);
+        divider(ui, ui.cursor().top(), "", true);
+        ui.add_space(5.0);
     }
-    if let Some(after) = d.marker
-        && prev.is_some_and(|p| p.id <= after)
-        && m.id > after
-    {
-        divider(ui, "", RED, true);
-    }
-    let compact = d.s.compact;
-    let font = d.s.font_size;
     if start {
-        ui.add_space((d.s.group_space - 2.0).max(0.0));
+        ui.add_space(gap);
     }
 
     let left = ui.max_rect().left();
@@ -787,6 +813,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     let row_id = egui::Id::new(("row", m.id));
     let hot = ui.data(|s| s.get_temp::<Rect>(row_id)).is_some_and(|r| ui.rect_contains_pointer(r));
     let mut head_top = top + 2.0;
+    let mut tail = 0.0;
     if !normal(m.kind) {
         system_line(&mut cui, d, m);
     } else {
@@ -827,8 +854,11 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         } else if compact {
             compact_name_line(&mut cui, d, m, &name, color, font);
         }
+        // discord's accessories: 2 under the text, 4 apart, 2 under the last
+        let mut acc = 2.0;
         for a in &m.attachments {
-            cui.add_space(4.0);
+            cui.add_space(acc);
+            acc = 4.0;
             if a.is_image() && d.s.inline_uploads {
                 let sep = if a.proxy.contains('?') { '&' } else { '?' };
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
@@ -845,7 +875,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             }
         }
         for (id, name, fmt) in &m.stickers {
-            cui.add_space(4.0);
+            cui.add_space(acc);
+            acc = 4.0;
             if *fmt == 3 {
                 cui.label(RichText::new(format!("[sticker: {name}]")).color(pal().text_muted));
             } else {
@@ -856,11 +887,13 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
         let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
         for e in embeds {
-            cui.add_space(4.0);
+            cui.add_space(acc);
+            acc = 4.0;
             embed(&mut cui, d, e, m.id);
         }
         if let Some(t) = m.thread.and_then(|t| d.store.channels.get(&t)) {
-            cui.add_space(4.0);
+            cui.add_space(acc);
+            acc = 4.0;
             let r = Frame::new()
                 .fill(pal().bg_secondary)
                 .corner_radius(4)
@@ -882,7 +915,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             }
         }
         if !m.components.is_empty() {
-            cui.add_space(4.0);
+            cui.add_space(acc);
+            acc = 4.0;
             components(&mut cui, d, m);
         }
         if m.edited && m.content.trim().is_empty() {
@@ -890,12 +924,16 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             cui.label(RichText::new("(edited)").font(reg(10.0)).color(pal().text_muted));
         }
         if !m.reactions.is_empty() && d.s.reactions {
-            cui.add_space(4.0);
+            cui.add_space(acc);
+            acc = 4.0;
             reactions(&mut cui, d, m);
+        }
+        if acc > 2.0 {
+            tail = 2.0;
         }
     }
 
-    let bottom = cui.min_rect().bottom().max(top + 22.0) + 2.0;
+    let bottom = cui.min_rect().bottom().max(top + 22.0) + 2.0 + tail;
     let row = Rect::from_min_max(pos2(left, top), pos2(left + w, bottom));
     ui.advance_cursor_after_rect(row);
     ui.data_mut(|s| s.insert_temp(row_id, row));
@@ -1061,7 +1099,8 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), (font * 1.375).round()), Sense::hover());
     let face = name_font(d.store.user(m.author).map_or(0, |u| u.font), font);
     let n = ink.layout(ui.ctx(), name, face, row.width() - 160.0, hot);
-    let ny = row.center().y - n.size().y / 2.0;
+    // an odd-height galley centred in the 22 row lands on a half pixel and rounds a row low
+    let ny = (row.center().y - n.size().y / 2.0).floor();
     let name_rect = Rect::from_min_size(pos2(row.left(), ny), n.size());
     let resp = ui.interact(name_rect, ui.id().with(("author", name)), Sense::click());
     ink.paint(ui.painter(), &n, name_rect.min, hot);
@@ -1177,19 +1216,23 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message) {
 }
 
 fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+    // discord's reply is 18 tall with 4 under it; the spine's 2px border starts at its middle and
+    // runs down to its bottom
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click());
+    ui.add_space(4.0);
     let spine = Stroke::new(2.0, pal().spine);
     let x = row_left + 36.0;
     let y = r.center().y;
+    let sy = y + 1.0;
     let p = ui.painter();
-    p.line_segment([pos2(x, r.bottom() + 2.0), pos2(x, y + 6.0)], spine);
+    p.line_segment([pos2(x, r.bottom()), pos2(x, sy + 6.0)], spine);
     p.add(egui::epaint::CubicBezierShape::from_points_stroke(
-        [pos2(x, y + 6.0), pos2(x, y), pos2(x, y), pos2(x + 6.0, y)],
+        [pos2(x, sy + 6.0), pos2(x, sy), pos2(x, sy), pos2(x + 6.0, sy)],
         false,
         Color32::TRANSPARENT,
         spine,
     ));
-    p.line_segment([pos2(x + 6.0, y), pos2(r.left() - 4.0, y)], spine);
+    p.line_segment([pos2(x + 6.0, sy), pos2(r.left() - 4.0, sy)], spine);
 
     let Some(rm) = d.store.find_msg(d.ch, rid) else {
         // discord: a small reply arrow, then the notice in italics
@@ -1246,8 +1289,29 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                 let mut job = t.job.clone();
                 job.wrap.max_width = ui.available_width();
                 let galley = ui.fonts_mut(|f| f.layout_job(job));
+                let under = ui.painter().add(egui::Shape::Noop);
                 let resp = ui.add(Label::new(galley.clone()).sense(Sense::click()));
                 let origin = resp.rect.min;
+                let mut fills = Vec::new();
+                for (r, fill, line, h) in &t.pills {
+                    let a = galley.pos_from_cursor(CCursor { prefer_next_row: true, ..CCursor::new(r.start) });
+                    let b = galley.pos_from_cursor(CCursor::new(r.end));
+                    let piece = |l: f32, r: f32, row: Rect| {
+                        let top = origin.y + row.center().y - line / 2.0;
+                        egui::Shape::rect_filled(Rect::from_min_max(pos2(origin.x + l, top), pos2(origin.x + r, top + h)), CornerRadius::same(3), *fill)
+                    };
+                    if a.min.y == b.min.y {
+                        fills.push(piece(a.min.x - 2.0, b.min.x + 2.0, a));
+                    } else if let (Some(ra), Some(rb)) = (
+                        galley.rows.iter().find(|row| row.min_y() == a.min.y).map(|row| row.rect()),
+                        galley.rows.iter().find(|row| row.min_y() == b.min.y).map(|row| row.rect()),
+                    ) {
+                        // wrapped onto the next row: padded only at its two ends
+                        fills.push(piece(a.min.x - 2.0, ra.max.x, a));
+                        fills.push(piece(rb.min.x, b.min.x + 2.0, b));
+                    }
+                }
+                ui.painter().set(under, egui::Shape::Vec(fills));
                 for (idx, url, size, lead) in &t.emojis {
                     let c = galley.pos_from_cursor(CCursor::new(*idx));
                     let x = origin.x + (c.min.x - lead).max(0.0);
@@ -1409,30 +1473,52 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
         }
         return;
     }
-    let maxw = (ui.available_width() - 4.0).min(516.0);
+    // discord's: a 4px bar, a 1px border round the rest, the text 12 in from the bar and 16 from
+    // the right, 2 from the top and 16 from the bottom, each part 8 under the last. It's as wide
+    // as its longest unwrapped line, up to 488 of text.
+    let inner = (ui.available_width() - 33.0).min(488.0);
     let bar = e.color.map(role_color).unwrap_or(pal().border_normal);
     let start = ui.cursor().min;
     let thumb = e.thumb.as_ref().filter(|_| media_ok && e.kind != "video" && e.image.is_none());
+    let text_w = inner - if thumb.is_some() { 96.0 } else { 0.0 };
+    let desc = e.desc.as_ref().map(|t| {
+        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
+        markdown::parse(t, &cx)
+    });
+    let widest = desc
+        .iter()
+        .flatten()
+        .map(|b| match b {
+            Block::Text(t) => ui.fonts_mut(|f| f.layout_job(t.job.clone())).size().x,
+            _ => 0.0,
+        })
+        .chain(e.title.iter().map(|t| ui.fonts_mut(|f| f.layout_no_wrap(t.clone(), semi(16.0), Color32::WHITE)).size().x))
+        .fold(0.0, f32::max);
     let r = Frame::new()
         .fill(pal().bg_secondary)
-        .corner_radius(CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 })
-        .inner_margin(Margin { left: 12, right: 16, top: 8, bottom: 16 })
+        .corner_radius(4)
+        .inner_margin(Margin { left: 16, right: 17, top: 3, bottom: 17 })
         .show(ui, |ui| {
-            ui.set_max_width(maxw - 28.0);
-            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.set_max_width(inner);
+            ui.spacing_mut().item_spacing = vec2(16.0, 0.0);
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.set_max_width(maxw - 28.0 - if thumb.is_some() { 96.0 } else { 0.0 });
-                    ui.add_space(2.0);
+                    ui.set_max_width(text_w);
+                    if widest > text_w {
+                        ui.set_min_width(text_w);
+                    }
                     if let Some(p) = &e.provider {
-                        ui.label(RichText::new(p).font(reg(12.0)).color(pal().header_secondary));
+                        ui.add_space(8.0);
+                        ui.label(RichText::new(p).font(reg(12.0)).line_height(Some(16.0)).color(pal().text_normal));
                     }
                     if let Some(a) = &e.author {
-                        ui.label(RichText::new(a).font(semi(14.0)).color(pal().header_primary));
+                        ui.add_space(8.0);
+                        ui.label(RichText::new(a).font(semi(14.0)).line_height(Some(22.0)).color(pal().header_primary));
                     }
                     if let Some(t) = &e.title {
+                        ui.add_space(8.0);
                         let col = if e.url.is_some() { pal().link } else { pal().header_primary };
-                        let r = ui.add(Label::new(RichText::new(t).font(semi(16.0)).color(col)).sense(Sense::click()));
+                        let r = ui.add(Label::new(RichText::new(t).font(semi(16.0)).line_height(Some(22.0)).color(col)).sense(Sense::click()));
                         if e.url.is_some() && r.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
@@ -1442,18 +1528,20 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                             d.acts.push(Act::Url(u.clone()));
                         }
                     }
-                    if let Some(desc) = &e.desc {
-                        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
-                        let blocks = markdown::parse(desc, &cx);
-                        blocks_ui(ui, &blocks, d, msg);
+                    if let Some(blocks) = &desc {
+                        ui.add_space(8.0);
+                        blocks_ui(ui, blocks, d, msg);
                     }
+                    // the fields are a grid 8 apart, three inline ones to a row
                     let mut row: Vec<&(String, String, bool)> = Vec::new();
                     let flush = |ui: &mut Ui, d: &mut D, row: &mut Vec<&(String, String, bool)>| {
                         if row.is_empty() {
                             return;
                         }
-                        let cw = (ui.available_width() / row.len() as f32).max(80.0);
+                        ui.add_space(8.0);
+                        let cw = ((ui.available_width() + 8.0) / row.len() as f32).max(80.0);
                         ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
                             for f in row.iter() {
                                 ui.allocate_ui(vec2(cw - 8.0, 0.0), |ui| {
                                     ui.set_min_width(cw - 8.0);
@@ -1471,18 +1559,22 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                             }
                         } else {
                             flush(ui, d, &mut row);
+                            ui.add_space(8.0);
                             field(ui, d, f, msg);
                         }
                     }
                     flush(ui, d, &mut row);
                 });
                 if let Some(t) = thumb {
-                    let (w, h) = fit(t.w, t.h, 80.0, 80.0, 80.0);
-                    media(ui, d, &t.url, &t.url, w, h, None);
+                    ui.vertical(|ui| {
+                        ui.add_space(8.0);
+                        let (w, h) = fit(t.w, t.h, 80.0, 80.0, 80.0);
+                        media(ui, d, &t.url, &t.url, w, h, None);
+                    });
                 }
             });
             if let Some(m) = e.image.as_ref().or(if e.kind == "video" { e.thumb.as_ref() } else { None }).filter(|_| media_ok) {
-                ui.add_space(8.0);
+                ui.add_space(16.0);
                 let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
                 let r = media(ui, d, &m.url, &m.url, w, h, None);
                 if e.kind == "video" {
@@ -1505,11 +1597,13 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
                 (f, w) => f.clone().or(w),
             };
             if let Some(f) = foot {
-                ui.add_space(2.0);
-                ui.label(RichText::new(f).font(reg(12.0)).color(pal().header_secondary));
+                ui.add_space(8.0);
+                ui.label(RichText::new(f).font(reg(12.0)).line_height(Some(16.0)).color(pal().text_normal));
             }
         });
     let rect = r.response.rect;
+    // over the fill, as css draws it, so the border picks up the embed's colour
+    ui.painter().rect_stroke(rect, 4, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     ui.painter().rect_filled(
         Rect::from_min_max(start, pos2(start.x + 4.0, rect.bottom())),
         CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 },
@@ -1519,7 +1613,8 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) {
 
 fn field(ui: &mut Ui, d: &mut D, f: &(String, String, bool), msg: Id) {
     ui.vertical(|ui| {
-        ui.label(RichText::new(&f.0).font(semi(14.0)).color(pal().header_primary));
+        ui.label(RichText::new(&f.0).font(semi(14.0)).line_height(Some(18.0)).color(pal().header_primary));
+        ui.add_space(2.0);
         let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
         let blocks = markdown::parse(&f.1, &cx);
         blocks_ui(ui, &blocks, d, msg);
@@ -1559,7 +1654,9 @@ fn components(ui: &mut Ui, d: &mut D, m: &Message) {
                         // disabled is opacity .5 on the whole button
                         let fade = if *disabled { 0.5 } else { 1.0 };
                         let fill = if resp.hovered() && !disabled { hover } else { fill };
-                        ui.painter().rect(r, CornerRadius::same(8), fill.gamma_multiply(fade), Stroke::new(1.0, stroke.gamma_multiply(fade)), egui::StrokeKind::Inside);
+                        // the edge goes over the fill, as discord's border does, not beside it
+                        ui.painter().rect_filled(r, CornerRadius::same(8), fill.gamma_multiply(fade));
+                        ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, stroke.gamma_multiply(fade)), egui::StrokeKind::Inside);
                         if ui.clip_rect().contains_rect(r) {
                             d.rects.push((format!("button:{custom_id}"), r));
                         }
@@ -1570,7 +1667,7 @@ fn components(ui: &mut Ui, d: &mut D, m: &Message) {
                         }
                         let tc = ink.gamma_multiply(fade);
                         let gw = g.size().x;
-                        ui.painter().galley(pos2(x, r.center().y - g.size().y / 2.0), g, tc);
+                        ui.painter().galley(pos2(x, (r.center().y - g.size().y / 2.0).floor()), g, tc);
                         if url.is_some() {
                             icons::draw(ui.painter(), Icon::ArrowRight, Rect::from_center_size(pos2(x + gw + 12.0, r.center().y), vec2(14.0, 14.0)), tc);
                         }

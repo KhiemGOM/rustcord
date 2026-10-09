@@ -1282,9 +1282,12 @@ impl eframe::App for App {
             if let Some(w) = self.dragged(&ctx, r.response.rect.width(), side_w) {
                 self.ui.side_w = w;
             }
-            egui::CentralPanel::default()
-                .frame(Frame::new().fill(pal().bg_primary))
+            // discord's frame line carries on from the sidebar's top over the chat and members
+            let c = egui::CentralPanel::default()
+                .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
                 .show(ui, |ui| chat::show(self, ui));
+            let cr = c.response.rect;
+            ui.painter().hline(cr.x_range(), cr.top() + 0.5, egui::Stroke::new(1.0, pal().frame_border));
             self.overlays(ui);
             self.update_title(&ctx);
             if !settings_open {
@@ -1469,8 +1472,19 @@ pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Respo
 /// Square icon button. Small ones (header style) only brighten on hover,
 /// 32px+ ones get the rounded hover plate like the user panel and message toolbar.
 pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui::Response {
+    toggle_button(ui, icon, size, tip, false)
+}
+
+/// An icon button that stays lit while what it opens is showing, like discord's member list toggle.
+pub fn toggle_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str, on: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = if resp.hovered() {
+        pal().interactive_hover
+    } else if on {
+        pal().header_primary
+    } else {
+        pal().header_secondary
+    };
     if resp.hovered() {
         if size >= 32.0 {
             ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover);

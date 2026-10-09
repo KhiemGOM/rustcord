@@ -285,10 +285,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut colon_at = None;
     let colon = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == ":")));
     let before = draft_now.len();
+    let radius = CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 };
     let r = Frame::new()
         .fill(pal().bg_input)
-        .stroke(Stroke::new(1.0, pal().border_subtle))
-        .corner_radius(CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 })
+        .inner_margin(1)
+        .corner_radius(radius)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             if !app.files.is_empty() {
@@ -323,7 +324,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     if presp.on_hover_text("Upload a File").clicked() {
                         attach = true;
                     }
-                    ui.add_space(16.0);
+                    // discord's text starts 64 in: 16, the 24 button, then 24 more
+                    ui.add_space(23.0);
                     let draft = app.drafts.entry(ch).or_default();
                     // the text stops short of the buttons: five 40 wide, six with the send button
                     let buttons = if app.settings.send_button { 240.0 } else { 200.0 };
@@ -340,11 +342,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .margin(Margin::ZERO)
                                 .font(reg(16.0))
                                 .text_color(pal().text_normal)
-                                .hint_text(RichText::new(&hint).color(pal().channel_default))
                                 .desired_width(w)
                                 .lock_focus(true)
                                 .show(ui);
                             text_pos = out.galley_pos;
+                            if draft.is_empty() {
+                                // painted here rather than as the hint so its emoji come from the system font, as discord's do
+                                let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().channel_default, w, 1.0);
+                                t.paint(ui.painter(), out.galley_pos);
+                            }
                             if colon {
                                 colon_at = out.cursor_range.map(|r| r.primary.index.0);
                             }
@@ -393,6 +399,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             });
         });
     let crect = r.response.rect;
+    // discord's border sits on the box's own fill, not beside it
+    ui.painter().rect_stroke(crect, radius, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     app.rects.insert("composer".into(), crect);
 
     if open {

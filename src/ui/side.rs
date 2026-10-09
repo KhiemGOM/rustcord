@@ -245,7 +245,8 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 let collapsed = cat.is_some_and(|c| app.ui.collapsed.contains(&c.id));
                 if let Some(cat) = cat {
-                    ui.add_space(14.0);
+                    // discord's category is 16 of padding over a 24 row, the first channel 1 under it
+                    ui.add_space(15.0);
                     let (r, add) = category(ui, &cat.name, collapsed, store.perms(cat) & crate::state::MANAGE_CHANNELS != 0);
                     if r.clicked() {
                         toggle = Some(cat.id);
@@ -571,7 +572,7 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
 /// unlock (levels 1-3 at 2+5+7, the perks at 3+3+3+5+3+2), or once that's covered a full bar
 /// and the count. It opens the server's boost page, in the browser here.
 fn boost_goal(ui: &mut Ui, gid: Id, boosts: u32, under_banner: bool) {
-    ui.add_space(if under_banner { 17.0 } else { 4.0 });
+    ui.add_space(if under_banner { 19.0 } else { 4.0 });
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
     let pill = Rect::from_min_max(pos2(row.left() + 12.0, row.top()), pos2(row.right() - 13.0, row.bottom()));
     let p = ui.painter();
@@ -611,9 +612,10 @@ fn boost_goal(ui: &mut Ui, gid: Id, boosts: u32, under_banner: bool) {
     if resp.clicked() {
         ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}")));
     }
-    ui.add_space(4.0);
+    ui.add_space(6.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
-    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+    ui.painter().hline(r.x_range().shrink(16.0), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+    ui.add_space(7.0);
 }
 
 /// Discord's "Get Started" bar over a server guide: how many of the new member steps are done,
@@ -661,6 +663,10 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
     } else {
         rows.push((Icon::ChannelsRoles, "Browse Channels", format!("https://discord.com/channels/{id}/channel-browser")));
     }
+    // servers selling role subscriptions get discord's shop row
+    if has("ROLE_SUBSCRIPTIONS_AVAILABLE_FOR_PURCHASE") {
+        rows.push((Icon::Shop, "Server Shop", format!("https://discord.com/channels/{id}/shop")));
+    }
     if perms & (crate::state::KICK_MEMBERS | crate::state::ADMINISTRATOR) != 0 {
         rows.push((Icon::People, "Members", format!("https://discord.com/channels/{id}/member-safety")));
     }
@@ -681,18 +687,18 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
             ui.ctx().open_url(egui::OpenUrl::new_tab(url));
         }
     }
-    ui.add_space(6.0);
+    ui.add_space(9.0);
     let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y, egui::Stroke::new(1.0, pal().border_subtle));
-    ui.add_space(4.0);
+    // drawn a row under its slot so the first category's 15 lands 17 below the line
+    ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y + 1.0, egui::Stroke::new(1.0, pal().border_subtle));
 }
 
 /// A category header, and whether its create-channel plus was clicked.
 fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click());
     let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
     let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
-    let y = rect.center().y;
+    let y = rect.top() + 12.0;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name
     let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 52.0, 1.0);
     icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col);
