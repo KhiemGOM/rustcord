@@ -48,19 +48,25 @@ pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
 /// How much of the bottom the floating account card takes, its 8 margin included. The rail and
 /// the sidebar both stop short of it.
 pub fn foot(app: &App) -> f32 {
-    66.0 + if app.voice.chan.is_some() { 102.0 } else { 0.0 }
+    66.0 + if app.voice.chan.is_some() { 102.0 } else { 0.0 } + if app.game.is_some() { 57.0 } else { 0.0 }
 }
 
 /// Discord's account card, floating 8 in from the left of the server rail, the bottom, and the
-/// sidebar's right edge, with the voice controls as its top half while connected.
+/// sidebar's right edge. A game we detected gets the top of it, then the voice controls while
+/// connected.
 pub fn card(app: &mut App, ui: &mut Ui, rail: Rect, side: Rect) {
-    let voice_h = foot(app) - 66.0;
     let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 8.0, side.bottom() - 8.0));
     ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 58.0), card.max);
-    if voice_h > 0.0 {
+    let mut top = card.top();
+    if app.game.is_some() {
+        let area = Rect::from_min_size(card.min + vec2(1.0, 1.0), vec2(card.width() - 2.0, 56.0));
+        game_panel(app, &mut ui.new_child(egui::UiBuilder::new().max_rect(area)), area);
+        top = area.bottom();
+    }
+    if app.voice.chan.is_some() {
         ui.painter().hline(card.x_range().shrink(1.0), user.top() - 0.5, egui::Stroke::new(1.0, pal().border_muted));
-        let area = Rect::from_min_max(card.min + vec2(1.0, 1.0), pos2(card.right() - 1.0, user.top() - 1.0)).shrink(12.0);
+        let area = Rect::from_min_max(pos2(card.left() + 1.0, top + 1.0), pos2(card.right() - 1.0, user.top() - 1.0)).shrink(12.0);
         // children that take no room from the window's layout; the chat panel comes after
         super::call::panel(app, &mut ui.new_child(egui::UiBuilder::new().max_rect(area)));
     }
@@ -110,11 +116,14 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             None
         }
     });
+    // anything else that's boosted gets discord's grey flower with the gem in it
+    let boosted = app.store.guilds.get(&gid).filter(|g| badge.is_none() && (g.tier > 0 || g.boosts > 0)).map(|g| g.tier);
     let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.perms(c) & crate::state::CREATE_INVITE != 0);
     let perms = app.store.my_perms(gid);
     let dev = app.settings.dev;
     let owner = app.store.guilds.get(&gid).is_some_and(|g| g.owner == app.store.me);
     let hide = app.store.hide_muted.contains(&gid);
+    let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
     let mut invite = false;
     let mut act = None;
     // a boosted server's banner sits behind the header and scrolls away with the list
@@ -156,6 +165,17 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
             icons::draw(ui.painter(), b, r, Color32::WHITE);
             ui.add_space(5.0);
+        } else if let Some(tier) = boosted {
+            let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+            icons::draw(ui.painter(), Icon::FlowerStar, r, pal().text_muted);
+            let gem = match tier {
+                0 => Color32::from_white_alpha(51),
+                3 => Color32::from_rgb(0xff, 0x73, 0xfa),
+                _ => Color32::WHITE,
+            };
+            icons::draw(ui.painter(), Icon::BoostGem, Rect::from_center_size(r.center(), vec2(10.0, 10.0)), gem);
+            app.rects.insert("guild_boost_badge".into(), r);
+            ui.add_space(5.0);
         }
         text::label(ui, &name, semi(16.0), ink, Sense::hover());
         let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
@@ -167,7 +187,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         app.rects.insert("guildmenu".into(), btn);
         egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).show(|ui| {
-            super::menu_body(ui, |ui| act = guild_menu(ui, gid, perms, can_invite, owner, hide, dev));
+            super::menu_body(ui, |ui| act = guild_menu(ui, gid, perms, can_invite, owner, hide, dev, community));
         });
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -179,6 +199,11 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     });
     match act {
         Some(GuildAct::Web(url)) => ui.ctx().open_url(egui::OpenUrl::new_tab(url)),
+        Some(GuildAct::Boosts) => app.open_boosts(gid),
+        Some(GuildAct::Settings) => app.open_server_settings(gid),
+        Some(GuildAct::Create(k)) => app.create = Some(super::create::Form::new(k, gid, None)),
+        Some(GuildAct::Threads) => app.active_threads = Some(gid),
+        Some(GuildAct::Directory) => app.open_directory(),
         Some(GuildAct::Invite) => invite = true,
         Some(GuildAct::Notifs) => app.guild_notifs = Some(gid),
         Some(GuildAct::HideMuted) => toggle_hide_muted(app, gid),
@@ -187,8 +212,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         None => {}
     }
     if invite && let Some(c) = app.cur() {
-        app.made_invite = Some((c, None));
-        app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
+        app.invite_people(c);
     }
 
     // the server guide's checklist, fetched the first time the server is shown
@@ -204,6 +228,11 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut toggle: Option<Id> = None;
     let mut menu: Option<(Id, ChanAct)> = None;
     let mut make_invite: Option<Id> = None;
+    let mut set_status: Option<Id> = None;
+    let mut boost_page = false;
+    let mut events_page = false;
+    let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
+    let boosts_open = app.boosts == Some(gid);
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         let out = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -211,7 +240,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.add_space(if banner.is_some() { 81.0 } else { 8.0 });
             let store = &app.store;
             if let Some(g) = store.guilds.get(&gid).filter(|g| g.boost_bar) {
-                boost_goal(ui, gid, g.boosts, banner.is_some());
+                boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some());
             }
             let mut threads: Vec<&Channel> = store
                 .channels
@@ -234,7 +263,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     let done = app.guides.get(&gid).map_or(0, |(_, d)| acts.iter().filter(|c| d.contains(c)).count());
                     get_started(ui, gid, acts.len(), done);
                 }
-                home_rows(ui, g, store.my_perms(gid));
+                let (b, e) = home_rows(ui, g, store.my_perms(gid), boosts_open);
+                boost_page |= b;
+                events_page |= e;
             }
             let hide = store.hide_muted.contains(&gid);
             for (cat, kids) in tree(store, gid, cur) {
@@ -252,7 +283,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         toggle = Some(cat.id);
                     }
                     if add {
-                        menu = Some((cat.id, ChanAct::Web));
+                        menu = Some((cat.id, ChanAct::Create));
                     }
                     let unread = kids.iter().any(|k| k.is_text() && store.unread(k));
                     channel_menu(&r, store, cat, unread, collapsed, dev, &mut menu);
@@ -265,7 +296,29 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     if collapsed && !selected && !unread {
                         continue;
                     }
-                    let (r, emoji, invite, edit) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted, new);
+                    let vr = c.is_voice().then(|| {
+                        let here = app.voice.chan == Some(c.id);
+                        let status = store.voice_status.get(&c.id).cloned();
+                        let prompt = here && status.is_none() && store.perms(c) & crate::state::SET_VOICE_CHANNEL_STATUS != 0;
+                        VoiceRow {
+                            here,
+                            timer: store.voice_start.get(&c.id).map(|t| elapsed(chrono::Utc::now().timestamp() - t)),
+                            sub: status.or_else(|| prompt.then(|| "Set a channel status".to_string())),
+                            prompt,
+                        }
+                    });
+                    let (r, emoji, invite, edit, set) = channel_row(ui, store, c, selected, unread, store.mentions(c.id), muted, new, vr.as_ref());
+                    if set {
+                        set_status = Some(c.id);
+                    }
+                    if let Some(v) = &vr {
+                        if v.timer.is_some() {
+                            app.rects.insert(format!("chan_timer:{}", c.id), r.rect);
+                        }
+                        if v.sub.is_some() {
+                            app.rects.insert(format!("chan_status:{}", c.id), r.rect);
+                        }
+                    }
                     // like discord, bring a newly opened channel into view, once
                     if selected && ui.ctx().data(|d| d.get_temp::<Id>(revealed)) != Some(c.id) {
                         ui.scroll_to_rect(r.rect, None);
@@ -317,6 +370,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         Some((c, ChanAct::Link)) => ui.ctx().copy_text(format!("https://discord.com/channels/{gid}/{c}")),
         Some((c, ChanAct::CopyId)) => ui.ctx().copy_text(c.to_string()),
         Some((_, ChanAct::Web)) => ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}"))),
+        Some((c, ChanAct::Create)) => {
+            let parent = app.store.channels.get(&c).map(|x| if x.kind == 4 { x.id } else { x.parent }).filter(|p| *p != 0);
+            app.create = Some(super::create::Form::new(super::create::Kind::Channel, gid, parent));
+        }
         Some((c, ChanAct::Collapse)) => toggle = Some(c),
         Some((_, ChanAct::CollapseAll)) => {
             let cats = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id);
@@ -329,9 +386,17 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     {
         app.ui.collapsed.insert(c);
     }
+    if boost_page {
+        app.open_boosts(gid);
+    }
+    if events_page {
+        app.open_events(gid);
+    }
+    if let Some(c) = set_status {
+        app.status_edit = Some((c, String::new()));
+    }
     if let Some(c) = make_invite {
-        app.made_invite = Some((c, None));
-        app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
+        app.invite_people(c);
     }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
@@ -349,6 +414,8 @@ enum ChanAct {
     Link,
     CopyId,
     Web,
+    // a category's plus, or Create Text Channel on a channel: the create modal in that category
+    Create,
     Collapse,
     CollapseAll,
 }
@@ -378,6 +445,11 @@ pub fn leave(app: &mut App, gid: Id) {
 
 enum GuildAct {
     Web(String),
+    Boosts,
+    Settings,
+    Create(super::create::Kind),
+    Threads,
+    Directory,
     Invite,
     Notifs,
     HideMuted,
@@ -386,40 +458,42 @@ enum GuildAct {
 }
 
 /// The menu under the server name. What we don't do here ourselves opens discord in the browser.
-fn guild_menu(ui: &mut Ui, gid: Id, perms: u64, can_invite: bool, owner: bool, hide: bool, dev: bool) -> Option<GuildAct> {
+#[allow(clippy::too_many_arguments)]
+fn guild_menu(ui: &mut Ui, gid: Id, perms: u64, can_invite: bool, owner: bool, hide: bool, dev: bool, community: bool) -> Option<GuildAct> {
     use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, VIEW_GUILD_INSIGHTS};
     use super::{Trail, menu_item, menu_row, menu_sep};
     let web = || Some(GuildAct::Web(format!("https://discord.com/channels/{gid}")));
     let mut act = None;
     if menu_item(ui, Some(Icon::Gem), "Server Boost", false) {
-        act = web();
+        act = Some(GuildAct::Boosts);
     }
     menu_sep(ui);
     if can_invite && menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
         act = Some(GuildAct::Invite);
     }
     if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Gear), "Server Settings", false) {
-        act = web();
+        act = Some(GuildAct::Settings);
     }
-    if perms & VIEW_GUILD_INSIGHTS != 0 && menu_item(ui, Some(Icon::Insights), "Server Insights", false) {
+    // discord keeps insights to community servers
+    if community && perms & VIEW_GUILD_INSIGHTS != 0 && menu_item(ui, Some(Icon::Insights), "Server Insights", false) {
         act = web();
     }
     if perms & MANAGE_CHANNELS != 0 {
         if menu_item(ui, Some(Icon::CirclePlus), "Create Channel", false) {
-            act = web();
+            act = Some(GuildAct::Create(super::create::Kind::Channel));
         }
         if menu_item(ui, Some(Icon::FolderPlus), "Create Category", false) {
-            act = web();
+            act = Some(GuildAct::Create(super::create::Kind::Category));
         }
     }
     if perms & MANAGE_EVENTS != 0 && menu_item(ui, Some(Icon::CalendarPlus), "Create Event", false) {
-        act = web();
+        act = Some(GuildAct::Create(super::create::Kind::Event));
     }
     if menu_item(ui, Some(Icon::Bubble), "Active Threads", false) {
-        act = web();
+        act = Some(GuildAct::Threads);
     }
     if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Apps), "App Directory", false) {
-        act = Some(GuildAct::Web("https://discord.com/discovery/applications".into()));
+        act = Some(GuildAct::Directory);
     }
     menu_sep(ui);
     if menu_item(ui, Some(Icon::Bell), "Notification Settings", false) {
@@ -519,7 +593,7 @@ fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, co
             };
             for (label, danger) in edits {
                 if menu_item(ui, None, label, *danger) {
-                    act = Some(ChanAct::Web);
+                    act = Some(if *label == "Create Text Channel" { ChanAct::Create } else { ChanAct::Web });
                 }
             }
         }
@@ -571,51 +645,58 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
 /// Discord's boost goal pill: boosts against the next level, then against everything boosts can
 /// unlock (levels 1-3 at 2+5+7, the perks at 3+3+3+5+3+2), or once that's covered a full bar
 /// and the count. It opens the server's boost page, in the browser here.
-fn boost_goal(ui: &mut Ui, gid: Id, boosts: u32, under_banner: bool) {
+fn boost_goal(ui: &mut Ui, boosts: u32, goal: u32, under_banner: bool) -> bool {
     ui.add_space(if under_banner { 19.0 } else { 4.0 });
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
     let pill = Rect::from_min_max(pos2(row.left() + 12.0, row.top()), pos2(row.right() - 13.0, row.bottom()));
     let p = ui.painter();
     p.rect_filled(pill, 13, pal().bg_tertiary);
-    let next = [2, 7, 14, 33].into_iter().find(|n| boosts < *n);
+    // the goal is every level and perk together, 33 boosts in all
+    let next = (boosts < goal).then_some(goal);
     let fill = next.map_or(1.0, |n| boosts as f32 / n as f32);
     let bar = pill.shrink(2.0);
     let done = Rect::from_min_size(bar.min, vec2(bar.width() * fill, bar.height()));
-    if done.width() > done.height() {
-        // discord's fill is the boost pink, faint at the start and stronger where it ends
-        let (a, b) = (Color32::from_rgba_unmultiplied(0xe6, 0x5c, 0xd6, 50), Color32::from_rgba_unmultiplied(0xe6, 0x5c, 0xd6, 110));
+    if done.width() > 0.0 {
+        // discord's fill: the boost pink at .1 rising to .4, round ended, with a soft pink glow
         let rad = done.height() / 2.0;
-        let mid = done.shrink2(vec2(rad, 0.0));
+        p.add(egui::epaint::Shadow { offset: [0, 0], blur: 5, spread: 0, color: Color32::from_rgba_unmultiplied(0xff, 0x73, 0xfa, 51) }.as_shape(done, rad));
+        let (a, b) = (Color32::from_rgba_unmultiplied(0xff, 0x73, 0xfa, 26), Color32::from_rgba_unmultiplied(0xff, 0x73, 0xfa, 102));
+        let rx = rad.min(done.width() / 2.0);
+        // a strip along the pill, its ends rounded off, coloured by how far along it is
+        let mut edge: Vec<(f32, f32)> = (0..=8).map(|i| (i as f32 / 8.0) * std::f32::consts::FRAC_PI_2).map(|t| (done.left() + rx - rx * t.cos(), rad * t.sin())).collect();
+        edge.extend((0..=8).map(|i| (i as f32 / 8.0) * std::f32::consts::FRAC_PI_2).map(|t| (done.right() - rx + rx * t.sin(), rad * t.cos())));
         let mut m = egui::Mesh::default();
-        m.colored_vertex(mid.left_top(), a);
-        m.colored_vertex(mid.right_top(), b);
-        m.colored_vertex(mid.right_bottom(), b);
-        m.colored_vertex(mid.left_bottom(), a);
-        m.add_triangle(0, 1, 2);
-        m.add_triangle(0, 2, 3);
-        p.circle_filled(pos2(mid.left(), mid.center().y), rad, a);
-        p.circle_filled(pos2(mid.right(), mid.center().y), rad, b);
+        for (k, (x, h)) in edge.iter().enumerate() {
+            let c = a.lerp_to_gamma(b, ((x - done.left()) / done.width().max(1.0)).clamp(0.0, 1.0));
+            m.colored_vertex(pos2(*x, done.center().y - h), c);
+            m.colored_vertex(pos2(*x, done.center().y + h), c);
+            if k > 0 {
+                let i = (k * 2) as u32;
+                m.add_triangle(i - 2, i - 1, i);
+                m.add_triangle(i - 1, i, i + 1);
+            }
+        }
         p.add(m);
     }
     let left = if next.is_none() { "Boost Goal 🎉".to_string() } else { "Boost Goal".to_string() };
-    text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().header_primary, 160.0);
-    let caret = Rect::from_center_size(pos2(bar.right() - 10.0, bar.center().y), vec2(12.0, 12.0));
-    icons::draw(p, Icon::ChevronRight, caret, pal().header_secondary);
+    text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().text_normal, 160.0);
+    let caret = Rect::from_center_size(pos2(bar.right() - 12.0, bar.center().y), vec2(12.0, 12.0));
+    // the count and caret are the text colour at .7
+    let dim = pal().text_normal.gamma_multiply(0.7);
+    icons::draw(p, Icon::ChevronRight, caret, dim);
     let count = match next {
         Some(n) => format!("{boosts}/{n} Boosts"),
         None => format!("{boosts} Boosts"),
     };
-    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), pal().header_secondary);
+    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), dim);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    if resp.clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}")));
     }
     ui.add_space(6.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
     ui.painter().hline(r.x_range().shrink(16.0), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
     ui.add_space(7.0);
+    resp.clicked()
 }
 
 /// Discord's "Get Started" bar over a server guide: how many of the new member steps are done,
@@ -647,7 +728,9 @@ fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
 
 /// The community rows above the channels. Fastcord has none of these pages yet, so each
 /// opens Discord's in the browser.
-fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
+/// The rows over the channels. Server Boosts and Events open the app's own page and window, so
+/// clicks on those come back as (boosts, events).
+fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, boosts_open: bool) -> (bool, bool) {
     let has = |f: &str| g.features.iter().any(|x| x == f);
     let id = g.id;
     let mut rows = Vec::new();
@@ -656,7 +739,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
     }
     // events only once there are some or you could make one, server boosts only for managers
     if g.events > 0 || perms & (crate::state::MANAGE_EVENTS | crate::state::CREATE_EVENTS) != 0 {
-        rows.push((Icon::Events, "Events", format!("https://discord.com/channels/{id}/@home")));
+        rows.push((Icon::Events, "Events", "events".to_string()));
     }
     if has("GUILD_ONBOARDING") {
         rows.push((Icon::ChannelsRoles, "Channels & Roles", format!("https://discord.com/channels/{id}/customize-community")));
@@ -671,26 +754,38 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64) {
         rows.push((Icon::People, "Members", format!("https://discord.com/channels/{id}/member-safety")));
     }
     if perms & crate::state::MANAGE_GUILD != 0 {
-        rows.push((Icon::Gem, "Server Boosts", format!("https://discord.com/channels/{id}/@home")));
+        rows.push((Icon::Gem, "Server Boosts", String::new()));
     }
+    let mut boosts = false;
+    let mut events = false;
     for (icon, label, url) in rows {
         let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         let inner = row.shrink2(vec2(8.0, 0.0));
-        if resp.hovered() {
+        let selected = url.is_empty() && boosts_open;
+        if selected {
+            ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
+        } else if resp.hovered() {
             ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
+        }
+        if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+        let col = if selected { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
         icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
         text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col, inner.width() - 40.0);
         if resp.clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            match url.as_str() {
+                "" => boosts = true,
+                "events" => events = true,
+                _ => ui.ctx().open_url(egui::OpenUrl::new_tab(url)),
+            }
         }
     }
     ui.add_space(9.0);
     let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
     // drawn a row under its slot so the first category's 15 lands 17 below the line
     ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y + 1.0, egui::Stroke::new(1.0, pal().border_subtle));
+    (boosts, events)
 }
 
 /// A category header, and whether its create-channel plus was clicked.
@@ -741,16 +836,35 @@ pub fn glyph(c: &Channel) -> Icon {
 
 /// A channel in the list. Besides the row, hands back where its name's emoji went and whether
 /// the invite or edit buttons were clicked.
-fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool, new: usize) -> (egui::Response, Option<Rect>, bool, bool) {
-    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+/// What a voice channel's row adds: green while we're in it, how long its call has gone on, and a
+/// second line with its status or, in our own call, discord's prompt to set one.
+struct VoiceRow {
+    here: bool,
+    timer: Option<String>,
+    sub: Option<String>,
+    prompt: bool,
+}
+
+fn elapsed(secs: i64) -> String {
+    let s = secs.max(0);
+    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
+}
+
+/// The last bool is a click on "Set a channel status".
+#[allow(clippy::too_many_arguments)]
+fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool, new: usize, voice: Option<&VoiceRow>) -> (egui::Response, Option<Rect>, bool, bool, bool) {
+    let sub = voice.and_then(|v| v.sub.as_ref());
+    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if sub.is_some() { 48.0 } else { 32.0 }), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
+    let y = row.top() + 16.0;
+    let here = voice.is_some_and(|v| v.here);
     let hovered = resp.hovered();
     if selected {
         ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {
         ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
     }
-    let col = if selected || (unread && !muted) {
+    let col = if selected || here || (unread && !muted) {
         pal().header_primary
     } else if hovered {
         pal().interactive_hover
@@ -761,23 +875,27 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     };
     if unread && !selected && !muted {
         ui.painter().rect_filled(
-            Rect::from_min_size(pos2(row.left(), row.center().y - 4.0), vec2(4.0, 8.0)),
+            Rect::from_min_size(pos2(row.left(), y - 4.0), vec2(4.0, 8.0)),
             CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 },
             pal().header_primary,
         );
     }
-    let icon_col = if selected {
+    let icon_col = if here {
+        GREEN
+    } else if selected {
         pal().header_primary
     } else if muted {
         pal().channel_muted
     } else {
         pal().channel_default
     };
-    let ir = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
+    let ir = Rect::from_center_size(pos2(inner.left() + 18.0, y), vec2(20.0, 20.0));
     chan_icon(store, ui.painter(), c, ir, icon_col);
-    // the invite and edit buttons discord shows on the hovered or selected row
+    // the invite and edit buttons discord shows on the hovered or selected row; a running call
+    // keeps its timer there until the row is hovered
+    let timer = voice.and_then(|v| v.timer.as_ref());
     let perms = store.perms(c);
-    let lit = (hovered || selected) && !c.is_thread() && mentions == 0;
+    let lit = (hovered || (selected && timer.is_none())) && !c.is_thread() && mentions == 0;
     let (mut invite, mut edit) = (false, false);
     let mut right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let mut x = inner.right() - 16.0;
@@ -788,7 +906,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         if !lit || perms & bit == 0 {
             continue;
         }
-        let ir = Rect::from_center_size(pos2(x, row.center().y), vec2(16.0, 16.0));
+        let ir = Rect::from_center_size(pos2(x, y), vec2(16.0, 16.0));
         let hit = ui.interact(ir.expand(2.0), ui.id().with((tip, c.id)), Sense::click());
         icons::draw(ui.painter(), icon, ir, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
         *out = hit.on_hover_text(tip).clicked();
@@ -796,40 +914,66 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         x -= 22.0;
     }
     if new > 0 && mentions == 0 && x == inner.right() - 16.0 {
-        let n = ui.painter().text(pos2(inner.right() - 8.0, row.center().y), Align2::RIGHT_CENTER, format!("{new} New"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
+        let n = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, format!("{new} New"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
         right = n.left() - 6.0;
+    }
+    if let Some(t) = timer.filter(|_| x == inner.right() - 16.0 && mentions == 0) {
+        let r = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, t, mono(13.0), GREEN);
+        right = r.left() - 6.0;
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
     // channel names are medium; unread ones go semibold
     let font = if unread { semi(16.0) } else { medium(16.0) };
     let left = inner.left() + 34.0;
     let name = text::layout_em(ui.ctx(), &c.name, font, col, right - left, 1.0);
-    let at = pos2(left, row.center().y - name.size().y / 2.0);
+    let at = pos2(left, y - name.size().y / 2.0);
     name.paint(ui.painter(), at);
     let emoji = name.emoji_rects(at).next().map(|(_, r)| r);
     if mentions > 0 {
-        badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
+        badge(ui, pos2(inner.right() - 8.0, y), mentions, None);
+    }
+    let mut set = false;
+    if let (Some(sub), Some(v)) = (sub, voice) {
+        let sy = row.top() + 36.0;
+        let r = text::paint_em(ui.painter(), pos2(left, sy), Align2::LEFT_CENTER, sub, reg(14.0), pal().channel_default, inner.right() - 8.0 - left - if v.prompt { 20.0 } else { 0.0 }, 1.0);
+        if v.prompt {
+            let pen = Rect::from_center_size(pos2(r.right() + 10.0, sy), vec2(14.0, 14.0));
+            let hit = ui.interact(r.union(pen), ui.id().with(("set_status", c.id)), Sense::click());
+            icons::draw(ui.painter(), Icon::Pencil, pen, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+            set = hit.on_hover_text("Set a channel status").clicked();
+        }
     }
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    (resp, emoji, invite, edit)
+    (resp, emoji, invite, edit, set)
 }
 
 fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
     let Some(g) = store.guilds.get(&gid) else { return };
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
-    users.sort();
+    // discord lists them by name, 32 to a row, in their own display name font and server tag
+    users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
     for u in users {
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
         if let Some(user) = store.user(u) {
             avatar(ui, av, &user.avatar_url());
         }
-        if voice.is_speaking(u) {
+        let speaking = voice.is_speaking(u);
+        if speaking {
             super::call::ring(ui, av);
         }
         let used = super::call::badges(ui, voice, u, row);
-        text::paint_em(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), reg(14.0), pal().channel_default, row.right() - av.right() - 16.0 - used, 1.0);
+        // discord's usernameSpeaking: the name goes bright while they talk
+        let col = if speaking { pal().interactive_hover } else { pal().channel_default };
+        let room = row.right() - av.right() - 16.0 - used;
+        let face = name_font(store.user(u).map_or(0, |x| x.font), 14.0);
+        let r = text::paint_em(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), face, col, room, 1.0);
+        if let Some(user) = store.user(u) {
+            let clip = Rect::from_min_max(row.min, pos2(av.right() + 8.0 + room, row.bottom()));
+            super::tag_chip(&ui.painter().with_clip_rect(clip), user, pos2(r.right() + 4.0, row.center().y), 1.0);
+        }
     }
 }
 
@@ -1008,6 +1152,72 @@ fn group_color(id: Id) -> Color32 {
     C[(id % 5) as usize]
 }
 
+/// The game's panel: its icon and name, "Not Sharing" while activity sharing is off (a click
+/// there opens the setting), and the button that streams it.
+fn game_panel(app: &mut App, ui: &mut Ui, area: Rect) {
+    let Some(g) = app.game.clone() else { return };
+    ui.painter().rect_filled(area, CornerRadius { nw: 7, ne: 7, ..Default::default() }, pal().bg_secondary);
+    ui.painter().hline(area.x_range(), area.bottom() + 0.5, egui::Stroke::new(1.0, pal().border_subtle));
+    app.rects.insert("game:panel".into(), area);
+    let inner = area.shrink(12.0);
+    let icon = Rect::from_min_size(inner.min, vec2(32.0, 32.0));
+    match &g.icon {
+        Some(h) => {
+            egui::Image::from_uri(format!("{}/app-icons/{}/{h}.png?size=64", crate::api::cdn(), g.id)).corner_radius(8).show_loading_spinner(false).paint_at(ui, icon);
+        }
+        None => {
+            ui.painter().rect_filled(icon, CornerRadius::same(8), pal().bg_mod_selected);
+            icons::draw(ui.painter(), Icon::Controller, Rect::from_center_size(icon.center(), vec2(20.0, 20.0)), pal().header_secondary);
+        }
+    }
+    app.rects.insert("game:icon".into(), icon);
+
+    let live = app.voice.stream.as_ref().is_some_and(|l| l.mine);
+    let btn = Rect::from_center_size(pos2(inner.right() - 14.5, inner.center().y), vec2(32.0, 32.0));
+    let resp = ui.interact(btn, ui.id().with("game_live"), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(btn, CornerRadius::same(8), pal().bg_mod_hover);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let col = if live { GREEN } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    icons::draw(ui.painter(), Icon::ScreenArrow, Rect::from_center_size(btn.center(), vec2(20.0, 20.0)), col);
+    app.rects.insert("game:live".into(), btn);
+    let tip = match (app.voice.chan.is_some(), live) {
+        (_, true) => "Stop Streaming".to_string(),
+        (true, false) => format!("Stream {}", g.name),
+        // discord offers its channel picker here; fastcord streams from a call
+        (false, false) => "Join a voice channel to stream".to_string(),
+    };
+    if resp.on_hover_text(tip).clicked() && app.voice.chan.is_some() {
+        if live {
+            app.voice.end_stream(&app.net);
+        } else {
+            app.share = Some(super::share::Picker::new(ui.ctx()));
+        }
+    }
+
+    // discord says nothing under the name while it's being shared
+    let x = icon.right() + 8.0;
+    let room = btn.left() - 8.0 - x;
+    let hidden = app.store.hide_game || app.store.presence.get(&app.store.me) == Some(&Status::Offline);
+    let y = if hidden { inner.top() + 8.0 } else { inner.center().y };
+    text::paint(ui.painter(), pos2(x, y), Align2::LEFT_CENTER, &g.name, medium(16.0), pal().text_normal, room);
+    if hidden {
+        let galley = ui.painter().layout_no_wrap("Not Sharing".into(), medium(12.0), pal().header_secondary);
+        let r = Rect::from_min_size(pos2(x, inner.top() + 16.0), vec2(galley.size().x, 16.0));
+        let resp = ui.interact(r, ui.id().with("game_sharing"), Sense::click());
+        let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+        ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, "Not Sharing", medium(12.0), col);
+        app.rects.insert("game:not_sharing".into(), r);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.clicked() {
+            app.settings_page = Some(super::settings::Page::Activity);
+        }
+    }
+}
+
 fn user_panel(app: &mut App, ui: &mut Ui) {
     let me = app.store.me;
     let user = app.store.user(me).cloned();
@@ -1049,7 +1259,18 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                 crate::net::Conn::Resuming => "Reconnecting…".into(),
                 crate::net::Conn::Offline => "Offline".into(),
             };
-            ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));
+            // in a call discord swaps the line for a green speaker and "In voice"
+            let in_voice = matches!(app.conn, crate::net::Conn::Online) && app.voice.chan.is_some() && !hot && !app.settings.hiding_personal();
+            if in_voice {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                    icons::draw(ui.painter(), Icon::Speaker, r, GREEN);
+                    ui.add(egui::Label::new(egui::RichText::new("In voice").font(medium(12.0)).color(pal().header_secondary)).selectable(false));
+                });
+            } else {
+                ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));
+            }
         });
         let hit = Rect::from_x_y_ranges(av.left() - 4.0..=names.response.rect.right() + 4.0, av.center().y - 20.0..=av.center().y + 20.0);
         let resp = ui.interact(hit, ui.id().with("account"), Sense::click());

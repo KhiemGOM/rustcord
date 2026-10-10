@@ -25,12 +25,21 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         None => String::new(),
     };
     let r = ui.max_rect();
-    let p = ui.painter();
     let y = r.top() + 16.0;
-    // the 14px bars centre on the status text, clear of the channel line under it
-    bars(ui, pos2(r.left() + 2.0, y - 15.0), col);
-    p.text(pos2(r.left() + 22.0, y - 8.0), Align2::LEFT_CENTER, text, semi(14.0), col);
-    let sub = Rect::from_min_max(pos2(r.left(), y + 2.0), pos2(r.right() - 40.0, y + 18.0));
+    // discord's mark for the connection: a 32 tile washed in the state's colour, the signal in it
+    let tile = Rect::from_min_size(r.min, vec2(32.0, 32.0));
+    ui.painter().rect(tile, 8, col.gamma_multiply(0.12), Stroke::new(1.0, col.gamma_multiply(0.24)), egui::StrokeKind::Inside);
+    signal(ui, tile.center(), col);
+    // the status opens discord's connection popout: ping graph, stats, and the privacy code
+    let t = ui.painter().text(pos2(tile.right() + 8.0, y - 8.0), Align2::LEFT_CENTER, text, medium(16.0), col);
+    let status = ui.interact(t, egui::Id::new("voice_status"), Sense::click());
+    if status.hovered() {
+        ui.painter().hline(t.x_range(), t.bottom() - 1.0, Stroke::new(1.0, col));
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    app.rects.insert("voice:status".into(), t);
+    rtc_popout(app, &status);
+    let sub = Rect::from_min_max(pos2(tile.right() + 8.0, y + 2.0), pos2(r.right() - 40.0, y + 18.0));
     let sub_r = ui.interact(sub, egui::Id::new("voice_place"), Sense::click());
     ui.painter().with_clip_rect(sub).text(
         pos2(sub.left(), sub.center().y),
@@ -73,7 +82,13 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         };
         ui.painter().rect_filled(b, CornerRadius::same(8), fill);
         let fg = if on { GREEN } else { pal().header_primary };
-        if i == 0 { camera(ui, b.center(), 1.0, fg) } else { screen(ui, b.center(), 1.0, fg) }
+        // discord's buttons: the camera crossed out while it's off, the screen with its arrow
+        let icon = match (i, on) {
+            (0, false) => Icon::VideoSlash,
+            (0, true) => Icon::Video,
+            _ => Icon::ScreenArrow,
+        };
+        icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), fg);
         app.rects.insert(key.into(), b);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -82,20 +97,213 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
             match i {
                 0 => app.voice.set_camera(&app.net, me, !cam),
                 _ if sharing => app.voice.end_stream(&app.net),
-                _ => app.voice.go_live(&app.net, me),
+                _ => app.share = Some(super::share::Picker::new(ui.ctx())),
             }
         }
     }
 }
 
-fn bars(ui: &Ui, at: egui::Pos2, col: Color32) {
-    for (i, h) in [5.0, 9.0, 13.0].into_iter().enumerate() {
-        let x = at.x + i as f32 * 5.0;
-        ui.painter().rect_filled(
-            Rect::from_min_max(pos2(x, at.y + 14.0 - h), pos2(x + 3.0, at.y + 14.0)),
-            CornerRadius::same(1),
-            col,
-        );
+/// Discord's RTC popout over the voice panel: Connection, with the last few minutes of pings, the
+/// server, the numbers and what they mean; and Privacy, with the call's end-to-end privacy code.
+fn rtc_popout(app: &mut App, status: &egui::Response) {
+    let tab_id = egui::Id::new("rtc_tab");
+    let debug_id = egui::Id::new("rtc_debug");
+    let frame = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(16);
+    let mut copy = None;
+    let shown = egui::Popup::from_toggle_button_response(status)
+        .align(egui::RectAlign::TOP_START)
+        .gap(12.0)
+        .frame(frame)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.set_width(256.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let mut tab: u8 = ui.data(|d| d.get_temp(tab_id)).unwrap_or(0);
+            let (bar, _) = ui.allocate_exact_size(vec2(256.0, 24.0), Sense::hover());
+            let mut x = bar.left();
+            for (i, label) in ["Connection", "Privacy"].into_iter().enumerate() {
+                let on = tab == i as u8;
+                let g = ui.painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE);
+                let r = Rect::from_min_size(pos2(x, bar.top()), vec2(g.size().x, 24.0));
+                let resp = ui.interact(r, egui::Id::new(("rtc_tab", i)), Sense::click());
+                let col = if on { Color32::from_rgb(0x94, 0x9c, 0xf7) } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                ui.painter().galley(pos2(x, bar.top()), g, col);
+                if on {
+                    ui.painter().rect_filled(Rect::from_min_size(pos2(r.left(), bar.bottom() + 6.0), vec2(r.width(), 2.0)), 1, BLURPLE);
+                }
+                if resp.clicked() {
+                    tab = i as u8;
+                    ui.data_mut(|d| d.insert_temp(tab_id, tab));
+                }
+                app.rects.insert(format!("rtc:tab:{i}"), r);
+                x = r.right() + 24.0;
+            }
+            ui.add_space(8.0);
+            let (line, _) = ui.allocate_exact_size(vec2(256.0, 1.0), Sense::hover());
+            ui.painter().hline(line.x_range().expand(16.0), line.center().y, Stroke::new(1.0, pal().border_subtle));
+            ui.add_space(16.0);
+            if tab == 1 {
+                privacy(ui, app.voice.privacy.as_deref());
+                return;
+            }
+            ping_graph(ui, &app.voice.pings);
+            ui.add_space(20.0);
+            let host = app.voice.host().unwrap_or("Connecting…").to_string();
+            ui.label(egui::RichText::new(&host).font(semi(14.0)).color(pal().header_primary));
+            ui.add_space(8.0);
+            let pings = &app.voice.pings;
+            let avg = (!pings.is_empty()).then(|| pings.iter().map(|(_, p)| *p as f64).sum::<f64>() / pings.len() as f64);
+            let fmt = |v: Option<String>| v.unwrap_or_else(|| "--".into());
+            stat(ui, "Average ping: ", &format!("{} ms", fmt(avg.map(|a| format!("{a:.0}")))));
+            stat(ui, "Last ping: ", &format!("{} ms", fmt(pings.back().map(|(_, p)| p.to_string()))));
+            stat(ui, "Outbound packet loss rate: ", &format!("{}%", fmt(app.voice.loss.map(|l| format!("{l:.1}")))));
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let muted = |s: &str| egui::RichText::new(s).font(reg(12.0)).color(pal().text_muted);
+                ui.label(muted("You may notice delayed audio at 250 ms or higher. You may sound robotic if your packet loss rate is over 10%. If the problem persists, disconnect and try again. See our "));
+                let link = ui.add(egui::Label::new(egui::RichText::new("troubleshooting guide").font(reg(12.0)).color(pal().link)).sense(Sense::click()));
+                if link.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if link.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/360045138471"));
+                }
+                ui.label(muted(" for more assistance."));
+            });
+            ui.add_space(16.0);
+            let mut debug: bool = ui.data(|d| d.get_temp(debug_id)).unwrap_or(false);
+            let info = format!(
+                "server {host}\nendpoint {}\nend-to-end encrypted {}\naverage ping {} ms, last {} ms\noutbound loss {}%",
+                app.voice.endpoint().unwrap_or("-"),
+                if app.voice.privacy.is_some() { "yes" } else { "no" },
+                fmt(avg.map(|a| format!("{a:.0}"))),
+                fmt(pings.back().map(|(_, p)| p.to_string())),
+                fmt(app.voice.loss.map(|l| format!("{l:.1}"))),
+            );
+            let (row, _) = ui.allocate_exact_size(vec2(256.0, 32.0), Sense::hover());
+            let half = (row.width() - 8.0) / 2.0;
+            for (i, (icon, label)) in [(Icon::Bug, "Debug"), (Icon::Copy, "Copy Logs")].into_iter().enumerate() {
+                let b = Rect::from_min_size(pos2(row.left() + i as f32 * (half + 8.0), row.top()), vec2(half, 32.0));
+                let resp = ui.interact(b, egui::Id::new(("rtc_btn", i)), Sense::click());
+                ui.painter().rect(b, 8, if resp.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                let g = ui.painter().layout_no_wrap(label.into(), medium(14.0), pal().header_primary);
+                let x = b.center().x - (g.size().x + 26.0) / 2.0;
+                icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(x + 9.0, b.center().y), vec2(18.0, 18.0)), pal().header_primary);
+                ui.painter().galley(pos2(x + 26.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
+                if resp.clicked() {
+                    if i == 0 {
+                        debug = !debug;
+                        ui.data_mut(|d| d.insert_temp(debug_id, debug));
+                    } else {
+                        copy = Some(info.clone());
+                    }
+                }
+            }
+            if debug {
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new(&info).font(mono(11.0)).color(pal().header_secondary));
+            }
+            if app.voice.privacy.is_some() {
+                ui.add_space(8.0);
+                let (b, _) = ui.allocate_exact_size(vec2(256.0, 24.0), Sense::hover());
+                ui.painter().rect_filled(b, 4, GREEN.gamma_multiply(0.12));
+                icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), GREEN);
+                ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, "End-to-end encrypted", medium(12.0), GREEN);
+            }
+        });
+    if let Some(r) = shown.as_ref().map(|s| s.response.rect) {
+        app.rects.insert("rtc:popout".into(), r);
+    }
+    if let Some(text) = copy {
+        status.ctx.copy_text(text);
+        app.toast("Connection info copied.");
+    }
+}
+
+/// "Average ping: 52 ms", the number in bold.
+fn stat(ui: &mut Ui, label: &str, value: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.label(egui::RichText::new(label).font(reg(12.0)).color(pal().text_normal));
+        ui.label(egui::RichText::new(value).font(semi(12.0)).color(pal().header_primary));
+    });
+    ui.add_space(2.0);
+}
+
+/// The pings of the last four minutes as a line, 0 to 100ms (more if they run higher), with the
+/// minutes along the bottom.
+fn ping_graph(ui: &mut Ui, pings: &std::collections::VecDeque<(f64, u32)>) {
+    let (r, _) = ui.allocate_exact_size(vec2(256.0, 96.0), Sense::hover());
+    let plot = Rect::from_min_max(r.min, pos2(r.right() - 28.0, r.bottom() - 20.0));
+    let p = ui.painter();
+    p.rect_filled(plot, 2, Color32::BLACK);
+    let top = pings.iter().map(|(_, ms)| *ms).max().unwrap_or(0).max(100).div_ceil(50) * 50;
+    for v in [0, top / 2, top] {
+        let y = plot.bottom() - plot.height() * v as f32 / top as f32;
+        p.text(pos2(plot.right() + 6.0, y), Align2::LEFT_CENTER, v.to_string(), reg(12.0), pal().header_primary);
+    }
+    let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+    let span = 240.0;
+    let x = |t: f64| plot.right() - plot.width() * ((now - t) / span).clamp(0.0, 1.0) as f32;
+    // a label on each minute that fits
+    let first = ((now - span) / 60.0).ceil() as i64;
+    for m in first..=(now / 60.0) as i64 {
+        let t = (m * 60) as f64;
+        let at = x(t);
+        if at < plot.left() + 24.0 || at > plot.right() - 20.0 {
+            continue;
+        }
+        let local = chrono::DateTime::from_timestamp(m * 60, 0).map(|d| d.with_timezone(&chrono::Local).format("%-I:%M %p").to_string()).unwrap_or_default();
+        p.text(pos2(at, plot.bottom() + 10.0), Align2::CENTER_CENTER, local, reg(12.0), pal().header_primary);
+    }
+    let pts: Vec<egui::Pos2> = pings.iter().filter(|(t, _)| now - t <= span).map(|(t, ms)| pos2(x(*t), plot.bottom() - plot.height() * (*ms).min(top) as f32 / top as f32)).collect();
+    if pts.len() > 1 {
+        p.add(egui::Shape::line(pts, Stroke::new(2.0, BLURPLE)));
+    } else if let Some(pt) = pts.first() {
+        p.circle_filled(*pt, 2.0, BLURPLE);
+    }
+}
+
+/// The privacy tab: DAVE's code in groups of five, to read out and compare.
+fn privacy(ui: &mut Ui, code: Option<&str>) {
+    ui.label(egui::RichText::new("Voice Privacy Code").font(semi(16.0)).color(pal().header_primary));
+    ui.add_space(8.0);
+    match code {
+        Some(code) => {
+            ui.label(egui::RichText::new("Compare the numbers below with your friends. If they match, this call is end-to-end encrypted.").font(reg(14.0)).color(pal().text_normal));
+            ui.add_space(12.0);
+            let groups: Vec<String> = code.chars().collect::<Vec<_>>().chunks(5).map(|c| c.iter().collect()).collect();
+            for row in groups.chunks(3) {
+                ui.label(egui::RichText::new(row.join("  ")).font(mono(18.0)).color(pal().header_primary));
+                ui.add_space(4.0);
+            }
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("A new code is generated when people join or leave this call.").font(reg(12.0)).color(pal().text_muted));
+        }
+        None => {
+            ui.label(egui::RichText::new("This call isn't end-to-end encrypted yet, so there's no code to compare.").font(reg(14.0)).color(pal().text_normal));
+        }
+    }
+    ui.add_space(8.0);
+    let link = ui.add(egui::Label::new(egui::RichText::new("Learn more about end-to-end encryption.").font(reg(12.0)).color(pal().link)).sense(Sense::click()));
+    if link.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/25968222946071"));
+    }
+}
+
+// a dot in the corner and two rings out from it, like a broadcast mark
+fn signal(ui: &Ui, c: egui::Pos2, col: Color32) {
+    let o = c + vec2(-6.0, 6.0);
+    ui.painter().circle_filled(o + vec2(1.2, -1.2), 1.8, col);
+    for rad in [6.5, 11.5] {
+        let pts: Vec<egui::Pos2> = (0..=12)
+            .map(|i| {
+                let a = -std::f32::consts::FRAC_PI_2 + i as f32 / 12.0 * std::f32::consts::FRAC_PI_2;
+                o + vec2(a.cos(), a.sin()) * rad
+            })
+            .collect();
+        ui.painter().add(egui::Shape::line(pts, Stroke::new(2.2, col)));
     }
 }
 
@@ -337,23 +545,86 @@ fn stage(app: &mut App, ui: &mut Ui, r: Rect, img: Option<Arc<ColorImage>>) {
     }
 }
 
+/// 1 while the mouse is over the call and has moved in the last 3 seconds, easing to 0 after:
+/// discord's call hides its bars, gradients and name tags once the mouse rests or leaves.
+fn awake(ui: &Ui, area: Rect) -> f32 {
+    let ctx = ui.ctx();
+    let id = egui::Id::new("call_moved");
+    let (now, over, moved) = ctx.input(|i| (i.time, i.pointer.hover_pos().is_some_and(|p| area.contains(p)), i.pointer.delta() != egui::Vec2::ZERO || i.pointer.any_down()));
+    if over && moved {
+        ctx.data_mut(|d| d.insert_temp(id, now));
+    }
+    let left = 3.0 - (now - ctx.data(|d| d.get_temp::<f64>(id)).unwrap_or(f64::MIN));
+    let on = over && left > 0.0;
+    if on {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(left));
+    }
+    ctx.animate_bool_with_time(egui::Id::new("call_awake"), on, 0.2)
+}
+
+/// Discord's 160 tall fade from black at the top and bottom of the call while it's awake.
+fn gradient(ui: &Ui, r: Rect, top: bool, k: f32) {
+    const STOPS: [(f32, f32); 13] = [
+        (0.0, 1.0), (0.19, 0.738), (0.34, 0.541), (0.47, 0.382), (0.565, 0.278), (0.65, 0.194), (0.73, 0.126),
+        (0.802, 0.075), (0.861, 0.042), (0.91, 0.021), (0.952, 0.008), (0.982, 0.002), (1.0, 0.0),
+    ];
+    let mut mesh = egui::Mesh::default();
+    for (i, (t, a)) in STOPS.into_iter().enumerate() {
+        let y = if top { r.top() + 160.0 * t } else { r.bottom() - 160.0 * t };
+        let c = Color32::from_black_alpha((a * k * 255.0) as u8);
+        mesh.colored_vertex(pos2(r.left(), y), c);
+        mesh.colored_vertex(pos2(r.right(), y), c);
+        if i > 0 {
+            let j = (i * 2) as u32;
+            mesh.add_triangle(j - 2, j - 1, j);
+            mesh.add_triangle(j - 1, j, j + 1);
+        }
+    }
+    ui.painter().add(mesh);
+}
+
+/// A tile's colour, the way discord picks it: the banner colour on their profile, else the main
+/// colour of their avatar.
+fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color32 {
+    match app.profiles.get(&u) {
+        Some(p) => {
+            if let Some(c) = p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()) {
+                return role_color(c as u32);
+            }
+        }
+        None => {
+            let asked = egui::Id::new(("tile_profile", u));
+            if !ctx.data(|d| d.get_temp::<bool>(asked).unwrap_or(false)) {
+                ctx.data_mut(|d| d.insert_temp(asked, true));
+                let q = if guild != 0 { format!("&guild_id={guild}") } else { String::new() };
+                app.rest("GET", format!("/users/{u}/profile?with_mutual_guilds=false{q}"), None, crate::net::Tag::Profile(u));
+            }
+        }
+    }
+    app.store.user(u).and_then(|user| super::palette::avatar(ctx, &user.avatar_url())).unwrap_or(pal().bg_mod_selected)
+}
+
 /// Voice channel view: a tile per person, the stream on top when watching one, controls along the bottom.
 pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
+    let shown = awake(ui, ui.max_rect());
     egui::Panel::top("room_head")
         .exact_size(48.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_floating).inner_margin(Margin::symmetric(16, 0)))
+        .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
+            ui.multiply_opacity(shown);
             ui.horizontal_centered(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
                 icons::draw(ui.painter(), Icon::Speaker, r, pal().channel_default);
                 ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(semi(16.0)).color(pal().header_primary)).selectable(false));
             });
         });
-    egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_floating)).show(ui, |ui| {
+    egui::CentralPanel::default().frame(Frame::new().fill(Color32::BLACK)).show(ui, |ui| {
         let r = ui.max_rect();
-        let members = app.voice.members(&app.store, chan.id);
+        let mut members = app.voice.members(&app.store, chan.id);
+        // in name order, like the list under the channel
+        members.sort_by_cached_key(|u| app.store.name_in(chan.guild, *u).to_lowercase());
         let mut area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 80.0));
         if members.is_empty() {
             ui.painter().text(area.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, &chan.name, semi(24.0), pal().header_primary);
@@ -371,22 +642,28 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             area.min.y = top.bottom() + 8.0;
         }
         for (u, tile) in members.iter().zip(grid(area, members.len())) {
-            ui.painter().rect_filled(tile, CornerRadius::same(8), tile_color(*u));
+            let fill = tile_color(app, ui.ctx(), *u, chan.guild);
+            ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
+            app.rects.insert(format!("voice:tile:{u}"), tile);
             match app.voice.video.get(u).cloned() {
                 Some(img) => frame(app, ui, format!("cam:{u}"), &img, tile),
                 None => {
-                    let av = (tile.height().min(tile.width()) * 0.35).clamp(40.0, 96.0);
+                    let av = if tile.width() >= 400.0 { 80.0 } else if tile.width() >= 200.0 { 64.0 } else { 40.0 };
                     let a = Rect::from_center_size(tile.center(), vec2(av, av));
                     if let Some(user) = app.store.user(*u) {
-                        avatar(ui, a, &user.avatar_url());
+                        avatar(ui, a, &user.avatar_url().replace("size=80", "size=128"));
                     }
                 }
             }
-            let name = app.store.name_in(chan.guild, *u);
-            let g = ui.painter().layout_no_wrap(name, semi(13.0), Color32::WHITE);
-            let tag = Rect::from_min_size(pos2(tile.left() + 8.0, tile.bottom() - 30.0), g.size() + vec2(16.0, 8.0));
-            ui.painter().rect_filled(tag, CornerRadius::same(4), Color32::from_black_alpha(140));
-            ui.painter().galley(tag.min + vec2(8.0, 4.0), g, Color32::WHITE);
+            // discord's overlay title: 12 in from the corner, a black wash, gone while idle
+            if shown > 0.0 {
+                let name = app.store.name_in(chan.guild, *u);
+                let g = ui.painter().layout_no_wrap(name, medium(14.0), Color32::WHITE);
+                let size = vec2((g.size().x + 24.0).min(tile.width() - 32.0), 30.0);
+                let tag = Rect::from_min_size(pos2(tile.left() + 12.0, tile.bottom() - 12.0 - size.y), size);
+                ui.painter().rect_filled(tag, CornerRadius::same(8), Color32::from_black_alpha((143.0 * shown) as u8));
+                ui.painter().with_clip_rect(tag.shrink2(vec2(12.0, 0.0))).galley(pos2(tag.left() + 12.0, tag.center().y - g.size().y / 2.0), g, Color32::WHITE.gamma_multiply(shown));
+            }
             if app.voice.live.contains(u) {
                 live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
                 watch_click(app, ui, *u, tile);
@@ -394,6 +671,14 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             if app.voice.is_speaking(*u) {
                 ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN), egui::StrokeKind::Inside);
             }
+        }
+        if shown > 0.0 {
+            gradient(ui, r, true, shown);
+            gradient(ui, r, false, shown);
+        }
+        // the join button stays put; once in, the controls fade with the rest
+        if app.voice.chan == Some(chan.id) {
+            ui.multiply_opacity(shown);
         }
         controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
     });
@@ -429,17 +714,6 @@ fn grid(area: Rect, n: usize) -> Vec<Rect> {
         }
     }
     out
-}
-
-fn tile_color(u: Id) -> Color32 {
-    const C: [Color32; 5] = [
-        Color32::from_rgb(0x3e, 0x45, 0x8f),
-        Color32::from_rgb(0x2d, 0x5e, 0x45),
-        Color32::from_rgb(0x7a, 0x5a, 0x22),
-        Color32::from_rgb(0x7a, 0x30, 0x34),
-        Color32::from_rgb(0x6b, 0x34, 0x5c),
-    ];
-    C[((u ^ (u >> 22)) % 5) as usize]
 }
 
 fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
@@ -499,7 +773,7 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
                 1 => app.voice.set_deaf(&app.net, !deaf),
                 2 => app.voice.set_camera(&app.net, me, !cam),
                 3 if sharing => app.voice.end_stream(&app.net),
-                3 => app.voice.go_live(&app.net, me),
+                3 => app.share = Some(super::share::Picker::new(ui.ctx())),
                 _ => app.voice.leave(&app.net),
             }
         }

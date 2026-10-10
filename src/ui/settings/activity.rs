@@ -19,11 +19,12 @@ pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
                 ui,
                 &mut on,
                 "Share my activity",
-                "Lets people see what you're playing or listening to. Fastcord doesn't detect games itself, but this applies to your other Discord apps too.",
+                "Lets people see the game you're playing or what you're listening to.",
             ) {
                 if let Some(Some(Ok(cur))) = app.remote.get_mut("legacy") {
                     cur["show_current_game"] = json!(on);
                 }
+                app.store.hide_game = !on;
                 app.rest("PATCH", "/users/@me/settings".into(), Some(json!({ "show_current_game": on })), Tag::Remote("action"));
             }
         }

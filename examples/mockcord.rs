@@ -467,7 +467,7 @@ fn ready(last_general: u64) -> Value {
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
-        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "3072", "hoist": false },
+        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "281474976713728", "hoist": false },
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },
@@ -686,15 +686,22 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
                 w.events.clone()
             };
             let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m.clone() }));
+            let w = w.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(400)).await;
                 let _ = tx.send(json!({ "t": "TYPING_START", "d": { "channel_id": ch.to_string(), "user_id": "101", "guild_id": "1000" } }));
                 // a dm from someone else while you're busy elsewhere, so notifications have something to do;
                 // the muted dm talks first and should stay quiet
+                // kept like any other message, so jumping to them later finds them
+                let dm = |ch: u64, from: u64, text: &str| {
+                    let m = msg(snow(now_ms()), ch, from, text);
+                    w.lock().unwrap().msgs.push(m.clone());
+                    let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
+                };
                 tokio::time::sleep(Duration::from_millis(300)).await;
-                let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": msg(snow(now_ms()), 3002, 105, "you muted me, right?") }));
+                dm(3002, 105, "you muted me, right?");
                 tokio::time::sleep(Duration::from_millis(300)).await;
-                let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": msg(snow(now_ms()), 3000, 101, "hey, saw your message — got a sec?") }));
+                dm(3000, 101, "hey, saw your message — got a sec?");
             });
             ok(m)
         }
@@ -764,6 +771,66 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id_hash": "bbb", "approx_last_used_time": "2026-10-01T10:00:00+00:00", "client_info": { "os": "Android", "platform": "Discord Android", "location": "Bangkok, Thailand" } },
         ] })),
         ("GET", ["api", "v9", "content-inventory", "users", "@me"]) => ok(feed()),
+        // Create Channel: the new channel, sent back and over the gateway as discord does
+        ("POST", ["api", "v9", "channels", _, "invites"]) => ok(json!({ "code": "e2eInv1", "max_age": 2592000 })),
+        ("POST", ["api", "v9", "users", "@me", "channels"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let to: u64 = b["recipients"][0].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
+            ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to)] }))
+        }
+        ("POST", ["api", "v9", "guilds", "1000", "channels"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let c = json!({ "id": snow(now_ms()).to_string(), "type": b["type"], "guild_id": "1000", "name": b["name"], "position": 99,
+                            "parent_id": b["parent_id"], "permission_overwrites": b["permission_overwrites"].as_array().cloned().unwrap_or_default(), "last_message_id": null });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "CHANNEL_CREATE", "d": c.clone() }));
+            ok(c)
+        }
+        ("GET", ["api", "v9", "application-directory-static", "categories"]) => ok(json!([{ "id": 6, "name": "Games" }, { "id": 9, "name": "Social" }])),
+        ("GET", ["api", "v9", "application-directory-static", "collections"]) => {
+            let app = |id: &str, name: &str| json!({ "application": { "id": id, "name": name, "icon": "icon".to_string() + id, "cover_image": "cover".to_string() + id,
+                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6] } });
+            ok(json!([{ "id": "1", "title": "Promoted Games", "position": 1, "application_directory_collection_items": [app("9101", "Rusty Racers"), app("9102", "Crab Chess")] }]))
+        }
+        ("GET", ["api", "v9", "application-directory-static", "search"]) => ok(json!({ "results": [], "num_pages": 0, "result_count": 0 })),
+        ("GET", ["api", "v9", "guilds", "1000", "scheduled-events"]) => ok(json!([{
+            "id": "6100", "guild_id": "1000", "name": "Rust release party", "description": "Watching the release notes together, then a quiz.",
+            "channel_id": "2021", "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 26 * 3_600_000),
+            "scheduled_end_time": null, "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 4,
+        }])),
+        ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
+        // the mock itself is the running game the client should spot
+        ("GET", ["api", "v9", "applications", "detectable"]) => ok(json!([
+            { "id": "7100", "name": "Mockcord Quest", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": false }] },
+            { "id": "7101", "name": "Launcher Only", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": true }] },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
+        // the boosts page: discord's powerups catalogue, what Rust Lounge has on, and its boosters
+        ("GET", ["api", "v9", "store", "published-listings", "skus"]) => {
+            let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+            let listing = |sku: u64, name: &str, desc: &str, cost: u64, perk: bool| {
+                let meta = json!({ "boost_price": cost, "category_type": if perk { "perk" } else { "level" },
+                                   "static_image_url": format!("http://127.0.0.1:{port}/cdn/media/perk{sku}.png") });
+                json!({ "id": (sku + 1).to_string(), "description": desc, "sku": { "id": sku.to_string(), "name": name,
+                        "tenant_metadata": { "guild_monetization": { "powerup": meta } } } })
+            };
+            ok(json!([
+                listing(7001, "Level 1", "Level 1", 2, false), listing(7002, "Level 2", "Level 2", 5, false), listing(7003, "Level 3", "Level 3", 7, false),
+                listing(7010, "Server Tag", "Let your members represent your server everywhere on Discord.", 3, true),
+                listing(7011, "Enhanced Role Styles", "Make certain roles stand out with animated, vibrant gradients.", 3, true),
+                listing(7012, "Pet Badge Pack", "Pet Badge Pack", 3, true), listing(7013, "Plant Badge Pack", "Plant Badge Pack", 3, true),
+            ]))
+        }
+        ("GET", ["api", "v9", "guilds", "1000", "powerups"]) => ok(json!([
+            { "id": "8001", "sku_id": "7001", "deleted": false }, { "id": "8002", "sku_id": "7010", "deleted": false },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000", "premium", "subscriptions"]) => {
+            let now = now_ms();
+            ok(json!([
+                { "id": snow(now - 3_600_000).to_string(), "user_id": "101", "ended": false, "user": user(101) },
+                { "id": snow(now - 20 * 86_400_000).to_string(), "user_id": "102", "ended": false, "ends_at": iso(now + 86_400_000), "user": user(102) },
+                { "id": snow(now - 40 * 86_400_000).to_string(), "user_id": "103", "ended": true, "ends_at": iso(now - 2 * 86_400_000), "user": user(103) },
+            ]))
+        }
         ("GET", ["api", "v9", "applications", "public"]) => ok(json!([
             { "id": "9001", "name": "Factorio", "icon": "appicon9001" },
             { "id": "9002", "name": "Wordle", "icon": "appicon9002" },
@@ -880,7 +947,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                 {
                     let mut wl = w.lock().unwrap();
                     let mut line = json!({ "t": now_ms(), "gateway_op": v["op"] });
-                    if matches!(v["op"].as_u64(), Some(4 | 18..=22)) {
+                    if matches!(v["op"].as_u64(), Some(3 | 4 | 18..=22)) {
                         line["d"] = v["d"].clone();
                     }
                     let _ = writeln!(wl.log, "{line}");
@@ -891,6 +958,8 @@ async fn ws_conn(s: TcpStream, w: W) {
                         vec![]
                     }
                     Some(2) => {
+                        // a fresh session isn't in a call, whatever the last client left behind
+                        w.lock().unwrap().voice_chan = None;
                         let last = w.lock().unwrap().msgs.last().map(|m| m["id"].as_str().unwrap().parse::<u64>().unwrap()).unwrap_or(0);
                         vec![
                             ("READY".into(), ready(last)),
@@ -903,6 +972,11 @@ async fn ws_conn(s: TcpStream, w: W) {
                     Some(4) => voice_state(&w, &v["d"]),
                     Some(op @ 18..=22) => stream_op(&w, op, &v["d"]),
                     Some(37) => vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())],
+                    // voice channel statuses and when their calls began, as discord answers op 43
+                    Some(43) => vec![("CHANNEL_INFO".into(), json!({ "guild_id": v["d"]["guild_id"], "channels": [
+                        { "id": "2021", "status": null, "voice_start_time": now_ms() / 1000 - 3725 },
+                        { "id": "2022", "status": "ranked grind", "voice_start_time": null },
+                    ] }))],
                     Some(8) => {
                         let members: Vec<Value> = v["d"]["user_ids"]
                             .as_array()
@@ -1280,7 +1354,10 @@ fn dave_bin(w: &W, gw: &Gw, cssrc: u32, b: &[u8], channel: u64, dm: bool, out: &
 async fn voice_udp(w: W, udp: Arc<UdpSocket>) {
     let mut buf = [0u8; 2048];
     let mut pcm = vec![0f32; 1920];
-    while let Ok((n, from)) = udp.recv_from(&mut buf).await {
+    loop {
+        // windows hands back a send to a port that has since closed (a stream the client stopped
+        // watching) as an error on the next receive; the socket itself is fine
+        let Ok((n, from)) = udp.recv_from(&mut buf).await else { continue };
         let pkt = &buf[..n];
         if n == 74 && pkt[1] == 1 {
             let mut r = [0u8; 74];

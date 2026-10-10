@@ -1,17 +1,25 @@
+mod active;
 mod autoscroll;
+mod boosts;
 mod call;
 mod chat;
 mod composer;
+mod create;
+mod directory;
 mod e2e;
+mod events;
 mod forum;
 mod friends;
 pub mod icons;
 mod login;
 mod members;
+mod palette;
 mod picker;
 mod popups;
 mod rail;
+mod server;
 mod settings;
+mod share;
 mod side;
 pub mod text;
 mod titlebar;
@@ -93,13 +101,26 @@ pub struct App {
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
     // "invite people" from a channel row: the channel, and the code once discord made one
-    pub made_invite: Option<(Id, Option<String>)>,
+    pub made_invite: Option<popups::MadeInvite>,
+    // a voice channel's status being written, from "Set a channel status"
+    pub status_edit: Option<(Id, String)>,
+    // go live's picker of windows, screens and devices
+    pub share: Option<share::Picker>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: HashMap<Id, serde_json::Value>,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
+    // the server whose boosts page is open, and what each page has loaded
+    pub boosts: Option<Id>,
+    pub boost_info: HashMap<Id, boosts::Info>,
+    // the server menu's modals and pages: create, active threads, the app directory, settings
+    pub create: Option<create::Form>,
+    pub active_threads: Option<Id>,
+    pub directory: Option<directory::Dir>,
+    pub server: Option<server::State>,
+    pub events: Option<events::Events>,
     pub friends_tab: u8,
     pub add_friend: String,
     pub post: Option<(String, String)>,
@@ -118,12 +139,23 @@ pub struct App {
     pub gifs: Option<popups::Gifs>,
     pub nav: titlebar::Nav,
     pub inbox: Option<titlebar::Inbox>,
-    title_count: Option<u32>,
+    pub(crate) title_count: Option<u32>,
     pub voice: crate::voice::VoiceUi,
     e2e: Option<e2e::Run>,
     win: Option<[f32; 2]>,
     frames: u64,
     save_at: Option<Instant>,
+    // toasts clicked, as (channel, message); none under e2e, which never shows any
+    pings: Option<std::sync::mpsc::Receiver<(Id, Id)>>,
+    games: Option<std::sync::mpsc::Receiver<Option<crate::games::Game>>>,
+    pub game: Option<crate::games::Game>,
+    // the game the gateway has from us; identify sends none
+    shared: Option<Id>,
+    // servers we've asked for their voice channels' statuses and start times this session
+    info_asked: std::collections::HashSet<Id>,
+    // the taskbar badge's count, and when unreads were last looked over for its dot
+    badge: Option<i32>,
+    badge_at: Option<Instant>,
     // when the activity feed is next fetched
     feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
@@ -208,12 +240,21 @@ impl App {
             settings_page: None,
             invite: None,
             made_invite: None,
+            status_edit: None,
+            share: None,
             switcher: None,
             profile: None,
             profiles: HashMap::new(),
             pins: None,
             search: None,
             friends: false,
+            boosts: None,
+            boost_info: HashMap::new(),
+            create: None,
+            active_threads: None,
+            directory: None,
+            server: None,
+            events: None,
             friends_tab: 0,
             add_friend: String::new(),
             post: None,
@@ -234,6 +275,13 @@ impl App {
             title_count: None,
             frames: 0,
             save_at: None,
+            pings: None,
+            games: None,
+            game: None,
+            shared: None,
+            info_asked: Default::default(),
+            badge: None,
+            badge_at: None,
             feed_at: None,
             synced: None,
         };
@@ -242,6 +290,10 @@ impl App {
         crate::hotkeys::start(ctx.clone(), htx);
         app.hotkey_rx = Some(hrx);
         crate::winsys::watch_streaming(ctx.clone());
+        if app.e2e.is_none() {
+            app.pings = Some(crate::toast::start(ctx.clone()));
+        }
+        app.games = Some(crate::games::start(ctx.clone()));
         app.obs_seen = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
         if app.settings.start_minimized && std::env::args().any(|a| a == "--startup") {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -259,6 +311,8 @@ impl App {
 
     pub fn select_guild(&mut self, g: Option<Id>) {
         self.ui.guild = g;
+        self.boosts = None;
+        self.directory = None;
         let ch = match self.cur() {
             Some(c) => Some(c),
             None => match g {
@@ -273,6 +327,7 @@ impl App {
 
     pub fn open(&mut self, ch: Id) {
         let Some(c) = self.store.channels.get(&ch) else { return };
+        self.boosts = None;
         let guild = c.guild;
         let forum = c.is_forum();
         // member list subscriptions are per parent channel, threads borrow it
@@ -319,6 +374,9 @@ impl App {
                     "typing": true, "activities": true, "threads": true, "channels": chans
                 }}}
             })));
+            if self.info_asked.insert(guild) {
+                self.net.send(Cmd::Gateway(json!({ "op": 43, "d": { "guild_id": guild.to_string(), "fields": ["status", "voice_start_time"] } })));
+            }
         }
     }
 
@@ -649,7 +707,23 @@ impl App {
 
     pub fn set_status(&mut self, s: &str) {
         self.store.presence.insert(self.store.me, Status::parse(s));
-        self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": s, "since": 0, "activities": [], "afk": false } })));
+        self.send_presence();
+    }
+
+    /// Our status, with the game we detected unless activity sharing is off.
+    fn send_presence(&mut self) {
+        let status = match self.store.presence.get(&self.store.me) {
+            Some(Status::Idle) => "idle",
+            Some(Status::Dnd) => "dnd",
+            Some(Status::Offline) => "invisible",
+            _ => "online",
+        };
+        self.shared = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
+        let activities = match (&self.game, self.shared) {
+            (Some(g), Some(_)) => json!([{ "name": g.name, "type": 0, "application_id": g.id.to_string(), "timestamps": { "start": g.start } }]),
+            _ => json!([]),
+        };
+        self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": false } })));
     }
 
     pub fn save_settings(&self, ctx: &egui::Context) {
@@ -697,6 +771,10 @@ impl App {
         if m.author == self.store.me || !self.settings.notify || (self.settings.streamer && self.settings.streamer_no_notifications) {
             return;
         }
+        // do not disturb: no desktop notifications, no sound, no flashing, as discord promises
+        if self.store.presence.get(&self.store.me) == Some(&Status::Dnd) {
+            return;
+        }
         let Some(c) = self.store.channels.get(&m.channel) else { return };
         if self.store.muted.contains(&c.id) || self.store.muted.contains(&c.guild) {
             return;
@@ -715,18 +793,20 @@ impl App {
             None if c.kind == 3 => format!("{who} ({})", channel_title(&self.store, c.id)),
             None => who,
         };
-        let mut body: String = m.content.chars().take(200).collect();
+        // mentions and channels by name, the markdown taken off, as discord's toasts read
+        let mut body: String = crate::markdown::plain(&m.content, &self.store, c.guild).chars().take(200).collect();
         if body.is_empty() && !m.attachments.is_empty() {
             body = "Uploaded a file".into();
         }
+        let avatar = self.store.user(m.author).map(|u| u.avatar_url()).unwrap_or_default();
+        let ping = crate::toast::Ping { title, body, avatar, at: (c.id, m.id) };
         crate::sound::cue("message");
         if let Some(e) = &mut self.e2e {
             e.mark_once("notified");
             e.pinged.push(c.id);
+            e.pings.push((crate::toast::xml(&ping, None), ping.at));
         } else {
-            std::thread::spawn(move || {
-                let _ = notify_rust::Notification::new().appname("Fastcord").summary(&title).body(&body).show();
-            });
+            crate::toast::send(ping);
         }
         if !focused && self.settings.flash {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
@@ -827,13 +907,40 @@ impl App {
             .map(|(_, r)| r.mentions)
             .sum();
         n += self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-        if !self.settings.badge {
-            n = 0;
-        }
         if self.title_count != Some(n) {
             self.title_count = Some(n);
             let t = if n > 0 { format!("({n}) Fastcord") } else { "Fastcord".into() };
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(t));
+        }
+        // discord's taskbar badge: the count, or with nothing mentioning you and the unread badge
+        // on, a dot while anything's unread. Unreads take a walk over every channel, so once a second.
+        let mut badge = n.min(i32::MAX as u32) as i32;
+        if badge == 0 && self.settings.badge {
+            let stale = self.badge_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(1));
+            badge = match (stale, self.badge) {
+                (false, Some(b)) => b.min(0),
+                _ => {
+                    self.badge_at = Some(Instant::now());
+                    let s = &self.store;
+                    let any = s.channels.values().any(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c));
+                    if any { -1 } else { 0 }
+                }
+            };
+        }
+        if self.badge != Some(badge) && self.store.me != 0 {
+            crate::winsys::set_badge(badge);
+            if crate::winsys::badge() == badge {
+                self.badge = Some(badge);
+            }
+        }
+    }
+
+    /// A clicked toast: the window back up and the message on screen.
+    pub(crate) fn open_ping(&mut self, ctx: &egui::Context, ch: Id, msg: Id) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        if self.store.channels.contains_key(&ch) {
+            self.jump_to(ch, msg);
         }
     }
 
@@ -849,6 +956,20 @@ impl App {
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
                     Tag::Feed | Tag::AppIcons(_) => return,
+                    Tag::Boosts(g, k) => {
+                        if let Some(i) = self.boost_info.get_mut(&g) {
+                            i.loaded |= 1 << k;
+                        }
+                    }
+                    Tag::Created => {
+                        if let Some(f) = &mut self.create {
+                            f.busy = false;
+                        }
+                    }
+                    // an empty list rather than a spinner that never stops
+                    Tag::Directory(k) => directory::loaded(self, k, serde_json::json!([])),
+                    Tag::Server(k) => server::loaded(self, k, serde_json::json!([])),
+                    Tag::Events(g, k) => events::loaded(self, g, k, &serde_json::json!([])),
                     _ => {}
                 }
                 return self.toast(e);
@@ -890,6 +1011,11 @@ impl App {
                 }
             }
             Tag::Forum(f) => self.store.load_forum(f, &v),
+            Tag::Boosts(g, k) => boosts::load(self, g, k, &v),
+            Tag::Created => create::created(self, &v),
+            Tag::Directory(k) => directory::loaded(self, k, v),
+            Tag::Server(k) => server::loaded(self, k, v),
+            Tag::Events(g, k) => events::loaded(self, g, k, &v),
             Tag::Feed => {
                 self.store.set_feed(&v);
                 let mut want: Vec<Id> = self.store.feed.iter().map(|e| e.app).filter(|a| *a != 0 && !self.store.app_icons.contains_key(a)).collect();
@@ -914,9 +1040,14 @@ impl App {
                 self.toast(format!("Joined {name}"));
             }
             Tag::MadeInvite => {
-                if let (Some((_, code)), Some(c)) = (&mut self.made_invite, v["code"].as_str()) {
-                    *code = Some(c.to_string());
+                if let (Some(inv), Some(c)) = (&mut self.made_invite, v["code"].as_str()) {
+                    inv.code = Some(c.to_string());
                 }
+            }
+            Tag::InviteDm(link) => {
+                self.store.apply("CHANNEL_CREATE", &v);
+                let id = crate::state::sid(&v["id"]);
+                self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::Quiet);
             }
             Tag::OpenDm => {
                 self.store.apply("CHANNEL_CREATE", &v);
@@ -981,6 +1112,18 @@ impl App {
     }
 
     fn pump(&mut self, ctx: &egui::Context) {
+        let clicked: Vec<(Id, Id)> = self.pings.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
+        for (ch, msg) in clicked {
+            self.open_ping(ctx, ch, msg);
+        }
+        if let Some(g) = self.games.as_ref().and_then(|r| r.try_iter().last()) {
+            self.game = g;
+        }
+        // a game opening or closing, or sharing switched, goes out once we're connected
+        let want = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
+        if want != self.shared && self.conn == crate::net::Conn::Online && self.store.me != 0 {
+            self.send_presence();
+        }
         while let Ok(ev) = self.rx.try_recv() {
             match ev {
                 Ev::Dispatch(t, d) => {
@@ -994,6 +1137,8 @@ impl App {
                         if let Some(e) = &mut self.e2e {
                             e.mark("ready");
                         }
+                        self.shared = None;
+                        self.info_asked.clear();
                         self.feed_at = Some(Instant::now());
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
                     }
@@ -1094,6 +1239,11 @@ impl App {
 
     fn overlays(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        create::show(self, &ctx);
+        active::show(self, &ctx);
+        server::show(self, &ctx);
+        events::show(self, &ctx);
+        share::show(self, &ctx);
         if let Some((text, at)) = &self.toast {
             if at.elapsed() > Duration::from_secs(4) {
                 self.toast = None;
@@ -1296,23 +1446,34 @@ impl eframe::App for App {
                 .rect;
             // discord: 375 wide with the rail and its 1px frame line, draggable between 264 and 432
             let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 302.0 };
-            let r = egui::Panel::left("side")
-                .default_size(side_w)
-                .size_range(191.0..=(w - 72.0 - 420.0).clamp(191.0, 359.0))
-                .resizable(true)
-                .show_separator_line(false)
-                .frame(Frame::new().fill(pal().bg_primary))
-                .show(ui, |ui| side::show(self, ui));
-            side_edge(ui.painter(), r.response.rect);
-            side::card(self, ui, rail, r.response.rect);
-            if let Some(w) = self.dragged(&ctx, r.response.rect.width(), side_w) {
-                self.ui.side_w = w;
-            }
-            // discord's frame line carries on from the sidebar's top over the chat and members
-            let c = egui::CentralPanel::default()
-                .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
-                .show(ui, |ui| chat::show(self, ui));
-            let cr = c.response.rect;
+            let cr = if self.directory.is_some() {
+                // discord's discover page brings its own sidebar
+                let c = egui::CentralPanel::default()
+                    .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
+                    .show(ui, |ui| directory::show(self, ui));
+                let side = egui::Rect::from_min_size(c.response.rect.min, vec2(side_w, c.response.rect.height()));
+                side_edge(ui.painter(), side);
+                side::card(self, ui, rail, side);
+                c.response.rect
+            } else {
+                let r = egui::Panel::left("side")
+                    .default_size(side_w)
+                    .size_range(191.0..=(w - 72.0 - 420.0).clamp(191.0, 359.0))
+                    .resizable(true)
+                    .show_separator_line(false)
+                    .frame(Frame::new().fill(pal().bg_primary))
+                    .show(ui, |ui| side::show(self, ui));
+                side_edge(ui.painter(), r.response.rect);
+                side::card(self, ui, rail, r.response.rect);
+                if let Some(w) = self.dragged(&ctx, r.response.rect.width(), side_w) {
+                    self.ui.side_w = w;
+                }
+                // discord's frame line carries on from the sidebar's top over the chat and members
+                let c = egui::CentralPanel::default()
+                    .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
+                    .show(ui, |ui| chat::show(self, ui));
+                c.response.rect
+            };
             ui.painter().hline(cr.x_range(), cr.top() + 0.5, egui::Stroke::new(1.0, pal().frame_border));
             self.overlays(ui);
             self.update_title(&ctx);

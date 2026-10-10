@@ -56,6 +56,14 @@ pub struct Run {
     pub opened: Vec<String>,
     // channels whose messages raised a notification
     pub pinged: Vec<Id>,
+    // the connection popout: 0 not opened yet, 1 open and waiting on pings, 2 checked
+    rtc: u8,
+    // the last click into the share picker, so a click the dialog missed gets another go
+    share_at: Option<Instant>,
+    // pings so far and dm 3000's last message when do not disturb went on
+    dnd: Option<(usize, Id)>,
+    // the toasts those would have been, and the message each opens
+    pub pings: Vec<(String, (Id, Id))>,
     // the chat's scroll offset when a step began, for steps that scroll it
     y0: f32,
 }
@@ -100,6 +108,10 @@ impl Run {
             tries: 0,
             opened: Vec::new(),
             pinged: Vec::new(),
+            dnd: None,
+            rtc: 0,
+            share_at: None,
+            pings: Vec::new(),
             y0: 0.0,
         })
     }
@@ -785,9 +797,35 @@ impl Run {
                     self.next(0);
                 }
             }
+            57 if heard && self.rtc == 1 => {
+                // the heartbeat runs every second against the mock, so the graph fills quickly
+                if app.rects.contains_key("rtc:popout") && app.voice.pings.len() >= 2 && app.voice.host().is_some() {
+                    self.shot(ctx, "rtc_popout.png");
+                    self.mark("rtc_popout");
+                    self.rtc = 2;
+                    if let Some(r) = app.rects.get("voice:status").copied() {
+                        self.click(r.center());
+                    }
+                    self.next(300);
+                }
+            }
             57 => {
                 if heard {
                     self.shot(ctx, "voice.png");
+                    // op 43's answer: our call's running time with the prompt under it, and the
+                    // other channel's status on its own second line
+                    let tall = |k: &str| app.rects.get(k).is_some_and(|r| (r.height() - 48.0).abs() < 0.5);
+                    if app.rects.contains_key("chan_timer:2021") && tall("chan_status:2021") && tall("chan_status:2022") && app.rects.contains_key(&format!("voice:tile:{me}")) {
+                        self.mark("voice_channel_info");
+                    }
+                    // then discord's connection popout off the "Voice Connected" line
+                    if self.rtc == 0
+                        && let Some(r) = app.rects.get("voice:status").copied()
+                    {
+                        self.click(r.center());
+                        self.rtc = 1;
+                        return;
+                    }
                     self.next(300);
                 }
             }
@@ -860,6 +898,23 @@ impl Run {
                 self.next(0);
             }
             70 => {
+                // the button opens discord's picker: Entire Screen, then the first screen in it
+                // a click at most every 600ms: a freshly opened dialog can miss one, and a flood
+                // would land on the call once the picker shuts
+                if let Some(p) = &app.share {
+                    self.mark("share_picker");
+                    if self.share_at.is_none_or(|t| t.elapsed() > Duration::from_millis(600)) {
+                        let key = if p.tab == 1 { "share:item:0" } else { "share:tab:1" };
+                        if let Some(r) = app.rects.get(key).copied() {
+                            if p.tab == 1 {
+                                self.shot(ctx, "share_picker.png");
+                            }
+                            self.click(r.center());
+                            self.share_at = Some(Instant::now());
+                        }
+                    }
+                    return;
+                }
                 if app.voice.stream.as_ref().is_some_and(|l| l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_out");
                     self.next(1500);
@@ -954,6 +1009,30 @@ impl Run {
             85 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("dm_left");
+                    self.next(300);
+                }
+            }
+            // alice's dm as a toast: her name over the text, her avatar, silent; clicking it opens the
+            // message. The taskbar carries discord's badge for the mentions waiting.
+            86 => {
+                let Some((xml, at)) = self.pings.iter().find(|(_, at)| at.0 == 3000).cloned() else {
+                    return self.fail("alice's dm made no toast".into());
+                };
+                if xml.contains("<text>Alice</text>") && xml.contains("got a sec?</text>") && xml.contains(r#"<audio silent="true"/>"#) {
+                    self.mark("toast");
+                }
+                self.loaded = at.1 as usize;
+                let n = app.title_count.unwrap_or(0) as i32;
+                if n > 0 && crate::winsys::badge() == n {
+                    self.mark("taskbar_badge");
+                }
+                app.select_guild(Some(self.target.0));
+                app.open_ping(ctx, at.0, at.1);
+                self.next(800);
+            }
+            87 => {
+                if app.cur() == Some(3000) && app.store.msgs.get(&3000).is_some_and(|e| e.list.iter().any(|m| m.id as usize == self.loaded)) {
+                    self.mark("toast_click");
                     self.loaded = 0;
                     self.step = 100;
                 }
@@ -966,7 +1045,7 @@ impl Run {
             280..=299 => self.look_steps(app, ctx),
             330..=349 => self.polish_steps(app, ctx),
             350..=369 => self.sync_steps(app, ctx),
-            370..=429 => self.emoji_steps(app, ctx),
+            370..=449 => self.emoji_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -2182,6 +2261,13 @@ impl Run {
                 }
                 self.mark("nav_keys");
                 let Some(r) = app.rects.get("guild:home").copied() else { return };
+                // with a folder left open the rail scrolls, and home can sit under the title bar
+                let bar = rect(app, "bar").map_or(0.0, |b| b.bottom());
+                if r.top() < bar {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, bar + 200.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 400.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    return;
+                }
                 self.click(r.center());
                 self.next(800);
             }
@@ -2366,8 +2452,25 @@ impl Run {
             }
             // the right-click menus, the server dropdown and the search filters each open
             385 | 387 | 389 | 391 => {
-                if self.step == 389 && !self.opened.iter().any(|u| u.contains("discord.com/channels/")) {
-                    return self.fail("Server Boost in the server dropdown opened nothing".into());
+                // Server Boost opens discord's boosts page in the app: its levels and perks drawn
+                // from the catalogue, shot, then left so the search box comes back
+                if self.step == 389 && app.boosts.is_some() {
+                    if !app.rects.contains_key("boosts:level:3") || !app.rects.contains_key("boosts:perk:Server Tag Badge Packs") {
+                        return;
+                    }
+                    if self.loaded != 389 {
+                        self.shot(ctx, "boosts.png");
+                        self.loaded = 389;
+                    } else {
+                        self.mark("boosts");
+                        app.boosts = None;
+                        self.loaded = 0;
+                    }
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
+                if self.step == 389 && !self.marks.iter().any(|(m, _)| m == "boosts") {
+                    return self.fail("Server Boost in the server dropdown didn't open the boosts page".into());
                 }
                 // the filters drop down from an empty search box; an earlier step left a query in it
                 ctx.data_mut(|d| d.remove::<String>(egui::Id::new("search_q")));
@@ -2623,6 +2726,179 @@ impl Run {
                 }
                 self.mark("name_font");
                 self.next(300);
+            }
+            // the server menu's own modals and pages: Create Channel all the way to a new channel,
+            // All Active Threads, the app directory and server settings
+            421 => {
+                app.select_guild(Some(1000));
+                app.create = Some(super::create::Form::new(super::create::Kind::Channel, 1000, None));
+                self.next(600);
+            }
+            422 => {
+                let Some(r) = Self::at(ctx, "field:new-channel") else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("E2E room".into())]);
+                self.next(400);
+            }
+            423 => {
+                // discord lowercases a text channel's name and swaps spaces for dashes as you type
+                if app.create.as_ref().is_none_or(|f| f.name != "e2e-room") {
+                    return self.fail(format!("create channel name became {:?}", app.create.as_ref().map(|f| f.name.clone())));
+                }
+                self.shot(ctx, "create_channel.png");
+                let Some(r) = Self::at(ctx, "plate:Create Channel") else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            424 => {
+                if app.create.is_none() && app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.name == "e2e-room") {
+                    self.mark("create_channel");
+                    app.active_threads = Some(1000);
+                    self.next(700);
+                }
+            }
+            425 => {
+                let Some(r) = app.rects.get("thread_card:2050").copied() else { return };
+                self.shot(ctx, "active_threads.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            426 => {
+                if app.cur() == Some(2050) && app.active_threads.is_none() {
+                    self.mark("active_threads");
+                    app.open_directory();
+                    self.next(1200);
+                }
+            }
+            427 => {
+                if app.directory.as_ref().is_none_or(|d| d.data.get("collections").and_then(|v| v.as_array()).is_none_or(|a| a.is_empty())) {
+                    return;
+                }
+                self.shot(ctx, "directory.png");
+                self.mark("directory");
+                self.next(400);
+            }
+            428 => {
+                app.directory = None;
+                app.open_server_settings(1000);
+                if let Some(s) = &mut app.server {
+                    s.page = super::server::Page::Roles;
+                }
+                self.next(1000);
+            }
+            429 => {
+                if app.server.as_ref().is_none_or(|s| s.data.get("role_counts").is_none_or(|v| v.is_null())) {
+                    return;
+                }
+                self.shot(ctx, "server_roles.png");
+                self.mark("server_settings");
+                app.server = None;
+                app.open_events(1000);
+                self.next(800);
+            }
+            // the Events window: the mock's one event, and Interested sent as discord does
+            430 => {
+                if app.events.as_ref().is_none_or(|e| e.list.as_ref().is_none_or(|l| l.is_empty())) {
+                    return;
+                }
+                self.shot(ctx, "events.png");
+                let Some(r) = Self::at(ctx, "event:Interested") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            431 => {
+                if app.events.as_ref().is_some_and(|e| e.rsvp.contains(&6100)) {
+                    self.mark("events");
+                    app.events = None;
+                    self.next(400);
+                }
+            }
+            // a reply open with the composer not focused: escape still drops it
+            432 => {
+                let Some(m) = app.cur().and_then(|c| app.store.msgs.get(&c)).and_then(|e| e.list.last()).map(|m| m.id) else { return };
+                app.reply = Some(m);
+                ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::new("composer")));
+                self.next(300);
+            }
+            433 => {
+                self.key(Key::Escape);
+                self.next(300);
+            }
+            434 => {
+                if app.reply.is_some() {
+                    return self.fail("escape left the reply open".into());
+                }
+                self.mark("reply_escape");
+                self.next(200);
+            }
+            // the mock lists its own exe as a game: discord's panel over the account card, then
+            // "Not Sharing" (and an empty presence) once activity sharing is off
+            435 => {
+                let (Some(p), Some(i)) = (app.rects.get("game:panel").copied(), app.rects.get("game:icon").copied()) else { return };
+                if (p.height() - 56.0).abs() > 0.5 || (i.width() - 32.0).abs() > 0.5 || app.rects.contains_key("game:not_sharing") {
+                    return self.fail(format!("game panel {p:?}, icon {i:?}, not sharing {}", app.rects.contains_key("game:not_sharing")));
+                }
+                self.shot(ctx, "game_panel.png");
+                self.mark("game_panel");
+                app.store.hide_game = true;
+                self.next(500);
+            }
+            436 => {
+                if !app.rects.contains_key("game:not_sharing") {
+                    return;
+                }
+                self.shot(ctx, "game_hidden.png");
+                self.mark("game_hidden");
+                app.store.hide_game = false;
+                self.next(500);
+            }
+            // Invite People on a server none of our friends are known to be in: the dms and
+            // friends list under the search, and Invite on a friend with no dm makes one first
+            437 => {
+                app.invite_people(2400);
+                self.next(800);
+            }
+            438 => {
+                let Some(r) = app.rects.iter().find(|(k, _)| k.starts_with("invite:friend:")).map(|(_, r)| *r) else { return };
+                if app.made_invite.as_ref().is_none_or(|i| i.code.is_none()) || !app.rects.contains_key("invite:chan:3000") {
+                    return;
+                }
+                self.shot(ctx, "invite.png");
+                // sending the invite sets the mock's dms off; under do not disturb they mustn't ping
+                app.store.presence.insert(app.store.me, crate::state::Status::Dnd);
+                self.dnd = Some((self.pinged.len(), app.store.channels.get(&3000).map_or(0, |c| c.last_msg)));
+                self.click(r.center());
+                self.next(800);
+            }
+            439 => {
+                if app.store.dms.contains(&3010) {
+                    self.mark("invite_friends");
+                    app.made_invite = None;
+                    self.next(300);
+                }
+            }
+            440 => {
+                let Some((pings, before)) = self.dnd else { return };
+                if app.store.channels.get(&3000).map_or(0, |c| c.last_msg) > before {
+                    if self.pinged.len() == pings {
+                        self.mark("dnd_quiet");
+                    }
+                    app.store.presence.insert(app.store.me, crate::state::Status::Online);
+                    self.next(300);
+                }
+            }
+            // resting on a server with people in voice: the tooltip gets discord's speaker row
+            441 => {
+                let Some(r) = app.rects.get("guildicon:1008").copied() else { return };
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(1200);
+            }
+            442 => {
+                if app.rects.get("guildtip_voice").is_some_and(|r| r.height() >= 24.0) {
+                    self.shot(ctx, "guild_tip.png");
+                    self.mark("guild_tip_voice");
+                    self.step = 99;
+                }
             }
             419 => {
                 if app.profile.is_none() || app.user_menu.is_none() {

@@ -132,6 +132,23 @@ pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {
     Some(text.filter(|t| !t.is_empty()))
 }
 
+/// From the status settings (11): the status (1) and whether games are shared (3, a BoolValue
+/// that's empty when false). Each None when the blob doesn't say.
+pub fn status(settings: &[u8]) -> (Option<String>, Option<bool>) {
+    let mut out = (None, None);
+    for (n, v) in fields(settings) {
+        let (11, Val::Bytes(b)) = (n, v) else { continue };
+        for (n, v) in fields(b) {
+            match (n, v) {
+                (1, Val::Bytes(w)) => out.0 = text(w).filter(|s| !s.is_empty()),
+                (3, Val::Bytes(w)) => out.1 = Some(flag(w)),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 macro_rules! account {
     ($($f:ident: $t:ty),* $(,)?) => {
         /// What the account says for the settings we mirror; None = not in the blob.

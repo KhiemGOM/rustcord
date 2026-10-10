@@ -113,6 +113,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if app.ui.guild.is_none() && app.friends {
         return super::friends::show(app, ui);
     }
+    if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
+        return super::boosts::show(app, ui, g);
+    }
     let Some(ch) = app.cur() else {
         ui.centered_and_justified(|ui| {
             ui.label(RichText::new("No text channels here yet.").color(pal().text_muted));

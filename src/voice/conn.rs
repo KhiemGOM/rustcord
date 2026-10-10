@@ -17,7 +17,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use super::audio::{self, FRAME, Out, SILENCE, Shared};
 use super::rtp::{self, Cipher};
-use super::video::{self, Assembler, Decode, Encoded, Got, H264_PT, Source};
+use super::video::{self, Assembler, Decode, Encoded, Got, H264_PT, Quality, Source};
 use super::{Connect, Ctl, Ev, Kind, Media, State};
 use crate::net::{self, Tx};
 use crate::state::{Id, sid};
@@ -54,6 +54,8 @@ struct Sess {
     acked: bool,
     dave: Option<DaveSession>,
     dave_ver: u16,
+    // the privacy code the ui has, so it only hears about changes
+    privacy: Option<String>,
     pending: HashMap<u16, u16>,
     downgraded: bool,
     last_transition: Option<u16>,
@@ -117,6 +119,7 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         acked: false,
         dave: None,
         dave_ver: 0,
+        privacy: None,
         pending: HashMap::new(),
         downgraded: false,
         last_transition: None,
@@ -156,7 +159,8 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         };
         tries = 0;
         if s.c.kind == Media::GoLive && s.cam.is_none() {
-            let _ = s.video(&mut ws, Some(Source::Screen)).await;
+            let share = s.c.share;
+            let _ = s.video(&mut ws, share).await;
         } else if s.cam.is_some() && !resume {
             // a fresh session knows nothing about the video we were already sending
             let _ = s.announce(&mut ws).await;
@@ -370,10 +374,15 @@ impl Sess {
                 }
                 _ = tick.tick() => {
                     self.quiet();
+                    let code = self.dave.as_ref().filter(|_| self.dave_ver != 0).and_then(|d| d.voice_privacy_code()).map(str::to_string);
+                    if code != self.privacy {
+                        self.privacy = code.clone();
+                        self.emit(Kind::Privacy(code));
+                    }
                     Ok(())
                 }
                 c = ctl.recv() => match c {
-                    Some(Ctl::Camera(on)) => self.video(ws, on.then_some(Source::Camera)).await,
+                    Some(Ctl::Camera(on)) => self.video(ws, on.then_some((Source::Camera, Quality::CAMERA))).await,
                     None => return End::Quit,
                 },
             };
@@ -416,7 +425,13 @@ impl Sess {
         let d = &v["d"];
         match v["op"].as_u64().unwrap_or(99) {
             5 => self.map_ssrc(d["ssrc"].as_u64(), sid(&d["user_id"])),
-            6 => self.acked = true,
+            6 => {
+                self.acked = true;
+                // the ack echoes the time we sent with the heartbeat: that's the ping
+                if let Some(t) = d["t"].as_i64().or(d.as_i64()) {
+                    self.emit(Kind::Ping((chrono::Utc::now().timestamp_millis() - t).clamp(0, 60_000) as u32));
+                }
+            }
             11 => {
                 for u in d["user_ids"].as_array().into_iter().flatten() {
                     self.known.insert(sid(u));
@@ -753,6 +768,17 @@ impl Sess {
     }
 
     fn rtcp(&mut self, pkt: &[u8]) {
+        // the server's sender and receiver reports say how much of our audio it lost
+        if pkt.len() >= 8 && matches!(pkt[1], 200 | 201) {
+            let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
+            let skip = if pkt[1] == 200 { 20 } else { 0 };
+            for block in plain.get(skip..).unwrap_or(&[]).chunks_exact(24).take((pkt[0] & 0x1f) as usize) {
+                if u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == self.ssrc {
+                    self.emit(Kind::Loss(block[4] as f32 * 100.0 / 256.0));
+                }
+            }
+            return;
+        }
         // PLI (fmt 1) or FIR (fmt 4) aimed at our video: next frame goes out as a keyframe
         if pkt.len() < 8 || pkt[1] != 206 || !matches!(pkt[0] & 0x1f, 1 | 4) {
             return;
@@ -767,12 +793,12 @@ impl Sess {
     }
 
     /// Starts or stops our outgoing video and tells the gateway (op 12).
-    async fn video(&mut self, ws: &mut Sock, src: Option<Source>) -> Result<(), String> {
+    async fn video(&mut self, ws: &mut Sock, src: Option<(Source, Quality)>) -> Result<(), String> {
         self.cam = None;
-        if let Some(src) = src {
+        if let Some((src, q)) = src {
             let (tx, tag, me) = (self.tx.clone(), self.c.tag, self.c.me);
             let preview = move |img| tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }));
-            match video::send(src, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
+            match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
                 Ok(s) => self.cam = Some(s),
                 Err(e) => self.emit(Kind::Error(format!("couldn't start {}: {e}", if src == Source::Camera { "the camera" } else { "screen capture" }))),
             }
@@ -789,7 +815,7 @@ impl Sess {
                 "audio_ssrc": self.ssrc, "video_ssrc": self.vssrc, "rtx_ssrc": self.rtx,
                 "streams": [{
                     "type": "video", "rid": "100", "ssrc": self.vssrc, "active": true, "quality": 100, "rtx_ssrc": self.rtx,
-                    "max_bitrate": 2_500_000, "max_framerate": cam.fps,
+                    "max_bitrate": cam.bitrate, "max_framerate": cam.fps,
                     "max_resolution": { "type": "fixed", "width": cam.size.0, "height": cam.size.1 },
                 }],
             }),

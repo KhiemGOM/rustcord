@@ -156,6 +156,8 @@ def main():
     gw = lambda op: [r.get("d", {}) for r in reqs if r.get("gateway_op") == op]
     video_marks = ("video_in", "camera_on", "stream_in", "stream_out")
     e2ee = [r for r in rtp if r.get("e2ee")]
+    op3 = gw(3)
+    played = [i for i, d in enumerate(op3) if any(a.get("application_id") == "7100" for a in d.get("activities") or [])]
 
     lay = lambda r, k: r.get("rects", {}).get("layout_" + k, 0)
     def near(v, want, tol=0.6):
@@ -170,6 +172,12 @@ def main():
             and all(near(g(f"guildicon:{i}")[2], 40) and near(g(f"guildicon:{i}")[3], 40) for i in (1003, 1007, 1008))
             and near(pitch, 48)
             and near(g("folderbg:78")[2], 48)
+            # discord's open folder: a 48 header, the first server 4 under it, the background
+            # 4 past the last one and 8 over whatever follows
+            and near((g("guildicon:1003")[1] or 0) - (g("folderbg:78")[1] or 0), 52)
+            and near((g("guildicon:1007")[1] or 0) - (g("folderbg:78")[1] or 0) - (g("folderbg:78")[3] or 0), 8)
+            and near(g("voicebadge:1008")[2], 16)
+            and near((g("guildicon:1008")[0] or 0) + 40 - (g("voicebadge:1008")[0] or 0), 16)
             and near(g("chan:2303")[3], 32)
             and near(g("chanicon:2303")[2], 20)
             # discord draws emoji in names at about the text size, not 1.25x of it
@@ -246,7 +254,7 @@ def main():
                               ("nitro: other server's emoji typed in full", "<:omgBruh:5200> typed"),
                               ("role-locked and unavailable emojis stayed literal even with nitro", ":omgMods: :omgLapsed: no")]},
         "emoji: popup opened for both the locked and the nitro run": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("emoji_locked_ac", "emoji")),
-        "menus: channel, server dropdown, search filters and person menu all opened, and a dropdown item opened its link": all("menus" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "menus: channel, server dropdown, search filters and person menu all opened, and Server Boost opened its page": all("menus" in r.get("marks_ms", {}) for r in (cold, warm)),
         "quick reactions: right-clicking one in the message menu and picking an emoji replaced it": all("quick_reactions" in r.get("marks_ms", {}) for r in (cold, warm)),
         "new messages bar: a wheel down at the bottom of the channel takes it away": all("bar_read" in r.get("marks_ms", {}) for r in (cold, warm)),
         "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),
@@ -266,10 +274,41 @@ def main():
                               ("search returned results", "search"), ("pins loaded", "pins"), ("settings opened", "settings"),
                               ("dm from someone else raised a notification", "notified"),
                               ("a muted dm's message neither pinged nor popped up in the rail", "muted_dm"),
+                              ("toast: a dm's ping is the sender's name over the text, with their avatar, silent", "toast"),
+                              ("toast: clicking one opens the dm at that message", "toast_click"),
+                              ("taskbar: discord's red badge shows the mention count", "taskbar_badge"),
                               ("pins: something pinned since you looked puts discord's dot on the pin button", "pins_dot"),
                               ("pins: opening them takes the dot away", "pins_dot_gone"),
                               ("activity: the member list leads with three cards from this server's people", "activity"),
-                              ("member list: a gradient role's name is drawn as its gradient", "member_grad")]},
+                              ("member list: a gradient role's name is drawn as its gradient", "member_grad"),
+                              ("boosts: Server Boost opens the boosts page in the app, levels and perks from the catalogue", "boosts"),
+                              ("create channel: typed into discord's modal, sent, and the new channel opened", "create_channel"),
+                              ("active threads: the modal lists the server's threads and a card opens one", "active_threads"),
+                              ("app directory: discover opens in the app with the featured collections", "directory"),
+                              ("server settings: the layer opens on Roles with discord's member counts", "server_settings"),
+                              ("events: the window lists the server's event and Interested marks it", "events"),
+                              ("escape cancels a reply even with the composer unfocused", "reply_escape"),
+                              ("game: the running mockcord.exe got discord's panel over the account card", "game_panel"),
+                              ("game: with activity sharing off the panel says Not Sharing", "game_hidden"),
+                              ("invite: discord's dialog lists dms and friends, and Invite on a friend opened a dm", "invite_friends"),
+                              ("voice: the call's timer and status prompt, another channel's status, a tile per person", "voice_channel_info"),
+                              ("go live: the share button opens discord's picker and a screen from it goes live", "share_picker"),
+                              ("rail: a server's tooltip shows who's in voice beside a speaker", "guild_tip_voice"),
+                              ("do not disturb: a dm arriving raised no notification", "dnd_quiet"),
+                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout")]},
+        "voice: channel info was asked for with op 43": any(r.get("gateway_op") == 43 for r in reqs),
+        "invite: the link was made for 30 days and sent to the friend's new dm": any(
+            r.get("method") == "POST" and r.get("path", "").endswith("/channels/2400/invites") and '"max_age":2592000' in r.get("body", "") for r in reqs)
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/3010/messages") and "discord.gg/e2eInv1" in r.get("body", "") for r in reqs),
+        "game: the gateway heard the game while shared and an empty activity list once sharing was off": bool(played)
+            and op3[played[0]]["activities"][0].get("name") == "Mockcord Quest"
+            and op3[played[0]]["activities"][0].get("type") == 0
+            and any(not d.get("activities") for d in op3[played[0] + 1:]),
+        "events: Interested was sent to discord": any(r.get("method") == "PUT" and r.get("path", "").endswith("/guilds/1000/scheduled-events/6100/users/@me") for r in reqs),
+        "create channel: posted the lowercased name to the server": any(
+            r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1000/channels") and '"e2e-room"' in r.get("body", "") for r in reqs),
+        "boosts: the page fetched the powerups catalogue, what's applied and the server's boosts": all(
+            any(k in r.get("path", "") for r in reqs) for k in ("/store/published-listings/skus", "/guilds/1000/powerups", "/guilds/1000/premium/subscriptions")),
         "pins: opening them acked them": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2050/pins/ack") for r in reqs),
         "activity: the feed and its apps' icons were fetched": any("/content-inventory/users/@me" in r.get("path", "") for r in reqs)
             and any("/applications/public" in r.get("path", "") for r in reqs),

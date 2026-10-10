@@ -1,5 +1,6 @@
-//! Frame sources for video: the desktop via DXGI duplication, a camera via Media Foundation,
-//! and synthetic patterns for the e2e run. Everything comes out as tightly packed BGRA.
+//! Frame sources for video: a window or monitor through Windows.Graphics.Capture (the desktop
+//! via DXGI duplication if that fails), a camera via Media Foundation, and synthetic patterns
+//! for the e2e run. Everything comes out as tightly packed BGRA.
 
 use std::time::Instant;
 use windows::Win32::Foundation::HMODULE;
@@ -16,6 +17,7 @@ use super::video::Source;
 pub enum Grab {
     Fake { screen: bool, t0: Instant },
     Screen(Box<Screen>),
+    Wgc(Box<Wgc>),
     Camera(Box<Camera>),
 }
 
@@ -27,8 +29,10 @@ impl Grab {
     pub fn open(src: Source) -> Result<Grab, String> {
         let r = unsafe {
             match src {
-                Source::Screen => Screen::open().map(|s| Grab::Screen(Box::new(s))),
-                Source::Camera => Camera::open().map(|c| Grab::Camera(Box::new(c))),
+                Source::Window(h) => Wgc::open(h, false).map(|s| Grab::Wgc(Box::new(s))),
+                Source::Monitor(m) => Wgc::open(m, true).map(|s| Grab::Wgc(Box::new(s))).or_else(|_| Screen::open().map(|s| Grab::Screen(Box::new(s)))),
+                Source::Camera => Camera::open(0).map(|c| Grab::Camera(Box::new(c))),
+                Source::Device(i) => Camera::open(i).map(|c| Grab::Camera(Box::new(c))),
             }
         };
         r.map_err(|e| e.message().to_string())
@@ -44,6 +48,7 @@ impl Grab {
             Grab::Fake { screen: true, .. } => (1280, 720),
             Grab::Fake { .. } => (640, 480),
             Grab::Screen(s) => (s.w, s.h),
+            Grab::Wgc(s) => (s.w, s.h),
             Grab::Camera(c) => (c.w, c.h),
         }
     }
@@ -56,6 +61,7 @@ impl Grab {
                 true
             }
             Grab::Screen(s) => unsafe { s.frame(out, w, h) },
+            Grab::Wgc(s) => unsafe { s.frame(out, w, h) },
             Grab::Camera(c) => unsafe { c.frame(out, w, h) },
         }
     }
@@ -109,19 +115,7 @@ pub struct Screen {
 impl Screen {
     unsafe fn open() -> windows::core::Result<Screen> {
         unsafe {
-            let (mut dev, mut ctx) = (None, None);
-            D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_HARDWARE,
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut dev),
-                None,
-                Some(&mut ctx),
-            )?;
-            let (Some(dev), Some(ctx)) = (dev, ctx) else { return Err(windows::core::Error::empty()) };
+            let (dev, ctx) = device()?;
             let dup = Self::duplicate(&dev)?;
             let desc = dup.GetDesc();
             Ok(Screen { dev, ctx, dup, staging: None, w: desc.ModeDesc.Width as usize, h: desc.ModeDesc.Height as usize, have: false })
@@ -192,6 +186,150 @@ impl Screen {
     }
 }
 
+fn device() -> windows::core::Result<(ID3D11Device, ID3D11DeviceContext)> {
+    let (mut dev, mut ctx) = (None, None);
+    unsafe {
+        D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, HMODULE::default(), D3D11_CREATE_DEVICE_BGRA_SUPPORT, None, D3D11_SDK_VERSION, Some(&mut dev), None, Some(&mut ctx))?;
+    }
+    match (dev, ctx) {
+        (Some(d), Some(c)) => Ok((d, c)),
+        _ => Err(windows::core::Error::empty()),
+    }
+}
+
+/// One window or monitor through Windows.Graphics.Capture, which sees GPU-drawn windows that GDI
+/// can't and keeps going when they're covered.
+pub struct Wgc {
+    dev: ID3D11Device,
+    ctx: ID3D11DeviceContext,
+    d3d: windows::Graphics::DirectX::Direct3D11::IDirect3DDevice,
+    pool: windows::Graphics::Capture::Direct3D11CaptureFramePool,
+    _session: windows::Graphics::Capture::GraphicsCaptureSession,
+    staging: Option<(ID3D11Texture2D, u32, u32)>,
+    size: windows::Graphics::SizeInt32,
+    w: usize,
+    h: usize,
+    have: bool,
+}
+
+impl Wgc {
+    unsafe fn open(target: isize, monitor: bool) -> windows::core::Result<Wgc> {
+        use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
+        use windows::Graphics::DirectX::DirectXPixelFormat;
+        use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let (dev, ctx) = device()?;
+            let insp = windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11DeviceFromDXGIDevice(&dev.cast::<IDXGIDevice>()?)?;
+            let d3d: windows::Graphics::DirectX::Direct3D11::IDirect3DDevice = insp.cast()?;
+            let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
+            let item: GraphicsCaptureItem = if monitor {
+                interop.CreateForMonitor(windows::Win32::Graphics::Gdi::HMONITOR(target as _))?
+            } else {
+                interop.CreateForWindow(windows::Win32::Foundation::HWND(target as _))?
+            };
+            let size = item.Size()?;
+            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size)?;
+            let session = pool.CreateCaptureSession(&item)?;
+            // windows 11 lets us leave off the yellow frame; older ones say no and draw it
+            let _ = session.SetIsBorderRequired(false);
+            session.StartCapture()?;
+            Ok(Wgc { dev, ctx, d3d, pool, _session: session, staging: None, size, w: size.Width.max(2) as usize, h: size.Height.max(2) as usize, have: false })
+        }
+    }
+
+    unsafe fn frame(&mut self, out: &mut [u8], w: usize, h: usize) -> bool {
+        use windows::Graphics::DirectX::DirectXPixelFormat;
+        use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
+        unsafe {
+            // only the newest frame matters; a still window sends none, so the last one goes again
+            let mut last = None;
+            while let Ok(f) = self.pool.TryGetNextFrame() {
+                last = Some(f);
+            }
+            let Some(f) = last else { return self.have };
+            let Ok(cs) = f.ContentSize() else { return self.have };
+            if cs != self.size {
+                self.size = cs;
+                let _ = self.pool.Recreate(&self.d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, cs);
+            }
+            let Some(tex) = f.Surface().ok().and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>().ok()).and_then(|a| a.GetInterface::<ID3D11Texture2D>().ok()) else {
+                return self.have;
+            };
+            let mut d = D3D11_TEXTURE2D_DESC::default();
+            tex.GetDesc(&mut d);
+            if self.staging.as_ref().is_none_or(|s| (s.1, s.2) != (d.Width, d.Height)) {
+                let mut sd = d;
+                sd.Usage = D3D11_USAGE_STAGING;
+                sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+                sd.BindFlags = 0;
+                sd.MiscFlags = 0;
+                sd.MipLevels = 1;
+                sd.ArraySize = 1;
+                sd.SampleDesc = DXGI_SAMPLE_DESC { Count: 1, Quality: 0 };
+                let mut t = None;
+                if self.dev.CreateTexture2D(&sd, None, Some(&mut t)).is_err() {
+                    return self.have;
+                }
+                self.staging = t.map(|t| (t, d.Width, d.Height));
+            }
+            let Some((st, tw, th)) = &self.staging else { return self.have };
+            self.ctx.CopyResource(st, &tex);
+            let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+            if self.ctx.Map(st, 0, D3D11_MAP_READ, 0, Some(&mut m)).is_err() {
+                return self.have;
+            }
+            // the window can be smaller than the pool's buffer until it's recreated
+            let (cw, ch) = ((cs.Width.max(1) as u32).min(*tw) as usize, (cs.Height.max(1) as u32).min(*th) as usize);
+            let pitch = m.RowPitch as usize;
+            let src = std::slice::from_raw_parts(m.pData as *const u8, pitch * ch);
+            scale(src, cw, ch, pitch, false, out, w, h);
+            self.ctx.Unmap(st, 0);
+            self.have = true;
+            true
+        }
+    }
+}
+
+/// The capture devices' names, in the order `Camera::open` counts them.
+pub fn cameras() -> Vec<String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let Ok(devs) = devices() else { return Vec::new() };
+        devs.iter()
+            .flatten()
+            .map(|d| {
+                let mut p = windows::core::PWSTR::null();
+                let mut n = 0u32;
+                match d.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut p, &mut n) {
+                    Ok(()) => {
+                        let s = p.to_string().unwrap_or_default();
+                        CoTaskMemFree(Some(p.0 as *const _));
+                        s
+                    }
+                    Err(_) => "Camera".to_string(),
+                }
+            })
+            .collect()
+    }
+}
+
+unsafe fn devices() -> windows::core::Result<Vec<Option<IMFActivate>>> {
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL)?;
+        let mut attrs = None;
+        MFCreateAttributes(&mut attrs, 1)?;
+        let attrs = attrs.ok_or_else(windows::core::Error::empty)?;
+        attrs.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)?;
+        let mut list: *mut Option<IMFActivate> = std::ptr::null_mut();
+        let mut n = 0u32;
+        MFEnumDeviceSources(&attrs, &mut list, &mut n)?;
+        let devs = std::slice::from_raw_parts(list, n as usize).to_vec();
+        CoTaskMemFree(Some(list as *const _));
+        Ok(devs)
+    }
+}
+
 pub struct Camera {
     reader: IMFSourceReader,
     w: usize,
@@ -200,20 +338,11 @@ pub struct Camera {
 }
 
 impl Camera {
-    unsafe fn open() -> windows::core::Result<Camera> {
+    unsafe fn open(index: usize) -> windows::core::Result<Camera> {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            MFStartup(MF_VERSION, MFSTARTUP_FULL)?;
-            let mut attrs = None;
-            MFCreateAttributes(&mut attrs, 1)?;
-            let attrs = attrs.ok_or_else(windows::core::Error::empty)?;
-            attrs.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)?;
-            let mut list: *mut Option<IMFActivate> = std::ptr::null_mut();
-            let mut n = 0u32;
-            MFEnumDeviceSources(&attrs, &mut list, &mut n)?;
-            let devs = std::slice::from_raw_parts(list, n as usize).to_vec();
-            CoTaskMemFree(Some(list as *const _));
-            let Some(Some(first)) = devs.into_iter().next() else {
+            let devs = devices()?;
+            let Some(Some(first)) = devs.into_iter().nth(index) else {
                 return Err(windows::core::Error::new(windows::core::HRESULT(0x80070490u32 as i32), "no camera found"));
             };
             let source: IMFMediaSource = first.ActivateObject()?;

@@ -272,7 +272,7 @@ pub fn notifications(app: &mut App, ui: &mut Ui) -> bool {
     }
 
     section(ui, "Badges");
-    changed |= toggle(ui, &mut s.badge, "Enable Unread Message Badge", "Shows the number of unread mentions in the window title.");
+    changed |= toggle(ui, &mut s.badge, "Enable Unread Message Badge", "Shows a red badge on the app icon when you have unread messages.");
     changed |= toggle(ui, &mut s.flash, "Enable Taskbar Flashing", "Flashes the taskbar button when you get a new notification.");
 
     section(ui, "Email");

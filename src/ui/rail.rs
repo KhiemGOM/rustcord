@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Image, Rect, Sense, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, badge, text};
+use super::{App, avatar, badge, text};
 use crate::state::{Folder, Id};
 use crate::theme::*;
 
@@ -78,7 +78,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             };
             for f in &folders {
                 if f.id == 0 && f.guilds.len() == 1 {
-                    guild(app, ui, f.guilds[0]);
+                    guild(app, ui, f.guilds[0], pal().bg_tertiary);
                 } else {
                     folder(app, ui, f);
                 }
@@ -92,17 +92,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if r.on_hover_text("Add a Server").clicked() {
                 app.invite = Some(String::new());
             }
-            // discord's last two rail buttons; fastcord leaves both pages to the browser
-            for (key, icon, tip, url) in [
-                ("discover", Icon::Discover, "Discover", "https://discord.com/discovery"),
-                ("download", Icon::Download, "Download Apps", "https://discord.com/download"),
-            ] {
-                let r = item(ui, egui::Id::new(key), false, false, |ui, rect, radius, hot| {
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
+            // discord's last two rail buttons: discover opens in the app, the downloads page in the browser
+            for (key, icon, tip, url) in [("discover", Icon::Discover, "Discover", ""), ("download", Icon::Download, "Download Apps", "https://discord.com/download")] {
+                let on = key == "discover" && app.directory.is_some();
+                let r = item(ui, egui::Id::new(key), on, false, |ui, rect, radius, hot| {
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot || on { GREEN } else { pal().bg_primary });
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot || on { Color32::WHITE } else { pal().interactive_hover });
                 });
                 if r.on_hover_text(tip).clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                    if url.is_empty() {
+                        app.open_directory();
+                    } else {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                    }
                 }
             }
             ui.add_space(12.0);
@@ -110,7 +112,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 fn separator(ui: &mut Ui) {
-    let (sep, _) = ui.allocate_exact_size(vec2(72.0, 2.0), Sense::hover());
+    let (sep, _) = ui.allocate_exact_size(vec2(72.0, 1.0), Sense::hover());
     ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 1.0)), CornerRadius::same(1), pal().frame_border);
 }
 
@@ -137,7 +139,8 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
     }
 }
 
-fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
+/// `hole` is whatever is behind the icon, the rail or a folder, for the badges' cut-outs.
+fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
     let Some(name) = app.store.guilds.get(&gid).map(|g| g.name.clone()) else { return };
     let (unread, mentions) = app.store.guild_badge(gid);
     let selected = app.ui.guild == Some(gid);
@@ -145,18 +148,16 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         guild_icon(app, ui, gid, rect, radius, hot)
     });
     if mentions > 0 {
-        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
+        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
     }
-    if let Some(mine) = voice_badge(app, gid) {
-        let at = Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)).right_top() + vec2(-7.0, 7.0);
-        ui.painter().circle_filled(at, 11.0, pal().bg_tertiary);
-        ui.painter().circle_filled(at, 9.0, if mine { GREEN } else { Color32::BLACK });
-        icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(at, vec2(12.0, 12.0)), Color32::WHITE);
-        app.rects.insert(format!("voicebadge:{gid}"), Rect::from_center_size(at, vec2(18.0, 18.0)));
+    if let Some((icon, mine)) = voice_badge(app, gid) {
+        let at = upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)), icon, mine, hole);
+        app.rects.insert(format!("voicebadge:{gid}"), Rect::from_center_size(at, vec2(16.0, 16.0)));
     }
     app.rects.insert(format!("guild:{gid}"), r.rect);
     app.rects.insert(format!("guildicon:{gid}"), Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)));
-    let r = tip(r, &name);
+    let talking = in_voice(app, gid);
+    let r = guild_tip(app, r, &name, &talking);
     if r.clicked() {
         app.select_guild(Some(gid));
     }
@@ -242,8 +243,7 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             app.mark_read(&chans);
         }
         Some(Act::Invite(c)) => {
-            app.made_invite = Some((c, None));
-            app.rest("POST", format!("/channels/{c}/invites"), Some(serde_json::json!({ "max_age": 604800, "max_uses": 0, "temporary": false })), crate::net::Tag::MadeInvite);
+            app.invite_people(c);
         }
         Some(Act::Mute(m, secs)) => app.mute_for(gid, true, m, secs),
         Some(Act::Notifs) => app.guild_notifs = Some(gid),
@@ -255,11 +255,55 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
     }
 }
 
-/// Some(true) when we're connected to voice in this server, Some(false) when someone else is.
-fn voice_badge(app: &App, gid: Id) -> Option<bool> {
-    let mine = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid);
-    let busy = app.store.guilds.get(&gid).is_some_and(|g| g.voice.values().any(|c| *c != 0));
-    (mine || busy).then_some(mine)
+/// The icon over a server's corner, like discord's: a stream beats a camera beats people talking,
+/// and it's green when the call is ours. Muted servers, the AFK channel, stages, and channels we
+/// can't see or have muted don't count.
+fn voice_badge(app: &App, gid: Id) -> Option<(Icon, bool)> {
+    let store = &app.store;
+    let v = &app.voice;
+    let g = store.guilds.get(&gid)?;
+    if let Some(c) = v.chan.filter(|c| store.channels.get(c).is_some_and(|c| c.guild == gid)) {
+        let icon = if v.live.contains(&store.me) {
+            Icon::Screen
+        } else if g.voice.iter().any(|(u, ch)| *ch == c && v.cams.contains(u)) {
+            Icon::Video
+        } else {
+            Icon::Speaker
+        };
+        return Some((icon, true));
+    }
+    if store.muted.contains(&gid) {
+        return None;
+    }
+    let here: Vec<Id> = g
+        .voice
+        .iter()
+        .filter(|(u, c)| {
+            **c != g.afk
+                && store.relationships.get(*u) != Some(&crate::state::BLOCKED)
+                && store.channels.get(*c).is_some_and(|c| c.kind != 13 && store.can_view(c) && !store.is_muted(c))
+        })
+        .map(|(u, _)| *u)
+        .collect();
+    let icon = if here.iter().any(|u| v.live.contains(u)) {
+        Icon::Screen
+    } else if here.iter().any(|u| v.cams.contains(u)) {
+        Icon::Video
+    } else if !here.is_empty() {
+        Icon::Speaker
+    } else {
+        return None;
+    };
+    Some((icon, false))
+}
+
+/// A 16 disc in the icon's top right corner, cut 2 into the icon. Returns its centre.
+fn upper_badge(ui: &Ui, icon_rect: Rect, icon: Icon, mine: bool, hole: Color32) -> egui::Pos2 {
+    let at = icon_rect.right_top() + vec2(-8.0, 8.0);
+    ui.painter().circle_filled(at, 10.0, hole);
+    ui.painter().circle_filled(at, 8.0, if mine { GREEN } else { Color32::BLACK });
+    icons::draw(ui.painter(), icon, Rect::from_center_size(at, vec2(12.0, 12.0)), Color32::WHITE);
+    at
 }
 
 fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
@@ -276,14 +320,18 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
 
-    // closed, discord's folder is a 48 tile of four 19px icons; open, its header is an ordinary 40
-    let size = if open { ICON } else { 48.0 };
-    let r = item_sized(ui, egui::Id::new(("folder", f.id)), size, selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
+    // closed, discord's folder is a 48 tile of four 19px icons; open, its header is a 40 button in
+    // a 48 row that sits 4 over the first server
+    if open {
+        ui.spacing_mut().item_spacing.y = 4.0;
+    }
+    let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
         if open {
+            let rect = rect.shrink(4.0);
             if hot {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), subtle());
             }
-            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), color.unwrap_or(BLURPLE));
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), color.unwrap_or(BLURPLE));
             return;
         }
         let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
@@ -304,8 +352,13 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
             guild_icon(app, ui, *g, cell, cr, false);
         }
     });
+    ui.spacing_mut().item_spacing.y = 8.0;
     if mentions > 0 && !open {
         badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
+    }
+    // closed, the folder carries our call's badge for the server inside it
+    if !open && let Some((icon, _)) = f.guilds.iter().find_map(|g| voice_badge(app, *g).filter(|b| b.1)) {
+        upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(48.0, 48.0)), icon, true, pal().bg_tertiary);
     }
     app.rects.insert(format!("folder:{}", f.id), r.rect);
     let name = f.name.clone().unwrap_or_else(|| {
@@ -325,12 +378,14 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
         app.mark_read(&chans);
     }
     if open {
-        for g in &f.guilds {
-            guild(app, ui, *g);
-        }
-        let back = Rect::from_min_max(pos2(12.0, top - 4.0), pos2(60.0, ui.cursor().top() - 4.0));
-        let back = back.translate(vec2(ui.max_rect().left(), 0.0));
         let fill = color.map_or(subtle(), |c| c.gamma_multiply(0.15));
+        for g in &f.guilds {
+            guild(app, ui, *g, pal().bg_tertiary.blend(fill));
+        }
+        // 4 under the last server, and the usual 8 to whatever follows
+        let back = Rect::from_min_max(pos2(12.0, top), pos2(60.0, ui.cursor().top() - 4.0));
+        let back = back.translate(vec2(ui.max_rect().left(), 0.0));
+        ui.add_space(4.0);
         app.rects.insert(format!("folderbg:{}", f.id), back);
         ui.painter().set(
             bg,
@@ -384,6 +439,58 @@ fn item_sized(
     }
     paint(ui, rect, radius, hot);
     resp
+}
+
+/// Who's in the server's voice channels, by name: the AFK channel, stages, channels we can't see
+/// and people we've blocked left out.
+fn in_voice(app: &App, gid: Id) -> Vec<(Id, String)> {
+    let store = &app.store;
+    let Some(g) = store.guilds.get(&gid) else { return Vec::new() };
+    let mut v: Vec<(Id, String)> = g
+        .voice
+        .iter()
+        .filter(|(u, c)| {
+            **c != g.afk
+                && store.relationships.get(*u) != Some(&crate::state::BLOCKED)
+                && store.channels.get(*c).is_some_and(|c| c.kind != 13 && store.can_view(c))
+        })
+        .filter_map(|(u, _)| store.user(*u).map(|x| (*u, x.avatar_url())))
+        .collect();
+    v.sort_by_cached_key(|(u, _)| store.name_in(gid, *u).to_lowercase());
+    v
+}
+
+/// Discord's server tooltip: the name, and while anyone's talking a speaker with their avatars
+/// overlapping beside it, six at most and a count for the rest.
+fn guild_tip(app: &mut App, r: egui::Response, name: &str, talking: &[(Id, String)]) -> egui::Response {
+    let rects = &mut app.rects;
+    r.on_hover_ui(|ui| {
+        ui.set_max_width(196.0);
+        text::label(ui, name, semi(16.0), pal().text_normal, Sense::hover());
+        if talking.is_empty() {
+            return;
+        }
+        ui.add_space(8.0);
+        let shown = talking.len().min(6);
+        let more = (talking.len() > shown).then(|| ui.painter().layout_no_wrap(format!("+{}", talking.len() - shown), semi(12.0), pal().header_secondary));
+        let stack = 24.0 + (shown - 1) as f32 * 18.0;
+        let w = 28.0 + stack + more.as_ref().map_or(0.0, |g| 6.0 + g.size().x);
+        let (row, _) = ui.allocate_exact_size(vec2(w, 24.0), Sense::hover());
+        icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(pos2(row.left() + 10.0, row.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+        for (i, (_, url)) in talking.iter().take(shown).enumerate() {
+            let c = pos2(row.left() + 40.0 + i as f32 * 18.0, row.center().y);
+            // each one sits on the last with a ring cut out of it, like discord's stack
+            if i > 0 {
+                ui.painter().circle_filled(c, 14.0, ui.visuals().window_fill);
+            }
+            avatar(ui, Rect::from_center_size(c, vec2(24.0, 24.0)), url);
+        }
+        if let Some(g) = more {
+            let x = row.left() + 28.0 + stack + 6.0;
+            ui.painter().galley(pos2(x, row.center().y - g.size().y / 2.0), g, pal().header_secondary);
+        }
+        rects.insert("guildtip_voice".into(), row);
+    })
 }
 
 // the server-name bubble to the right of the rail, with emoji

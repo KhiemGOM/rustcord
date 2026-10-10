@@ -7,6 +7,9 @@ mod conn;
 mod rtp;
 mod video;
 
+pub use capture::cameras;
+pub use video::{Quality, Source};
+
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -50,6 +53,8 @@ pub struct Connect {
     pub channel: Id,
     pub me: Id,
     pub shared: Arc<Shared>,
+    // for our own Go Live: what to capture and how
+    pub share: Option<(video::Source, video::Quality)>,
 }
 
 pub enum Cmd {
@@ -72,6 +77,12 @@ pub enum Kind {
     VideoOff(Id),
     Error(String),
     Closed(Option<String>),
+    /// heartbeat round trip, ms
+    Ping(u32),
+    /// how much of our audio the server lost lately, percent
+    Loss(f32),
+    /// DAVE's privacy code for the call, while it's end-to-end encrypted
+    Privacy(Option<String>),
 }
 
 /// Net-side handles on the running sessions (voice, and at most one stream); dropping a sender ends it.
@@ -116,6 +127,7 @@ pub struct Live {
     server: Option<Id>,
     endpoint: Option<(String, String)>,
     tag: u64,
+    share: Option<(video::Source, video::Quality)>,
 }
 
 #[derive(Default)]
@@ -126,6 +138,11 @@ pub struct VoiceUi {
     pub mute: bool,
     pub deaf: bool,
     pub speaking: HashSet<Id>,
+    // for the connection popout: (unix seconds, ms) over the last few minutes, the latest
+    // outbound loss, and the call's privacy code
+    pub pings: std::collections::VecDeque<(f64, u32)>,
+    pub loss: Option<f32>,
+    pub privacy: Option<String>,
     /// who is in each DM call, from CALL_* and guildless voice states
     pub calls: HashMap<Id, Vec<Id>>,
     pub camera: bool,
@@ -169,6 +186,9 @@ impl VoiceUi {
         self.server = None;
         self.joined = None;
         self.speaking.clear();
+        self.pings.clear();
+        self.loss = None;
+        self.privacy = None;
         self.tag = self.next_tag();
         self.op4(net);
         if ring {
@@ -189,6 +209,17 @@ impl VoiceUi {
         self.chan = None;
         self.op4(net);
         self.reset(net);
+    }
+
+    /// The voice server's name, like discord shows it: the endpoint's first label.
+    pub fn host(&self) -> Option<&str> {
+        let e = self.endpoint()?;
+        let e = e.split_once("://").map_or(e, |(_, rest)| rest);
+        e.split(['.', ':']).next().filter(|h| !h.is_empty())
+    }
+
+    pub fn endpoint(&self) -> Option<&str> {
+        self.server.as_ref().map(|s| s.0.as_str())
     }
 
     fn reset(&mut self, net: &Net) {
@@ -262,10 +293,11 @@ impl VoiceUi {
         Some(if self.guild != 0 { format!("guild:{}:{ch}:{user}", self.guild) } else { format!("call:{ch}:{user}") })
     }
 
-    fn start_stream(&mut self, user: Id, mine: bool) -> Option<String> {
+    fn start_stream(&mut self, user: Id, share: Option<(video::Source, video::Quality)>) -> Option<String> {
         let key = self.stream_key(user)?;
         let tag = self.next_tag();
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag });
+        let mine = share.is_some();
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share });
         Some(key)
     }
 
@@ -274,14 +306,14 @@ impl VoiceUi {
             return;
         }
         self.end_stream(net);
-        if let Some(key) = self.start_stream(user, false) {
+        if let Some(key) = self.start_stream(user, None) {
             net.send(net::Cmd::Gateway(json!({ "op": 20, "d": { "stream_key": key } })));
         }
     }
 
-    pub fn go_live(&mut self, net: &Net, me: Id) {
+    pub fn go_live(&mut self, net: &Net, me: Id, src: video::Source, q: video::Quality) {
         self.end_stream(net);
-        let Some(key) = self.start_stream(me, true) else { return };
+        let Some(key) = self.start_stream(me, Some((src, q))) else { return };
         let (kind, guild) = if self.guild != 0 { ("guild", Some(self.guild.to_string())) } else { ("call", None) };
         net.send(net::Cmd::Gateway(json!({ "op": 18, "d": {
             "type": kind, "guild_id": guild, "channel_id": self.chan.map(|c| c.to_string()), "preferred_region": null,
@@ -313,6 +345,7 @@ impl VoiceUi {
             channel: server - 1,
             me,
             shared: self.shared.clone(),
+            share: l.share,
         })));
     }
 
@@ -440,6 +473,7 @@ impl VoiceUi {
             channel: ch,
             me,
             shared: self.shared.clone(),
+            share: None,
         })));
     }
 
@@ -479,6 +513,15 @@ impl VoiceUi {
             Kind::Speaking(u, false) => {
                 self.speaking.remove(&u);
             }
+            Kind::Ping(ms) => {
+                let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+                self.pings.push_back((now, ms));
+                while self.pings.front().is_some_and(|(t, _)| now - t > 300.0) {
+                    self.pings.pop_front();
+                }
+            }
+            Kind::Loss(p) => self.loss = Some(p),
+            Kind::Privacy(c) => self.privacy = c,
             Kind::Closed(err) => {
                 self.state = State::Idle;
                 self.speaking.clear();
