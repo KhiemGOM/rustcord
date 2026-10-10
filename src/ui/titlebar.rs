@@ -13,6 +13,8 @@ pub const HEIGHT: f32 = 32.0;
 
 // --interactive-background-hover and --border-subtle, which the palette doesn't carry
 const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 31);
+// background-mod-normal
+const NAV_HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 51);
 const CLOSE: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 
 const INBOX_W: f32 = 597.0;
@@ -200,17 +202,26 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let idle = pal().header_secondary;
                 let lit = pal().interactive_hover;
 
+                // discord's pair is one 54 wide pill split in two, centred over the rail
                 let back = signed_in && app.nav.can_back();
-                let (hit, on) = press(ui, app, "back", at(bar.left() + 12.0, 24.0, 24.0), back);
-                let col = if !back { idle.gamma_multiply(0.4) } else if on { lit } else { idle };
-                glyph(ui, Icon::ArrowLeft, at(bar.left() + 12.0, 24.0, 24.0), 22.0, col);
+                let r = at(bar.left() + 9.0, 26.0, 24.0);
+                let (hit, on) = press(ui, app, "back", r, back);
+                if on {
+                    ui.painter().rect_filled(r, CornerRadius { nw: 6, sw: 6, ..Default::default() }, NAV_HOVER);
+                }
+                let col = if !back { idle.gamma_multiply(0.3) } else if on { lit } else { idle };
+                glyph(ui, Icon::NavBack, r.translate(vec2(2.0, 0.0)), 18.0, col);
                 if hit {
                     app.go(true);
                 }
                 let fwd = signed_in && app.nav.can_forward();
-                let (hit, on) = press(ui, app, "forward", at(bar.left() + 36.0, 24.0, 24.0), fwd);
-                let col = if !fwd { idle.gamma_multiply(0.4) } else if on { lit } else { idle };
-                glyph(ui, Icon::ArrowRight, at(bar.left() + 36.0, 24.0, 24.0), 22.0, col);
+                let r = at(bar.left() + 37.0, 26.0, 24.0);
+                let (hit, on) = press(ui, app, "forward", r, fwd);
+                if on {
+                    ui.painter().rect_filled(r, CornerRadius { ne: 6, se: 6, ..Default::default() }, NAV_HOVER);
+                }
+                let col = if !fwd { idle.gamma_multiply(0.3) } else if on { lit } else { idle };
+                glyph(ui, Icon::NavForward, r.translate(vec2(-2.0, 0.0)), 18.0, col);
                 if hit {
                     app.go(false);
                 }

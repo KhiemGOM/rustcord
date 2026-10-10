@@ -178,6 +178,8 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
 pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let ch = chan.id;
     let tid = egui::Id::new("composer");
+    // the reply bar is part of the composer, so the typing line goes above it
+    let stack_top = ui.cursor().top();
 
     if let Some(rid) = app.reply {
         let name = app.store.find_msg(ch, rid).map(|m| app.store.name_in(chan.guild, m.author)).unwrap_or_default();
@@ -267,6 +269,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.marker = None;
             }
         }
+    }
+    // escape drops a reply wherever focus is, unless a popout or menu is open to take it first
+    let popped = app.profile.is_some() || app.picker.is_some() || app.user_menu.is_some() || app.menu.is_some() || egui::Popup::is_any_open(ui.ctx());
+    if app.reply.is_some() && app.editing.is_none() && !popped && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
+        app.reply = None;
     }
 
     let hint = match chan.kind {
@@ -459,7 +466,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             app.send_message(ch);
         }
     }
-    typing_line(app, ui, chan, crect);
+    typing_line(app, ui, chan, Rect::from_min_max(pos2(crect.left(), stack_top), crect.max));
 }
 
 enum CardAct {

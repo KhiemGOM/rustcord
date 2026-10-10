@@ -43,6 +43,8 @@ pub enum Tag {
     Forum(Id),
     Invite,
     MadeInvite,
+    // a friend's new dm, for the invite link that goes in it
+    InviteDm(String),
     OpenDm,
     Friend,
     Commands(Id),
@@ -54,6 +56,16 @@ pub enum Tag {
     // the activity feed, and the icons of the apps in it
     Feed,
     AppIcons(Vec<Id>),
+    // the server boosts page: 0 the powerups catalogue, 1 what's applied, 2 the boosts
+    Boosts(Id, u8),
+    // a channel, category or event made from its modal
+    Created,
+    // the app directory's lists, by what's showing
+    Directory(String),
+    // a server settings page's data
+    Server(&'static str),
+    // the events window: 0 the server's events, 1 the ones you're interested in
+    Events(Id, u8),
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
     Quiet,

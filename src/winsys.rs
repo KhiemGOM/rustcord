@@ -143,6 +143,71 @@ pub fn frameless(frame: &eframe::Frame) {
     WINDOW.store(hwnd as isize, Ordering::Relaxed);
 }
 
+static BADGE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// The taskbar badge last put up, for the e2e run.
+pub fn badge() -> i32 {
+    BADGE.load(Ordering::Relaxed)
+}
+
+/// Discord's taskbar badge, with its own icons: a red count from 1 to 9 then 9+, or for -1 the
+/// dot it shows when something's unread but nothing mentions you. 0 takes it down.
+pub fn set_badge(count: i32) {
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+    use windows::Win32::UI::Shell::{ITaskbarList3, TaskbarList};
+    use windows::Win32::UI::WindowsAndMessaging::{CreateIconFromResourceEx, DestroyIcon, GetSystemMetrics, HICON, LR_DEFAULTCOLOR, SM_CXSMICON};
+    const ICONS: [&[u8]; 11] = [
+        include_bytes!("../assets/badges/badge-1.ico"),
+        include_bytes!("../assets/badges/badge-2.ico"),
+        include_bytes!("../assets/badges/badge-3.ico"),
+        include_bytes!("../assets/badges/badge-4.ico"),
+        include_bytes!("../assets/badges/badge-5.ico"),
+        include_bytes!("../assets/badges/badge-6.ico"),
+        include_bytes!("../assets/badges/badge-7.ico"),
+        include_bytes!("../assets/badges/badge-8.ico"),
+        include_bytes!("../assets/badges/badge-9.ico"),
+        include_bytes!("../assets/badges/badge-10.ico"),
+        include_bytes!("../assets/badges/badge-11.ico"),
+    ];
+    let hwnd = WINDOW.load(Ordering::Relaxed);
+    if hwnd == 0 {
+        return;
+    }
+    let (index, what) = match count {
+        -1 => (Some(10), "Unread messages".to_string()),
+        0 => (None, "No Notifications".to_string()),
+        n => (Some(n.clamp(1, 10) as usize - 1), format!("{n} notifications")),
+    };
+    // the .ico's entry nearest the overlay size, handed to Windows as is
+    let icon = |ico: &[u8]| -> Option<HICON> {
+        let want = unsafe { GetSystemMetrics(SM_CXSMICON) };
+        let n = u16::from_le_bytes([ico[4], ico[5]]) as usize;
+        let (size, off, len) = (0..n)
+            .map(|i| {
+                let e = &ico[6 + 16 * i..22 + 16 * i];
+                let size = if e[0] == 0 { 256 } else { e[0] as i32 };
+                (size, u32::from_le_bytes([e[12], e[13], e[14], e[15]]) as usize, u32::from_le_bytes([e[8], e[9], e[10], e[11]]) as usize)
+            })
+            .min_by_key(|(s, _, _)| if *s >= want { s - want } else { 1000 + want - s })?;
+        unsafe { CreateIconFromResourceEx(ico.get(off..off + len)?, true, 0x00030000, size.min(want.max(16)), size.min(want.max(16)), LR_DEFAULTCOLOR).ok() }
+    };
+    unsafe {
+        let Ok(bar) = CoCreateInstance::<_, ITaskbarList3>(&TaskbarList, None, CLSCTX_INPROC_SERVER) else { return };
+        if bar.HrInit().is_err() {
+            return;
+        }
+        let hicon = index.and_then(|i| icon(ICONS[i])).unwrap_or_default();
+        let set = bar.SetOverlayIcon(windows::Win32::Foundation::HWND(hwnd as _), hicon, &windows::core::HSTRING::from(what));
+        // the taskbar keeps its own copy
+        if !hicon.is_invalid() {
+            let _ = DestroyIcon(hicon);
+        }
+        if set.is_ok() {
+            BADGE.store(count, Ordering::Relaxed);
+        }
+    }
+}
+
 /// What the window answers for a point at each edge and corner plus the middle, for the e2e run.
 pub fn probe_edges() -> Vec<u32> {
     use windows_sys::Win32::Foundation::RECT;

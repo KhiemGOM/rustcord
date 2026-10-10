@@ -52,6 +52,7 @@ pub const MANAGE_MESSAGES: u64 = 1 << 13;
 pub const SEND_MESSAGES: u64 = 1 << 11;
 pub const CONNECT: u64 = 1 << 20;
 pub const MANAGE_CHANNELS: u64 = 1 << 4;
+pub const SET_VOICE_CHANNEL_STATUS: u64 = 1 << 48;
 pub const MANAGE_GUILD: u64 = 1 << 5;
 pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
 pub const MANAGE_EVENTS: u64 = 1 << 33;
@@ -348,6 +349,8 @@ pub struct Guild {
     pub default_notif: u8,
     #[serde(default)]
     pub rules: Id,
+    #[serde(default)]
+    pub afk: Id,
     // the boosted banner over the channel list, and the boost goal bar under it
     #[serde(default)]
     pub banner: Option<String>,
@@ -782,6 +785,14 @@ pub struct Store {
     pub account: crate::proto::Account,
     #[serde(default)]
     pub custom_status: Option<String>,
+    // activity sharing turned off: discord's show_current_game
+    #[serde(skip)]
+    pub hide_game: bool,
+    // voice channels' statuses and when their calls started (unix seconds), from op 43
+    #[serde(skip)]
+    pub voice_status: HashMap<Id, String>,
+    #[serde(skip)]
+    pub voice_start: HashMap<Id, i64>,
     #[serde(default)]
     pub relationships: HashMap<Id, u8>,
     #[serde(default)]
@@ -966,6 +977,27 @@ impl Store {
             .filter(|id| **id != 0)
             .find_map(|id| self.levels.get(id).copied())
             .unwrap_or_else(|| self.guilds.get(&c.guild).map(|g| g.default_notif).unwrap_or(0))
+    }
+
+    fn voice_info(&mut self, ch: Id, status: &Value, start: &Value) {
+        match status.as_str().filter(|s| !s.is_empty()) {
+            Some(s) => self.voice_status.insert(ch, s.to_string()),
+            None => self.voice_status.remove(&ch),
+        };
+        if let Some(t) = start.as_i64() {
+            self.voice_start.insert(ch, t);
+        }
+    }
+
+    // the status the account is set to, so a presence update of ours doesn't undo it
+    fn own_status(&mut self, raw: &[u8]) {
+        let (status, show) = crate::proto::status(raw);
+        if let Some(s) = status {
+            self.presence.insert(self.me, Status::parse(&s));
+        }
+        if let Some(show) = show {
+            self.hide_game = !show;
+        }
     }
 
     /// A dm or group dm that's muted, or every dm when the direct messages entry itself is.
@@ -1217,6 +1249,7 @@ impl Store {
         g.icon = ost(&p["icon"]);
         g.owner = sid(&p["owner_id"]);
         g.rules = sid(&p["rules_channel_id"]);
+        g.afk = sid(&p["afk_channel_id"]);
         g.default_notif = p["default_message_notifications"].as_u64().unwrap_or(0) as u8;
         g.banner = ost(&p["banner"]);
         g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
@@ -1363,6 +1396,7 @@ impl Store {
                 folders = crate::proto::guild_folders(&raw);
                 self.account = crate::proto::account(&raw, true);
                 self.custom_status = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten();
+                self.own_status(&raw);
             }
         }
         if folders.is_empty() {
@@ -1877,6 +1911,19 @@ impl Store {
                 }
                 self.upsert_user(d);
             }
+            "CHANNEL_INFO" => {
+                for c in d["channels"].as_array().into_iter().flatten() {
+                    self.voice_info(sid(&c["id"]), &c["status"], &c["voice_start_time"]);
+                }
+            }
+            "VOICE_CHANNEL_STATUS_UPDATE" => self.voice_info(sid(&d["id"]), &d["status"], &Value::Null),
+            "VOICE_CHANNEL_START_TIME_UPDATE" => {
+                let id = sid(&d["id"]);
+                match d["voice_start_time"].as_i64() {
+                    Some(t) => self.voice_start.insert(id, t),
+                    None => self.voice_start.remove(&id),
+                };
+            }
             "USER_SETTINGS_PROTO_UPDATE" if d["settings"]["type"].as_u64() == Some(1) => {
                 use base64::Engine;
                 let raw = d["settings"]["proto"].as_str().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
@@ -1886,6 +1933,7 @@ impl Store {
                     if let Some(c) = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64) {
                         self.custom_status = c;
                     }
+                    self.own_status(&raw);
                 }
             }
             _ => {}

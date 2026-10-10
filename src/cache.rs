@@ -92,6 +92,9 @@ pub struct Settings {
     pub streamer_no_sounds: bool,
     pub streamer_no_notifications: bool,
     pub hide_window: bool,
+    // go live: the tallest the stream gets (0 for the source's own size) and its frame rate
+    pub stream_height: usize,
+    pub stream_fps: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -159,6 +162,8 @@ impl Default for Settings {
             streamer_no_sounds: false,
             streamer_no_notifications: true,
             hide_window: false,
+            stream_height: 720,
+            stream_fps: 30,
         }
     }
 }

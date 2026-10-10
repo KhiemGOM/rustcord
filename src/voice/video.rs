@@ -196,7 +196,21 @@ impl Decode {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Source {
     Camera,
-    Screen,
+    // what Go Live shares, picked in the share dialog: a window, a monitor, or a capture device
+    Window(isize),
+    Monitor(isize),
+    Device(usize),
+}
+
+/// How Go Live sends: the tallest the picture gets (0 keeps the source's size) and its frame rate.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Quality {
+    pub height: usize,
+    pub fps: u32,
+}
+
+impl Quality {
+    pub const CAMERA: Quality = Quality { height: 720, fps: 30 };
 }
 
 pub struct Encoded {
@@ -211,6 +225,7 @@ pub struct Sender {
     pub key: Arc<AtomicBool>,
     pub size: (usize, usize),
     pub fps: u32,
+    pub bitrate: u32,
     th: Option<JoinHandle<()>>,
 }
 
@@ -223,14 +238,13 @@ impl Drop for Sender {
     }
 }
 
-const MAX_W: usize = 1280;
-const MAX_H: usize = 720;
-
 pub type Preview = Box<dyn Fn(Arc<ColorImage>) + Send>;
 
-pub fn send(src: Source, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview) -> Result<Sender, String> {
+pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview) -> Result<Sender, String> {
     let fake = std::env::var_os("FASTCORD_FAKE_VIDEO").is_some() || (src == Source::Camera && std::env::var_os("FASTCORD_FAKE_CAM").is_some());
-    let fps = if src == Source::Screen { 15 } else { 30 };
+    let screen = matches!(src, Source::Window(_) | Source::Monitor(_));
+    let fps = q.fps;
+    let (sized, got) = smpsc::sync_channel(1);
     let stop = Arc::new(AtomicBool::new(false));
     let key = Arc::new(AtomicBool::new(true));
     let (s2, k2) = (stop.clone(), key.clone());
@@ -239,7 +253,7 @@ pub fn send(src: Source, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared
     let th = std::thread::Builder::new()
         .name("video-encode".into())
         .spawn(move || {
-            let grab = if fake { Ok(capture::Grab::fake(src == Source::Screen)) } else { capture::Grab::open(src) };
+            let grab = if fake { Ok(capture::Grab::fake(screen)) } else { capture::Grab::open(src) };
             let mut grab = match grab {
                 Ok(g) => g,
                 Err(e) => {
@@ -247,11 +261,14 @@ pub fn send(src: Source, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared
                     return;
                 }
             };
-            let (w, h) = fit(grab.size());
+            let (w, h) = fit(grab.size(), q.height);
+            // 2.5Mbit for 720p at 30, scaled with the pixels sent each second
+            let bps = (2_500_000.0 * (w * h) as f64 * fps as f64 / (1280.0 * 720.0 * 30.0)).clamp(1_500_000.0, 8_000_000.0) as u32;
             let _ = opened.send(Ok((w, h)));
-            let usage = if src == Source::Screen { UsageType::ScreenContentRealTime } else { UsageType::CameraVideoRealTime };
+            let _ = sized.send(bps);
+            let usage = if screen { UsageType::ScreenContentRealTime } else { UsageType::CameraVideoRealTime };
             let cfg = EncoderConfig::new()
-                .bitrate(BitRate::from_bps(2_500_000))
+                .bitrate(BitRate::from_bps(bps))
                 .max_frame_rate(FrameRate::from_hz(fps as f32))
                 .usage_type(usage)
                 // a keyframe every couple of seconds so late joiners don't wait on a PLI round trip
@@ -296,11 +313,13 @@ pub fn send(src: Source, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared
         })
         .map_err(|e| e.to_string())?;
     let size = ready.recv().map_err(|e| e.to_string())??;
-    Ok(Sender { stop, key, size, fps, th: Some(th) })
+    let bitrate = got.recv().map_err(|e| e.to_string())?;
+    Ok(Sender { stop, key, size, fps, bitrate, th: Some(th) })
 }
 
-// scale down to fit 720p, keeping even dimensions for 4:2:0
-fn fit((w, h): (usize, usize)) -> (usize, usize) {
-    let k = (MAX_W as f32 / w as f32).min(MAX_H as f32 / h as f32).min(1.0);
+// scale down to fit the chosen height (and its 16:9 width), keeping even dimensions for 4:2:0
+fn fit((w, h): (usize, usize), height: usize) -> (usize, usize) {
+    let max_h = if height == 0 { 2160 } else { height };
+    let k = (max_h as f32 * 16.0 / 9.0 / w as f32).min(max_h as f32 / h as f32).min(1.0);
     (((w as f32 * k) as usize) & !1, ((h as f32 * k) as usize) & !1)
 }

@@ -15,6 +15,9 @@ mod proto;
 mod sound;
 mod state;
 mod theme;
+mod games;
+mod shareable;
+mod toast;
 mod ui;
 mod voice;
 mod winsys;
@@ -24,13 +27,19 @@ fn main() -> eframe::Result {
     // parse the snapshot while the GL context spins up
     let snap = std::thread::spawn(cache::load);
     let size = cache::window().unwrap_or([1280.0, 800.0]);
+    // discord's own logo on the window and taskbar, as on the exe
+    let logo = image::load_from_memory(include_bytes!("../assets/discord.png")).map(|i| i.into_rgba8()).ok();
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Fastcord")
+        .with_decorations(false)
+        .with_app_id("fastcord")
+        .with_inner_size(size)
+        .with_min_inner_size([940.0, 500.0]);
+    if let Some(l) = logo {
+        viewport = viewport.with_icon(egui::IconData { width: l.width(), height: l.height(), rgba: l.into_raw() });
+    }
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Fastcord")
-            .with_decorations(false)
-            .with_app_id("fastcord")
-            .with_inner_size(size)
-            .with_min_inner_size([940.0, 500.0]),
+        viewport,
         centered: true,
         ..Default::default()
     };
