@@ -10,6 +10,7 @@ speakers closed, so a test run never records you or makes noise.
     python e2e/run.py --no-build
     python e2e/run.py --real-devices   # warm run uses your real mic, speakers and desktop
     python e2e/run.py --real-camera    # ...and your webcam
+    python e2e/run.py --real-video     # warm run streams a real screen, mic and speakers stay fake
 
 Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request log.
 """
@@ -118,7 +119,9 @@ def main():
         fake = {"FASTCORD_FAKE_MIC": "1", "FASTCORD_FAKE_VIDEO": "1", "FASTCORD_SILENT": "1"}
         cam = {} if "--real-camera" in sys.argv else {"FASTCORD_FAKE_CAM": "1"}
         cold = run_client("cold", data, {**fake, **cam})
-        warm = run_client("warm", data, cam if "--real-devices" in sys.argv else {**fake, **cam})
+        # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
+        real_video = {"FASTCORD_FAKE_MIC": "1", "FASTCORD_SILENT": "1", **cam}
+        warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
     finally:
         mock.kill()
 

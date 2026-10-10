@@ -3,7 +3,7 @@
 use egui::ColorImage;
 use openh264::OpenH264API;
 use openh264::decoder::Decoder;
-use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, UsageType};
+use openh264::encoder::{BitRate, Complexity, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, UsageType};
 use openh264::formats::{BgraSliceU8, YUVBuffer, YUVSource};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use super::capture;
+use super::hwenc::{self, Convert, HwEnc};
 use super::{Ev, Kind, Shared};
 use crate::net::{self, Tx};
 use crate::state::Id;
@@ -242,9 +243,7 @@ pub type Preview = Box<dyn Fn(Arc<ColorImage>) + Send>;
 
 pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview) -> Result<Sender, String> {
     let fake = std::env::var_os("FASTCORD_FAKE_VIDEO").is_some() || (src == Source::Camera && std::env::var_os("FASTCORD_FAKE_CAM").is_some());
-    let screen = matches!(src, Source::Window(_) | Source::Monitor(_));
     let fps = q.fps;
-    let (sized, got) = smpsc::sync_channel(1);
     let stop = Arc::new(AtomicBool::new(false));
     let key = Arc::new(AtomicBool::new(true));
     let (s2, k2) = (stop.clone(), key.clone());
@@ -253,68 +252,194 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
     let th = std::thread::Builder::new()
         .name("video-encode".into())
         .spawn(move || {
-            let grab = if fake { Ok(capture::Grab::fake(screen)) } else { capture::Grab::open(src) };
-            let mut grab = match grab {
-                Ok(g) => g,
+            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, true) {
+                Ok(p) => p,
                 Err(e) => {
                     let _ = opened.send(Err(e));
                     return;
                 }
             };
-            let (w, h) = fit(grab.size(), q.height);
-            // 2.5Mbit for 720p at 30, scaled with the pixels sent each second
-            let bps = (2_500_000.0 * (w * h) as f64 * fps as f64 / (1280.0 * 720.0 * 30.0)).clamp(1_500_000.0, 8_000_000.0) as u32;
-            let _ = opened.send(Ok((w, h)));
-            let _ = sized.send(bps);
-            let usage = if screen { UsageType::ScreenContentRealTime } else { UsageType::CameraVideoRealTime };
-            let cfg = EncoderConfig::new()
-                .bitrate(BitRate::from_bps(bps))
-                .max_frame_rate(FrameRate::from_hz(fps as f32))
-                .usage_type(usage)
-                // a keyframe every couple of seconds so late joiners don't wait on a PLI round trip
-                .intra_frame_period(IntraFramePeriod::from_num_frames(fps * 2));
-            let Ok(mut enc) = Encoder::with_api_config(OpenH264API::from_source(), cfg) else { return };
+            let _ = opened.send(Ok((size, bps)));
             let t0 = Instant::now();
             let frame_time = Duration::from_secs(1) / fps;
             let mut next = Instant::now();
-            let mut bgra = vec![0u8; w * h * 4];
             let mut n = 0u64;
             while !s2.load(Relaxed) {
-                next += frame_time;
-                if let Some(d) = next.checked_duration_since(Instant::now())
-                    && !grab.paced()
+                // never behind by more than a frame, so a hiccup doesn't come out as a burst
+                next = (next + frame_time).max(Instant::now());
+                if !pipe.paced()
+                    && let Some(d) = next.checked_duration_since(Instant::now())
                 {
                     std::thread::sleep(d);
                 }
-                if !grab.frame(&mut bgra, w, h) {
-                    continue;
-                }
                 n += 1;
-                // our own tile, at a third of the frame rate; nobody needs a 30fps mirror
-                if n % 3 == 1 {
-                    let px = bgra.chunks_exact(4).map(|p| egui::Color32::from_rgb(p[2], p[1], p[0])).collect();
-                    preview(Arc::new(ColorImage::new([w, h], px)));
+                // our own tile at about 10 a second, whatever the stream runs at
+                let look = ((n - 1) % (fps as u64 / 10).max(1) == 0).then_some(&preview);
+                let time = (t0.elapsed().as_nanos() / 100) as i64;
+                let key = k2.swap(false, Relaxed);
+                let mut frames = Vec::new();
+                match pipe.step(size, time, key, frame_time / 2, look, &mut frames) {
+                    Ok(true) => {}
+                    // nothing went in, so a keyframe asked for waits for the next one
+                    Ok(false) => {
+                        k2.fetch_or(key, Relaxed);
+                    }
+                    // the card gave out mid-stream: carry on in software
+                    Err(_) => match Pipe::open(src, fake, q.height, fps, false) {
+                        Ok((p, s, _)) => {
+                            (pipe, size) = (p, s);
+                            k2.store(true, Relaxed);
+                        }
+                        Err(_) => break,
+                    },
                 }
-                if k2.swap(false, Relaxed) {
-                    enc.force_intra_frame();
-                }
-                let yuv = YUVBuffer::from_bgra8_source(BgraSliceU8::new(&bgra, (w, h)));
-                let Ok(bits) = enc.encode(&yuv) else { continue };
-                let data = bits.to_vec();
-                if data.is_empty() {
-                    continue;
-                }
-                shared.video_out.fetch_add(1, Relaxed);
-                let ts = (t0.elapsed().as_micros() as u64 * 9 / 100) as u32;
-                if out.send(Encoded { data, ts }).is_err() {
-                    break;
+                for (data, t) in frames {
+                    shared.video_out.fetch_add(1, Relaxed);
+                    let ts = (t as u64 * 9 / 1000) as u32;
+                    if out.send(Encoded { data, ts }).is_err() {
+                        return;
+                    }
                 }
             }
         })
         .map_err(|e| e.to_string())?;
-    let size = ready.recv().map_err(|e| e.to_string())??;
-    let bitrate = got.recv().map_err(|e| e.to_string())?;
+    let (size, bitrate) = ready.recv().map_err(|e| e.to_string())??;
     Ok(Sender { stop, key, size, fps, bitrate, th: Some(th) })
+}
+
+enum Pipe {
+    // windows and monitors stay on the card from capture through to the encoder
+    Card { wgc: capture::Wgc, conv: Convert, enc: HwEnc },
+    Cpu { grab: capture::Grab, bgra: Vec<u8>, enc: Enc },
+}
+
+enum Enc {
+    Card(HwEnc, Vec<u8>),
+    Soft(Box<Encoder>),
+}
+
+impl Pipe {
+    /// The cheapest way there is to send `src`, with the size it goes at and its bitrate.
+    fn open(src: Source, fake: bool, height: usize, fps: u32, hw: bool) -> Result<(Pipe, (usize, usize), u32), String> {
+        if hw
+            && !fake
+            && let Some(p) = card(src, height, fps)
+        {
+            return Ok(p);
+        }
+        let screen = matches!(src, Source::Window(_) | Source::Monitor(_));
+        let grab = if fake { capture::Grab::fake(screen) } else { capture::Grab::open(src)? };
+        let (w, h) = fit(grab.size(), height);
+        let bps = bitrate(w, h, fps);
+        let enc = match hw.then(|| HwEnc::any(w, h, fps, bps).ok()).flatten() {
+            Some(e) => Enc::Card(e, Vec::new()),
+            None => Enc::Soft(Box::new(soft(fps, bps).ok_or("no h264 encoder")?)),
+        };
+        Ok((Pipe::Cpu { grab, bgra: vec![0; w * h * 4], enc }, (w, h), bps))
+    }
+
+    fn paced(&self) -> bool {
+        matches!(self, Pipe::Cpu { grab, .. } if grab.paced())
+    }
+
+    /// One tick: the newest picture to the encoder, if it'll take one. False if nothing went in.
+    fn step(&mut self, (w, h): (usize, usize), time: i64, key: bool, wait: Duration, look: Option<&Preview>, frames: &mut Vec<(Vec<u8>, i64)>) -> windows::core::Result<bool> {
+        match self {
+            Pipe::Card { wgc, conv, enc } => {
+                // a still window sends nothing new, so the last frame goes again
+                if let Some((_f, tex, (cw, ch))) = unsafe { wgc.latest() } {
+                    conv.put(&tex, cw, ch)?;
+                }
+                let sent = conv.has() && enc.ready(wait)?;
+                if sent {
+                    conv.draw(enc.slot())?;
+                    enc.submit(time, key)?;
+                }
+                if let Some(p) = look
+                    && let Some(img) = conv.preview()
+                {
+                    p(Arc::new(img));
+                }
+                frames.extend(enc.take());
+                Ok(sent)
+            }
+            Pipe::Cpu { grab, bgra, enc } => {
+                if !grab.frame(bgra, w, h) {
+                    return Ok(false);
+                }
+                if let Some(p) = look {
+                    let px = bgra.chunks_exact(4).map(|p| egui::Color32::from_rgb(p[2], p[1], p[0])).collect();
+                    p(Arc::new(ColorImage::new([w, h], px)));
+                }
+                match enc {
+                    Enc::Card(e, yuv) => {
+                        let sent = e.ready(wait)?;
+                        if sent {
+                            hwenc::nv12(bgra, w, h, yuv);
+                            e.upload(yuv);
+                            e.submit(time, key)?;
+                        }
+                        frames.extend(e.take());
+                        Ok(sent)
+                    }
+                    Enc::Soft(e) => {
+                        if key {
+                            e.force_intra_frame();
+                        }
+                        let yuv = YUVBuffer::from_bgra8_source(BgraSliceU8::new(bgra, (w, h)));
+                        if let Ok(bits) = e.encode(&yuv) {
+                            let data = bits.to_vec();
+                            if !data.is_empty() {
+                                frames.push((data, time));
+                            }
+                        }
+                        Ok(true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// capture, scaling, conversion and encoding all on one card, the first that can do the lot
+// (the one driving the main display, usually), so the picture never comes back to the cpu
+fn card(src: Source, height: usize, fps: u32) -> Option<(Pipe, (usize, usize), u32)> {
+    let (target, monitor) = match src {
+        Source::Window(h) => (h, false),
+        Source::Monitor(m) => (m, true),
+        _ => return None,
+    };
+    hwenc::adapters().into_iter().find_map(|a| {
+        let (dev, ctx) = hwenc::device(Some(&a)).ok()?;
+        let wgc = unsafe { capture::Wgc::open(&dev, &ctx, target, monitor) }.ok()?;
+        let (w, h) = fit((wgc.w, wgc.h), height);
+        let bps = bitrate(w, h, fps);
+        let enc = HwEnc::on(&dev, &ctx, &a, w, h, fps, bps).ok()?;
+        let conv = Convert::new(&dev, &ctx, &enc, fps, fit((w, h), 720)).ok()?;
+        Some((Pipe::Card { wgc, conv, enc }, (w, h), bps))
+    })
+}
+
+// 2.5Mbit for 720p at 30, scaled with the pixels sent each second
+fn bitrate(w: usize, h: usize, fps: u32) -> u32 {
+    (2_500_000.0 * (w * h) as f64 * fps as f64 / (1280.0 * 720.0 * 30.0)).clamp(1_500_000.0, 8_000_000.0) as u32
+}
+
+// for when no card's encoder works
+fn soft(fps: u32, bps: u32) -> Option<Encoder> {
+    // openh264's screen-content mode takes 40-70ms a frame at 720p, too slow for 30fps;
+    // the real-time camera mode on low, split over a few threads, takes a few ms
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4)) as u16;
+    let cfg = EncoderConfig::new()
+        .bitrate(BitRate::from_bps(bps))
+        .max_frame_rate(FrameRate::from_hz(fps as f32))
+        .usage_type(UsageType::CameraVideoRealTime)
+        .complexity(Complexity::Low)
+        .num_threads(threads)
+        .max_slice_len(1200)
+        // a keyframe every couple of seconds so late joiners don't wait on a PLI round trip
+        .intra_frame_period(IntraFramePeriod::from_num_frames(fps * 2));
+    Encoder::with_api_config(OpenH264API::from_source(), cfg).ok()
 }
 
 // scale down to fit the chosen height (and its 16:9 width), keeping even dimensions for 4:2:0

@@ -808,7 +808,7 @@ impl App {
         } else {
             crate::toast::send(ping);
         }
-        if !focused && self.settings.flash {
+        if !focused && self.settings.flash && self.e2e.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
         }
     }

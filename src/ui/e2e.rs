@@ -153,6 +153,23 @@ impl Run {
     pub fn inject(&mut self, raw: &mut egui::RawInput) {
         // the harness launches us in the background; a user would be looking at the window
         raw.focused = !self.blur;
+        // only the script types and points; the real keyboard and mouse would wander in when
+        // whoever's at the machine keeps working while the window is up
+        raw.events.retain(|e| {
+            !matches!(
+                e,
+                Event::Key { .. }
+                    | Event::Text(_)
+                    | Event::Ime(_)
+                    | Event::Paste(_)
+                    | Event::PointerMoved(_)
+                    | Event::MouseMoved(_)
+                    | Event::PointerButton { .. }
+                    | Event::PointerGone
+                    | Event::MouseWheel { .. }
+                    | Event::Zoom(_)
+            )
+        });
         if let Some(batch) = self.queue.pop_front() {
             raw.events.extend(batch);
         }
@@ -917,7 +934,9 @@ impl Run {
                 }
                 if app.voice.stream.as_ref().is_some_and(|l| l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_out");
-                    self.next(1500);
+                    // FASTCORD_E2E_HOLD_STREAM=ms keeps the stream up, to watch it over time
+                    let hold = std::env::var("FASTCORD_E2E_HOLD_STREAM").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
+                    self.next(hold);
                 }
             }
             71 => {
