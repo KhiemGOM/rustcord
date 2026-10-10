@@ -139,6 +139,11 @@ pub fn frameless(frame: &eframe::Frame) {
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE as u32, (&DWMWCP_ROUND as *const i32).cast(), 4);
         let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
         OLD_PROC.store(old, Ordering::Relaxed);
+        // e2e: maximise and fullscreen would otherwise activate the window over someone's game
+        if std::env::var_os("FASTCORD_E2E").is_some() {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_NOACTIVATE};
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE as isize);
+        }
     }
     WINDOW.store(hwnd as isize, Ordering::Relaxed);
 }

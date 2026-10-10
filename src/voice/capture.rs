@@ -29,8 +29,11 @@ impl Grab {
     pub fn open(src: Source) -> Result<Grab, String> {
         let r = unsafe {
             match src {
-                Source::Window(h) => Wgc::open(h, false).map(|s| Grab::Wgc(Box::new(s))),
-                Source::Monitor(m) => Wgc::open(m, true).map(|s| Grab::Wgc(Box::new(s))).or_else(|_| Screen::open().map(|s| Grab::Screen(Box::new(s)))),
+                Source::Window(h) => device().and_then(|(d, c)| Wgc::open(&d, &c, h, false)).map(|s| Grab::Wgc(Box::new(s))),
+                Source::Monitor(m) => device()
+                    .and_then(|(d, c)| Wgc::open(&d, &c, m, true))
+                    .map(|s| Grab::Wgc(Box::new(s)))
+                    .or_else(|_| Screen::open().map(|s| Grab::Screen(Box::new(s)))),
                 Source::Camera => Camera::open(0).map(|c| Grab::Camera(Box::new(c))),
                 Source::Device(i) => Camera::open(i).map(|c| Grab::Camera(Box::new(c))),
             }
@@ -207,19 +210,18 @@ pub struct Wgc {
     _session: windows::Graphics::Capture::GraphicsCaptureSession,
     staging: Option<(ID3D11Texture2D, u32, u32)>,
     size: windows::Graphics::SizeInt32,
-    w: usize,
-    h: usize,
+    pub w: usize,
+    pub h: usize,
     have: bool,
 }
 
 impl Wgc {
-    unsafe fn open(target: isize, monitor: bool) -> windows::core::Result<Wgc> {
+    pub unsafe fn open(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, target: isize, monitor: bool) -> windows::core::Result<Wgc> {
         use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
         use windows::Graphics::DirectX::DirectXPixelFormat;
         use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let (dev, ctx) = device()?;
             let insp = windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11DeviceFromDXGIDevice(&dev.cast::<IDXGIDevice>()?)?;
             let d3d: windows::Graphics::DirectX::Direct3D11::IDirect3DDevice = insp.cast()?;
             let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
@@ -234,28 +236,40 @@ impl Wgc {
             // windows 11 lets us leave off the yellow frame; older ones say no and draw it
             let _ = session.SetIsBorderRequired(false);
             session.StartCapture()?;
-            Ok(Wgc { dev, ctx, d3d, pool, _session: session, staging: None, size, w: size.Width.max(2) as usize, h: size.Height.max(2) as usize, have: false })
+            Ok(Wgc { dev: dev.clone(), ctx: ctx.clone(), d3d, pool, _session: session, staging: None, size, w: size.Width.max(2) as usize, h: size.Height.max(2) as usize, have: false })
         }
     }
 
-    unsafe fn frame(&mut self, out: &mut [u8], w: usize, h: usize) -> bool {
+    /// The newest frame if one came in since last asked, its texture, and how much of that is
+    /// picture. The texture is only the capture's until the frame is dropped.
+    pub unsafe fn latest(&mut self) -> Option<(windows::Graphics::Capture::Direct3D11CaptureFrame, ID3D11Texture2D, (u32, u32))> {
         use windows::Graphics::DirectX::DirectXPixelFormat;
         use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
         unsafe {
-            // only the newest frame matters; a still window sends none, so the last one goes again
+            // only the newest frame matters
             let mut last = None;
             while let Ok(f) = self.pool.TryGetNextFrame() {
                 last = Some(f);
             }
-            let Some(f) = last else { return self.have };
-            let Ok(cs) = f.ContentSize() else { return self.have };
+            let f = last?;
+            let cs = f.ContentSize().ok()?;
             if cs != self.size {
                 self.size = cs;
                 let _ = self.pool.Recreate(&self.d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, cs);
             }
-            let Some(tex) = f.Surface().ok().and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>().ok()).and_then(|a| a.GetInterface::<ID3D11Texture2D>().ok()) else {
-                return self.have;
-            };
+            let tex = f.Surface().ok()?.cast::<IDirect3DDxgiInterfaceAccess>().ok()?.GetInterface::<ID3D11Texture2D>().ok()?;
+            let mut d = D3D11_TEXTURE2D_DESC::default();
+            tex.GetDesc(&mut d);
+            // the window can be smaller than the pool's buffer until it's recreated
+            let size = ((cs.Width.max(1) as u32).min(d.Width), (cs.Height.max(1) as u32).min(d.Height));
+            Some((f, tex, size))
+        }
+    }
+
+    unsafe fn frame(&mut self, out: &mut [u8], w: usize, h: usize) -> bool {
+        unsafe {
+            // a still window sends nothing, so the last frame goes again
+            let Some((_f, tex, (cw, ch))) = self.latest() else { return self.have };
             let mut d = D3D11_TEXTURE2D_DESC::default();
             tex.GetDesc(&mut d);
             if self.staging.as_ref().is_none_or(|s| (s.1, s.2) != (d.Width, d.Height)) {
@@ -273,14 +287,13 @@ impl Wgc {
                 }
                 self.staging = t.map(|t| (t, d.Width, d.Height));
             }
-            let Some((st, tw, th)) = &self.staging else { return self.have };
+            let Some((st, ..)) = &self.staging else { return self.have };
             self.ctx.CopyResource(st, &tex);
             let mut m = D3D11_MAPPED_SUBRESOURCE::default();
             if self.ctx.Map(st, 0, D3D11_MAP_READ, 0, Some(&mut m)).is_err() {
                 return self.have;
             }
-            // the window can be smaller than the pool's buffer until it's recreated
-            let (cw, ch) = ((cs.Width.max(1) as u32).min(*tw) as usize, (cs.Height.max(1) as u32).min(*th) as usize);
+            let (cw, ch) = (cw as usize, ch as usize);
             let pitch = m.RowPitch as usize;
             let src = std::slice::from_raw_parts(m.pData as *const u8, pitch * ch);
             scale(src, cw, ch, pitch, false, out, w, h);

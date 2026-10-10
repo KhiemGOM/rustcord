@@ -4,6 +4,7 @@
 pub mod audio;
 mod capture;
 mod conn;
+mod hwenc;
 mod rtp;
 mod video;
 
