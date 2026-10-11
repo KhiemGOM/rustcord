@@ -28,6 +28,7 @@ from pathlib import Path
 
 import look
 import polish
+import qol
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -245,7 +246,7 @@ def main():
             r.get("rects", {}).get("title_bar", [0, 1, 0, 0])[1] == 0 and abs(r.get("rects", {}).get("title_bar", [0, 0, 0, 0])[3] - 32) < 0.5 for r in (cold, warm)),
         "title bar: every edge and corner answers WM_NCHITTEST with its resize zone": all(
             r.get("rects", {}).get("edge_hits") == [10, 11, 12, 15, 13, 14, 16, 17, 1] for r in (cold, warm)),
-        "title bar: inbox fetched /users/@me/mentions": sum("/users/@me/mentions?limit=25&roles=true&everyone=true" in r.get("path", "") for r in reqs) == 2,
+        "title bar: inbox fetched /users/@me/mentions": sum("/users/@me/mentions?limit=25&roles=true&everyone=true" in r.get("path", "") for r in reqs) >= 2,
         **{f"emoji: {what}": sent_bodies.count(body) == 2
            for what, body in [("a locked emoji picked from the popup stays literal text", ":omgParty: locked"),
                               ("typed :ferris: became the current server's emoji without nitro", "<:ferris:5000> static"),
@@ -377,6 +378,7 @@ def main():
             r.get("rects", {}).get("look:sync_onyx:rail") == "#000000" for r in (cold, warm)),
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
+        **qol.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

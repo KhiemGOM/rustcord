@@ -10,9 +10,13 @@ use crate::theme::*;
 
 pub enum Link {
     Url(String),
+    // [text](url) whose text isn't the url itself: discord warns before following those
+    Masked(String),
     User(Id),
     Channel(Id),
     Spoiler,
+    // a custom emoji: its id, name and whether it moves
+    Emoji(Id, String, bool),
 }
 
 pub struct Inline {
@@ -400,6 +404,11 @@ fn inline(b: &mut B, s: &str, st: St) {
         let rest = &s[i..];
         let prev = s[..i].chars().next_back();
 
+        // discord's emoticon rule: the shrug keeps its backslash
+        if rest.starts_with(r"¯\_(ツ)_/¯") {
+            i += r"¯\_(ツ)_/¯".len();
+            continue;
+        }
         if let Some(after) = rest.strip_prefix('\\')
             && let Some(c) = after.chars().next()
             && c.is_ascii_punctuation()
@@ -463,7 +472,8 @@ fn inline(b: &mut B, s: &str, st: St) {
                 let mut s2 = st;
                 s2.color = pal().link;
                 s2.under |= view().underline_links;
-                b.linked(text, s2, Link::Url(url.to_string()));
+                let link = if text == url { Link::Url(url.to_string()) } else { Link::Masked(url.to_string()) };
+                b.linked(text, s2, link);
                 n
             })
         } else if rest.starts_with("@everyone") || rest.starts_with("@here") {
@@ -523,9 +533,11 @@ fn masked(s: &str) -> Option<(usize, &str, &str)> {
 
 fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
     let rest = &s[i..];
-    if let Some((n, _name, id, animated)) = custom_emoji(rest) {
+    if let Some((n, name, id, animated)) = custom_emoji(rest) {
         b.text(&s[plain..i], st);
+        let start = b.chars;
         b.emoji(emoji_url(id, animated), st);
+        b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
         return Some(n);
     }
     let end = rest.find('>')?;

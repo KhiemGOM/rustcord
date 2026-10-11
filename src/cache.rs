@@ -95,6 +95,15 @@ pub struct Settings {
     // go live: the tallest the stream gets (0 for the source's own size) and its frame rate
     pub stream_height: usize,
     pub stream_fps: u32,
+    // sites whose links no longer ask "Leaving Discord", ticked in that dialog
+    pub trusted: Vec<String>,
+    // "Don't ask again" on switching voice channels
+    pub voice_switch_ok: bool,
+    // emoji and gifs starred in the pickers
+    pub fav_emoji: Vec<crate::state::ReactEmoji>,
+    pub fav_gifs: Vec<(String, String, f32, f32)>,
+    // the hidden ディスコード sounds, from clicking home sixteen times
+    pub discodo: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -164,6 +173,11 @@ impl Default for Settings {
             hide_window: false,
             stream_height: 720,
             stream_fps: 30,
+            trusted: Vec::new(),
+            voice_switch_ok: false,
+            fav_emoji: Vec::new(),
+            fav_gifs: Vec::new(),
+            discodo: false,
         }
     }
 }

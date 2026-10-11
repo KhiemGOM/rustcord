@@ -62,8 +62,49 @@ impl Nav {
 }
 
 pub struct Inbox {
-    pub unreads: bool,
+    // discord's four tabs: unreads, mentions, bookmarks, reminders
+    pub tab: u8,
     pub mentions: Option<Vec<Message>>,
+    // what the bookmarks or reminders tab lists, once it's loaded
+    pub saved: Option<Vec<Saved>>,
+}
+
+/// A message saved for later: where it is, the message itself when discord sent it, and when a
+/// reminder is due.
+pub struct Saved {
+    pub ch: Id,
+    pub id: Id,
+    pub msg: Option<Message>,
+    pub due: Option<i64>,
+}
+
+/// GET /users/@me/saved-messages: 0 the ids bookmarked and the reminders, 1 the bookmarks.
+pub fn saved(app: &mut App, k: u8, v: &serde_json::Value) {
+    let list = |items: &serde_json::Value, app: &mut App| -> Vec<Saved> {
+        items
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|s| {
+                let d = &s["save_data"];
+                let due = d["due_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis());
+                let msg = s["message"].is_object().then(|| app.store.parse_message(&s["message"]));
+                Saved { ch: crate::state::sid(&d["channel_id"]), id: crate::state::sid(&d["message_id"]), msg, due }
+            })
+            .collect()
+    };
+    if k == 0 {
+        for b in v["bookmark_ids"].as_array().into_iter().flatten() {
+            let id = if b.is_object() { crate::state::sid(&b["message_id"]) } else { crate::state::sid(b) };
+            app.bookmarks.insert(id);
+        }
+    }
+    let items = if k == 0 { list(&v["reminders"], app) } else { list(&v["results"], app) };
+    if let Some(i) = &mut app.inbox
+        && i.tab == if k == 0 { 3 } else { 2 }
+    {
+        i.saved = Some(items);
+    }
 }
 
 impl App {
@@ -100,12 +141,31 @@ impl App {
         }
     }
 
-    fn toggle_inbox(&mut self) {
+    pub(super) fn toggle_inbox(&mut self) {
         if self.inbox.take().is_some() {
             return;
         }
-        self.inbox = Some(Inbox { unreads: false, mentions: None });
+        self.inbox = Some(Inbox { tab: 1, mentions: None, saved: None });
         self.rest("GET", "/users/@me/mentions?limit=25&roles=true&everyone=true".into(), None, Tag::Inbox);
+    }
+
+    /// The unread channels the inbox lists, newest first: nothing muted, nothing hidden.
+    pub fn inbox_unreads(&self) -> Vec<Id> {
+        let s = &self.store;
+        let mut list: Vec<_> = s.channels.values().filter(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c)).collect();
+        list.sort_by_key(|c| std::cmp::Reverse(c.last_msg));
+        list.into_iter().map(|c| c.id).collect()
+    }
+
+    /// Mark All as Read on the inbox's unreads; shift skips discord's question.
+    pub fn read_everything(&mut self, ask: bool) {
+        if ask {
+            let body = "This will mark all your unmuted channels as read. Are you sure you want to continue?";
+            self.confirm = Some(super::Confirm::new("Mark all as read?", body, "Mark As Read", |app: &mut App| app.read_everything(false)).blurple());
+            return;
+        }
+        let all = self.inbox_unreads();
+        self.mark_read(&all);
     }
 }
 
@@ -332,7 +392,7 @@ fn tab(ui: &mut Ui, app: &mut App, name: &str, label: &str, on: bool) -> bool {
 
 pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let Some(state) = &app.inbox else { return };
-    let unreads = state.unreads;
+    let tab = state.tab;
     let button = app.rects.get("title:inbox").copied();
     let at = button.map(|r| pos2(r.right() - INBOX_W, r.bottom() + 6.0)).unwrap_or(pos2(100.0, HEIGHT + 6.0));
     let room = (ctx.content_rect().bottom() - at.y - 16.0).clamp(160.0, 560.0);
@@ -340,6 +400,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let mut jump = None;
     let mut open_ch = None;
     let mut switch = None;
+    let mut read_all = None;
     let area = egui::Area::new(egui::Id::new("inbox"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
@@ -357,15 +418,25 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
                         icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
                         ui.label(RichText::new("Inbox").font(semi(20.0)).color(pal().header_primary));
+                        if tab == 0 {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+                                ui.painter().rect(r, 8, if resp.hovered() { NAV_HOVER } else { HOVER }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                                icons::draw(ui.painter(), Icon::CheckAll, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
+                                app.rects.insert("inbox:read_all".into(), r);
+                                if resp.on_hover_text("Mark All as Read").clicked() {
+                                    read_all = Some(!ui.input(|i| i.modifiers.shift));
+                                }
+                            });
+                        }
                     });
                 });
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    if tab(ui, app, "unreads", "Unreads", unreads) {
-                        switch = Some(true);
-                    }
-                    if tab(ui, app, "mentions", "Mentions", !unreads) {
-                        switch = Some(false);
+                    for (i, (name, label)) in [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders")].into_iter().enumerate() {
+                        if self::tab(ui, app, name, label, tab == i as u8) {
+                            switch = Some(i as u8);
+                        }
                     }
                 });
                 let r = ui.min_rect();
@@ -373,10 +444,10 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                 let mut list = |ui: &mut Ui| {
                     Frame::new().inner_margin(16).show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        if unreads {
-                            open_ch = unread_list(ui, app);
-                        } else {
-                            jump = mention_list(ui, app);
+                        match tab {
+                            0 => open_ch = unread_list(ui, app),
+                            1 => jump = mention_list(ui, app),
+                            _ => jump = saved_list(ui, app, tab == 3),
                         }
                     });
                 };
@@ -387,10 +458,20 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
-    if let Some(u) = switch
+    if let Some(t) = switch
         && let Some(i) = &mut app.inbox
+        && i.tab != t
     {
-        i.unreads = u;
+        i.tab = t;
+        i.saved = None;
+        match t {
+            2 => app.rest("GET", "/users/@me/saved-messages/bookmarks?limit=25".into(), None, Tag::Saved(1)),
+            3 => app.rest("GET", "/users/@me/saved-messages?bookmark_ids=true".into(), None, Tag::Saved(0)),
+            _ => {}
+        }
+    }
+    if let Some(ask) = read_all {
+        app.read_everything(ask);
     }
     let (target, close) = match (jump, open_ch) {
         (Some((c, m)), _) => (Some((c, Some(m))), true),
@@ -418,7 +499,14 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
 // so only scroll when the entries (by a rough height) would overflow
 fn body_height(app: &App) -> f32 {
     let Some(i) = &app.inbox else { return 0.0 };
-    if i.unreads {
+    if i.tab >= 2 {
+        return match &i.saved {
+            None => 90.0,
+            Some(l) if l.is_empty() => 100.0,
+            Some(l) => l.len() as f32 * 200.0,
+        };
+    }
+    if i.tab == 0 {
         let n = app.store.channels.values().filter(|c| c.is_text() && app.store.unread(c)).count().min(40);
         return 24.0 + 48.0 * n.max(1) as f32;
     }
@@ -485,14 +573,15 @@ fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
 }
 
 fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
+    let ids = app.inbox_unreads();
     let s = &app.store;
-    let mut list: Vec<_> = s.channels.values().filter(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c)).collect();
-    list.sort_by_key(|c| std::cmp::Reverse(c.last_msg));
+    let list: Vec<_> = ids.iter().filter_map(|c| s.channels.get(c)).collect();
     if list.is_empty() {
         empty(ui, "You're all caught up.");
         return None;
     }
     let mut open = None;
+    let mut read = None;
     let mut seen = Vec::new();
     for c in list.into_iter().take(40) {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
@@ -518,16 +607,84 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
         let title = if c.guild != 0 { format!("# {}", c.name) } else { super::channel_title(s, c.id) };
         text::paint(ui.painter(), r.left_top() + vec2(52.0, 16.0), Align2::LEFT_CENTER, &title, semi(15.0), pal().header_primary, r.width() - 110.0);
         text::paint(ui.painter(), r.left_top() + vec2(52.0, 34.0), Align2::LEFT_CENTER, &sub, reg(12.0), pal().text_muted, r.width() - 110.0);
+        // discord's check on each row: read without opening it
+        let tick = Rect::from_center_size(r.right_center() - vec2(24.0, 0.0), vec2(32.0, 32.0));
+        let t = ui.interact(tick, ui.id().with(("inbox_read", c.id)), Sense::click());
+        ui.painter().rect(tick, 8, if t.hovered() { NAV_HOVER } else { HOVER }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+        icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(tick.center(), vec2(16.0, 16.0)), pal().header_primary);
         let n = s.mentions(c.id);
         if n > 0 {
-            badge(ui, r.right_center() - vec2(8.0, 0.0), n, None);
+            badge(ui, tick.left_center() - vec2(8.0, 0.0), n, None);
         }
-        if resp.clicked() {
+        if t.on_hover_text("Mark As Read").clicked() {
+            read = Some(c.id);
+        } else if resp.clicked() {
             open = Some(c.id);
         }
     }
     for (id, r) in seen {
         app.rects.insert(format!("inbox:unread:{id}"), r);
     }
+    if let Some(c) = read {
+        app.mark_read(&[c]);
+    }
     open
+}
+
+/// Bookmarks or reminders: each message as a card under where it was said, a reminder's time
+/// over it, the message jumped to on a click.
+fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
+    let Some(list) = app.inbox.as_ref().and_then(|i| i.saved.as_ref()) else {
+        ui.add_space(24.0);
+        ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+        ui.add_space(24.0);
+        return None;
+    };
+    if list.is_empty() {
+        let (head, sub) = if reminders {
+            ("You have no Reminders!", "Set a reminder on any message to have it appear here.")
+        } else {
+            ("You have no Bookmarks!", "You can bookmark any message to have it appear here.")
+        };
+        ui.add_space(24.0);
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new(head).font(semi(16.0)).color(pal().header_primary));
+            ui.label(RichText::new(sub).color(pal().header_secondary));
+        });
+        ui.add_space(24.0);
+        return None;
+    }
+    let s = &app.store;
+    let mut jump = None;
+    for it in list {
+        Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(12).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let where_ = match s.channels.get(&it.ch) {
+                Some(c) if c.guild != 0 => format!("# {}", c.name),
+                Some(c) => super::channel_title(s, c.id),
+                None => "Unknown channel".into(),
+            };
+            ui.label(RichText::new(where_).font(semi(16.0)).color(pal().header_primary));
+            if let Some(due) = it.due {
+                let when = chrono::DateTime::from_timestamp_millis(due).map(|t| t.with_timezone(&chrono::Local).format("%b %-d, %-I:%M %p").to_string()).unwrap_or_default();
+                ui.label(RichText::new(format!("Reminder · {when}")).font(reg(12.0)).color(pal().header_secondary));
+            }
+            ui.add_space(8.0);
+            match &it.msg {
+                Some(m) => {
+                    let r = chat::preview(ui, s, m);
+                    app.rects.insert(format!("inbox:saved:{}", m.id), r.rect);
+                    if r.clicked() {
+                        jump = Some((it.ch, it.id));
+                    }
+                }
+                None => {
+                    let lost = if reminders { "A message you set a reminder for could not be found." } else { "A message you bookmarked could not be found." };
+                    ui.label(RichText::new(lost).color(pal().text_muted));
+                }
+            }
+        });
+        ui.add_space(16.0);
+    }
+    jump
 }

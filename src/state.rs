@@ -47,6 +47,8 @@ pub fn make_nonce() -> String {
 pub const CREATE_INVITE: u64 = 1;
 pub const VIEW_CHANNEL: u64 = 1 << 10;
 pub const KICK_MEMBERS: u64 = 1 << 1;
+pub const BAN_MEMBERS: u64 = 1 << 2;
+pub const MODERATE_MEMBERS: u64 = 1 << 40;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
 pub const SEND_MESSAGES: u64 = 1 << 11;
@@ -1654,7 +1656,7 @@ impl Store {
                     ty.retain(|(u, _)| *u != m.author);
                 }
                 if let Some(e) = self.msgs.get_mut(&ch).filter(|e| !e.detached) {
-                    if let Some(pos) = e.list.iter().position(|x| x.pending && x.nonce.is_some() && x.nonce == m.nonce) {
+                    if let Some(pos) = e.list.iter().position(|x| (x.pending || x.failed) && x.nonce.is_some() && x.nonce == m.nonce) {
                         e.list.remove(pos);
                     }
                     if !e.list.iter().any(|x| x.id == m.id) {

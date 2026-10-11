@@ -32,6 +32,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let r = r.on_hover_text("Direct Messages");
             if r.clicked() {
                 app.select_guild(None);
+                app.home_clicked();
             }
 
             // dms with something waiting get their own bubble under home, like the official client;
@@ -189,7 +190,7 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         .map(|c| c.id);
     let dev = app.settings.dev;
     let mut act = None;
-    r.context_menu(|ui| super::menu_body(ui, |ui| {
+    egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
             act = Some(Act::Read);
         }

@@ -1,6 +1,6 @@
 use egui::text_selection::CCursorRange;
 use egui::text::CCursor;
-use egui::{Align, Align2, Color32, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align, Align2, Color32, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -49,6 +49,39 @@ enum Item {
     Channel(Id, String),
     Emoji(Em),
     Command(usize),
+    BuiltIn(usize),
+}
+
+/// Discord's own commands, listed after the apps' as "Built-In": name, options, description.
+const BUILT_IN: [(&str, &str, &str); 13] = [
+    ("shrug", "message", "Appends ¯\\_(ツ)_/¯ to your message."),
+    ("tableflip", "message", "Appends (╯°□°)╯︵ ┻━┻ to your message."),
+    ("unflip", "message", "Appends ┬─┬ ノ( ゜-゜ノ) to your message."),
+    ("tts", "message", "Use text-to-speech to read the message to all members currently viewing the channel."),
+    ("me", "message", "Displays text with emphasis."),
+    ("spoiler", "message", "Marks your message as a spoiler."),
+    ("nick", "new_nick", "Change nickname on this server."),
+    ("thread", "name message", "Start new thread"),
+    ("kick", "user reason", "Kick user"),
+    ("ban", "user delete_messages reason", "Ban user"),
+    ("timeout", "user duration reason", "Timeout user"),
+    ("msg", "user message", "Message user"),
+    ("leave", "silent", "Leave Group"),
+];
+
+/// Whether a built-in command makes sense here, as discord's predicates decide.
+fn built_in_here(app: &App, chan: &Channel, name: &str) -> bool {
+    use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
+    let perms = app.store.perms(chan);
+    match name {
+        "tts" | "nick" => chan.guild != 0,
+        "thread" => chan.guild != 0 && matches!(chan.kind, 0 | 5),
+        "kick" => chan.guild != 0 && perms & KICK_MEMBERS != 0,
+        "ban" => chan.guild != 0 && perms & BAN_MEMBERS != 0,
+        "timeout" => chan.guild != 0 && perms & MODERATE_MEMBERS != 0,
+        "leave" => chan.kind == 3,
+        _ => true,
+    }
 }
 
 struct Em {
@@ -168,6 +201,14 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     }
                 }
             }
+            // after the apps' own, so an app's /me still comes first as in discord
+            for (i, (name, ..)) in BUILT_IN.iter().enumerate() {
+                if built_in_here(app, chan, name)
+                    && let Some(s) = score(name, &q)
+                {
+                    out.push((s as u16 + 1, Item::BuiltIn(i)));
+                }
+            }
         }
         _ => {}
     }
@@ -183,6 +224,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
     if let Some(rid) = app.reply {
         let name = app.store.find_msg(ch, rid).map(|m| app.store.name_in(chan.guild, m.author)).unwrap_or_default();
+        // replies to your own messages never ping, so there's no switch for them
+        let own = app.store.find_msg(ch, rid).is_some_and(|m| m.author == app.store.me);
         Frame::new()
             .fill(pal().bg_secondary)
             .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
@@ -196,12 +239,18 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             app.reply = None;
                         }
                         ui.add_space(8.0);
-                        // the "@ ON" toggle: whether the reply pings its author
-                        let (label, col) = if app.reply_ping { ("@ ON", pal().link) } else { ("@ OFF", pal().header_secondary) };
-                        let r = ui.add(egui::Label::new(RichText::new(label).font(medium(14.0)).color(col)).sense(Sense::click()));
-                        app.rects.insert("ping_toggle".into(), r.rect);
-                        if r.on_hover_text("Click to toggle mentioning the author").clicked() {
-                            app.reply_ping = !app.reply_ping;
+                        if !own {
+                            // the "@ ON" toggle: whether the reply pings its author
+                            let (label, col, tip) = if app.reply_ping {
+                                ("@ ON", pal().link, "Click to disable pinging the original author")
+                            } else {
+                                ("@ OFF", pal().header_secondary, "Click to enable pinging the original author.")
+                            };
+                            let r = ui.add(egui::Label::new(RichText::new(label).font(medium(14.0)).color(col)).sense(Sense::click()));
+                            app.rects.insert("ping_toggle".into(), r.rect);
+                            if r.on_hover_text(tip).clicked() {
+                                app.reply_ping = !app.reply_ping;
+                            }
                         }
                     });
                 });
@@ -211,9 +260,20 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let focused = ui.memory(|m| m.has_focus(tid));
     let nothing_focused = ui.memory(|m| m.focused().is_none());
     let typed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Paste(_))));
-    if app.editing.is_none() && app.switcher.is_none() && (app.focus_composer || (nothing_focused && typed)) {
+    // tab with nothing focused lands in the composer too, as in discord
+    let modal = app.modal_open();
+    let tabbed = nothing_focused && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
+    if app.editing.is_none() && !modal && (app.focus_composer || tabbed || (nothing_focused && typed)) {
         ui.memory_mut(|m| m.request_focus(tid));
         app.focus_composer = false;
+        app.focus_msg = None;
+    }
+    if std::mem::take(&mut app.caret_end)
+        && let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), tid)
+    {
+        let end = app.drafts.get(&ch).map_or(0, |d| d.chars().count());
+        st.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
+        st.store(ui.ctx(), tid);
     }
 
     // autocomplete runs off the text and cursor from the previous frame
@@ -236,9 +296,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
     let mut send = false;
     let mut accept = None;
-    if focused || (nothing_focused && typed) {
+    let selection = egui::TextEdit::load_state(ui.ctx(), tid).and_then(|s| s.cursor.char_range()).filter(|r| !r.is_empty());
+    // inside a ``` block left open, Enter is a new line and Tab a tab
+    let in_code = draft_now.chars().take(cursor).collect::<String>().matches("```").count() % 2 == 1;
+    let limit = if app.store.nitro() { 4000 } else { 2000 };
+    if (focused || (nothing_focused && typed)) && !modal {
         if open {
-            if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowDown)) {
+            // ctrl+n walks the list too; ctrl+p is pins, which never reaches it
+            if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowDown) || super::take_key(i, Modifiers::COMMAND, Key::N)) {
                 app.ac_sel = (app.ac_sel + 1) % items.len();
             }
             if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowUp)) {
@@ -251,8 +316,19 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.ac_dismissed = tok.as_ref().map(|t| t.2.clone());
             }
         }
-        if accept.is_none() && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Enter)) {
+        if accept.is_none() && !in_code && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Enter)) {
             send = true;
+        }
+        if !in_code {
+            ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
+        }
+        // shift+tab steps out of the composer onto the newest message, for discord's message keys
+        if ui.input_mut(|i| super::take_key(i, Modifiers::SHIFT, Key::Tab))
+            && let Some(m) = app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| !m.pending))
+        {
+            app.focus_msg = Some(m.id);
+            app.focus_scroll = true;
+            ui.memory_mut(|m| m.surrender_focus(tid));
         }
         if draft_now.is_empty() && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowUp)) {
             let me = app.store.me;
@@ -260,18 +336,28 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.editing = Some((m.id, m.content.clone()));
             }
         }
-        if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
-            if app.reply.is_some() {
-                app.reply = None;
-            } else if let Some(c) = app.cur() {
-                // escape marks the channel read, same as the official client
-                app.mark_read(&[c]);
-                app.marker = None;
+        // ctrl+b and ctrl+u wrap the selection in ** and __, as discord's editor does
+        if let Some(r) = selection {
+            let mark = ui.input_mut(|i| {
+                if super::take_key(i, Modifiers::COMMAND, Key::B) {
+                    Some("**")
+                } else if super::take_key(i, Modifiers::COMMAND, Key::U) {
+                    Some("__")
+                } else {
+                    None
+                }
+            });
+            if let Some(m) = mark {
+                wrap(app, ui.ctx(), ch, tid, r, m);
             }
         }
     }
-    // escape drops a reply wherever focus is, unless a popout or menu is open to take it first
-    let popped = app.profile.is_some() || app.picker.is_some() || app.user_menu.is_some() || app.menu.is_some() || egui::Popup::is_any_open(ui.ctx());
+    // escape takes every upload card off, then drops a reply, wherever focus is (egui lets go of
+    // the focus on escape before anything sees it), unless a popout or menu is open to take it
+    let popped = app.layered(ui.ctx());
+    if !app.files.is_empty() && !popped && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
+        app.files.clear();
+    }
     if app.reply.is_some() && app.editing.is_none() && !popped && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
         app.reply = None;
     }
@@ -290,6 +376,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut remove = None;
     let mut new_cursor = None;
     let mut colon_at = None;
+    // where a selection starts on screen, for the formatting toolbar over it
+    let mut sel_at = None;
     let colon = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == ":")));
     let before = draft_now.len();
     let radius = CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 };
@@ -353,6 +441,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .lock_focus(true)
                                 .show(ui);
                             text_pos = out.galley_pos;
+                            if let Some(r) = out.cursor_range.filter(|r| !r.is_empty() && out.response.has_focus()) {
+                                let [a, _] = r.sorted_cursors();
+                                sel_at = Some(out.galley_pos + out.galley.pos_from_cursor(a).left_top().to_vec2());
+                            }
                             if draft.is_empty() {
                                 // painted here rather than as the hint so its emoji come from the system font, as discord's do
                                 let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().channel_default, w, 1.0);
@@ -409,6 +501,29 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // discord's border sits on the box's own fill, not beside it
     ui.painter().rect_stroke(crect, radius, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     app.rects.insert("composer".into(), crect);
+    if let (Some(at), Some(r)) = (sel_at, selection) {
+        if let Some(m) = format_bar(ui.ctx(), at) {
+            wrap(app, ui.ctx(), ch, tid, r, m);
+        }
+    }
+    // discord's count of what's left, once the end is near; past it the number goes red and
+    // negative, and Enter asks to send the lot as a file instead
+    let used = app.drafts.get(&ch).map_or(0, |d| d.chars().count());
+    let left = limit as i64 - used as i64;
+    if left <= 200 || (limit > 2000 && used > 2000) {
+        let col = if left < 0 { RED } else { pal().text_muted };
+        let g = ui.painter().layout_no_wrap(left.to_string(), reg(12.0), col);
+        let at = pos2(crect.right() - 16.0 - g.size().x, crect.bottom() - 4.0 - g.size().y);
+        let r = Rect::from_min_size(at, g.size());
+        ui.painter().galley(at, g, col);
+        app.rects.insert("char_count".into(), r);
+        let tip = if limit > 2000 {
+            format!("Nitro is powering you with {limit} characters per message! {left} characters remaining")
+        } else {
+            format!("{left} characters remaining")
+        };
+        ui.interact(r, egui::Id::new("char_count"), Sense::hover()).on_hover_text(tip);
+    }
 
     if open {
         let picked = popup(app, ui.ctx(), chan, &items, crect, tok.as_ref().map(|t| t.1).unwrap_or('@'));
@@ -461,10 +576,17 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if app.drafts.get(&ch).is_some_and(|d| d.is_empty()) {
         app.ac_dismissed = None;
     }
-    if send || send_click {
-        if !app.try_command(chan) {
-            app.send_message(ch);
-        }
+    if (send || send_click) && used > limit {
+        app.confirm = Some(
+            super::Confirm::new("Your message is too long...", "Your message is too long.", "Upload as File", move |app: &mut App| {
+                let text = app.drafts.remove(&ch).unwrap_or_default();
+                app.attach_text(&text);
+                app.send_message(ch);
+            })
+            .blurple(),
+        );
+    } else if (send || send_click) && !app.quick_react(chan) && !app.substitute(chan) && !app.try_command(chan) && !app.built_in(chan) {
+        app.send_message(ch);
     }
     typing_line(app, ui, chan, Rect::from_min_max(pos2(crect.left(), stack_top), crect.max));
 }
@@ -635,7 +757,79 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, c["description"].as_str().unwrap_or(""), reg(13.0), pal().header_secondary, r.width() - 200.0);
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, app_name, semi(13.0), pal().header_secondary);
         }
+        Item::BuiltIn(i) => {
+            let (name, args, desc) = BUILT_IN[*i];
+            let ir = Rect::from_center_size(pos2(x + 16.0, y), vec2(32.0, 32.0));
+            p.circle_filled(ir.center(), 16.0, BLURPLE);
+            icons::draw(p, Icon::Discord, ir.shrink(8.0), Color32::WHITE);
+            let nr = p.text(pos2(x + 44.0, y - 9.0), Align2::LEFT_CENTER, format!("/{name}"), semi(15.0), pal().header_primary);
+            p.text(pos2(nr.right() + 6.0, y - 9.0), Align2::LEFT_CENTER, args, reg(14.0), pal().header_secondary);
+            text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, desc, reg(13.0), pal().header_secondary, r.width() - 200.0);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Built-In", semi(13.0), pal().header_secondary);
+        }
     }
+}
+
+/// Puts `mark` either side of the selection, or takes it off when it's already there, the words
+/// staying selected.
+fn wrap(app: &mut App, ctx: &egui::Context, ch: Id, tid: egui::Id, r: CCursorRange, mark: &str) {
+    let Some(draft) = app.drafts.get_mut(&ch) else { return };
+    let [a, b] = r.sorted_cursors();
+    let (a, b) = (a.index.0, b.index.0);
+    let byte = |d: &str, c: usize| d.char_indices().nth(c).map_or(d.len(), |(i, _)| i);
+    let (ba, bb) = (byte(draft, a), byte(draft, b));
+    let n = mark.chars().count();
+    let (na, nb) = if draft[..ba].ends_with(mark) && draft[bb..].starts_with(mark) {
+        draft.replace_range(bb..bb + mark.len(), "");
+        draft.replace_range(ba - mark.len()..ba, "");
+        (a - n, b - n)
+    } else {
+        draft.insert_str(bb, mark);
+        draft.insert_str(ba, mark);
+        (a + n, b + n)
+    };
+    if let Some(mut st) = egui::TextEdit::load_state(ctx, tid) {
+        st.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(na), CCursor::new(nb))));
+        st.store(ctx, tid);
+    }
+    ctx.memory_mut(|m| m.request_focus(tid));
+}
+
+/// Discord's formatting bar over selected text: bold, italic, underline, strikethrough, then
+/// spoiler past a rule. A press, not a click, so the composer keeps its selection.
+fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
+    let mut pick = None;
+    egui::Area::new(egui::Id::new("format_bar")).order(egui::Order::Foreground).fixed_pos(at - vec2(4.0, 48.0)).constrain(true).show(ctx, |ui| {
+        let shadow = ui.style().visuals.popup_shadow;
+        Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(4).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                for (icon, tip, mark) in [
+                    (Icon::Bold, "Bold", "**"),
+                    (Icon::Italic, "Italic", "*"),
+                    (Icon::Underline, "Underline", "__"),
+                    (Icon::Strike, "Strikethrough", "~~"),
+                    (Icon::Eye, "Spoiler", "||"),
+                ] {
+                    if mark == "||" {
+                        let (r, _) = ui.allocate_exact_size(vec2(13.0, 32.0), Sense::hover());
+                        ui.painter().vline(r.center().x, r.y_range().shrink(6.0), Stroke::new(1.0, pal().border_subtle));
+                    }
+                    let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+                    if resp.hovered() {
+                        ui.painter().rect_filled(r, 4, pal().control_hover);
+                    }
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "format", tip)), r));
+                    if resp.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+                        pick = Some(mark);
+                    }
+                    resp.on_hover_text(tip);
+                }
+            });
+        });
+    });
+    pick
 }
 
 /// Replace the token with the chosen completion, returning the new cursor (in chars).
@@ -656,6 +850,7 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
             let name = app.commands.get(&scope).and_then(|c| c.list.get(*i)).and_then(|c| c["name"].as_str()).unwrap_or("").to_string();
             (format!("/{name}"), String::new())
         }
+        Item::BuiltIn(i) => (format!("/{}", BUILT_IN[*i].0), String::new()),
     };
     let insert = format!("{shown} ");
     draft.replace_range(start..cur_b, &insert);
@@ -719,6 +914,17 @@ fn outside_code(text: &str, f: impl Fn(&str) -> String) -> String {
     }
     out.push_str(&f(rest));
     out
+}
+
+/// What a reaction is made of: a ready-made `<:name:id>`, or a unicode emoji.
+fn react_emoji(raw: &str) -> Option<crate::state::ReactEmoji> {
+    if custom_len(raw) == Some(raw.len()) {
+        let animated = raw.starts_with("<a:");
+        let inner = raw.trim_start_matches("<a:").trim_start_matches("<:").trim_end_matches('>');
+        let (name, id) = inner.split_once(':')?;
+        return Some(crate::state::ReactEmoji { id: id.parse().ok()?, name: name.to_string(), animated });
+    }
+    emojis::get(raw).map(|_| crate::state::ReactEmoji { id: 0, name: raw.to_string(), animated: false })
 }
 
 /// Length of a ready-made `<:name:id>` / `<a:name:id>` at the start of `s`.
@@ -869,6 +1075,183 @@ impl App {
             payload["guild_id"] = json!(guild.to_string());
         }
         self.net.send(Cmd::Interact(payload));
+    }
+
+    /// `+:fire:` then Enter: a reaction on the newest message rather than a message.
+    pub fn quick_react(&mut self, chan: &Channel) -> bool {
+        let ch = chan.id;
+        let draft = self.drafts.get(&ch).map(|d| d.trim().to_string()).unwrap_or_default();
+        let Some(rest) = draft.strip_prefix('+') else { return false };
+        let raw = match rest.strip_prefix(':').and_then(|r| r.strip_suffix(':')) {
+            Some(name) => self.emoji_named(chan.guild, name).map(|(raw, _)| raw),
+            None => Some(rest.to_string()),
+        };
+        let Some(em) = raw.and_then(|r| react_emoji(&r)) else { return false };
+        let Some(last) = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| !m.pending)).map(|m| m.id) else { return false };
+        self.react(ch, last, em, true);
+        self.drafts.remove(&ch);
+        true
+    }
+
+    /// `s/old/new` then Enter: your newest message with its first "old" turned into "new".
+    pub fn substitute(&mut self, chan: &Channel) -> bool {
+        let ch = chan.id;
+        let draft = self.drafts.get(&ch).cloned().unwrap_or_default();
+        let Some((old, new)) = draft.trim().strip_prefix("s/").and_then(|r| r.split_once('/')) else { return false };
+        if old.is_empty() {
+            return false;
+        }
+        let new = new.strip_suffix('/').unwrap_or(new);
+        let me = self.store.me;
+        let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().rev().find(|m| m.author == me && !m.pending)) else { return false };
+        if let Some(at) = m.content.find(old) {
+            let mut text = m.content.clone();
+            text.replace_range(at..at + old.len(), new);
+            m.content = text.clone();
+            m.edited = true;
+            self.net.send(Cmd::Edit { channel: ch, id: m.id, content: text });
+        }
+        self.drafts.remove(&ch);
+        true
+    }
+
+    /// Discord's built-in commands, typed out: the text ones send what they'd send, the rest
+    /// do their thing and say how it went.
+    pub fn built_in(&mut self, chan: &Channel) -> bool {
+        let ch = chan.id;
+        let draft = self.drafts.get(&ch).cloned().unwrap_or_default();
+        let Some(rest) = draft.trim().strip_prefix('/') else { return false };
+        let (name, args) = rest.split_once(char::is_whitespace).map_or((rest, ""), |(n, a)| (n, a.trim()));
+        if name == "gif" {
+            self.drafts.remove(&ch);
+            let at = self.rects.get("gif_button").map_or(pos2(800.0, 600.0), |r| r.left_top());
+            self.open_gifs(at);
+            self.search_gifs(args.to_string());
+            return true;
+        }
+        let Some(&(_, opts, _)) = BUILT_IN.iter().find(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };
+        let args = self.resolve_aliases(ch, args);
+        // the options as discord types them, so the usual parsing fills them in
+        let kinds: Vec<Value> = opts
+            .split(' ')
+            .map(|o| {
+                let kind = match o {
+                    "user" => 6,
+                    "duration" | "delete_messages" => 4,
+                    "silent" => 5,
+                    _ => 3,
+                };
+                let required = matches!((name, o), ("me" | "spoiler" | "tts" | "thread" | "msg", _) | (_, "user" | "duration"));
+                json!({ "name": o, "type": kind, "required": required })
+            })
+            .collect();
+        let (got, err) = build_options(&json!(kinds), &args);
+        if let Some(e) = err {
+            self.toast(e);
+            return true;
+        }
+        let get = |k: &str| got.iter().find(|o| o["name"] == k).map(|o| o["value"].clone());
+        let text = |k: &str| get(k).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+        let user = get("user").and_then(|v| v.as_str().and_then(|s| s.parse::<Id>().ok()));
+        let who = user.map(|u| self.store.name_in(chan.guild, u)).unwrap_or_default();
+        let g = chan.guild;
+        self.drafts.remove(&ch);
+        self.aliases.remove(&ch);
+        let say = |app: &mut App, out: String, tts: bool| {
+            app.drafts.insert(ch, out);
+            app.post(ch, tts);
+        };
+        match name {
+            "shrug" => say(self, format!("{} ¯\\_(ツ)_/¯", text("message")).trim().to_string(), false),
+            "tableflip" => say(self, format!("{} (╯°□°)╯︵ ┻━┻", text("message")).trim().to_string(), false),
+            "unflip" => say(self, format!("{} ┬─┬ノ( º _ ºノ)", text("message")).trim().to_string(), false),
+            "me" => say(self, format!("_{}_", text("message")), false),
+            "spoiler" => say(self, format!("||{}||", text("message")), false),
+            "tts" => say(self, text("message"), true),
+            "nick" => {
+                let nick = text("new_nick");
+                self.rest("PATCH", format!("/guilds/{g}/members/@me"), Some(json!({ "nick": nick })), Tag::Quiet);
+                self.toast(if nick.is_empty() { "Your nickname on this server has been reset.".to_string() } else { format!("Your nickname on this server has been changed to {nick}.") });
+            }
+            "thread" => {
+                self.rest("POST", format!("/channels/{ch}/threads"), Some(json!({ "name": text("name"), "type": 11, "auto_archive_duration": 4320 })), Tag::Thread(text("message")));
+            }
+            "kick" => {
+                if let Some(u) = user {
+                    self.rest("DELETE", format!("/guilds/{g}/members/{u}"), None, Tag::Quiet);
+                    self.toast(format!("{who} was kicked from the server."));
+                }
+            }
+            "ban" => {
+                if let Some(u) = user {
+                    let secs = get("delete_messages").and_then(|v| v.as_i64()).unwrap_or(0);
+                    self.rest("PUT", format!("/guilds/{g}/bans/{u}"), Some(json!({ "delete_message_seconds": secs })), Tag::Quiet);
+                    self.toast(format!("{who} was banned from the server."));
+                }
+            }
+            "timeout" => {
+                if let Some(u) = user {
+                    let secs = get("duration").and_then(|v| v.as_i64()).unwrap_or(60);
+                    self.time_out(g, u, secs);
+                    self.toast(format!("{who} timed out for {secs} seconds."));
+                }
+            }
+            "msg" => {
+                if let Some(u) = user {
+                    self.rest("POST", "/users/@me/channels".into(), Some(json!({ "recipients": [u.to_string()] })), Tag::InviteDm(text("message")));
+                }
+            }
+            "leave" => {
+                let silent = get("silent").and_then(|v| v.as_bool()).unwrap_or(false);
+                self.rest("DELETE", format!("/channels/{ch}?silent={silent}"), None, Tag::Quiet);
+                self.store.dms.retain(|d| *d != ch);
+                self.friends = true;
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Text too long to send as a message goes up as message.txt, as discord does with a paste.
+    pub fn attach_text(&mut self, text: &str) {
+        let dir = std::env::temp_dir().join("fastcord").join(chrono::Utc::now().timestamp_millis().to_string());
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("message.txt");
+        if std::fs::write(&path, text).is_ok() {
+            self.files.push(Upload::new(path));
+        }
+    }
+
+    /// One of an app's message commands from a message's Apps submenu.
+    pub fn message_command(&mut self, chan: &Channel, cmd: &Value, target: Id) {
+        let mut payload = json!({
+            "type": 2,
+            "application_id": cmd["application_id"],
+            "channel_id": chan.id.to_string(),
+            "session_id": self.store.session,
+            "nonce": make_nonce(),
+            "analytics_location": "message_context_menu",
+            "data": {
+                "version": cmd["version"],
+                "id": cmd["id"],
+                "name": cmd["name"],
+                "type": 3,
+                "target_id": target.to_string(),
+                "options": [],
+                "application_command": cmd,
+                "attachments": [],
+            }
+        });
+        if chan.guild != 0 {
+            payload["guild_id"] = json!(chan.guild.to_string());
+        }
+        self.net.send(Cmd::Interact(payload));
+    }
+
+    /// A member timed out until `secs` from now.
+    pub fn time_out(&mut self, guild: Id, user: Id, secs: i64) {
+        let until = (chrono::Utc::now() + chrono::Duration::seconds(secs)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        self.rest("PATCH", format!("/guilds/{guild}/members/{user}"), Some(json!({ "communication_disabled_until": until })), Tag::Quiet);
     }
 
     pub fn resolve_aliases(&self, ch: Id, text: &str) -> String {

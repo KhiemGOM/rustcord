@@ -146,6 +146,8 @@ pub struct VoiceUi {
     pub privacy: Option<String>,
     /// who is in each DM call, from CALL_* and guildless voice states
     pub calls: HashMap<Id, Vec<Id>>,
+    /// a dm call ringing for us, while we're in no call
+    pub ringing: Option<Id>,
     pub camera: bool,
     /// latest camera frame per user, ours included
     pub video: HashMap<Id, Arc<egui::ColorImage>>,
@@ -164,7 +166,8 @@ pub struct VoiceUi {
 }
 
 impl VoiceUi {
-    pub fn join(&mut self, net: &Net, store: &Store, ch: Id) {
+    /// `ring` false calls a dm without ringing anyone, as shift+click on the call button does.
+    pub fn join(&mut self, net: &Net, store: &Store, ch: Id, ring: bool) {
         if self.chan == Some(ch) {
             return;
         }
@@ -179,7 +182,7 @@ impl VoiceUi {
             self.video.clear();
             self.tex.clear();
         }
-        let ring = c.guild == 0 && !self.calls.get(&ch).is_some_and(|u| !u.is_empty());
+        let ring = ring && c.guild == 0 && !self.calls.get(&ch).is_some_and(|u| !u.is_empty());
         self.chan = Some(ch);
         self.guild = c.guild;
         self.state = State::Joining;
@@ -332,9 +335,12 @@ impl VoiceUi {
 
     fn connect_stream(&mut self, net: &Net, me: Id) {
         let Some(session) = self.session.clone() else { return };
+        // a fresh tag, so the connection this one replaces can't end the stream as it closes
+        let tag = self.next_tag();
         let Some(l) = &mut self.stream else { return };
         let (Some(server), Some((endpoint, token))) = (l.server, l.endpoint.clone()) else { return };
         l.state = State::Connecting;
+        l.tag = tag;
         net.send(net::Cmd::Voice(Cmd::Connect(Connect {
             kind: if l.mine { Media::GoLive } else { Media::Watch },
             tag: l.tag,
@@ -382,16 +388,20 @@ impl VoiceUi {
                 if d["stream_key"].as_str() != Some(&l.key) {
                     return;
                 }
-                if t == "STREAM_SERVER_UPDATE" {
+                // discord sends STREAM_UPDATE whenever viewers come and go or it's paused; only a new
+                // server or endpoint means connecting again
+                let moved = if t == "STREAM_SERVER_UPDATE" {
                     let Some(ep) = d["endpoint"].as_str() else { return };
-                    l.endpoint = Some((ep.to_string(), d["token"].as_str().unwrap_or("").to_string()));
+                    let at = Some((ep.to_string(), d["token"].as_str().unwrap_or("").to_string()));
+                    std::mem::replace(&mut l.endpoint, at.clone()) != at
                 } else if let Some(r) = d["rtc_server_id"].as_str().and_then(|r| r.parse().ok()) {
-                    if l.server == Some(r) {
-                        return;
-                    }
-                    l.server = Some(r);
+                    l.server.replace(r) != Some(r)
+                } else {
+                    false
+                };
+                if moved {
+                    self.connect_stream(net, me);
                 }
-                self.connect_stream(net, me);
             }
             "STREAM_DELETE" => {
                 if self.stream.as_ref().is_some_and(|l| d["stream_key"].as_str() == Some(&l.key)) {
@@ -443,9 +453,19 @@ impl VoiceUi {
                 if let Some(vs) = d["voice_states"].as_array() {
                     self.calls.insert(ch, vs.iter().map(|v| sid(&v["user_id"])).collect());
                 }
+                let rung = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| sid(u) == me));
+                if rung && self.chan != Some(ch) {
+                    self.ringing = Some(ch);
+                } else if self.ringing == Some(ch) {
+                    self.ringing = None;
+                }
             }
             "CALL_DELETE" => {
-                self.calls.remove(&sid(&d["channel_id"]));
+                let ch = sid(&d["channel_id"]);
+                self.calls.remove(&ch);
+                if self.ringing == Some(ch) {
+                    self.ringing = None;
+                }
             }
             _ => {}
         }

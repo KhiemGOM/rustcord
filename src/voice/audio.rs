@@ -40,6 +40,10 @@ pub struct Shared {
     /// video frames decoded from others, and encoded by us
     pub video_in: AtomicU64,
     pub video_out: AtomicU64,
+    /// what discord's server last reported having of our video: the highest packet sequence it
+    /// saw, and the share of packets it lost (out of 256)
+    pub video_acked: AtomicU64,
+    pub video_lost: AtomicU32,
     pub mic: AtomicI32,
     /// voice settings: push-to-talk, its release delay, input/output gain (f32 bits),
     /// and whether the vad threshold follows the noise floor
@@ -66,6 +70,8 @@ impl Default for Shared {
             e2ee_in: AtomicU64::new(0),
             video_in: AtomicU64::new(0),
             video_out: AtomicU64::new(0),
+            video_acked: AtomicU64::new(0),
+            video_lost: AtomicU32::new(0),
             mic: AtomicI32::new(MIC_UNKNOWN),
             ptt: AtomicBool::new(false),
             ptt_delay_ms: AtomicU32::new(20),
