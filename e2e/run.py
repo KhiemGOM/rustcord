@@ -28,6 +28,7 @@ from pathlib import Path
 
 import look
 import polish
+import home
 import qol
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -262,12 +263,12 @@ def main():
         "quick reactions: right-clicking one in the message menu and picking an emoji replaced it": all("quick_reactions" in r.get("marks_ms", {}) for r in (cold, warm)),
         "new messages bar: a wheel down at the bottom of the channel takes it away": all("bar_read" in r.get("marks_ms", {}) for r in (cold, warm)),
         "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),
-        "fullscreen: F11 went fullscreen and back": all("fullscreen" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "fullscreen: F11 over a maximised window filled the monitor and came back maximised": all("fullscreen" in r.get("marks_ms", {}) for r in (cold, warm)),
         "zoom: a ctrl+wheel notch went up one level (100% to 110%), ctrl+0 came back": all("zoom" in r.get("marks_ms", {}) for r in (cold, warm)),
         "name fonts: a nitro display name font was fetched and the user's name uses it": all("name_font" in r.get("marks_ms", {}) for r in (cold, warm)),
         "profile: the avatar on a server profile opens the main one, and its \"...\" opens the menu with the profile still up": all("profile_more" in r.get("marks_ms", {}) for r in (cold, warm)),
         "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
-            and sum('"flags":4096' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) == 2,
+            and sum('"flags":4096' in r.get("body", "") and '"2101"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) >= 2,
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,
@@ -379,6 +380,7 @@ def main():
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
+        **home.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

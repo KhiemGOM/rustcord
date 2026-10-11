@@ -437,6 +437,20 @@ pub fn badges(ui: &Ui, voice: &crate::voice::VoiceUi, u: Id, row: Rect) -> f32 {
         camera(ui, pos2(x - 8.0, row.center().y), 0.8, pal().channel_default);
         x -= 20.0;
     }
+    // discord's order is mute, deafen, camera, live; a server's own mute or deafen is red
+    if let Some([mute, server_mute, deaf, server_deaf]) = voice.muted.get(&u).copied() {
+        for (on, server, icon, tip) in [(deaf, server_deaf, Icon::HeadphonesOff, "Deafened"), (mute, server_mute, Icon::MicOff, "Muted")] {
+            if !on {
+                continue;
+            }
+            let r = Rect::from_center_size(pos2(x - 8.0, row.center().y), vec2(16.0, 16.0));
+            icons::draw(ui.painter(), icon, r, if server { pal().critical } else { pal().channel_default });
+            let tip = if server { format!("Server {tip}") } else { tip.to_string() };
+            super::settings::mark(ui, &format!("voice_state:{u}:{tip}"), r);
+            ui.interact(r, ui.id().with(("voice_state", u, &tip)), Sense::hover()).on_hover_text(tip);
+            x -= 20.0;
+        }
+    }
     row.right() - 12.0 - x
 }
 
@@ -619,6 +633,17 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
                 icons::draw(ui.painter(), Icon::Speaker, r, pal().channel_default);
                 ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(semi(16.0)).color(pal().header_primary)).selectable(false));
+                // discord's chat button, while the chat isn't already open beside the call
+                if !app.voice_chat {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                        icons::draw(ui.painter(), Icon::Bubble, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                        app.rects.insert("voice:show_chat".into(), r);
+                        if resp.on_hover_text("Show Chat").clicked() {
+                            app.voice_chat = true;
+                        }
+                    });
+                }
             });
         });
     egui::CentralPanel::default().frame(Frame::new().fill(Color32::BLACK)).show(ui, |ui| {

@@ -518,7 +518,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ctx.data_mut(|d| d.insert_temp(menu_id, m));
     }
     let menu: Option<(ReactEmoji, Pos2)> = ctx.data(|d| d.get_temp(menu_id));
-    let clicked_out = ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer() && !on_picker_button(app, ctx) && menu.is_none();
+    let clicked_out = super::popups::pressed_outside(ctx, &area) && !on_picker_button(app, ctx) && menu.is_none();
     let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
     if chosen.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
         chosen = sel.and_then(|i| order.get(i).cloned()).or(if searching { best } else { None });
@@ -860,7 +860,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         app.ui.frequent_stickers.insert(0, id);
         app.ui.frequent_stickers.truncate(12);
         app.stickers = None;
-    } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || (ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer() && !on_picker_button(app, ctx)) {
+    } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || (super::popups::pressed_outside(ctx, &area) && !on_picker_button(app, ctx)) {
         app.stickers = None;
         ctx.data_mut(|d| d.remove::<String>(qid));
     }

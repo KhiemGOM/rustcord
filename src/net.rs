@@ -46,7 +46,8 @@ pub enum Tag {
     MadeInvite,
     // a friend's new dm, for the invite link that goes in it
     InviteDm(String),
-    OpenDm,
+    // a dm opened from someone's profile, with what was typed in its message box
+    OpenDm(String),
     // a thread made from its dialog, with the first message to post in it
     Thread(String),
     // saved messages: 0 the bookmark ids and reminders, 1 the bookmarks themselves
@@ -71,6 +72,10 @@ pub enum Tag {
     Directory(String),
     // a server settings page's data
     Server(&'static str),
+    // channel settings: the channel itself, its invites, webhooks or regions, or a save
+    Chan(&'static str),
+    // the members table, onboarding or a prune count, for the page over a server's channels
+    Home(&'static str),
     // the events window: 0 the server's events, 1 the ones you're interested in
     Events(Id, u8),
     /// settings pages park their data under a key, see `App::remote`

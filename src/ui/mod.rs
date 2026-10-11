@@ -19,6 +19,8 @@ mod palette;
 mod picker;
 mod popups;
 mod rail;
+mod channel;
+mod community;
 mod server;
 mod settings;
 mod share;
@@ -121,6 +123,11 @@ pub struct App {
     pub active_threads: Option<Id>,
     pub directory: Option<directory::Dir>,
     pub server: Option<server::State>,
+    pub chan_settings: Option<channel::State>,
+    // Members or Channels & Roles, open in place of a channel
+    pub home: Option<community::Home>,
+    // a voice channel's chat open beside the call
+    pub voice_chat: bool,
     pub events: Option<events::Events>,
     pub friends_tab: u8,
     pub add_friend: String,
@@ -284,6 +291,9 @@ impl App {
             active_threads: None,
             directory: None,
             server: None,
+            chan_settings: None,
+            home: None,
+            voice_chat: false,
             events: None,
             friends_tab: 0,
             add_friend: String::new(),
@@ -362,6 +372,7 @@ impl App {
         }
         self.ui.guild = g;
         self.boosts = None;
+        self.home = None;
         self.directory = None;
         let ch = match self.cur() {
             Some(c) => Some(c),
@@ -378,6 +389,7 @@ impl App {
     pub fn open(&mut self, ch: Id) {
         let Some(c) = self.store.channels.get(&ch) else { return };
         self.boosts = None;
+        self.home = None;
         let guild = c.guild;
         let forum = c.is_forum();
         // member list subscriptions are per parent channel, threads borrow it
@@ -533,6 +545,19 @@ impl App {
         self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
         self.hold_ack = None;
         self.last_typing = None;
+    }
+
+    /// Text that didn't come from the composer, so its draft, uploads and reply stay put.
+    pub fn send_text(&mut self, ch: Id, text: String) {
+        let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+        let mut text = self.convert_emoji(guild, text.trim());
+        if self.settings.emoticons {
+            text = emoticons(&text);
+        }
+        let nonce = crate::state::make_nonce();
+        self.store.add_pending(ch, text.clone(), nonce.clone(), None);
+        self.jump_to_present(ch);
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false });
     }
 
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
@@ -971,6 +996,13 @@ impl App {
                     // an empty list rather than a spinner that never stops
                     Tag::Directory(k) => directory::loaded(self, k, serde_json::json!([])),
                     Tag::Server(k) => server::loaded(self, k, serde_json::json!([])),
+                    Tag::Chan("saved") => {
+                        if let Some(s) = &mut self.chan_settings {
+                            s.saving = false;
+                        }
+                    }
+                    Tag::Chan(k) if k != "channel" => channel::loaded(self, k, serde_json::json!([])),
+                    Tag::Home("members") => community::loaded(self, "members", serde_json::json!({ "members": [] })),
                     Tag::Events(g, k) => events::loaded(self, g, k, &serde_json::json!([])),
                     _ => {}
                 }
@@ -1017,6 +1049,8 @@ impl App {
             Tag::Created => create::created(self, &v),
             Tag::Directory(k) => directory::loaded(self, k, v),
             Tag::Server(k) => server::loaded(self, k, v),
+            Tag::Chan(k) => channel::loaded(self, k, v),
+            Tag::Home(k) => community::loaded(self, k, v),
             Tag::Events(g, k) => events::loaded(self, g, k, &v),
             Tag::Feed => {
                 self.store.set_feed(&v);
@@ -1051,11 +1085,14 @@ impl App {
                 let id = crate::state::sid(&v["id"]);
                 self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::Quiet);
             }
-            Tag::OpenDm => {
+            Tag::OpenDm(text) => {
                 self.store.apply("CHANNEL_CREATE", &v);
                 let id = crate::state::sid(&v["id"]);
                 self.ui.guild = None;
                 self.open(id);
+                if !text.is_empty() {
+                    self.send_text(id, text);
+                }
             }
             Tag::Thread(first) => {
                 self.store.apply("THREAD_CREATE", &v);
@@ -1273,6 +1310,7 @@ impl App {
         create::show(self, &ctx);
         active::show(self, &ctx);
         server::show(self, &ctx);
+        channel::show(self, &ctx);
         events::show(self, &ctx);
         share::show(self, &ctx);
         if let Some((text, at)) = &self.toast {
@@ -1474,7 +1512,7 @@ impl eframe::App for App {
         // F11, as in a browser
         if ctx.input_mut(|i| take_key(i, egui::Modifiers::NONE, egui::Key::F11)) {
             let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+            titlebar::fullscreen(&ctx, !full);
         }
         // what was open as the frame began owns Escape and most keys this frame
         let layered = self.layered(&ctx);

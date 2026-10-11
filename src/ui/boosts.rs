@@ -13,6 +13,8 @@ use crate::theme::*;
 // discord's own application for powerups; its store listings are the catalogue
 const POWERUPS_APP: &str = "1340102344645283891";
 const PINK: Color32 = Color32::from_rgb(0xff, 0x73, 0xfa);
+// the badge packs card's own picture while none is on, from discord's client
+const PACKS_ART: &str = "8dd1f75ba9ef2e0587c9963de0964edc7577f98385e85372e9dc600d353dd3b1";
 
 pub struct Powerup {
     pub sku: Id,
@@ -21,6 +23,8 @@ pub struct Powerup {
     pub cost: u32,
     pub perk: bool,
     pub image: Option<String>,
+    // played while the card's hovered
+    pub animated: Option<String>,
 }
 
 pub struct Sub {
@@ -49,6 +53,7 @@ impl Info {
 impl App {
     pub fn open_boosts(&mut self, gid: Id) {
         self.boosts = Some(gid);
+        self.home = None;
         self.boost_info.insert(gid, Info::default());
         self.rest("GET", format!("/store/published-listings/skus?application_id={POWERUPS_APP}&guild_id={gid}"), None, Tag::Boosts(gid, 0));
         self.rest("GET", format!("/guilds/{gid}/powerups?include_ends_at=true"), None, Tag::Boosts(gid, 1));
@@ -73,6 +78,7 @@ pub fn load(app: &mut App, gid: Id, part: u8, v: &serde_json::Value) {
                         cost: meta["boost_price"].as_u64().unwrap_or(0) as u32,
                         perk: meta["category_type"].as_str() == Some("perk"),
                         image: meta["static_image_url"].as_str().map(str::to_string),
+                        animated: meta["animated_image_url"].as_str().map(str::to_string),
                     }
                 })
                 .collect();
@@ -137,20 +143,49 @@ fn heading(ui: &mut Ui, title: &str, sub: &str) {
     ui.add_space(16.0);
 }
 
-/// A card's frame: discord's raised surface, rounded 16, with a green edge once it's enabled.
-fn card(ui: &Ui, r: Rect, on: bool) {
+/// A card's frame, rounded 16: raised with a green edge once it's enabled, flat otherwise, and
+/// lifted 4 with a shadow under the pointer.
+fn card(ui: &Ui, r: Rect, on: bool, hot: bool) {
     let p = ui.painter();
-    p.rect_filled(r, CornerRadius::same(16), pal().bg_secondary);
+    if hot {
+        p.add(egui::Shadow { offset: [0, 12], blur: 24, spread: 0, color: Color32::from_black_alpha(61) }.as_shape(r, CornerRadius::same(16)));
+    }
+    p.rect_filled(r, CornerRadius::same(16), if on { pal().bg_secondary } else { pal().bg_primary });
     let edge = if on { Color32::from_rgba_unmultiplied(61, 158, 96, 89) } else { pal().border_subtle };
     p.rect_stroke(r, CornerRadius::same(16), Stroke::new(1.0, edge), egui::StrokeKind::Inside);
 }
 
-/// "N Boosts" on the left of a card's foot and, once it's on, a green tick and "Enabled".
-fn foot(ui: &Ui, r: Rect, cost: u32, on: bool) {
+/// What a hovered card's foot turns into: Configure once it's on, else Enable and its price.
+fn hover_button(ui: &Ui, r: Rect, on: bool, cost: &str) -> egui::Response {
+    let b = Rect::from_min_size(pos2(r.left() + 17.0, r.bottom() - 57.0), vec2(r.width() - 34.0, 40.0));
+    let resp = ui.interact(b, ui.id().with(("perk_btn", r.left() as i32, r.top() as i32)), Sense::click());
+    super::settings::mark(ui, "perk_btn", b);
     let p = ui.painter();
-    let y = r.bottom() - 27.0;
-    icons::draw(p, Icon::GemOutline, Rect::from_center_size(pos2(r.left() + 25.0, y), vec2(16.0, 16.0)), PINK);
-    p.text(pos2(r.left() + 34.0, y), Align2::LEFT_CENTER, format!("{cost} Boosts"), medium(14.0), pal().header_secondary);
+    p.rect(b, 8, if resp.hovered() { Color32::from_rgb(0x47, 0x52, 0xc4) } else { BLURPLE }, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    if on {
+        p.text(b.center(), Align2::CENTER_CENTER, "Configure", medium(16.0), Color32::WHITE);
+    } else {
+        let g = p.layout_no_wrap("Enable  \u{2022}  ".to_string(), medium(16.0), Color32::WHITE);
+        let c = p.layout_no_wrap(cost.to_string(), medium(16.0), Color32::WHITE);
+        let w = g.size().x + 18.0 + c.size().x;
+        let x = b.center().x - w / 2.0;
+        let y = b.center().y;
+        p.galley(pos2(x, y - g.size().y / 2.0), g.clone(), Color32::WHITE);
+        icons::draw(p, Icon::Gem, Rect::from_center_size(pos2(x + g.size().x + 8.0, y), vec2(16.0, 16.0)), Color32::WHITE);
+        p.galley(pos2(x + g.size().x + 18.0, y - c.size().y / 2.0), c, Color32::WHITE);
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+/// "N Boosts" on the left of a card's foot and, once it's on, a green tick and "Enabled".
+fn foot(ui: &Ui, r: Rect, cost: &str, on: bool) {
+    let p = ui.painter();
+    let y = r.bottom() - 26.0;
+    icons::draw(p, Icon::GemOutline, Rect::from_center_size(pos2(r.left() + 26.0, y), vec2(18.0, 18.0)), PINK);
+    p.text(pos2(r.left() + 35.0, y), Align2::LEFT_CENTER, format!("{cost} Boosts"), semi(14.0), pal().header_secondary);
     if on {
         let t = p.text(pos2(r.right() - 17.0, y), Align2::RIGHT_CENTER, "Enabled", semi(14.0), pal().positive);
         icons::draw(p, Icon::CircleCheck, Rect::from_center_size(pos2(t.left() - 13.0, y), vec2(18.0, 18.0)), pal().positive);
@@ -172,7 +207,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
     for (i, l) in levels.iter().enumerate() {
         let r = Rect::from_min_size(pos2(row.left() + i as f32 * (w + 16.0), row.top()), vec2(w, 296.0));
         let on = info.applied.contains(&l.sku);
-        card(ui, r, on);
+        card(ui, r, on, false);
         let p = ui.painter();
         // the level line runs through every card, the gem riding on it
         let y = r.top() + 36.0;
@@ -191,47 +226,87 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
             p.text(pos2(r.left() + 43.0, ly), Align2::LEFT_CENTER, *label, medium(14.0), pal().text_normal);
         }
         p.text(pos2(r.left() + 17.0, r.top() + 229.0), Align2::LEFT_CENTER, "...and more!", medium(14.0), pal().text_normal);
-        foot(ui, r, l.cost, on);
+        foot(ui, r, &l.cost.to_string(), on);
         rects.push((format!("boosts:level:{}", i + 1), r));
     }
 
     ui.add_space(48.0);
     heading(ui, "Additional Perks", "Individual perks that can be unlocked using available Boosts. No level required.");
-    // the badge packs share one card, as discord shows them
+    // the badge packs share one card, as discord shows them: the packs that are on, or what the
+    // cheapest costs and discord's picture of them all
     let perks: Vec<&Powerup> = info.catalog.iter().filter(|p| p.perk).collect();
     let packs: Vec<&&Powerup> = perks.iter().filter(|p| p.name.ends_with("Badge Pack")).collect();
-    let mut cards: Vec<(String, String, u32, bool, Option<String>)> = perks
+    let mut cards: Vec<(String, String, String, bool, Option<String>, Option<String>)> = perks
         .iter()
         .filter(|p| !p.name.ends_with("Badge Pack"))
-        .map(|p| (p.name.clone(), p.desc.clone(), p.cost, info.applied.contains(&p.sku), p.image.clone()))
+        .map(|p| (p.name.clone(), p.desc.clone(), p.cost.to_string(), info.applied.contains(&p.sku), p.image.clone(), p.animated.clone()))
         .collect();
     if !packs.is_empty() {
         let on: Vec<&&&Powerup> = packs.iter().filter(|p| info.applied.contains(&p.sku)).collect();
-        let cost = if on.is_empty() { packs.iter().map(|p| p.cost).min().unwrap_or(0) } else { on.iter().map(|p| p.cost).sum() };
-        let image = on.first().or(packs.iter().min_by_key(|p| p.sku).as_ref()).and_then(|p| p.image.clone());
+        let cost = if on.is_empty() { format!("{}+", packs.iter().map(|p| p.cost).min().unwrap_or(0)) } else { on.iter().map(|p| p.cost).sum::<u32>().to_string() };
+        let (image, animated) = match on.first() {
+            Some(p) => (p.image.clone(), p.animated.clone()),
+            None => (Some(format!("{}/assets/content/{PACKS_ART}.png", crate::api::cdn())), None),
+        };
         let desc = "Stand out with special, themed badge packs for your Server Tag.".to_string();
-        cards.insert(cards.len().min(1), ("Server Tag Badge Packs".into(), desc, cost, !on.is_empty(), image));
+        cards.insert(cards.len().min(1), ("Server Tag Badge Packs".into(), desc, cost, !on.is_empty(), image, animated));
     }
+    // discord's card: 326 tall, the art 180 across the top (fitted, a shade darker at its foot),
+    // then the name, what it does and the price
     let w = (ui.available_width() - 32.0) / 3.0;
+    let mut pick = None;
     for chunk in cards.chunks(3) {
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 324.0), Sense::hover());
-        for (i, (name, desc, cost, on, image)) in chunk.iter().enumerate() {
-            let r = Rect::from_min_size(pos2(row.left() + i as f32 * (w + 16.0), row.top()), vec2(w, 324.0));
-            card(ui, r, *on);
-            if let Some(url) = image {
-                let art = Rect::from_min_max(r.min, pos2(r.right(), r.top() + 184.0)).shrink(16.0);
-                egui::Image::from_uri(url.clone()).fit_to_exact_size(art.size()).maintain_aspect_ratio(true).show_loading_spinner(false).paint_at(ui, art);
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 330.0), Sense::hover());
+        for (i, (name, desc, cost, on, image, animated)) in chunk.iter().enumerate() {
+            let slot = Rect::from_min_size(pos2(row.left() + i as f32 * (w + 16.0), row.top() + 4.0), vec2(w, 326.0));
+            let hot = ui.rect_contains_pointer(slot);
+            let r = slot.translate(vec2(0.0, if hot { -4.0 } else { 0.0 }));
+            card(ui, r, *on, hot);
+            let art = Rect::from_min_size(r.min + vec2(1.0, 1.0), vec2(r.width() - 2.0, 180.0));
+            let fit = if name == "Enhanced Role Styles" { art.shrink2(vec2(16.0, 0.0)) } else { art };
+            let shown = if hot { animated.as_ref().or(image.as_ref()) } else { image.as_ref() };
+            if let Some(url) = shown {
+                let u = crate::gif::uri(ui.ctx(), url, hot);
+                egui::Image::from_uri(u).fit_to_exact_size(fit.size()).maintain_aspect_ratio(true).show_loading_spinner(false).paint_at(ui, fit);
             }
+            let mut wash = egui::Mesh::default();
+            let (top, bottom) = (Color32::TRANSPARENT, Color32::from_rgba_unmultiplied(15, 16, 17, 102));
+            wash.colored_vertex(art.left_top(), top);
+            wash.colored_vertex(art.right_top(), top);
+            wash.colored_vertex(art.right_bottom(), bottom);
+            wash.colored_vertex(art.left_bottom(), bottom);
+            wash.add_triangle(0, 1, 2);
+            wash.add_triangle(0, 2, 3);
+            ui.painter().add(wash);
+            let ink = if *on { pal().text_normal } else { pal().header_secondary };
             let p = ui.painter();
-            p.text(pos2(r.left() + 17.0, r.top() + 216.0), Align2::LEFT_CENTER, name, bold(16.0), pal().text_normal);
-            let g = p.layout(desc.clone(), reg(14.0), pal().text_normal, r.width() - 34.0);
-            p.galley(pos2(r.left() + 17.0, r.top() + 233.0), g, pal().text_normal);
-            foot(ui, r, *cost, *on);
+            p.text(pos2(r.left() + 17.0, r.top() + 207.0), Align2::LEFT_CENTER, name, bold(16.0), ink);
+            let g = p.layout(desc.clone(), medium(14.0), ink, r.width() - 34.0);
+            p.galley(pos2(r.left() + 17.0, r.top() + 223.0), g, ink);
+            if hot {
+                if hover_button(ui, r, *on, cost).clicked() {
+                    pick = Some((name.clone(), *on));
+                }
+            } else {
+                foot(ui, r, cost, *on);
+            }
             rects.push((format!("boosts:perk:{name}"), r));
         }
-        ui.add_space(16.0);
+        ui.add_space(12.0);
     }
     app.rects.extend(rects);
+    match pick {
+        // configuring is the server settings page the perk lives on; turning one on spends the
+        // server's boosts, which stays on discord.com with the rest of the boost checkout
+        Some((name, true)) => {
+            app.open_server_settings(gid);
+            if let Some(s) = &mut app.server {
+                s.page = if name == "Enhanced Role Styles" { super::server::Page::Roles } else { super::server::Page::Tag };
+            }
+        }
+        Some((_, false)) => ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/boosts"))),
+        None => {}
+    }
 }
 
 fn side(app: &mut App, ui: &mut Ui, gid: Id) {

@@ -1107,6 +1107,7 @@ impl Run {
             350..=369 => self.sync_steps(app, ctx),
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
+            520..=559 => self.home_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -2809,24 +2810,42 @@ impl Run {
                     return self.fail("a click didn't end autoscroll".into());
                 }
                 self.mark("autoscroll");
-                self.key(Key::F11);
+                ctx.send_viewport_cmd(ViewportCommand::Maximized(true));
                 self.next(800);
             }
-            // F11 in and out of fullscreen
+            // F11 over a maximised window: fullscreen fills the whole monitor, not the area above
+            // the taskbar, and leaving it gives the maximised window back
             410 => {
-                if !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+                let (full, max) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
+                if !full {
+                    if max && self.loaded != 410 {
+                        self.loaded = 410;
+                        self.key(Key::F11);
+                    }
                     return;
                 }
+                let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
+                if let (Some(r), Some(m)) = (inner, monitor)
+                    && (r.height() - m.y).abs() > 2.0
+                {
+                    if self.step_at.elapsed() < Duration::from_secs(3) {
+                        return;
+                    }
+                    return self.fail(format!("fullscreen is {:.0} tall on a {:.0} monitor", r.height(), m.y));
+                }
+                self.loaded = 0;
                 self.shot(ctx, "fullscreen.png");
                 self.key(Key::F11);
                 self.next(800);
             }
             411 => {
-                if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+                let (full, max) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
+                if full || !max {
                     return;
                 }
                 self.mark("fullscreen");
-                self.next(300);
+                ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+                self.next(800);
             }
             // ctrl+0 to 100%, a ctrl+wheel notch up to the next level, ctrl+0 back
             412 | 414 => {
@@ -3519,10 +3538,282 @@ impl Run {
             501 => {
                 if app.far_up.is_none() && app.pinned.contains(&general) {
                     self.mark("qol_esc_present");
-                    self.step = 99;
+                    self.step = 520;
+                    self.step_at = Instant::now();
                 }
             }
             _ => self.step = 99,
+        }
+    }
+
+    /// The rows over a server's channels and the pages behind them, a voice channel's chat and
+    /// settings, the voice rows' mute icons, perk cards, the profile card's box, the viewer's zoom.
+    fn home_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        const GAMERS: Id = 1001;
+        const HANGOUT: Id = 2102;
+        let general = self.target.1;
+        let hover = |me: &mut Self, at: Pos2| me.queue.push_back(vec![Event::PointerMoved(at)]);
+        let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.author == app.store.me && m.content == text));
+        match self.step {
+            520 => {
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(1200);
+            }
+            // carol muted and deafened herself, alice was muted by the server
+            521 => {
+                let seen = ["voice_state:103:Muted", "voice_state:103:Deafened", "voice_state:101:Server Muted"].iter().all(|k| Self::at(ctx, k).is_some());
+                if seen {
+                    self.mark("home_voice_states");
+                    self.shot(ctx, "home_voice_states.png");
+                    app.open_boosts(self.target.0);
+                    self.next(1000);
+                }
+            }
+            522 => {
+                let Some(r) = app.rects.get("boosts:perk:Server Tag").copied() else { return };
+                hover(self, r.center());
+                self.next(700);
+            }
+            523 => {
+                if Self::at(ctx, "perk_btn").is_some() {
+                    self.mark("home_perk_hover");
+                    self.shot(ctx, "home_perk_hover.png");
+                    self.next(600);
+                }
+            }
+            524 => {
+                // the shot above is taken from the frame after it's asked for, so leave a beat first
+                if app.ui.guild != Some(GAMERS) {
+                    app.boosts = None;
+                    app.select_guild(Some(GAMERS));
+                    self.wait = Instant::now() + Duration::from_millis(1200);
+                    return;
+                }
+                let rows = ["Events", "Channels & Roles", "Members", "Server Boosts"];
+                if rows.iter().all(|r| Self::at(ctx, &format!("home_row:{r}")).is_some()) && app.ui.guild == Some(GAMERS) {
+                    self.mark("home_rows");
+                    self.shot(ctx, "home_rows.png");
+                    if let Some(r) = Self::at(ctx, "home_row:Members") {
+                        self.click(r.center());
+                    }
+                    self.next(1200);
+                }
+            }
+            525 => {
+                let rows = app.rects.keys().filter(|k| k.starts_with("members:row:")).count();
+                if rows < 3 || app.home.as_ref().is_none_or(|h| h.page != super::community::Page::Members) {
+                    return;
+                }
+                self.shot(ctx, "home_members.png");
+                let Some(r) = app.rects.get("members:search").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("ali".into())]);
+                self.next(1500);
+            }
+            526 => {
+                if app.home.as_ref().and_then(|h| h.members.list.as_ref()).is_some_and(|l| l.len() == 1) {
+                    self.mark("home_members_search");
+                    if let Some(r) = Self::at(ctx, "home_row:Channels & Roles") {
+                        self.click(r.center());
+                    }
+                    self.next(1000);
+                }
+            }
+            527 => {
+                let Some(r) = app.rects.get("home:option:Puzzles").copied() else { return };
+                self.shot(ctx, "home_customize.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            528 => {
+                let picked = app.home.as_ref().and_then(|h| h.onboarding.as_ref()).is_some_and(|o| o["responses"].as_array().is_some_and(|r| r.iter().any(|v| v == "7102")));
+                if picked {
+                    self.mark("home_onboarding");
+                    // the unlisted step earlier added lfg back; start the browser with it off the list
+                    app.store.opted.remove(&2101);
+                    if let Some(r) = app.rects.get("home:tab:1").copied() {
+                        self.click(r.center());
+                    }
+                    self.next(800);
+                }
+            }
+            529 => {
+                let Some(r) = app.rects.get("browse:chan:2101").copied() else { return };
+                self.shot(ctx, "home_browse.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            530 => {
+                if app.store.opted.contains(&2101) {
+                    self.mark_once("home_browse");
+                    let Some(r) = app.rects.get(&format!("chan:{HANGOUT}")).copied() else { return };
+                    hover(self, r.center());
+                    self.next(500);
+                }
+            }
+            // a voice channel's own chat, beside the call, without joining it
+            531 => {
+                let Some(r) = Self::at(ctx, &format!("row_btn:Open Chat:{HANGOUT}")) else { return };
+                self.click(r.center());
+                self.next(1000);
+            }
+            532 => {
+                if !app.voice_chat || app.cur() != Some(HANGOUT) || !app.rects.contains_key("voice_chat") || app.voice.chan == Some(HANGOUT) {
+                    return;
+                }
+                self.shot(ctx, "home_voice_chat.png");
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("hello vc".into())]);
+                self.key(Key::Enter);
+                self.next(1000);
+            }
+            533 => {
+                if mine(app, HANGOUT, "hello vc") {
+                    self.mark("home_voice_chat");
+                    let Some(r) = app.rects.get("voice_chat:close").copied() else { return };
+                    self.click(r.center());
+                    self.next(500);
+                }
+            }
+            534 => {
+                if app.voice_chat {
+                    return;
+                }
+                let Some(r) = app.rects.get(&format!("chan:{HANGOUT}")).copied() else { return };
+                hover(self, r.center());
+                self.next(500);
+            }
+            535 => {
+                let Some(r) = Self::at(ctx, &format!("row_btn:Edit Channel:{HANGOUT}")) else { return };
+                self.click(r.center());
+                self.next(1200);
+            }
+            // its settings: a new name saved, then View Channel denied to everyone
+            536 => {
+                let Some(r) = Self::at(ctx, "chanset:name").filter(|_| app.chan_settings.as_ref().is_some_and(|s| !s.draft.is_null())) else { return };
+                self.shot(ctx, "home_chanset.png");
+                self.click(pos2(r.right() - 20.0, r.center().y));
+                self.key(Key::End);
+                self.queue.push_back(vec![Event::Text(" 2".into())]);
+                self.next(600);
+            }
+            537 => {
+                let Some(r) = app.rects.get("chanset:save").copied() else { return };
+                self.shot(ctx, "home_chanset_unsaved.png");
+                self.click(r.center());
+                self.next(1000);
+            }
+            538 => {
+                if app.chan_settings.as_ref().is_some_and(|s| !s.saving && s.base["name"] == "Hangout 2") && app.store.channels.get(&HANGOUT).is_some_and(|c| c.name == "Hangout 2") {
+                    self.mark("home_chanset_save");
+                    let Some(r) = app.rects.get("chanset:Permissions").copied() else { return };
+                    self.click(r.center());
+                    self.next(800);
+                }
+            }
+            539 => {
+                let Some(r) = Self::at(ctx, "perm:View Channel:-1") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            540 => {
+                let Some(r) = app.rects.get("chanset:save").copied() else { return };
+                self.shot(ctx, "home_chanset_perms.png");
+                self.click(r.center());
+                self.next(1000);
+            }
+            541 => {
+                let denied = app.store.channels.get(&HANGOUT).is_some_and(|c| c.overwrites.iter().any(|o| o.id == GAMERS && o.deny & crate::state::VIEW_CHANNEL != 0));
+                if denied && app.chan_settings.as_ref().is_some_and(|s| !s.saving) {
+                    self.mark("home_chanset_perms");
+                    let Some(r) = app.rects.get("chanset:delete").copied() else { return };
+                    self.click(r.center());
+                    self.next(600);
+                }
+            }
+            542 => {
+                if app.confirm.is_none() {
+                    return;
+                }
+                self.shot(ctx, "home_chanset_delete.png");
+                self.key(Key::Enter);
+                self.next(1200);
+            }
+            543 => {
+                if app.store.channels.contains_key(&HANGOUT) || app.chan_settings.is_some() {
+                    return;
+                }
+                self.mark("home_chanset_delete");
+                // a profile card opened low down is pushed up to fit; a click high in it stays in it
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                let s = ctx.content_rect();
+                app.open_profile(101, self.target.0, pos2(s.center().x, s.bottom() - 40.0));
+                self.next(1000);
+            }
+            544 => {
+                let Some(h) = app.rects.get("profile_head").copied().filter(|r| r.is_positive() && app.profile.is_some()) else { return };
+                self.click(pos2(h.left() + 150.0, h.top() + 30.0));
+                self.next(500);
+            }
+            545 => {
+                if app.profile.is_none() {
+                    return self.fail("a click inside the profile card closed it".into());
+                }
+                self.mark("home_profile_stays");
+                self.shot(ctx, "home_profile_box.png");
+                let Some(r) = app.rects.get("profile_msg").copied() else { return };
+                self.click(pos2(r.left() + 60.0, r.center().y));
+                self.queue.push_back(vec![Event::Text("hey from profile".into())]);
+                self.key(Key::Enter);
+                self.next(1200);
+            }
+            546 => {
+                if app.profile.is_none() && app.cur() == Some(3000) && mine(app, 3000, "hey from profile") {
+                    self.mark("home_profile_dm");
+                    app.select_guild(Some(self.target.0));
+                    app.open(general);
+                    self.next(1500);
+                }
+            }
+            // a click on the picture zooms it, another zooms back out
+            547 => {
+                let url = format!("{}/attachments/1/2/e2e.png", crate::api::cdn());
+                app.viewer = Some((url.clone(), url, 800, 450));
+                self.next(1000);
+            }
+            548 => {
+                let Some(r) = app.rects.get("viewer_img").copied().filter(|_| app.viewer.is_some()) else { return };
+                self.loaded = r.width() as usize;
+                self.click(r.center());
+                self.next(800);
+            }
+            549 => {
+                let Some(z) = app.rects.get("viewer_zoomed").copied() else { return };
+                if z.width() < self.loaded as f32 * 1.5 {
+                    return self.fail(format!("the zoomed picture is {:.0} wide against {} fitted", z.width(), self.loaded));
+                }
+                self.mark("home_zoom");
+                self.shot(ctx, "home_viewer_zoom.png");
+                app.rects.remove("viewer_zoomed");
+                self.click(ctx.content_rect().center());
+                self.next(600);
+            }
+            550 => {
+                if app.rects.contains_key("viewer_zoomed") || app.viewer.is_none() {
+                    return;
+                }
+                self.mark("home_unzoom");
+                self.key(Key::Escape);
+                self.next(600);
+            }
+            _ => {
+                if app.viewer.is_none() {
+                    self.step = 99;
+                }
+            }
         }
     }
 

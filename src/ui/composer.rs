@@ -364,6 +364,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
     let hint = match chan.kind {
         1 | 3 => format!("Message @{}", channel_title(&app.store, ch)),
+        2 | 13 => format!("Message {}", chan.name),
         _ => format!("Message #{}", chan.name),
     };
     let top_r = if app.reply.is_some() { 0 } else { 8 };

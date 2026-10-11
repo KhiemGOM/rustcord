@@ -47,6 +47,7 @@ enum Act {
     ClearEmbeds(Id),
     // a custom emoji clicked: its id, name, whether animated, and where
     Emoji(Id, String, bool, Pos2),
+    EditChannel,
 }
 
 struct D<'a> {
@@ -131,6 +132,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }
+    if let Some(g) = app.home.as_ref().map(|h| h.guild).filter(|g| app.ui.guild == Some(*g)) {
+        return super::community::show(app, ui, g);
+    }
     let Some(ch) = app.cur() else {
         ui.centered_and_justified(|ui| {
             ui.label(RichText::new("No text channels here yet.").color(pal().text_muted));
@@ -139,6 +143,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     };
     let chan = app.store.channels[&ch].clone();
     if chan.is_voice() {
+        if app.voice_chat {
+            egui::Panel::right("voice_chat")
+                .exact_size(488.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin { left: 8, ..Default::default() }))
+                .show(ui, |ui| voice_chat(app, ui, &chan));
+        }
         return super::call::room(app, ui, &chan);
     }
     header(app, ui, &chan);
@@ -231,6 +243,46 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show(ui, |ui| super::composer::show(app, ui, &chan));
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| messages(app, ui, &chan));
     });
+}
+
+/// A voice channel's own text chat beside the call: discord's card, rounded at the top left with
+/// a hairline down its left and along its top, its header, then the channel as any other.
+fn voice_chat(app: &mut App, ui: &mut Ui, chan: &Channel) {
+    let card = ui.max_rect();
+    let round = CornerRadius { nw: 12, ..Default::default() };
+    ui.painter().rect_filled(card, round, pal().bg_primary);
+    let edge = Rect::from_min_max(card.min, card.max + vec2(4.0, 4.0));
+    ui.painter().with_clip_rect(card).rect_stroke(edge, round, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    let mut close = false;
+    egui::Panel::top("voice_chat_head")
+        .exact_size(49.0)
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(Frame::NONE)
+        .show(ui, |ui| {
+            let h = ui.max_rect();
+            ui.painter().hline(h.left() + 1.0..=h.right(), h.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
+            let y = h.top() + 25.0;
+            icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(h.left() + 26.0, y), vec2(20.0, 20.0)), pal().channel_default);
+            text::paint_em(ui.painter(), pos2(h.left() + 45.0, y), Align2::LEFT_CENTER, &chan.name, medium(16.0), pal().header_primary, h.width() - 100.0, 1.0);
+            let x = Rect::from_center_size(pos2(h.right() - 25.0, y), vec2(20.0, 20.0));
+            let r = ui.interact(x.expand(4.0), ui.id().with("voice_chat_close"), Sense::click());
+            icons::draw(ui.painter(), Icon::Close, x, if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
+            app.rects.insert("voice_chat:close".into(), x);
+            close = r.on_hover_text("Close").clicked();
+        });
+    egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
+        egui::Panel::bottom("voice_chat_composer")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().inner_margin(Margin { left: 8, right: 8, top: 0, bottom: 0 }))
+            .show(ui, |ui| super::composer::show(app, ui, chan));
+        egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| messages(app, ui, chan));
+    });
+    app.rects.insert("voice_chat".into(), card);
+    if close {
+        app.voice_chat = false;
+    }
 }
 
 fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
@@ -545,7 +597,9 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         let origin = ui.max_rect().top();
         let w = ui.available_width();
         if at_start {
-            welcome(ui, d.store, chan);
+            if welcome(ui, d.store, chan) {
+                d.acts.push(Act::EditChannel);
+            }
         } else {
             let (r, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
             if loading || list.is_empty() {
@@ -683,6 +737,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Thread(id) => app.new_thread = Some(super::popups::NewThread::from(app, ch, id)),
             Act::Mention(u) => app.mention(u, chan.guild),
             Act::ClearEmbeds(id) => app.clear_embeds(ch, id, !shift),
+            Act::EditChannel => app.open_chan_settings(ch),
             Act::Emoji(id, name, animated, at) => app.emoji_pop = Some((id, name, animated, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
             Act::Picker(id, at) => app.picker = Some((Pick::React(ch, id), at)),
@@ -883,7 +938,9 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
     }
 }
 
-fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) {
+/// The top of a channel's history. Hands back a click on its Edit Channel button.
+fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) -> bool {
+    let mut edit = false;
     ui.add_space(16.0);
     Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
         let title = channel_title(store, chan.id);
@@ -901,15 +958,37 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) {
                 );
             }
         } else {
+            // a voice channel's chat has a bubble and no # before the name
+            let voice = chan.is_voice();
             let (r, _) = ui.allocate_exact_size(vec2(68.0, 68.0), Sense::hover());
-            ui.painter().circle_filled(r.center(), 34.0, pal().bg_accent);
-            ui.painter().text(r.center(), Align2::CENTER_CENTER, "#", reg(44.0), Color32::WHITE);
+            if voice {
+                ui.painter().circle_filled(r.center(), 34.0, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
+                icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(r.center(), vec2(42.0, 42.0)), Color32::WHITE);
+            } else {
+                ui.painter().circle_filled(r.center(), 34.0, pal().bg_accent);
+                ui.painter().text(r.center(), Align2::CENTER_CENTER, "#", reg(44.0), Color32::WHITE);
+            }
+            let hash = if voice { "" } else { "#" };
             ui.add_space(8.0);
-            ui.label(RichText::new(format!("Welcome to #{title}!")).font(semi(32.0)).color(pal().header_primary));
+            ui.label(RichText::new(format!("Welcome to {hash}{title}!")).font(semi(32.0)).color(pal().header_primary));
             ui.add_space(4.0);
-            ui.label(RichText::new(format!("This is the start of the #{title} channel.")).color(pal().header_secondary));
+            ui.label(RichText::new(format!("This is the start of the {hash}{title} channel.")).color(pal().header_secondary));
+            if store.perms(chan) & crate::state::MANAGE_CHANNELS != 0 {
+                ui.add_space(12.0);
+                let g = ui.painter().layout_no_wrap("Edit Channel".into(), medium(14.0), pal().text_normal);
+                let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
+                let fill = Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 51 } else { 31 });
+                ui.painter().rect(b, 8, fill, Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 41)), egui::StrokeKind::Inside);
+                icons::draw(ui.painter(), Icon::Pencil, Rect::from_min_size(pos2(b.left() + 12.0, b.center().y - 8.0), vec2(16.0, 16.0)), pal().text_normal);
+                ui.painter().galley(pos2(b.left() + 32.0, b.center().y - g.size().y / 2.0), g, pal().text_normal);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                edit = resp.clicked();
+            }
         }
     });
+    edit
 }
 
 /// A rule across the chat at `y`, takes no room: the date in the middle if there is one, and
@@ -1040,7 +1119,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 if r.clicked() {
                     d.acts.push(Act::View(a.proxy.clone(), a.url.clone(), a.w, a.h));
                 }
-            } else if file_card(&mut cui, &a.filename, a.size, a.ctype.starts_with("video/")).clicked() {
+            } else if file_card(&mut cui, &a.filename, a.size).clicked() {
                 d.acts.push(Act::Url(a.url.clone()));
             }
         }
@@ -1640,22 +1719,19 @@ fn human_size(n: u64) -> String {
     }
 }
 
-fn file_card(ui: &mut Ui, name: &str, size: u64, video: bool) -> egui::Response {
+/// Discord's card for a file it doesn't show inline, videos it can't play included: its
+/// file glyph, the name as a link that underlines under the pointer, and the size.
+fn file_card(ui: &mut Ui, name: &str, size: u64) -> egui::Response {
     let w = ui.available_width().min(432.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 66.0), Sense::click());
     ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-    let ir = Rect::from_center_size(pos2(rect.left() + 28.0, rect.center().y), vec2(30.0, 36.0));
-    icons::draw(ui.painter(), Icon::File, ir, BLURPLE);
-    if video {
-        icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(ir.center() + vec2(0.0, 3.0), vec2(12.0, 12.0)), BLURPLE);
-    }
-    let clip = ui.painter().with_clip_rect(rect.shrink(8.0));
-    let col = if resp.hovered() { pal().link.gamma_multiply(1.2) } else { pal().link };
-    text::paint(ui.painter(), pos2(rect.left() + 52.0, rect.center().y - 9.0), Align2::LEFT_CENTER, name, reg(16.0), col, rect.width() - 64.0);
-    clip.text(pos2(rect.left() + 52.0, rect.center().y + 11.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), pal().text_muted);
+    icons::draw(ui.painter(), Icon::File, Rect::from_min_size(rect.min + vec2(16.0, 21.0), vec2(24.0, 24.0)), BLURPLE);
+    let n = text::paint(ui.painter(), pos2(rect.left() + 52.0, rect.top() + 23.0), Align2::LEFT_CENTER, name, reg(14.0), pal().link, rect.width() - 64.0);
     if resp.hovered() {
+        ui.painter().hline(n.x_range(), n.bottom() - 1.0, Stroke::new(1.0, pal().link));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
+    ui.painter().with_clip_rect(rect.shrink(8.0)).text(pos2(rect.left() + 52.0, rect.top() + 44.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), pal().text_muted);
     resp
 }
 
@@ -2412,7 +2488,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
                         let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
                         media(ui, &mut d, &url, &a.url, w, h, None);
                     } else {
-                        file_card(ui, &a.filename, a.size, a.ctype.starts_with("video/"));
+                        file_card(ui, &a.filename, a.size);
                     }
                 }
             });

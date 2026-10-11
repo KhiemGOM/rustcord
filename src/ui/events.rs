@@ -90,6 +90,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut create = false;
     let mut toggle: Option<(Id, bool)> = None;
     let mut copy: Option<String> = None;
+    let mut roles = false;
     let screen = ctx.content_rect();
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
     let m = egui::Modal::new("events".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
@@ -122,7 +123,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.add_space(140.0);
                     ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
                 }
-                Some(l) if l.is_empty() => empty(ui, can_create),
+                Some(l) if l.is_empty() => roles = empty(ui, can_create),
                 Some(l) => {
                     for e in l {
                         ui.add_space(0.0);
@@ -211,13 +212,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if create {
         app.events = None;
         app.create = Some(super::create::Form::new(super::create::Kind::Event, gid, None));
+    } else if roles {
+        app.events = None;
+        app.open_server_settings(gid);
+        if let Some(s) = &mut app.server {
+            s.page = super::server::Page::Roles;
+        }
     } else if close || m.should_close() {
         app.events = None;
     }
 }
 
-/// The calendar in its black circle with two sparkles, and discord's two lines under it.
-fn empty(ui: &mut Ui, can_create: bool) {
+/// The calendar in its black circle with two sparkles, and discord's two lines under it. Hands
+/// back a click on the Server Settings > Roles link.
+fn empty(ui: &mut Ui, can_create: bool) -> bool {
     let (r, _) = ui.allocate_exact_size(vec2(604.0, 320.0), Sense::hover());
     let p = ui.painter();
     let c = pos2(r.center().x, r.top() + 104.0);
@@ -227,7 +235,22 @@ fn empty(ui: &mut Ui, can_create: bool) {
     p.text(c + vec2(38.0, -26.0), Align2::CENTER_CENTER, "\u{2727}", reg(12.0), Color32::from_rgb(0x4f, 0xd1, 0xc5));
     p.text(pos2(r.center().x, r.top() + 183.0), Align2::CENTER_CENTER, "There are no upcoming events.", semi(24.0), pal().header_primary);
     p.text(pos2(r.center().x, r.top() + 215.0), Align2::CENTER_CENTER, "Schedule an event for any planned activity in your server.", reg(14.0), pal().text_normal);
-    if can_create {
-        p.text(pos2(r.center().x, r.top() + 237.0), Align2::CENTER_CENTER, "You can give other people permission to create events in Server Settings > Roles.", reg(14.0), pal().text_normal);
+    if !can_create {
+        return false;
     }
+    let lead = p.layout_no_wrap("You can give other people permission to create events in ".into(), reg(14.0), pal().text_normal);
+    let link = p.layout_no_wrap("Server Settings > Roles".into(), reg(14.0), pal().link);
+    let dot = p.layout_no_wrap(".".into(), reg(14.0), pal().text_normal);
+    let x = r.center().x - (lead.size().x + link.size().x + dot.size().x) / 2.0;
+    let y = r.top() + 237.0 - lead.size().y / 2.0;
+    let lr = Rect::from_min_size(pos2(x + lead.size().x, y), link.size());
+    p.galley(pos2(x + lead.size().x + link.size().x, y), dot, pal().text_normal);
+    p.galley(pos2(x, y), lead, pal().text_normal);
+    p.galley(lr.min, link, pal().link);
+    let resp = ui.interact(lr, ui.id().with("events_roles"), Sense::click());
+    if resp.hovered() {
+        ui.painter().hline(lr.x_range(), lr.bottom() - 1.0, Stroke::new(1.0, pal().link));
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.clicked()
 }
