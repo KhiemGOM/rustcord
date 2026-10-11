@@ -1,3 +1,4 @@
+mod actions;
 mod active;
 mod autoscroll;
 mod boosts;
@@ -11,6 +12,7 @@ mod events;
 mod forum;
 mod friends;
 pub mod icons;
+mod keys;
 mod login;
 mod members;
 mod palette;
@@ -81,7 +83,6 @@ pub struct App {
     pub menu: Option<(Id, Id, Pos2)>,
     // a person's right-click menu: user, server, the dm it came from, where
     pub user_menu: Option<(Id, Id, Option<Id>, Pos2)>,
-    pub confirm_delete: Option<(Id, Id)>,
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
     // the server guide's new member actions, per server: (their channels, the ones done)
@@ -128,6 +129,8 @@ pub struct App {
     pub scroll_tries: u8,
     pub flash: Option<(Id, Instant)>,
     pub viewer: Option<(String, String, u32, u32)>,
+    // the open message's pictures, which the viewer's arrows step through
+    pub gallery: Vec<(String, String, u32, u32)>,
     pub remote: HashMap<&'static str, Option<Result<serde_json::Value, String>>>,
     hotkey_rx: Option<Receiver<(String, bool)>>,
     obs_seen: bool,
@@ -136,6 +139,34 @@ pub struct App {
     // a channel the user just marked unread shouldn't get re-acked on the next frame
     pub hold_ack: Option<Id>,
     pub reply_ping: bool,
+    // the message keyboard focus sits on (shift+tab out of the composer), and whether it just
+    // moved and wants scrolling into view
+    pub focus_msg: Option<Id>,
+    pub focus_scroll: bool,
+    // put the composer's caret at the end of its text, after something was added to it
+    pub caret_end: bool,
+    // messages bookmarked for later, by id
+    pub bookmarks: HashSet<Id>,
+    // the notes you keep on people, by user, once fetched
+    pub notes: HashMap<Id, String>,
+    pub new_thread: Option<popups::NewThread>,
+    // a custom emoji's popout: id, name, animated, where
+    pub emoji_pop: Option<(Id, String, bool, Pos2)>,
+    // a link waiting on "Leaving Discord", and whether to trust its site from now on
+    pub leaving: Option<(String, bool)>,
+    // the Ctrl+/ sheet, the Raging Demon it can set off, and breathing with Wumpus
+    pub combos: Option<keys::Combos>,
+    pub demon: Option<Instant>,
+    pub breathe: Option<keys::Breathe>,
+    // Timeout for a member: who, in which server, the length picked and the reason
+    pub timeout: Option<popups::Timeout>,
+    // the server left for the dms, which Ctrl+Alt+→ goes back to
+    pub prev_guild: Option<Id>,
+    // the open channel when it's scrolled well back from the newest messages
+    pub far_up: Option<Id>,
+    // quick clicks on the home button so far, and when the last was; the ディスコード tooltip
+    pub home_clicks: (u32, Option<Instant>),
+    pub discodo_at: Option<Instant>,
     pub gifs: Option<popups::Gifs>,
     pub nav: titlebar::Nav,
     pub inbox: Option<titlebar::Inbox>,
@@ -219,7 +250,6 @@ impl App {
             picker: None,
             stickers: None,
             menu: None,
-            confirm_delete: None,
             confirm: None,
             forward: None,
             guides: HashMap::new(),
@@ -262,6 +292,7 @@ impl App {
             scroll_tries: 0,
             flash: None,
             viewer: None,
+            gallery: Vec::new(),
             remote: HashMap::new(),
             hotkey_rx: None,
             obs_seen: false,
@@ -269,6 +300,22 @@ impl App {
             sform: Default::default(),
             hold_ack: None,
             reply_ping: true,
+            focus_msg: None,
+            focus_scroll: false,
+            caret_end: false,
+            bookmarks: HashSet::new(),
+            notes: HashMap::new(),
+            new_thread: None,
+            emoji_pop: None,
+            leaving: None,
+            combos: None,
+            demon: None,
+            breathe: None,
+            timeout: None,
+            prev_guild: None,
+            far_up: None,
+            home_clicks: (0, None),
+            discodo_at: None,
             gifs: None,
             nav: Default::default(),
             inbox: None,
@@ -310,6 +357,9 @@ impl App {
     }
 
     pub fn select_guild(&mut self, g: Option<Id>) {
+        if g.is_none() && self.ui.guild.is_some() {
+            self.prev_guild = self.ui.guild;
+        }
         self.ui.guild = g;
         self.boosts = None;
         self.directory = None;
@@ -452,6 +502,11 @@ impl App {
     }
 
     pub fn send_message(&mut self, ch: Id) {
+        self.post(ch, false);
+    }
+
+    /// The draft and uploads out as a message; `tts` reads it aloud to everyone looking.
+    pub fn post(&mut self, ch: Id, tts: bool) {
         let text = self.drafts.remove(&ch).unwrap_or_default();
         let mut text = self.resolve_aliases(ch, text.trim());
         let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
@@ -475,7 +530,7 @@ impl App {
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
         self.jump_to_present(ch);
         let reply = reply.map(|r| (r, self.reply_ping));
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new() });
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
         self.hold_ack = None;
         self.last_typing = None;
     }
@@ -611,59 +666,6 @@ impl App {
         let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
         let body = json!({ "channel_overrides": { ch.to_string(): { "message_notifications": level.unwrap_or(3) } } });
         self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
-    }
-
-    /// Alt+↑/↓ walks channels, Alt+Shift+↑/↓ jumps between unread ones,
-    /// Ctrl+E opens emoji, Ctrl+Shift+U uploads.
-    fn shortcuts(&mut self, ctx: &egui::Context) {
-        use egui::{Key, Modifiers};
-        let (up, down, uup, udown, emoji, upload) = ctx.input_mut(|i| {
-            (
-                take_key(i, Modifiers::ALT, Key::ArrowUp),
-                take_key(i, Modifiers::ALT, Key::ArrowDown),
-                take_key(i, Modifiers::ALT | Modifiers::SHIFT, Key::ArrowUp),
-                take_key(i, Modifiers::ALT | Modifiers::SHIFT, Key::ArrowDown),
-                take_key(i, Modifiers::COMMAND, Key::E),
-                take_key(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::U),
-            )
-        });
-        if up || down || uup || udown {
-            let list: Vec<Id> = match self.ui.guild {
-                Some(g) => side::tree(&self.store, g, self.cur())
-                    .into_iter()
-                    .flat_map(|(_, k)| k)
-                    .filter(|c| c.is_text() || c.is_forum())
-                    .map(|c| c.id)
-                    .collect(),
-                None => self.store.dms.clone(),
-            };
-            let at = self.cur().and_then(|c| list.iter().position(|x| *x == c));
-            let n = list.len();
-            let target = if uup || udown {
-                let order: Vec<usize> = if udown { (1..=n).collect() } else { (1..=n).rev().collect() };
-                order
-                    .into_iter()
-                    .map(|k| (at.unwrap_or(0) + k) % n.max(1))
-                    .find(|i| self.store.channels.get(&list[*i]).is_some_and(|c| self.store.unread(c)))
-            } else if n > 0 {
-                Some(match (at, down) {
-                    (Some(i), true) => (i + 1) % n,
-                    (Some(i), false) => (i + n - 1) % n,
-                    (None, _) => 0,
-                })
-            } else {
-                None
-            };
-            if let Some(i) = target {
-                self.open(list[i]);
-            }
-        }
-        if emoji && self.rects.contains_key("composer") {
-            picker::toggle(self, picker::Tab::Emoji);
-        }
-        if upload && let Some(files) = rfd::FileDialog::new().pick_files() {
-            self.files.extend(files.into_iter().map(composer::Upload::new));
-        }
     }
 
     // join/leave chimes for people entering or leaving the call you're in, and the ring
@@ -955,7 +957,7 @@ impl App {
                     Tag::Pins(_) => self.pins = None,
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
-                    Tag::Feed | Tag::AppIcons(_) => return,
+                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -1055,6 +1057,21 @@ impl App {
                 self.ui.guild = None;
                 self.open(id);
             }
+            Tag::Thread(first) => {
+                self.store.apply("THREAD_CREATE", &v);
+                let id = crate::state::sid(&v["id"]);
+                self.open(id);
+                if !first.trim().is_empty() {
+                    self.drafts.insert(id, first);
+                    self.send_message(id);
+                }
+            }
+            Tag::Saved(k) => titlebar::saved(self, k, &v),
+            Tag::Note(u) => {
+                if let Some(n) = v["note"].as_str() {
+                    self.notes.insert(u, n.to_string());
+                }
+            }
             Tag::Friend => self.toast("Friend request sent."),
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
@@ -1141,6 +1158,13 @@ impl App {
                         self.info_asked.clear();
                         self.feed_at = Some(Instant::now());
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
+                        // which messages are bookmarked, for the menus' Remove Bookmark
+                        self.rest("GET", "/users/@me/saved-messages?bookmark_ids=true".into(), None, Tag::Saved(0));
+                    }
+                    if t.starts_with("STREAM_")
+                        && let Some(e) = &mut self.e2e
+                    {
+                        e.heard.push(json!({ "t": t, "d": d }));
                     }
                     self.voice_cues(&t, &d);
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
@@ -1180,9 +1204,13 @@ impl App {
                         m.fresh = true;
                     }
                 }
-                Ev::SendFailed { channel, nonce, err } => {
+                Ev::SendFailed { channel, nonce, err, again } => {
+                    // a retry going out stays red without saying so again
+                    let first = self.store.msgs.get(&channel).is_some_and(|e| e.list.iter().any(|m| m.pending && m.nonce.as_deref() == Some(nonce.as_str())));
                     self.store.fail_pending(channel, &nonce);
-                    self.toast(format!("Message failed to send: {err}"));
+                    if first || !again {
+                        self.toast(format!("Message failed to send: {err}"));
+                    }
                 }
                 Ev::Conn(c) => self.conn = c,
                 Ev::AuthFailed => {
@@ -1207,6 +1235,9 @@ impl App {
                 Ev::Rest { tag, res } => self.on_rest(tag, res),
                 Ev::Voice(e) => {
                     if let Some(err) = self.voice.event(e) {
+                        if let Some(e) = &mut self.e2e {
+                            e.heard.push(json!({ "t": "voice error", "d": err }));
+                        }
                         self.toast(format!("Voice disconnected: {err}"));
                     }
                 }
@@ -1262,61 +1293,7 @@ impl App {
                 ctx.request_repaint_after(Duration::from_millis(500));
             }
         }
-        if let Some((ch, id)) = self.confirm_delete {
-            let mut close = false;
-            let modal = egui::Modal::new("delete".into())
-                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
-                .show(&ctx, |ui| {
-                    ui.set_width(440.0);
-                    ui.label(egui::RichText::new("Delete Message").font(semi(20.0)).color(pal().header_primary));
-                    ui.add_space(12.0);
-                    ui.label(egui::RichText::new("Are you sure you want to delete this message?").color(pal().text_normal));
-                    ui.add_space(20.0);
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if button(ui, "Delete", RED, 96.0).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                self.net.send(Cmd::Delete { channel: ch, id });
-                                if let Some(m) = self.store.msgs.get_mut(&ch) {
-                                    m.list.retain(|m| m.id != id);
-                                }
-                                close = true;
-                            }
-                            if ui.add(egui::Label::new(egui::RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click())).clicked() {
-                                close = true;
-                            }
-                        });
-                    });
-                });
-            if close || modal.should_close() {
-                self.confirm_delete = None;
-            }
-        }
-        if let Some(c) = &self.confirm {
-            let (mut close, mut go) = (false, false);
-            let modal = egui::Modal::new("confirm".into())
-                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
-                .show(&ctx, |ui| {
-                    ui.set_width(440.0);
-                    ui.label(egui::RichText::new(&c.title).font(semi(20.0)).color(pal().header_primary));
-                    ui.add_space(12.0);
-                    ui.label(egui::RichText::new(&c.body).color(pal().text_normal));
-                    ui.add_space(20.0);
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let w = ui.painter().layout_no_wrap(c.button.to_string(), medium(14.0), Color32::WHITE).size().x + 32.0;
-                            go = button(ui, c.button, RED, w.max(96.0)).clicked();
-                            if ui.add(egui::Label::new(egui::RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click())).clicked() {
-                                close = true;
-                            }
-                        });
-                    });
-                });
-            if go && let Some(c) = self.confirm.take() {
-                (c.run)(self);
-            } else if close || modal.should_close() {
-                self.confirm = None;
-            }
-        }
+        self.confirm_modal(&ctx);
         if let Some(gid) = self.guild_notifs {
             let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
             let default = self.store.guilds.get(&gid).map(|g| g.default_notif).unwrap_or(0);
@@ -1361,6 +1338,84 @@ impl App {
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
         popups::viewer(self, &ctx);
+        call::incoming(self, &ctx);
+        keys::combos(self, &ctx);
+        keys::breathe(self, &ctx);
+        keys::demon(self, &ctx);
+        keys::discodo(self, &ctx);
+    }
+
+    /// Discord's confirm dialog: the title with a ✕, the question, the message it's about and a
+    /// protip, then Cancel and the action. With a message they split the width; without, they
+    /// sit at the right, "Don't ask again" across from them. Enter goes ahead, as in discord.
+    fn confirm_modal(&mut self, ctx: &egui::Context) {
+        let Some(c) = &mut self.confirm else { return };
+        let (mut close, mut go) = (false, false);
+        let pinned = |ch: Id, id: Id| self.pins.as_ref().filter(|(c, _)| *c == ch).and_then(|(_, l)| l.as_ref()?.iter().find(|m| m.id == id).cloned());
+        let msg = c.msg.and_then(|(ch, id)| self.store.find_msg(ch, id).cloned().or_else(|| pinned(ch, id)));
+        let store = &self.store;
+        let modal = egui::Modal::new("confirm".into())
+            .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
+            .show(ctx, |ui| {
+                ui.set_width(432.0);
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&c.title).font(semi(20.0)).color(pal().header_primary));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        close |= icon_button(ui, icons::Icon::Close, 24.0, "Close").clicked();
+                    });
+                });
+                ui.add_space(8.0);
+                ui.label(ui.painter().layout_job(bolded(&c.body, 16.0, pal().text_normal, 432.0)));
+                if let Some(m) = &msg {
+                    ui.add_space(16.0);
+                    chat::preview(ui, store, m);
+                }
+                if let Some([a, b, rest]) = c.tip {
+                    ui.add_space(16.0);
+                    ui.label(egui::RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
+                    ui.add_space(2.0);
+                    ui.label(ui.painter().layout_job(bolded(&format!("{a}**{b}**{rest}"), 14.0, pal().text_normal, 432.0)));
+                }
+                ui.add_space(24.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if msg.is_some() {
+                        close |= grey_button(ui, "Cancel", 212.0).clicked();
+                        go = button(ui, c.button, c.fill, 212.0).clicked();
+                        return;
+                    }
+                    if let Some((on, _)) = &mut c.check {
+                        let (r, resp) = ui.allocate_exact_size(vec2(160.0, 38.0), Sense::click());
+                        let b = Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(24.0, 24.0));
+                        if *on {
+                            ui.painter().rect_filled(b, 6, BLURPLE);
+                            icons::draw(ui.painter(), icons::Icon::Check, b.shrink(4.0), Color32::WHITE);
+                        } else {
+                            ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                        }
+                        ui.painter().text(pos2(b.right() + 10.0, r.center().y), egui::Align2::LEFT_CENTER, "Don't ask again", reg(16.0), pal().text_normal);
+                        if resp.clicked() {
+                            *on = !*on;
+                        }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let w = ui.painter().layout_no_wrap(c.button.to_string(), medium(16.0), Color32::WHITE).size().x + 32.0;
+                        go = button(ui, c.button, c.fill, w.max(60.0)).clicked();
+                        close |= grey_button(ui, "Cancel", 92.0).clicked();
+                    });
+                });
+            });
+        go |= c.shown && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        c.shown = true;
+        if go && let Some(c) = self.confirm.take() {
+            if let Some((true, then)) = c.check {
+                then(self);
+            }
+            (c.run)(self);
+        } else if close || modal.should_close() {
+            self.confirm = None;
+        }
     }
 }
 
@@ -1421,6 +1476,8 @@ impl eframe::App for App {
             let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
         }
+        // what was open as the frame began owns Escape and most keys this frame
+        let layered = self.layered(&ctx);
         titlebar::show(self, ui);
         if self.token.is_none() {
             login::show(self, ui);
@@ -1479,10 +1536,10 @@ impl eframe::App for App {
             self.update_title(&ctx);
             if !settings_open {
                 self.ack_current(&ctx);
-                if ctx.input_mut(|i| take_key(i, egui::Modifiers::COMMAND, egui::Key::K)) {
+                if !layered && ctx.input_mut(|i| take_key(i, egui::Modifiers::COMMAND, egui::Key::K)) {
                     self.switcher = Some(String::new());
                 }
-                self.shortcuts(&ctx);
+                self.shortcuts(&ctx, layered);
             }
             if self.store.prune_typing() {
                 ctx.request_repaint_after(Duration::from_millis(50));
@@ -1570,12 +1627,28 @@ impl eframe::App for App {
             self.zoom_acc -= if up { 1.0 } else { -1.0 };
             self.step_zoom(ctx, up);
         }
+        // text pasted past the message limit goes up as message.txt instead, as in discord
+        if ctx.memory(|m| m.has_focus(egui::Id::new("composer"))) {
+            let limit = if self.store.nitro() { 4000 } else { 2000 };
+            let mut long = Vec::new();
+            raw.events.retain(|e| match e {
+                egui::Event::Paste(t) if t.chars().count() > limit => {
+                    long.push(t.clone());
+                    false
+                }
+                _ => true,
+            });
+            for t in long {
+                self.attach_text(&t);
+            }
+        }
         // dropping files on the window attaches them to the next message
         for f in raw.dropped_files.drain(..) {
             self.files.push(composer::Upload::new(f.path().to_path_buf()));
         }
-        // egui-winit swallows ctrl+v when the clipboard holds no text, so watch the key ourselves
-        let v = raw.focused && key_down(0x11) && key_down(b'V');
+        // egui-winit swallows ctrl+v when the clipboard holds no text, so watch the key ourselves;
+        // not under e2e, where the real keyboard belongs to whoever's at the machine
+        let v = self.e2e.is_none() && raw.focused && key_down(0x11) && key_down(b'V');
         if v && !self.v_down && !raw.events.iter().any(|e| matches!(e, egui::Event::Paste(_))) {
             self.paste_files();
         }
@@ -1694,12 +1767,74 @@ pub fn menu_item(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, danger: bo
     menu_row(ui, icon, label, None, danger, Trail::None).clicked()
 }
 
-/// A red-button confirmation like discord's, for leaving servers, blocking and so on.
+/// A confirmation like discord's, for leaving servers, blocking, pinning and so on: Cancel
+/// beside a red button, or a blurple one for the harmless ones.
 pub struct Confirm {
     pub title: String,
+    // **bold** stretches as discord bolds names in these
     pub body: String,
     pub button: &'static str,
+    pub fill: Color32,
+    // the message it's about, shown under the body as the pin and delete dialogs do
+    pub msg: Option<(Id, Id)>,
+    // discord's protip under that: the words, the bold part, the rest
+    pub tip: Option<[&'static str; 3]>,
+    // "Don't ask again" beside the buttons, and what ticking it does when the answer is yes
+    pub check: Option<(bool, fn(&mut App))>,
     pub run: Box<dyn FnOnce(&mut App)>,
+    // Enter only answers once the dialog has been up a frame, not the Enter that opened it
+    shown: bool,
+}
+
+pub const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
+
+impl Confirm {
+    pub fn new(title: impl Into<String>, body: impl Into<String>, button: &'static str, run: impl FnOnce(&mut App) + 'static) -> Self {
+        Confirm { title: title.into(), body: body.into(), button, fill: DANGER, msg: None, tip: None, check: None, run: Box::new(run), shown: false }
+    }
+
+    pub fn blurple(mut self) -> Self {
+        self.fill = BLURPLE;
+        self
+    }
+
+    pub fn about(mut self, ch: Id, id: Id) -> Self {
+        self.msg = Some((ch, id));
+        self
+    }
+
+    pub fn tip(mut self, tip: [&'static str; 3]) -> Self {
+        self.tip = Some(tip);
+        self
+    }
+
+    pub fn dont_ask(mut self, then: fn(&mut App)) -> Self {
+        self.check = Some((false, then));
+        self
+    }
+}
+
+/// Discord's quieter button: a grey wash with a hairline, for Cancel and the like.
+pub fn grey_button(ui: &mut Ui, text: &str, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
+    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    ui.painter().rect(rect, CornerRadius::same(8), fill, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), pal().header_primary);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+/// `**bold**` stretches in a line of dialog text.
+pub fn bolded(text: &str, size: f32, ink: Color32, width: f32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    for (i, part) in text.split("**").enumerate() {
+        let (font, col) = if i % 2 == 1 { (semi(size), pal().header_primary) } else { (reg(size), ink) };
+        job.append(part, 0.0, egui::TextFormat::simple(font, col));
+    }
+    job.wrap.max_width = width;
+    job
 }
 
 /// A menu that opens at a point, like a right click, with room for submenus. False once closed.
@@ -1714,6 +1849,11 @@ pub fn float_menu(ctx: &egui::Context, id: &str, at: Pos2, content: impl FnOnce(
         .open_bool(&mut open)
         .show(|ui| menu_body(ui, content));
     open
+}
+
+/// Shift+click on a menu's checkbox ticks it and leaves the menu open, as in discord.
+pub fn menu_closing(ctx: &egui::Context) -> egui::PopupCloseBehavior {
+    if ctx.input(|i| i.modifiers.shift) { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick }
 }
 
 /// Long menus scroll rather than run off a small window.
@@ -1888,6 +2028,17 @@ pub fn take_key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key)
     let mut hit = false;
     i.events.retain(|e| {
         let m = matches!(e, egui::Event::Key { key: k, modifiers: em, pressed: true, .. } if *k == key && em.matches_exact(mods));
+        hit |= m;
+        !m
+    });
+    hit
+}
+
+/// Takes a typed character out of this frame's input, so nothing else types it.
+pub fn take_text(i: &mut egui::InputState, s: &str) -> bool {
+    let mut hit = false;
+    i.events.retain(|e| {
+        let m = matches!(e, egui::Event::Text(t) if t == s);
         hit |= m;
         !m
     });

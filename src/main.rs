@@ -13,6 +13,7 @@ mod mp4;
 mod net;
 mod proto;
 mod sound;
+mod speech;
 mod state;
 mod theme;
 mod games;

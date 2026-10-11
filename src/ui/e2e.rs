@@ -64,8 +64,19 @@ pub struct Run {
     dnd: Option<(usize, Id)>,
     // the toasts those would have been, and the message each opens
     pub pings: Vec<(String, (Id, Id))>,
+    // what Speak Message would have read out
+    pub said: Vec<String>,
+    // stream dispatches and voice errors, for the live check
+    pub heard: Vec<serde_json::Value>,
     // the chat's scroll offset when a step began, for steps that scroll it
     y0: f32,
+    // shift and alt held down, as the script would have them
+    shift: bool,
+    alt: bool,
+    // FASTCORD_LIVE: the real voice channel to go live in, when it began, and a sample a second
+    live: Option<Id>,
+    live_at: Option<Instant>,
+    samples: Vec<serde_json::Value>,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -112,7 +123,14 @@ impl Run {
             rtc: 0,
             share_at: None,
             pings: Vec::new(),
+            said: Vec::new(),
+            heard: Vec::new(),
             y0: 0.0,
+            shift: false,
+            alt: false,
+            live: std::env::var("FASTCORD_LIVE").ok().and_then(|v| v.parse().ok()),
+            live_at: None,
+            samples: Vec::new(),
         })
     }
 
@@ -167,9 +185,11 @@ impl Run {
                     | Event::PointerButton { .. }
                     | Event::PointerGone
                     | Event::MouseWheel { .. }
+                    | Event::ModifiersChanged(_)
                     | Event::Zoom(_)
             )
         });
+        raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
         if let Some(batch) = self.queue.pop_front() {
             raw.events.extend(batch);
         }
@@ -251,6 +271,8 @@ impl Run {
     }
 
     fn next(&mut self, pause_ms: u64) {
+        // where the script is, for when a run never gets as far as writing its results
+        let _ = std::fs::write(self.dir.join("progress"), format!("{} at {:.0}ms", self.step, self.ms()));
         self.step += 1;
         self.step_at = Instant::now();
         self.wait = Instant::now() + Duration::from_millis(pause_ms);
@@ -288,6 +310,19 @@ impl Run {
                 format!(" scroll_to={id} loaded={have} tries={}", app.scroll_tries)
             });
             let here = app.cur().and_then(|c| app.store.channels.get(&c)).map(|c| c.name.clone()).unwrap_or_default();
+            // whatever was open, which is what usually holds a step up
+            let open: Vec<&str> = [
+                ("viewer", app.viewer.is_some()), ("profile", app.profile.is_some()), ("picker", app.picker.is_some()), ("stickers", app.stickers.is_some()),
+                ("gifs", app.gifs.is_some()), ("menu", app.menu.is_some()), ("user_menu", app.user_menu.is_some()), ("confirm", app.confirm.is_some()),
+                ("forward", app.forward.is_some()), ("switcher", app.switcher.is_some()), ("pins", app.pins.is_some()), ("inbox", app.inbox.is_some()),
+                ("emoji_pop", app.emoji_pop.is_some()), ("leaving", app.leaving.is_some()), ("new_thread", app.new_thread.is_some()), ("combos", app.combos.is_some()),
+                ("settings", app.settings_page.is_some()), ("egui_popup", egui::Popup::is_any_open(ctx)), ("reply", app.reply.is_some()),
+                ("editing", app.editing.is_some()), ("focus_msg", app.focus_msg.is_some()), ("files", !app.files.is_empty()),
+            ]
+            .into_iter()
+            .filter(|(_, on)| *on)
+            .map(|(k, _)| k)
+            .collect();
             // where the chat was scrolled to, for steps that scroll looking for something
             let scroll = app.cur().map(|c| {
                 let e = app.store.msgs.get(&c);
@@ -299,10 +334,16 @@ impl Run {
                     e.is_some_and(|e| e.loading)
                 )
             });
-            self.fail(format!("timed out at step {} in #{here}{}{}", self.step, jump.unwrap_or_default(), scroll.unwrap_or_default()));
+            let files: Vec<&str> = app.files.iter().map(|f| f.name.as_str()).collect();
+            let shown = ["msg:last", "composer", "msg:other"].into_iter().filter(|k| app.rects.contains_key(*k)).collect::<Vec<_>>();
+            self.shot(ctx, "timed_out.png");
+            self.fail(format!("timed out at step {} in #{here}{}{} open={open:?} files={files:?} shown={shown:?}", self.step, jump.unwrap_or_default(), scroll.unwrap_or_default()));
         }
         let msgs = |app: &App, ch: Id| app.store.msgs.get(&ch).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
         GUILDS.store(app.store.guilds.len(), std::sync::atomic::Ordering::Relaxed);
+        if let Some(ch) = self.live.filter(|_| self.step != 99) {
+            return self.live_steps(app, ctx, ch);
+        }
         if self.tour && self.step != 99 {
             return self.tour_steps(app, ctx);
         }
@@ -751,8 +792,8 @@ impl Run {
                 }
             }
             48 => {
-                // reply through the hover toolbar with the ping turned off
-                let Some(r) = app.rects.get("msg:last").copied() else { return };
+                // reply through the hover toolbar with the ping turned off; your own messages have no switch
+                let Some(r) = app.rects.get("msg:other").copied() else { return };
                 self.queue.push_back(vec![Event::PointerMoved(r.center())]);
                 self.next(400);
             }
@@ -1065,6 +1106,7 @@ impl Run {
             330..=349 => self.polish_steps(app, ctx),
             350..=369 => self.sync_steps(app, ctx),
             370..=449 => self.emoji_steps(app, ctx),
+            450..=519 => self.qol_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1792,6 +1834,115 @@ impl Run {
                 self.next(400);
             }
             _ => self.step = 370,
+        }
+    }
+
+    /// Going live for real (FASTCORD_LIVE=<voice channel>, FASTCORD_TOUR=<artifacts>): into the
+    /// channel, the screen button, Entire Screen and its first screen, as a person would; held
+    /// for FASTCORD_LIVE_SECS while what went out, and what discord's server says it got, is
+    /// written down each second; then the stream and the call are ended.
+    fn live_steps(&mut self, app: &mut App, ctx: &egui::Context, ch: Id) {
+        let sh = app.voice.shared.clone();
+        let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
+        let secs: u64 = std::env::var("FASTCORD_LIVE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+        if self.step == 0 {
+            self.step = 600;
+        }
+        match self.step {
+            600 => {
+                let Some(c) = app.store.channels.get(&ch).filter(|_| app.conn == Conn::Online) else { return };
+                if !c.is_voice() {
+                    return self.fail(format!("{ch} isn't a voice channel"));
+                }
+                self.mark("ready");
+                let g = c.guild;
+                app.select_guild((g != 0).then_some(g));
+                app.open(ch);
+                app.join_voice(ch, false);
+                self.next(0);
+            }
+            601 => {
+                if app.voice.state == State::Connected && app.voice.chan == Some(ch) {
+                    self.mark("voice_connected");
+                    self.next(1500);
+                }
+            }
+            602 => {
+                if let Some(p) = &app.share {
+                    if self.share_at.is_none_or(|t| t.elapsed() > Duration::from_millis(600)) {
+                        let key = if p.tab == 1 { "share:item:0" } else { "share:tab:1" };
+                        if let Some(r) = app.rects.get(key).copied() {
+                            if p.tab == 1 {
+                                self.shot(ctx, "live_picker.png");
+                            }
+                            self.click(r.center());
+                            self.share_at = Some(Instant::now());
+                        }
+                    }
+                    return;
+                }
+                if app.voice.stream.as_ref().is_some_and(|l| l.mine && l.state == State::Connected && l.frame.is_some()) {
+                    self.mark("live");
+                    self.live_at = Some(Instant::now());
+                    self.loaded = n(&sh.video_out) as usize;
+                    self.next(1000);
+                    return;
+                }
+                if self.share_at.is_none()
+                    && let Some(r) = app.rects.get("voice:screen").copied()
+                {
+                    self.click(r.center());
+                    self.share_at = Some(Instant::now());
+                }
+            }
+            603 => {
+                let out = n(&sh.video_out);
+                let at = self.live_at.map_or(0.0, |t| t.elapsed().as_secs_f64());
+                let stream = app.voice.stream.as_ref();
+                self.samples.push(json!({
+                    "t": (at * 10.0).round() / 10.0,
+                    "frames_out": out,
+                    "fps": out as i64 - self.loaded as i64,
+                    "stream": stream.map(|l| format!("{:?}", l.state)),
+                    "server_has_seq": n(&sh.video_acked),
+                    "server_lost_pct": (sh.video_lost.load(std::sync::atomic::Ordering::Relaxed) as f64 * 100.0 / 256.0).round(),
+                    "ping_ms": app.voice.pings.back().map(|(_, p)| *p),
+                    "audio_packets": n(&sh.sent),
+                }));
+                self.loaded = out as usize;
+                self.rects.insert("live_samples".into(), json!(self.samples));
+                self.rects.insert("live_heard".into(), json!(self.heard));
+                if let Some((t, _)) = &app.toast {
+                    self.rects.insert("live_toast".into(), json!(t));
+                }
+                if self.samples.len() as u64 == secs / 2 {
+                    self.shot(ctx, "live.png");
+                }
+                if stream.is_none_or(|l| l.state != State::Connected) {
+                    app.voice.leave(&app.net);
+                    return self.fail(format!("the stream dropped after {at:.0}s"));
+                }
+                if self.samples.len() as u64 >= secs {
+                    self.mark("held");
+                    app.voice.end_stream(&app.net);
+                    self.next(1500);
+                } else {
+                    // the same step again in a second
+                    self.step_at = Instant::now();
+                    self.wait = Instant::now() + Duration::from_millis(1000);
+                }
+            }
+            604 => {
+                app.voice.leave(&app.net);
+                self.next(0);
+            }
+            605 => {
+                if app.voice.state == State::Idle && app.voice.chan.is_none() {
+                    self.mark("left");
+                    self.step = 99;
+                }
+            }
+            _ => self.step = 99,
         }
     }
 
@@ -2916,7 +3067,7 @@ impl Run {
                 if app.rects.get("guildtip_voice").is_some_and(|r| r.height() >= 24.0) {
                     self.shot(ctx, "guild_tip.png");
                     self.mark("guild_tip_voice");
-                    self.step = 99;
+                    self.step = 450;
                 }
             }
             419 => {
@@ -2927,6 +3078,449 @@ impl Run {
                 self.key(Key::Escape);
                 self.mark("profile_more");
                 self.next(500);
+            }
+            _ => self.step = 99,
+        }
+    }
+
+    /// Discord's little behaviours (ref/QOL.md): composer tricks, message keys, shift skipping
+    /// dialogs, the link warning, the shortcut sheet and its easter egg, bookmarks, threads.
+    fn qol_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let general = self.target.1;
+        let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.author == app.store.me && !m.pending && m.content == text)).map(|m| m.id);
+        let chord = |me: &mut Self, key: Key, modifiers: Modifiers| {
+            let k = |pressed| Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+            me.queue.push_back(vec![k(true)]);
+            me.queue.push_back(vec![k(false)]);
+        };
+        let say = |me: &mut Self, app: &App, text: &str| {
+            if let Some(r) = app.rects.get("composer").copied() {
+                me.click(r.center());
+            }
+            me.queue.push_back(vec![Event::Text(text.into())]);
+            me.key(Key::Enter);
+        };
+        let menu_row = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        match self.step {
+            450 => {
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(800);
+            }
+            // +:fire: reacts to the newest message instead of being sent
+            451 => {
+                say(self, app, "+:fire:");
+                self.next(800);
+            }
+            452 => {
+                let last = app.store.msgs.get(&general).and_then(|e| e.list.iter().rev().find(|m| !m.pending));
+                if last.is_some_and(|m| m.reactions.iter().any(|r| r.me && r.emoji.name == "🔥")) {
+                    self.mark("qol_react");
+                    say(self, app, "typo here");
+                    self.next(800);
+                }
+            }
+            // s/old/new edits your newest message
+            453 => {
+                if mine(app, general, "typo here").is_some() {
+                    say(self, app, "s/typo/fixed");
+                    self.next(800);
+                }
+            }
+            454 => {
+                if mine(app, general, "fixed here").is_some() {
+                    self.mark("qol_sub");
+                    say(self, app, "/shrug hi");
+                    self.next(800);
+                }
+            }
+            455 => {
+                if mine(app, general, "hi ¯\\_(ツ)_/¯").is_some() {
+                    self.mark("qol_shrug");
+                    // a paste past the limit goes up as message.txt
+                    let Some(r) = app.rects.get("composer").copied() else { return };
+                    self.click(r.center());
+                    self.queue.push_back(vec![Event::Paste("x".repeat(4100))]);
+                    self.next(500);
+                }
+            }
+            456 => {
+                if app.files.iter().any(|f| f.name == "message.txt") && app.drafts.get(&general).is_none_or(|d| d.is_empty()) {
+                    self.mark("qol_paste_txt");
+                    self.shot(ctx, "qol_message_txt.png");
+                    self.key(Key::Escape);
+                    self.next(400);
+                }
+            }
+            457 => {
+                if !app.files.is_empty() {
+                    return;
+                }
+                self.mark("qol_esc_uploads");
+                // ctrl+b wraps the selection
+                self.queue.push_back(vec![Event::Text("make bold".into())]);
+                chord(self, Key::A, Modifiers::COMMAND);
+                self.queue.push_back(vec![]);
+                chord(self, Key::B, Modifiers::COMMAND);
+                self.next(400);
+            }
+            458 => {
+                if app.drafts.get(&general).is_some_and(|d| d == "**make bold**") {
+                    self.mark("qol_ctrl_b");
+                    self.shot(ctx, "qol_format_bar.png");
+                    app.drafts.remove(&general);
+                    // Enter inside an open code block is a new line
+                    self.queue.push_back(vec![Event::Text("```rs".into())]);
+                    self.key(Key::Enter);
+                    self.next(400);
+                }
+            }
+            459 => {
+                if app.drafts.get(&general).is_some_and(|d| d.starts_with("```rs\n")) {
+                    self.mark("qol_code_enter");
+                    app.drafts.remove(&general);
+                    // shift+tab onto the newest message, then R replies to it
+                    chord(self, Key::Tab, Modifiers::SHIFT);
+                    self.next(300);
+                }
+            }
+            460 => {
+                if app.focus_msg.is_none() {
+                    return;
+                }
+                self.loaded = app.focus_msg.unwrap_or(0) as usize;
+                self.shot(ctx, "qol_msg_focus.png");
+                self.queue.push_back(vec![Event::Text("r".into())]);
+                self.next(300);
+            }
+            461 => {
+                if app.reply == Some(self.loaded as Id) && app.focus_msg.is_none() {
+                    self.mark("qol_msg_reply");
+                    self.key(Key::Escape);
+                    self.next(300);
+                }
+            }
+            // holding shift over a message: discord's long toolbar, and its delete doesn't ask
+            462 => {
+                if app.reply.is_some() {
+                    return;
+                }
+                let Some(id) = mine(app, general, r"hi ¯\_(ツ)_/¯") else { return };
+                let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("row", id)))) else { return };
+                self.shift = true;
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(400);
+            }
+            463 => {
+                let Some(r) = app.rects.get("bar_delete").copied() else { return };
+                self.shot(ctx, "qol_shift_bar.png");
+                self.mark("qol_shift_bar");
+                self.loaded = app.bar.map_or(0, |(id, _)| id) as usize;
+                self.click(r.center());
+                self.next(500);
+            }
+            464 => {
+                let gone = !app.store.msgs.get(&general).is_some_and(|e| e.list.iter().any(|m| m.id as usize == self.loaded));
+                if gone && app.confirm.is_none() {
+                    self.mark("qol_shift_delete");
+                    self.shift = false;
+                    say(self, app, "[docs](https://example.com/guide)");
+                    self.next(800);
+                }
+            }
+            // a masked link asks before leaving; trusting the site stops it asking
+            465 => {
+                let Some(r) = app.rects.get("link").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            466 => {
+                if app.leaving.is_none() {
+                    return;
+                }
+                self.shot(ctx, "qol_leaving.png");
+                let Some(r) = app.rects.get("leaving:trust").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            467 => {
+                if !app.leaving.as_ref().is_some_and(|(_, t)| *t) {
+                    return;
+                }
+                let Some(r) = app.rects.get("leaving:visit").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            468 => {
+                if app.leaving.is_none() && self.opened.iter().any(|u| u == "https://example.com/guide") && app.settings.trusted.iter().any(|t| t == "example.com") {
+                    self.mark("qol_leaving");
+                    let Some(r) = app.rects.get("link").copied() else { return };
+                    self.loaded = self.opened.len();
+                    self.click(r.center());
+                    self.next(400);
+                }
+            }
+            469 => {
+                if app.leaving.is_none() && self.opened.len() > self.loaded {
+                    self.mark("qol_trusted");
+                }
+                // the next run asks again
+                app.settings.trusted.retain(|t| t != "example.com");
+                crate::cache::set_settings(&app.settings);
+                // pinning in a dm: P on a message asks discord's question first
+                app.ui.hide_dm_profile = false;
+                app.select_guild(None);
+                app.open(3000);
+                self.next(800);
+            }
+            470 => {
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                chord(self, Key::Tab, Modifiers::SHIFT);
+                self.queue.push_back(vec![]);
+                self.queue.push_back(vec![Event::Text("p".into())]);
+                self.next(400);
+            }
+            471 => {
+                if !app.confirm.as_ref().is_some_and(|c| c.title == "Pin It. Pin It Good.") {
+                    return;
+                }
+                self.shot(ctx, "qol_pin_confirm.png");
+                self.loaded = app.focus_msg.unwrap_or(0) as usize;
+                self.next(300);
+            }
+            472 => {
+                self.key(Key::Enter);
+                self.next(400);
+            }
+            473 => {
+                if app.confirm.is_none() && app.store.find_msg(3000, self.loaded as Id).is_some_and(|m| m.pinned) {
+                    self.mark("qol_pin");
+                    // S reads the message out
+                    self.queue.push_back(vec![Event::Text("s".into())]);
+                    self.next(300);
+                }
+            }
+            474 => {
+                if !self.said.is_empty() {
+                    self.mark("qol_speak");
+                    self.key(Key::Escape);
+                    self.next(300);
+                }
+            }
+            // bookmarks: from the menu, then listed in the inbox's tab
+            475 => {
+                let Some(r) = app.rects.get("msg:last").copied() else { return };
+                self.rclick(r.center());
+                self.next(400);
+            }
+            476 => {
+                let Some(r) = menu_row("Bookmark Message").filter(|_| app.menu.is_some()) else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            477 => {
+                if app.bookmarks.is_empty() {
+                    return;
+                }
+                self.mark("qol_bookmark");
+                chord(self, Key::I, Modifiers::COMMAND);
+                self.next(500);
+            }
+            478 => {
+                let Some(r) = app.rects.get("inbox:bookmarks").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            479 => {
+                if app.inbox.as_ref().is_some_and(|i| i.saved.as_ref().is_some_and(|l| !l.is_empty())) {
+                    self.shot(ctx, "qol_bookmarks.png");
+                    self.mark("qol_bookmarks_tab");
+                    let Some(r) = app.rects.get("inbox:unreads").copied() else { return };
+                    self.click(r.center());
+                    self.next(400);
+                }
+            }
+            // Mark All as Read asks first
+            480 => {
+                let Some(r) = app.rects.get("inbox:read_all").copied() else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            481 => {
+                if app.confirm.as_ref().is_some_and(|c| c.title == "Mark all as read?") {
+                    self.shot(ctx, "qol_read_all.png");
+                    self.key(Key::Enter);
+                    self.next(400);
+                }
+            }
+            482 => {
+                if app.confirm.is_none() {
+                    self.mark("qol_read_all");
+                    app.inbox = None;
+                    // a call ringing: its popup, and Escape declines
+                    app.voice.ringing = Some(3000);
+                    self.next(600);
+                }
+            }
+            483 => {
+                if !app.rects.contains_key("call:decline") {
+                    return;
+                }
+                self.shot(ctx, "qol_incoming_call.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            484 => {
+                if app.voice.ringing.is_none() {
+                    self.mark("qol_decline");
+                    // the note you keep on alice, from her dm's profile panel
+                    let Some(r) = app.rects.get("note").copied() else { return };
+                    self.click(r.center());
+                    self.queue.push_back(vec![Event::Text("likes rust".into())]);
+                    self.key(Key::Enter);
+                    self.next(500);
+                }
+            }
+            485 => {
+                if app.notes.get(&101).is_some_and(|n| n == "likes rust") {
+                    self.mark("qol_note");
+                }
+                // ctrl+alt+→ from the dms goes back to the server left for them
+                chord(self, Key::ArrowRight, Modifiers::COMMAND | Modifiers::ALT);
+                self.next(500);
+            }
+            486 => {
+                if app.ui.guild != Some(self.target.0) {
+                    return;
+                }
+                chord(self, Key::ArrowDown, Modifiers::COMMAND | Modifiers::ALT);
+                self.next(500);
+            }
+            487 => {
+                if app.ui.guild.is_some_and(|g| g != self.target.0) {
+                    self.mark("qol_server_keys");
+                    app.select_guild(Some(self.target.0));
+                    app.open(general);
+                    // ! in the quick switcher finds voice channels
+                    chord(self, Key::K, Modifiers::COMMAND);
+                    self.queue.push_back(vec![]);
+                    self.queue.push_back(vec![Event::Text("!lou".into())]);
+                    self.next(400);
+                }
+            }
+            488 => {
+                if app.switcher.is_none() {
+                    return;
+                }
+                self.key(Key::Enter);
+                self.next(500);
+            }
+            489 => {
+                if app.cur() == Some(2021) {
+                    self.mark("qol_switcher_voice");
+                    app.open(general);
+                    self.next(800);
+                }
+            }
+            // a thread from a message's menu
+            490 => {
+                let Some(r) = app.rects.get("msg:last").copied() else { return };
+                self.rclick(r.center());
+                self.next(400);
+            }
+            491 => {
+                let Some(r) = menu_row("Create Thread").filter(|_| app.menu.is_some()) else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            492 => {
+                if app.new_thread.is_none() {
+                    return;
+                }
+                self.shot(ctx, "qol_new_thread.png");
+                self.queue.push_back(vec![Event::Text("e2e thread".into())]);
+                self.key(Key::Enter);
+                self.next(800);
+            }
+            493 => {
+                if app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.is_thread() && c.name == "e2e thread") {
+                    self.mark("qol_thread");
+                    app.open(general);
+                    // the emoji picker: alt+click stars one, and it shows under Favorites
+                    chord(self, Key::E, Modifiers::COMMAND);
+                    self.next(600);
+                }
+            }
+            494 => {
+                let Some(r) = Self::at(ctx, "emoji0").filter(|_| app.picker.is_some()) else { return };
+                self.loaded = app.settings.fav_emoji.len();
+                self.alt = true;
+                self.click(r.center());
+                self.next(400);
+            }
+            495 => {
+                self.alt = false;
+                if app.settings.fav_emoji.len() != self.loaded && app.picker.is_some() {
+                    self.mark("qol_fav_emoji");
+                    self.shot(ctx, "qol_emoji_favorite.png");
+                    app.settings.fav_emoji.clear();
+                    crate::cache::set_settings(&app.settings);
+                    app.picker = None;
+                    // ctrl+/ shows the sheet; its arrows light up
+                    chord(self, Key::Slash, Modifiers::COMMAND);
+                    self.next(500);
+                }
+            }
+            496 => {
+                if app.combos.is_none() {
+                    return;
+                }
+                self.key(Key::ArrowLeft);
+                self.next(60);
+            }
+            497 => {
+                if ctx.data(|d| d.get_temp::<(bool, egui::Rect)>(egui::Id::new(("e2e", "ddr", 0usize)))).is_some_and(|(lit, _)| lit) {
+                    self.mark("qol_combos");
+                    self.shot(ctx, "qol_combos.png");
+                    // H H → N K: the Raging Demon
+                    for k in [Key::H, Key::H, Key::ArrowRight, Key::N, Key::K] {
+                        self.key(k);
+                    }
+                    self.next(5600);
+                }
+            }
+            498 => {
+                if app.demon.is_some() {
+                    self.shot(ctx, "qol_demon.png");
+                    self.next(4000);
+                }
+            }
+            499 => {
+                if app.demon.is_none() && app.combos.is_none() {
+                    self.mark("qol_demon");
+                    // escape well back in the history jumps to the present
+                    let Some(r) = app.rects.get("composer").copied() else { return };
+                    self.click(r.center());
+                    for _ in 0..6 {
+                        self.key(Key::PageUp);
+                    }
+                    self.next(800);
+                }
+            }
+            500 => {
+                if app.far_up != Some(general) {
+                    return;
+                }
+                self.shot(ctx, "qol_far_up.png");
+                self.key(Key::Escape);
+                self.next(1000);
+            }
+            501 => {
+                if app.far_up.is_none() && app.pinned.contains(&general) {
+                    self.mark("qol_esc_present");
+                    self.step = 99;
+                }
             }
             _ => self.step = 99,
         }

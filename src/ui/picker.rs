@@ -62,6 +62,23 @@ enum Chosen {
     Unicode(&'static str),
 }
 
+impl Chosen {
+    fn react(&self) -> ReactEmoji {
+        match self {
+            Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name.clone(), animated: e.animated },
+            Chosen::Unicode(s) => ReactEmoji { id: 0, name: s.to_string(), animated: false },
+        }
+    }
+}
+
+/// Where the keyboard is in the picker's grid, counted across every section in order, and
+/// whether it just moved there.
+#[derive(Clone, Copy)]
+struct Kbd {
+    sel: Option<usize>,
+    moved: bool,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
     Gifs,
@@ -213,6 +230,33 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut tones_open: bool = ctx.data(|d| d.get_temp(tones_id)).unwrap_or(false);
     let mut new_tone = None;
     let mut add_emoji = false;
+    // the arrows walk the grid nine to a row, the search box keeping its focus for typing
+    let sel_id = egui::Id::new("picker_sel");
+    let (last_sel, last_len, last_q): (Option<usize>, usize, String) = ctx.data(|d| d.get_temp(sel_id)).unwrap_or_default();
+    let step: i64 = ctx.input_mut(|i| {
+        let k = |i: &mut egui::InputState, key| super::take_key(i, egui::Modifiers::NONE, key);
+        if k(i, egui::Key::ArrowRight) {
+            1
+        } else if k(i, egui::Key::ArrowLeft) {
+            -1
+        } else if k(i, egui::Key::ArrowDown) {
+            9
+        } else if k(i, egui::Key::ArrowUp) {
+            -9
+        } else {
+            0
+        }
+    });
+    let last_sel = last_sel.filter(|_| last_q == q);
+    let sel = match (last_sel, step) {
+        (s, 0) => s,
+        (None, _) => Some(0),
+        (Some(s), d) => Some((s as i64 + d).clamp(0, last_len.saturating_sub(1) as i64) as usize),
+    };
+    let kbd = Kbd { sel, moved: step != 0 };
+    let mut order: Vec<Chosen> = Vec::new();
+    let mut menu_at: Option<(ReactEmoji, Pos2)> = None;
+    let favs: Vec<ReactEmoji> = app.settings.fav_emoji.clone();
     let (pivot, tab) = if composer { (Align2::RIGHT_BOTTOM, Some(Tab::Emoji)) } else { (Align2::LEFT_TOP, None) };
     let (area, to) = shell(ctx, at, pivot, tab, |ui| {
         let row = ui.cursor().min;
@@ -256,11 +300,30 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         };
         // one mark per section down the left: frequently used, servers by their icon, then discord's categories
         enum Mark<'a> {
+            Star,
             Clock,
             Server(Option<&'a str>, &'a str),
             Group(&'a str),
         }
+        // the starred ones, which may come from any server you can use them in
+        let favorites: Vec<(ReactEmoji, Chosen)> = if ql.is_empty() {
+            favs.iter()
+                .filter_map(|e| {
+                    let c = if e.id == 0 {
+                        Chosen::Unicode(emojis::get(&e.name)?.as_str())
+                    } else {
+                        Chosen::Custom(servers.iter().flat_map(|(_, _, _, l)| l).find(|(x, ok)| x.id == e.id && *ok)?.0.clone())
+                    };
+                    Some((e.clone(), c))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut marks: Vec<Mark> = Vec::new();
+        if !favorites.is_empty() {
+            marks.push(Mark::Star);
+        }
         if !recent.is_empty() {
             marks.push(Mark::Clock);
         }
@@ -275,6 +338,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         ui.painter().rect_filled(r.expand(2.0), 8, MENU_HOVER);
                     }
                     let tip = match mark {
+                        Mark::Star => {
+                            super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary);
+                            "Favorites"
+                        }
                         Mark::Clock => {
                             super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary);
                             "Frequently Used"
@@ -309,21 +376,26 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             sa.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 let top = ui.min_rect().top();
-                if !recent.is_empty() {
+                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent)] {
+                    if list.is_empty() {
+                        continue;
+                    }
                     new_tops.push(ui.cursor().top() - top);
-                    if section(ui, "Frequently Used", Lead::Icon(super::icons::Icon::Clock), &mut shut) {
-                        grid(ui, recent.len(), |ui, i, r| {
-                            let url = super::chat::emoji_url(&recent[i].0);
+                    if section(ui, title, Lead::Icon(icon), &mut shut) {
+                        let base = order.len();
+                        order.extend(list.iter().map(|(_, c)| c.clone()));
+                        grid(ui, base, list.len(), kbd, |ui, i, r| {
+                            let url = super::chat::emoji_url(&list[i].0);
                             Image::from_uri(crate::gif::uri(ui.ctx(), &url, ui.is_rect_visible(r))).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                         }, |i| {
-                            chosen = Some(recent[i].1.clone());
+                            chosen = Some(list[i].1.clone());
                         }, |i, hot| {
                             if hot {
-                                let e = &recent[i].0;
+                                let e = &list[i].0;
                                 let name = if e.id != 0 { e.name.clone() } else { emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name).to_string() };
                                 hovered = Some((super::chat::emoji_url(e), format!(":{name}:"), None));
                             }
-                        });
+                        }, |i, at| menu_at = Some((list[i].0.clone(), at)));
                     }
                 }
                 for (_, name, icon, list) in &servers {
@@ -332,7 +404,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     if customs.is_empty() || !section(ui, name, icon.as_deref().map_or(Lead::None, Lead::Image), &mut shut) {
                         continue;
                     }
-                    grid(ui, customs.len(), |ui, i, r| {
+                    let base = order.len();
+                    order.extend(customs.iter().map(|(e, _)| Chosen::Custom(e.clone())));
+                    grid(ui, base, customs.len(), kbd, |ui, i, r| {
                         let (e, ok) = customs[i];
                         let tint = if *ok { Color32::WHITE } else { Color32::from_white_alpha(90) };
                         Image::from_uri(crate::gif::uri(ui.ctx(), &e.url(), ui.is_rect_visible(r))).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
@@ -352,7 +426,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         if hot {
                             hovered = Some(it);
                         }
-                    });
+                    }, |i, at| menu_at = Some((Chosen::Custom(customs[i].0.clone()).react(), at)));
                 }
                 for (group, title) in GROUPS {
                     let uni: Vec<(&str, &str)> = emoji_list(Some(group))
@@ -363,7 +437,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     if uni.is_empty() || !section(ui, title, Lead::None, &mut shut) {
                         continue;
                     }
-                    grid(ui, uni.len(), |ui, i, r| {
+                    let base = order.len();
+                    order.extend(uni.iter().map(|(g, _)| Chosen::Unicode(g)));
+                    grid(ui, base, uni.len(), kbd, |ui, i, r| {
                         Image::from_uri(twemoji(uni[i].0)).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                     }, |i| {
                         chosen = Some(Chosen::Unicode(uni[i].0));
@@ -378,7 +454,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         if hot {
                             hovered = Some(it);
                         }
-                    });
+                    }, |i, at| menu_at = Some((Chosen::Unicode(uni[i].0).react(), at)));
                 }
                 ui.add_space(8.0);
             });
@@ -394,6 +470,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if let Some(s) = sub {
                 ui.painter().text(pos2(foot.left() + 52.0, foot.center().y + 10.0), Align2::LEFT_CENTER, s, reg(12.0), pal().text_muted);
             }
+            ui.painter().text(pos2(foot.right() - 16.0, foot.center().y), Align2::RIGHT_CENTER, "Hold Alt and click to add to favorites", reg(12.0), pal().text_muted);
         }
         ui.allocate_rect(rest, Sense::hover());
         if tones_open {
@@ -436,10 +513,45 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         toggle(app, t);
         return;
     }
-    let clicked_out = ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer() && !on_picker_button(app, ctx);
+    let menu_id = egui::Id::new("picker_menu");
+    if let Some(m) = menu_at {
+        ctx.data_mut(|d| d.insert_temp(menu_id, m));
+    }
+    let menu: Option<(ReactEmoji, Pos2)> = ctx.data(|d| d.get_temp(menu_id));
+    let clicked_out = ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer() && !on_picker_button(app, ctx) && menu.is_none();
     let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    if chosen.is_none() && searching && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-        chosen = best;
+    if chosen.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        chosen = sel.and_then(|i| order.get(i).cloned()).or(if searching { best } else { None });
+    }
+    let typed: String = ctx.data(|d| d.get_temp(query_id)).unwrap_or_default();
+    ctx.data_mut(|d| d.insert_temp(sel_id, (sel, order.len(), typed)));
+    // right-click on an emoji: favourite it, or copy a custom one's id
+    if let Some((em, at)) = menu {
+        let fav = app.settings.fav_emoji.contains(&em);
+        let mut act = None;
+        let open = super::float_menu(ctx, "picker_menu", at, |ui| {
+            if super::menu_item(ui, Some(super::icons::Icon::Star), if fav { "Unfavorite Emoji" } else { "Favorite Emoji" }, false) {
+                act = Some(true);
+            }
+            if em.id != 0 && super::menu_item(ui, Some(super::icons::Icon::Id), "Copy Emoji ID", false) {
+                act = Some(false);
+            }
+        });
+        match act {
+            Some(true) => toggle_fav(app, ctx, em),
+            Some(false) => ctx.copy_text(em.id.to_string()),
+            None => {}
+        }
+        if act.is_some() || !open {
+            ctx.data_mut(|d| d.remove::<(ReactEmoji, Pos2)>(menu_id));
+        }
+        return;
+    }
+    let (alt, shift) = ctx.input(|i| (i.modifiers.alt, i.modifiers.shift));
+    // alt+click stars it instead of picking it
+    if let Some(c) = chosen.as_ref().filter(|_| alt) {
+        toggle_fav(app, ctx, c.react());
+        return;
     }
     if let Some(c) = chosen {
         match target {
@@ -477,8 +589,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 app.set_quick(slot, em, ctx);
             }
         }
-        app.picker = None;
-        ctx.data_mut(|d| d.remove::<String>(query_id));
+        // shift+click keeps the picker open for another
+        if !shift {
+            app.picker = None;
+            ctx.data_mut(|d| d.remove::<String>(query_id));
+        }
     } else if clicked_out || esc {
         app.picker = None;
         ctx.data_mut(|d| d.remove::<String>(query_id));
@@ -531,7 +646,19 @@ fn tinted(e: &'static str, tone: u8) -> &'static str {
     emojis::get(e).and_then(|x| x.with_skin_tone(t)).map_or(e, |x| x.as_str())
 }
 
-fn grid(ui: &mut Ui, n: usize, mut paint: impl FnMut(&Ui, usize, Rect), mut pick: impl FnMut(usize), mut hover: impl FnMut(usize, bool)) {
+/// Rows of nine. `base` is where this section starts in the keyboard's count, so the cell the
+/// arrows are on lights up and scrolls into view.
+#[allow(clippy::too_many_arguments)]
+fn grid(
+    ui: &mut Ui,
+    base: usize,
+    n: usize,
+    kbd: Kbd,
+    mut paint: impl FnMut(&Ui, usize, Rect),
+    mut pick: impl FnMut(usize),
+    mut hover: impl FnMut(usize, bool),
+    mut menu: impl FnMut(usize, Pos2),
+) {
     let cols = 9;
     let cell = 48.0;
     for row in 0..n.div_ceil(cols) {
@@ -543,19 +670,40 @@ fn grid(ui: &mut Ui, n: usize, mut paint: impl FnMut(&Ui, usize, Rect), mut pick
                     break;
                 }
                 let (r, resp) = ui.allocate_exact_size(vec2(cell, cell), Sense::click());
-                if resp.hovered() {
+                let on = kbd.sel == Some(base + i);
+                if base + i == 0 {
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "emoji0")), r));
+                }
+                if resp.hovered() || on {
                     ui.painter().rect_filled(r, CornerRadius::same(4), pal().control_hover);
+                }
+                if on && kbd.moved {
+                    ui.scroll_to_rect(r, None);
                 }
                 if ui.is_rect_visible(r) {
                     paint(ui, i, r);
                 }
-                hover(i, resp.hovered());
+                hover(i, resp.hovered() || (on && kbd.moved));
                 if resp.clicked() {
                     pick(i);
+                }
+                if resp.secondary_clicked() {
+                    menu(i, resp.interact_pointer_pos().unwrap_or(r.center()));
                 }
             }
         });
     }
+}
+
+fn toggle_fav(app: &mut App, ctx: &egui::Context, em: ReactEmoji) {
+    let favs = &mut app.settings.fav_emoji;
+    match favs.iter().position(|f| *f == em) {
+        Some(i) => {
+            favs.remove(i);
+        }
+        None => favs.push(em),
+    }
+    app.save_settings(ctx);
 }
 
 /// Discord's sticker picker: every server's stickers, the current one first; another
@@ -706,7 +854,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     }
     if let Some(id) = chosen {
         let nonce = crate::state::make_nonce();
-        app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id] });
+        app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id], tts: false });
         app.jump_to_present(ch);
         app.ui.frequent_stickers.retain(|s| *s != id);
         app.ui.frequent_stickers.insert(0, id);

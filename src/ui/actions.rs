@@ -1,0 +1,159 @@
+//! What a message's toolbar, menu and keys do. Where discord asks first, `ask` is false while
+//! shift is held, which skips the dialog the way discord's protips say.
+
+use serde_json::json;
+
+use super::{App, Confirm};
+use crate::net::{Cmd, Tag};
+use crate::state::Id;
+
+impl App {
+    pub fn delete_msg(&mut self, ch: Id, id: Id, ask: bool) {
+        if !ask {
+            self.net.send(Cmd::Delete { channel: ch, id });
+            if let Some(m) = self.store.msgs.get_mut(&ch) {
+                m.list.retain(|m| m.id != id);
+            }
+            return;
+        }
+        let c = Confirm::new("Delete Message", "Are you sure you want to delete this message?", "Delete", move |app: &mut App| app.delete_msg(ch, id, false))
+            .about(ch, id)
+            .tip(["You can hold down shift when clicking ", "delete message", " to bypass this confirmation entirely."]);
+        self.confirm = Some(c);
+    }
+
+    /// Pin Message, or Unpin Message on one that already is.
+    pub fn pin_msg(&mut self, ch: Id, id: Id, ask: bool) {
+        // one only seen in the pins popout may not be loaded in the channel
+        let listed = self.pins.as_ref().is_some_and(|(c, l)| *c == ch && l.as_ref().is_some_and(|l| l.iter().any(|m| m.id == id)));
+        let pinned = listed || self.store.find_msg(ch, id).is_some_and(|m| m.pinned);
+        if !ask {
+            let method = if pinned { "DELETE" } else { "PUT" };
+            self.rest(method, format!("/channels/{ch}/messages/pins/{id}"), None, Tag::Quiet);
+            if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                m.pinned = !pinned;
+            }
+            if pinned && let Some((c, Some(list))) = &mut self.pins
+                && *c == ch
+            {
+                list.retain(|m| m.id != id);
+            }
+            return;
+        }
+        let c = if pinned {
+            Confirm::new("Unpin Message", "You sure you want to remove this pinned message?", "Remove it please!", move |app: &mut App| app.pin_msg(ch, id, false))
+                .about(ch, id)
+                .tip(["You can hold down shift when clicking ", "unpin message", " to bypass this confirmation entirely."])
+        } else {
+            let name = self.store.channels.get(&ch).filter(|c| c.guild != 0).map(|c| c.name.clone());
+            let body = match name {
+                Some(n) => format!("Hey, just double checking that you want to pin this message to #{n} for posterity and greatness?"),
+                None => "Hey, just double checking that you want to pin this message to the current channel for posterity and greatness?".into(),
+            };
+            Confirm::new("Pin It. Pin It Good.", body, "Oh yeah. Pin it", move |app: &mut App| app.pin_msg(ch, id, false)).blurple().about(ch, id)
+        };
+        self.confirm = Some(c);
+    }
+
+    /// The ✕ over your own message's embeds: they go for everyone (SUPPRESS_EMBEDS).
+    pub fn clear_embeds(&mut self, ch: Id, id: Id, ask: bool) {
+        if !ask {
+            self.rest("PATCH", format!("/channels/{ch}/messages/{id}"), Some(json!({ "flags": 4 })), Tag::Quiet);
+            if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                m.flags |= 4;
+                m.embeds.clear();
+            }
+            return;
+        }
+        let body = "This will remove all embeds on this message for everyone. Hold shift when clearing embeds to skip this modal.";
+        self.confirm = Some(Confirm::new("Are you sure?", body, "Remove All Embeds", move |app: &mut App| app.clear_embeds(ch, id, false)));
+    }
+
+    pub fn clear_reactions(&mut self, ch: Id, id: Id, ask: bool) {
+        if !ask {
+            self.rest("DELETE", format!("/channels/{ch}/messages/{id}/reactions"), None, Tag::Quiet);
+            if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                m.reactions.clear();
+            }
+            return;
+        }
+        let body = "Are you sure you want to remove all reactions from this message?";
+        self.confirm = Some(Confirm::new("Remove All Reactions", body, "Remove All Reactions", move |app: &mut App| app.clear_reactions(ch, id, false)));
+    }
+
+    /// Bookmark Message, or Remove Bookmark on one that's saved already.
+    pub fn bookmark(&mut self, ch: Id, id: Id) {
+        if self.bookmarks.remove(&id) {
+            self.rest("DELETE", format!("/users/@me/saved-messages/{ch}/{id}"), None, Tag::Quiet);
+            self.toast("Bookmark removed.");
+        } else {
+            self.bookmarks.insert(id);
+            self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "source": "message_context_menu" })), Tag::Quiet);
+            self.toast("Bookmark added.");
+        }
+        if let Some(i) = &mut self.inbox {
+            i.saved = None;
+        }
+    }
+
+    pub fn remind(&mut self, ch: Id, id: Id, at: chrono::DateTime<chrono::Utc>) {
+        let due = at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "due_at": due, "source": "message_context_menu" })), Tag::Quiet);
+        self.toast("Reminder added.");
+        if let Some(i) = &mut self.inbox {
+            i.saved = None;
+        }
+    }
+
+    /// Speak Message: "{name} said {text}", read out by windows.
+    pub fn speak(&mut self, ch: Id, id: Id) {
+        let Some(m) = self.store.find_msg(ch, id) else { return };
+        let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+        let text = format!("{} said {}", self.store.name_in(guild, m.author), crate::markdown::plain(&m.content, &self.store, guild));
+        match &mut self.e2e {
+            Some(e) => e.said.push(text),
+            None => crate::speech::say(text),
+        }
+    }
+
+    /// Create Reminder's choices as discord words them: half an hour, an hour, four, nine in
+    /// the morning (today's if it's not past yet) and the next Monday at nine.
+    pub fn reminder_times() -> Vec<(String, chrono::DateTime<chrono::Utc>)> {
+        use chrono::{Datelike, Duration, Local, TimeZone, Timelike};
+        let now = Local::now();
+        let nine = |d: chrono::NaiveDate| Local.from_local_datetime(&d.and_hms_opt(9, 0, 0).unwrap_or_default()).single().unwrap_or(now);
+        let today = now.date_naive();
+        let morning = if now.hour() >= 9 { ("Tomorrow at 9:00am", nine(today + Duration::days(1))) } else { ("Today at 9:00am", nine(today)) };
+        let wd = now.weekday().num_days_from_sunday() as i64;
+        let monday = if wd == 0 || (wd == 1 && now.hour() < 9) { today + Duration::days(1 - wd) } else { today + Duration::days(8 - wd) };
+        let utc = |t: chrono::DateTime<Local>| t.with_timezone(&chrono::Utc);
+        vec![
+            ("in 30m".into(), utc(now + Duration::minutes(30))),
+            ("in 1h".into(), utc(now + Duration::hours(1))),
+            ("in 4h".into(), utc(now + Duration::hours(4))),
+            (morning.0.into(), utc(morning.1)),
+            ("Monday at 9:00am".into(), utc(nine(monday))),
+        ]
+    }
+
+    pub fn message_link(&self, ch: Id, id: Id) -> String {
+        let g = self.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0);
+        let g = g.map(|g| g.to_string()).unwrap_or_else(|| "@me".into());
+        format!("https://discord.com/channels/{g}/{ch}/{id}")
+    }
+
+    /// Someone's @name into the open channel's composer, as shift+click on a name does.
+    pub fn mention(&mut self, uid: Id, guild: Id) {
+        let Some(ch) = self.cur() else { return };
+        let shown = format!("@{}", self.store.name_in(guild, uid));
+        let d = self.drafts.entry(ch).or_default();
+        if !d.is_empty() && !d.ends_with(' ') {
+            d.push(' ');
+        }
+        d.push_str(&shown);
+        d.push(' ');
+        self.aliases.entry(ch).or_default().push((shown, format!("<@{uid}>")));
+        self.focus_composer = true;
+        self.caret_end = true;
+    }
+}

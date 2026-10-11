@@ -24,7 +24,8 @@ pub enum Ev {
     AuthFailed,
     Messages { channel: Id, page: Page, list: Vec<Value> },
     MessagesFailed { channel: Id },
-    SendFailed { channel: Id, nonce: String, err: String },
+    // `again` when it'll be retried by itself
+    SendFailed { channel: Id, nonce: String, err: String, again: bool },
     LoggedIn(String),
     NeedMfa(String),
     LoginError(String),
@@ -46,6 +47,12 @@ pub enum Tag {
     // a friend's new dm, for the invite link that goes in it
     InviteDm(String),
     OpenDm,
+    // a thread made from its dialog, with the first message to post in it
+    Thread(String),
+    // saved messages: 0 the bookmark ids and reminders, 1 the bookmarks themselves
+    Saved(u8),
+    // the note you keep on someone
+    Note(Id),
     Friend,
     Commands(Id),
     Gifs(String),
@@ -77,7 +84,7 @@ pub enum Cmd {
     Login { login: String, password: String },
     Mfa { ticket: String, code: String },
     Messages { channel: Id, page: Page },
-    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)>, stickers: Vec<Id> },
+    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
     Edit { channel: Id, id: Id, content: String },
@@ -146,11 +153,42 @@ impl Net {
     }
 }
 
+struct Outgoing {
+    channel: Id,
+    content: String,
+    nonce: String,
+    reply: Option<(Id, bool)>,
+    files: Vec<(PathBuf, String)>,
+    stickers: Vec<Id>,
+    tts: bool,
+}
+
+/// Messages go out one at a time, in order, like discord's queue. One that can't reach discord
+/// turns red and is tried again a little later, the ones after it waiting their turn; one
+/// discord refuses fails for good.
+async fn sender(mut rx: mpsc::UnboundedReceiver<(Arc<Api>, Outgoing)>, tx: Tx) {
+    while let Some((a, o)) = rx.recv().await {
+        let mut wait = 2;
+        loop {
+            let Err(err) = a.send(o.channel, &o.content, &o.nonce, o.reply, &o.files, &o.stickers, o.tts).await else { break };
+            let again = api::offline(&err) && wait <= 32;
+            tx.send(Ev::SendFailed { channel: o.channel, nonce: o.nonce.clone(), err, again });
+            if !again {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            wait *= 2;
+        }
+    }
+}
+
 async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let http = api::http();
     let mut api = Arc::new(Api::new(http.clone(), String::new()));
     let mut gw: Option<mpsc::UnboundedSender<Value>> = None;
     let mut voice = voice::Link::default();
+    let (outbox, queue) = mpsc::unbounded_channel();
+    tokio::spawn(sender(queue, tx.clone()));
 
     let readonly = std::env::var_os("FASTCORD_READONLY").is_some();
     while let Some(cmd) = rx.recv().await {
@@ -190,12 +228,8 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     }
                 });
             }
-            Cmd::Send { channel, content, nonce, reply, files, stickers } => {
-                tokio::spawn(async move {
-                    if let Err(err) = a.send(channel, &content, &nonce, reply, &files, &stickers).await {
-                        tx.send(Ev::SendFailed { channel, nonce, err });
-                    }
-                });
+            Cmd::Send { channel, content, nonce, reply, files, stickers, tts } => {
+                let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
             }
             Cmd::Edit { channel, id, content } => {
                 tokio::spawn(async move {

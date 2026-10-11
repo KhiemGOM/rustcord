@@ -344,6 +344,8 @@ pub const RED: Color32 = Color32::from_rgb(0xf2, 0x3f, 0x43);
 pub const GREEN: Color32 = Color32::from_rgb(0x23, 0xa5, 0x5a);
 pub const YELLOW: Color32 = Color32::from_rgb(0xf0, 0xb2, 0x32);
 pub const GREY: Color32 = Color32::from_rgb(0x80, 0x84, 0x8e);
+// discord's keyboard focus ring
+pub const FOCUS: Color32 = Color32::from_rgb(0x00, 0xa8, 0xfc);
 
 
 /// Set once any text with CJK/Hangul (or the "・" channel names love) shows up;

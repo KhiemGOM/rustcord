@@ -40,6 +40,8 @@ struct World {
     voice_port: u16,
     voice_chan: Option<(Option<u64>, u64)>,
     voices: Vec<Voice>,
+    // messages saved for later: bookmarks, and reminders with a due time
+    saved: Vec<Value>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -843,6 +845,39 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "type": "github", "id": "1", "name": "you-on-github", "visibility": 1, "show_activity": true, "verified": true },
         ])),
         ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => ok(json!([])),
+        // a thread from a message or from nothing: the new channel back, and over the gateway
+        ("POST", ["api", "v9", "channels", ch, "messages", _, "threads"]) | ("POST", ["api", "v9", "channels", ch, "threads"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let t = json!({ "id": snow(now_ms()).to_string(), "type": 11, "guild_id": "1000", "parent_id": ch, "name": b["name"],
+                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null,
+                            "thread_metadata": { "archived": false, "auto_archive_duration": 4320 }, "member": { "user_id": ME.to_string() } });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "THREAD_CREATE", "d": t.clone() }));
+            ok(t)
+        }
+        ("PUT", ["api", "v9", "users", "@me", "saved-messages", ch, id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut w = w.lock().unwrap();
+            let message = w.msgs.iter().find(|m| m["id"] == *id).cloned();
+            w.saved.retain(|s| s["save_data"]["message_id"] != *id);
+            w.saved.push(json!({ "message": message, "save_data": { "channel_id": ch, "message_id": id, "saved_at": iso(now_ms()), "due_at": b["due_at"] } }));
+            ok(json!({}))
+        }
+        ("DELETE", ["api", "v9", "users", "@me", "saved-messages", _, id]) => {
+            w.lock().unwrap().saved.retain(|s| s["save_data"]["message_id"] != *id);
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "users", "@me", "saved-messages", "bookmarks"]) => {
+            let w = w.lock().unwrap();
+            let list: Vec<&Value> = w.saved.iter().filter(|s| s["save_data"]["due_at"].is_null()).rev().collect();
+            ok(json!({ "results": list, "has_more": false }))
+        }
+        ("GET", ["api", "v9", "users", "@me", "saved-messages"]) => {
+            let w = w.lock().unwrap();
+            let ids: Vec<Value> = w.saved.iter().filter(|s| s["save_data"]["due_at"].is_null()).map(|s| s["save_data"]["message_id"].clone()).collect();
+            let reminders: Vec<&Value> = w.saved.iter().filter(|s| !s["save_data"]["due_at"].is_null()).collect();
+            ok(json!({ "bookmark_ids": ids, "reminders": reminders }))
+        }
+        ("PUT", ["api", "v9", "users", "@me", "notes", _]) => (204, "application/json", Vec::new()),
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
@@ -1059,6 +1094,8 @@ fn stream_op(w: &W, op: u64, d: &Value) -> Vec<(String, Value)> {
         18 => (format!("{prefix}:{ME}"), OWN_STREAM),
         20 => (d["stream_key"].as_str().unwrap_or("").to_string(), ALICE_STREAM),
         19 => return vec![("STREAM_DELETE".into(), json!({ "stream_key": d["stream_key"], "reason": "user_requested", "unavailable": false }))],
+        // as discord does once the stream is up and whenever viewers change: nothing to reconnect for
+        22 => return vec![("STREAM_UPDATE".into(), json!({ "stream_key": d["stream_key"], "paused": d["paused"], "viewer_ids": [], "region": "local" }))],
         _ => return vec![],
     };
     let endpoint = format!("ws://127.0.0.1:{}", w.lock().unwrap().voice_port);
@@ -1544,6 +1581,7 @@ async fn main() {
         voice_port,
         voice_chan: None,
         voices: Vec::new(),
+        saved: Vec::new(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");

@@ -390,7 +390,8 @@ pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
     let r = r.on_hover_text(if inside { "In Call" } else { "Start Voice Call" });
     app.rects.insert("dm:call".into(), r.rect);
     if r.clicked() && !inside {
-        app.voice.join(&app.net, &app.store, ch);
+        let ring = !ui.input(|i| i.modifiers.shift);
+        app.join_voice(ch, ring);
     }
 }
 
@@ -726,7 +727,7 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
         ui.painter().text(b.center(), Align2::CENTER_CENTER, join_text, semi(14.0), Color32::WHITE);
         app.rects.insert("voice:join".into(), b);
         if r.clicked() {
-            app.voice.join(&app.net, &app.store, ch);
+            app.join_voice(ch, true);
         }
         return;
     }
@@ -833,4 +834,66 @@ fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>,
         }
     });
     changed
+}
+
+/// A call ringing for us: who it is, Incoming Call…, and the red and green buttons. Ctrl+Enter
+/// answers and Escape declines, as discord's keybinds have it.
+pub fn incoming(app: &mut App, ctx: &egui::Context) {
+    let Some(ch) = app.voice.ringing else { return };
+    let Some(chan) = app.store.channels.get(&ch) else { return };
+    let caller = chan.recipients.first().and_then(|u| app.store.user(*u)).cloned();
+    let title = channel_title(&app.store, ch);
+    let (mut answer, mut decline) = (false, false);
+    let screen = ctx.content_rect();
+    egui::Area::new(egui::Id::new("incoming_call")).order(egui::Order::Foreground).pivot(Align2::CENTER_CENTER).fixed_pos(screen.center()).show(ctx, |ui| {
+        let shadow = ui.style().visuals.popup_shadow;
+        Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(Margin::symmetric(24, 28)).show(ui, |ui| {
+            ui.set_width(200.0);
+            ui.vertical_centered(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
+                // a ring that pulses out while it rings
+                let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
+                ui.painter().circle_stroke(r.center(), 40.0 + 12.0 * k, Stroke::new(3.0, GREEN.gamma_multiply(1.0 - k)));
+                match (&caller, chan.kind) {
+                    (Some(u), 1) => avatar(ui, r, &u.avatar_url()),
+                    _ => {
+                        ui.painter().circle_filled(r.center(), 40.0, BLURPLE);
+                        icons::draw(ui.painter(), Icon::People, r.shrink(20.0), Color32::WHITE);
+                    }
+                }
+                ui.add_space(14.0);
+                ui.label(RichText::new(&title).font(semi(20.0)).color(pal().header_primary));
+                ui.add_space(4.0);
+                ui.label(RichText::new("Incoming Call…").font(reg(14.0)).color(pal().header_secondary));
+                ui.add_space(24.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(30.0);
+                    ui.spacing_mut().item_spacing.x = 32.0;
+                    for (fill, tip, yes) in [(RED, "Decline", false), (GREEN, "Accept", true)] {
+                        let (r, resp) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::click());
+                        ui.painter().circle_filled(r.center(), 28.0, if resp.hovered() { fill.gamma_multiply(0.85) } else { fill });
+                        if yes {
+                            phone(ui, r.center(), Color32::WHITE);
+                        } else {
+                            hangup(ui, r.center(), Color32::WHITE);
+                        }
+                        app.rects.insert(format!("call:{}", tip.to_lowercase()), r);
+                        if resp.on_hover_text(tip).clicked() {
+                            if yes {
+                                answer = true;
+                            } else {
+                                decline = true;
+                            }
+                        }
+                    }
+                });
+            });
+        });
+    });
+    ctx.request_repaint();
+    if answer {
+        app.answer(ch);
+    } else if decline {
+        app.decline(ch);
+    }
 }

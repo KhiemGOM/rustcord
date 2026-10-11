@@ -7,6 +7,8 @@ use crate::theme::*;
 
 pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut clicked = None;
+    // shift+click puts an @mention of them in the composer
+    let mut mention = None;
     let mut menu = None;
     let store = &app.store;
     let mut rects = Vec::new();
@@ -74,7 +76,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let line = if offline { None } else { store.activity_line(*uid) };
                     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if line.is_some() { 44.0 } else { 42.0 }), Sense::click());
                     rects.push((*uid, row));
-                    if resp.clicked() {
+                    if resp.clicked() && ui.input(|i| i.modifiers.shift) {
+                        mention = Some(*uid);
+                    } else if resp.clicked() {
                         clicked = Some((*uid, row.left_top() - vec2(310.0, 0.0)));
                     }
                     if resp.secondary_clicked() {
@@ -183,6 +187,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some((u, at)) = clicked {
         app.open_profile(u, gid, at);
+    }
+    if let Some(u) = mention {
+        app.mention(u, gid);
     }
     if let Some((u, at)) = menu {
         app.user_menu = Some((u, gid, None, at));
@@ -369,6 +376,8 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     let mut people: Vec<Id> = chan.recipients.iter().copied().chain(std::iter::once(store.me)).collect();
     people.sort_by_key(|u| store.user(*u).map(|u| u.display().to_lowercase()).unwrap_or_default());
     let mut clicked = None;
+    // shift+click puts an @mention of them in the composer
+    let mut mention = None;
     let mut menu = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -397,7 +406,9 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
                 let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
             }
-            if resp.clicked() {
+            if resp.clicked() && ui.input(|i| i.modifiers.shift) {
+                mention = Some(uid);
+            } else if resp.clicked() {
                 clicked = Some((uid, row.left_top() - vec2(310.0, 0.0)));
             }
             if resp.secondary_clicked() {
@@ -408,6 +419,9 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     });
     if let Some((u, at)) = clicked {
         app.open_profile(u, 0, at);
+    }
+    if let Some(u) = mention {
+        app.mention(u, 0);
     }
     if let Some((u, at)) = menu {
         app.user_menu = Some((u, 0, None, at));

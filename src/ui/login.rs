@@ -78,7 +78,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.label(RichText::new(sub).font(reg(16.0)).color(pal().header_secondary));
                 });
                 ui.add_space(20.0);
-                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let mut enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if f.mfa.is_some() {
                     let r = field(ui, "Enter Discord Auth Code", &mut f.code, false);
                     if !r.has_focus() && f.code.is_empty() {
@@ -87,8 +87,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 } else if f.use_token {
                     field(ui, "Token", &mut f.token, true);
                 } else {
-                    field(ui, "Email or Phone Number", &mut f.login, false);
-                    field(ui, "Password", &mut f.password, true);
+                    let who = field(ui, "Email or Phone Number", &mut f.login, false);
+                    let pw = field(ui, "Password", &mut f.password, true);
+                    // Enter in the email box moves on to the password, as discord's form does
+                    if enter && who.lost_focus() {
+                        pw.request_focus();
+                        enter = false;
+                    }
                 }
                 if let Some(e) = &f.err {
                     ui.label(RichText::new(e).font(reg(14.0)).color(RED));

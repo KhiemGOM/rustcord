@@ -186,7 +186,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.painter().set(bg, egui::Shape::rect_filled(btn, CornerRadius::same(8), MENU_HOVER));
         }
         app.rects.insert("guildmenu".into(), btn);
-        egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).show(|ui| {
+        egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).close_behavior(super::menu_closing(ui.ctx())).show(|ui| {
             super::menu_body(ui, |ui| act = guild_menu(ui, gid, perms, can_invite, owner, hide, dev, community));
         });
         if can_invite {
@@ -400,7 +400,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
-            app.voice.join(&app.net, &app.store, c);
+            app.join_voice(c, true);
         }
         app.open(c);
     }
@@ -432,15 +432,11 @@ pub fn toggle_hide_muted(app: &mut App, gid: Id) {
 /// Asks first, like discord.
 pub fn leave(app: &mut App, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-    app.confirm = Some(super::Confirm {
-        title: format!("Leave '{name}'"),
-        body: format!("Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited."),
-        button: "Leave Server",
-        run: Box::new(move |app: &mut App| {
-            app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": false })), crate::net::Tag::Quiet);
-            app.select_guild(None);
-        }),
-    });
+    let body = format!("Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited.");
+    app.confirm = Some(super::Confirm::new(format!("Leave '{name}'"), body, "Leave Server", move |app: &mut App| {
+        app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": false })), crate::net::Tag::Quiet);
+        app.select_guild(None);
+    }));
 }
 
 enum GuildAct {
@@ -540,7 +536,7 @@ fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, co
     let cat = c.kind == 4;
     let what = if cat { "Category" } else if c.is_thread() { "Thread" } else { "Channel" };
     let perms = store.perms(c);
-    r.context_menu(|ui| super::menu_body(ui, |ui| {
+    egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
         let mut act = None;
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
             act = Some(ChanAct::Read);

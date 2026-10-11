@@ -102,6 +102,8 @@ pub struct Gifs {
     pub cats: Option<Vec<(String, String)>>,
     pub trend: Option<String>,
     pub trending: bool,
+    // the starred ones, opened from their tile
+    pub favorites: bool,
 }
 
 /// Discord's gifs come from Klipy now.
@@ -116,8 +118,23 @@ pub struct Gif {
 
 impl App {
     pub fn open_gifs(&mut self, at: Pos2) {
-        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false });
+        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: false });
         self.rest("GET", format!("/gifs/trending?{GIF_Q}"), None, Tag::GifCats);
+    }
+
+    /// What /gif and the picker's box search for.
+    pub fn search_gifs(&mut self, q: String) {
+        let Some(g) = &mut self.gifs else { return };
+        g.query = q.clone();
+        g.sent = q.clone();
+        g.results = None;
+        g.favorites = false;
+        if q.is_empty() {
+            g.trending = false;
+        } else {
+            let enc: String = q.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+            self.rest("GET", format!("/gifs/search?q={enc}&{GIF_Q}"), None, Tag::Gifs(q));
+        }
     }
 
     pub fn set_gif_cats(&mut self, v: &serde_json::Value) {
@@ -152,12 +169,15 @@ impl App {
 
 fn gifs(app: &mut App, ctx: &egui::Context) {
     let autoplay = app.settings.gif_autoplay;
+    let favs: Vec<Gif> = app.settings.fav_gifs.iter().map(|(url, src, w, h)| Gif { url: url.clone(), src: src.clone(), w: *w, h: *h }).collect();
     let Some(g) = &mut app.gifs else { return };
     let mut pick = None;
     let mut search = None;
     let mut trending = false;
     let mut back = false;
-    let home = g.query.is_empty() && !g.trending;
+    let mut star = None;
+    let mut open_favs = false;
+    let home = g.query.is_empty() && !g.trending && !g.favorites;
     let mut cat_rects = Vec::new();
     let (area, to) = super::picker::shell(ctx, g.at, Align2::RIGHT_BOTTOM, Some(super::picker::Tab::Gifs), |ui| {
         let r = super::picker::search_box(ui, &mut g.query, "Search Klipy", (!home).then_some(&mut back));
@@ -175,7 +195,10 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                         return;
                     };
                     let top = ui.cursor().min;
-                    let tiles = std::iter::once(("Trending GIFs".to_string(), g.trend.clone())).chain(cats.iter().map(|(n, s)| (n.clone(), Some(s.clone()))));
+                    // discord leads with Favorites once something's starred
+                    let fav = favs.first().map(|f| ("Favorites".to_string(), Some(f.src.clone())));
+                    let tiles = fav.into_iter().chain(std::iter::once(("Trending GIFs".to_string(), g.trend.clone()))).chain(cats.iter().map(|(n, s)| (n.clone(), Some(s.clone()))));
+                    let first_cat = if favs.is_empty() { 1 } else { 2 };
                     let mut n = 0;
                     for (i, (name, src)) in tiles.enumerate() {
                         let r = Rect::from_min_size(top + vec2((i % 2) as f32 * 242.0, (i / 2) as f32 * 122.0), vec2(230.0, 110.0));
@@ -189,23 +212,27 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                             ui.painter().rect_filled(r, CornerRadius::same(5), egui::Color32::from_black_alpha(shade));
                             let g = ui.painter().layout_no_wrap(name.clone(), semi(16.0), egui::Color32::WHITE);
                             let mut at = r.center() - g.size() / 2.0;
-                            if i == 0 {
+                            if i < first_cat {
                                 at.x += 12.0;
-                                super::icons::draw(ui.painter(), Icon::Insights, Rect::from_center_size(pos2(at.x - 14.0, r.center().y), vec2(20.0, 20.0)), egui::Color32::WHITE);
+                                let icon = if name == "Favorites" { Icon::Star } else { Icon::Insights };
+                                super::icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(at.x - 14.0, r.center().y), vec2(20.0, 20.0)), egui::Color32::WHITE);
                             }
                             ui.painter().galley(at, g, egui::Color32::WHITE);
                         }
                         if resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
-                        if i == 0 {
+                        if name == "Trending GIFs" {
                             cat_rects.push(("gifcat:trending".to_string(), r));
                         }
+                        if name == "Favorites" {
+                            cat_rects.push(("gifcat:favorites".to_string(), r));
+                        }
                         if resp.clicked() {
-                            if i == 0 {
-                                trending = true;
-                            } else {
-                                search = Some(name.clone());
+                            match name.as_str() {
+                                "Favorites" if i == 0 && !favs.is_empty() => open_favs = true,
+                                "Trending GIFs" if i < first_cat => trending = true,
+                                _ => search = Some(name.clone()),
                             }
                         }
                         n = i + 1;
@@ -213,7 +240,8 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                     ui.allocate_space(vec2(472.0, n.div_ceil(2) as f32 * 122.0));
                     return;
                 }
-                match &g.results {
+                let shown = if g.favorites { Some(&favs) } else { g.results.as_ref() };
+                match shown {
                     None => {
                         ui.add(egui::Spinner::new().color(pal().text_muted));
                     }
@@ -236,14 +264,25 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                                 let play = autoplay || resp.hovered();
                                 egui::Image::from_uri(crate::gif::uri(ui.ctx(), &gif.src, play)).corner_radius(CornerRadius::same(5)).show_loading_spinner(false).paint_at(ui, r);
                             }
+                            // the star that saves it to favourites, in the corner while hovered
+                            let starred = favs.iter().any(|f| f.url == gif.url);
+                            let sr = Rect::from_min_size(pos2(r.right() - 36.0, r.top() + 8.0), vec2(28.0, 28.0));
+                            if resp.hovered() || starred {
+                                ui.painter().circle_filled(sr.center(), 14.0, egui::Color32::from_black_alpha(150));
+                                let col = if starred { YELLOW } else { egui::Color32::WHITE };
+                                super::icons::draw(ui.painter(), Icon::Star, sr.shrink(6.0), col);
+                            }
                             if resp.hovered() {
                                 ui.painter().rect_stroke(r, CornerRadius::same(5), egui::Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
                             if i == 0 {
                                 cat_rects.push(("gif:0".to_string(), r));
+                                cat_rects.push(("gif:0:star".to_string(), sr));
                             }
-                            if resp.clicked() {
+                            if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| sr.contains(p)) {
+                                star = Some((gif.url.clone(), gif.src.clone(), gif.w, gif.h));
+                            } else if resp.clicked() {
                                 pick = Some(gif.url.clone());
                             }
                         }
@@ -256,8 +295,12 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
     if back {
         g.query.clear();
         g.trending = false;
+        g.favorites = false;
         g.results = None;
         search = None;
+    }
+    if open_favs {
+        g.favorites = true;
     }
     if trending {
         g.trending = true;
@@ -265,15 +308,17 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
         g.results = None;
         app.rest("GET", format!("/gifs/trending-gifs?{GIF_Q}"), None, Tag::Gifs(String::new()));
     } else if let Some(q) = search {
-        g.query = q.clone();
-        g.sent = q.clone();
-        g.results = None;
-        if q.is_empty() {
-            g.trending = false;
-        } else {
-            let enc: String = q.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
-            app.rest("GET", format!("/gifs/search?q={enc}&{GIF_Q}"), None, Tag::Gifs(q));
+        app.search_gifs(q);
+    }
+    if let Some(f) = star {
+        let favs = &mut app.settings.fav_gifs;
+        match favs.iter().position(|x| x.0 == f.0) {
+            Some(i) => {
+                favs.remove(i);
+            }
+            None => favs.insert(0, f),
         }
+        crate::cache::set_settings(&app.settings);
     }
     for (k, r) in cat_rects {
         app.rects.insert(k, r);
@@ -283,8 +328,19 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
     } else if let Some(url) = pick {
         app.gifs = None;
         if let Some(ch) = app.cur() {
-            app.drafts.insert(ch, url);
-            app.send_message(ch);
+            // shift+click puts the link in the composer instead of sending it
+            if ctx.input(|i| i.modifiers.shift) {
+                let d = app.drafts.entry(ch).or_default();
+                if !d.is_empty() && !d.ends_with(' ') {
+                    d.push(' ');
+                }
+                d.push_str(&url);
+                app.focus_composer = true;
+                app.caret_end = true;
+            } else {
+                app.drafts.insert(ch, url);
+                app.send_message(ch);
+            }
         }
     } else if dismissed(ctx, &area) && !super::picker::on_picker_button(app, ctx) {
         app.gifs = None;
@@ -300,6 +356,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     switcher(app, ctx);
     profile(app, ctx);
     pins(app, ctx);
+    new_thread(app, ctx);
+    leaving(app, ctx);
+    emoji_pop(app, ctx);
+    timeout(app, ctx);
 }
 
 pub(super) fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {
@@ -654,18 +714,29 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
             hits.extend(unread.into_iter().map(Hit::Channel));
         }
     } else {
-        for &c in &store.dms {
-            if channel_title(store, c).to_lowercase().contains(&ql) {
-                hits.push(Hit::Channel(c));
+        // discord's prefixes narrow it: @ people, # text channels, ! voice channels, * servers
+        let (only, ql) = match ql.chars().next() {
+            Some(c @ ('@' | '#' | '!' | '*')) => (Some(c), ql[1..].trim_start().to_string()),
+            _ => (None, ql.clone()),
+        };
+        if only.is_none() || only == Some('@') {
+            for &c in &store.dms {
+                if channel_title(store, c).to_lowercase().contains(&ql) {
+                    hits.push(Hit::Channel(c));
+                }
             }
         }
         for gid in &store.guild_order {
             let Some(g) = store.guilds.get(gid) else { continue };
-            if g.name.to_lowercase().contains(&ql) {
+            if matches!(only, None | Some('*')) && g.name.to_lowercase().contains(&ql) {
                 hits.push(Hit::Guild(*gid));
             }
+            if matches!(only, Some('@' | '*')) {
+                continue;
+            }
             for c in g.channels.iter().filter_map(|c| store.channels.get(c)) {
-                if (c.is_text() || c.is_forum()) && c.name.to_lowercase().contains(&ql) && store.can_view(c) && !c.is_thread() {
+                let kind = if only == Some('!') { c.is_voice() } else { c.is_text() || c.is_forum() };
+                if kind && c.name.to_lowercase().contains(&ql) && store.can_view(c) && !c.is_thread() {
                     hits.push(Hit::Channel(c.id));
                 }
             }
@@ -1001,6 +1072,15 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         app.profiles.insert(uid, serde_json::Value::Null);
         app.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true"), None, Tag::Profile(uid));
     }
+    if !app.notes.contains_key(&uid) {
+        app.notes.insert(uid, String::new());
+        app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
+    }
+    // what's saved, and what's being typed over it while the box has focus
+    let saved = app.notes.get(&uid).cloned().unwrap_or_default();
+    let draft = egui::Id::new(("note_draft", uid));
+    let mut note: String = ui.data(|d| d.get_temp(draft)).unwrap_or_else(|| saved.clone());
+    let mut save_note = false;
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
     let (mut more, mut add, mut full) = (None, false, false);
@@ -1023,6 +1103,34 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
             ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
+            // the note only you see: Enter saves it, Shift+Enter starts a new line, six at most
+            ui.add_space(24.0);
+            ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
+            ui.add_space(4.0);
+            let nid = egui::Id::new(("note", uid));
+            let focused = ui.memory(|m| m.has_focus(nid));
+            let enter = focused && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Enter));
+            let before = note.clone();
+            let r = ui.add(
+                egui::TextEdit::multiline(&mut note)
+                    .id(nid)
+                    .frame(Frame::NONE)
+                    .desired_rows(1)
+                    .font(reg(12.0))
+                    .hint_text(RichText::new("Click to add a note").font(reg(12.0)).color(pal().text_muted))
+                    .desired_width(268.0),
+            );
+            if note.lines().count() > 6 {
+                note = before;
+            }
+            app.rects.insert("note".into(), r.rect);
+            if enter {
+                r.surrender_focus();
+            }
+            save_note = enter || r.lost_focus();
+            if !save_note && !r.has_focus() {
+                note = saved.clone();
+            }
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
@@ -1037,6 +1145,11 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     if add {
         app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
     }
+    if save_note && note != saved {
+        app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": note })), Tag::Quiet);
+        app.notes.insert(uid, note.clone());
+    }
+    ui.data_mut(|d| d.insert_temp(draft, note));
     if full {
         app.open_profile(uid, 0, ui.min_rect().left_top() - vec2(310.0, 0.0));
     }
@@ -1259,6 +1372,8 @@ fn pins(app: &mut App, ctx: &egui::Context) {
     let at = app.rects.get("pins_button").map(|r| pos2(r.right() - 420.0, r.bottom() + 9.0)).unwrap_or(pos2(400.0, 60.0));
     let tall = ctx.content_rect().height() * 0.8 - 57.0;
     let mut jump = None;
+    let mut unpin = None;
+    let manage = app.store.channels.get(&ch).is_some_and(|c| c.guild == 0 || app.store.perms(c) & crate::state::MANAGE_MESSAGES != 0);
     let area = egui::Area::new(egui::Id::new("pins"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
@@ -1305,7 +1420,25 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
                             }
                             Some(l) => {
                                 for m in l {
-                                    if chat::preview(ui, &app.store, m).clicked() {
+                                    let card = chat::preview(ui, &app.store, m).rect;
+                                    // discord's Jump and unpin ✕, over the card's corner while it's hovered
+                                    let hot = ui.rect_contains_pointer(card);
+                                    let mut x = card.right() - 8.0;
+                                    let mut corner = |ui: &mut Ui, icon: Icon, tip: &str, key: &str| {
+                                        let r = Rect::from_min_size(pos2(x - 28.0, card.top() + 8.0), vec2(28.0, 28.0));
+                                        x -= 32.0;
+                                        let resp = ui.interact(r, ui.id().with((key, m.id)), Sense::click());
+                                        app.rects.insert(format!("pins:{key}:{}", m.id), r);
+                                        if hot {
+                                            ui.painter().rect(r, 8, if resp.hovered() { pal().control_hover } else { pal().control }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                                            super::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
+                                        }
+                                        hot && resp.on_hover_text(tip).clicked()
+                                    };
+                                    if manage && corner(ui, Icon::Close, "Unpin Message", "unpin") {
+                                        unpin = Some(m.id);
+                                    }
+                                    if corner(ui, Icon::Jump, "Jump to Message", "jump") {
                                         jump = Some(m.id);
                                     }
                                     ui.add_space(8.0);
@@ -1316,11 +1449,15 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
                 });
             });
         });
+    // the popout stays up after a jump, as discord's does
     if let Some(id) = jump {
-        app.pins = None;
         app.jump_to(ch, id);
-    } else if ctx.input(|i| i.key_pressed(Key::Escape))
-        || dismissed(ctx, &area.response) && !app.rects.get("pins_button").is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)))
+    } else if let Some(id) = unpin {
+        let ask = !ctx.input(|i| i.modifiers.shift);
+        app.pin_msg(ch, id, ask);
+    } else if app.confirm.is_none()
+        && (ctx.input(|i| i.key_pressed(Key::Escape))
+            || dismissed(ctx, &area.response) && !app.rects.get("pins_button").is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p))))
     {
         app.pins = None;
     }
@@ -1555,7 +1692,7 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
     run
 }
 
-/// Discord's thread browser under the header's threads button. Making threads is left to discord.
+/// Discord's thread browser under the header's threads button, and Create for a new one.
 pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
     let mut open = None;
     let mut create = false;
@@ -1646,8 +1783,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
         app.open(c);
     }
     if create {
-        let g = app.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
-        button.ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{g}/{ch}")));
+        app.new_thread = Some(NewThread::blank(ch));
     }
 }
 
@@ -1670,6 +1806,17 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
     screen.min.y += super::titlebar::HEIGHT;
     let mut close = ctx.input(|i| i.key_pressed(Key::Escape));
     let mut browse = false;
+    // ←/→ step through the message's other pictures
+    let step = ctx.input_mut(|i| if super::take_key(i, egui::Modifiers::NONE, Key::ArrowRight) { 1 } else if super::take_key(i, egui::Modifiers::NONE, Key::ArrowLeft) { -1 } else { 0 });
+    let at = app.gallery.iter().position(|g| g.0 == img);
+    if step != 0
+        && let Some(i) = at
+        && let Some(next) = app.gallery.get((i as i64 + step).rem_euclid(app.gallery.len() as i64) as usize).cloned()
+    {
+        app.viewer = Some(next);
+        return;
+    }
+    let count = at.map(|i| (i + 1, app.gallery.len())).filter(|(_, n)| *n > 1);
     egui::Area::new(egui::Id::new("viewer"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
@@ -1692,6 +1839,9 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             browse = lresp.clicked();
+            if let Some((i, n)) = count {
+                ui.painter().text(pos2(rect.right(), rect.bottom() + 12.0), Align2::RIGHT_TOP, format!("{i} / {n}"), semi(14.0), pal().header_secondary);
+            }
             if bg_resp.clicked() && !ir.hovered() && !lresp.hovered() {
                 close = true;
             }
@@ -1717,6 +1867,9 @@ enum UserAct {
     Mute(bool, Option<i64>),
     CopyUser,
     CopyChannel,
+    Timeout,
+    Kick,
+    Ban,
 }
 
 /// Discord's menu for a person, from the member list, a message's author or a dm row.
@@ -1733,6 +1886,14 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     let muted = dm.is_some_and(|c| app.store.muted.contains(&c));
     let composing = dm.is_none() && app.cur().is_some();
     let dev = app.settings.dev;
+    // a server's moderators get timeout, kick and ban for members other than themselves
+    let perms = app.store.guilds.get(&gid).and_then(|g| g.channels.iter().find_map(|c| app.store.channels.get(c))).map_or(0, |c| app.store.perms(c));
+    let (can_timeout, can_kick, can_ban) = if gid == 0 || me {
+        (false, false, false)
+    } else {
+        use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
+        (perms & MODERATE_MEMBERS != 0, perms & KICK_MEMBERS != 0, perms & BAN_MEMBERS != 0)
+    };
     let mut act = None;
     let open = super::float_menu(ctx, "user_menu", at, |ui| {
         if dm.is_some() {
@@ -1783,6 +1944,18 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
                 act = Some(UserAct::Block);
             }
         }
+        if can_timeout || can_kick || can_ban {
+            menu_sep(ui);
+            if can_timeout && menu_item(ui, None, &format!("Timeout {name}"), true) {
+                act = Some(UserAct::Timeout);
+            }
+            if can_kick && menu_item(ui, None, &format!("Kick {name}"), true) {
+                act = Some(UserAct::Kick);
+            }
+            if can_ban && menu_item(ui, None, &format!("Ban {name}"), true) {
+                act = Some(UserAct::Ban);
+            }
+        }
         if dm.is_some() {
             menu_sep(ui);
             let what = if group { "Conversation".to_string() } else { format!("@{name}") };
@@ -1816,52 +1989,119 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     match act {
         Some(UserAct::Read) => app.mark_read(&[dm]),
         Some(UserAct::Profile) => app.open_profile(uid, gid, at),
-        Some(UserAct::Mention) => {
-            if let Some(ch) = app.cur() {
-                let shown = format!("@{name}");
-                let d = app.drafts.entry(ch).or_default();
-                if !d.is_empty() && !d.ends_with(' ') {
-                    d.push(' ');
-                }
-                d.push_str(&shown);
-                d.push(' ');
-                app.aliases.entry(ch).or_default().push((shown, format!("<@{uid}>")));
-                app.focus_composer = true;
-            }
+        Some(UserAct::Mention) => app.mention(uid, gid),
+        // ctrl+click times them out for a minute without asking how long
+        Some(UserAct::Timeout) if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
+        Some(UserAct::Timeout) => app.timeout = Some(Timeout { guild: gid, user: uid, secs: 60, reason: String::new() }),
+        Some(UserAct::Kick) => {
+            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+            let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
+            app.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
+                app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::Quiet)
+            }));
+        }
+        Some(UserAct::Ban) => {
+            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+            let body = format!("Are you sure you want to ban @{name} from {server}?");
+            app.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
+                app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::Quiet)
+            }));
         }
         Some(UserAct::Message) => app.open_dm(uid),
         Some(UserAct::Close) if group => {
             let title = channel_title(&app.store, dm);
-            app.confirm = Some(super::Confirm {
-                title: format!("Leave '{title}'"),
-                body: format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited."),
-                button: "Leave Group",
-                run: Box::new(move |app: &mut App| close_dm(app, dm)),
-            });
+            let body = format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited.");
+            app.confirm = Some(super::Confirm::new(format!("Leave '{title}'"), body, "Leave Group", move |app: &mut App| close_dm(app, dm)));
         }
         Some(UserAct::Close) => close_dm(app, dm),
         Some(UserAct::AddFriend) => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
         Some(UserAct::RemoveFriend) => {
-            app.confirm = Some(super::Confirm {
-                title: format!("Remove '{name}'"),
-                body: format!("Are you sure you want to remove {name} from your friends?"),
-                button: "Remove Friend",
-                run: Box::new(move |app: &mut App| app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet)),
-            });
+            let body = format!("Are you sure you want to remove {name} from your friends?");
+            app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
+                app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet)
+            }));
         }
         Some(UserAct::Block) => {
-            app.confirm = Some(super::Confirm {
-                title: format!("Block {name}?"),
-                body: "They won't be able to message you, and you won't see their messages unless you choose to.".into(),
-                button: "Block",
-                run: Box::new(move |app: &mut App| app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::Quiet)),
-            });
+            let body = "They won't be able to message you, and you won't see their messages unless you choose to.";
+            app.confirm = Some(super::Confirm::new(format!("Block {name}?"), body, "Block", move |app: &mut App| {
+                app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::Quiet)
+            }));
         }
         Some(UserAct::Unblock) => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet),
         Some(UserAct::Mute(m, secs)) => app.mute_for(dm, false, m, secs),
         Some(UserAct::CopyUser) => ctx.copy_text(uid.to_string()),
         Some(UserAct::CopyChannel) => ctx.copy_text(dm.to_string()),
         None => {}
+    }
+}
+
+/// Timeout for a member: who, where, how long and why.
+pub struct Timeout {
+    guild: Id,
+    user: Id,
+    secs: i64,
+    reason: String,
+}
+
+/// Discord's Timeout dialog: what timeout means, the six lengths, a reason for the audit log.
+pub fn timeout(app: &mut App, ctx: &egui::Context) {
+    let Some(t) = &mut app.timeout else { return };
+    let name = app.store.name_in(t.guild, t.user);
+    let (mut go, mut close) = (false, false);
+    let modal = egui::Modal::new("timeout".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
+        .show(ctx, |ui| {
+            ui.set_width(432.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Timeout {name}")).font(semi(20.0)).color(pal().header_primary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked();
+                });
+            });
+            ui.add_space(8.0);
+            let about = "Members who are in timeout are temporarily not allowed to chat or react in text channels. They are also not allowed to connect to voice or Stage channels.";
+            ui.label(RichText::new(about).font(reg(16.0)).color(pal().text_normal));
+            ui.add_space(20.0);
+            ui.label(RichText::new("Duration").font(semi(14.0)).color(pal().header_primary));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let lengths = [("60 secs", 60), ("5 mins", 300), ("10 mins", 600), ("1 hour", 3600), ("1 day", 86400), ("1 week", 604800)];
+                for (i, (label, secs)) in lengths.into_iter().enumerate() {
+                    let (r, resp) = ui.allocate_exact_size(vec2(72.0, 36.0), Sense::click());
+                    let cr = CornerRadius { nw: if i == 0 { 8 } else { 0 }, sw: if i == 0 { 8 } else { 0 }, ne: if i == 5 { 8 } else { 0 }, se: if i == 5 { 8 } else { 0 } };
+                    let on = t.secs == secs;
+                    ui.painter().rect(r, cr, if on { BLURPLE } else if resp.hovered() { pal().control_hover } else { pal().control }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, label, semi(14.0), if on { egui::Color32::WHITE } else { pal().header_primary });
+                    if resp.clicked() {
+                        t.secs = secs;
+                    }
+                }
+            });
+            ui.add_space(20.0);
+            ui.label(RichText::new("Reason").font(semi(14.0)).color(pal().header_primary));
+            ui.add_space(8.0);
+            input_frame().corner_radius(8).inner_margin(12).show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut t.reason)
+                        .frame(Frame::NONE)
+                        .desired_rows(3)
+                        .hint_text("Enter a reason. This will only be visible in the Audit Log and will not be shown to the member.")
+                        .desired_width(ui.available_width()),
+                );
+            });
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                close |= super::grey_button(ui, "Cancel", 212.0).clicked();
+                go = button(ui, "Timeout", BLURPLE, 212.0).clicked();
+            });
+        });
+    if go && let Some(t) = app.timeout.take() {
+        app.time_out(t.guild, t.user, t.secs);
+    } else if close || modal.should_close() {
+        app.timeout = None;
     }
 }
 
@@ -2060,5 +2300,242 @@ fn forward(app: &mut App, ctx: &egui::Context) {
         app.toast("Message forwarded.");
     } else if close || modal.should_close() {
         app.forward = None;
+    }
+}
+
+/// Create Thread, from a message's menu or the threads popout: the message it starts from,
+/// a name (the message's own words if left empty) and the first thing to say in it.
+pub struct NewThread {
+    ch: Id,
+    msg: Option<Id>,
+    name: String,
+    first: String,
+    hint: String,
+}
+
+impl NewThread {
+    pub fn from(app: &App, ch: Id, msg: Id) -> Self {
+        let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+        let words = app.store.find_msg(ch, msg).map(|m| crate::markdown::plain(&m.content, &app.store, guild)).unwrap_or_default();
+        let hint: String = words.chars().take(40).collect();
+        NewThread { ch, msg: Some(msg), name: String::new(), first: String::new(), hint: if hint.trim().is_empty() { "New Thread".into() } else { hint } }
+    }
+
+    pub fn blank(ch: Id) -> Self {
+        NewThread { ch, msg: None, name: String::new(), first: String::new(), hint: "New Thread".into() }
+    }
+}
+
+fn new_thread(app: &mut App, ctx: &egui::Context) {
+    let Some(t) = &mut app.new_thread else { return };
+    let msg = t.msg.and_then(|m| app.store.find_msg(t.ch, m).cloned());
+    let (mut make, mut close) = (false, false);
+    let modal = egui::Modal::new("new_thread".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
+        .show(ctx, |ui| {
+            ui.set_width(432.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                super::icons::draw(ui.painter(), Icon::ThreadPlus, r, pal().header_secondary);
+                ui.add_space(8.0);
+                ui.label(RichText::new("New Thread").font(semi(20.0)).color(pal().header_primary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked();
+                });
+            });
+            if let Some(m) = &msg {
+                ui.add_space(16.0);
+                chat::preview(ui, &app.store, m);
+            }
+            ui.add_space(20.0);
+            ui.label(RichText::new("Thread Name").font(semi(12.0)).color(pal().header_secondary));
+            ui.add_space(8.0);
+            let field = |ui: &mut Ui, text: &mut String, hint: &str, focus: bool| {
+                let (r, _) = ui.allocate_exact_size(vec2(432.0, 40.0), Sense::hover());
+                ui.painter().rect_filled(r, 8, pal().input_bg);
+                let e = ui.put(
+                    r.shrink2(vec2(12.0, 10.0)),
+                    egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
+                );
+                ui.painter().rect_stroke(r, 8, egui::Stroke::new(1.0, if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                if focus {
+                    e.request_focus();
+                }
+                e
+            };
+            let first_frame = !ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("new_thread_seen")).unwrap_or(false));
+            let n = field(ui, &mut t.name, &t.hint, first_frame);
+            ui.add_space(16.0);
+            let f = field(ui, &mut t.first, "Enter a message to start the conversation!", false);
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("new_thread_seen"), true));
+            let enter = (n.lost_focus() || f.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
+            ui.add_space(24.0);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                make = button(ui, "Create Thread", BLURPLE, 128.0).clicked() || enter;
+                ui.add_space(8.0);
+                close |= super::grey_button(ui, "Cancel", 92.0).clicked();
+            });
+        });
+    let ch = t.ch;
+    if make {
+        let name = if t.name.trim().is_empty() { t.hint.clone() } else { t.name.trim().to_string() };
+        let first = std::mem::take(&mut t.first);
+        let (path, body) = match t.msg {
+            Some(m) => (format!("/channels/{ch}/messages/{m}/threads"), json!({ "name": name, "auto_archive_duration": 4320 })),
+            None => (format!("/channels/{ch}/threads"), json!({ "name": name, "type": 11, "auto_archive_duration": 4320 })),
+        };
+        app.rest("POST", path, Some(body), Tag::Thread(first));
+        close = true;
+    }
+    if close || modal.should_close() {
+        app.new_thread = None;
+        ctx.data_mut(|d| d.remove::<bool>(egui::Id::new("new_thread_seen")));
+    }
+}
+
+/// Discord's own addresses, which never warn.
+const DISCORD_HOSTS: [&str; 9] = [
+    "discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media", "discord.new", "discord.gift", "discord.co", "discordstatus.com",
+];
+
+fn host(url: &str) -> String {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    rest.split(['/', '?', '#']).next().unwrap_or("").rsplit('@').next().unwrap_or("").split(':').next().unwrap_or("").to_lowercase()
+}
+
+impl App {
+    /// A link clicked in chat. Discord's own message links open here unless a modifier sends
+    /// them to the browser. Others go straight out when their text is their address and this
+    /// isn't a dm with someone who isn't a friend; the rest ask "Leaving Discord" first,
+    /// unless their site was trusted from that dialog before.
+    pub fn open_link(&mut self, ctx: &egui::Context, url: &str, masked: bool) {
+        let h = host(url);
+        let ours = DISCORD_HOSTS.iter().any(|d| h == *d || h.ends_with(&format!(".{d}")));
+        let modded = ctx.input(|i| i.modifiers.ctrl || i.modifiers.shift || i.modifiers.alt);
+        if ours && !modded {
+            let path: Vec<&str> = url.split("/channels/").nth(1).unwrap_or("").split(['?', '#']).next().unwrap_or("").split('/').collect();
+            let ch = path.get(1).and_then(|c| c.parse::<Id>().ok()).filter(|c| self.store.channels.contains_key(c));
+            if let Some(c) = ch {
+                match path.get(2).and_then(|m| m.parse::<Id>().ok()) {
+                    Some(m) => self.jump_to(c, m),
+                    None => {
+                        let g = self.store.channels.get(&c).map_or(0, |c| c.guild);
+                        self.ui.guild = (g != 0).then_some(g);
+                        self.open(c);
+                    }
+                }
+                return;
+            }
+        }
+        let stranger = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| {
+            c.kind == 1 && c.recipients.first().is_some_and(|u| self.store.relationships.get(u) != Some(&crate::state::FRIEND))
+        });
+        let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
+        if (masked || stranger) && !trusted {
+            self.leaving = Some((url.to_string(), false));
+        } else {
+            ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
+    }
+}
+
+/// "Leaving Discord": the address with its site in bold, a box to trust that site from now on,
+/// Go Back and Visit Site.
+fn leaving(app: &mut App, ctx: &egui::Context) {
+    let Some((url, trust)) = &mut app.leaving else { return };
+    let h = host(url);
+    let (mut go, mut close) = (false, false);
+    let modal = egui::Modal::new("leaving".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
+        .show(ctx, |ui| {
+            ui.set_width(432.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Leaving Discord").font(semi(20.0)).color(pal().header_primary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked();
+                });
+            });
+            ui.add_space(8.0);
+            ui.label(RichText::new("This link is taking you to the following website").font(reg(16.0)).color(pal().text_normal));
+            ui.add_space(16.0);
+            // the site picked out in white, the rest of the address greyed round it
+            let at = url.find(&h).unwrap_or(0);
+            let shown = format!("{}**{}**{}", &url[..at], &url[at..at + h.len().min(url.len() - at)], &url[(at + h.len()).min(url.len())..]);
+            Frame::new().fill(pal().bg_tertiary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
+                ui.set_width(400.0);
+                let mut job = super::bolded(&shown, 16.0, pal().text_normal, 400.0);
+                job.wrap.break_anywhere = true;
+                ui.label(ui.painter().layout_job(job));
+            });
+            ui.add_space(16.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::click());
+            let b = Rect::from_min_size(r.left_top(), vec2(24.0, 24.0));
+            if *trust {
+                ui.painter().rect_filled(b, 6, BLURPLE);
+                super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
+            } else {
+                ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+            }
+            let line = super::bolded(&format!("Trust **{h}** links from now on"), 16.0, pal().text_normal, 400.0);
+            let g = ui.painter().layout_job(line);
+            ui.painter().galley(pos2(b.right() + 12.0, r.center().y - g.size().y / 2.0), g, pal().text_normal);
+            if resp.clicked() {
+                *trust = !*trust;
+            }
+            app.rects.insert("leaving:trust".into(), b);
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                close |= super::grey_button(ui, "Go Back", 212.0).clicked();
+                let v = button(ui, "Visit Site", BLURPLE, 212.0);
+                app.rects.insert("leaving:visit".into(), v.rect);
+                go = v.clicked();
+            });
+        });
+    if go && let Some((url, trust)) = app.leaving.take() {
+        if trust && !app.settings.trusted.contains(&h) {
+            app.settings.trusted.push(h);
+            crate::cache::set_settings(&app.settings);
+        }
+        ctx.open_url(egui::OpenUrl::new_tab(url));
+    } else if close || modal.should_close() {
+        app.leaving = None;
+    }
+}
+
+/// A custom emoji's popout: the emoji, its name, and where it's from when that's a server you're
+/// in, else that it's from one you can't see.
+fn emoji_pop(app: &mut App, ctx: &egui::Context) {
+    let Some((id, name, animated, at)) = app.emoji_pop.clone() else { return };
+    let from = app.store.guilds.values().find(|g| g.emojis.iter().any(|e| e.id == id)).map(|g| (g.name.clone(), g.icon_url()));
+    let area = egui::Area::new(egui::Id::new("emoji_pop")).order(egui::Order::Foreground).fixed_pos(at).constrain(true).show(ctx, |ui| {
+        let shadow = ui.style().visuals.popup_shadow;
+        Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(16).show(ui, |ui| {
+            ui.set_width(268.0);
+            ui.horizontal_top(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+                egui::Image::from_uri(crate::gif::uri(ui.ctx(), &crate::markdown::emoji_url(id, animated), true)).show_loading_spinner(false).paint_at(ui, r);
+                ui.add_space(12.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.label(RichText::new(format!(":{name}:")).font(semi(16.0)).color(pal().header_primary));
+                    match &from {
+                        Some((g, _)) => {
+                            ui.label(RichText::new("This emoji is from").font(reg(14.0)).color(pal().text_normal));
+                            ui.label(RichText::new(g).font(semi(14.0)).color(pal().header_primary));
+                        }
+                        None => {
+                            ui.label(RichText::new("This emoji is from a server that is either invite-only or unavailable.").font(reg(14.0)).color(pal().text_normal));
+                        }
+                    }
+                });
+            });
+        });
+    });
+    app.rects.insert("emoji_pop".into(), area.response.rect);
+    if dismissed(ctx, &area.response) {
+        app.emoji_pop = None;
     }
 }

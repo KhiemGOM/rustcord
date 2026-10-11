@@ -347,12 +347,9 @@ fn emoji(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.add_space(24.0);
     }
     if let Some((id, name)) = delete {
-        app.confirm = Some(super::Confirm {
-            title: "Delete Emoji".into(),
-            body: format!("Are you sure you want to delete :{name}:?"),
-            button: "Delete",
-            run: Box::new(move |app: &mut App| app.rest("DELETE", format!("/guilds/{gid}/emojis/{id}"), None, Tag::Quiet)),
-        });
+        app.confirm = Some(super::Confirm::new("Delete Emoji", format!("Are you sure you want to delete :{name}:?"), "Delete", move |app: &mut App| {
+            app.rest("DELETE", format!("/guilds/{gid}/emojis/{id}"), None, Tag::Quiet)
+        }));
     }
     if upload && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() {
         if let Ok(bytes) = std::fs::read(&path) {
@@ -541,17 +538,12 @@ fn bans(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.label(RichText::new("No bans. Who's been good? You've been good.").font(reg(14.0)).color(pal().header_secondary));
     }
     if let Some((id, name, reason)) = pick {
-        app.confirm = Some(super::Confirm {
-            title: format!("'{name}'"),
-            body: format!("Ban reason: {reason}"),
-            button: "Revoke Ban",
-            run: Box::new(move |app: &mut App| {
-                app.rest("DELETE", format!("/guilds/{gid}/bans/{id}"), None, Tag::Quiet);
-                if let Some(s) = &mut app.server {
-                    s.data.remove("bans");
-                }
-            }),
-        });
+        app.confirm = Some(super::Confirm::new(format!("'{name}'"), format!("Ban reason: {reason}"), "Revoke Ban", move |app: &mut App| {
+            app.rest("DELETE", format!("/guilds/{gid}/bans/{id}"), None, Tag::Quiet);
+            if let Some(s) = &mut app.server {
+                s.data.remove("bans");
+            }
+        }));
     }
 }
 

@@ -176,7 +176,9 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let field = Rect::from_min_max(pos2(bar.left() + 52.0, bar.center().y - 13.0), pos2(b.left() - 12.0, bar.center().y + 13.0));
-    ui.new_child(UiBuilder::new().max_rect(field)).add(
+    // shift+enter in the search makes what was typed the new post's title
+    let shift_enter = can_post && ui.input_mut(|i| super::take_key(i, egui::Modifiers::SHIFT, egui::Key::Enter));
+    let edit = ui.new_child(UiBuilder::new().max_rect(field)).add(
         egui::TextEdit::singleline(q)
             .frame(Frame::NONE)
             .font(medium(20.0))
@@ -184,7 +186,12 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool) -> bool {
             .desired_width(field.width())
             .hint_text(RichText::new("Search").font(medium(20.0)).color(pal().text_muted)),
     );
-    resp.clicked()
+    if can_post && !q.trim().is_empty() {
+        ui.add_space(6.0);
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+        ui.painter().text(pos2(r.left() + 16.0, r.center().y), egui::Align2::LEFT_CENTER, "SHIFT + ENTER to create a new post", semi(12.0), pal().text_muted);
+    }
+    resp.clicked() || (shift_enter && (edit.has_focus() || edit.lost_focus()))
 }
 
 fn tag_label(t: &crate::state::Tag) -> String {

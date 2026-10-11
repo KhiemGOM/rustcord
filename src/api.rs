@@ -69,6 +69,11 @@ fn super_props() -> &'static str {
     V.get_or_init(|| base64::engine::general_purpose::STANDARD.encode(props().to_string()))
 }
 
+/// Whether an error means discord couldn't be reached at all, rather than that it said no.
+pub fn offline(err: &str) -> bool {
+    err.starts_with("error sending request")
+}
+
 pub fn http() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(UA)
@@ -149,6 +154,7 @@ impl Api {
         self.call(Method::GET, &p, None).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn send(
         &self,
         ch: Id,
@@ -157,8 +163,9 @@ impl Api {
         reply: Option<(Id, bool)>,
         files: &[(PathBuf, String)],
         stickers: &[Id],
+        tts: bool,
     ) -> Result<Value, String> {
-        let mut body = json!({ "content": content, "nonce": nonce, "tts": false, "flags": 0 });
+        let mut body = json!({ "content": content, "nonce": nonce, "tts": tts, "flags": 0 });
         if !stickers.is_empty() {
             body["sticker_ids"] = json!(stickers.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         }

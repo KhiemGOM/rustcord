@@ -768,13 +768,17 @@ impl Sess {
     }
 
     fn rtcp(&mut self, pkt: &[u8]) {
-        // the server's sender and receiver reports say how much of our audio it lost
+        // the server's sender and receiver reports say how much of our audio and video it got
         if pkt.len() >= 8 && matches!(pkt[1], 200 | 201) {
             let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
             let skip = if pkt[1] == 200 { 20 } else { 0 };
             for block in plain.get(skip..).unwrap_or(&[]).chunks_exact(24).take((pkt[0] & 0x1f) as usize) {
-                if u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == self.ssrc {
+                let ssrc = u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
+                if ssrc == self.ssrc {
                     self.emit(Kind::Loss(block[4] as f32 * 100.0 / 256.0));
+                } else if ssrc == self.vssrc && self.cam.is_some() {
+                    self.shared.video_acked.store(u32::from_be_bytes([block[8], block[9], block[10], block[11]]) as u64, Relaxed);
+                    self.shared.video_lost.store(block[4] as u32, Relaxed);
                 }
             }
             return;
