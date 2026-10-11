@@ -219,7 +219,31 @@ fn place(app: &App) -> (Mark, String) {
 /// Double-clicking the bar or its middle button: out of fullscreen if in it, else maximise or restore.
 fn toggle_maximized(ctx: &egui::Context) {
     let (full, on) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
-    ctx.send_viewport_cmd(if full { ViewportCommand::Fullscreen(false) } else { ViewportCommand::Maximized(!on) });
+    if full {
+        fullscreen(ctx, false);
+    } else {
+        ctx.send_viewport_cmd(ViewportCommand::Maximized(!on));
+    }
+}
+
+/// A maximised window is put back to normal before going fullscreen, and maximised again after:
+/// winit keeps a maximised window's client area to the work area, so fullscreen over one left
+/// the taskbar's height of it black.
+pub(super) fn fullscreen(ctx: &egui::Context, on: bool) {
+    let was = egui::Id::new("maximized_before_fullscreen");
+    if on {
+        let max = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        ctx.data_mut(|d| d.insert_temp(was, max));
+        if max {
+            ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+        }
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
+    } else {
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
+        if ctx.data_mut(|d| d.remove_temp::<bool>(was)).unwrap_or(false) {
+            ctx.send_viewport_cmd(ViewportCommand::Maximized(true));
+        }
+    }
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {

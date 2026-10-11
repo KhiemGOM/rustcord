@@ -154,6 +154,8 @@ pub struct VoiceUi {
     /// who has their camera on / is streaming, from voice states
     pub cams: HashSet<Id>,
     pub live: HashSet<Id>,
+    /// muted, server muted, deafened, server deafened, for whoever is any of them
+    pub muted: HashMap<Id, [bool; 4]>,
     pub stream: Option<Live>,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
@@ -366,6 +368,13 @@ impl VoiceUi {
             } else {
                 set.remove(&uid);
             }
+        }
+        let on = |k: &str| vs[k].as_bool() == Some(true);
+        let m = [on("self_mute") || on("mute"), on("mute"), on("self_deaf") || on("deaf"), on("deaf")];
+        if gone || !m.contains(&true) {
+            self.muted.remove(&uid);
+        } else {
+            self.muted.insert(uid, m);
         }
     }
 

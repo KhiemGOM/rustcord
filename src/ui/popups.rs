@@ -80,6 +80,12 @@ impl App {
     }
 
     pub fn open_dm(&mut self, user: Id) {
+        self.dm_text(user, String::new());
+    }
+
+    /// Opens the dm with them, made first if there isn't one, and sends `text` there if it
+    /// isn't empty: the profile card's message box.
+    pub fn dm_text(&mut self, user: Id, text: String) {
         let existing = self.store.dms.iter().copied().find(|c| {
             self.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [user])
         });
@@ -87,8 +93,11 @@ impl App {
             Some(c) => {
                 self.ui.guild = None;
                 self.open(c);
+                if !text.is_empty() {
+                    self.send_text(c, text);
+                }
             }
-            None => self.rest("POST", "/users/@me/channels".into(), Some(json!({ "recipients": [user.to_string()] })), Tag::OpenDm),
+            None => self.rest("POST", "/users/@me/channels".into(), Some(json!({ "recipients": [user.to_string()] })), Tag::OpenDm(text)),
         }
     }
 }
@@ -363,7 +372,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 }
 
 pub(super) fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {
-    ctx.input(|i| i.key_pressed(Key::Escape)) || (ctx.input(|i| i.pointer.any_pressed()) && !area.contains_pointer())
+    ctx.input(|i| i.key_pressed(Key::Escape)) || pressed_outside(ctx, area)
+}
+
+/// A press outside where an area ended up. Not contains_pointer: egui hit-tests a constrained
+/// area where it was asked to go, before it's pushed back on screen, so a popout opened low
+/// down took every click in its top half for a click outside.
+pub(super) fn pressed_outside(ctx: &egui::Context, area: &egui::Response) -> bool {
+    ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.rect.contains(p)))
 }
 
 fn invite(app: &mut App, ctx: &egui::Context) {
@@ -906,7 +922,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let status = app.store.status(uid);
     let me = app.store.me;
     let stranger = !user.bot && uid != me && !app.store.relationships.contains_key(&uid);
-    let (mut message, mut more, mut add, mut main) = (false, None, false, false);
+    let (mut message, mut more, mut add, mut main) = (None, None, false, false);
     let mut head = Rect::NOTHING;
     let store = &app.store;
 
@@ -982,24 +998,43 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         });
                     }
                     if uid != me {
+                        // discord's box: typed into in place, Enter sends it and opens the dm.
+                        // It has the focus as the card opens.
                         ui.add_space(16.0);
-                        let (r, resp) = ui.allocate_exact_size(vec2(268.0, 46.0), Sense::click());
+                        let draft = egui::Id::new(("profile_msg", uid));
+                        let mut text: String = ui.data(|d| d.get_temp(draft)).unwrap_or_default();
+                        let (r, _) = ui.allocate_exact_size(vec2(268.0, 46.0), Sense::hover());
                         ui.painter().rect(r, 8, pal().input_bg, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-                        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Message @{name}"), reg(14.0), pal().text_muted);
                         super::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(r.right() - 29.0, r.center().y), vec2(18.0, 18.0)), pal().header_secondary);
-                        if resp.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                        let field = Rect::from_min_max(pos2(r.left() + 16.0, r.top() + 1.0), pos2(r.right() - 44.0, r.bottom() - 1.0));
+                        let edit = ui.put(
+                            field,
+                            egui::TextEdit::singleline(&mut text)
+                                .id(egui::Id::new("profile_msg_box"))
+                                .frame(Frame::NONE)
+                                .font(reg(14.0))
+                                .text_color(pal().text_normal)
+                                .vertical_align(egui::Align::Center)
+                                .hint_text(RichText::new(format!("Message @{name}")).font(reg(14.0)).color(pal().text_muted))
+                                .desired_width(field.width()),
+                        );
+                        if !ui.ctx().memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {
+                            edit.request_focus();
                         }
-                        message = resp.clicked();
+                        app.rects.insert("profile_msg".into(), r);
+                        if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !text.trim().is_empty() {
+                            message = Some(std::mem::take(&mut text));
+                        }
+                        ui.data_mut(|d| d.insert_temp(draft, text));
                     }
                 });
                 theme_wash(ui, wash, p, ui.min_rect());
             });
         });
     app.rects.insert("profile_head".into(), head);
-    if message {
+    if let Some(text) = message {
         app.profile = None;
-        app.open_dm(uid);
+        app.dm_text(uid, text);
     } else if main {
         app.open_profile(uid, 0, at);
     } else if let Some(at) = more {
@@ -1817,6 +1852,10 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
         return;
     }
     let count = at.map(|i| (i + 1, app.gallery.len())).filter(|(_, n)| *n > 1);
+    // a click on the picture zooms it, to its own size or twice the fitted one, and the
+    // pointer pans it; another click anywhere zooms back out
+    let zid = egui::Id::new(("viewer_zoom", &img));
+    let mut zoomed = ctx.data(|d| d.get_temp::<bool>(zid)).unwrap_or(false);
     egui::Area::new(egui::Id::new("viewer"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
@@ -1827,10 +1866,41 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
             let s = (screen.width() * 0.8 / iw).min(screen.height() * 0.75 / ih).min(if w == 0 { 1.0 } else { 2.0 });
             let size = if w == 0 { vec2(screen.width() * 0.6, screen.height() * 0.6) } else { vec2(iw * s, ih * s) };
             let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size);
-            let sep = if img.contains('?') { '&' } else { '?' };
-            let url = if w > 0 && !img.contains(".mp4") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() };
+            let sized = |size: egui::Vec2| {
+                let sep = if img.contains('?') { '&' } else { '?' };
+                if w > 0 && !img.contains(".mp4") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() }
+            };
+            let url = sized(size);
             let ir = ui.interact(rect, egui::Id::new("viewer_img"), Sense::click());
+            app.rects.insert("viewer_img".into(), rect);
+            if zoomed {
+                let k = if w == 0 { 2.0 } else { (iw / ctx.pixels_per_point() / size.x).max(2.0) };
+                let zs = size * k;
+                let p = ui.input(|i| i.pointer.hover_pos()).unwrap_or(bg.center());
+                let f = ((p - bg.min) / bg.size()).clamp(vec2(0.0, 0.0), vec2(1.0, 1.0));
+                let pan = |lo: f32, len: f32, z: f32, f: f32| if z > len { lo - f * (z - len) } else { lo + (len - z) / 2.0 };
+                let zr = Rect::from_min_size(pos2(pan(bg.left(), bg.width(), zs.x, f.x), pan(bg.top(), bg.height(), zs.y, f.y)), zs);
+                let mut clip = ui.new_child(egui::UiBuilder::new().max_rect(bg));
+                clip.set_clip_rect(bg);
+                // the fitted copy stretched underneath while the big one loads
+                egui::Image::from_uri(crate::gif::uri(ctx, &url, true)).show_loading_spinner(false).paint_at(&clip, zr);
+                egui::Image::from_uri(crate::gif::uri(ctx, &sized(zs), true)).show_loading_spinner(false).paint_at(&clip, zr);
+                if ui.rect_contains_pointer(bg) {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomOut);
+                }
+                app.rects.insert("viewer_zoomed".into(), zr);
+                if bg_resp.clicked() || ir.clicked() {
+                    zoomed = false;
+                }
+                return;
+            }
             egui::Image::from_uri(crate::gif::uri(ctx, &url, true)).show_loading_spinner(true).paint_at(ui, rect);
+            if ir.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
+            }
+            if ir.clicked() {
+                zoomed = true;
+            }
             let link = pos2(rect.left(), rect.bottom() + 12.0);
             let lr = ui.painter().text(link, Align2::LEFT_TOP, "Open in Browser", semi(14.0), pal().header_secondary);
             let lresp = ui.interact(lr, egui::Id::new("viewer_link"), Sense::click());
@@ -1846,6 +1916,7 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
                 close = true;
             }
         });
+    ctx.data_mut(|d| d.insert_temp(zid, zoomed));
     if browse {
         let _ = open::that_detached(open);
     }

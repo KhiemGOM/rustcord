@@ -77,7 +77,7 @@ const SIDEBAR: &[Item] = &[
 
 const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
-const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
+pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
 
 pub fn label(p: Page) -> &'static str {
     SIDEBAR

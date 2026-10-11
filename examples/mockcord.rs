@@ -42,6 +42,9 @@ struct World {
     voices: Vec<Voice>,
     // messages saved for later: bookmarks, and reminders with a due time
     saved: Vec<Value>,
+    // channel settings saved over what READY says, and channels deleted since
+    edits: serde_json::Map<String, Value>,
+    gone: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -492,7 +495,8 @@ fn ready(last_general: u64) -> Value {
             forum, ch(MEDIA, 0, "media", 5, Some(2010)),
         ],
         "threads": [thread()],
-        "voice_states": [{ "user_id": "101", "channel_id": "2021" }, { "user_id": "103", "channel_id": "2021" }],
+        // alice server muted, carol muted and deafened herself
+        "voice_states": [{ "user_id": "101", "channel_id": "2021", "mute": true }, { "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }],
     });
     let simple = |id: u64, name: &str, icon: Option<&str>, chans: &[(u64, &str)]| {
         let roles = json!([{ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "3072" }]);
@@ -505,6 +509,11 @@ fn ready(last_general: u64) -> Value {
         { "id": "5200", "name": "omgBruh", "animated": false },
         { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
     ]);
+    // a community server of ours with onboarding, for the rows over its channels, and a voice
+    // channel to open the chat of, edit and delete
+    guilds[1]["owner_id"] = json!(ME.to_string());
+    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING"]);
+    guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
     guilds.extend(side_guilds());
     let mut reads = vec![
         json!({ "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1,
@@ -529,7 +538,7 @@ fn ready(last_general: u64) -> Value {
         "read_state": { "entries": reads, "partial": false, "version": 1 },
         "user_guild_settings": { "entries": [
             // onboarding's opt-in: only lobby was picked
-            { "guild_id": "1001", "flags": 16384, "channel_overrides": [{ "channel_id": "2100", "flags": 4096 }] },
+            { "guild_id": "1001", "flags": 16384, "channel_overrides": [{ "channel_id": "2100", "flags": 4096 }, { "channel_id": "2102", "flags": 4096 }] },
             { "guild_id": "1004", "channel_overrides": [{ "channel_id": "2400", "muted": true }] },
             { "guild_id": "1005", "channel_overrides": [{ "channel_id": "2500", "muted": true }] },
             { "guild_id": "1006", "message_notifications": 1, "channel_overrides": [] },
@@ -539,6 +548,33 @@ fn ready(last_general: u64) -> Value {
         "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] },
                                           { "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }, { "guild_ids": ["1007"] }, { "guild_ids": ["1008"] }] },
     })
+}
+
+/// A server channel from READY with the fields its settings page reads, as last saved.
+fn channel(w: &W, id: &str) -> Option<Value> {
+    let w = w.lock().unwrap();
+    if w.gone.iter().any(|g| g == id) {
+        return None;
+    }
+    if let Some(c) = w.edits.get(id) {
+        return Some(c.clone());
+    }
+    let r = ready(0);
+    let (g, c) = r["guilds"].as_array()?.iter().find_map(|g| g["channels"].as_array()?.iter().find(|c| c["id"] == id).map(|c| (g["id"].clone(), c.clone())))?;
+    let mut c = c;
+    c["guild_id"] = g;
+    for (k, v) in [("topic", Value::Null), ("nsfw", json!(false)), ("flags", json!(0)), ("rate_limit_per_user", json!(0)), ("default_auto_archive_duration", json!(4320))] {
+        if c.get(k).is_none() {
+            c[k] = v;
+        }
+    }
+    if c["type"] == json!(2) {
+        c["bitrate"] = json!(64000);
+        c["user_limit"] = json!(0);
+        c["rtc_region"] = Value::Null;
+        c["video_quality_mode"] = json!(1);
+    }
+    Some(c)
 }
 
 fn member_list() -> Value {
@@ -878,6 +914,64 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ok(json!({ "bookmark_ids": ids, "reminders": reminders }))
         }
         ("PUT", ["api", "v9", "users", "@me", "notes", _]) => (204, "application/json", Vec::new()),
+        // the members table: everyone, or the usernames asked for, newest first
+        ("POST", ["api", "v9", "guilds", g, "members-search"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let words: Vec<String> = b["and_query"]["usernames"]["or_query"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_lowercase)).collect();
+            let list: Vec<Value> = [101u64, 102, 103, 104, 105]
+                .iter()
+                .enumerate()
+                .filter(|(_, id)| words.is_empty() || words.iter().any(|w| user(**id)["username"].as_str().unwrap_or("").contains(w.as_str())))
+                .map(|(i, id)| {
+                    let mut m = member(*id);
+                    m["user"] = user(*id);
+                    m["joined_at"] = json!(iso(now_ms() - (i as u64 + 1) * 5 * 86_400_000));
+                    let code = (*id != 104).then_some("e2eInv1");
+                    json!({ "member": m, "source_invite_code": code, "join_source_type": if code.is_some() { 5 } else { 1 }, "inviter_id": code.map(|_| "102") })
+                })
+                .collect();
+            ok(json!({ "guild_id": g, "members": list, "page_result_count": list.len(), "total_result_count": list.len() }))
+        }
+        ("GET", ["api", "v9", "guilds", "1001", "onboarding"]) => ok(json!({
+            "guild_id": "1001", "enabled": true, "mode": 0, "default_channel_ids": ["2100"], "responses": ["7101"],
+            "prompts": [{ "id": "7001", "title": "What do you play?", "single_select": false, "required": false, "in_onboarding": true, "type": 0, "options": [
+                { "id": "7101", "title": "Shooters", "description": "", "emoji": { "id": null, "name": "🎯" }, "role_ids": [], "channel_ids": ["2101"] },
+                { "id": "7102", "title": "Puzzles", "description": "", "emoji": { "id": null, "name": "🧩" }, "role_ids": [], "channel_ids": [] },
+            ] }],
+        })),
+        ("PUT", ["api", "v9", "guilds", _, "onboarding-responses"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", _, "prune"]) => ok(json!({ "pruned": 2 })),
+        ("GET", ["api", "v9", "guilds", _, "regions"]) => ok(json!([
+            { "id": "us-east", "name": "US East", "optimal": true, "deprecated": false },
+            { "id": "rotterdam", "name": "Rotterdam", "optimal": false, "deprecated": false },
+        ])),
+        ("GET", ["api", "v9", "channels", _, "invites"]) => ok(json!([
+            { "code": "e2eInv1", "uses": 3, "max_uses": 0, "expires_at": null, "inviter": user(102) },
+        ])),
+        ("GET", ["api", "v9", "channels", _, "webhooks"]) => ok(json!([])),
+        // a channel as its settings page asks for it, with what was saved over it
+        ("GET", ["api", "v9", "channels", ch]) => match channel(w, ch) {
+            Some(c) => ok(c),
+            None => (404, "text/plain", b"not found".to_vec()),
+        },
+        ("PATCH", ["api", "v9", "channels", ch]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let Some(mut c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
+            for (k, v) in b.as_object().into_iter().flatten() {
+                c[k] = v.clone();
+            }
+            let mut w = w.lock().unwrap();
+            w.edits.insert(ch.to_string(), c.clone());
+            let _ = w.events.send(json!({ "t": "CHANNEL_UPDATE", "d": c.clone() }));
+            ok(c)
+        }
+        ("DELETE", ["api", "v9", "channels", ch]) => {
+            let Some(c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
+            let mut w = w.lock().unwrap();
+            w.gone.push(ch.to_string());
+            let _ = w.events.send(json!({ "t": "CHANNEL_DELETE", "d": c.clone() }));
+            ok(c)
+        }
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
@@ -993,8 +1087,14 @@ async fn ws_conn(s: TcpStream, w: W) {
                         vec![]
                     }
                     Some(2) => {
-                        // a fresh session isn't in a call, whatever the last client left behind
-                        w.lock().unwrap().voice_chan = None;
+                        // a fresh session isn't in a call, whatever the last client left behind, and
+                        // finds the channels READY lists as they were
+                        {
+                            let mut w = w.lock().unwrap();
+                            w.voice_chan = None;
+                            w.edits.clear();
+                            w.gone.clear();
+                        }
                         let last = w.lock().unwrap().msgs.last().map(|m| m["id"].as_str().unwrap().parse::<u64>().unwrap()).unwrap_or(0);
                         vec![
                             ("READY".into(), ready(last)),
@@ -1064,7 +1164,7 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     let endpoint = format!("ws://127.0.0.1:{}", wl.voice_port);
     // Alice is always on camera and streaming her screen, so there's something to watch
     let mut alice = json!({ "guild_id": guild.map(|g| g.to_string()), "channel_id": ch.to_string(), "user_id": SPEAKER.to_string(),
-        "session_id": "other", "self_mute": false, "self_deaf": false, "self_video": true, "self_stream": true });
+        "session_id": "other", "self_mute": false, "self_deaf": false, "mute": guild.is_some(), "deaf": false, "self_video": true, "self_stream": true });
     match guild {
         Some(g) => {
             let mut am = member(SPEAKER);
@@ -1582,6 +1682,8 @@ async fn main() {
         voice_chan: None,
         voices: Vec::new(),
         saved: Vec::new(),
+        edits: Default::default(),
+        gone: Vec::new(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");

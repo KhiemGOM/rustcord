@@ -28,6 +28,7 @@ enum Kind {
     Gif,
     Webp,
     Mp4,
+    Apng,
 }
 
 fn kind(b: &[u8]) -> Option<Kind> {
@@ -37,6 +38,9 @@ fn kind(b: &[u8]) -> Option<Kind> {
         Some(Kind::Webp)
     } else if crate::mp4::is_mp4(b) {
         Some(Kind::Mp4)
+    } else if b.starts_with(&[0x89, b'P', b'N', b'G']) && b[..b.len().min(4096)].windows(4).any(|w| w == b"acTL") {
+        // an animated png says so in a chunk ahead of its image data
+        Some(Kind::Apng)
     } else {
         None
     }
@@ -75,6 +79,7 @@ fn decode(kind: Kind, data: &[u8]) -> Result<(Anim, Vec<Duration>), String> {
         Kind::Gif => collect(image::codecs::gif::GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames())?,
         Kind::Webp => collect(image::codecs::webp::WebPDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames())?,
         Kind::Mp4 => crate::mp4::frames(data, BUDGET)?.into_iter().map(|(img, d)| (Arc::new(img), d)).unzip(),
+        Kind::Apng => collect(image::codecs::png::PngDecoder::new(Cursor::new(data)).and_then(|d| d.apng()).map_err(|e| e.to_string())?.into_frames())?,
     };
     if frames.is_empty() {
         return Err("no frames".into());
