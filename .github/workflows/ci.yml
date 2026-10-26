@@ -55,7 +55,7 @@ jobs:
           Get-CimInstance Win32_VideoController | Format-List Name, VideoModeDescription, CurrentHorizontalResolution, CurrentVerticalResolution
           Add-Type -AssemblyName System.Windows.Forms
           [Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds)" }
-          $dev = '\.\DISPLAY1'
+          $dev = '\\.\DISPLAY1'
           $dm0 = New-Object DEVMODE
           $dm0.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm0)
           "dmSize=$($dm0.dmSize) cur=$([Disp]::EnumDisplaySettings($dev, -1, [ref]$dm0)) $($dm0.dmPelsWidth)x$($dm0.dmPelsHeight)"
