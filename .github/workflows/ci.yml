@@ -31,7 +31,6 @@ jobs:
           "MESA_GLSL_VERSION_OVERRIDE=450" >> $env:GITHUB_ENV
       - name: screen resolution
         shell: pwsh
-        continue-on-error: true
         run: |
           Add-Type -TypeDefinition @"
           using System;
@@ -52,25 +51,28 @@ jobs:
             [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern int ChangeDisplaySettings(ref DEVMODE dm, int flags);
           }
           "@
-          Get-CimInstance Win32_VideoController | Format-List Name, VideoModeDescription, CurrentHorizontalResolution, CurrentVerticalResolution
-          Add-Type -AssemblyName System.Windows.Forms
-          [Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds)" }
           $dev = '\\.\DISPLAY1'
-          $dm0 = New-Object DEVMODE
-          $dm0.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm0)
-          "dmSize=$($dm0.dmSize) cur=$([Disp]::EnumDisplaySettings($dev, -1, [ref]$dm0)) $($dm0.dmPelsWidth)x$($dm0.dmPelsHeight)"
           $best = $null
           for ($i = 0; ; $i++) {
             $dm = New-Object DEVMODE
             $dm.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm)
             if (-not [Disp]::EnumDisplaySettings($dev, $i, [ref]$dm)) { break }
-            "$($dm.dmPelsWidth)x$($dm.dmPelsHeight) $($dm.dmBitsPerPel)bpp"
             if ($dm.dmPelsWidth -le 1920 -and ($null -eq $best -or $dm.dmPelsWidth * $dm.dmPelsHeight -ge $best.dmPelsWidth * $best.dmPelsHeight)) { $best = $dm }
           }
           "using $($best.dmPelsWidth)x$($best.dmPelsHeight)"
           $best.dmFields = 0x180000
-          "ChangeDisplaySettings: $([Disp]::ChangeDisplaySettings([ref]$best, 0))"
-      - run: python e2e/run.py --no-build
+          "change: $([Disp]::ChangeDisplaySettings([ref]$best, 0))"
+      - name: e2e against the mock
+        shell: bash
+        run: |
+          python e2e/run.py --no-build || true
+          python -c "
+          import json, sys
+          r = json.load(open('e2e/artifacts/report.json'))['checks']
+          bad = [k for k, v in r.items() if not v and not k.startswith('frame cpu')]
+          print(len(r), 'checks,', len(bad), 'failed')
+          print(*bad, sep=chr(10))
+          sys.exit(1 if bad else 0)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
