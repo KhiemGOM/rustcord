@@ -29,18 +29,39 @@ jobs:
           "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
           "MESA_GL_VERSION_OVERRIDE=4.5" >> $env:GITHUB_ENV
           "MESA_GLSL_VERSION_OVERRIDE=450" >> $env:GITHUB_ENV
-      - name: diag
+      - name: screen resolution
         shell: pwsh
-        continue-on-error: true
         run: |
-          $env:FASTCORD_E2E = "$PWD/diag"; $env:FASTCORD_DATA = "$PWD/diagdata"; $env:FASTCORD_FAKE_MIC=1; $env:FASTCORD_FAKE_CAM=1; $env:FASTCORD_SILENT=1; $env:RUST_BACKTRACE=1
-          New-Item -ItemType Directory -Force diag | Out-Null
-          Get-ChildItem target/release/*.dll | Select -Expand Name
-          $p = Start-Process target/release/fastcord.exe -PassThru -NoNewWindow -RedirectStandardError err.txt -RedirectStandardOutput out.txt
-          $p.WaitForExit(20000) | Out-Null
-          "exited=$($p.HasExited) code=$($p.ExitCode)"
-          Get-Content err.txt, out.txt
-          Get-ChildItem diag
+          Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+          [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+          public struct DEVMODE {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+            public short dmSpecVersion; public short dmDriverVersion; public short dmSize; public short dmDriverExtra;
+            public int dmFields; public int dmPositionX; public int dmPositionY; public int dmDisplayOrientation; public int dmDisplayFixedOutput;
+            public short dmColor; public short dmDuplex; public short dmYResolution; public short dmTTOption; public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+            public short dmLogPixels; public int dmBitsPerPel; public int dmPelsWidth; public int dmPelsHeight;
+            public int dmDisplayFlags; public int dmDisplayFrequency;
+            public int dmICMMethod; public int dmICMIntent; public int dmMediaType; public int dmDitherType; public int dmReserved1; public int dmReserved2; public int dmPanningWidth; public int dmPanningHeight;
+          }
+          public static class Disp {
+            [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern bool EnumDisplaySettings(string dev, int mode, ref DEVMODE dm);
+            [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern int ChangeDisplaySettings(ref DEVMODE dm, int flags);
+          }
+          "@
+          $best = $null
+          for ($i = 0; ; $i++) {
+            $dm = New-Object DEVMODE
+            $dm.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm)
+            if (-not [Disp]::EnumDisplaySettings($null, $i, [ref]$dm)) { break }
+            "$($dm.dmPelsWidth)x$($dm.dmPelsHeight) $($dm.dmBitsPerPel)bpp"
+            if ($dm.dmPelsWidth -le 1920 -and ($null -eq $best -or $dm.dmPelsWidth * $dm.dmPelsHeight -ge $best.dmPelsWidth * $best.dmPelsHeight)) { $best = $dm }
+          }
+          "using $($best.dmPelsWidth)x$($best.dmPelsHeight)"
+          $best.dmFields = 0x180000
+          "ChangeDisplaySettings: $([Disp]::ChangeDisplaySettings([ref]$best, 0))"
       - run: python e2e/run.py --no-build
       - uses: actions/upload-artifact@v4
         if: always()
