@@ -13,6 +13,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -27,6 +29,18 @@ jobs:
           "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
           "MESA_GL_VERSION_OVERRIDE=4.5" >> $env:GITHUB_ENV
           "MESA_GLSL_VERSION_OVERRIDE=450" >> $env:GITHUB_ENV
+      - name: diag
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:FASTCORD_E2E = "$PWD/diag"; $env:FASTCORD_DATA = "$PWD/diagdata"; $env:FASTCORD_FAKE_MIC=1; $env:FASTCORD_FAKE_CAM=1; $env:FASTCORD_SILENT=1; $env:RUST_BACKTRACE=1
+          New-Item -ItemType Directory -Force diag | Out-Null
+          Get-ChildItem target/release/*.dll | Select -Expand Name
+          $p = Start-Process target/release/fastcord.exe -PassThru -NoNewWindow -RedirectStandardError err.txt -RedirectStandardOutput out.txt
+          $p.WaitForExit(20000) | Out-Null
+          "exited=$($p.HasExited) code=$($p.ExitCode)"
+          Get-Content err.txt, out.txt
+          Get-ChildItem diag
       - run: python e2e/run.py --no-build
       - uses: actions/upload-artifact@v4
         if: always()
