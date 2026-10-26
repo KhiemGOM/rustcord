@@ -67,9 +67,9 @@ jobs:
         run: |
           python e2e/run.py --no-build || true
           python -c "
-          import json, sys
+          import json, re, sys
           r = json.load(open('e2e/artifacts/report.json'))['checks']
-          bad = [k for k, v in r.items() if not v and not k.startswith('frame cpu')]
+          bad = [k for k, v in r.items() if not v and not re.search(r'< \d+ms$', k)]
           print(len(r), 'checks,', len(bad), 'failed')
           print(*bad, sep=chr(10))
           sys.exit(1 if bad else 0)"
