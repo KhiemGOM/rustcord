@@ -17,6 +17,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: cargo build --locked --release --bin fastcord --example mockcord
+      - name: software opengl (mesa llvmpipe)
+        shell: pwsh
+        run: |
+          curl.exe -fsSL -o mesa.7z https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
+          7z x mesa.7z -omesa -y | Out-Null
+          Copy-Item mesa/x64/*.dll target/release/
+          Copy-Item mesa/x64/*.dll target/release/examples/
+          "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
+          "MESA_GL_VERSION_OVERRIDE=4.5" >> $env:GITHUB_ENV
+          "MESA_GLSL_VERSION_OVERRIDE=450" >> $env:GITHUB_ENV
       - run: python e2e/run.py --no-build
       - uses: actions/upload-artifact@v4
         if: always()
