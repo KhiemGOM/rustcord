@@ -31,6 +31,7 @@ jobs:
           "MESA_GLSL_VERSION_OVERRIDE=450" >> $env:GITHUB_ENV
       - name: screen resolution
         shell: pwsh
+        continue-on-error: true
         run: |
           Add-Type -TypeDefinition @"
           using System;
@@ -51,6 +52,12 @@ jobs:
             [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern int ChangeDisplaySettings(ref DEVMODE dm, int flags);
           }
           "@
+          Get-CimInstance Win32_VideoController | Format-List Name, VideoModeDescription, CurrentHorizontalResolution, CurrentVerticalResolution
+          Add-Type -AssemblyName System.Windows.Forms
+          [Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds)" }
+          $dm0 = New-Object DEVMODE
+          $dm0.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm0)
+          "dmSize=$($dm0.dmSize) cur=$([Disp]::EnumDisplaySettings($null, -1, [ref]$dm0)) $($dm0.dmPelsWidth)x$($dm0.dmPelsHeight)"
           $best = $null
           for ($i = 0; ; $i++) {
             $dm = New-Object DEVMODE
