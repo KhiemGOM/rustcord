@@ -55,14 +55,15 @@ jobs:
           Get-CimInstance Win32_VideoController | Format-List Name, VideoModeDescription, CurrentHorizontalResolution, CurrentVerticalResolution
           Add-Type -AssemblyName System.Windows.Forms
           [Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds)" }
+          $dev = '\.\DISPLAY1'
           $dm0 = New-Object DEVMODE
           $dm0.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm0)
-          "dmSize=$($dm0.dmSize) cur=$([Disp]::EnumDisplaySettings($null, -1, [ref]$dm0)) $($dm0.dmPelsWidth)x$($dm0.dmPelsHeight)"
+          "dmSize=$($dm0.dmSize) cur=$([Disp]::EnumDisplaySettings($dev, -1, [ref]$dm0)) $($dm0.dmPelsWidth)x$($dm0.dmPelsHeight)"
           $best = $null
           for ($i = 0; ; $i++) {
             $dm = New-Object DEVMODE
             $dm.dmSize = [int][Runtime.InteropServices.Marshal]::SizeOf($dm)
-            if (-not [Disp]::EnumDisplaySettings($null, $i, [ref]$dm)) { break }
+            if (-not [Disp]::EnumDisplaySettings($dev, $i, [ref]$dm)) { break }
             "$($dm.dmPelsWidth)x$($dm.dmPelsHeight) $($dm.dmBitsPerPel)bpp"
             if ($dm.dmPelsWidth -le 1920 -and ($null -eq $best -or $dm.dmPelsWidth * $dm.dmPelsHeight -ge $best.dmPelsWidth * $best.dmPelsHeight)) { $best = $dm }
           }
