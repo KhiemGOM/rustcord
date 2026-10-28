@@ -15,6 +15,7 @@ pub mod icons;
 mod keys;
 mod login;
 mod members;
+mod oneko;
 mod palette;
 mod picker;
 mod plugs;
@@ -1523,6 +1524,7 @@ impl eframe::App for App {
         self.pump(&ctx);
         self.os_settings(&ctx, frame);
         self.plugin_tick(&ctx);
+        oneko::show(&ctx);
         let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
         if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {
             self.cjk_loaded = want_cjk;
