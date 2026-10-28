@@ -127,7 +127,7 @@ pub struct Gif {
 
 impl App {
     pub fn open_gifs(&mut self, at: Pos2) {
-        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: false });
+        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: crate::plugins::on("BetterGifPicker") });
         self.rest("GET", format!("/gifs/trending?{GIF_Q}"), None, Tag::GifCats);
     }
 
@@ -338,7 +338,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
         app.gifs = None;
         if let Some(ch) = app.cur() {
             // shift+click puts the link in the composer instead of sending it
-            if ctx.input(|i| i.modifiers.shift) {
+            if ctx.input(|i| i.modifiers.shift) || crate::plugins::on("GifPaste") {
                 let d = app.drafts.entry(ch).or_default();
                 if !d.is_empty() && !d.ends_with(' ') {
                     d.push(' ');
@@ -2588,6 +2588,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
 /// in, else that it's from one you can't see.
 fn emoji_pop(app: &mut App, ctx: &egui::Context) {
     let Some((id, name, animated, at)) = app.emoji_pop.clone() else { return };
+    let mut dismiss = false;
     let from = app.store.guilds.values().find(|g| g.emojis.iter().any(|e| e.id == id)).map(|g| (g.name.clone(), g.icon_url()));
     let area = egui::Area::new(egui::Id::new("emoji_pop")).order(egui::Order::Foreground).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
@@ -2611,10 +2612,22 @@ fn emoji_pop(app: &mut App, ctx: &egui::Context) {
                     }
                 });
             });
+            let link = |ui: &mut Ui, label: &str| ui.add(egui::Label::new(RichText::new(label).font(medium(14.0)).color(pal().link)).sense(Sense::click())).clicked();
+            if crate::plugins::on("CopyEmojiMarkdown") || crate::plugins::on("ExpressionCloner") {
+                ui.add_space(12.0);
+            }
+            if crate::plugins::on("CopyEmojiMarkdown") && link(ui, "Copy Emoji Markdown") {
+                ctx.copy_text(super::expr::emoji_markdown(id, &name, animated));
+                dismiss = true;
+            }
+            if crate::plugins::on("ExpressionCloner") && link(ui, "Clone Emoji") {
+                super::expr::ask(ctx, super::expr::Cloning::Emoji(id, name.clone(), animated));
+                dismiss = true;
+            }
         });
     });
     app.rects.insert("emoji_pop".into(), area.response.rect);
-    if dismissed(ctx, &area.response) {
+    if dismiss || dismissed(ctx, &area.response) {
         app.emoji_pop = None;
     }
 }

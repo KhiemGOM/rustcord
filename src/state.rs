@@ -979,6 +979,8 @@ pub struct Store {
     #[serde(skip)]
     pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
     #[serde(skip)]
+    pub spotify: Option<String>,
+    #[serde(skip)]
     pub typing: HashMap<Id, Vec<(Id, Instant)>>,
     // the activity feed, best first, and application icons by id (None once looked up and missing)
     #[serde(skip)]
@@ -1313,6 +1315,9 @@ impl Store {
     }
 
     fn set_activities(&mut self, uid: Id, v: &Value) {
+        if uid == self.me {
+            self.spotify = v.as_array().into_iter().flatten().find(|a| a["name"] == "Spotify").and_then(|a| a["sync_id"].as_str()).map(str::to_string);
+        }
         let list: Vec<_> = v
             .as_array()
             .into_iter()

@@ -19,6 +19,7 @@ use crate::theme::*;
 enum Act {
     Reply(Id),
     Edit(Id),
+    AddFiles(Id),
     Delete(Id),
     React(Id, ReactEmoji, bool),
     Picker(Id, Pos2),
@@ -739,7 +740,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Reply(id) => {
                 app.reply = Some(id);
                 // shift+click replies without the ping; your own messages never ping
-                app.reply_ping = !shift && app.store.find_msg(ch, id).is_some_and(|m| m.author != app.store.me);
+                app.reply_ping = super::outgoing::ping(app, ch, id, shift);
                 app.focus_composer = true;
             }
             Act::Edit(id) => {
@@ -747,6 +748,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     app.editing = Some((id, m.content.clone()));
                 }
             }
+            Act::AddFiles(id) => super::outgoing::add_files(app, ch, id),
             Act::Delete(id) => app.delete_msg(ch, id, !shift),
             Act::Pin(id) => app.pin_msg(ch, id, !shift),
             Act::Bookmark(id) => app.bookmark(ch, id),
@@ -885,7 +887,7 @@ fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
     match letter.as_ref().map(|t| t.to_lowercase()).as_deref() {
         Some("r") => {
             app.reply = Some(id);
-            app.reply_ping = !own;
+            app.reply_ping = super::outgoing::ping(app, ch, id, false);
             app.focus_msg = None;
             app.focus_composer = true;
         }
@@ -1187,6 +1189,12 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 let url = format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160");
                 media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
             }
+        }
+        if let Some(t) = super::outgoing::translation(d.ctx, m.id) {
+            cui.add_space(acc);
+            acc = 4.0;
+            cui.label(RichText::new(t).font(reg(15.0)).color(pal().text_normal));
+            cui.label(RichText::new("Translated").font(reg(12.0)).color(pal().text_muted));
         }
         let embeds = if d.embeds && !hide { m.embeds.as_slice() } else { &[] };
         for (i, e) in embeds.iter().enumerate() {
@@ -1781,6 +1789,7 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
         if super::menu_item(ui, None, "Open Link", false) {
             d.acts.push(Act::Url(full.to_string()));
         }
+        super::expr::image_menu(ui, full);
     });
     ui.painter().rect_filled(rect, CornerRadius::same(8), pal().bg_secondary);
     let blur = d.nsfw && !resp.hovered();
@@ -2696,6 +2705,12 @@ fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
         if ui.add(Label::new(small("save", pal().link)).sense(Sense::click())).clicked() {
             d.acts.push(Act::SaveEdit(id, text.clone()));
         }
+        if crate::plugins::on("AddAttachments") {
+            ui.label(small("• or", pal().text_normal));
+            if ui.add(Label::new(small("add attachments", pal().link)).sense(Sense::click())).clicked() {
+                d.acts.push(Act::AddFiles(id));
+            }
+        }
     });
     if enter {
         d.acts.push(Act::SaveEdit(id, text.clone()));
@@ -2725,6 +2740,7 @@ enum MenuPick {
     History,
     Raw,
     Unsuppress,
+    Translate,
 }
 
 pub fn context_menu(app: &mut App, ctx: &egui::Context) {
@@ -2862,6 +2878,9 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if plugins::on("UnsuppressEmbeds") && flags & 4 != 0 && (own || manage) && menu_item(ui, Some(Icon::Image), "Unsuppress Embeds", false) {
             pick = Some(MenuPick::Unsuppress);
         }
+        if plugins::on("Translate") && menu_item(ui, Some(Icon::SideLanguage), "Translate", false) {
+            pick = Some(MenuPick::Translate);
+        }
         menu_sep(ui);
         if manage && chan.guild != 0 && reacted && menu_item(ui, None, "Remove All Reactions", true) {
             pick = Some(MenuPick::ClearReactions);
@@ -2902,7 +2921,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(MenuPick::Edit) => app.editing = Some((id, content)),
         Some(MenuPick::Reply) => {
             app.reply = Some(id);
-            app.reply_ping = !shift && !own;
+            app.reply_ping = super::outgoing::ping(app, ch, id, shift);
             app.focus_composer = true;
         }
         Some(MenuPick::Forward) => app.forward = Some(super::popups::Forward::new(ch, id)),
@@ -2915,6 +2934,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(MenuPick::Unread) => app.mark_unread(ch, id),
         Some(MenuPick::Link) => ctx.copy_text(app.message_link(ch, id)),
         Some(MenuPick::Speak) => app.speak(ch, id),
+        Some(MenuPick::Translate) => super::outgoing::translate(app, content, "received", super::outgoing::Task::Message(id)),
         Some(MenuPick::ClearReactions) => app.clear_reactions(ch, id, !shift),
         Some(MenuPick::Delete) => app.delete_msg(ch, id, !shift),
         // reporting has no flow of its own here; discord's web client handles it
