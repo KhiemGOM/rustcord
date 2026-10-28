@@ -203,6 +203,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let guild = app.ui.guild.unwrap_or(0);
     let mut servers: Vec<(Id, String, Option<String>, Vec<(Emoji, bool)>)> = Vec::new();
     for (g, e, ok) in app.store.emojis_for(guild) {
+        let ok = ok || (composer && super::outgoing::bypass_emoji());
         match servers.last_mut() {
             Some((id, _, _, list)) if *id == g.id => list.push((e.clone(), ok)),
             _ => servers.push((g.id, g.name.clone(), g.icon_url(), vec![(e.clone(), ok)])),
@@ -531,15 +532,25 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let mut act = None;
         let open = super::float_menu(ctx, "picker_menu", at, |ui| {
             if super::menu_item(ui, Some(super::icons::Icon::Star), if fav { "Unfavorite Emoji" } else { "Favorite Emoji" }, false) {
-                act = Some(true);
+                act = Some(1);
             }
             if em.id != 0 && super::menu_item(ui, Some(super::icons::Icon::Id), "Copy Emoji ID", false) {
-                act = Some(false);
+                act = Some(2);
+            }
+            if crate::plugins::on("CopyEmojiMarkdown") && super::menu_item(ui, Some(super::icons::Icon::Copy), "Copy Emoji Markdown", false) {
+                act = Some(3);
+            }
+            if em.id != 0 && crate::plugins::on("ExpressionCloner") && super::menu_item(ui, Some(super::icons::Icon::Copy), "Clone Emoji", false) {
+                act = Some(4);
             }
         });
         match act {
-            Some(true) => toggle_fav(app, ctx, em),
-            Some(false) => ctx.copy_text(em.id.to_string()),
+            Some(1) => toggle_fav(app, ctx, em),
+            Some(2) => ctx.copy_text(em.id.to_string()),
+            Some(3) if em.id != 0 => ctx.copy_text(super::expr::emoji_markdown(em.id, &em.name, em.animated)),
+            Some(3) if crate::plugins::flag("CopyEmojiMarkdown", "copyUnicode") => ctx.copy_text(em.name.clone()),
+            Some(3) => ctx.copy_text(format!(":{}:", emojis::get(&em.name).and_then(|x| x.shortcode()).unwrap_or(&em.name))),
+            Some(_) => super::expr::ask(ctx, super::expr::Cloning::Emoji(em.id, em.name.clone(), em.animated)),
             None => {}
         }
         if act.is_some() || !open {
@@ -718,7 +729,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let groups: Vec<(String, Option<String>, Vec<(Id, String, u8)>, bool)> = order
         .filter_map(|g| app.store.guilds.get(&g))
         .filter(|g| !g.stickers.is_empty())
-        .map(|g| (g.name.clone(), g.icon_url(), g.stickers.clone(), nitro || g.id == here))
+        .map(|g| (g.name.clone(), g.icon_url(), g.stickers.clone(), nitro || g.id == here || super::outgoing::bypass_sticker()))
         .collect();
     let qid = egui::Id::new("sticker_q");
     let jump_id = egui::Id::new("sticker_jump");
@@ -733,6 +744,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let find = |id: Id| groups.iter().find_map(|(name, icon, l, ok)| l.iter().find(|s| s.0 == id).map(|s| (s.clone(), name.clone(), icon.clone(), *ok)));
     let recent: Vec<_> = if ql.is_empty() { app.ui.frequent_stickers.iter().filter_map(|id| find(*id)).filter(|s| s.3).collect() } else { Vec::new() };
     let mut chosen = None;
+    let mut menu_at: Option<((Id, String, u8), Pos2)> = None;
     let mut go = None;
     let mut hovered: Option<((Id, String, u8), String)> = None;
     let url = |id: &Id, fmt: u8| format!("https://media.discordapp.net/stickers/{id}.{}?size=160", if fmt == 4 { "gif" } else { "png" });
@@ -817,8 +829,11 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                                     Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), true)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                                 }
                                 let resp = resp.on_hover_text(if *ok { st.1.clone() } else { format!("{} needs Nitro here", st.1) });
+                                if resp.secondary_clicked() && super::expr::has_sticker_menu() {
+                                    menu_at = Some((st.clone(), resp.interact_pointer_pos().unwrap_or(r.center())));
+                                }
                                 if resp.clicked() && *ok {
-                                    chosen = Some(st.0);
+                                    chosen = Some(st.clone());
                                 }
                             }
                         });
@@ -852,9 +867,44 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         toggle(app, t);
         return;
     }
-    if let Some(id) = chosen {
+    let menu_id = egui::Id::new("sticker_menu");
+    if let Some(m) = menu_at {
+        ctx.data_mut(|d| d.insert_temp(menu_id, m));
+    }
+    if let Some(((id, name, fmt), at)) = ctx.data(|d| d.get_temp::<((Id, String, u8), Pos2)>(menu_id)) {
+        let mut used = false;
+        let open = super::float_menu(ctx, "sticker_menu", at, |ui| used = super::expr::sticker_menu(ui, id, &name, fmt));
+        if used || !open {
+            ctx.data_mut(|d| d.remove::<((Id, String, u8), Pos2)>(menu_id));
+        }
+        return;
+    }
+    if let Some((id, name, fmt)) = chosen {
+        let real = nitro || app.store.guilds.get(&here).is_some_and(|g| g.stickers.iter().any(|s| s.0 == id));
+        let paste = crate::plugins::on("StickerPaste");
+        if !real {
+            let d = app.drafts.entry(ch).or_default();
+            if !d.is_empty() && !d.ends_with(' ') {
+                d.push(' ');
+            }
+            d.push_str(&super::outgoing::sticker_link(id, &name, fmt));
+            app.stickers = None;
+            if paste {
+                app.focus_composer = true;
+                app.caret_end = true;
+            } else {
+                app.send_message(ch);
+            }
+            return;
+        }
+        if paste {
+            app.plug.sticker = Some((id, name, fmt));
+            app.stickers = None;
+            app.focus_composer = true;
+            return;
+        }
         let nonce = crate::state::make_nonce();
-        app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id], tts: false });
+        app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id], tts: false, silent: false });
         app.jump_to_present(ch);
         app.ui.frequent_stickers.retain(|s| *s != id);
         app.ui.frequent_stickers.insert(0, id);

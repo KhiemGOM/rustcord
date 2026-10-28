@@ -458,7 +458,11 @@ fn inline(b: &mut B, s: &str, st: St) {
             b.text(&s[plain..i], st);
             let url = &rest[..n];
             let v = view();
-            if v.hide_invites && is_invite(url) {
+            if let Some((id, name, animated)) = crate::ui::fake_emoji(url) {
+                let start = b.chars;
+                b.emoji(emoji_url(id, animated), st, None);
+                b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
+            } else if v.hide_invites && is_invite(url) {
                 // streamer mode: never show an invite code on stream
                 let mut s2 = st;
                 s2.color = pal().text_muted;
@@ -474,6 +478,12 @@ fn inline(b: &mut B, s: &str, st: St) {
         } else if rest.starts_with('[') {
             masked(rest).map(|(n, text, url)| {
                 b.text(&s[plain..i], st);
+                if let Some((id, name, animated)) = crate::ui::fake_emoji(url) {
+                    let start = b.chars;
+                    b.emoji(emoji_url(id, animated), st, None);
+                    b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
+                    return n;
+                }
                 let mut s2 = st;
                 s2.color = pal().link;
                 s2.under |= view().underline_links;
