@@ -1384,6 +1384,10 @@ fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
             Some(r) if r.grad.len() >= 2 => (grad_ink(r), None),
             _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), None),
         },
+        NextToNames if crate::plugins::flag("BetterRoleDot", "bothStyles") => match role {
+            Some(r) if r.grad.len() >= 2 => (grad_ink(r), solid),
+            _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), solid),
+        },
         NextToNames => (Ink::flat(pal().header_primary), solid),
         Hidden => (Ink::flat(pal().header_primary), None),
     }
@@ -1414,6 +1418,11 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     let mut x = name_rect.right() + 4.0;
     if let Some(c) = dot {
         ui.painter().circle_filled(pos2(x + 5.0, row.center().y), 5.0, c);
+        if crate::plugins::on("BetterRoleDot")
+            && ui.interact(Rect::from_center_size(pos2(x + 5.0, row.center().y), vec2(14.0, 14.0)), ui.id().with(("role_dot", m.id)), Sense::click()).on_hover_text("Copy role color").clicked()
+        {
+            ui.ctx().copy_text(format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
+        }
         x += 14.0;
     }
     let cy = row.center().y;

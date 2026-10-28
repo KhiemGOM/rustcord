@@ -430,6 +430,9 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
                 status_dot(ui, av, st, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary });
             }
             let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), medium(16.0), pal().header_secondary.gamma_multiply(fade), inner.right() - av.right() - 40.0);
+            if crate::plugins::flag("PlatformIndicators", "list") && st != Status::Offline {
+                super::platform::row(ui, store, uid, pos2(inner.right() - 8.0, row.center().y), ui.id().with(("platform", uid)));
+            }
             if chan.owner == uid {
                 let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));

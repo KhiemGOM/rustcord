@@ -1738,6 +1738,10 @@ pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
     let c = pos2(avatar.right() - r * 0.9, avatar.bottom() - r * 0.9);
     ui.painter().circle_filled(c, r + 2.5, ring);
     let col = status_color(s);
+    if crate::plugins::on("ColorSighted") {
+        ui.painter().circle_filled(c, r, col);
+        return;
+    }
     match s {
         Status::Offline => {
             ui.painter().circle_filled(c, r, col);

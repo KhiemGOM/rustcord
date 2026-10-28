@@ -465,6 +465,21 @@ fn roles(app: &mut App, ui: &mut Ui, gid: Id) {
 
 fn invites(app: &mut App, ui: &mut Ui, gid: Id) {
     title(ui, "Invites", "Here's a list of all active invite links. You can revoke any one or create one.");
+    if crate::plugins::on("PauseInvitesForever")
+        && let Some(g) = app.store.guilds.get(&gid)
+    {
+        if g.features.iter().any(|f| f == "INVITES_DISABLED") {
+            ui.label(RichText::new("Invites are paused.").font(medium(14.0)).color(pal().header_secondary));
+            ui.add_space(16.0);
+        } else if app.store.my_perms(gid) & (1 << 28) != 0 {
+            let mut features = g.features.clone();
+            features.push("INVITES_DISABLED".into());
+            if super::grey_button(ui, "Pause Invites Indefinitely", 240.0).clicked() {
+                app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": features })), Tag::Quiet);
+            }
+            ui.add_space(16.0);
+        }
+    }
     let list: Vec<Value> = app.server_data("invites", format!("/guilds/{gid}/invites")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
     for (x, h) in [(8.0, "INVITER"), (0.45, "INVITE CODE"), (0.7, "USES"), (0.85, "EXPIRES")] {
