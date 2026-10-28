@@ -913,6 +913,9 @@ pub const BLOCKED: u8 = 2;
 pub const INCOMING: u8 = 3;
 pub const OUTGOING: u8 = 4;
 
+// who's logged in, for drawing code with no store in reach
+pub static ME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,
@@ -972,9 +975,6 @@ pub struct Store {
     pub refs: HashMap<Id, Message>,
     #[serde(skip)]
     pub presence: HashMap<Id, Status>,
-    // desktop, mobile and web: how each is signed in, from presences
-    #[serde(skip)]
-    pub client_status: HashMap<Id, [Option<Status>; 3]>,
     // what each user is doing, live from presences: (kind, name, state, emoji url)
     #[serde(skip)]
     pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
@@ -982,6 +982,12 @@ pub struct Store {
     pub spotify: Option<String>,
     #[serde(skip)]
     pub typing: HashMap<Id, Vec<(Id, Instant)>>,
+    // the clients each user is on, from presences' client_status: desktop, mobile, web
+    #[serde(skip)]
+    pub clients: HashMap<Id, [Status; 3]>,
+    // when each relationship began, unix seconds
+    #[serde(skip)]
+    pub rel_since: HashMap<Id, i64>,
     // the activity feed, best first, and application icons by id (None once looked up and missing)
     #[serde(skip)]
     pub feed: Vec<FeedEntry>,
@@ -1308,10 +1314,19 @@ impl Store {
     }
 
     fn set_clients(&mut self, uid: Id, v: &Value) {
-        if v.is_object() {
-            let at = |k: &str| v[k].as_str().map(Status::parse);
-            self.client_status.insert(uid, [at("desktop"), at("mobile"), at("web")]);
+        let c = ["desktop", "mobile", "web"].map(|k| v[k].as_str().map_or(Status::Offline, Status::parse));
+        if c.iter().all(|s| *s == Status::Offline) {
+            self.clients.remove(&uid);
+        } else {
+            self.clients.insert(uid, c);
         }
+    }
+
+    fn set_since(&mut self, uid: Id, v: &Value) {
+        match v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
+            Some(t) => self.rel_since.insert(uid, t.timestamp()),
+            None => self.rel_since.remove(&uid),
+        };
     }
 
     fn set_activities(&mut self, uid: Id, v: &Value) {
@@ -1486,6 +1501,7 @@ impl Store {
         self.session = st(&d["session_id"]);
         let me = self.upsert_user(&d["user"]);
         self.me = me;
+        ME.store(me, std::sync::atomic::Ordering::Relaxed);
         for u in d["users"].as_array().into_iter().flatten() {
             self.upsert_user(u);
         }
@@ -1563,6 +1579,7 @@ impl Store {
                 self.upsert_user(&r["user"]);
             }
             self.relationships.insert(uid, r["type"].as_u64().unwrap_or(0) as u8);
+            self.set_since(uid, &r["since"]);
         }
 
         let mut folders: Vec<Folder> = Vec::new();
@@ -2096,6 +2113,7 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.relationships.insert(uid, d["type"].as_u64().unwrap_or(0) as u8);
+                self.set_since(uid, &d["since"]);
             }
             "RELATIONSHIP_REMOVE" => {
                 self.relationships.remove(&sid(&d["id"]));
@@ -2113,8 +2131,8 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.presence.insert(uid, Status::parse(d["status"].as_str().unwrap_or("")));
-                self.set_clients(uid, &d["client_status"]);
                 self.set_activities(uid, &d["activities"]);
+                self.set_clients(uid, &d["client_status"]);
             }
             "VOICE_STATE_UPDATE" => {
                 let gid = sid(&d["guild_id"]);
@@ -2192,8 +2210,8 @@ impl Store {
         self.upsert_member(gid, uid, m);
         if let Some(s) = m["presence"]["status"].as_str() {
             self.presence.insert(uid, Status::parse(s));
-            self.set_clients(uid, &m["presence"]["client_status"]);
             self.set_activities(uid, &m["presence"]["activities"]);
+            self.set_clients(uid, &m["presence"]["client_status"]);
         }
         ListItem::Member(uid)
     }
