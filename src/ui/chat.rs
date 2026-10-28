@@ -52,6 +52,10 @@ enum Act {
     // a custom emoji clicked: its id, name, whether animated, and where
     Emoji(Id, String, bool, Pos2),
     EditChannel,
+    // a plugin's button or menu item, by the action id its host gave it
+    Plugin(String),
+    // a click on a message, for plugins listening for them: the message, whether a double click
+    PluginClick(Id, bool),
 }
 
 struct D<'a> {
@@ -76,6 +80,8 @@ struct D<'a> {
     // the message keyboard focus is on, ringed and kept in view
     focus: Option<Id>,
     bookmarks: &'a HashSet<Id>,
+    // the hovered message's buttons from plugins: (message, [{label, icon, click}])
+    plugin_bar: (Id, serde_json::Value),
 }
 
 fn normal(kind: u8) -> bool {
@@ -554,6 +560,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     let marker = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m);
     let quick = app.quick_reactions();
+    let plugin_bar = app.vc_popover(app.bar.map(|b| b.0));
     let ctx = ui.ctx().clone();
     let mut d = D {
         store: &app.store,
@@ -575,6 +582,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         popout: false,
         focus: app.focus_msg,
         bookmarks: &app.bookmarks,
+        plugin_bar,
     };
     let mut focus_at = None;
     if d.flash.is_some() {
@@ -751,6 +759,11 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::React(id, em, add) => app.react(ch, id, em, add),
             Act::Picker(id, at) => app.picker = Some((Pick::React(ch, id), at)),
             Act::Menu(id, at) => app.menu = Some((ch, id, at)),
+            Act::Plugin(a) => app.vc_act(&a, ui.input(|i| i.modifiers.shift)),
+            Act::PluginClick(id, double) => {
+                let mods = ui.input(|i| i.modifiers);
+                app.vc_click(ch, id, double, mods);
+            }
             Act::Url(u) => app.open_link(ui.ctx(), &u, false),
             Act::Masked(u) => app.open_link(ui.ctx(), &u, true),
             Act::Channel(c) => app.open(c),
@@ -763,12 +776,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let text = app.convert_emoji(guild, text.trim());
                 if text.is_empty() {
                     app.delete_msg(ch, id, true);
-                } else if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
-                    if m.content != text {
-                        m.content = text.clone();
-                        m.edited = true;
-                        app.net.send(Cmd::Edit { channel: ch, id, content: text });
-                    }
+                } else {
+                    app.vc_edit(ch, id, text);
                 }
                 app.focus_composer = true;
             }
@@ -1277,6 +1286,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         // alt+click marks unread from this message on, a long-standing discord shortcut
         if ui.input(|i| i.pointer.primary_clicked() && i.modifiers.alt) {
             d.acts.push(Act::MarkUnread(m.id));
+        }
+        if !d.popout && ui.input(|i| i.pointer.primary_clicked()) {
+            d.acts.push(Act::PluginClick(m.id, ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))));
         }
         action_bar(d, m, row);
         if ui.input(|i| i.pointer.secondary_clicked())
@@ -2371,7 +2383,8 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
     }
     // discord's bar: three one-click reactions, a rule, then react, edit (own), reply, forward, more
     let quick: Vec<ReactEmoji> = d.quick.iter().take(3).cloned().collect();
-    let n = quick.len() as f32 + if own { 5.0 } else { 4.0 };
+    let plugins: Vec<serde_json::Value> = if d.plugin_bar.0 == m.id { d.plugin_bar.1.as_array().cloned().unwrap_or_default() } else { Vec::new() };
+    let n = quick.len() as f32 + if own { 5.0 } else { 4.0 } + plugins.len() as f32;
     let size = vec2(n * 32.0 + 9.0 + 2.0, 34.0);
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
     let rect = Rect::from_min_size(pos, size);
@@ -2416,6 +2429,12 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
                         }
                         if icon_button(ui, Icon::Forward, 32.0, "Forward").clicked() {
                             d.acts.push(Act::Forward(m.id));
+                        }
+                        for b in &plugins {
+                            let r = super::vencord::icon_button(ui, b["icon"].as_str(), b["label"].as_str().unwrap_or(""));
+                            if let (true, Some(a)) = (r.clicked(), b["click"].as_str()) {
+                                d.acts.push(Act::Plugin(a.to_string()));
+                            }
                         }
                         let more = icon_button(ui, Icon::More, 32.0, "More");
                         if more.clicked() {
@@ -2564,6 +2583,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     let pinned = m.pinned;
     let reacted = !m.reactions.is_empty();
     let has_thread = m.thread.is_some();
+    let plugin_msg = crate::vencord::message(&app.store, m);
     let dev = app.settings.dev;
     let mut frequent: Vec<ReactEmoji> = app.ui.quick.clone();
     for n in ["✅", "❤️", "🔥", "😂", "👍", "😭", "💀", "👀", "🙏", "😊"] {
@@ -2582,6 +2602,8 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     app.ensure_commands(&chan);
     let scope = if chan.guild != 0 { chan.guild } else { ch };
     let apps: Vec<serde_json::Value> = app.commands.get(&scope).map(|c| c.list.iter().filter(|c| c["type"].as_u64() == Some(3)).cloned().collect()).unwrap_or_default();
+    let plugin_items = app.vc_menu(format!("message:{id}"), serde_json::json!({ "nav": "message", "message": plugin_msg, "channel": ch.to_string(), "guild": (chan.guild != 0).then(|| chan.guild.to_string()) }));
+    let mut plugin_pick = None;
     let mut pick = None;
     let mut react = None;
     let mut swap = None;
@@ -2690,6 +2712,10 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if !own && menu_item(ui, Some(Icon::Flag), "Report Message", true) {
             pick = Some(MenuPick::Report);
         }
+        if plugin_items.as_array().is_some_and(|a| !a.is_empty()) {
+            menu_sep(ui);
+            plugin_pick = super::vencord::menu_items(ui, &plugin_items);
+        }
         if dev {
             menu_sep(ui);
             if menu_item(ui, Some(Icon::Id), "Copy Message ID", false) {
@@ -2711,6 +2737,11 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         return;
     }
     let shift = ctx.input(|i| i.modifiers.shift);
+    if let Some(a) = plugin_pick {
+        app.vc_act(&a, shift);
+        app.menu = None;
+        return;
+    }
     let picked = pick.is_some();
     match pick {
         Some(MenuPick::React) => app.picker = Some((Pick::React(ch, id), at)),
@@ -2770,6 +2801,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         popout: true,
         focus: None,
         bookmarks: &none,
+        plugin_bar: (0, serde_json::Value::Null),
     };
     // discord's cards: a raised fill and a hairline, the reply it answers above the author
     let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {

@@ -38,6 +38,8 @@ pub enum Ev {
 /// What a generic REST reply is for, so the UI knows where to put it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tag {
+    // a vencord plugin's RestAPI request, by its id
+    Vencord(u32),
     Pins(Id),
     Search(Id),
     Profile(Id),

@@ -179,7 +179,7 @@ const items = (scope, nodes) => nodes.flatMap(n => {
     }
 });
 
-const event = (o = {}) => ({ preventDefault() {}, stopPropagation() {}, persist() {}, shiftKey: !!o.shift, ctrlKey: !!o.ctrl, altKey: !!o.alt, metaKey: false, button: o.button ?? 0, currentTarget: document.body, target: document.body, clientX: 0, clientY: 0 });
+const event = (o = {}) => ({ preventDefault() {}, stopPropagation() {}, persist() {}, detail: o.detail ?? 1, shiftKey: !!o.shift, ctrlKey: !!o.ctrl, altKey: !!o.alt, metaKey: false, button: o.button ?? 0, currentTarget: document.body, target: document.body, clientX: 0, clientY: 0 });
 const msg = raw => raw ? new Message(raw) : undefined;
 const optionValue = (name, key) => {
     const v = Settings.plugins[name][key];
@@ -298,8 +298,8 @@ const api = {
         try { fn?.(event({ shift, ctrl, alt, button })); } catch (e) { console.error("a plugin action threw:", e); }
         return null;
     },
-    messageClick({ message, channel, shift, ctrl, alt }) {
-        events._handleClick(msg(message), ChannelStore.getChannel(channel), event({ shift, ctrl, alt }));
+    messageClick({ message, channel, shift, ctrl, alt, detail }) {
+        events._handleClick(msg(message), ChannelStore.getChannel(channel), event({ shift, ctrl, alt, detail }));
         return null;
     },
     settle({ id, ok, value }) {
