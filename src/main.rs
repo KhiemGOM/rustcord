@@ -21,6 +21,7 @@ mod games;
 mod shareable;
 mod toast;
 mod ui;
+mod vencord;
 mod voice;
 mod winsys;
 
