@@ -52,6 +52,8 @@ pub struct Shared {
     pub in_gain: AtomicU32,
     pub out_gain: AtomicU32,
     pub auto_vad: AtomicBool,
+    /// krisp-style noise suppression (rnnoise) on the mic
+    pub denoise: AtomicBool,
 }
 
 impl Default for Shared {
@@ -78,6 +80,7 @@ impl Default for Shared {
             in_gain: AtomicU32::new(1.0f32.to_bits()),
             out_gain: AtomicU32::new(1.0f32.to_bits()),
             auto_vad: AtomicBool::new(true),
+            denoise: AtomicBool::new(true),
         }
     }
 }
@@ -208,6 +211,9 @@ struct Tx {
     pkt: [u8; 1276],
     floor: f32,
     released: Option<Instant>,
+    // rnnoise runs at 48 kHz on 480-sample frames; keep the state across frames
+    denoiser: Box<nnnoiseless::DenoiseState<'static>>,
+    denoise_buf: Vec<f32>,
 }
 
 impl Tx {
@@ -216,12 +222,40 @@ impl Tx {
             e.bitrate_bps = 64_000;
             e
         });
-        Tx { shared, out, enc, hang: 0, talking: false, tail: 0, stereo: vec![0.0; FRAME * 2], pkt: [0; 1276], floor: -60.0, released: None }
+        Tx {
+            shared,
+            out,
+            enc,
+            hang: 0,
+            talking: false,
+            tail: 0,
+            stereo: vec![0.0; FRAME * 2],
+            pkt: [0; 1276],
+            floor: -60.0,
+            released: None,
+            denoiser: nnnoiseless::DenoiseState::new(),
+            denoise_buf: vec![0.0; nnnoiseless::DenoiseState::FRAME_SIZE],
+        }
     }
 
     fn frame(&mut self, pcm: &[f32]) {
         let gain = f32::from_bits(self.shared.in_gain.load(Relaxed));
-        let pcm: Vec<f32> = pcm.iter().map(|x| (x * gain).clamp(-1.0, 1.0)).collect();
+        let mut pcm: Vec<f32> = pcm.iter().map(|x| (x * gain).clamp(-1.0, 1.0)).collect();
+        // krisp: rnnoise works on 480-sample frames in i16 scale; our 960-sample frame is two.
+        // the e2e's synthetic tone isn't speech, so rnnoise would eat it — skip it for the fake mic
+        if self.shared.denoise.load(Relaxed) && self.shared.mic.load(Relaxed) != MIC_FAKE {
+            let fs = nnnoiseless::DenoiseState::FRAME_SIZE;
+            for chunk in pcm.chunks_mut(fs) {
+                if chunk.len() < fs {
+                    break;
+                }
+                let scaled: Vec<f32> = chunk.iter().map(|x| x * 32768.0).collect();
+                self.denoiser.process_frame(&mut self.denoise_buf, &scaled);
+                for (o, d) in chunk.iter_mut().zip(&self.denoise_buf) {
+                    *o = d / 32768.0;
+                }
+            }
+        }
         let pcm = pcm.as_slice();
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
         let db = 20.0 * (rms + 1e-9).log10();

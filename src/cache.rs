@@ -77,6 +77,8 @@ pub struct Settings {
     pub ptt_delay_ms: u32,
     pub input_volume: f32,
     pub output_volume: f32,
+    // krisp-style background noise suppression on the mic
+    pub noise_suppression: bool,
     // keybinds: (action, windows virtual-key codes)
     pub keybinds: Vec<(String, Vec<u32>)>,
     // language
@@ -160,6 +162,7 @@ impl Default for Settings {
             ptt_delay_ms: 20,
             input_volume: 1.0,
             output_volume: 1.0,
+            noise_suppression: true,
             keybinds: Vec::new(),
             locale: "en-US".into(),
             open_on_startup: false,

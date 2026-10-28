@@ -109,6 +109,9 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         }
     }
 
+    section(ui, "Noise Suppression");
+    changed |= toggle(ui, &mut app.settings.noise_suppression, "Krisp", "Removes background noise from your mic — keyboards, fans, barking dogs — before it goes out.");
+
     section(ui, "Camera");
     note(ui, "Fastcord uses your default camera. Turn it on from the call controls.");
     section(ui, "Streaming");

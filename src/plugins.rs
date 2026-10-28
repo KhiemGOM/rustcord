@@ -125,7 +125,6 @@ pub const ALL: &[Plugin] = &[
         pick("replaceElements", "Choose which elements of the embed will be replaced", &[("0", "Everything (Titles & Thumbnails)"), ("1", "Titles"), ("2", "Thumbnails")]),
         b("dearrowByDefault", "Dearrow videos automatically", true),
     ]),
-    p("DontRoundMyTimestamps", "Always rounds relative timestamps down, so 7.6y becomes 7y instead of 8y", &[]),
     p("ExpressionCloner", "Allows you to clone Emotes & Stickers to your own server (right click them)", &[]),
     p("FakeNitro", "Allows you to send fake emojis/stickers, use nitro themes, and stream in nitro quality", &[
         b("enableEmojiBypass", "Allows sending fake emojis (also bypasses missing permission to use custom emojis)", true),
@@ -223,9 +222,8 @@ pub const ALL: &[Plugin] = &[
     ]),
     p("NoBlockedMessages", "Hides all blocked/ignored messages from chat completely", &[
         b("ignoreMessages", "Completely ignores incoming messages from blocked and ignored (if enabled) users", false),
-        b("applyToIgnoredUsers", "Whether to apply filtering to ignored users", true),
     ]),
-    p("NoMosaic", "Removes Discord image mosaic", &[b("inlineVideo", "Play videos without carousel modal", true)]),
+    p("NoMosaic", "Removes Discord image mosaic", &[]),
     p("NoPendingCount", "Removes the ping count of incoming friend requests, message requests, and nitro offers.", &[
         b("hideFriendRequestsCount", "Hide incoming friend requests count", true),
         b("hideMessageRequestsCount", "Hide message requests count", true),
@@ -302,8 +300,6 @@ pub const ALL: &[Plugin] = &[
         b("chatMentions", "Show role colors in chat mentions (including in the message box)", true),
         b("memberList", "Show role colors in member list role headers", true),
         b("voiceUsers", "Show role colors in the voice chat user list", true),
-        b("reactorsList", "Show role colors in the reactors list", true),
-        b("pollResults", "Show role colors in the poll results", true),
         b("colorChatMessages", "Color chat messages based on the author's role color", false),
         sl("messageSaturation", "Intensity of message coloring.", 0.0, 100.0, 30.0),
     ]),
@@ -327,9 +323,6 @@ pub const ALL: &[Plugin] = &[
         pick("mode", "How to display usernames and nicks", &[("user-nick", "Username then nickname"), ("nick-user", "Nickname then username"), ("user", "Username only")]),
         b("displayNames", "Use display names in place of usernames", false),
         b("inReplies", "Also apply functionality to reply previews", false),
-    ]),
-    p("ShowTimeoutDuration", "Shows how much longer a user's timeout will last, either in the timeout icon tooltip or next to it", &[
-        pick("displayStyle", "How to display the timeout duration", &[("ssalggnikool", "Next to the timeout icon"), ("tooltip", "In the Tooltip")]),
     ]),
     p("SilentMessageToggle", "Adds a button to the chat bar to toggle sending a silent message.", &[
         b("persistState", "Whether to persist the state of the silent message toggle when changing channels", false),
