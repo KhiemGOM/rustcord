@@ -21,6 +21,10 @@ mod popups;
 mod rail;
 mod channel;
 mod community;
+mod compose_tools;
+mod expr;
+mod outgoing;
+mod slash;
 mod server;
 mod settings;
 mod share;
@@ -38,6 +42,7 @@ use std::time::{Duration, Instant};
 
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
+use crate::plugins;
 use crate::state::{Id, Message, Page, ReactEmoji, Status, Store};
 use crate::theme::*;
 
@@ -162,6 +167,7 @@ pub struct App {
     pub new_thread: Option<popups::NewThread>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
+    pub plug: outgoing::State,
     // a link waiting on "Leaving Discord", and whether to trust its site from now on
     pub leaving: Option<(String, bool)>,
     // the Ctrl+/ sheet, the Raging Demon it can set off, and breathing with Wumpus
@@ -321,6 +327,7 @@ impl App {
             notes: HashMap::new(),
             new_thread: None,
             emoji_pop: None,
+            plug: Default::default(),
             leaving: None,
             combos: None,
             demon: None,
@@ -530,23 +537,30 @@ impl App {
         if self.settings.emoticons {
             text = emoticons(&text);
         }
+        text = outgoing::rewrite(self, guild, text);
         self.aliases.remove(&ch);
         let files: Vec<(PathBuf, String)> = std::mem::take(&mut self.files)
             .into_iter()
             .map(|u| {
-                let name = if u.spoiler { format!("SPOILER_{}", u.name) } else { u.name };
+                let name = if u.anon && plugins::on("AnonymiseFileNames") { outgoing::anon_name(&u.name) } else { u.name };
+                let name = if u.spoiler { format!("SPOILER_{name}") } else { name };
                 (u.path, name)
             })
             .collect();
-        if text.is_empty() && files.is_empty() {
+        let stickers: Vec<Id> = self.plug.sticker.take().map(|s| s.0).into_iter().collect();
+        if text.is_empty() && files.is_empty() && stickers.is_empty() {
             return;
+        }
+        let silent = self.plug.silent;
+        if plugins::flag("SilentMessageToggle", "autoDisable") {
+            self.plug.silent = false;
         }
         let nonce = crate::state::make_nonce();
         let reply = self.reply.take();
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
         self.jump_to_present(ch);
         let reply = reply.map(|r| (r, self.reply_ping));
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
+        outgoing::dispatch(self, Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers, tts, silent });
         self.hold_ack = None;
         self.last_typing = None;
     }
@@ -561,7 +575,7 @@ impl App {
         let nonce = crate::state::make_nonce();
         self.store.add_pending(ch, text.clone(), nonce.clone(), None);
         self.jump_to_present(ch);
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false });
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false, silent: false });
     }
 
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
@@ -1177,6 +1191,7 @@ impl App {
     }
 
     fn pump(&mut self, ctx: &egui::Context) {
+        outgoing::tick(self, ctx);
         let clicked: Vec<(Id, Id)> = self.pings.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
         for (ch, msg) in clicked {
             self.open_ping(ctx, ch, msg);
@@ -1383,6 +1398,8 @@ impl App {
         }
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
+        compose_tools::show(self, &ctx);
+        expr::show(self, &ctx);
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
