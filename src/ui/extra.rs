@@ -159,3 +159,55 @@ pub fn icon_url(kind: &str, id: Id, hash: &str) -> String {
 pub fn view(app: &mut App, url: String) {
     app.viewer = Some((url.clone(), url, 0, 0));
 }
+
+/// ViewIcons on a server: its icon and banner, if it has them.
+pub fn guild_icons(store: &crate::state::Store, gid: Id) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    if let Some(g) = store.guilds.get(&gid).filter(|_| plugins::on("ViewIcons")) {
+        if let Some(h) = &g.icon {
+            out.push(("View Icon", icon_url("icons", gid, h)));
+        }
+        if let Some(h) = &g.banner {
+            out.push(("View Banner", icon_url("banners", gid, h)));
+        }
+    }
+    out
+}
+
+/// PinDMs: the pinned DMs that still exist, in the order the plugin is set to show them.
+pub fn pinned(store: &crate::state::Store) -> Vec<Id> {
+    if !plugins::on("PinDMs") {
+        return Vec::new();
+    }
+    let mut pins: Vec<Id> = pin_list().into_iter().filter(|c| store.dms.contains(c)).collect();
+    if plugins::text("PinDMs", "pinOrder") != "1" {
+        pins.sort_by_key(|c| store.dms.iter().position(|d| d == c));
+    }
+    pins
+}
+
+fn pin_list() -> Vec<Id> {
+    plugins::get("PinDMs", "pinnedDMs").as_array().into_iter().flatten().filter_map(|v| v.as_str()?.parse().ok()).collect()
+}
+
+fn save_pins(list: Vec<Id>) {
+    plugins::set("PinDMs", "pinnedDMs", list.iter().map(|c| c.to_string()).collect::<Vec<_>>().into());
+}
+
+pub fn pin(ch: Id, on: bool) {
+    let mut list = pin_list();
+    list.retain(|c| *c != ch);
+    if on {
+        list.push(ch);
+    }
+    save_pins(list);
+}
+
+pub fn shift_pin(ch: Id, by: i32) {
+    let mut list = pin_list();
+    if let Some(i) = list.iter().position(|c| *c == ch) {
+        let j = (i as i32 + by).clamp(0, list.len() as i32 - 1) as usize;
+        list.swap(i, j);
+        save_pins(list);
+    }
+}

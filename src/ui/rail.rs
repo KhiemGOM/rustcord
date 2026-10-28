@@ -217,6 +217,8 @@ enum Act {
     Web,
     Leave,
     CopyId,
+    Info,
+    View(String),
 }
 
 /// Discord's right-click menu on a server icon.
@@ -232,6 +234,7 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         .filter(|c| store.perms(c) & crate::state::CREATE_INVITE != 0)
         .map(|c| c.id);
     let dev = app.settings.dev;
+    let icons = super::extra::guild_icons(&app.store, gid);
     let mut act = None;
     egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
@@ -274,6 +277,17 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
                 act = Some(Act::Leave);
             }
         }
+        if plugins::on("ServerInfo") || !icons.is_empty() {
+            menu_sep(ui);
+            if plugins::on("ServerInfo") && menu_item(ui, None, "Server Info", false) {
+                act = Some(Act::Info);
+            }
+            for (label, url) in &icons {
+                if menu_item(ui, None, label, false) {
+                    act = Some(Act::View(url.clone()));
+                }
+            }
+        }
         if dev {
             menu_sep(ui);
             if menu_item(ui, Some(Icon::Id), "Copy Server ID", false) {
@@ -295,6 +309,8 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         Some(Act::Web) => r.ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}"))),
         Some(Act::Leave) => super::side::leave(app, gid),
         Some(Act::CopyId) => r.ctx.copy_text(gid.to_string()),
+        Some(Act::Info) => app.open_server_info(gid),
+        Some(Act::View(url)) => super::extra::view(app, url),
         None => {}
     }
 }

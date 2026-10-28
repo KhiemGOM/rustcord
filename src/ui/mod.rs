@@ -34,6 +34,7 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
+mod typing;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -404,6 +405,7 @@ impl App {
         self.home = None;
         let guild = c.guild;
         let forum = c.is_forum();
+        let hid = hidden::locked(&self.store, c);
         // member list subscriptions are per parent channel, threads borrow it
         let sub = if c.is_thread() { c.parent } else { ch };
         // search results belong to one server (or one dm), don't carry them elsewhere
@@ -428,10 +430,10 @@ impl App {
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
         self.marker_bar = self.marker.is_some();
-        if forum {
+        if forum && !hid {
             let path = format!("/channels/{ch}/threads/search?sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
             self.rest("GET", path, None, Tag::Forum(ch));
-        } else {
+        } else if !forum && !hid {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
             let e = self.store.msgs.entry(ch).or_default();
             if !e.fresh && !e.loading && !jumping {
@@ -439,7 +441,7 @@ impl App {
                 self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
             }
         }
-        if guild != 0 {
+        if guild != 0 && !hid {
             let mut chans = serde_json::Map::new();
             chans.insert(sub.to_string(), json!([[0, 99]]));
             self.net.send(Cmd::Gateway(json!({
