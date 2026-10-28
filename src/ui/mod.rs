@@ -28,6 +28,7 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
+pub mod vc;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -986,7 +987,7 @@ impl App {
                     Tag::Pins(_) => self.pins = None,
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
-                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) => return,
+                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Vc(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -1135,6 +1136,7 @@ impl App {
                 self.guides.entry(g).or_default().1 = done.filter_map(|(c, _)| c.parse().ok()).collect();
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
+            Tag::Vc(k) => vc::loaded(self, &k, v),
             Tag::Quiet => {}
         }
     }

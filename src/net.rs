@@ -80,6 +80,8 @@ pub enum Tag {
     Events(Id, u8),
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
+    // a message plugin's fetch, by what it asked for
+    Vc(String),
     Quiet,
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
