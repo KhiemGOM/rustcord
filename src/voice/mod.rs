@@ -571,6 +571,7 @@ impl VoiceUi {
     pub fn configure(&self, s: &crate::cache::Settings) {
         self.shared.vad_db.store(s.vad_db, Relaxed);
         self.shared.auto_vad.store(s.auto_sensitivity, Relaxed);
+        self.shared.denoise.store(s.noise_suppression, Relaxed);
         self.shared.ptt.store(s.ptt, Relaxed);
         self.shared.ptt_delay_ms.store(s.ptt_delay_ms, Relaxed);
         self.shared.in_gain.store(s.input_volume.to_bits(), Relaxed);
