@@ -40,8 +40,10 @@ pub fn snowflake_ms(id: Id) -> i64 {
 }
 
 pub fn make_nonce() -> String {
+    // a snowflake's low bits count up, so two sends in the same millisecond don't share one
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let ms = chrono::Utc::now().timestamp_millis() - 1_420_070_400_000;
-    ((ms as u64) << 22).to_string()
+    (((ms as u64) << 22) | (NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xfff)).to_string()
 }
 
 pub const CREATE_INVITE: u64 = 1;

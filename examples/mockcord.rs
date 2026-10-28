@@ -125,6 +125,12 @@ fn snow(ms: u64) -> u64 {
     (ms - 1_420_070_400_000) << 22
 }
 
+/// An id for a message made now, its increment bits keeping two in one millisecond apart.
+fn fresh() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    snow(now_ms()) | (NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xfff)
+}
+
 fn iso(ms: u64) -> String {
     chrono::DateTime::from_timestamp_millis(ms as i64).unwrap_or_default().to_rfc3339()
 }
@@ -692,7 +698,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             } else {
                 "😴 Snoozed for 10 minutes.".to_string()
             };
-            let mut m = msg(snow(now_ms()), ch, 104, &text);
+            let mut m = msg(fresh(), ch, 104, &text);
             m["type"] = json!(20);
             m["application_id"] = json!("104");
             if b["type"] == json!(2) {
@@ -733,7 +739,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("POST", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
             let b: Value = serde_json::from_slice(body).unwrap_or_else(|_| payload_json(body));
-            let mut m = msg(snow(now_ms()), ch, ME, b["content"].as_str().unwrap_or(""));
+            let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
             let tx = {
@@ -750,7 +756,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
                 // the muted dm talks first and should stay quiet
                 // kept like any other message, so jumping to them later finds them
                 let dm = |ch: u64, from: u64, text: &str| {
-                    let m = msg(snow(now_ms()), ch, from, text);
+                    let m = msg(fresh(), ch, from, text);
                     w.lock().unwrap().msgs.push(m.clone());
                     let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
                 };
