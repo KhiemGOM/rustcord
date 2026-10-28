@@ -3,6 +3,7 @@
 //! `__host` with what happened, plugins call `__fc` for what they want done, and those asks
 //! queue up for the app to carry out after the call.
 
+pub mod css;
 mod sources;
 mod stores;
 mod transpile;
@@ -189,6 +190,12 @@ impl Host {
         self.deadline.set(None);
         VIEW.with(|v| v.set(std::ptr::null()));
         out
+    }
+
+    /// The installed Vencord's commit and GitHub repo.
+    pub fn version(&self) -> (Option<String>, Option<String>) {
+        let st = self.st.borrow();
+        (st.sources.hash.clone(), st.sources.remote.clone())
     }
 
     /// Every plugin's entry file, official then userplugins.

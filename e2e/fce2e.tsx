@@ -5,6 +5,7 @@
  */
 
 import { ChatBarButton } from "@api/ChatButtons";
+import { showNotification } from "@api/Notifications";
 import { definePluginSettings } from "@api/Settings";
 import { ModalContent, ModalFooter, ModalHeader, ModalRoot, openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
@@ -38,7 +39,7 @@ function Ask({ onClose }) {
         <ModalRoot size="small">
             <ModalHeader><Text variant="heading-lg/semibold">E2E modal</Text></ModalHeader>
             <ModalContent><TextInput value={text} onChange={setText} placeholder="Say something" /></ModalContent>
-            <ModalFooter><Button onClick={() => { showToast("modal done"); onClose(); }}>Done</Button></ModalFooter>
+            <ModalFooter><Button onClick={() => { showToast("modal done"); showNotification({ title: "E2E notice", body: "from the modal" }); onClose(); }}>Done</Button></ModalFooter>
         </ModalRoot>
     );
 }

@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 #[derive(Default)]
 pub struct Sources {
     files: HashMap<String, String>,
+    pub hash: Option<String>,
+    pub remote: Option<String>,
 }
 
 const EXTS: [&str; 9] = ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
@@ -19,13 +21,23 @@ pub fn vencord_dir() -> PathBuf {
 impl Sources {
     pub fn load(extra: &Path, vencord: &Path) -> Sources {
         let mut files = HashMap::new();
+        let (mut hash, mut remote) = (None, None);
         let dist = vencord.join("dist");
-        let map = ["vencordDesktopRenderer.js.map", "renderer.js.map"].iter().map(|f| dist.join(f)).find(|p| p.exists());
+        // renderer.js is what Vencord runs inside Discord; the vencordDesktop files are Vesktop's
+        let map = ["renderer.js.map", "vencordDesktopRenderer.js.map"].iter().map(|f| dist.join(f)).find(|p| p.exists());
         if let Some(v) = map.and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
             let names = v["sources"].as_array().cloned().unwrap_or_default();
             let bodies = v["sourcesContent"].as_array().cloned().unwrap_or_default();
             for (n, b) in names.iter().zip(&bodies) {
                 let (Some(n), Some(b)) = (n.as_str(), b.as_str()) else { continue };
+                // the build's commit and repo, for the updater
+                if let Some(v) = b.strip_prefix("export default \"").and_then(|v| v.split('"').next()) {
+                    match n {
+                        "git-hash:~git-hash" => hash = Some(v.to_string()),
+                        "git-remote:~git-remote" => remote = Some(v.to_string()),
+                        _ => {}
+                    }
+                }
                 let n = n.trim_start_matches("../");
                 if (n.starts_with("src/") || n.starts_with("packages/")) && !n.contains(':') && code(n) {
                     files.insert(n.to_string(), b.to_string());
@@ -35,7 +47,7 @@ impl Sources {
         for dir in [vencord.join("userplugins"), extra.to_path_buf()] {
             walk(&dir, &dir, &mut files);
         }
-        Sources { files }
+        Sources { files, hash, remote }
     }
 
     pub fn get(&self, path: &str) -> Option<&str> {

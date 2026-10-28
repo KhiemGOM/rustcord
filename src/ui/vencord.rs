@@ -13,6 +13,37 @@ use crate::net::{Cmd, Tag};
 use crate::state::{Id, sid};
 use crate::vencord::{Host, View};
 
+/// A Vencord notification drawn in the app: the JS side's id for its handlers (none for the
+/// app's own), what it says, and when it went up.
+struct Note {
+    id: Option<u64>,
+    title: String,
+    body: String,
+    icon: Option<String>,
+    color: Option<egui::Color32>,
+    at: Instant,
+    permanent: bool,
+    dismiss: bool,
+}
+
+/// Fastcord's QuickCSS, started from Vencord's own the first time.
+pub fn quick_css() -> String {
+    let own = cache::dir().join("quickCss.css");
+    std::fs::read_to_string(&own).or_else(|_| std::fs::read_to_string(crate::vencord::vencord_dir().join("settings").join("quickCss.css"))).unwrap_or_default()
+}
+
+pub fn set_quick_css(css: &str) {
+    let _ = std::fs::write(cache::dir().join("quickCss.css"), css);
+}
+
+/// Vencord's Relaunch: a fresh Fastcord, and this one closed.
+pub fn relaunch(ctx: &egui::Context) {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe).args(std::env::args().skip(1)).spawn();
+    }
+    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+}
+
 /// A message on hold while plugins look at it.
 pub struct Outgoing {
     pub ch: Id,
@@ -45,6 +76,19 @@ pub struct Vc {
     dirty: std::collections::HashSet<String>,
     pub modals: Vec<String>,
     features: [u64; 3],
+    // Vencord's own settings (notifications, themes, cloud...) as its settings.json has them
+    pub settings: Value,
+    pub data_values: HashMap<String, Value>,
+    pub restyle: bool,
+    theme_colors: Vec<(&'static str, egui::Color32)>,
+    // Vencord notifications on screen, the log once fetched, and which of its modals are up
+    notes: Vec<Note>,
+    pub log: Option<Value>,
+    pub log_open: bool,
+    pub notify_settings_open: bool,
+    pub themes_tab: u8,
+    focused: bool,
+    push_at: Option<Instant>,
 }
 
 fn settings_path() -> PathBuf {
@@ -92,6 +136,19 @@ impl App {
         self.vc_call("start", json!({ "paths": paths }));
         self.vc_features();
         self.vc.tick_at = Some(Instant::now());
+        self.vc.settings = self.vc_call("settings", json!({}));
+        self.vc.restyle = true;
+        for key in ["Vencord_cloudSecret", "Vencord_cloudSyncDirection"] {
+            self.vc_call("dataGet", json!({ "key": key }));
+        }
+        // the cloud's settings first, if this device takes them
+        if self.vc.settings["cloud"]["settingsSync"] == true && self.vc.settings["cloud"]["authenticated"] == true && matches!(self.vc_direction(), "pull" | "both") {
+            self.vc_cloud_pull(false);
+        }
+        if self.vc.settings["autoUpdate"] == true && self.e2e.is_none() {
+            self.vcnet.auto = true;
+            self.vc_check_updates();
+        }
     }
 
     /// A gateway event, before the store takes it in, so `x` can say what was there before.
@@ -138,6 +195,7 @@ impl App {
             self.vc_call("dispatch", json!({ "t": "CHANNEL_SELECT", "d": { "channelId": cur.map(|c| c.to_string()), "guildId": guild.map(|g| g.to_string()) } }));
         }
         self.vc_ui_queue(ctx);
+        self.vc_frame(ctx);
         let back: Vec<(u32, Value)> = self.vc.fetched.as_ref().map(|(_, rx)| rx.try_iter().collect()).unwrap_or_default();
         for (id, v) in back {
             self.vc_call("settle", json!({ "id": id, "ok": true, "value": v }));
@@ -248,11 +306,13 @@ impl App {
             match op["op"].as_str().unwrap_or("") {
                 "toast" => self.toast(s("text")),
                 "notify" => {
-                    let (title, body) = (s("title"), s("body"));
-                    self.toast(if body.is_empty() { title.clone() } else { format!("{title}: {body}") });
-                    if self.e2e.is_none() {
-                        crate::toast::send(crate::toast::Ping { title, body, avatar: String::new(), at: (0, 0) });
-                    }
+                    let color = op["color"].as_str().and_then(|c| crate::vencord::css::color(c, &Default::default(), 0));
+                    let note = Note { id: op["id"].as_u64(), title: s("title"), body: s("body"), icon: op["icon"].as_str().map(str::to_string), color, at: Instant::now(), permanent: op["permanent"] == true, dismiss: op["dismissOnClick"] != false };
+                    self.vc_show(note);
+                }
+                "log" => self.vc.log = Some(op["value"].clone()),
+                "data_value" => {
+                    self.vc.data_values.insert(s("key"), op["value"].clone());
                 }
                 "copy" => {
                     if let Ok(mut c) = arboard::Clipboard::new() {
@@ -328,6 +388,12 @@ impl App {
                 Some("settings") => {
                     if let Ok(b) = serde_json::to_vec_pretty(&op["value"]) {
                         let _ = std::fs::write(settings_path(), b);
+                    }
+                    self.vc.settings = op["value"].clone();
+                    self.vc.restyle = true;
+                    let cloud = &self.vc.settings["cloud"];
+                    if cloud["settingsSync"] == true && cloud["authenticated"] == true && matches!(self.vc_direction(), "push" | "both") {
+                        self.vc.push_at = Some(Instant::now() + Duration::from_secs(5));
                     }
                     self.vc.list = None;
                     self.vc.commands = None;
@@ -635,4 +701,258 @@ impl App {
             }
         }
     }
+}
+
+impl App {
+    fn vc_direction(&self) -> &str {
+        self.vc.data_values.get("Vencord_cloudSyncDirection").and_then(|v| v.as_str()).unwrap_or("both")
+    }
+
+    /// A notification from the app's own Vencord pages (updater, cloud), routed like a plugin's.
+    pub fn vc_note(&mut self, title: &str, body: &str) {
+        self.vc_show(Note { id: None, title: title.into(), body: body.into(), icon: None, color: None, at: Instant::now(), permanent: false, dismiss: true });
+    }
+
+    /// Vencord's notification style: in the app, or from Windows, or Windows only while the
+    /// window isn't focused.
+    fn vc_show(&mut self, n: Note) {
+        let native = match self.vc.settings["notifications"]["useNative"].as_str().unwrap_or("not-focused") {
+            "always" => true,
+            "never" => false,
+            _ => !self.vc.focused,
+        };
+        if native && self.e2e.is_none() {
+            crate::toast::send(crate::toast::Ping { title: n.title, body: n.body, avatar: n.icon.unwrap_or_default(), at: (0, 0) });
+            return;
+        }
+        self.vc.notes.push(n);
+    }
+
+    /// Plugins and settings again from scratch: after an update, an import or a pull from the cloud.
+    pub fn vc_restart(&mut self) {
+        self.vc = Vc { notes: std::mem::take(&mut self.vc.notes), ..Default::default() };
+        self.vc.published = true;
+    }
+
+    /// A whole Vencord settings file in: settings and QuickCSS, then the host starts over on them.
+    pub fn vc_import(&mut self, settings: Value, quick_css: &str) {
+        if let Ok(b) = serde_json::to_vec_pretty(&settings) {
+            let _ = std::fs::write(settings_path(), b);
+        }
+        set_quick_css(quick_css);
+        self.vc_restart();
+    }
+
+    /// Every frame, Vencord's own settings at work: Ctrl+Q, theme colours, cloud pushes,
+    /// notifications timing out.
+    fn vc_frame(&mut self, ctx: &egui::Context) {
+        self.vcnet_tick();
+        self.vc.focused = ctx.input(|i| i.focused);
+        if self.vc.settings["winCtrlQ"] == true && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if std::mem::take(&mut self.vc.restyle) {
+            self.vc.theme_colors = crate::vencord::css::palette(&self.vc_theme_css(), crate::theme::pal().dark);
+        }
+        if crate::theme::set_themed(self.vc.theme_colors.clone()) {
+            crate::theme::style(ctx);
+        }
+        if self.vc.push_at.is_some_and(|t| Instant::now() >= t) {
+            self.vc.push_at = None;
+            self.vc_cloud_push(false);
+        }
+        let timeout = self.vc.settings["notifications"]["timeout"].as_u64().unwrap_or(5000);
+        if timeout > 0 {
+            let expired: Vec<Option<u64>> = self.vc.notes.iter().filter(|n| !n.permanent && n.at.elapsed() >= Duration::from_millis(timeout)).map(|n| n.id).collect();
+            self.vc.notes.retain(|n| n.permanent || n.at.elapsed() < Duration::from_millis(timeout));
+            for id in expired.into_iter().flatten() {
+                self.vc_call("notifyAct", json!({ "id": id, "kind": "close" }));
+            }
+        }
+    }
+
+    /// All the CSS the theme settings switch on: local themes, online ones (fetched once, and
+    /// anything they @import), and QuickCSS.
+    fn vc_theme_css(&mut self) -> String {
+        let s = self.vc.settings.clone();
+        let dark = crate::theme::pal().dark;
+        let mut css = String::new();
+        for f in s["enabledThemes"].as_array().into_iter().flatten().filter_map(|v| v.as_str()) {
+            for dir in [crate::vencord::vencord_dir().join("themes"), cache::dir().join("themes")] {
+                if let Ok(t) = std::fs::read_to_string(dir.join(f)) {
+                    css.push_str(&t);
+                    css.push('\n');
+                    break;
+                }
+            }
+        }
+        let mut links: Vec<String> = s["themeLinks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .filter_map(|l| match l.split_once(' ') {
+                Some(("@light", u)) => (!dark).then(|| u.trim().to_string()),
+                Some(("@dark", u)) => dark.then(|| u.trim().to_string()),
+                _ => Some(l.trim().to_string()),
+            })
+            .collect();
+        if s["useQuickCss"] == true {
+            css.push_str(&quick_css());
+        }
+        // a BetterDiscord theme's file is often just an @import of the real one
+        let mut seen = std::collections::HashSet::new();
+        while let Some(link) = links.pop() {
+            if !seen.insert(link.clone()) {
+                continue;
+            }
+            match self.vcnet.themes.get(&link) {
+                Some(t) => css.push_str(t),
+                None => self.vc_fetch_theme(link),
+            }
+        }
+        for imp in imports(&css) {
+            if !seen.contains(&imp) {
+                match self.vcnet.themes.get(&imp) {
+                    Some(t) => css.push_str(&t.clone()),
+                    None => self.vc_fetch_theme(imp),
+                }
+            }
+        }
+        css
+    }
+
+    /// Vencord's notifications, in their corner, newest nearest it.
+    pub fn vc_notes(&mut self, ctx: &egui::Context) {
+        if self.vc.notes.is_empty() {
+            return;
+        }
+        let top = self.vc.settings["notifications"]["position"] == "top-right";
+        let timeout = self.vc.settings["notifications"]["timeout"].as_u64().unwrap_or(5000) as f32;
+        let (anchor, offset) = if top { (egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 48.0)) } else { (egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0)) };
+        let mut clicked = None;
+        let mut closed = None;
+        egui::Area::new("vc_notes".into()).anchor(anchor, offset).order(egui::Order::Foreground).show(ctx, |ui| {
+            ui.set_width(360.0);
+            let order: Vec<usize> = if top { (0..self.vc.notes.len()).collect() } else { (0..self.vc.notes.len()).rev().collect() };
+            for i in order {
+                let n = &self.vc.notes[i];
+                let r = egui::Frame::new()
+                    .fill(crate::theme::pal().bg_floating)
+                    .stroke(egui::Stroke::new(1.0, n.color.unwrap_or(crate::theme::pal().border_subtle)))
+                    .corner_radius(8)
+                    .inner_margin(12)
+                    .show(ui, |ui| {
+                        ui.set_width(336.0);
+                        ui.horizontal(|ui| {
+                            if let Some(icon) = &n.icon {
+                                ui.add(egui::Image::from_uri(icon.clone()).fit_to_exact_size(egui::vec2(32.0, 32.0)).corner_radius(16));
+                            }
+                            ui.vertical(|ui| {
+                                ui.set_width(ui.available_width() - 24.0);
+                                ui.label(egui::RichText::new(&n.title).font(crate::theme::semi(15.0)).color(crate::theme::pal().header_primary));
+                                ui.label(egui::RichText::new(&n.body).font(crate::theme::reg(14.0)).color(crate::theme::pal().text_normal));
+                            });
+                            if super::icon_button(ui, super::icons::Icon::Close, 18.0, "Close").clicked() {
+                                closed = Some(i);
+                            }
+                        });
+                        if !n.permanent && timeout > 0.0 {
+                            let left = 1.0 - n.at.elapsed().as_millis() as f32 / timeout;
+                            let (bar, _) = ui.allocate_exact_size(egui::vec2(336.0, 3.0), egui::Sense::hover());
+                            ui.painter().rect_filled(egui::Rect::from_min_size(bar.min, egui::vec2(336.0 * left.clamp(0.0, 1.0), 3.0)), 2, n.color.unwrap_or(crate::theme::BLURPLE));
+                        }
+                    });
+                if closed.is_none() && r.response.interact(egui::Sense::click()).clicked() {
+                    clicked = Some(i);
+                }
+                ui.add_space(8.0);
+            }
+        });
+        ctx.request_repaint_after(Duration::from_millis(100));
+        if let Some(i) = clicked {
+            let (id, dismiss) = (self.vc.notes[i].id, self.vc.notes[i].dismiss);
+            if let Some(id) = id {
+                self.vc_call("notifyAct", json!({ "id": id, "kind": "click" }));
+            }
+            if dismiss {
+                closed = Some(i);
+            }
+        }
+        if let Some(i) = closed.filter(|i| *i < self.vc.notes.len()) {
+            let n = self.vc.notes.remove(i);
+            if let Some(id) = n.id {
+                self.vc_call("notifyAct", json!({ "id": id, "kind": "close" }));
+            }
+        }
+    }
+
+    /// The Vencord section's own modals: the notification log and settings, and Vencord Cloud's
+    /// authorize prompt.
+    pub fn vc_own_modals(&mut self, ctx: &egui::Context) {
+        let frame = egui::Frame::new().fill(crate::theme::pal().bg_primary).corner_radius(12).inner_margin(16);
+        let title = |ui: &mut egui::Ui, t: &str| {
+            ui.label(egui::RichText::new(t).font(crate::theme::semi(20.0)).color(crate::theme::pal().header_primary));
+            ui.add_space(12.0);
+        };
+        if self.vc.log_open {
+            let r = egui::Modal::new("vc_log".into()).frame(frame).show(ctx, |ui| {
+                ui.set_width(560.0);
+                title(ui, "Notification Log");
+                super::settings::vencord::notification_log(self, ui);
+            });
+            if r.should_close() {
+                self.vc.log_open = false;
+            }
+        }
+        if self.vc.notify_settings_open {
+            let r = egui::Modal::new("vc_notify_settings".into()).frame(frame).show(ctx, |ui| {
+                ui.set_width(600.0);
+                title(ui, "Notification Settings");
+                super::settings::vencord::notification_settings(self, ui);
+            });
+            if r.should_close() {
+                self.vc.notify_settings_open = false;
+            }
+        }
+        if self.vcnet.oauth.is_some() {
+            let mut pick = None;
+            let r = egui::Modal::new("vc_oauth".into()).frame(frame).show(ctx, |ui| {
+                ui.set_width(440.0);
+                title(ui, "Authorize Vencord Cloud");
+                ui.label(egui::RichText::new("Vencord Cloud wants to access your username, avatar and banner, to know whose settings it keeps. Discord adds it to your Authorized Apps.").font(crate::theme::reg(14.0)).color(crate::theme::pal().text_normal));
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    if super::settings::primary(ui, "Authorize").clicked() {
+                        pick = Some(true);
+                    }
+                    if super::settings::secondary(ui, "Cancel").clicked() {
+                        pick = Some(false);
+                    }
+                });
+            });
+            match pick.or(r.should_close().then_some(false)) {
+                Some(true) => self.vc_cloud_authorize(),
+                Some(false) => {
+                    self.vcnet.oauth = None;
+                    self.vc_call("setPath", json!({ "path": ["cloud", "authenticated"], "value": false }));
+                }
+                None => {}
+            }
+        }
+    }
+}
+
+/// `@import url(...)` and `@import "..."` targets in some CSS.
+fn imports(css: &str) -> Vec<String> {
+    css.match_indices("@import")
+        .filter_map(|(i, _)| {
+            let rest = css[i + 7..].trim_start();
+            let rest = rest.strip_prefix("url(").unwrap_or(rest);
+            let rest = rest.trim_start_matches(['"', '\'']);
+            let end = rest.find(['"', '\'', ')', ';'])?;
+            let url = rest[..end].trim();
+            url.starts_with("http").then(|| url.to_string())
+        })
+        .collect()
 }

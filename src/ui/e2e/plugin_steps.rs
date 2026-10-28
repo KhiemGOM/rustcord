@@ -217,6 +217,44 @@ impl Run {
                 self.mark("vc_setting");
                 app.sform.plugin_search.clear();
                 app.sform.plugin_open.clear();
+                self.next(300);
+            }
+            // Vencord's own section: its page, the notification the modal sent (a card, and in
+            // the log), and QuickCSS colouring Fastcord
+            580 => {
+                if self.open_page(app, "Vencord") {
+                    self.next(800);
+                }
+            }
+            581 => {
+                if Self::at(ctx, "action:Notification Log").is_none() {
+                    return;
+                }
+                self.shot(ctx, "vencord_section.png");
+                app.vc.log_open = true;
+                app.vc_call("log", serde_json::json!({}));
+                self.next(600);
+            }
+            582 => {
+                let logged = app.vc.log.as_ref().and_then(|l| l.as_array()).is_some_and(|l| l.iter().any(|n| n["title"] == "E2E notice"));
+                if !logged {
+                    return;
+                }
+                self.mark("vc_notify_log");
+                self.shot(ctx, "vencord_log.png");
+                app.vc.log_open = false;
+                crate::ui::vencord::set_quick_css(":root { --background-primary: #203040; }");
+                app.vc_call("setPath", serde_json::json!({ "path": ["useQuickCss"], "value": true }));
+                self.next(600);
+            }
+            583 => {
+                if crate::theme::pal().bg_primary != egui::Color32::from_rgb(0x20, 0x30, 0x40) {
+                    return;
+                }
+                self.mark("vc_quickcss");
+                self.shot(ctx, "vencord_quickcss.png");
+                crate::ui::vencord::set_quick_css("");
+                app.vc.restyle = true;
                 self.key(Key::Escape);
                 self.step = 99;
                 self.step_at = Instant::now();

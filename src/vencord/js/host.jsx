@@ -11,6 +11,9 @@ import { ChannelStore, FluxDispatcher, GuildStore, Message, UserStore, closeModa
 import { addMessageAccessory, accessories, addMessageDecoration, decorationsFactories, addMemberListDecorator, decoratorsFactories, removeMessageAccessory, removeMessageDecoration, removeMemberListDecorator } from "@api/MessageAccessories";
 import { _getBadges, addProfileBadge, removeProfileBadge } from "@api/Badges";
 import { fire, mount, render, roots, storeRoots, unmount } from "react";
+import { clearLog, deleteNotification, getLog, handlers as notifyHandlers } from "@api/Notifications";
+import { PlainSettings, save } from "@api/Settings";
+import * as DataStore from "@api/DataStore";
 
 const plugins = new Map();
 
@@ -379,6 +382,46 @@ const api = {
     },
     settle({ id, ok, value }) {
         __settle(id, ok, value);
+        return null;
+    },
+    // Vencord's own settings pages: the whole tree, and a value set by its path
+    settings: () => PlainSettings,
+    setPath({ path, value }) {
+        let o = PlainSettings;
+        for (const k of path.slice(0, -1)) o = o[k] ??= {};
+        o[path.at(-1)] = value;
+        save();
+        return null;
+    },
+    // a whole settings file, as Backup & Restore and cloud sync bring one in
+    importSettings({ settings }) {
+        for (const k of Object.keys(PlainSettings)) delete PlainSettings[k];
+        Object.assign(PlainSettings, settings);
+        save();
+        return null;
+    },
+    // the DataStore, where Vencord keeps its cloud secret
+    async dataGet({ key }) {
+        __out({ op: "data_value", key, value: (await DataStore.get(key)) ?? null });
+        return null;
+    },
+    dataSet({ key, value }) {
+        value == null ? DataStore.del(key) : DataStore.set(key, value);
+        return null;
+    },
+    // the notification log, and a notification's click or close
+    async log() {
+        __out({ op: "log", value: await getLog() });
+        return null;
+    },
+    logDelete({ id }) {
+        (id ? deleteNotification(id) : clearLog()).then(() => api.log());
+        return null;
+    },
+    notifyAct({ id, kind }) {
+        const h = notifyHandlers.get(id);
+        try { (kind === "click" ? h?.onClick : h?.onClose)?.(); } catch (e) { console.error("a notification handler threw:", e); }
+        if (kind === "close") notifyHandlers.delete(id);
         return null;
     },
     // fires due timers; how long until the next one, or -1

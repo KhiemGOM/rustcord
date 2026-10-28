@@ -1,6 +1,18 @@
 // @api/Settings: Vencord's settings tree, in Vencord's settings.json shape. A plugin's options
 // read their defaults until set, and every change is saved by the app.
-const raw = globalThis.__fcSettings ??= { plugins: {}, notifications: { timeout: 5000, position: "bottom-right", useNative: "not-focused", logLimit: 50 }, uiElements: {} };
+// Vencord's defaults under whatever the settings file has
+const DEFAULTS = {
+    autoUpdate: true, autoUpdateNotification: true, useQuickCss: true, themeLinks: [], enabledThemes: [], enableReactDevtools: false,
+    frameless: false, transparent: false, winCtrlQ: false, disableMinSize: false, winNativeTitleBar: false, plugins: {},
+    notifications: { timeout: 5000, position: "bottom-right", useNative: "not-focused", logLimit: 50 },
+    cloud: { authenticated: false, url: "https://api.vencord.dev/", settingsSync: false, settingsSyncVersion: 0 },
+    uiElements: { chatBarButtons: {}, messagePopoverButtons: {} },
+};
+const raw = globalThis.__fcSettings ??= {};
+for (const [k, v] of Object.entries(DEFAULTS)) {
+    if (!(k in raw)) raw[k] = structuredClone(v);
+    else if (v && typeof v === "object" && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v)) if (!(k2 in raw[k])) raw[k][k2] = v2;
+}
 export const defs = new Map();
 
 const fallback = (plugin, key) => {
