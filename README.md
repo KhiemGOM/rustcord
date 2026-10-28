@@ -32,6 +32,7 @@ Log in with email/password (2FA supported) or paste a token. The token and a sna
 - voice channels and DM / group DM calls: join from the sidebar or the call button, mute / deafen, voice activity detection, speaking rings, the "Voice Connected" panel
 - video: camera, screen share (Go Live) and watching other people's cameras and streams, H264 via openh264
 - DAVE end-to-end encryption (the `davey` crate) for audio and video, on top of the transport encryption
+- Vencord plugins, their own code: read from your Vencord install and its userplugins folder (plus `%LOCALAPPDATA%\Fastcord\userplugins`), turned into JavaScript by oxc and run in QuickJS against Vencord's APIs, which Fastcord provides natively (settings, flux events, stores, RestAPI, commands, send and edit listeners, menu items, message and chat bar buttons). Their webpack patches to Discord's own client don't apply; Settings → Plugins says what of each runs
 
 Voice is our own implementation of the voice gateway (v8) and RTP; opus is `opus-rs` (pure Rust, so the build needs no cmake), audio I/O is `cpal` over WASAPI.
 

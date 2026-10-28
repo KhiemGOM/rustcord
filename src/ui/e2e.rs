@@ -12,6 +12,8 @@ use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
 
+mod plugin_steps;
+
 
 // sidebar entries that sit low enough to need a scroll down to reach
 const PAGES_BELOW: [&str; 10] = [
@@ -20,8 +22,8 @@ const PAGES_BELOW: [&str; 10] = [
 ];
 
 // the settings sidebar top to bottom
-const SIDEBAR: [&str; 18] = [
-    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
+const SIDEBAR: [&str; 19] = [
+    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Plugins", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
     "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy", "Connected Apps",
     "Developer", "Log Out",
 ];
@@ -1130,6 +1132,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            560..=579 => self.plugin_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1177,8 +1180,8 @@ impl Run {
 
     /// Settings: a screenshot of every page, then a few real round trips.
     fn settings_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        const PAGES: [&str; 18] = [
-            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions",
+        const PAGES: [&str; 19] = [
+            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Plugins", "Nitro", "Server Boost", "Subscriptions",
             "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time",
             "Activity Privacy", "Connected Apps", "Developer",
         ];
@@ -3878,7 +3881,8 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 560;
+                    self.step_at = Instant::now();
                 }
             }
         }
