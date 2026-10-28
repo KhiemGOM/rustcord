@@ -10,6 +10,7 @@ use super::{App, Pick, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
 use super::{side, text};
 use crate::gif;
+use crate::plugins;
 use crate::markdown::{self, Block, Cx, Link};
 use crate::net::Cmd;
 use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Store};
@@ -1086,10 +1087,16 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             author_line(&mut cui, d, m, &name, &ink, dot, font, hot);
         }
         let editing = d.editing.as_ref().is_some_and(|(id, _)| *id == m.id);
+        if !editing && plugins::flag("MessageLogger", "inlineEdits") {
+            for (old, _) in &m.edits {
+                let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color: pal().text_normal.gamma_multiply(0.8), revealed: false, edited: true, embed: false };
+                blocks_ui(&mut cui, &markdown::parse(old, &cx), d, m.id);
+            }
+        }
         if editing {
             edit_box(&mut cui, d, m.id);
         } else if !m.content.is_empty() && !(d.embeds && d.s.inline_links && link_only(m)) {
-            let color = if m.failed {
+            let color = if m.failed || (m.deleted && plugins::text("MessageLogger", "deleteStyle") == "text") {
                 RED
             } else if m.pending {
                 pal().text_muted
@@ -1235,6 +1242,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         // jumped-to message glows and fades out over two seconds
         let a = (1.0 - t.elapsed().as_secs_f32() / 2.0).clamp(0.0, 1.0);
         Color32::from_rgba_unmultiplied(88, 101, 242, (40.0 * a) as u8)
+    } else if m.deleted && plugins::text("MessageLogger", "deleteStyle") == "overlay" {
+        Color32::from_rgba_unmultiplied(240, 71, 71, 38)
     } else if hovered || d.editing.as_ref().is_some_and(|(id, _)| *id == m.id) {
         pal().bg_msg_hover
     } else {
@@ -1278,7 +1287,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if ui.input(|i| i.pointer.primary_clicked() && i.modifiers.alt) {
             d.acts.push(Act::MarkUnread(m.id));
         }
-        action_bar(d, m, row);
+        if !m.deleted {
+            action_bar(d, m, row);
+        }
         if ui.input(|i| i.pointer.secondary_clicked())
             && !d.acts.iter().any(|a| matches!(a, Act::UserMenu(..)))
             && let Some(p) = ui.ctx().pointer_interact_pos()
@@ -2551,6 +2562,7 @@ enum MenuPick {
     Delete,
     Report,
     CopyId,
+    History,
 }
 
 pub fn context_menu(app: &mut App, ctx: &egui::Context) {
@@ -2564,6 +2576,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     let pinned = m.pinned;
     let reacted = !m.reactions.is_empty();
     let has_thread = m.thread.is_some();
+    let logged = m.deleted || !m.edits.is_empty();
     let dev = app.settings.dev;
     let mut frequent: Vec<ReactEmoji> = app.ui.quick.clone();
     for n in ["✅", "❤️", "🔥", "😂", "👍", "😭", "💀", "👀", "🙏", "😊"] {
@@ -2690,6 +2703,9 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if !own && menu_item(ui, Some(Icon::Flag), "Report Message", true) {
             pick = Some(MenuPick::Report);
         }
+        if logged && menu_item(ui, Some(Icon::Trash), "Remove Message History", true) {
+            pick = Some(MenuPick::History);
+        }
         if dev {
             menu_sep(ui);
             if menu_item(ui, Some(Icon::Id), "Copy Message ID", false) {
@@ -2735,6 +2751,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         // reporting has no flow of its own here; discord's web client handles it
         Some(MenuPick::Report) => ctx.open_url(egui::OpenUrl::new_tab(app.message_link(ch, id))),
         Some(MenuPick::CopyId) => ctx.copy_text(id.to_string()),
+        Some(MenuPick::History) => app.store.forget_history(ch, id),
         None => {}
     }
     if picked || !open {

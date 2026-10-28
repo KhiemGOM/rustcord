@@ -980,6 +980,9 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             x += w + 4.0;
                             shown += 1;
                         }
+                        if crate::plugins::on("AlwaysExpandRoles") {
+                            shown = roles.len();
+                        }
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                             for ((_, c), g) in roles.iter().zip(galleys).take(shown) {

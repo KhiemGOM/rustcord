@@ -360,6 +360,7 @@ pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
     match key {
         "modal" => user::modal_done(app, res),
         "profile_save" | "nick_save" => user::profile_saved(app, key, res),
+        "bs_check" => crate::ui::plugs::sessions_checked(app, res),
         "action" => match res {
             Ok(_) => {}
             Err(e) => app.toast(e),

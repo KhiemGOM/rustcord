@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crate::api;
+use crate::plugins;
 
 pub type Id = u64;
 
@@ -586,6 +587,11 @@ pub struct Message {
     pub poll: Option<Poll>,
     #[serde(default)]
     pub pinned: bool,
+    // MessageLogger: gone from discord but kept here, and what the text said before each edit
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub edits: Vec<(String, i64)>,
     #[serde(skip)]
     pub pending: bool,
     #[serde(skip)]
@@ -1724,6 +1730,16 @@ impl Store {
             .or_else(|| self.refs.get(&id))
     }
 
+    /// MessageLogger's Remove Message History: a deleted message goes, an edited one forgets its old text.
+    pub fn forget_history(&mut self, channel: Id, id: Id) {
+        if let Some(e) = self.msgs.get_mut(&channel) {
+            e.list.retain(|m| !(m.id == id && m.deleted));
+            if let Some(m) = e.list.iter_mut().find(|m| m.id == id) {
+                m.edits.clear();
+            }
+        }
+    }
+
     fn msg_mut(&mut self, channel: Id, id: Id) -> Option<&mut Message> {
         self.msgs.get_mut(&channel)?.list.iter_mut().find(|m| m.id == id)
     }
@@ -1785,6 +1801,18 @@ impl Store {
             .is_some_and(|g| m.mention_roles.iter().any(|r| g.my_roles.contains(r)))
     }
 
+    /// Whether MessageLogger keeps this message's deletes and edits.
+    fn logged(&self, m: &Message) -> bool {
+        let p = "MessageLogger";
+        let guild = self.channels.get(&m.channel).map_or(0, |c| c.guild);
+        !(m.pending
+            || (plugins::flag(p, "ignoreSelf") && m.author == self.me)
+            || (plugins::flag(p, "ignoreBots") && self.users.get(&m.author).is_some_and(|u| u.bot))
+            || plugins::ids(p, "ignoreUsers").contains(&m.author)
+            || plugins::ids(p, "ignoreChannels").contains(&m.channel)
+            || plugins::ids(p, "ignoreGuilds").contains(&guild))
+    }
+
     /// Applies a gateway dispatch. Returns the channel id when a new message arrived.
     pub fn apply(&mut self, t: &str, d: &Value) -> Option<Id> {
         match t {
@@ -1825,22 +1853,32 @@ impl Store {
             "MESSAGE_UPDATE" => {
                 let ch = sid(&d["channel_id"]);
                 let id = sid(&d["id"]);
+                let log = self.find_msg(ch, id).is_some_and(|m| plugins::flag("MessageLogger", "logEdits") && self.logged(m));
                 if let Some(m) = self.msg_mut(ch, id) {
+                    if log && d["content"].as_str().is_some_and(|c| c != m.content) && !m.content.is_empty() {
+                        let at = iso_ms(&d["edited_timestamp"]);
+                        m.edits.push((m.content.clone(), if at > 0 { at } else { chrono::Utc::now().timestamp_millis() }));
+                    }
                     m.fill(d);
                 }
             }
-            "MESSAGE_DELETE" => {
+            "MESSAGE_DELETE" | "MESSAGE_DELETE_BULK" => {
                 let ch = sid(&d["channel_id"]);
-                let id = sid(&d["id"]);
+                let gone = if t == "MESSAGE_DELETE" { vec![sid(&d["id"])] } else { ids(&d["ids"]) };
+                let keep = plugins::flag("MessageLogger", "logDeletes");
+                let logged: Vec<Id> = self
+                    .msgs
+                    .get(&ch)
+                    .map(|e| e.list.iter().filter(|m| keep && gone.contains(&m.id) && self.logged(m)).map(|m| m.id).collect())
+                    .unwrap_or_default();
                 if let Some(e) = self.msgs.get_mut(&ch) {
-                    e.list.retain(|m| m.id != id);
-                }
-            }
-            "MESSAGE_DELETE_BULK" => {
-                let ch = sid(&d["channel_id"]);
-                let gone = ids(&d["ids"]);
-                if let Some(e) = self.msgs.get_mut(&ch) {
-                    e.list.retain(|m| !gone.contains(&m.id));
+                    e.list.retain(|m| !gone.contains(&m.id) || logged.contains(&m.id));
+                    for m in e.list.iter_mut().filter(|m| logged.contains(&m.id)) {
+                        m.deleted = true;
+                        if !plugins::flag("MessageLogger", "logDeletedAttachments") {
+                            m.attachments.clear();
+                        }
+                    }
                 }
             }
             "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" => {
