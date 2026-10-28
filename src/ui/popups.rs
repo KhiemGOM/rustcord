@@ -4,6 +4,7 @@ use serde_json::json;
 use super::{App, avatar, button, channel_title, chat, icon_button, status_dot, text};
 use super::icons::Icon;
 use crate::net::Tag;
+use crate::plugins;
 use crate::state::{Id, Message};
 use crate::theme::*;
 
@@ -1986,6 +1987,11 @@ enum UserAct {
     Timeout,
     Kick,
     Ban,
+    Perms,
+    CopyUrl,
+    View(String),
+    Pin(bool),
+    Shift(i32),
 }
 
 /// Discord's menu for a person, from the member list, a message's author or a dm row.
@@ -2011,6 +2017,11 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         (perms & MODERATE_MEMBERS != 0, perms & KICK_MEMBERS != 0, perms & BAN_MEMBERS != 0)
     };
     let mut act = None;
+    let avatar_url = app.store.user(uid).map(|u| match &u.avatar {
+        Some(h) => super::extra::icon_url("avatars", uid, h),
+        None => u.avatar_url(),
+    }).unwrap_or_default();
+    let decoration = app.store.user(uid).and_then(|u| u.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=4096&passthrough=true", crate::api::cdn())));
     let open = super::float_menu(ctx, "user_menu", at, |ui| {
         if dm.is_some() {
             if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
@@ -2088,6 +2099,41 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
                 });
             }
         }
+        if !group && (plugins::on("ViewIcons") || (plugins::on("PermissionsViewer") && gid != 0) || plugins::on("CopyUserURLs")) {
+            menu_sep(ui);
+            if plugins::on("ViewIcons") {
+                if menu_item(ui, None, "View Avatar", false) {
+                    act = Some(UserAct::View(avatar_url.clone()));
+                }
+                if let Some(d) = decoration.as_ref() {
+                    if menu_item(ui, None, "View Avatar Decoration", false) {
+                        act = Some(UserAct::View(d.clone()));
+                    }
+                }
+            }
+            if plugins::on("PermissionsViewer") && gid != 0 && menu_item(ui, None, "View Permissions", false) {
+                act = Some(UserAct::Perms);
+            }
+            if plugins::on("CopyUserURLs") && menu_item(ui, None, "Copy User URL", false) {
+                act = Some(UserAct::CopyUrl);
+            }
+        }
+        if let Some(c) = dm.filter(|_| plugins::on("PinDMs")) {
+            menu_sep(ui);
+            let pins = super::extra::pinned(&app.store);
+            let at = pins.iter().position(|p| *p == c);
+            if menu_item(ui, None, if at.is_some() { "Unpin DM" } else { "Pin DM" }, false) {
+                act = Some(UserAct::Pin(at.is_none()));
+            }
+            if let Some(i) = at.filter(|_| plugins::text("PinDMs", "pinOrder") == "1") {
+                if i > 0 && menu_item(ui, None, "Move Up", false) {
+                    act = Some(UserAct::Shift(-1));
+                }
+                if i + 1 < pins.len() && menu_item(ui, None, "Move Down", false) {
+                    act = Some(UserAct::Shift(1));
+                }
+            }
+        }
         if dev {
             menu_sep(ui);
             if !group && menu_item(ui, Some(Icon::Id), "Copy User ID", false) {
@@ -2145,6 +2191,11 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         Some(UserAct::Unblock) => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet),
         Some(UserAct::Mute(m, secs)) => app.mute_for(dm, false, m, secs),
+        Some(UserAct::Perms) => app.view_user_perms(gid, uid),
+        Some(UserAct::CopyUrl) => ctx.copy_text(format!("https://discord.com/users/{uid}")),
+        Some(UserAct::View(url)) => super::extra::view(app, url),
+        Some(UserAct::Pin(on)) => super::extra::pin(dm, on),
+        Some(UserAct::Shift(by)) => super::extra::shift_pin(dm, by),
         Some(UserAct::CopyUser) => ctx.copy_text(uid.to_string()),
         Some(UserAct::CopyChannel) => ctx.copy_text(dm.to_string()),
         None => {}

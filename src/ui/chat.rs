@@ -149,6 +149,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         return;
     };
     let chan = app.store.channels[&ch].clone();
+    if super::hidden::locked(&app.store, &chan) {
+        return super::hidden::show(app, ui, &chan);
+    }
     if chan.is_voice() {
         if app.voice_chat {
             egui::Panel::right("voice_chat")
