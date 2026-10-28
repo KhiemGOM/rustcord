@@ -906,7 +906,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     };
     let p = app.profiles.get(&uid);
     let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
-    let roles: Vec<(String, u32)> = app
+    let roles: Vec<(String, u32, Id)> = app
         .store
         .members
         .get(&gid)
@@ -915,7 +915,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
         .map(|(m, g)| {
             let mut r: Vec<_> = m.roles.iter().filter_map(|r| g.roles.get(r)).collect();
             r.sort_by_key(|r| -r.position);
-            r.into_iter().map(|r| (r.name.clone(), r.color)).collect()
+            r.into_iter().map(|r| (r.name.clone(), r.color, r.id)).collect()
         })
         .unwrap_or_default();
     let name = app.store.name_in(gid, uid);
@@ -924,6 +924,10 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let stranger = !user.bot && uid != me && !app.store.relationships.contains_key(&uid);
     let (mut message, mut more, mut add, mut main) = (None, None, false, false);
     let mut head = Rect::NOTHING;
+    let mut view = None;
+    let mut open_group = None;
+    let mut role_act = None;
+    let groups = super::card::mutual_groups(&app.store, uid);
     let store = &app.store;
 
     // discord's 2025 popout: a 105 banner, round buttons on it, then everything at 16 in
@@ -937,8 +941,9 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(300.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let wash = ui.painter().add(egui::Shape::Noop);
-                let top = card_head(ui, &user, p, &name, status);
+                let top = card_head(ui, store, &user, p, &name, status);
                 head = top;
+                view = super::card::click(ui, top, &user, p, gid == 0);
                 // from a server profile the avatar goes to the main one
                 if gid != 0 {
                     let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
@@ -954,6 +959,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
                     mutuals(ui, store, p, pal().bg_secondary);
+                    super::card::extras(ui, store, uid, &groups, &mut open_group);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().header_primary));
@@ -965,7 +971,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             ui.add_space(10.0);
                         }
                         // discord keeps roles to two rows and counts the rest in a "+N" pill
-                        let galleys: Vec<_> = roles.iter().map(|(r, _)| ui.painter().layout_no_wrap(r.clone(), reg(12.0), pal().header_primary)).collect();
+                        let galleys: Vec<_> = roles.iter().map(|(r, _, _)| ui.painter().layout_no_wrap(r.clone(), reg(12.0), pal().header_primary)).collect();
                         let (mut shown, mut x, mut row) = (0, 0.0, 0);
                         for g in &galleys {
                             let w = 32.0 + g.size().x;
@@ -982,8 +988,18 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         }
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                            for ((_, c), g) in roles.iter().zip(galleys).take(shown) {
-                                let (pill, _) = ui.allocate_exact_size(vec2(32.0 + g.size().x, 24.0), Sense::hover());
+                            for ((_, c, rid), g) in roles.iter().zip(galleys).take(shown) {
+                                let clickable = crate::plugins::on("BetterRoleContext") || crate::plugins::flag("BetterRoleDot", "copyRoleColorInProfilePopout");
+                                let (pill, resp) = ui.allocate_exact_size(vec2(32.0 + g.size().x, 24.0), if clickable { Sense::click() } else { Sense::hover() });
+                                if let Some(role) = store.guilds.get(&gid).and_then(|g| g.roles.get(rid))
+                                    && let Some(a) = super::extra::role_menu(&resp, role)
+                                {
+                                    role_act = Some(a);
+                                }
+                                let dot = Rect::from_center_size(pos2(pill.left() + 12.0, pill.center().y), vec2(12.0, 12.0));
+                                if resp.clicked() && crate::plugins::flag("BetterRoleDot", "copyRoleColorInProfilePopout") && resp.interact_pointer_pos().is_some_and(|p| dot.expand(4.0).contains(p)) {
+                                    ui.ctx().copy_text(format!("#{c:06x}"));
+                                }
                                 ui.painter().rect_stroke(pill, CornerRadius::same(8), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                                 let col = if *c == 0 { egui::Color32::from_rgb(0xc4, 0xc9, 0xce) } else { role_color(*c) };
                                 ui.painter().circle_filled(pos2(pill.left() + 12.0, pill.center().y), 6.0, col);
@@ -997,6 +1013,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             }
                         });
                     }
+                    super::card::connections(ui, p);
                     if uid != me {
                         // discord's box: typed into in place, Enter sends it and opens the dm.
                         // It has the focus as the card opens.
@@ -1032,7 +1049,16 @@ fn profile(app: &mut App, ctx: &egui::Context) {
             });
         });
     app.rects.insert("profile_head".into(), head);
-    if let Some(text) = message {
+    if let Some(a) = role_act {
+        super::extra::do_role(app, ctx, gid, a);
+    }
+    if let Some(c) = open_group {
+        app.profile = None;
+        app.ui.guild = None;
+        app.open(c);
+    } else if let Some(url) = view {
+        super::extra::view(app, url);
+    } else if let Some(text) = message {
         app.profile = None;
         app.dm_text(uid, text);
     } else if main {
@@ -1119,6 +1145,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
     let (mut more, mut add, mut full) = (None, false, false);
+    let mut view = None;
     let height = ui.available_height();
     let store = &app.store;
     let p = app.profiles.get(&uid);
@@ -1127,7 +1154,8 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.set_min_height(height - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         let wash = ui.painter().add(egui::Shape::Noop);
-        let top = card_head(ui, &user, p, user.display(), status);
+        let top = card_head(ui, store, &user, p, user.display(), status);
+        view = super::card::click(ui, top, &user, p, true);
         (more, add) = banner_buttons(ui, top, stranger);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
             ui.set_width(268.0);
@@ -1174,6 +1202,9 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         full = resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
     });
+    if let Some(url) = view {
+        super::extra::view(app, url);
+    }
     if let Some(at) = more {
         app.user_menu = Some((uid, 0, None, at));
     }
@@ -1229,14 +1260,16 @@ fn card_avatar(top: Rect) -> Rect {
     Rect::from_min_size(pos2(top.left() + 16.0, top.top() + 61.0), vec2(80.0, 80.0))
 }
 
-pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
+pub fn card_head(ui: &mut Ui, store: &crate::state::Store, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
     let accent = p
         .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
         .map(|c| role_color(c as u32))
         // no banner colour set: discord's pick from the avatar, as in call tiles
         .or_else(|| super::palette::avatar(ui.ctx(), &user.avatar_url()))
         .unwrap_or(BLURPLE);
-    let banner = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
+    let nitro = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
+    let usrbg = super::extra::usrbg(user.id);
+    let banner = if crate::plugins::flag("USRBG", "nitroFirst") { nitro.or(usrbg) } else { usrbg.or(nitro) };
     let pronouns = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty());
     let (top, _) = ui.allocate_exact_size(vec2(300.0, 105.0), Sense::hover());
     let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
@@ -1283,6 +1316,14 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
                 ui.interact(br, ui.id().with(("badge", icon)), Sense::hover()).on_hover_text(b["description"].as_str().unwrap_or(""));
                 x += 22.0;
             }
+            if crate::plugins::flag("PlatformIndicators", "badges") {
+                for (kind, st) in super::platform::of(store, user.id) {
+                    let br = Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0));
+                    super::platform::draw(ui.painter(), kind, br, st);
+                    ui.interact(br, ui.id().with(("platform", kind)), Sense::hover()).on_hover_text(super::platform::NAMES[kind]);
+                    x += 22.0;
+                }
+            }
         });
     });
     top
@@ -1311,7 +1352,8 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
     let wash = ui.painter().add(egui::Shape::Noop);
-    let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
+    let top = card_head(ui, &app.store, &user, app.profiles.get(&me), user.display(), status);
+    let view = super::card::click(ui, top, &user, app.profiles.get(&me), true);
     if let Some(c) = &custom {
         // the speech bubble discord floats beside your avatar
         let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
@@ -1370,6 +1412,9 @@ pub fn account(app: &mut App, ui: &mut Ui) {
         }
     });
     theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
+    if let Some(url) = view {
+        super::extra::view(app, url);
+    }
     match act {
         Some(AccountAct::Status(s)) => app.set_status(s),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),

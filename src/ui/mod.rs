@@ -2,6 +2,7 @@ mod actions;
 mod active;
 mod autoscroll;
 mod boosts;
+mod card;
 mod call;
 mod chat;
 mod composer;
@@ -9,16 +10,21 @@ mod create;
 mod directory;
 mod e2e;
 mod events;
+mod extra;
 mod forum;
 mod friends;
+mod hidden;
 pub mod icons;
+mod info;
 mod keys;
 mod login;
 mod members;
 mod palette;
 mod picker;
+mod platform;
 mod popups;
 mod rail;
+mod rpc;
 mod channel;
 mod community;
 mod server;
@@ -115,6 +121,7 @@ pub struct App {
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: HashMap<Id, serde_json::Value>,
+    pub ext: extra::State,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
@@ -286,6 +293,7 @@ impl App {
             switcher: None,
             profile: None,
             profiles: HashMap::new(),
+            ext: Default::default(),
             pins: None,
             search: None,
             friends: false,
@@ -742,7 +750,7 @@ impl App {
     }
 
     /// Our status, with the game we detected unless activity sharing is off.
-    fn send_presence(&mut self) {
+    pub(super) fn send_presence(&mut self) {
         let status = match self.store.presence.get(&self.store.me) {
             Some(Status::Idle) => "idle",
             Some(Status::Dnd) => "dnd",
@@ -750,10 +758,8 @@ impl App {
             _ => "online",
         };
         self.shared = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
-        let activities = match (&self.game, self.shared) {
-            (Some(g), Some(_)) => json!([{ "name": g.name, "type": 0, "application_id": g.id.to_string(), "timestamps": { "start": g.start } }]),
-            _ => json!([]),
-        };
+        let activities = rpc::activities(self);
+        self.ext.rpc.sent = activities.clone();
         self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": false } })));
     }
 
@@ -1184,6 +1190,7 @@ impl App {
         if let Some(g) = self.games.as_ref().and_then(|r| r.try_iter().last()) {
             self.game = g;
         }
+        extra::tick(self, ctx);
         // a game opening or closing, or sharing switched, goes out once we're connected
         let want = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
         if want != self.shared && self.conn == crate::net::Conn::Online && self.store.me != 0 {
@@ -1386,6 +1393,7 @@ impl App {
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
+        info::show(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);
