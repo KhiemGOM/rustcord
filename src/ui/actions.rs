@@ -69,6 +69,14 @@ impl App {
         self.confirm = Some(Confirm::new("Are you sure?", body, "Remove All Embeds", move |app: &mut App| app.clear_embeds(ch, id, false)));
     }
 
+    /// Submitting a poll vote: set our picks locally and send discord the whole set (empty clears).
+    pub fn vote(&mut self, ch: Id, id: Id, picks: Vec<u8>) {
+        if self.store.set_votes(ch, id, &picks) {
+            let ids: Vec<String> = picks.iter().map(|a| a.to_string()).collect();
+            self.rest("PUT", format!("/channels/{ch}/polls/{id}/answers/@me"), Some(json!({ "answer_ids": ids })), Tag::Quiet);
+        }
+    }
+
     pub fn clear_reactions(&mut self, ch: Id, id: Id, ask: bool) {
         if !ask {
             self.rest("DELETE", format!("/channels/{ch}/messages/{id}/reactions"), None, Tag::Quiet);

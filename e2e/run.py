@@ -269,6 +269,9 @@ def main():
         "profile: the avatar on a server profile opens the main one, and its \"...\" opens the menu with the profile still up": all("profile_more" in r.get("marks_ms", {}) for r in (cold, warm)),
         "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
             and sum('"flags":4096' in r.get("body", "") and '"2101"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) >= 2,
+        "poll: rendered in #general, an answer picked and Vote pressed": all("home_poll" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "poll: the vote was PUT to discord's poll answers endpoint": any(
+            r.get("method") == "PUT" and "/polls/" in r.get("path", "") and r.get("path", "").endswith("/answers/@me") for r in reqs),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

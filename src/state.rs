@@ -569,6 +569,8 @@ pub struct Message {
     #[serde(default)]
     pub thread: Option<Id>,
     #[serde(default)]
+    pub poll: Option<Poll>,
+    #[serde(default)]
     pub pinned: bool,
     #[serde(skip)]
     pub pending: bool,
@@ -636,6 +638,9 @@ impl Message {
         if v["thread"].is_object() {
             self.thread = Some(sid(&v["thread"]["id"]));
         }
+        if v["poll"].is_object() {
+            self.poll = Poll::parse(&v["poll"]);
+        }
         if let Some(f) = v["flags"].as_u64() {
             self.flags = f;
         }
@@ -681,6 +686,62 @@ impl Comp {
             }),
             _ => None,
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Poll {
+    pub question: String,
+    pub answers: Vec<PollAnswer>,
+    pub multi: bool,
+    // unix ms the poll closes, 0 if unknown
+    pub expiry: i64,
+    pub finalized: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PollAnswer {
+    pub id: u8,
+    pub text: String,
+    pub emoji: Option<ReactEmoji>,
+    pub count: u32,
+    pub me: bool,
+}
+
+impl Poll {
+    fn parse(v: &Value) -> Option<Poll> {
+        let answers = v["answers"].as_array()?;
+        let mut answers: Vec<PollAnswer> = answers
+            .iter()
+            .map(|a| {
+                let media = &a["poll_media"];
+                PollAnswer {
+                    id: a["answer_id"].as_u64().unwrap_or(0) as u8,
+                    text: st(&media["text"]),
+                    emoji: media["emoji"].is_object().then(|| ReactEmoji::parse(&media["emoji"])),
+                    count: 0,
+                    me: false,
+                }
+            })
+            .collect();
+        for c in v["results"]["answer_counts"].as_array().into_iter().flatten() {
+            let id = c["id"].as_u64().unwrap_or(0) as u8;
+            if let Some(a) = answers.iter_mut().find(|a| a.id == id) {
+                a.count = c["count"].as_u64().unwrap_or(0) as u32;
+                a.me = c["me_voted"].as_bool().unwrap_or(false);
+            }
+        }
+        Some(Poll {
+            question: st(&v["question"]["text"]),
+            answers,
+            multi: v["allow_multiselect"].as_bool().unwrap_or(false),
+            expiry: iso_ms(&v["expiry"]),
+            finalized: v["results"]["is_finalized"].as_bool().unwrap_or(false),
+        })
+    }
+
+    pub fn total(&self) -> u32 {
+        self.answers.iter().map(|a| a.count).sum()
     }
 }
 
@@ -1697,6 +1758,30 @@ impl Store {
                     react(m, em, add, me);
                 }
             }
+            "MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" => {
+                let add = t == "MESSAGE_POLL_VOTE_ADD";
+                let me = sid(&d["user_id"]) == self.me;
+                let aid = d["answer_id"].as_u64().unwrap_or(0) as u8;
+                if let Some(p) = self.msg_mut(sid(&d["channel_id"]), sid(&d["message_id"])).and_then(|m| m.poll.as_mut()) {
+                    if let Some(a) = p.answers.iter_mut().find(|a| a.id == aid) {
+                        // our own vote is already counted optimistically, so skip the echo for it;
+                        // other people's always count
+                        match (add, me) {
+                            (true, true) if !a.me => {
+                                a.count += 1;
+                                a.me = true;
+                            }
+                            (true, false) => a.count += 1,
+                            (false, true) if a.me => {
+                                a.count = a.count.saturating_sub(1);
+                                a.me = false;
+                            }
+                            (false, false) => a.count = a.count.saturating_sub(1),
+                            _ => {}
+                        }
+                    }
+                }
+            }
             "MESSAGE_REACTION_REMOVE_ALL" => {
                 if let Some(m) = self.msg_mut(sid(&d["channel_id"]), sid(&d["message_id"])) {
                     m.reactions.clear();
@@ -2053,6 +2138,24 @@ impl Store {
         if let Some(m) = self.msg_mut(channel, id) {
             react(m, em, add, true);
         }
+    }
+
+    /// Sets the current user's poll votes to exactly `picks`, adjusting the shown counts.
+    /// Returns false (and does nothing) when the message has no live poll.
+    pub fn set_votes(&mut self, channel: Id, id: Id, picks: &[u8]) -> bool {
+        let Some(p) = self.msg_mut(channel, id).and_then(|m| m.poll.as_mut()).filter(|p| !p.finalized) else {
+            return false;
+        };
+        for a in p.answers.iter_mut() {
+            let want = picks.contains(&a.id);
+            if want && !a.me {
+                a.count += 1;
+            } else if !want && a.me {
+                a.count = a.count.saturating_sub(1);
+            }
+            a.me = want;
+        }
+        true
     }
 
     pub fn prune_typing(&mut self) -> bool {

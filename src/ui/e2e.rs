@@ -3809,6 +3809,51 @@ impl Run {
                 self.key(Key::Escape);
                 self.next(600);
             }
+            // a poll in #general: scroll to it, pick an answer, press Vote
+            551 => {
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(1000);
+            }
+            552 => {
+                // scroll up until the whole poll card, down to its Vote button, is on screen
+                if !app.rects.contains_key("poll_vote") || !app.rects.contains_key("poll_opt:2") {
+                    if let Some(c) = app.rects.get("composer").copied() {
+                        self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, (c.top() + 90.0) / 2.0))]);
+                        self.queue.push_back(vec![Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0.0, 100.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: Modifiers::NONE,
+                        }]);
+                    }
+                    return;
+                }
+                self.next(600);
+            }
+            553 => {
+                let Some(r) = app.rects.get("poll_opt:2").copied() else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            554 => {
+                let Some(r) = app.rects.get("poll_vote").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            555 => {
+                let voted = app
+                    .store
+                    .msgs
+                    .get(&general)
+                    .and_then(|e| e.list.iter().find_map(|m| m.poll.as_ref()))
+                    .is_some_and(|p| p.answers.iter().any(|a| a.id == 2 && a.me));
+                if voted {
+                    self.mark("home_poll");
+                    self.shot(ctx, "home_poll.png");
+                    self.next(300);
+                }
+            }
             _ => {
                 if app.viewer.is_none() {
                     self.step = 99;
