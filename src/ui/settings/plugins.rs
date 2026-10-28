@@ -93,7 +93,9 @@ fn status(p: &Value) -> Option<(String, Color32)> {
 fn card(app: &mut App, ui: &mut Ui, p: &Value) {
     let name = p["name"].as_str().unwrap_or("").to_string();
     let enabled = p["enabled"] == true;
-    let options: Vec<&Value> = p["options"].as_array().into_iter().flatten().filter(|o| o["hidden"] != true).collect();
+    // custom options are data the plugin keeps, with no control of their own
+    let options: Vec<&Value> = p["options"].as_array().into_iter().flatten().filter(|o| o["hidden"] != true && o["type"] != 7).collect();
+    let about = p["about"] == true;
     let open = app.sform.plugin_open.contains(&name);
     super::lead(ui);
     egui::Frame::new()
@@ -120,8 +122,9 @@ fn card(app: &mut App, ui: &mut Ui, p: &Value) {
             super::mark(ui, &format!("plugin:{name}"), sw);
             if sresp.clicked() && p["error"].is_null() {
                 app.vc_call("setEnabled", json!({ "name": name, "on": !enabled }));
+                app.vc.trees.retain(|k, _| !k.starts_with(&format!("about:{name}")) && !k.starts_with(&format!("setting:{name}:")));
             }
-            if !options.is_empty() {
+            if !options.is_empty() || about {
                 let cog = Rect::from_center_size(pos2(sw.left() - 22.0, sw.center().y), vec2(24.0, 24.0));
                 let cresp = ui.interact(cog, Id::new(("vc_cog", &name)), Sense::click());
                 icons::draw(ui.painter(), Icon::Gear, Rect::from_center_size(cog.center(), vec2(20.0, 20.0)), if open || cresp.hovered() { pal().header_primary } else { pal().text_muted });
@@ -136,10 +139,16 @@ fn card(app: &mut App, ui: &mut Ui, p: &Value) {
                     }
                 }
             }
-            if open && !options.is_empty() {
+            if open && (!options.is_empty() || about) {
                 ui.add_space(16.0);
                 ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 31)));
                 ui.add_space(16.0);
+                if about {
+                    let root = format!("about:{name}");
+                    let tree = app.vc_tree(&root, |app| app.vc_call("about", json!({ "plugin": name })));
+                    app.vc_draw(ui, &root, &tree);
+                    ui.add_space(12.0);
+                }
                 for o in options {
                     option(app, ui, &name, o);
                 }
@@ -222,6 +231,13 @@ fn option(app: &mut App, ui: &mut Ui, plugin: &str, o: &Value) {
             }
             super::end(ui, 20.0);
         }
-        _ => note(ui, &format!("{desc}: set in Vencord; this option is the plugin's own UI.")),
+        _ => {
+            // the plugin's own control for it, drawn from its React
+            super::lead(ui);
+            let root = format!("setting:{plugin}:{key}");
+            let tree = app.vc_tree(&root, |app| app.vc_call("settingUi", json!({ "plugin": plugin, "key": key })));
+            app.vc_draw(ui, &root, &tree);
+            super::end(ui, 20.0);
+        }
     }
 }

@@ -207,7 +207,7 @@ const api = {
             const evalBool = f => { try { return typeof f === "function" ? !!f() : !!f; } catch { return false; } };
             return {
                 name: e.name, path: e.path, description: p.description ?? "", authors: (p.authors ?? []).map(a => a?.name).filter(Boolean),
-                enabled: !!enabled(e), started: !!e.started, error: e.error ?? null, hidden: !!p.hidden || !!p.required,
+                enabled: !!enabled(e), started: !!e.started, error: e.error ?? null, hidden: !!p.hidden || !!p.required, about: !!p.settingsAboutComponent,
                 patches: (p.patches ?? []).length,
                 parts: ["start", "flux", "commands", "contextMenus", "chatBarButton", "messagePopoverButton", "onBeforeMessageSend", "onBeforeMessageEdit", "onMessageClick"].filter(k => p[k] && (!Array.isArray(p[k]) || p[k].length) && (typeof p[k] !== "object" || Object.keys(p[k]).length)),
                 options: Object.entries(def).map(([key, d]) => ({

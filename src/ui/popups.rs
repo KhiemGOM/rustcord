@@ -1283,6 +1283,33 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
                 ui.interact(br, ui.id().with(("badge", icon)), Sense::hover()).on_hover_text(b["description"].as_str().unwrap_or(""));
                 x += 22.0;
             }
+            // and the ones Vencord plugins give them
+            let key = format!("badges:{}", user.id);
+            match super::react::published(ui.ctx()).trees.get(&key).cloned() {
+                Some(list) => {
+                    for b in list.as_array().into_iter().flatten() {
+                        let br = Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0));
+                        if let Some(root) = b["component"]["root"].as_str() {
+                            let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(br.min, vec2(120.0, 20.0))).layout(Layout::left_to_right(Align::Center)));
+                            super::react::slot(&mut c, root);
+                            x = c.min_rect().right().max(x) + 2.0;
+                            continue;
+                        }
+                        let Some(icon) = b["icon"].as_str() else { continue };
+                        egui::Image::from_uri(icon.to_string()).show_loading_spinner(false).paint_at(ui, br);
+                        let resp = ui.interact(br, ui.id().with(("vc_badge", icon)), Sense::click()).on_hover_text(b["tooltip"].as_str().unwrap_or(""));
+                        if resp.clicked() {
+                            match (b["click"].as_str(), b["link"].as_str()) {
+                                (Some(a), _) => super::react::queue(ui.ctx(), "#act", a, serde_json::Value::Null),
+                                (None, Some(l)) => super::react::queue(ui.ctx(), "", "#url", l.into()),
+                                _ => {}
+                            }
+                        }
+                        x += 22.0;
+                    }
+                }
+                None => super::react::want(ui.ctx(), format!("badges:{}:0", user.id)),
+            }
         });
     });
     top

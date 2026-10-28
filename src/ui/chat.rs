@@ -82,6 +82,8 @@ struct D<'a> {
     bookmarks: &'a HashSet<Id>,
     // the hovered message's buttons from plugins: (message, [{label, icon, click}])
     plugin_bar: (Id, serde_json::Value),
+    // how many plugins add accessories, decorations and member decorators
+    plugin_feats: [u64; 3],
 }
 
 fn normal(kind: u8) -> bool {
@@ -583,6 +585,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         focus: app.focus_msg,
         bookmarks: &app.bookmarks,
         plugin_bar,
+        plugin_feats: super::react::published(ui.ctx()).features,
     };
     let mut focus_at = None;
     if d.flash.is_some() {
@@ -1208,6 +1211,11 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             cui.add_space(2.0);
             cui.label(RichText::new("(edited)").font(reg(10.0)).color(pal().text_muted));
         }
+        if d.plugin_feats[0] > 0 && !m.pending {
+            if !super::react::slot(&mut cui, &format!("acc:{}", m.id)) {
+                super::react::want(d.ctx, format!("acc:{}:{}", d.ch, m.id));
+            }
+        }
         if !m.reactions.is_empty() && d.s.reactions {
             cui.add_space(acc);
             acc = 4.0;
@@ -1441,6 +1449,17 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     }
     if let Some(u) = user.filter(|u| u.bot) {
         x = super::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
+    }
+    if d.plugin_feats[1] > 0 {
+        let at = Rect::from_min_size(pos2(x, row.top()), vec2(240.0, row.height()));
+        let mut c = ui.new_child(UiBuilder::new().max_rect(at).layout(Layout::left_to_right(Align::Center)));
+        if super::react::slot(&mut c, &format!("dec:{}", m.id)) {
+            if c.min_rect().width() > 0.0 {
+                x = c.min_rect().right() + 4.0;
+            }
+        } else {
+            super::react::want(d.ctx, format!("dec:{}:{}", d.ch, m.id));
+        }
     }
     let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
     let ty = base - text::baseline(&t);
@@ -2802,6 +2821,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         focus: None,
         bookmarks: &none,
         plugin_bar: (0, serde_json::Value::Null),
+        plugin_feats: [0; 3],
     };
     // discord's cards: a raised fill and a hairline, the reply it answers above the author
     let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {

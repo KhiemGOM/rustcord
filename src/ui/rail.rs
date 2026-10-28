@@ -231,6 +231,7 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
                 act = Some(Act::Leave);
             }
         }
+        super::react::menu(ui, &format!("menu:guild:{gid}"));
         if dev {
             menu_sep(ui);
             if menu_item(ui, Some(Icon::Id), "Copy Server ID", false) {

@@ -17,6 +17,7 @@ mod login;
 mod members;
 mod palette;
 mod picker;
+mod react;
 mod popups;
 mod rail;
 mod channel;
@@ -1338,7 +1339,7 @@ impl App {
                             .fill(pal().bg_floating)
                             .corner_radius(8)
                             .inner_margin(egui::Margin::symmetric(16, 10))
-                            .show(ui, |ui| ui.label(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))));
+                            .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
                     });
                 ctx.request_repaint_after(Duration::from_millis(500));
             }
@@ -1387,6 +1388,7 @@ impl App {
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
+        self.vc_modals(&ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);

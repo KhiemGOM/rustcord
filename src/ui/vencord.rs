@@ -38,6 +38,13 @@ pub struct Vc {
     pub bar: Option<(Id, Instant, Value)>,
     pub commands: Option<Value>,
     pub list: Option<Value>,
+    // plugin UI by root (modals, settings panels, a message's accessories...), and menus' and
+    // badges' items by what they're for; published for drawing code without `App`
+    pub trees: HashMap<String, Value>,
+    published: bool,
+    dirty: std::collections::HashSet<String>,
+    pub modals: Vec<String>,
+    features: [u64; 3],
 }
 
 fn settings_path() -> PathBuf {
@@ -50,11 +57,6 @@ fn data_path() -> PathBuf {
 
 fn read(p: PathBuf) -> Option<Value> {
     std::fs::read(p).ok().and_then(|b| serde_json::from_slice(&b).ok())
-}
-
-/// Vencord's folder name for a plugin, folded the way its settings name it.
-fn folded(path: &str) -> String {
-    path.split('/').nth(2).unwrap_or("").split('.').next().unwrap_or("").to_lowercase()
 }
 
 impl App {
@@ -73,7 +75,8 @@ impl App {
     /// Starts the host the first time there's an account to run plugins against. Settings come
     /// from Fastcord's own copy, or Vencord's on the first run, so its plugins stay as they were.
     pub(super) fn vc_start(&mut self) {
-        if self.vc.tried || self.store.me == 0 {
+        // a few frames in, so the app is on screen before every plugin loads
+        if self.vc.tried || self.store.me == 0 || self.frames < 10 {
             return;
         }
         self.vc.tried = true;
@@ -85,9 +88,9 @@ impl App {
         let extra = cache::dir().join("userplugins");
         self.vc.host = Host::new(&extra, &settings, &data);
         let Some(h) = &self.vc.host else { return };
-        let on: Vec<String> = settings["plugins"].as_object().into_iter().flatten().filter(|(_, v)| v["enabled"] == true).map(|(k, _)| k.to_lowercase()).collect();
-        let paths: Vec<String> = h.plugins().into_iter().filter(|p| p.starts_with("src/userplugins/") || on.contains(&folded(p))).collect();
+        let paths = h.plugins();
         self.vc_call("start", json!({ "paths": paths }));
+        self.vc_features();
         self.vc.tick_at = Some(Instant::now());
     }
 
@@ -108,6 +111,10 @@ impl App {
         self.vc_call("dispatch", json!({ "t": t, "d": d, "x": x }));
         if matches!(t, "MESSAGE_CREATE" | "MESSAGE_UPDATE" | "MESSAGE_DELETE") {
             self.vc.popover = None;
+            let id = sid(&d["id"]);
+            for k in [format!("acc:{id}"), format!("dec:{id}")] {
+                self.vc.published |= self.vc.trees.remove(&k).is_some();
+            }
         }
     }
 
@@ -115,6 +122,10 @@ impl App {
     pub(super) fn vc_tick(&mut self, ctx: &egui::Context) {
         self.vc_start();
         if self.vc.host.is_none() {
+            ctx.data_mut(|d| {
+                d.remove_temp::<Vec<String>>(egui::Id::new("vc_want"));
+                d.remove_temp::<Vec<(String, String, Value)>>(egui::Id::new("vc_events"));
+            });
             return;
         }
         if self.vc.commands.is_none() {
@@ -126,6 +137,7 @@ impl App {
             let guild = cur.and_then(|c| self.store.channels.get(&c)).map(|c| c.guild).filter(|g| *g != 0);
             self.vc_call("dispatch", json!({ "t": "CHANNEL_SELECT", "d": { "channelId": cur.map(|c| c.to_string()), "guildId": guild.map(|g| g.to_string()) } }));
         }
+        self.vc_ui_queue(ctx);
         let back: Vec<(u32, Value)> = self.vc.fetched.as_ref().map(|(_, rx)| rx.try_iter().collect()).unwrap_or_default();
         for (id, v) in back {
             self.vc_call("settle", json!({ "id": id, "ok": true, "value": v }));
@@ -287,6 +299,15 @@ impl App {
                     let _ = open::that_detached(s("url"));
                 }
                 "openSettings" => self.settings_page = Some(super::settings::Page::Plugins),
+                "dirty" => {
+                    self.vc.dirty.insert(s("root"));
+                }
+                "modal" => self.vc.modals.push(s("root")),
+                "modalClose" => {
+                    let r = s("root");
+                    self.vc.modals.retain(|m| *m != r);
+                    self.vc.trees.remove(&r);
+                }
                 "rest" => {
                     let method = match s("method").as_str() {
                         "POST" => "POST",
@@ -312,6 +333,9 @@ impl App {
                     self.vc.commands = None;
                     self.vc.bar = None;
                     self.vc.popover = None;
+                    self.vc.trees.retain(|k, _| !["acc:", "dec:", "mem:", "badges:", "menu:"].iter().any(|p| k.starts_with(p)));
+                    self.vc.published = true;
+                    self.vc_features();
                 }
                 Some("data") => {
                     if let Ok(b) = serde_json::to_vec(&op["value"]) {
@@ -468,5 +492,147 @@ impl App {
         self.vc_call("act", json!({ "id": id, "shift": shift }));
         self.vc.bar = None;
         self.vc.popover = None;
+        self.vc.trees.retain(|k, _| !k.starts_with("menu:") && !k.starts_with("badges:"));
+        self.vc.published = true;
+    }
+}
+
+impl App {
+    fn vc_features(&mut self) {
+        let f = self.vc_call("features", json!({}));
+        self.vc.features = [f["accessories"].as_u64().unwrap_or(0), f["decorations"].as_u64().unwrap_or(0), f["members"].as_u64().unwrap_or(0)];
+        self.vc.published = true;
+    }
+
+    /// A control in plugin UI was used: its handler runs and the root's tree comes back redrawn.
+    pub fn vc_ui_event(&mut self, root: &str, id: &str, args: Value) {
+        match (root, id) {
+            (_, "#url") => {
+                let _ = open::that_detached(args.as_str().unwrap_or(""));
+            }
+            ("#act", a) => self.vc_act(a, false),
+            _ => {
+                let tree = self.vc_call("event", json!({ "root": root, "id": id, "args": args }));
+                if !tree.is_null() {
+                    self.vc.trees.insert(root.to_string(), tree);
+                    self.vc.published = true;
+                }
+            }
+        }
+    }
+
+    /// A root's tree: the one already drawn, unless the plugin changed it since.
+    pub fn vc_tree(&mut self, root: &str, mount: impl FnOnce(&mut App) -> Value) -> Value {
+        if !self.vc.trees.contains_key(root) {
+            let t = mount(self);
+            self.vc.trees.insert(root.to_string(), t);
+            self.vc.published = true;
+        }
+        self.vc.trees.get(root).cloned().unwrap_or_default()
+    }
+
+    /// Draws a root's tree here, its events going straight to the plugin.
+    pub fn vc_draw(&mut self, ui: &mut egui::Ui, root: &str, tree: &Value) {
+        for (h, args) in super::react::draw(ui, root, tree) {
+            self.vc_ui_event(root, &h, args);
+        }
+    }
+
+    /// What drawing code without the app asked for last frame, and what was done with plugin UI
+    /// it drew; then roots plugins changed are drawn again, and the lot published.
+    fn vc_ui_queue(&mut self, ctx: &egui::Context) {
+        let events: Vec<(String, String, Value)> = ctx.data_mut(|d| d.remove_temp(egui::Id::new("vc_events"))).unwrap_or_default();
+        for (root, h, args) in events {
+            self.vc_ui_event(&root, &h, args);
+        }
+        let mut wants: Vec<String> = ctx.data_mut(|d| d.remove_temp(egui::Id::new("vc_want"))).unwrap_or_default();
+        wants.sort();
+        wants.dedup();
+        for w in wants.into_iter().take(40) {
+            let parts: Vec<&str> = w.split(':').collect();
+            let id = |i: usize| parts.get(i).and_then(|x| x.parse::<Id>().ok()).unwrap_or(0);
+            let opt = |x: Id| (x != 0).then(|| x.to_string());
+            let (key, v) = match parts[0] {
+                "acc" | "dec" => {
+                    let (ch, mid) = (id(1), id(2));
+                    let Some(m) = self.store.find_msg(ch, mid) else { continue };
+                    let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+                    let nick = self.store.name_in(guild, m.author);
+                    let msg = crate::vencord::message(&self.store, m);
+                    let name = if parts[0] == "acc" { "accessories" } else { "decorations" };
+                    (format!("{}:{mid}", parts[0]), self.vc_call(name, json!({ "message": msg, "channel": ch.to_string(), "nick": nick })))
+                }
+                "mem" => {
+                    let (guild, user, ch) = (id(1), id(2), id(3));
+                    let v = self.vc_call("member", json!({ "user": user.to_string(), "guild": opt(guild), "channel": opt(ch) }));
+                    (format!("mem:{}:{user}", if guild != 0 { "guild" } else { "dm" }), v)
+                }
+                "badges" => {
+                    let (user, guild) = (id(1), id(2));
+                    let v = self.vc_call("badges", json!({ "user": user.to_string(), "guild": opt(guild) }));
+                    for b in v.as_array().into_iter().flatten() {
+                        if let Some(r) = b["component"]["root"].as_str() {
+                            self.vc.trees.insert(r.to_string(), b["component"]["tree"].clone());
+                        }
+                    }
+                    (format!("badges:{user}"), v)
+                }
+                "menu" => {
+                    let (nav, target) = (parts.get(1).copied().unwrap_or(""), id(2));
+                    let arg = match nav {
+                        "channel" => {
+                            let guild = self.store.channels.get(&target).map_or(0, |c| c.guild);
+                            json!({ "nav": "channel-context", "channel": target.to_string(), "guild": opt(guild) })
+                        }
+                        "gdm" => json!({ "nav": "gdm-context", "channel": target.to_string() }),
+                        _ => json!({ "nav": "guild-context", "guild": target.to_string() }),
+                    };
+                    (w.clone(), self.vc_call("menu", arg))
+                }
+                _ => continue,
+            };
+            self.vc.trees.insert(key, v);
+            self.vc.published = true;
+        }
+        let dirty: Vec<String> = self.vc.dirty.drain().collect();
+        for root in dirty {
+            if self.vc.trees.contains_key(&root) || self.vc.modals.contains(&root) {
+                let t = self.vc_call("root", json!({ "root": root }));
+                self.vc.trees.insert(root, t);
+                self.vc.published = true;
+            }
+        }
+        if self.vc.published {
+            self.vc.published = false;
+            let p = super::react::Published { trees: std::sync::Arc::new(self.vc.trees.clone()), features: self.vc.features };
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("vc_published"), p));
+            ctx.request_repaint();
+        }
+    }
+
+    /// Plugin modals, each a window over the app; Escape or a click outside closes one.
+    pub fn vc_modals(&mut self, ctx: &egui::Context) {
+        for root in self.vc.modals.clone() {
+            let tree = self.vc_tree(&root, |app| app.vc_call("root", json!({ "root": root })));
+            let size = super::react::find(&tree, "fc-modal").and_then(|m| m["p"]["size"].as_str().map(str::to_string)).unwrap_or_default();
+            let w = match size.as_str() {
+                "small" => 440.0,
+                "large" => 800.0,
+                "dynamic" => 640.0,
+                _ => 600.0,
+            };
+            let frame = egui::Frame::new().fill(crate::theme::pal().bg_primary).corner_radius(12).inner_margin(16);
+            let r = egui::Modal::new(egui::Id::new(("vc_modal", &root))).frame(frame).show(ctx, |ui| {
+                ui.set_width(w);
+                super::react::draw(ui, &root, &tree)
+            });
+            let close = r.should_close();
+            for (h, args) in r.inner {
+                self.vc_ui_event(&root, &h, args);
+            }
+            if close {
+                self.vc_call("close", json!({ "root": root }));
+            }
+        }
     }
 }

@@ -252,7 +252,9 @@ export function render(id) {
 export function fire(id, hid, args) {
     const fn = roots.get(id)?.handlers.get(hid);
     if (!fn) return false;
-    try { fn(...args); } catch (e) { console.error("plugin UI handler threw:", e); }
+    // a dom event from Fastcord arrives as plain data; plugins call its methods
+    const ev = a => a?.$event ? { preventDefault() {}, stopPropagation() {}, persist() {}, target: { value: a.value, checked: a.checked }, currentTarget: { value: a.value, checked: a.checked }, shiftKey: !!a.shift, ctrlKey: !!a.ctrl, altKey: !!a.alt, metaKey: false, button: a.button ?? 0, detail: 1, key: a.key } : a;
+    try { fn(...args.map(ev)); } catch (e) { console.error("plugin UI handler threw:", e); }
     return true;
 }
 
