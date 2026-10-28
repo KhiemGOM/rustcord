@@ -4,6 +4,7 @@
 
 mod activity;
 mod app;
+mod plugins;
 mod user;
 mod voice;
 
@@ -36,6 +37,7 @@ pub enum Page {
     Language,
     Activity,
     Apps,
+    Plugins,
     Developer,
 }
 
@@ -51,6 +53,7 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Privacy, "Data & Privacy", Icon::SidePrivacy, &["How Discord Uses My Data", "Profile Privacy"]),
     Item::Page(Page::Messaging, "Messaging Permissions", Icon::SideMessaging, &[]),
     Item::Page(Page::Notifications, "Notifications", Icon::SideBell, &["Overview", "Sounds", "Badges", "Email", "Advanced"]),
+    Item::Page(Page::Plugins, "Plugins", Icon::Gear, &[]),
     Item::Head("Billing"),
     Item::Page(Page::Nitro, "Nitro", Icon::SideNitro, &[]),
     Item::Page(Page::Boost, "Server Boost", Icon::SideBoost, &[]),
@@ -330,6 +333,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::Language => app::language(app, ui),
                 Page::Activity => activity::privacy(app, ui),
                 Page::Apps => user::apps(app, ui),
+                Page::Plugins => plugins::page(app, ui),
                 Page::Developer => app::developer(app, ui),
             };
         });

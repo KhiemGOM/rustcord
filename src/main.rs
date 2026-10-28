@@ -12,6 +12,7 @@ mod imgcache;
 mod markdown;
 mod mp4;
 mod net;
+mod plugins;
 mod proto;
 mod sound;
 mod speech;
