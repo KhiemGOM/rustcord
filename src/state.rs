@@ -972,6 +972,9 @@ pub struct Store {
     pub refs: HashMap<Id, Message>,
     #[serde(skip)]
     pub presence: HashMap<Id, Status>,
+    // desktop, mobile and web: how each is signed in, from presences
+    #[serde(skip)]
+    pub client_status: HashMap<Id, [Option<Status>; 3]>,
     // what each user is doing, live from presences: (kind, name, state, emoji url)
     #[serde(skip)]
     pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
@@ -1302,6 +1305,13 @@ impl Store {
         (unread, men)
     }
 
+    fn set_clients(&mut self, uid: Id, v: &Value) {
+        if v.is_object() {
+            let at = |k: &str| v[k].as_str().map(Status::parse);
+            self.client_status.insert(uid, [at("desktop"), at("mobile"), at("web")]);
+        }
+    }
+
     fn set_activities(&mut self, uid: Id, v: &Value) {
         let list: Vec<_> = v
             .as_array()
@@ -1602,11 +1612,13 @@ impl Store {
     pub fn load_supplemental(&mut self, d: &Value) {
         for p in d["merged_presences"]["friends"].as_array().into_iter().flatten() {
             self.set_activities(sid(&p["user_id"]), &p["activities"]);
+            self.set_clients(sid(&p["user_id"]), &p["client_status"]);
             self.presence.insert(sid(&p["user_id"]), Status::parse(p["status"].as_str().unwrap_or("")));
         }
         for list in d["merged_presences"]["guilds"].as_array().into_iter().flatten() {
             for p in list.as_array().into_iter().flatten() {
                 self.set_activities(sid(&p["user_id"]), &p["activities"]);
+                self.set_clients(sid(&p["user_id"]), &p["client_status"]);
                 self.presence.insert(sid(&p["user_id"]), Status::parse(p["status"].as_str().unwrap_or("")));
             }
         }
@@ -1819,6 +1831,9 @@ impl Store {
             "READY" => self.load_ready(d),
             "READY_SUPPLEMENTAL" => self.load_supplemental(d),
             "MESSAGE_CREATE" => {
+                if crate::plugins::flag("NoBlockedMessages", "ignoreMessages") && self.relationships.get(&sid(&d["author"]["id"])) == Some(&BLOCKED) {
+                    return None;
+                }
                 let m = self.parse_message(d);
                 let ch = m.channel;
                 let mentioned = m.author != self.me && self.mentions_me(&m);
@@ -2093,6 +2108,7 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.presence.insert(uid, Status::parse(d["status"].as_str().unwrap_or("")));
+                self.set_clients(uid, &d["client_status"]);
                 self.set_activities(uid, &d["activities"]);
             }
             "VOICE_STATE_UPDATE" => {
@@ -2171,6 +2187,7 @@ impl Store {
         self.upsert_member(gid, uid, m);
         if let Some(s) = m["presence"]["status"].as_str() {
             self.presence.insert(uid, Status::parse(s));
+            self.set_clients(uid, &m["presence"]["client_status"]);
             self.set_activities(uid, &m["presence"]["activities"]);
         }
         ListItem::Member(uid)

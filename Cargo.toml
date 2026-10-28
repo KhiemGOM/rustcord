@@ -19,6 +19,7 @@ emojis = "0.9.0"
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+nnnoiseless = { version = "0.5.0", default-features = false }
 ogg = "0.9.2"
 open = "5.4.4"
 openh264 = "0.9.8"
