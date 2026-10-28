@@ -91,7 +91,7 @@ pub enum Cmd {
     Login { login: String, password: String },
     Mfa { ticket: String, code: String },
     Messages { channel: Id, page: Page },
-    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)>, stickers: Vec<Id>, tts: bool },
+    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)>, stickers: Vec<Id>, tts: bool, silent: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
     Edit { channel: Id, id: Id, content: String },
@@ -168,6 +168,7 @@ struct Outgoing {
     files: Vec<(PathBuf, String)>,
     stickers: Vec<Id>,
     tts: bool,
+    silent: bool,
 }
 
 /// Messages go out one at a time, in order, like discord's queue. One that can't reach discord
@@ -177,7 +178,7 @@ async fn sender(mut rx: mpsc::UnboundedReceiver<(Arc<Api>, Outgoing)>, tx: Tx) {
     while let Some((a, o)) = rx.recv().await {
         let mut wait = 2;
         loop {
-            let Err(err) = a.send(o.channel, &o.content, &o.nonce, o.reply, &o.files, &o.stickers, o.tts).await else { break };
+            let Err(err) = a.send(o.channel, &o.content, &o.nonce, o.reply, &o.files, &o.stickers, o.tts, o.silent).await else { break };
             let again = api::offline(&err) && wait <= 32;
             tx.send(Ev::SendFailed { channel: o.channel, nonce: o.nonce.clone(), err, again });
             if !again {
@@ -235,8 +236,8 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     }
                 });
             }
-            Cmd::Send { channel, content, nonce, reply, files, stickers, tts } => {
-                let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
+            Cmd::Send { channel, content, nonce, reply, files, stickers, tts, silent } => {
+                let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts, silent }));
             }
             Cmd::Edit { channel, id, content } => {
                 tokio::spawn(async move {

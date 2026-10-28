@@ -145,9 +145,6 @@ pub const ALL: &[Plugin] = &[
     p("FriendInvites", "Create and manage friend invite links via slash commands (/create friend invite, /view friend invites, /revoke friend invites).", &[]),
     p("GameActivityToggle", "Adds a button next to the mic and deafen button to toggle game activity.", &[]),
     p("GifPaste", "Makes picking a gif in the gif picker insert a link into the chatbox instead of instantly sending it", &[]),
-    p("GreetStickerPicker", "Allows you to use any greet sticker instead of only the random one by right-clicking the 'Wave to say hi!' button", &[
-        pick("greetMode", "Choose the greet mode", &[("Greet", "Greet (you can only greet 3 times)"), ("Message", "Normal Message (you can greet spam)")]),
-    ]),
     p("HideMedia", "Hide attachments and embeds for individual messages via hover button", &[]),
     p("IgnoreActivities", "Ignore activities from showing up on your status ONLY.", &[
         pick("listMode", "Change the mode of the filter list", &[("1", "Blacklist"), ("0", "Whitelist")]),
