@@ -39,7 +39,13 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     }
     app.rects.insert("voice:status".into(), t);
     rtc_popout(app, &status);
-    let sub = Rect::from_min_max(pos2(tile.right() + 8.0, y + 2.0), pos2(r.right() - 40.0, y + 18.0));
+    let mut sub = Rect::from_min_max(pos2(tile.right() + 8.0, y + 2.0), pos2(r.right() - 40.0, y + 18.0));
+    if let Some(t) = super::extra::call_timer(app, ch) {
+        let g = ui.painter().layout_no_wrap(t, mono(12.0), pal().header_secondary);
+        ui.painter().galley(pos2(sub.right() - g.size().x, sub.center().y - g.size().y / 2.0), g.clone(), pal().header_secondary);
+        sub.max.x -= g.size().x + 8.0;
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+    }
     let sub_r = ui.interact(sub, egui::Id::new("voice_place"), Sense::click());
     ui.painter().with_clip_rect(sub).text(
         pos2(sub.left(), sub.center().y),
@@ -350,6 +356,33 @@ pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     app.rects.insert("voice:mute".into(), m.rect);
     if m.clicked() {
         app.voice.set_mute(&app.net, !mute);
+    }
+    if crate::plugins::on("GameActivityToggle") {
+        ui.add_space(8.0);
+        let off = app.store.hide_game;
+        let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+        let bg = match (off, resp.hovered()) {
+            (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
+            (false, true) => pal().control_hover,
+            (false, false) => Color32::TRANSPARENT,
+        };
+        ui.painter().rect_filled(r, CornerRadius::same(8), bg);
+        let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+        icons::draw(ui.painter(), Icon::Controller, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
+        if off {
+            ui.painter().line_segment([r.center() + vec2(-8.0, 8.0), r.center() + vec2(8.0, -8.0)], Stroke::new(2.0, col));
+        }
+        app.rects.insert("voice:game_toggle".into(), r);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.on_hover_text(if off { "Enable Game Activity" } else { "Disable Game Activity" }).clicked() {
+            app.store.hide_game = !off;
+            if let Some(Some(Ok(cur))) = app.remote.get_mut("legacy") {
+                cur["show_current_game"] = serde_json::json!(off);
+            }
+            app.rest("PATCH", "/users/@me/settings".into(), Some(serde_json::json!({ "show_current_game": off })), crate::net::Tag::Remote("action"));
+        }
     }
     if changed {
         app.save_settings(ui.ctx());
@@ -670,6 +703,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         for (u, tile) in members.iter().zip(grid(area, members.len())) {
             let fill = tile_color(app, ui.ctx(), *u, chan.guild);
             ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
+            if crate::plugins::flag("USRBG", "voiceBackground") && let Some(url) = super::extra::usrbg(*u) {
+                crate::gif::paint_still(ui, &url, tile, CornerRadius::same(8), false);
+            }
             app.rects.insert(format!("voice:tile:{u}"), tile);
             match app.voice.video.get(u).cloned() {
                 Some(img) => frame(app, ui, format!("cam:{u}"), &img, tile),

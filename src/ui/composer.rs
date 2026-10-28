@@ -1012,6 +1012,9 @@ fn typing_line(app: &App, ui: &mut Ui, chan: &Channel, composer: Rect) {
         let phase = if crate::plugins::on("NoTypingAnimation") { 1.0 } else { ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0) };
         p.circle_filled(pos2(composer.left() + 19.5 + i as f32 * 8.75, y), 3.5, pal().text_normal.gamma_multiply(0.3 + 0.7 * phase));
     }
+    if crate::plugins::on("TypingTweaks") {
+        return super::typing::tweaked(app, ui, &p, chan, &users, composer, y);
+    }
     let names: Vec<String> = users.iter().map(|u| app.store.name_in(chan.guild, *u)).collect();
     let parts: Vec<(&str, bool)> = match names.as_slice() {
         [a] => vec![(a, true), (" is typing...", false)],

@@ -11,7 +11,7 @@ use super::App;
 use super::icons::{self, Icon};
 use crate::net::Tag;
 use crate::plugins::{flag, num, on, text};
-use crate::state::{Embed, Id, Message, Status, Store, snowflake_ms};
+use crate::state::{Embed, Id, Message, Store, snowflake_ms};
 use crate::theme::*;
 
 pub enum Req {
@@ -421,25 +421,6 @@ fn latency(store: &Store, m: &Message) -> Option<([Color32; 3], String)> {
     Some((fill, tip))
 }
 
-fn platform_icon(p: &egui::Painter, kind: usize, c: Rect, col: Color32) {
-    let s = Stroke::new(1.5, col);
-    match kind {
-        0 => {
-            p.rect_stroke(Rect::from_center_size(c.center() - vec2(0.0, 1.0), vec2(12.0, 8.0)), CornerRadius::same(1), s, egui::StrokeKind::Inside);
-            p.hline(c.center().x - 3.0..=c.center().x + 3.0, c.center().y + 5.0, s);
-        }
-        1 => {
-            p.rect_stroke(Rect::from_center_size(c.center(), vec2(7.0, 12.0)), CornerRadius::same(2), s, egui::StrokeKind::Inside);
-            p.circle_filled(c.center() + vec2(0.0, 4.0), 0.9, col);
-        }
-        _ => {
-            p.circle_stroke(c.center(), 6.0, s);
-            p.vline(c.center().x, c.center().y - 6.0..=c.center().y + 6.0, Stroke::new(1.0, col));
-            p.hline(c.center().x - 6.0..=c.center().x + 6.0, c.center().y, Stroke::new(1.0, col));
-        }
-    }
-}
-
 fn pronouns(profiles: &HashMap<Id, Value>, who: Id) -> Option<String> {
     let v = profiles.get(&who)?;
     let raw = [&v["guild_member_profile"]["pronouns"], &v["user_profile"]["pronouns"]].into_iter().find_map(|p| p.as_str().filter(|s| !s.is_empty()))?;
@@ -462,13 +443,9 @@ pub fn badges(ui: &mut Ui, store: &Store, guild: Id, profiles: &HashMap<Id, Valu
     if on("ForceOwnerCrown") && store.guilds.get(&guild).is_some_and(|g| g.owner == m.author) {
         slot(ui, "crown", 16.0, "Server Owner", &|p, r| icons::draw(p, Icon::Crown, r, Color32::from_rgb(0xf0, 0xb2, 0x32)));
     }
-    if flag("PlatformIndicators", "messages")
-        && let Some(cs) = store.client_status.get(&m.author)
-    {
-        for (i, (s, name)) in cs.iter().zip(["Desktop", "Mobile", "Web"]).enumerate() {
-            let Some(s) = s.filter(|s| *s != Status::Offline) else { continue };
-            let col = if i == 1 && !flag("PlatformIndicators", "colorMobileIndicator") { pal().text_muted } else { status_color(s) };
-            slot(ui, &format!("plat{i}"), 16.0, name, &|p, r| platform_icon(p, i, r, col));
+    if flag("PlatformIndicators", "messages") {
+        for (i, s) in super::platform::of(store, m.author) {
+            slot(ui, &format!("plat{i}"), 16.0, super::platform::NAMES[i], &|p, r| super::platform::draw(p, i, r, s));
         }
     }
     if flag("UserVoiceShow", "showInMessages")

@@ -9,9 +9,15 @@ use crate::theme::*;
 
 // discord dropped the blocked tab; blocked people live in settings now
 const TABS: [&str; 3] = ["Online", "All", "Pending"];
+const IMPLICIT: u8 = 5;
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let pending = app.store.relationships.values().filter(|t| **t == INCOMING).count() as u32;
+    let pending_badge = pending > 0 && !crate::plugins::flag("NoPendingCount", "hideFriendRequestsCount");
+    let mut tabs: Vec<(u8, &str)> = TABS.iter().enumerate().map(|(i, t)| (i as u8, *t)).collect();
+    if crate::plugins::on("ImplicitRelationships") {
+        tabs.push((IMPLICIT, "Implicit"));
+    }
     egui::Panel::top("friends_head")
         .exact_size(48.0)
         .resizable(false)
@@ -27,10 +33,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.label(RichText::new("Friends").font(medium(16.0)).color(pal().header_primary));
                 let (dot, _) = ui.allocate_exact_size(vec2(4.0, 4.0), Sense::hover());
                 ui.painter().circle_filled(dot.center(), 2.0, egui::Color32::from_rgba_unmultiplied(151, 151, 159, 61));
-                for (i, t) in TABS.iter().enumerate() {
-                    let sel = app.friends_tab == i as u8;
+                for (i, t) in tabs {
+                    let sel = app.friends_tab == i;
                     let g = ui.painter().layout_no_wrap(t.to_string(), medium(16.0), pal().header_primary);
-                    let extra = if i == 2 && pending > 0 { 24.0 } else { 0.0 };
+                    let extra = if i == 2 && pending_badge { 24.0 } else { 0.0 };
                     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0 + extra, 32.0), Sense::click());
                     if sel {
                         ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_selected);
@@ -38,12 +44,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_hover);
                     }
                     let col = if sel || resp.hovered() { pal().header_primary } else { pal().header_secondary };
-                    ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, *t, medium(16.0), col);
+                    ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, t, medium(16.0), col);
                     if extra > 0.0 {
                         super::badge(ui, pos2(r.right() - 6.0, r.center().y), pending, None);
                     }
                     if resp.clicked() {
-                        app.friends_tab = i as u8;
+                        app.friends_tab = i;
                     }
                 }
                 let add = app.friends_tab == 4;
@@ -76,11 +82,68 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         Frame::new().inner_margin(Margin { left: 24, right: 20, top: 16, bottom: 0 }).show(ui, |ui| {
             if app.friends_tab == 4 {
                 add_friend(app, ui);
+            } else if app.friends_tab == IMPLICIT {
+                implicit(app, ui);
             } else {
                 list(app, ui);
             }
         });
     });
+}
+
+/// ImplicitRelationships: people Discord thinks you know, by how much you talk to them.
+fn implicit(app: &mut App, ui: &mut Ui) {
+    if !app.remote.contains_key("affinities") {
+        app.remote.insert("affinities", None);
+        app.rest("GET", "/users/@me/affinities/users".into(), None, Tag::Remote("affinities"));
+    }
+    let mut list: Vec<(Id, f64)> = match app.remote.get("affinities") {
+        Some(Some(Ok(v))) => v["user_affinities"].as_array().into_iter().flatten().map(|a| (crate::state::sid(&a["user_id"]), a["affinity"].as_f64().unwrap_or(0.0))).collect(),
+        _ => Vec::new(),
+    };
+    list.retain(|(u, _)| *u != app.store.me && !app.store.relationships.contains_key(u));
+    if crate::plugins::flag("ImplicitRelationships", "sortByAffinity") {
+        list.sort_by(|a, b| b.1.total_cmp(&a.1));
+    }
+    for (u, _) in list.iter().filter(|(u, _)| app.store.user(*u).is_none()).take(25).collect::<Vec<_>>() {
+        if !app.profiles.contains_key(u) {
+            app.profiles.insert(*u, serde_json::Value::Null);
+            app.rest("GET", format!("/users/{u}/profile?with_mutual_guilds=false"), None, Tag::Profile(*u));
+        }
+    }
+    ui.add_space(20.0);
+    ui.label(RichText::new(format!("Implicit \u{2014} {}", list.len())).font(medium(14.0)).color(pal().header_primary));
+    ui.add_space(12.0);
+    let mut add = None;
+    let mut dm = None;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for (uid, _) in &list {
+            let Some(u) = app.store.user(*uid) else { continue };
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
+            ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
+            if resp.hovered() {
+                ui.painter().rect_filled(row.shrink2(vec2(-10.0, 1.0)), CornerRadius::same(8), pal().bg_mod_hover);
+            }
+            let av = Rect::from_min_size(pos2(row.left(), row.center().y - 16.0), vec2(32.0, 32.0));
+            avatar(ui, av, &u.avatar_url());
+            super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, u.display(), semi(16.0), pal().header_primary, row.width() - 220.0);
+            super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y + 10.0), Align2::LEFT_CENTER, &u.username, medium(14.0), pal().text_muted, row.width() - 220.0);
+            let mut br = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(row.right() - 100.0, row.top()), row.max)).layout(Layout::right_to_left(Align::Center)));
+            if icon_button(&mut br, Icon::PersonAdd, 36.0, "Add Friend").clicked() {
+                add = Some(*uid);
+            }
+            br.add_space(10.0);
+            if icon_button(&mut br, Icon::Bubble, 36.0, "Message").clicked() {
+                dm = Some(*uid);
+            }
+        }
+    });
+    if let Some(u) = add {
+        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::Friend);
+    }
+    if let Some(u) = dm {
+        app.open_dm(u);
+    }
 }
 
 fn add_friend(app: &mut App, ui: &mut Ui) {
@@ -128,6 +191,9 @@ fn list(app: &mut App, ui: &mut Ui) {
         })
         .collect();
     people.sort_by_key(|(u, _)| app.store.name_in(0, *u).to_lowercase());
+    if tab == 2 && crate::plugins::on("SortFriendRequests") {
+        people.sort_by_key(|(u, _)| std::cmp::Reverse(app.store.rel_since.get(u).copied().unwrap_or(0)));
+    }
     let qid = egui::Id::new("friends_q");
     let mut q: String = ui.data(|d| d.get_temp(qid).unwrap_or_default());
     input_frame().corner_radius(8).inner_margin(Margin::symmetric(12, 7)).show(ui, |ui| {
@@ -170,6 +236,10 @@ fn list(app: &mut App, ui: &mut Ui) {
             // a custom status shows in place of the status, as discord does
             let custom = app.store.activity_line(uid).filter(|(_, _, game)| game.is_empty());
             let sub = match kind {
+                INCOMING | OUTGOING if crate::plugins::flag("SortFriendRequests", "showDates") && app.store.rel_since.contains_key(&uid) => {
+                    let when = chrono::DateTime::from_timestamp(app.store.rel_since[&uid], 0).map(|d| d.with_timezone(&chrono::Local).format("%-m/%-d/%Y").to_string()).unwrap_or_default();
+                    format!("{} Friend Request \u{b7} {when}", if kind == INCOMING { "Incoming" } else { "Outgoing" })
+                }
                 INCOMING => "Incoming Friend Request".to_string(),
                 OUTGOING => "Outgoing Friend Request".to_string(),
                 BLOCKED => "Blocked".to_string(),

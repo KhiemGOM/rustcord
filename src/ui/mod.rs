@@ -2,6 +2,7 @@ mod actions;
 mod active;
 mod autoscroll;
 mod boosts;
+mod card;
 mod call;
 mod chat;
 mod composer;
@@ -9,18 +10,23 @@ mod create;
 mod directory;
 mod e2e;
 mod events;
+mod extra;
 mod forum;
 mod friends;
+mod hidden;
 pub mod icons;
+mod info;
 mod keys;
 mod login;
 mod members;
 mod oneko;
 mod palette;
 mod picker;
+mod platform;
 mod plugs;
 mod popups;
 mod rail;
+mod rpc;
 mod channel;
 mod community;
 mod compose_tools;
@@ -35,6 +41,7 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
+mod typing;
 pub mod vc;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
@@ -124,6 +131,7 @@ pub struct App {
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: HashMap<Id, serde_json::Value>,
+    pub ext: extra::State,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
@@ -297,6 +305,7 @@ impl App {
             switcher: None,
             profile: None,
             profiles: HashMap::new(),
+            ext: Default::default(),
             pins: None,
             search: None,
             friends: false,
@@ -409,6 +418,7 @@ impl App {
         self.home = None;
         let guild = c.guild;
         let forum = c.is_forum();
+        let hid = hidden::locked(&self.store, c);
         // member list subscriptions are per parent channel, threads borrow it
         let sub = if c.is_thread() { c.parent } else { ch };
         // search results belong to one server (or one dm), don't carry them elsewhere
@@ -433,10 +443,10 @@ impl App {
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
         self.marker_bar = self.marker.is_some();
-        if forum {
+        if forum && !hid {
             let path = format!("/channels/{ch}/threads/search?sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
             self.rest("GET", path, None, Tag::Forum(ch));
-        } else {
+        } else if !forum && !hid {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
             let e = self.store.msgs.entry(ch).or_default();
             if !e.fresh && !e.loading && !jumping {
@@ -444,7 +454,7 @@ impl App {
                 self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
             }
         }
-        if guild != 0 {
+        if guild != 0 && !hid {
             let mut chans = serde_json::Map::new();
             chans.insert(sub.to_string(), json!([[0, 99]]));
             self.net.send(Cmd::Gateway(json!({
@@ -764,7 +774,7 @@ impl App {
     }
 
     /// Our status, with the game we detected unless activity sharing is off.
-    fn send_presence(&mut self) {
+    pub(super) fn send_presence(&mut self) {
         let status = match self.store.presence.get(&self.store.me) {
             _ if self.plugs.idle => "idle",
             Some(Status::Idle) => "idle",
@@ -773,10 +783,8 @@ impl App {
             _ => "online",
         };
         self.shared = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
-        let activities = match (&self.game, self.shared) {
-            (Some(g), Some(_)) => json!([{ "name": g.name, "type": 0, "application_id": g.id.to_string(), "timestamps": { "start": g.start } }]),
-            _ => json!([]),
-        };
+        let activities = rpc::activities(self);
+        self.ext.rpc.sent = activities.clone();
         self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": self.plugs.idle } })));
     }
 
@@ -1249,6 +1257,7 @@ impl App {
         if let Some(g) = self.games.as_ref().and_then(|r| r.try_iter().last()) {
             self.game = g;
         }
+        extra::tick(self, ctx);
         // a game opening or closing, or sharing switched, goes out once we're connected
         let want = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
         if want != self.shared && self.conn == crate::net::Conn::Online && self.store.me != 0 {
@@ -1454,6 +1463,7 @@ impl App {
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
+        info::show(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);
@@ -1798,6 +1808,10 @@ pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
     let c = pos2(avatar.right() - r * 0.9, avatar.bottom() - r * 0.9);
     ui.painter().circle_filled(c, r + 2.5, ring);
     let col = status_color(s);
+    if crate::plugins::on("ColorSighted") {
+        ui.painter().circle_filled(c, r, col);
+        return;
+    }
     match s {
         Status::Offline => {
             ui.painter().circle_filled(c, r, col);
