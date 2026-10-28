@@ -35,6 +35,7 @@ const SHIMS: &[(&str, &str, &str)] = &[
     ("src/api/Styles", "styles.js", include_str!("js/styles.js")),
     ("src/api/Badges", "badges.js", include_str!("js/badges.js")),
     ("src/utils/Logger", "logger.js", include_str!("js/logger.js")),
+    ("src/utils/patches", "patches.js", include_str!("js/patches.js")),
     ("src/utils/discord", "discord.js", include_str!("js/discord.js")),
     ("src/utils/clipboard", "clipboard.js", include_str!("js/clipboard.js")),
     ("src/components/ErrorBoundary", "errorboundary.js", include_str!("js/errorboundary.js")),
