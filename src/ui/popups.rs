@@ -1965,6 +1965,11 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
         (perms & MODERATE_MEMBERS != 0, perms & KICK_MEMBERS != 0, perms & BAN_MEMBERS != 0)
     };
+    let plugin_items = app.vc_menu(
+        format!("user:{uid}:{gid}"),
+        serde_json::json!({ "nav": "user-context", "user": uid.to_string(), "guild": (gid != 0).then(|| gid.to_string()), "channel": dm.map(|c| c.to_string()) }),
+    );
+    let mut plugin_pick = None;
     let mut act = None;
     let open = super::float_menu(ctx, "user_menu", at, |ui| {
         if dm.is_some() {
@@ -2043,6 +2048,10 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
                 });
             }
         }
+        if plugin_items.as_array().is_some_and(|a| !a.is_empty()) {
+            menu_sep(ui);
+            plugin_pick = super::vencord::menu_items(ui, &plugin_items);
+        }
         if dev {
             menu_sep(ui);
             if !group && menu_item(ui, Some(Icon::Id), "Copy User ID", false) {
@@ -2053,8 +2062,11 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
             }
         }
     });
-    if !open || act.is_some() {
+    if !open || act.is_some() || plugin_pick.is_some() {
         app.user_menu = None;
+    }
+    if let Some(a) = plugin_pick {
+        app.vc_act(&a, ctx.input(|i| i.modifiers.shift));
     }
     let dm = dm.unwrap_or(0);
     match act {

@@ -7,7 +7,8 @@ mod sources;
 mod stores;
 mod transpile;
 
-pub use stores::View;
+pub use sources::vencord_dir;
+pub use stores::{View, message};
 
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Runtime};
 use serde_json::Value;

@@ -28,6 +28,7 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
+mod vencord;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -200,6 +201,7 @@ pub struct App {
     // when the activity feed is next fetched
     feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
+    pub vc: vencord::Vc,
 }
 
 impl App {
@@ -345,6 +347,7 @@ impl App {
             badge_at: None,
             feed_at: None,
             synced: None,
+            vc: Default::default(),
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -541,12 +544,8 @@ impl App {
         if text.is_empty() && files.is_empty() {
             return;
         }
-        let nonce = crate::state::make_nonce();
-        let reply = self.reply.take();
-        self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
-        self.jump_to_present(ch);
-        let reply = reply.map(|r| (r, self.reply_ping));
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
+        let reply = self.reply.take().map(|r| (r, self.reply_ping));
+        self.vc_send(vencord::Outgoing { ch, text, reply, files, tts });
         self.hold_ack = None;
         self.last_typing = None;
     }
@@ -558,10 +557,7 @@ impl App {
         if self.settings.emoticons {
             text = emoticons(&text);
         }
-        let nonce = crate::state::make_nonce();
-        self.store.add_pending(ch, text.clone(), nonce.clone(), None);
-        self.jump_to_present(ch);
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false });
+        self.vc_send(vencord::Outgoing { ch, text, reply: None, files: Vec::new(), tts: false });
     }
 
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
@@ -976,6 +972,9 @@ impl App {
     }
 
     fn on_rest(&mut self, tag: Tag, res: Result<serde_json::Value, String>) {
+        if let Tag::Vencord(id) = tag {
+            return self.vc_rest_done(id, res);
+        }
         if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
             return settings::on_remote(self, k, Err(e.clone()));
         }
@@ -1014,6 +1013,7 @@ impl App {
             }
         };
         match tag {
+            Tag::Vencord(_) => {}
             Tag::Pins(ch) => {
                 let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
@@ -1216,6 +1216,7 @@ impl App {
                     }
                     self.voice_cues(&t, &d);
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
+                    self.vc_dispatch(&t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
@@ -1474,6 +1475,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.pump(&ctx);
         self.os_settings(&ctx, frame);
+        self.vc_tick(&ctx);
         let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
         if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {
             self.cjk_loaded = want_cjk;

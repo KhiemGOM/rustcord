@@ -50,6 +50,8 @@ enum Item {
     Emoji(Em),
     Command(usize),
     BuiltIn(usize),
+    // a Vencord plugin's command: name, description, plugin
+    Plugin(String, String, String),
 }
 
 /// Discord's own commands, listed after the apps' as "Built-In": name, options, description.
@@ -199,6 +201,11 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     if let Some(s) = score(c["name"].as_str().unwrap_or(""), &q) {
                         out.push((s as u16, Item::Command(i)));
                     }
+                }
+            }
+            for (name, desc, plugin) in app.vc_command_list() {
+                if let Some(s) = score(&name, &q) {
+                    out.push((s as u16 + 1, Item::Plugin(name, desc, plugin)));
                 }
             }
             // after the apps' own, so an app's /me still comes first as in discord
@@ -372,6 +379,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut tab = None;
     let mut apps_click = false;
     let mut gift_click = false;
+    let plugin_bar = app.vc_chatbar(ch);
+    let mut plugin_click: Option<String> = None;
     let mut send_click = false;
     let mut gif_rect = None;
     let mut remove = None;
@@ -494,6 +503,25 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             tab = Some(super::picker::Tab::Gifs);
                         }
                         gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
+                        for b in plugin_bar.as_array().into_iter().flatten() {
+                            let (r, resp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
+                            let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                            match b["icon"].as_str() {
+                                Some(svg) => super::vencord::svg(ui, svg, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col),
+                                None => {
+                                    ui.painter().text(r.center(), Align2::CENTER_CENTER, b["tooltip"].as_str().unwrap_or("?").chars().next().unwrap_or('?'), semi(14.0), col);
+                                }
+                            }
+                            if resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            app.rects.insert(format!("chatbar:{}", b["key"].as_str().unwrap_or("")), r);
+                            let resp = resp.on_hover_text(b["tooltip"].as_str().unwrap_or(""));
+                            let a = if resp.secondary_clicked() { b["menu"].as_str() } else if resp.clicked() { b["click"].as_str() } else { None };
+                            if let Some(a) = a {
+                                plugin_click = Some(a.to_string());
+                            }
+                        }
                     });
                 });
             });
@@ -552,6 +580,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         app.files.extend(files.into_iter().map(Upload::new));
     }
 
+    if let Some(a) = plugin_click {
+        app.vc_act(&a, ui.input(|i| i.modifiers.shift));
+    }
     if gift_click {
         ui.ctx().open_url(egui::OpenUrl::new_tab("https://discord.com/nitro"));
     }
@@ -586,7 +617,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             })
             .blurple(),
         );
-    } else if (send || send_click) && !app.quick_react(chan) && !app.substitute(chan) && !app.try_command(chan) && !app.built_in(chan) {
+    } else if (send || send_click) && !app.quick_react(chan) && !app.substitute(chan) && !app.try_command(chan) && !app.vc_command(chan) && !app.built_in(chan) {
         app.send_message(ch);
     }
     typing_line(app, ui, chan, Rect::from_min_max(pos2(crect.left(), stack_top), crect.max));
@@ -768,6 +799,14 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, desc, reg(13.0), pal().header_secondary, r.width() - 200.0);
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Built-In", semi(13.0), pal().header_secondary);
         }
+        Item::Plugin(name, desc, plugin) => {
+            let ir = Rect::from_center_size(pos2(x + 16.0, y), vec2(32.0, 32.0));
+            p.circle_filled(ir.center(), 16.0, BLURPLE);
+            p.text(ir.center(), Align2::CENTER_CENTER, "V", semi(15.0), Color32::WHITE);
+            p.text(pos2(x + 44.0, y - 9.0), Align2::LEFT_CENTER, format!("/{name}"), semi(15.0), pal().header_primary);
+            text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, desc, reg(13.0), pal().header_secondary, r.width() - 200.0);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, plugin.as_str(), semi(13.0), pal().header_secondary);
+        }
     }
 }
 
@@ -852,6 +891,7 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
             (format!("/{name}"), String::new())
         }
         Item::BuiltIn(i) => (format!("/{}", BUILT_IN[*i].0), String::new()),
+        Item::Plugin(name, ..) => (format!("/{name}"), String::new()),
     };
     let insert = format!("{shown} ");
     draft.replace_range(start..cur_b, &insert);

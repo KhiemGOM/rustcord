@@ -253,7 +253,7 @@ export const NavigationRouter = {
     transitionToGuild: g => out({ op: "guild", guild: String(g) }),
     back() {}, forward() {},
 };
-export const SettingsRouter = { open: () => out({ op: "settings" }), openUserSettings: () => out({ op: "settings" }) };
+export const SettingsRouter = { open: () => out({ op: "openSettings" }), openUserSettings: () => out({ op: "openSettings" }) };
 export const UserUtils = { getUser: async id => getUser(id) ?? record(User, (await RestAPI.get({ url: `/users/${id}` })).body) };
 export const IconUtils = {
     getUserAvatarURL: (u, animated, size = 128) => new User(u).getAvatarURL(null, size, animated),
