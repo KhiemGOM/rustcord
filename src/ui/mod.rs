@@ -24,6 +24,7 @@ mod community;
 mod compose_tools;
 mod expr;
 mod outgoing;
+pub use outgoing::fake_emoji;
 mod slash;
 mod server;
 mod settings;

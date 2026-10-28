@@ -340,6 +340,17 @@ fn fake_emojis(app: &App, guild: Id, text: &str) -> String {
     })
 }
 
+/// A link FakeNitro sent in place of an emoji, read back as that emoji.
+pub fn fake_emoji(url: &str) -> Option<(Id, String, bool)> {
+    if !plugins::flag("FakeNitro", "transformEmojis") {
+        return None;
+    }
+    let (path, query) = url.strip_prefix("https://cdn.discordapp.com/emojis/")?.split_once('?')?;
+    let (id, ext) = path.split_once('.')?;
+    let name = query.split('&').find_map(|kv| kv.strip_prefix("name="))?;
+    Some((id.parse().ok()?, name.to_string(), ext == "gif"))
+}
+
 pub fn sticker_link(id: Id, name: &str, fmt: u8) -> String {
     let url = format!("https://media.discordapp.net/stickers/{id}.{}?size={}&name={name}&lossless=true", if fmt == 4 { "gif" } else { "png" }, plugins::text("FakeNitro", "stickerSize"));
     link(name, &url)
