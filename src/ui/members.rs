@@ -39,13 +39,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     };
 
     let mut gear = false;
-    let mut role_act = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // discord's rows sit flush; a group header is 20 above, 18 tall, 4 over its first row
         ui.spacing_mut().item_spacing.y = 0.0;
-        if crate::plugins::flag("MemberCount", "memberList") {
-            super::extra::count_row(ui, store, gid);
-        }
         if let Some(a) = activity(ui, store, gid, &mut named) {
             match a {
                 Pick::Gear => gear = true,
@@ -64,17 +60,8 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         _ => role.map(|r| r.name.clone()).unwrap_or_default(),
                     };
                     ui.add_space(20.0);
-                    let (r, hresp) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), if crate::plugins::on("BetterRoleContext") { Sense::click() } else { Sense::hover() });
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::hover());
                     ui.add_space(4.0);
-                    if let Some(role) = role
-                        && let Some(a) = super::extra::role_menu(&hresp, role)
-                    {
-                        role_act = Some(a);
-                    }
-                    let head = match role {
-                        Some(role) if role.color != 0 && crate::plugins::flag("RoleColorEverywhere", "memberList") => role_color(role.color),
-                        _ => pal().channel_default,
-                    };
                     // discord puts the role's icon in front of its group
                     let icon = role.and_then(|r| r.icon_url(32));
                     let mut x = r.left() + 16.0;
@@ -82,7 +69,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         super::text::image(ui.painter(), &url, Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0)));
                         x += 20.0;
                     }
-                    ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, format!("{} — {}", name, count), medium(14.0), head);
+                    ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, format!("{} — {}", name, count), medium(14.0), pal().channel_default);
                 }
                 ListItem::Member(uid) => {
                     // with an activity the row is 44, the name rides up and the line sits under it
@@ -127,12 +114,10 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     if st != Status::Offline {
                         status_dot(ui, av, st, if hovered { pal().bg_mod_hover } else { pal().bg_primary });
                     }
-                    let irc = crate::plugins::flag("IrcColors", "memberListColors").then(|| super::vc::irc(store, gid, *uid)).flatten();
-                    let color = irc.or(store.role_color(gid, *uid).map(role_color)).unwrap_or(pal().header_secondary);
+                    let color = store.role_color(gid, *uid).map(role_color).unwrap_or(pal().header_secondary);
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
-                    let plat = if !offline && crate::plugins::flag("PlatformIndicators", "list") { super::platform::of(store, *uid).len() as f32 * 16.0 } else { 0.0 };
-                    let tw = inner.right() - 8.0 - av.right() - 12.0 - plat - if bot { 48.0 } else { 0.0 };
+                    let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
                     let ny = if line.is_some() { row.top() + 15.0 } else { row.center().y };
                     let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
@@ -176,17 +161,6 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                             tx = r.right() + 4.0;
                         }
                     }
-                    if crate::plugins::flag("UserVoiceShow", "showInMemberList")
-                        && let Some(vc) = g.voice.get(uid).and_then(|c| store.channels.get(c))
-                    {
-                        let vr = Rect::from_min_size(pos2(tx, ny - 7.0), vec2(14.0, 14.0));
-                        super::icons::draw(ui.painter(), super::icons::Icon::Speaker, vr, GREEN.gamma_multiply(fade));
-                        ui.interact(vr, ui.id().with(("in_voice", *uid)), Sense::hover()).on_hover_text(format!("In voice: {}", vc.name));
-                        tx = vr.right() + 4.0;
-                    }
-                    if plat > 0.0 {
-                        super::platform::row(ui, store, *uid, pos2(inner.right() - 8.0, ny), ui.id().with(("platform", *uid)));
-                    }
                     // boosters get discord's pink gem after the name and tag; role icons stay in chat
                     let since = store.members.get(&gid).and_then(|m| m.get(uid)).map_or(0, |m| m.boost);
                     if since > 0 {
@@ -208,9 +182,6 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
         app.rects.insert(format!("boost:{u}"), r);
     }
     app.rects.extend(named);
-    if let Some(a) = role_act {
-        super::extra::do_role(app, ui.ctx(), gid, a);
-    }
     if gear {
         app.settings_page = Some(super::settings::Page::Activity);
     }
@@ -431,9 +402,6 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
                 status_dot(ui, av, st, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary });
             }
             let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), medium(16.0), pal().header_secondary.gamma_multiply(fade), inner.right() - av.right() - 40.0);
-            if crate::plugins::flag("PlatformIndicators", "list") && st != Status::Offline {
-                super::platform::row(ui, store, uid, pos2(inner.right() - 8.0, row.center().y), ui.id().with(("platform", uid)));
-            }
             if chan.owner == uid {
                 let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));

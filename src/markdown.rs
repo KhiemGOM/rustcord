@@ -75,8 +75,6 @@ struct B<'a, 'b> {
     // room left before the next text, the inside of a pill
     pad: f32,
     jumbo: bool,
-    // MentionAvatars: the picture the next pill opens with
-    lead: Option<String>,
 }
 
 impl B<'_, '_> {
@@ -123,9 +121,6 @@ impl B<'_, '_> {
     fn pill(&mut self, s: &str, st: St, fill: Color32, link: Option<Link>) {
         let start = self.chars;
         self.pad = 2.0;
-        if let Some(url) = self.lead.take() {
-            self.emoji(url, st, Some(16.0));
-        }
         match link {
             Some(l) => self.linked(s, st, l),
             None => self.text(s, st),
@@ -140,8 +135,8 @@ impl B<'_, '_> {
         self.links.push((start..self.chars, link));
     }
 
-    fn emoji(&mut self, url: String, st: St, fixed: Option<f32>) {
-        let size = fixed.unwrap_or(if self.jumbo { 48.0 } else { self.cx.line(st.size) });
+    fn emoji(&mut self, url: String, st: St) {
+        let size = if self.jumbo { 48.0 } else { self.cx.line(st.size) };
         let font = reg(st.size);
         let w = self.cx.ctx.fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
         let f = TextFormat {
@@ -310,7 +305,7 @@ fn custom_emoji(s: &str) -> Option<(usize, String, Id, bool)> {
 }
 
 pub fn emoji_url(id: Id, animated: bool) -> String {
-    let gif = animated && (view().animate_emoji || crate::plugins::on("AlwaysAnimate"));
+    let gif = animated && view().animate_emoji;
     // 96 like discord's jumbo: a 48pt emoji at 150% or 200% scale would blur from 48
     format!("{}/emojis/{}.{}?size=96", api::cdn(), id, if gif { "gif" } else { "png" })
 }
@@ -458,11 +453,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             b.text(&s[plain..i], st);
             let url = &rest[..n];
             let v = view();
-            if let Some((id, name, animated)) = crate::ui::fake_emoji(url) {
-                let start = b.chars;
-                b.emoji(emoji_url(id, animated), st, None);
-                b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
-            } else if v.hide_invites && is_invite(url) {
+            if v.hide_invites && is_invite(url) {
                 // streamer mode: never show an invite code on stream
                 let mut s2 = st;
                 s2.color = pal().text_muted;
@@ -478,12 +469,6 @@ fn inline(b: &mut B, s: &str, st: St) {
         } else if rest.starts_with('[') {
             masked(rest).map(|(n, text, url)| {
                 b.text(&s[plain..i], st);
-                if let Some((id, name, animated)) = crate::ui::fake_emoji(url) {
-                    let start = b.chars;
-                    b.emoji(emoji_url(id, animated), st, None);
-                    b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
-                    return n;
-                }
                 let mut s2 = st;
                 s2.color = pal().link;
                 s2.under |= view().underline_links;
@@ -500,7 +485,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             Some(n)
         } else if let Some(n) = take_emoji(rest) {
             b.text(&s[plain..i], st);
-            b.emoji(twemoji(&rest[..n]), st, None);
+            b.emoji(twemoji(&rest[..n]), st);
             Some(n)
         } else {
             None
@@ -551,7 +536,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
     if let Some((n, name, id, animated)) = custom_emoji(rest) {
         b.text(&s[plain..i], st);
         let start = b.chars;
-        b.emoji(emoji_url(id, animated), st, None);
+        b.emoji(emoji_url(id, animated), st);
         b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
         return Some(n);
     }
@@ -582,22 +567,8 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
     }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
         let known = b.cx.store.users.contains_key(&id) || b.cx.store.members.get(&b.cx.guild).is_some_and(|m| m.contains_key(&id));
-        if !known {
-            crate::ui::vc::ask_user(id);
-        }
-        let at = if crate::plugins::on("MentionAvatars") && !crate::plugins::flag("MentionAvatars", "showAtSymbol") { "" } else { "@" };
-        let name = if b.cx.embed && !known { format!("<@{id}>") } else { format!("{at}{}", b.cx.store.name_in(b.cx.guild, id)) };
-        if crate::plugins::on("MentionAvatars") {
-            b.lead = b.cx.store.user(id).map(|u| u.avatar_url());
-        }
-        let (fg, bg) = match b.cx.store.role_color(b.cx.guild, id).filter(|c| *c != 0 && crate::plugins::flag("RoleColorEverywhere", "chatMentions")) {
-            Some(c) => {
-                let c = role_color(c);
-                (c, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 30))
-            }
-            None => (pal().mention_fg, pal().mention_bg),
-        };
-        pill(b, &name, Some(Link::User(id)), fg, bg);
+        let name = if b.cx.embed && !known { format!("<@{id}>") } else { format!("@{}", b.cx.store.name_in(b.cx.guild, id)) };
+        pill(b, &name, Some(Link::User(id)), pal().mention_fg, pal().mention_bg);
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('#').and_then(|x| x.parse::<Id>().ok()) {
@@ -641,7 +612,7 @@ fn base(cx: &Cx) -> St {
 fn new_b<'a, 'b>(cx: &'b Cx<'a>, jumbo: bool) -> B<'a, 'b> {
     let mut job = LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
-    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), pad: 0.0, jumbo, lead: None }
+    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), pad: 0.0, jumbo }
 }
 
 fn finish(b: B) -> Block {
@@ -736,8 +707,7 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
                 code = &code[1..];
             }
         }
-        let code = code.trim_end_matches('\n');
-        out.push(Block::Code(if crate::plugins::on("Unindent") { crate::ui::vc::unindent(code) } else { code.to_string() }));
+        out.push(Block::Code(code.trim_end_matches('\n').to_string()));
         rest = after[end + 3..].trim_start_matches('\n');
     }
     if !rest.is_empty() {

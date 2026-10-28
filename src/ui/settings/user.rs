@@ -27,9 +27,6 @@ pub struct Forms {
     pub visit: u32,
     pub page: Option<super::Page>,
     pub gift_code: String,
-    pub plugin_search: String,
-    pub plugin_show: super::plugins::Show,
-    pub plugin_open: std::collections::HashSet<&'static str>,
 }
 
 impl Forms {
@@ -803,18 +800,10 @@ fn devices(app: &mut App, ui: &mut Ui) {
         crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Gear, icon_r.shrink(10.0), pal().header_secondary);
         let os = ci["os"].as_str().unwrap_or("Unknown");
         let client = ci["platform"].as_str().or(ci["client"].as_str()).unwrap_or("");
-        let hash = s["id_hash"].as_str().unwrap_or("");
-        let better = crate::plugins::on("BetterSessions");
-        let named = crate::plugins::get("BetterSessions", "names")[hash].as_str().unwrap_or("").to_string();
-        let title = if better && !named.is_empty() { format!("{named}*") } else { format!("{} · {}", os.to_uppercase(), client.to_uppercase()) };
-        let head = ui.painter().text(pos2(r.left() + 52.0, r.center().y - 9.0), Align2::LEFT_CENTER, title, semi(13.0), pal().header_primary);
+        ui.painter().text(pos2(r.left() + 52.0, r.center().y - 9.0), Align2::LEFT_CENTER, format!("{} · {}", os.to_uppercase(), client.to_uppercase()), semi(13.0), pal().header_primary);
         let loc = ci["location"].as_str().unwrap_or("");
-        let iso = s["approx_last_used_time"].as_str().unwrap_or("");
-        let when = ago(iso);
-        let line = ui.painter().text(pos2(r.left() + 52.0, r.center().y + 10.0), Align2::LEFT_CENTER, format!("{loc} · {when}"), reg(14.0), pal().header_secondary);
-        if better {
-            sessions_extra(ui, hash, head, line, iso, &named);
-        }
+        let when = s["approx_last_used_time"].as_str().map(ago).unwrap_or_default();
+        ui.painter().text(pos2(r.left() + 52.0, r.center().y + 10.0), Align2::LEFT_CENTER, format!("{loc} · {when}"), reg(14.0), pal().header_secondary);
         let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(24.0, 24.0));
         let resp = ui.interact(x, egui::Id::new(("logout_session", s["id_hash"].as_str().unwrap_or(""))), Sense::click());
         crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
@@ -826,19 +815,6 @@ fn devices(app: &mut App, ui: &mut Ui) {
     if list.is_empty() {
         note(ui, "No other devices are logged in.");
     }
-    // leaving the page counts as having seen them, as closing settings does in vencord
-    if crate::plugins::on("BetterSessions") {
-        let id = egui::Id::new("sessions_seen_at");
-        let now = ui.ctx().cumulative_frame_nr();
-        if ui.data(|d| d.get_temp::<u64>(id)).is_none_or(|t| now > t + 1) {
-            let mut seen: Vec<Value> = crate::plugins::get("BetterSessions", "seen").as_array().cloned().unwrap_or_default();
-            let fresh: Vec<Value> = list.iter().map(|s| s["id_hash"].clone()).filter(|h| !seen.contains(h)).collect();
-            ui.data_mut(|d| d.insert_temp(egui::Id::new("sessions_fresh"), fresh.clone()));
-            seen.extend(fresh);
-            crate::plugins::set("BetterSessions", "seen", seen.into());
-        }
-        ui.data_mut(|d| d.insert_temp(id, now));
-    }
     super::end(ui, 24.0);
     if action(ui, "Log out of all known devices", "You'll have to log back in on all logged out devices.", "Log Out All Known Devices", Look::Filled) {
         out = list.iter().filter_map(|s| s["id_hash"].as_str().map(str::to_string)).collect();
@@ -846,48 +822,6 @@ fn devices(app: &mut App, ui: &mut Ui) {
     if !out.is_empty() {
         app.rest("POST", "/auth/sessions/logout".into(), Some(json!({ "session_id_hashes": out })), Tag::Remote("action"));
         refetch(app, "sessions");
-    }
-}
-
-/// BetterSessions: a NEW badge on sessions not seen before, a pencil to name one, and the
-/// exact time behind "N hours ago".
-fn sessions_extra(ui: &mut Ui, hash: &str, head: Rect, line: Rect, iso: &str, named: &str) {
-    let seen = crate::plugins::get("BetterSessions", "seen");
-    let mut x = head.right() + 8.0;
-    let fresh = ui.data(|d| d.get_temp::<Vec<Value>>(egui::Id::new("sessions_fresh"))).is_some_and(|v| v.iter().any(|h| h == hash));
-    if fresh || !seen.as_array().is_some_and(|v| v.iter().any(|h| h == hash)) {
-        let g = ui.painter().layout_no_wrap("NEW".into(), semi(10.0), Color32::WHITE);
-        let badge = Rect::from_min_size(pos2(x, head.center().y - 8.0), vec2(g.size().x + 10.0, 16.0));
-        ui.painter().rect_filled(badge, CornerRadius::same(8), RED);
-        ui.painter().galley(badge.center() - g.size() / 2.0, g, Color32::WHITE);
-        x = badge.right() + 8.0;
-    }
-    let edit_id = egui::Id::new(("session_name", hash));
-    let pen = Rect::from_center_size(pos2(x + 8.0, head.center().y), vec2(16.0, 16.0));
-    let resp = ui.interact(pen, edit_id.with("pen"), Sense::click());
-    crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Pencil, pen, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
-    if resp.on_hover_text("Rename").clicked() {
-        ui.data_mut(|d| d.insert_temp(edit_id, named.to_string()));
-    }
-    if let Some(mut name) = ui.data(|d| d.get_temp::<String>(edit_id)) {
-        let area = Rect::from_min_size(pos2(pen.right() + 8.0, head.top() - 4.0), vec2(200.0, 24.0));
-        let r = ui.put(area, egui::TextEdit::singleline(&mut name).hint_text("Session name").font(reg(14.0)));
-        r.request_focus();
-        if r.lost_focus() {
-            let mut names = crate::plugins::get("BetterSessions", "names");
-            if !names.is_object() {
-                names = json!({});
-            }
-            names[hash] = name.trim().into();
-            crate::plugins::set("BetterSessions", "names", names);
-            ui.data_mut(|d| d.remove_temp::<String>(edit_id));
-        } else {
-            ui.data_mut(|d| d.insert_temp(edit_id, name));
-        }
-    }
-    if let Ok(t) = chrono::DateTime::parse_from_rfc3339(iso) {
-        let exact = t.with_timezone(&chrono::Local).format("%-m/%-d/%Y, %-I:%M:%S %p").to_string();
-        ui.interact(line, egui::Id::new(("session_when", hash)), Sense::hover()).on_hover_text(exact);
     }
 }
 

@@ -17,7 +17,6 @@ fn notes(name: &str) -> &'static [(f32, f32)] {
         "leave" => &[(784.0, 0.06), (659.3, 0.06), (523.3, 0.1)],
         "discodo" => &[(523.3, 0.07), (659.3, 0.07), (784.0, 0.07), (1046.5, 0.07), (784.0, 0.07), (1046.5, 0.18)],
         "ring" => &[(659.3, 0.18), (0.0, 0.08), (784.0, 0.18), (0.0, 0.3), (659.3, 0.18), (0.0, 0.08), (784.0, 0.18)],
-        "ring_secret" => &[(784.0, 0.12), (880.0, 0.12), (987.8, 0.12), (1174.7, 0.24), (0.0, 0.1), (987.8, 0.12), (1174.7, 0.36)],
         _ => &[],
     }
 }
@@ -49,7 +48,7 @@ pub fn configure(on: bool, muted: &[String]) {
 pub fn cue(name: &str) {
     let allowed = ON.lock().map(|s| s.0 && !s.1.iter().any(|m| m == name)).unwrap_or(true);
     if allowed && std::env::var_os("FASTCORD_SILENT").is_none() {
-        play(if name == "ring" && crate::plugins::on("SecretRingToneEnabler") { "ring_secret" } else { name });
+        play(name);
     }
 }
 
@@ -63,12 +62,7 @@ pub fn play(name: &str) {
         }
         let conf = cfg.config();
         let ch = conf.channels as usize;
-        let mut pcm = render(&name, conf.sample_rate as f32);
-        if crate::plugins::on("NotificationVolume") {
-            let k = crate::plugins::num("NotificationVolume", "notificationVolume") as f32 / 100.0;
-            pcm.iter_mut().for_each(|s| *s *= k);
-        }
-        let pcm = Arc::new(pcm);
+        let pcm = Arc::new(render(&name, conf.sample_rate as f32));
         let len = pcm.len();
         let pos = Arc::new(AtomicUsize::new(0));
         let (p, at) = (pcm.clone(), pos.clone());

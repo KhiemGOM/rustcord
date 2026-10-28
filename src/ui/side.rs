@@ -15,11 +15,10 @@ fn sort_key(c: &Channel) -> (bool, i32, Id) {
 pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
     let Some(g) = store.guilds.get(&gid) else { return Vec::new() };
     let all: Vec<&Channel> = g.channels.iter().filter_map(|c| store.channels.get(c)).collect();
-    let hidden = crate::plugins::on("ShowHiddenChannels");
     let visible: Vec<&Channel> = all
         .iter()
         .copied()
-        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && (hidden || store.can_view(c)) && (keep == Some(c.id) || store.listed(c)))
+        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c) && (keep == Some(c.id) || store.listed(c)))
         .collect();
     let opt_in = store.opt_in.contains(&gid);
     let mut cats: Vec<&Channel> = all.iter().copied().filter(|c| c.kind == 4).collect();
@@ -33,7 +32,7 @@ pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, 
     }
     for cat in cats {
         let mut kids: Vec<&Channel> = visible.iter().copied().filter(|c| c.parent == cat.id).collect();
-        if kids.is_empty() && (opt_in || (!hidden && !store.can_view(cat))) {
+        if kids.is_empty() && (opt_in || !store.can_view(cat)) {
             continue;
         }
         kids.sort_by_key(|c| sort_key(c));
@@ -43,7 +42,7 @@ pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, 
 }
 
 pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
-    tree(store, gid, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text() && store.can_view(c)).map(|c| c.id)
+    tree(store, gid, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
 }
 
 /// How much of the bottom the floating account card takes, its 8 margin included. The rail and
@@ -127,7 +126,6 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
     let mut invite = false;
     let mut act = None;
-    let icons = super::extra::guild_icons(&app.store, gid);
     // a boosted server's banner sits behind the header and scrolls away with the list
     let banner = app.store.guilds.get(&gid).and_then(|g| g.banner_url());
     let scroll_id = egui::Id::new(("side_scroll", gid));
@@ -189,7 +187,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         app.rects.insert("guildmenu".into(), btn);
         egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).close_behavior(super::menu_closing(ui.ctx())).show(|ui| {
-            super::menu_body(ui, |ui| act = guild_menu(ui, gid, perms, can_invite, owner, hide, dev, community, &icons));
+            super::menu_body(ui, |ui| act = guild_menu(ui, gid, perms, can_invite, owner, hide, dev, community));
         });
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -211,8 +209,6 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         Some(GuildAct::HideMuted) => toggle_hide_muted(app, gid),
         Some(GuildAct::Leave) => leave(app, gid),
         Some(GuildAct::CopyId) => ui.ctx().copy_text(gid.to_string()),
-        Some(GuildAct::Info) => app.open_server_info(gid),
-        Some(GuildAct::View(url)) => super::extra::view(app, url),
         None => {}
     }
     if invite && let Some(c) = app.cur() {
@@ -308,10 +304,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 for c in kids {
                     let selected = cur == Some(c.id);
-                    let hid = super::hidden::locked(store, c);
-                    let muted = store.is_muted(c) || hid;
+                    let muted = store.is_muted(c);
                     let new = if muted { 0 } else { fresh.get(&c.id).copied().unwrap_or(0) };
-                    let unread = !(hid && crate::plugins::flag("ShowHiddenChannels", "hideUnreads")) && ((c.is_text() && store.unread(c)) || new > 0);
+                    let unread = (c.is_text() && store.unread(c)) || new > 0;
                     if collapsed && !selected && !unread {
                         continue;
                     }
@@ -357,11 +352,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         app.rects.insert(format!("chanemoji:{}", c.id), e);
                     }
                     app.rects.insert(format!("chanicon:{}", c.id), Rect::from_center_size(pos2(r.rect.left() + 26.0, r.rect.center().y), vec2(20.0, 20.0)));
-                    let dbl = c.is_voice() && !hid && crate::plugins::on("VoiceChatDoubleClick");
-                    if dbl && r.clicked() && !r.double_clicked() {
-                        open_chat = Some(c.id);
-                    }
-                    if (dbl && r.double_clicked()) || (!dbl && r.clicked()) {
+                    if r.clicked() {
                         open = Some(c.id);
                     }
                     channel_menu(&r, store, c, unread, false, dev, &mut menu);
@@ -375,7 +366,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         }
                         channel_menu(&r, store, t, store.unread(t), false, dev, &mut menu);
                     }
-                    if c.is_voice() && !collapsed && !hid {
+                    if c.is_voice() && !collapsed {
                         voice_users(ui, store, &app.voice, gid, c.id);
                     }
                 }
@@ -411,7 +402,6 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             let parent = app.store.channels.get(&c).map(|x| if x.kind == 4 { x.id } else { x.parent }).filter(|p| *p != 0);
             app.create = Some(super::create::Form::new(super::create::Kind::Channel, gid, parent));
         }
-        Some((c, ChanAct::Perms)) => app.view_channel_perms(c),
         Some((c, ChanAct::Collapse)) => toggle = Some(c),
         Some((_, ChanAct::CollapseAll)) => {
             let cats = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id);
@@ -440,7 +430,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         app.invite_people(c);
     }
     if let Some(c) = open {
-        if app.store.channels.get(&c).is_some_and(|x| x.is_voice() && !super::hidden::locked(&app.store, x)) {
+        if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
             app.join_voice(c, true);
         }
         app.open(c);
@@ -466,7 +456,6 @@ enum ChanAct {
     Create,
     Collapse,
     CollapseAll,
-    Perms,
 }
 
 pub fn toggle_hide_muted(app: &mut App, gid: Id) {
@@ -512,13 +501,11 @@ enum GuildAct {
     HideMuted,
     Leave,
     CopyId,
-    Info,
-    View(String),
 }
 
 /// The menu under the server name. What we don't do here ourselves opens discord in the browser.
 #[allow(clippy::too_many_arguments)]
-fn guild_menu(ui: &mut Ui, gid: Id, perms: u64, can_invite: bool, owner: bool, hide: bool, dev: bool, community: bool, icons: &[(&'static str, String)]) -> Option<GuildAct> {
+fn guild_menu(ui: &mut Ui, gid: Id, perms: u64, can_invite: bool, owner: bool, hide: bool, dev: bool, community: bool) -> Option<GuildAct> {
     use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, VIEW_GUILD_INSIGHTS};
     use super::{Trail, menu_item, menu_row, menu_sep};
     let web = || Some(GuildAct::Web(format!("https://discord.com/channels/{gid}")));
@@ -582,17 +569,6 @@ fn guild_menu(ui: &mut Ui, gid: Id, perms: u64, can_invite: bool, owner: bool, h
     if !owner {
         if menu_item(ui, Some(Icon::Leave), "Leave Server", true) {
             act = Some(GuildAct::Leave);
-        }
-    }
-    if crate::plugins::on("ServerInfo") || !icons.is_empty() {
-        menu_sep(ui);
-        if crate::plugins::on("ServerInfo") && menu_item(ui, None, "Server Info", false) {
-            act = Some(GuildAct::Info);
-        }
-        for (label, url) in icons {
-            if menu_item(ui, None, label, false) {
-                act = Some(GuildAct::View(url.clone()));
-            }
         }
     }
     if dev {
@@ -670,12 +646,6 @@ fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, co
                         _ => ChanAct::Edit,
                     });
                 }
-            }
-        }
-        if crate::plugins::on("PermissionsViewer") && !c.is_thread() {
-            menu_sep(ui);
-            if menu_item(ui, None, "View Permissions", false) {
-                act = Some(ChanAct::Perms);
             }
         }
         if dev {
@@ -899,7 +869,7 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::R
 /// The channel's icon with the lock or warning discord adds for private and age-gated ones.
 pub fn chan_icon(store: &Store, p: &egui::Painter, c: &Channel, rect: Rect, col: Color32) {
     let icon = if store.guilds.get(&c.guild).is_some_and(|g| g.rules == c.id) { Icon::Rules } else { glyph(c) };
-    if store.locked(c) || super::hidden::locked(store, c) {
+    if store.locked(c) {
         icons::draw_marked(p, icon, icons::Mark::Lock, rect, col);
     } else if c.nsfw && !c.is_thread() {
         icons::draw_marked(p, icon, icons::Mark::Warn, rect, col);
@@ -1014,8 +984,6 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         right = r.left() - 6.0;
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
-    let who = super::typing::typers(store, c.id, selected, muted);
-    right -= super::typing::row(ui, store, c.guild, &who, pos2(right, y), ui.id().with(("typing", c.id)));
     // channel names are medium; unread ones go semibold
     let font = if unread { semi(16.0) } else { medium(16.0) };
     let left = inner.left() + 34.0;
@@ -1060,11 +1028,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         }
         let used = super::call::badges(ui, voice, u, row);
         // discord's usernameSpeaking: the name goes bright while they talk
-        let col = match store.role_color(gid, u) {
-            _ if speaking => pal().interactive_hover,
-            Some(c) if crate::plugins::flag("RoleColorEverywhere", "voiceUsers") => role_color(c),
-            _ => pal().channel_default,
-        };
+        let col = if speaking { pal().interactive_hover } else { pal().channel_default };
         let room = row.right() - av.right() - 16.0 - used;
         let face = name_font(store.user(u).map_or(0, |x| x.font), 14.0);
         let r = text::paint_em(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), face, col, room, 1.0);
@@ -1118,7 +1082,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
                 if url.is_none() {
-                    if pending > 0 && !crate::plugins::flag("NoPendingCount", "hideFriendRequestsCount") {
+                    if pending > 0 {
                         badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
                     }
                     app.rects.insert("friends".into(), row);
@@ -1133,16 +1097,6 @@ fn dms(app: &mut App, ui: &mut Ui) {
                     }
                 }
             }
-            let pins = super::extra::pinned(&app.store);
-            if !pins.is_empty() {
-                ui.add_space(14.0);
-                let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-                ui.painter().text(pos2(h.left() + 16.0, h.center().y), Align2::LEFT_CENTER, "Pinned DMs", medium(14.0), pal().channel_default);
-                ui.add_space(4.0);
-                for &id in &pins {
-                    dm_item(app, ui, id, cur, &mut open, &mut menu);
-                }
-            }
             ui.add_space(14.0);
             let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
             ui.painter().text(pos2(h.left() + 16.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
@@ -1153,9 +1107,19 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 app.switcher = Some(String::new());
             }
             ui.add_space(4.0);
-            let dms = app.store.dms.clone();
-            for id in dms.into_iter().filter(|id| !pins.contains(id)) {
-                dm_item(app, ui, id, cur, &mut open, &mut menu);
+            let store = &app.store;
+            for &id in &store.dms {
+                let Some(c) = store.channels.get(&id) else { continue };
+                let title = channel_title(store, id);
+                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
+                app.rects.insert(format!("chan:{id}"), r.rect);
+                if r.clicked() {
+                    open = Some(id);
+                }
+                if r.secondary_clicked() {
+                    let who = if c.kind == 1 { c.recipients.first().copied().unwrap_or(0) } else { 0 };
+                    menu = Some((who, id, r.interact_pointer_pos().unwrap_or(r.rect.center())));
+                }
             }
         });
     });
@@ -1164,21 +1128,6 @@ fn dms(app: &mut App, ui: &mut Ui) {
     }
     if let Some(c) = open {
         app.open(c);
-    }
-}
-
-fn dm_item(app: &mut App, ui: &mut Ui, id: Id, cur: Option<Id>, open: &mut Option<Id>, menu: &mut Option<(Id, Id, egui::Pos2)>) {
-    let store = &app.store;
-    let Some(c) = store.channels.get(&id) else { return };
-    let title = channel_title(store, id);
-    let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
-    app.rects.insert(format!("chan:{id}"), r.rect);
-    if r.clicked() {
-        *open = Some(id);
-    }
-    if r.secondary_clicked() {
-        let who = if c.kind == 1 { c.recipients.first().copied().unwrap_or(0) } else { 0 };
-        *menu = Some((who, id, r.interact_pointer_pos().unwrap_or(r.rect.center())));
     }
 }
 
@@ -1226,22 +1175,7 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
         pal().channel_default
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
-    let mut right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    if let Some(u) = person {
-        if crate::plugins::flag("PlatformIndicators", "list") {
-            right -= super::platform::row(ui, store, u.id, pos2(right, row.center().y), ui.id().with(("plat", c.id)));
-        }
-        if crate::plugins::flag("UserVoiceShow", "showInMemberList")
-            && let Some(vc) = store.guilds.values().find_map(|g| g.voice.get(&u.id).and_then(|v| store.channels.get(v)))
-        {
-            let vr = Rect::from_center_size(pos2(right - 8.0, row.center().y), vec2(14.0, 14.0));
-            icons::draw(ui.painter(), Icon::Speaker, vr, GREEN);
-            ui.interact(vr, ui.id().with(("in_voice", c.id)), Sense::hover()).on_hover_text(format!("In voice: {}", vc.name));
-            right -= 18.0;
-        }
-    }
-    let who = super::typing::typers(store, c.id, selected, muted);
-    right -= super::typing::row(ui, store, 0, &who, pos2(right, row.center().y), ui.id().with(("typing", c.id)));
+    let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if unread { semi(16.0) } else { medium(16.0) };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
@@ -1362,7 +1296,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         };
         status_dot(ui, av, status, pal().bg_secondary_alt);
         // leave room for the three buttons so long names elide instead of running under them
-        let col = (ui.available_width() - 146.0 - if crate::plugins::on("GameActivityToggle") { 40.0 } else { 0.0 }).max(40.0);
+        let col = (ui.available_width() - 146.0).max(40.0);
         let hot = ui.rect_contains_pointer(ui.max_rect());
         let names = ui.allocate_ui_with_layout(vec2(col, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
@@ -1406,16 +1340,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         if open || resp.hovered() {
             ui.painter().set(bg, egui::Shape::rect_filled(hit, CornerRadius::same(8), MENU_HOVER));
         }
-        let server = app.ui.guild.filter(|_| crate::plugins::on("AccountPanelServerProfile"));
-        let swap = server.is_some() && crate::plugins::flag("AccountPanelServerProfile", "prioritizeServerProfile");
-        let at = pos2(hit.right() + 12.0, hit.top() - 400.0);
-        if let Some(g) = server {
-            if (swap && resp.clicked()) || (!swap && resp.secondary_clicked()) {
-                app.open_profile(me, g, at);
-            }
-        }
-        let menu = if swap { egui::Popup::context_menu(&resp) } else { egui::Popup::menu(&resp) };
-        menu
+        egui::Popup::menu(&resp)
             .align(egui::RectAlign::TOP_START)
             .gap(12.0)
             .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(ui.style().visuals.popup_shadow))

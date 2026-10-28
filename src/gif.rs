@@ -117,7 +117,7 @@ pub fn uri(ctx: &egui::Context, url: &str, play: bool) -> String {
 pub fn paint_still(ui: &egui::Ui, url: &str, rect: egui::Rect, radius: egui::CornerRadius, hot: bool) {
     let draw = |u: String| egui::Image::from_uri(u).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
     draw(url.to_string());
-    if (hot || crate::plugins::on("AlwaysAnimate")) && url.contains("/a_") {
+    if hot && url.contains("/a_") {
         draw(uri(ui.ctx(), &url.replacen(".png?", ".gif?", 1), true));
     }
 }

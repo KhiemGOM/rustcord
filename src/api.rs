@@ -164,9 +164,8 @@ impl Api {
         files: &[(PathBuf, String)],
         stickers: &[Id],
         tts: bool,
-        silent: bool,
     ) -> Result<Value, String> {
-        let mut body = json!({ "content": content, "nonce": nonce, "tts": tts, "flags": if silent { 1 << 12 } else { 0 } });
+        let mut body = json!({ "content": content, "nonce": nonce, "tts": tts, "flags": 0 });
         if !stickers.is_empty() {
             body["sticker_ids"] = json!(stickers.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         }
@@ -197,35 +196,6 @@ impl Api {
         let ok = res.status().is_success();
         let v: Value = res.json().await.unwrap_or_default();
         if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
-    }
-
-    /// Adds files to a message you sent: each goes up to the storage url Discord hands out, then
-    /// the message is edited to list them after the ones it has.
-    pub async fn add_attachments(&self, ch: Id, id: Id, have: Vec<Value>, files: &[PathBuf]) -> Result<Value, String> {
-        let mut blobs = Vec::new();
-        for f in files {
-            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-            blobs.push((name, tokio::fs::read(f).await.map_err(|e| e.to_string())?));
-        }
-        let list: Vec<Value> = blobs.iter().enumerate().map(|(i, (n, b))| json!({ "filename": n, "file_size": b.len(), "id": i.to_string(), "is_clip": false })).collect();
-        let slots = self.call(Method::POST, &format!("/channels/{ch}/attachments"), Some(json!({ "files": list }))).await?;
-        let mut attachments = have;
-        for (i, slot) in slots["attachments"].as_array().into_iter().flatten().enumerate() {
-            let Some((name, bytes)) = blobs.get(i) else { break };
-            let url = slot["upload_url"].as_str().ok_or("no upload url")?;
-            http().put(url).body(bytes.clone()).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?;
-            attachments.push(json!({ "id": slot["id"], "uploaded_filename": slot["upload_filename"], "filename": name }));
-        }
-        self.call(Method::PATCH, &format!("/channels/{ch}/messages/{id}"), Some(json!({ "attachments": attachments }))).await
-    }
-
-    pub async fn clone_sticker(&self, guild: Id, name: &str, bytes: Vec<u8>, ext: &str) -> Result<Value, String> {
-        let part = multipart::Part::bytes(bytes).file_name(format!("{name}.{ext}")).mime_str(if ext == "gif" { "image/gif" } else { "image/png" }).map_err(|e| e.to_string())?;
-        let form = multipart::Form::new().text("name", name.to_string()).text("tags", name.to_string()).text("description", name.to_string()).part("file", part);
-        let res = self.build(Method::POST, &format!("/guilds/{guild}/stickers")).multipart(form).send().await.map_err(|e| e.to_string())?;
-        let ok = res.status().is_success();
-        let v: Value = res.json().await.unwrap_or_default();
-        if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("couldn't clone the sticker").to_string()) }
     }
 
     // the official client posts interactions as multipart with a payload_json part

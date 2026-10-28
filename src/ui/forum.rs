@@ -30,14 +30,7 @@ struct View {
 
 pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
     let key = egui::Id::new(("forum_view", forum.id));
-    let mut v: View = ui.data(|d| d.get_temp(key)).unwrap_or_else(|| {
-        let over = crate::plugins::on("OverrideForumDefaults");
-        View {
-            gallery: forum.layout == 2 || (forum.layout == 0 && over && crate::plugins::text("OverrideForumDefaults", "defaultLayout") == "2"),
-            by_date: over && crate::plugins::text("OverrideForumDefaults", "defaultSortOrder") == "1",
-            ..Default::default()
-        }
-    });
+    let mut v: View = ui.data(|d| d.get_temp(key)).unwrap_or_else(|| View { gallery: forum.layout == 2, ..Default::default() });
     let can_post = app.store.perms(forum) & crate::state::SEND_MESSAGES != 0;
     let mut open: Option<Id> = None;
     let mut submit = None;

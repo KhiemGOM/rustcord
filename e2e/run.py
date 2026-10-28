@@ -275,8 +275,6 @@ def main():
         "soundboard: opened in the guild call and the server's sounds loaded": all("soundboard" in r.get("marks_ms", {}) for r in (cold, warm))
             and any("/soundboard-sounds" in r.get("path", "") for r in reqs),
         "soundboard: clicking a sound fetched it to play": any("/soundboard-sounds/5001" in r.get("path", "") for r in reqs),
-        "plugins: MessageLogger switched on from the plugins page": all("plugin_switch" in r.get("marks_ms", {}) for r in (cold, warm)),
-        "plugins: MessageLogger kept a deleted message and the text from before its edit": all("plugin_logger" in r.get("marks_ms", {}) for r in (cold, warm)),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,
