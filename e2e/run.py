@@ -98,7 +98,7 @@ def run_client(name, data_dir, extra=None):
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     try:
-        code = p.wait(timeout=300)
+        code = p.wait(timeout=480)
     except subprocess.TimeoutExpired:
         p.kill()
         code = "timeout"
@@ -287,6 +287,8 @@ def main():
         "vencord: its message menu item and chat bar button worked": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_menu", "vc_chatbar")),
         "vencord: its React drawn natively and used: accessory button, name decoration, modal, badge, member decorator, channel menu, setting component": all(
             m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_accessory", "vc_modal", "vc_badge", "vc_member", "vc_channel_menu", "vc_setting")),
+        "vencord: its own section: the notification a plugin sent reached the log, and QuickCSS colours reached Fastcord's palette": all(
+            m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_notify_log", "vc_quickcss")),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

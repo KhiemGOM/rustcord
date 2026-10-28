@@ -30,6 +30,7 @@ mod side;
 pub mod text;
 mod titlebar;
 mod vencord;
+mod vcnet;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -203,6 +204,7 @@ pub struct App {
     feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
     pub vc: vencord::Vc,
+    pub vcnet: vcnet::VcNet,
 }
 
 impl App {
@@ -349,6 +351,7 @@ impl App {
             feed_at: None,
             synced: None,
             vc: Default::default(),
+            vcnet: Default::default(),
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -1389,6 +1392,8 @@ impl App {
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
         self.vc_modals(&ctx);
+        self.vc_own_modals(&ctx);
+        self.vc_notes(&ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);

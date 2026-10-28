@@ -5,6 +5,7 @@
 mod activity;
 mod app;
 mod plugins;
+pub mod vencord;
 mod user;
 mod voice;
 
@@ -37,7 +38,12 @@ pub enum Page {
     Language,
     Activity,
     Apps,
+    VcMain,
     Plugins,
+    VcThemes,
+    VcUpdater,
+    VcCloud,
+    VcBackup,
     Developer,
 }
 
@@ -53,7 +59,6 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Privacy, "Data & Privacy", Icon::SidePrivacy, &["How Discord Uses My Data", "Profile Privacy"]),
     Item::Page(Page::Messaging, "Messaging Permissions", Icon::SideMessaging, &[]),
     Item::Page(Page::Notifications, "Notifications", Icon::SideBell, &["Overview", "Sounds", "Badges", "Email", "Advanced"]),
-    Item::Page(Page::Plugins, "Plugins", Icon::Gear, &[]),
     Item::Head("Billing"),
     Item::Page(Page::Nitro, "Nitro", Icon::SideNitro, &[]),
     Item::Page(Page::Boost, "Server Boost", Icon::SideBoost, &[]),
@@ -82,9 +87,51 @@ const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
 pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
 
+// Vencord's section, wherever its Settings plugin puts it
+const VENCORD: &[Item] = &[
+    Item::Head("Vencord"),
+    Item::Page(Page::VcMain, "Vencord", Icon::Gear, &["Quick Actions", "Settings", "Notifications"]),
+    Item::Page(Page::Plugins, "Plugins", Icon::Apps, &[]),
+    Item::Page(Page::VcThemes, "Themes", Icon::SideAppearance, &["QuickCSS"]),
+    Item::Page(Page::VcUpdater, "Updater", Icon::Refresh, &["Updater Settings", "Repo", "Updates"]),
+    Item::Page(Page::VcCloud, "Cloud", Icon::Upload, &["Cloud Settings", "Settings Sync"]),
+    Item::Page(Page::VcBackup, "Backup & Restore", Icon::Download, &[]),
+];
+
+/// The sidebar top to bottom, the Vencord section where `location` (the Settings plugin's
+/// settingsLocation) says.
+fn items(location: &str) -> Vec<&'static Item> {
+    let before = |i: &Item| match (location, i) {
+        ("aboveNitro", Item::Head(h)) => *h == "Billing",
+        ("belowNitro", Item::Head(h)) => *h == "Experience",
+        ("aboveActivity", Item::Head(h)) => *h == "Games & Apps",
+        ("belowActivity", Item::Sep) => true,
+        _ => false,
+    };
+    let mut out: Vec<&'static Item> = Vec::new();
+    if location == "top" {
+        out.extend(VENCORD);
+    }
+    for i in SIDEBAR {
+        if before(i) && !out.iter().any(|x| std::ptr::eq(*x, &VENCORD[0])) {
+            out.extend(VENCORD);
+        }
+        out.push(i);
+    }
+    if !out.iter().any(|x| std::ptr::eq(*x, &VENCORD[0])) {
+        out.extend(VENCORD);
+    }
+    out
+}
+
+fn location(app: &App) -> String {
+    app.vc.settings["plugins"]["Settings"]["settingsLocation"].as_str().unwrap_or("aboveNitro").to_string()
+}
+
 pub fn label(p: Page) -> &'static str {
     SIDEBAR
         .iter()
+        .chain(VENCORD)
         .find_map(|i| match i {
             Item::Page(q, l, ..) if *q == p => Some(*l),
             _ => None,
@@ -189,7 +236,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
             (row, ui.interact(row, Id::new(("settings_row", id)), Sense::click()))
         };
         ui.add_space(12.0);
-        for item in SIDEBAR {
+        for item in items(&location(app)) {
             match item {
                 Item::Head(h) if q.is_empty() => {
                     sep(ui, left);
@@ -334,6 +381,11 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::Activity => activity::privacy(app, ui),
                 Page::Apps => user::apps(app, ui),
                 Page::Plugins => plugins::page(app, ui),
+                Page::VcMain => vencord::main(app, ui),
+                Page::VcThemes => vencord::themes_page(app, ui),
+                Page::VcUpdater => vencord::updater(app, ui),
+                Page::VcCloud => vencord::cloud(app, ui),
+                Page::VcBackup => vencord::backup(app, ui),
                 Page::Developer => app::developer(app, ui),
             };
         });
@@ -360,6 +412,7 @@ pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
     match key {
         "modal" => user::modal_done(app, res),
         "profile_save" | "nick_save" => user::profile_saved(app, key, res),
+        "vc_oauth" => app.vc_oauth_done(res),
         "action" => match res {
             Ok(_) => {}
             Err(e) => app.toast(e),
