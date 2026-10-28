@@ -1,6 +1,18 @@
-// @api/Badges: profile badges plugins add. Kept so plugins load; Fastcord's profiles don't draw them yet.
+// @api/Badges: profile badges plugins add, drawn in Fastcord's profile cards.
 export const BadgePosition = { START: 0, END: 1 };
-const badges = new Set();
-export const addProfileBadge = b => badges.add(b);
-export const removeProfileBadge = b => badges.delete(b);
-export const _getBadges = () => [];
+export const Badges = globalThis.__fcBadges ??= new Set();
+export const addProfileBadge = b => Badges.add(b);
+export const removeProfileBadge = b => Badges.delete(b);
+export function _getBadges(args) {
+    const out = [];
+    for (const b of Badges) {
+        try {
+            if (b.shouldShow && !b.shouldShow(args)) continue;
+            const list = b.getBadges ? b.getBadges(args).map(x => ({ ...args, ...x })) : [{ ...args, ...b }];
+            b.position === BadgePosition.START ? out.unshift(...list) : out.push(...list);
+        } catch (e) {
+            console.error("a profile badge threw:", e);
+        }
+    }
+    return out;
+}

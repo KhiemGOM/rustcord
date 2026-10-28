@@ -35,11 +35,18 @@ const SHIMS: &[(&str, &str, &str)] = &[
     ("src/api/DataStore", "datastore.js", include_str!("js/datastore.js")),
     ("src/api/Styles", "styles.js", include_str!("js/styles.js")),
     ("src/api/Badges", "badges.js", include_str!("js/badges.js")),
+    ("src/api/MessageAccessories", "decorations.js", include_str!("js/decorations.js")),
+    ("src/api/MessageDecorations", "decorations.js", include_str!("js/decorations.js")),
+    ("src/api/MemberListDecorators", "decorations.js", include_str!("js/decorations.js")),
     ("src/utils/Logger", "logger.js", include_str!("js/logger.js")),
     ("src/utils/patches", "patches.js", include_str!("js/patches.js")),
     ("src/utils/discord", "discord.js", include_str!("js/discord.js")),
     ("src/utils/clipboard", "clipboard.js", include_str!("js/clipboard.js")),
     ("src/components/ErrorBoundary", "errorboundary.js", include_str!("js/errorboundary.js")),
+    ("src/components/Switch", "switch.js", include_str!("js/switch.js")),
+    ("src/components/Button", "button.js", include_str!("js/button.js")),
+    ("src/components/BaseText", "basetext.js", include_str!("js/basetext.js")),
+    ("src/utils/modal", "modal.js", include_str!("js/modal.js")),
     ("src/webpack", "webpack.js", include_str!("js/webpack.js")),
     ("src/webpack/common", "common.jsx", include_str!("js/common.jsx")),
 ];
@@ -86,7 +93,11 @@ impl Host {
     /// `extra` is one more userplugins folder, Fastcord's own; `settings` is in Vencord's
     /// settings.json shape and `data` is the DataStore. `None` with no Vencord to host.
     pub fn new(extra: &std::path::Path, settings: &Value, data: &Value) -> Option<Host> {
-        let sources = Sources::load(extra);
+        Self::new_with(extra, &sources::vencord_dir(), settings, data)
+    }
+
+    pub fn new_with(extra: &std::path::Path, vencord: &std::path::Path, settings: &Value, data: &Value) -> Option<Host> {
+        let sources = Sources::load(extra, vencord);
         if sources.plugins().is_empty() {
             return None;
         }
@@ -228,9 +239,7 @@ export default definePlugin({
         let dir = std::env::temp_dir().join(format!("fc_vencord_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("fcTest"));
         std::fs::write(dir.join("fcTest/index.tsx"), PLUGIN).unwrap();
-        // SAFETY: the only test that touches this variable
-        unsafe { std::env::set_var("FASTCORD_VENCORD", dir.join("none")) };
-        let host = super::Host::new(&dir, &json!({ "plugins": { "FcTest": { "enabled": true } } }), &json!({})).expect("host");
+        let host = super::Host::new_with(&dir, &dir.join("none"), &json!({ "plugins": { "FcTest": { "enabled": true } } }), &json!({})).expect("host");
         let mut store = crate::state::Store::default();
         store.me = 1;
         store.users.insert(2, crate::state::User { id: 2, username: "alice".into(), ..Default::default() });
@@ -274,6 +283,94 @@ export default definePlugin({
         host.call(&view, "setEnabled", json!({ "name": "FcTest", "on": false }));
         host.call(&view, "preSend", json!({ "token": 9, "channel": "10", "content": "plain" }));
         assert!(host.take().iter().any(|o| o["token"] == 9 && o["content"] == "plain"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const UI_PLUGIN: &str = r#"
+import definePlugin, { OptionType } from "@utils/types";
+import { definePluginSettings } from "@api/Settings";
+import { Button, Forms, Text, TextInput, useEffect, useState } from "@webpack/common";
+import { ModalContent, ModalRoot, openModal } from "@utils/modal";
+
+function Counter({ message }) {
+    const [n, setN] = useState(0);
+    const [ready, setReady] = useState(false);
+    useEffect(() => { setReady(true); }, []);
+    return <div><Text>{`count ${n} ${ready ? "ready" : "waiting"} on ${message.content}`}</Text><Button onClick={() => setN(n + 1)}>Add</Button></div>;
+}
+
+const settings = definePluginSettings({
+    word: { type: OptionType.COMPONENT, component: ({ setValue }) => <Forms.FormSection title="Word"><TextInput value="" onChange={v => setValue(v)} /></Forms.FormSection> },
+});
+
+export default definePlugin({
+    name: "FcUi",
+    description: "Plugin UI",
+    authors: [],
+    settings,
+    renderMessageAccessory: props => props.message.content === "hey" ? <Counter message={props.message} /> : null,
+    userProfileBadge: { description: "Tester", iconSrc: "https://example.com/b.png", shouldShow: ({ userId }) => userId === "2" },
+    commands: [{ name: "fcmodal", description: "", execute: () => { openModal(props => <ModalRoot><ModalContent><Text>in a modal</Text><Button onClick={props.onClose}>Close</Button></ModalContent></ModalRoot>); } }],
+});
+"#;
+
+    fn find<'a>(tree: &'a serde_json::Value, pred: &dyn Fn(&serde_json::Value) -> bool) -> Option<&'a serde_json::Value> {
+        if pred(tree) {
+            return Some(tree);
+        }
+        let kids = tree.as_array().or_else(|| tree["c"].as_array())?;
+        kids.iter().find_map(|k| find(k, pred))
+    }
+
+    fn text(tree: &serde_json::Value) -> String {
+        match tree {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Array(a) => a.iter().map(text).collect(),
+            v => v["c"].as_array().map(|a| a.iter().map(text).collect()).unwrap_or_default(),
+        }
+    }
+
+    #[test]
+    fn draws_plugin_ui() {
+        let dir = std::env::temp_dir().join(format!("fc_vencord_ui_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(dir.join("fcUi"));
+        std::fs::write(dir.join("fcUi/index.tsx"), UI_PLUGIN).unwrap();
+        let host = super::Host::new_with(&dir, &dir.join("none"), &json!({ "plugins": { "FcUi": { "enabled": true } } }), &json!({})).expect("host");
+        let mut store = crate::state::Store::default();
+        store.me = 1;
+        store.users.insert(2, crate::state::User { id: 2, username: "alice".into(), ..Default::default() });
+        store.channels.insert(10, crate::state::Channel { id: 10, name: "general".into(), ..Default::default() });
+        store.msgs.entry(10).or_default().list.push(crate::state::Message { id: 100, channel: 10, author: 2, content: "hey".into(), ..Default::default() });
+        let view = super::View { store: &store, channel: 10, guild: 0, voice: 0 };
+        host.call(&view, "start", json!({ "paths": host.plugins() }));
+
+        let msg = super::stores::message(&store, &store.msgs[&10].list[0]);
+        host.call(&view, "accessories", json!({ "message": msg, "channel": "10" }));
+        // the effect ran after the first render and asked for another
+        assert!(host.take().iter().any(|o| o["op"] == "dirty" && o["root"] == "acc:100"));
+        let tree = host.call(&view, "root", json!({ "root": "acc:100" }));
+        assert!(text(&tree).contains("count 0 ready on hey"), "{tree}");
+        let button = find(&tree, &|n| n["t"] == "fc-button").expect("button");
+        let tree = host.call(&view, "event", json!({ "root": "acc:100", "id": button["h"]["onClick"], "args": [] }));
+        assert!(text(&tree).contains("count 1 ready"), "{tree}");
+
+        host.call(&view, "runCommand", json!({ "name": "fcmodal", "args": [], "channel": "10" }));
+        let opened = host.take();
+        let modal = opened.iter().find(|o| o["op"] == "modal").map(|o| o["root"].as_str().unwrap().to_string()).expect("modal opened");
+        let tree = host.call(&view, "root", json!({ "root": modal }));
+        assert!(find(&tree, &|n| n["t"] == "fc-modal").is_some() && text(&tree).contains("in a modal"), "{tree}");
+        let close = find(&tree, &|n| n["t"] == "fc-button").expect("close");
+        host.call(&view, "event", json!({ "root": modal, "id": close["h"]["onClick"], "args": [] }));
+        assert!(host.take().iter().any(|o| o["op"] == "modalClose"));
+
+        let ui = host.call(&view, "settingUi", json!({ "plugin": "FcUi", "key": "word" }));
+        let input = find(&ui, &|n| n["t"] == "fc-input").expect("input");
+        host.call(&view, "event", json!({ "root": "setting:FcUi:word", "id": input["h"]["onChange"], "args": ["typed"] }));
+        assert!(host.take().iter().any(|o| o["op"] == "settings" && o["value"]["plugins"]["FcUi"]["word"] == "typed"));
+
+        let badges = host.call(&view, "badges", json!({ "user": "2" }));
+        assert_eq!(badges[0]["tooltip"], "Tester", "{badges}");
+        assert_eq!(host.call(&view, "badges", json!({ "user": "3" })), json!([]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

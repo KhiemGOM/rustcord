@@ -7,7 +7,10 @@ import * as events from "@api/MessageEvents";
 import { addContextMenuPatch, build, removeContextMenuPatch } from "@api/ContextMenu";
 import { ChatBarButtonMap, addChatBarButton, removeChatBarButton } from "@api/ChatButtons";
 import { MessagePopoverButtonMap, addMessagePopoverButton, removeMessagePopoverButton } from "@api/MessagePopover";
-import { ChannelStore, FluxDispatcher, GuildStore, Message, UserStore, getUser } from "@webpack/common";
+import { ChannelStore, FluxDispatcher, GuildStore, Message, UserStore, closeModal, getUser } from "@webpack/common";
+import { addMessageAccessory, accessories, addMessageDecoration, decorationsFactories, addMemberListDecorator, decoratorsFactories, removeMessageAccessory, removeMessageDecoration, removeMemberListDecorator } from "@api/MessageAccessories";
+import { _getBadges, addProfileBadge, removeProfileBadge } from "@api/Badges";
+import { fire, mount, render, roots, storeRoots, unmount } from "react";
 
 const plugins = new Map();
 
@@ -50,6 +53,10 @@ function start(e) {
         if (p.onBeforeMessageSend) events.addMessagePreSendListener(e.send = p.onBeforeMessageSend.bind(p));
         if (p.onBeforeMessageEdit) events.addMessagePreEditListener(e.edit = p.onBeforeMessageEdit.bind(p));
         if (p.onMessageClick) events.addMessageClickListener(e.click = p.onMessageClick.bind(p));
+        if (p.renderMessageAccessory) addMessageAccessory(p.name, p.renderMessageAccessory);
+        if (p.renderMessageDecoration) addMessageDecoration(p.name, p.renderMessageDecoration);
+        if (p.renderMemberListDecorator) addMemberListDecorator(p.name, p.renderMemberListDecorator);
+        if (p.userProfileBadge) addProfileBadge(p.userProfileBadge);
         e.started = true;
         p.start?.();
     } catch (err) {
@@ -68,6 +75,11 @@ function stop(e) {
     for (const [nav, patch] of Object.entries(p.contextMenus ?? {})) removeContextMenuPatch(nav, patch);
     removeChatBarButton(p.name);
     removeMessagePopoverButton(p.name);
+    removeMessageAccessory(p.name);
+    removeMessageDecoration(p.name);
+    removeMemberListDecorator(p.name);
+    if (p.userProfileBadge) removeProfileBadge(p.userProfileBadge);
+    for (const id of [...roots.keys()]) if (id.startsWith(`about:${p.name}`) || id.startsWith(`setting:${p.name}:`)) unmount(id);
     events.removeMessagePreSendListener(e.send);
     events.removeMessagePreEditListener(e.edit);
     events.removeMessageClickListener(e.click);
@@ -227,7 +239,70 @@ const api = {
     },
     dispatch({ t, d, x }) {
         for (const a of actions(t, d ?? {}, x)) FluxDispatcher.dispatch(a);
+        for (const id of storeRoots()) roots.get(id)?.dirtyNow();
         return null;
+    },
+    // plugin UI: a root's tree, a control's event (answered with the tree after it), closing one
+    root: ({ root }) => render(root),
+    event({ root, id, args }) {
+        fire(root, id, args ?? []);
+        return roots.has(root) ? render(root) : null;
+    },
+    close({ root }) {
+        root.startsWith("modal:") ? closeModal(root) : unmount(root);
+        return null;
+    },
+    // what plugins add that Fastcord draws: so it only asks for what someone is adding
+    features: () => ({ accessories: accessories.size, decorations: decorationsFactories.size, members: decoratorsFactories.size }),
+    settingUi({ plugin, key }) {
+        const d = defs.get(plugin)?.[key];
+        if (!d?.component) return null;
+        const id = `setting:${plugin}:${key}`;
+        mount(id, VencordCreateElement(d.component, { id: key, option: d, setValue: v => { Settings.plugins[plugin][key] = v; }, setError() {}, onChange: v => { Settings.plugins[plugin][key] = v; }, pluginSettings: Settings.plugins[plugin] }));
+        return render(id);
+    },
+    about({ plugin }) {
+        const p = plugins.get(plugin)?.p;
+        if (!p?.settingsAboutComponent) return null;
+        mount(`about:${plugin}`, VencordCreateElement(p.settingsAboutComponent, {}));
+        return render(`about:${plugin}`);
+    },
+    accessories({ message, channel }) {
+        if (!accessories.size) return null;
+        const props = { message: msg(message), channel: ChannelStore.getChannel(channel), compact: false };
+        const all = [...accessories.values()].map(a => VencordCreateElement(a.render, { ...props, key: a.render.name }));
+        const id = `acc:${message.id}`;
+        mount(id, VencordCreateElement(VencordFragment, { children: all }));
+        return render(id);
+    },
+    decorations({ message, channel, nick }) {
+        if (!decorationsFactories.size) return null;
+        const m = msg(message);
+        const props = { message: m, channel: ChannelStore.getChannel(channel), compact: false, author: { nick: nick ?? m.author?.username, colorString: null }, decorations: [null, []] };
+        const id = `dec:${message.id}`;
+        mount(id, VencordCreateElement(VencordFragment, { children: [...decorationsFactories.values()].map(f => VencordCreateElement(f, props)) }));
+        return render(id);
+    },
+    member({ user, guild, channel }) {
+        if (!decoratorsFactories.size) return null;
+        const type = guild ? "guild" : "dm";
+        const props = { type, user: getUser(user), channel: ChannelStore.getChannel(channel), isOwner: !!guild && GuildStore.getGuild(guild)?.ownerId === user };
+        const id = `mem:${type}:${user}`;
+        const list = [...decoratorsFactories.values()].filter(d => !d.onlyIn || d.onlyIn === type).map(d => VencordCreateElement(d.render, props));
+        mount(id, VencordCreateElement(VencordFragment, { children: list }));
+        return render(id);
+    },
+    badges({ user, guild }) {
+        reset("badge");
+        return _getBadges({ userId: user, guildId: guild ?? null }).map(b => {
+            let tree = null;
+            if (b.component) {
+                const id = `badge:${user}:${b.key ?? b.id ?? b.description}`;
+                mount(id, VencordCreateElement(b.component, b));
+                tree = { root: id, tree: render(id) };
+            }
+            return { tooltip: b.description ?? b.key ?? "", icon: b.iconSrc ?? null, link: b.link ?? null, click: act("badge", b.onClick && (ev => b.onClick(ev, b))), component: tree };
+        });
     },
     preSend({ token, channel, content, reply, files }) {
         const m = { content, validNonShortcutEmojis: [], invalidEmojis: [], tts: false };
