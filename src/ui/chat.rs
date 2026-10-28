@@ -4,22 +4,20 @@ use egui::{
     Align, Align2, Color32, CornerRadius, Frame, Image, Key, Label, Layout, Margin, Modifiers, Pos2, Rect, RichText,
     Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::{App, Pick, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
-use super::{side, text, vc};
+use super::{side, text};
 use crate::gif;
 use crate::markdown::{self, Block, Cx, Link};
-use crate::net::{Cmd, Tag};
-use crate::plugins;
+use crate::net::Cmd;
 use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Store};
 use crate::theme::*;
 
 enum Act {
     Reply(Id),
     Edit(Id),
-    AddFiles(Id),
     Delete(Id),
     React(Id, ReactEmoji, bool),
     Picker(Id, Pos2),
@@ -54,8 +52,6 @@ enum Act {
     // a custom emoji clicked: its id, name, whether animated, and where
     Emoji(Id, String, bool, Pos2),
     EditChannel,
-    Hide(Id),
-    Raw(Id),
 }
 
 struct D<'a> {
@@ -80,8 +76,6 @@ struct D<'a> {
     // the message keyboard focus is on, ringed and kept in view
     focus: Option<Id>,
     bookmarks: &'a HashSet<Id>,
-    nsfw: bool,
-    profiles: &'a HashMap<Id, serde_json::Value>,
 }
 
 fn normal(kind: u8) -> bool {
@@ -155,9 +149,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         return;
     };
     let chan = app.store.channels[&ch].clone();
-    if super::hidden::locked(&app.store, &chan) {
-        return super::hidden::show(app, ui, &chan);
-    }
     if chan.is_voice() {
         if app.voice_chat {
             egui::Panel::right("voice_chat")
@@ -562,8 +553,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         nudge += ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta.y));
     }
     let marker = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m);
-    let mut quick = app.quick_reactions();
-    vc::quick_fill(&mut quick, &app.ui.quick);
+    let quick = app.quick_reactions();
     let ctx = ui.ctx().clone();
     let mut d = D {
         store: &app.store,
@@ -585,8 +575,6 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         popout: false,
         focus: app.focus_msg,
         bookmarks: &app.bookmarks,
-        nsfw: chan.nsfw,
-        profiles: &app.profiles,
     };
     let mut focus_at = None;
     if d.flash.is_some() {
@@ -627,9 +615,6 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         let mut prev: Option<&Message> = None;
         for m in list {
-            if plugins::on("NoBlockedMessages") && d.store.relationships.get(&m.author) == Some(&crate::state::BLOCKED) {
-                continue;
-            }
             let y = ui.cursor().top() - origin;
             let start = group_start(prev, m);
             let known = heights.get(&(m.id, start)).copied();
@@ -743,7 +728,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Reply(id) => {
                 app.reply = Some(id);
                 // shift+click replies without the ping; your own messages never ping
-                app.reply_ping = super::outgoing::ping(app, ch, id, shift);
+                app.reply_ping = !shift && app.store.find_msg(ch, id).is_some_and(|m| m.author != app.store.me);
                 app.focus_composer = true;
             }
             Act::Edit(id) => {
@@ -751,7 +736,6 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     app.editing = Some((id, m.content.clone()));
                 }
             }
-            Act::AddFiles(id) => super::outgoing::add_files(app, ch, id),
             Act::Delete(id) => app.delete_msg(ch, id, !shift),
             Act::Pin(id) => app.pin_msg(ch, id, !shift),
             Act::Bookmark(id) => app.bookmark(ch, id),
@@ -772,16 +756,6 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Channel(c) => app.open(c),
             Act::Reveal(id) => {
                 app.revealed.insert(id);
-                if plugins::on("RevealAllSpoilers") && ui.input(|i| i.modifiers.ctrl && i.modifiers.shift) {
-                    let all: Vec<Id> = app.store.msgs.get(&ch).map(|e| e.list.iter().map(|m| m.id).collect()).unwrap_or_default();
-                    app.revealed.extend(all);
-                }
-            }
-            Act::Hide(id) => vc::toggle_hidden(id),
-            Act::Raw(id) => {
-                if let Some(m) = app.store.find_msg(ch, id) {
-                    vc::show_raw(m);
-                }
             }
             Act::SaveEdit(id, text) => {
                 app.editing = None;
@@ -822,7 +796,6 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
         }
     }
-    vc::flush(app, ui.ctx());
 }
 
 /// Discord's message keys, while a message has keyboard focus (shift+tab out of the composer):
@@ -890,7 +863,7 @@ fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
     match letter.as_ref().map(|t| t.to_lowercase()).as_deref() {
         Some("r") => {
             app.reply = Some(id);
-            app.reply_ping = super::outgoing::ping(app, ch, id, false);
+            app.reply_ping = !own;
             app.focus_msg = None;
             app.focus_composer = true;
         }
@@ -1106,28 +1079,22 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             reply_line(&mut cui, d, r, left);
             head_top = cui.cursor().top();
         }
-        let (name, _) = vc::smyn(d.store, d.guild, m.author, false);
+        let name = d.store.name_in(d.guild, m.author);
         let (ink, dot) = name_ink(d, m.author);
         let color = ink.stops[0];
         if start && !compact {
             author_line(&mut cui, d, m, &name, &ink, dot, font, hot);
         }
         let editing = d.editing.as_ref().is_some_and(|(id, _)| *id == m.id);
-        if !editing && plugins::flag("MessageLogger", "inlineEdits") {
-            for (old, _) in &m.edits {
-                let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color: pal().text_normal.gamma_multiply(0.8), revealed: false, edited: true, embed: false };
-                blocks_ui(&mut cui, &markdown::parse(old, &cx), d, m.id);
-            }
-        }
         if editing {
             edit_box(&mut cui, d, m.id);
-        } else if !m.content.is_empty() && !(d.embeds && d.s.inline_links && link_only(m) && !plugins::on("ImageLink")) {
-            let color = if m.failed || (m.deleted && plugins::text("MessageLogger", "deleteStyle") == "text") {
+        } else if !m.content.is_empty() && !(d.embeds && d.s.inline_links && link_only(m)) {
+            let color = if m.failed {
                 RED
             } else if m.pending {
                 pal().text_muted
             } else {
-                vc::role_text(d.store, d.guild, m.author).unwrap_or(pal().text_normal)
+                pal().text_normal
             };
             let revealed = d.revealed.contains(&m.id)
                 || d.s.spoilers == crate::cache::Spoilers::Always
@@ -1147,21 +1114,14 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
         // discord's accessories: 2 under the text, 4 apart, 2 under the last
         let mut acc = 2.0;
-        let hide = vc::is_hidden(m.id);
         for a in &m.attachments {
-            if hide {
-                continue;
-            }
             cui.add_space(acc);
             acc = 4.0;
             if a.is_image() && d.s.inline_uploads {
                 let sep = if a.proxy.contains('?') { '&' } else { '?' };
-                let (w, h) = if plugins::on("NoMosaic") { fit(a.w, a.h, f32::MAX, 600.0, cui.available_width()) } else { fit(a.w, a.h, 550.0, 350.0, cui.available_width()) };
-                let url = if plugins::flag("FixImagesQuality", "originalImagesInChat") { a.proxy.clone() } else { format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32) };
-                let mut r = media(&mut cui, d, &url, &a.url, w, h, None);
-                if plugins::on("ImageFilename") {
-                    r = r.on_hover_text(&a.filename);
-                }
+                let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
+                let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
+                let r = media(&mut cui, d, &url, &a.url, w, h, None);
                 if cui.clip_rect().contains(r.rect.center()) {
                     d.rects.push(("image".into(), r.rect.intersect(cui.clip_rect())));
                 }
@@ -1171,15 +1131,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             } else if a.is_audio() {
                 let voice = m.flags & (1 << 13) != 0 || !a.waveform.is_empty();
                 audio_card(&mut cui, d, a, voice);
-            } else {
-                let r = file_card(&mut cui, &a.filename, a.size);
-                let at = Rect::from_min_size(pos2(r.rect.right() - 36.0, r.rect.top() + 19.0), vec2(28.0, 28.0));
-                let cid = cui.id().with(("copy_file", &a.url));
-                if plugins::on("CopyFileContents") && vc::is_text_file(a) && vc::card_button(&mut cui, at, cid, Icon::Copy, "Copy file contents") {
-                    vc::push(vc::Req::File(a.url.clone()));
-                } else if r.clicked() {
-                    d.acts.push(Act::Url(a.url.clone()));
-                }
+            } else if file_card(&mut cui, &a.filename, a.size).clicked() {
+                d.acts.push(Act::Url(a.url.clone()));
             }
         }
         for (id, name, fmt) in &m.stickers {
@@ -1193,13 +1146,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
             }
         }
-        if let Some(t) = super::outgoing::translation(d.ctx, m.id) {
-            cui.add_space(acc);
-            acc = 4.0;
-            cui.label(RichText::new(t).font(reg(15.0)).color(pal().text_normal));
-            cui.label(RichText::new("Translated").font(reg(12.0)).color(pal().text_muted));
-        }
-        let embeds = if d.embeds && !hide { m.embeds.as_slice() } else { &[] };
+        let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
         for (i, e) in embeds.iter().enumerate() {
             cui.add_space(acc);
             acc = 4.0;
@@ -1214,9 +1161,6 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                     d.acts.push(Act::ClearEmbeds(m.id));
                 }
             }
-        }
-        if plugins::on("MessageLinkEmbeds") && !d.popout && !hide {
-            link_embeds(&mut cui, d, m, &mut acc);
         }
         if m.poll.is_some() {
             cui.add_space(acc);
@@ -1291,8 +1235,6 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         // jumped-to message glows and fades out over two seconds
         let a = (1.0 - t.elapsed().as_secs_f32() / 2.0).clamp(0.0, 1.0);
         Color32::from_rgba_unmultiplied(88, 101, 242, (40.0 * a) as u8)
-    } else if m.deleted && plugins::text("MessageLogger", "deleteStyle") == "overlay" {
-        Color32::from_rgba_unmultiplied(240, 71, 71, 38)
     } else if hovered || d.editing.as_ref().is_some_and(|(id, _)| *id == m.id) {
         pal().bg_msg_hover
     } else {
@@ -1336,12 +1278,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if ui.input(|i| i.pointer.primary_clicked() && i.modifiers.alt) {
             d.acts.push(Act::MarkUnread(m.id));
         }
-        if plugins::on("MessageClickActions") && !d.popout && !m.deleted {
-            click_actions(ui, d, m);
-        }
-        if !m.deleted {
-            action_bar(d, m, row);
-        }
+        action_bar(d, m, row);
         if ui.input(|i| i.pointer.secondary_clicked())
             && !d.acts.iter().any(|a| matches!(a, Act::UserMenu(..)))
             && let Some(p) = ui.ctx().pointer_interact_pos()
@@ -1424,9 +1361,6 @@ pub(super) fn grad_ink(r: &crate::state::Role) -> Ink {
 /// The ink for an author's name, and the role colour for the dot some people prefer.
 fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     use crate::cache::RoleColors::*;
-    if let Some(c) = vc::irc(d.store, d.guild, who) {
-        return (Ink::flat(c), None);
-    }
     // discord paints a nitro style's colours only outside servers; in one, roles colour the name
     // and the style lends just its font
     if d.guild == 0
@@ -1446,10 +1380,6 @@ fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
         InNames => match role {
             Some(r) if r.grad.len() >= 2 => (grad_ink(r), None),
             _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), None),
-        },
-        NextToNames if crate::plugins::flag("BetterRoleDot", "bothStyles") => match role {
-            Some(r) if r.grad.len() >= 2 => (grad_ink(r), solid),
-            _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), solid),
         },
         NextToNames => (Ink::flat(pal().header_primary), solid),
         Hidden => (Ink::flat(pal().header_primary), None),
@@ -1479,18 +1409,8 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     let base = ny + n.baseline();
     // headerText's 4px margin; the icon (which has none after it) and the timestamp bring their own
     let mut x = name_rect.right() + 4.0;
-    if let (_, Some(sfx)) = vc::smyn(d.store, d.guild, m.author, false) {
-        let g = ui.painter().layout_no_wrap(sfx, medium(font * 0.875), pal().chat_muted);
-        ui.painter().galley(pos2(x, base - text::baseline(&g)), g.clone(), pal().chat_muted);
-        x += g.size().x + 4.0;
-    }
     if let Some(c) = dot {
         ui.painter().circle_filled(pos2(x + 5.0, row.center().y), 5.0, c);
-        if crate::plugins::on("BetterRoleDot")
-            && ui.interact(Rect::from_center_size(pos2(x + 5.0, row.center().y), vec2(14.0, 14.0)), ui.id().with(("role_dot", m.id)), Sense::click()).on_hover_text("Copy role color").clicked()
-        {
-            ui.ctx().copy_text(format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
-        }
         x += 14.0;
     }
     let cy = row.center().y;
@@ -1510,7 +1430,6 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     if let Some(u) = user.filter(|u| u.bot) {
         x = super::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
     }
-    x = vc::badges(ui, d.store, d.guild, d.profiles, m, x, cy);
     let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
     let ty = base - text::baseline(&t);
     let tr = Rect::from_min_size(pos2(x + 4.0, ty), t.size());
@@ -1624,11 +1543,7 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         avatar(ui, Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0)), &u.avatar_url());
         cx += 20.0;
     }
-    let (main, sfx) = vc::smyn(d.store, d.guild, rm.author, true);
-    let name = match sfx {
-        Some(s) => format!("@{main} {s}"),
-        None => format!("@{main}"),
-    };
+    let name = format!("@{}", d.store.name_in(d.guild, rm.author));
     let (ink, _) = name_ink(d, rm.author);
     let rich = ink.layout(ui.ctx(), &name, medium(14.0), 200.0, false);
     let nr = Align2::LEFT_CENTER.anchor_size(pos2(cx, y), rich.size());
@@ -1636,9 +1551,6 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     cx = nr.right() + 4.0;
     if let Some(r) = d.store.user(rm.author).filter(|u| !u.bot).and_then(|u| super::tag_chip(p, u, pos2(cx, y), 1.0)) {
         cx = r.right() + 4.0;
-    }
-    if plugins::on("ReplyTimestamp") {
-        cx = p.text(pos2(cx, y), Align2::LEFT_CENTER, format!("[{}]", stamp(rm.ts())), medium(12.0), pal().text_muted).right() + 4.0;
     }
     let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
@@ -1708,8 +1620,7 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     let c = galley.pos_from_cursor(CCursor::new(*idx));
                     let x = origin.x + (c.min.x - lead).max(0.0);
                     let rect = Rect::from_min_size(pos2(x, origin.y + c.center().y - size / 2.0), vec2(*size, *size));
-                    let round = if url.contains("/avatars/") { CornerRadius::same((*size / 2.0) as u8) } else { CornerRadius::ZERO };
-                    Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).corner_radius(round).show_loading_spinner(false).paint_at(ui, rect);
+                    Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).show_loading_spinner(false).paint_at(ui, rect);
                 }
                 if !t.links.is_empty()
                     && let Some(p) = resp.hover_pos()
@@ -1801,16 +1712,13 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
         if super::menu_item(ui, None, "Open Link", false) {
             d.acts.push(Act::Url(full.to_string()));
         }
-        super::expr::image_menu(ui, full);
     });
     ui.painter().rect_filled(rect, CornerRadius::same(8), pal().bg_secondary);
-    let blur = d.nsfw && !resp.hovered();
-    let blurred = |u: &str| if blur { vc::blurred(u).unwrap_or_else(|| u.to_string()) } else { u.to_string() };
     if let Some(p) = poster {
-        Image::from_uri(blurred(p)).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, rect);
+        Image::from_uri(p.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, rect);
     }
-    let play = (d.s.gif_autoplay || plugins::on("AlwaysAnimate") || resp.hovered()) && ui.is_rect_visible(rect);
-    Image::from_uri(gif::uri(ui.ctx(), &blurred(url), play))
+    let play = (d.s.gif_autoplay || resp.hovered()) && ui.is_rect_visible(rect);
+    Image::from_uri(gif::uri(ui.ctx(), url, play))
         .corner_radius(CornerRadius::same(8))
         .show_loading_spinner(false)
         .paint_at(ui, rect);
@@ -1861,12 +1769,6 @@ fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment, voice: bool)
     let secs = if prog > 0.0 && a.duration > 0.0 { a.duration * prog } else { a.duration };
     let t = format!("{}:{:02}", secs as u32 / 60, secs as u32 % 60);
     ui.painter().text(pos2(rect.right() - 12.0, rect.center().y), Align2::RIGHT_CENTER, t, medium(12.0), pal().header_secondary);
-    if voice && plugins::on("VoiceDownload") {
-        let at = Rect::from_min_size(pos2(rect.right() + 6.0, rect.center().y - 14.0), vec2(28.0, 28.0));
-        if vc::card_button(ui, at, ui.id().with(("vdl", &a.url)), Icon::Download, "Download") {
-            d.acts.push(Act::Save(a.url.clone()));
-        }
-    }
     if pr.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -1931,16 +1833,6 @@ fn link_only(m: &Message) -> bool {
 }
 
 fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) -> Option<Rect> {
-    let tmp;
-    let mut dear = None;
-    let e = match vc::dearrow(e) {
-        Some((x, id)) => {
-            dear = Some(id);
-            tmp = x;
-            &tmp
-        }
-        None => e,
-    };
     let bare = e.title.is_none() && e.desc.is_none() && e.author.is_none() && e.fields.is_empty();
     let media_ok = d.s.inline_links;
     // gifv is always just the looping clip, whatever title the provider gave it
@@ -2102,9 +1994,6 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) -> Option<Rect> {
         CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 },
         bar,
     );
-    if let Some(id) = dear.filter(|_| !plugins::flag("Dearrow", "hideButton")) {
-        vc::dearrow_button(ui, rect, &id);
-    }
     Some(rect)
 }
 
@@ -2311,9 +2200,7 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
         for r in &m.reactions {
             let count = r.count.to_string();
             let g = ui.painter().layout_no_wrap(count, semi(14.0), if r.me { pal().mention_fg } else { pal().header_secondary });
-            let gw = g.size().x;
-            let who = if plugins::on("WhoReacted") { vc::reactors(d.ch, m.id, &r.emoji, r.count) } else { Vec::new() };
-            let size = vec2(6.0 + 16.0 + 6.0 + gw + 8.0 + if who.is_empty() { 0.0 } else { 6.0 * who.len() as f32 + 8.0 }, 24.0);
+            let size = vec2(6.0 + 16.0 + 6.0 + g.size().x + 8.0, 24.0);
             let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
             let (fill, stroke) = if r.me {
                 (Color32::from_rgba_premultiplied(13, 15, 36, 38), BLURPLE)
@@ -2326,11 +2213,6 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             let er = Rect::from_min_size(pos2(rect.left() + 7.0, rect.center().y - 8.0), vec2(16.0, 16.0));
             Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
             ui.painter().galley(pos2(er.right() + 6.0, rect.center().y - g.size().y / 2.0), g, pal().header_secondary);
-            for (i, u) in who.iter().enumerate() {
-                if let Some(user) = d.store.user(*u) {
-                    avatar(ui, Rect::from_min_size(pos2(er.right() + 12.0 + gw + 6.0 + i as f32 * 6.0, rect.center().y - 7.0), vec2(14.0, 14.0)), &user.avatar_url());
-                }
-            }
             if resp.clicked() {
                 d.acts.push(Act::React(m.id, r.emoji.clone(), !r.me));
             }
@@ -2482,82 +2364,14 @@ fn link_label(ui: &mut Ui, text: &str) -> egui::Response {
     r
 }
 
-fn bar_extras(d: &D, m: &Message) -> Vec<(Icon, &'static str, Act)> {
-    let mut v = Vec::new();
-    if plugins::on("QuickMention") && m.author != d.store.me {
-        v.push((Icon::At, "Quick Mention", Act::Mention(m.author)));
-    }
-    if plugins::on("HideMedia") && (!m.attachments.is_empty() || !m.embeds.is_empty()) {
-        let hidden = vc::is_hidden(m.id);
-        v.push((if hidden { Icon::Eye } else { Icon::EyeOff }, if hidden { "Show Media" } else { "Hide Media" }, Act::Hide(m.id)));
-    }
-    if plugins::on("ViewRaw") {
-        v.push((Icon::File, "View Raw", Act::Raw(m.id)));
-    }
-    v
-}
-
-fn click_actions(ui: &Ui, d: &mut D, m: &Message) {
-    let own = m.author == d.store.me;
-    let (backspace, click, double, mods) = ui.input(|i| (i.key_down(Key::Backspace), i.pointer.primary_clicked(), i.pointer.button_double_clicked(egui::PointerButton::Primary), i.modifiers));
-    let over = ui.ctx().pointer_hover_pos().is_some_and(|p| ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
-    if !over || d.editing.is_some() {
-        return;
-    }
-    if click && backspace && plugins::flag("MessageClickActions", "enableDeleteOnClick") && (own || d.moderator) {
-        d.acts.push(Act::Delete(m.id));
-    } else if double && (!plugins::flag("MessageClickActions", "requireModifier") || mods.shift || mods.ctrl) {
-        if own && plugins::flag("MessageClickActions", "enableDoubleClickToEdit") {
-            d.acts.push(Act::Edit(m.id));
-        } else if !own && plugins::flag("MessageClickActions", "enableDoubleClickToReply") {
-            d.acts.push(Act::Reply(m.id));
-        }
-    }
-}
-
-/// MessageLinkEmbeds: a card for each message a discord.com/channels link points at.
-fn link_embeds(ui: &mut Ui, d: &mut D, m: &Message, acc: &mut f32) {
-    let listed = plugins::ids("MessageLinkEmbeds", "idList");
-    let white = plugins::text("MessageLinkEmbeds", "listMode") == "whitelist";
-    let num = |s: &str| s.chars().take_while(char::is_ascii_digit).collect::<String>().parse::<Id>().ok();
-    let mut seen = Vec::new();
-    for (at, _) in m.content.match_indices("/channels/") {
-        if !(m.content[..at].ends_with("discord.com") || m.content[..at].ends_with("discordapp.com")) {
-            continue;
-        }
-        let mut parts = m.content[at + 10..].splitn(4, '/');
-        let (Some(g), Some(c), Some(mid)) = (parts.next(), parts.next(), parts.next()) else { continue };
-        let (Some(c), Some(mid)) = (num(c), num(mid)) else { continue };
-        let g = num(g).unwrap_or(0);
-        if mid == m.id || seen.contains(&mid) || seen.len() >= 3 || (white != (listed.contains(&g) || listed.contains(&c))) {
-            continue;
-        }
-        seen.push(mid);
-        let Some(found) = d.store.find_msg(c, mid).cloned().or_else(|| vc::st().msgs.get(&mid).cloned()) else {
-            vc::ask(format!("msg:{mid}"), vc::Req::Msg(c, mid));
-            continue;
-        };
-        ui.add_space(*acc);
-        *acc = 4.0;
-        let r = ui.scope(|ui| {
-            ui.set_max_width(520.0);
-            preview(ui, d.store, &found)
-        });
-        if r.inner.clicked() {
-            d.acts.push(if c == d.ch { Act::Jump(mid) } else { Act::Channel(c) });
-        }
-    }
-}
-
 fn action_bar(d: &mut D, m: &Message, row: Rect) {
     let own = m.author == d.store.me;
-    if d.ctx.input(|i| i.modifiers.shift) || plugins::on("ShowAllMessageButtons") {
+    if d.ctx.input(|i| i.modifiers.shift) {
         return shift_bar(d, m, row, own);
     }
-    let extras = bar_extras(d, m);
     // discord's bar: three one-click reactions, a rule, then react, edit (own), reply, forward, more
-    let quick: Vec<ReactEmoji> = d.quick.iter().take(if plugins::on("MoreQuickReactions") { d.quick.len() } else { 3 }).cloned().collect();
-    let n = quick.len() as f32 + extras.len() as f32 + if own { 5.0 } else { 4.0 };
+    let quick: Vec<ReactEmoji> = d.quick.iter().take(3).cloned().collect();
+    let n = quick.len() as f32 + if own { 5.0 } else { 4.0 };
     let size = vec2(n * 32.0 + 9.0 + 2.0, 34.0);
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
     let rect = Rect::from_min_size(pos, size);
@@ -2603,11 +2417,6 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
                         if icon_button(ui, Icon::Forward, 32.0, "Forward").clicked() {
                             d.acts.push(Act::Forward(m.id));
                         }
-                        for (icon, tip, act) in extras {
-                            if icon_button(ui, icon, 32.0, tip).clicked() {
-                                d.acts.push(act);
-                            }
-                        }
                         let more = icon_button(ui, Icon::More, 32.0, "More");
                         if more.clicked() {
                             d.acts.push(Act::Menu(m.id, more.rect.left_bottom()));
@@ -2642,7 +2451,6 @@ fn shift_bar(d: &mut D, m: &Message, row: Rect, own: bool) {
         items.push((Icon::Pencil, "Edit", Act::Edit(m.id)));
     }
     items.push((Icon::Forward, "Forward", Act::Forward(m.id)));
-    items.extend(bar_extras(d, m));
     let delete = own || manage;
     let n = items.len() as f32 + if delete { 1.0 } else { 0.0 };
     let size = vec2(n * 32.0 + 2.0, 34.0);
@@ -2717,12 +2525,6 @@ fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
         if ui.add(Label::new(small("save", pal().link)).sense(Sense::click())).clicked() {
             d.acts.push(Act::SaveEdit(id, text.clone()));
         }
-        if crate::plugins::on("AddAttachments") {
-            ui.label(small("• or", pal().text_normal));
-            if ui.add(Label::new(small("add attachments", pal().link)).sense(Sense::click())).clicked() {
-                d.acts.push(Act::AddFiles(id));
-            }
-        }
     });
     if enter {
         d.acts.push(Act::SaveEdit(id, text.clone()));
@@ -2749,10 +2551,6 @@ enum MenuPick {
     Delete,
     Report,
     CopyId,
-    History,
-    Raw,
-    Unsuppress,
-    Translate,
 }
 
 pub fn context_menu(app: &mut App, ctx: &egui::Context) {
@@ -2766,8 +2564,6 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     let pinned = m.pinned;
     let reacted = !m.reactions.is_empty();
     let has_thread = m.thread.is_some();
-    let logged = m.deleted || !m.edits.is_empty();
-    let flags = m.flags;
     let dev = app.settings.dev;
     let mut frequent: Vec<ReactEmoji> = app.ui.quick.clone();
     for n in ["✅", "❤️", "🔥", "😂", "👍", "😭", "💀", "👀", "🙏", "😊"] {
@@ -2884,15 +2680,6 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if menu_item(ui, Some(Icon::Bubble), "Speak Message", false) {
             pick = Some(MenuPick::Speak);
         }
-        if plugins::on("ViewRaw") && menu_item(ui, Some(Icon::File), "View Raw", false) {
-            pick = Some(MenuPick::Raw);
-        }
-        if plugins::on("UnsuppressEmbeds") && flags & 4 != 0 && (own || manage) && menu_item(ui, Some(Icon::Image), "Unsuppress Embeds", false) {
-            pick = Some(MenuPick::Unsuppress);
-        }
-        if plugins::on("Translate") && menu_item(ui, Some(Icon::SideLanguage), "Translate", false) {
-            pick = Some(MenuPick::Translate);
-        }
         menu_sep(ui);
         if manage && chan.guild != 0 && reacted && menu_item(ui, None, "Remove All Reactions", true) {
             pick = Some(MenuPick::ClearReactions);
@@ -2902,9 +2689,6 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
         if !own && menu_item(ui, Some(Icon::Flag), "Report Message", true) {
             pick = Some(MenuPick::Report);
-        }
-        if logged && menu_item(ui, Some(Icon::Trash), "Remove Message History", true) {
-            pick = Some(MenuPick::History);
         }
         if dev {
             menu_sep(ui);
@@ -2933,7 +2717,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(MenuPick::Edit) => app.editing = Some((id, content)),
         Some(MenuPick::Reply) => {
             app.reply = Some(id);
-            app.reply_ping = super::outgoing::ping(app, ch, id, shift);
+            app.reply_ping = !shift && !own;
             app.focus_composer = true;
         }
         Some(MenuPick::Forward) => app.forward = Some(super::popups::Forward::new(ch, id)),
@@ -2946,19 +2730,11 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(MenuPick::Unread) => app.mark_unread(ch, id),
         Some(MenuPick::Link) => ctx.copy_text(app.message_link(ch, id)),
         Some(MenuPick::Speak) => app.speak(ch, id),
-        Some(MenuPick::Translate) => super::outgoing::translate(app, content, "received", super::outgoing::Task::Message(id)),
         Some(MenuPick::ClearReactions) => app.clear_reactions(ch, id, !shift),
         Some(MenuPick::Delete) => app.delete_msg(ch, id, !shift),
         // reporting has no flow of its own here; discord's web client handles it
         Some(MenuPick::Report) => ctx.open_url(egui::OpenUrl::new_tab(app.message_link(ch, id))),
         Some(MenuPick::CopyId) => ctx.copy_text(id.to_string()),
-        Some(MenuPick::History) => app.store.forget_history(ch, id),
-        Some(MenuPick::Raw) => {
-            if let Some(m) = app.store.find_msg(ch, id) {
-                vc::show_raw(m);
-            }
-        }
-        Some(MenuPick::Unsuppress) => app.rest("PATCH", format!("/channels/{ch}/messages/{id}"), Some(serde_json::json!({ "flags": flags & !4 })), Tag::Quiet),
         None => {}
     }
     if picked || !open {
@@ -2974,7 +2750,6 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
     let mut editing = None;
     let settings = crate::cache::Settings::default();
     let none = HashSet::new();
-    let no_profiles = HashMap::new();
     let mut d = D {
         store,
         ctx: &ctx,
@@ -2995,8 +2770,6 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         popout: true,
         focus: None,
         bookmarks: &none,
-        nsfw: store.channels.get(&m.channel).is_some_and(|c| c.nsfw),
-        profiles: &no_profiles,
     };
     // discord's cards: a raised fill and a hairline, the reply it answers above the author
     let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {

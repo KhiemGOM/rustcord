@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crate::api;
-use crate::plugins;
 
 pub type Id = u64;
 
@@ -587,11 +586,6 @@ pub struct Message {
     pub poll: Option<Poll>,
     #[serde(default)]
     pub pinned: bool,
-    // MessageLogger: gone from discord but kept here, and what the text said before each edit
-    #[serde(default)]
-    pub deleted: bool,
-    #[serde(default)]
-    pub edits: Vec<(String, i64)>,
     #[serde(skip)]
     pub pending: bool,
     #[serde(skip)]
@@ -913,9 +907,6 @@ pub const BLOCKED: u8 = 2;
 pub const INCOMING: u8 = 3;
 pub const OUTGOING: u8 = 4;
 
-// who's logged in, for drawing code with no store in reach
-pub static ME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,
@@ -979,15 +970,7 @@ pub struct Store {
     #[serde(skip)]
     pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
     #[serde(skip)]
-    pub spotify: Option<String>,
-    #[serde(skip)]
     pub typing: HashMap<Id, Vec<(Id, Instant)>>,
-    // the clients each user is on, from presences' client_status: desktop, mobile, web
-    #[serde(skip)]
-    pub clients: HashMap<Id, [Status; 3]>,
-    // when each relationship began, unix seconds
-    #[serde(skip)]
-    pub rel_since: HashMap<Id, i64>,
     // the activity feed, best first, and application icons by id (None once looked up and missing)
     #[serde(skip)]
     pub feed: Vec<FeedEntry>,
@@ -1313,26 +1296,7 @@ impl Store {
         (unread, men)
     }
 
-    fn set_clients(&mut self, uid: Id, v: &Value) {
-        let c = ["desktop", "mobile", "web"].map(|k| v[k].as_str().map_or(Status::Offline, Status::parse));
-        if c.iter().all(|s| *s == Status::Offline) {
-            self.clients.remove(&uid);
-        } else {
-            self.clients.insert(uid, c);
-        }
-    }
-
-    fn set_since(&mut self, uid: Id, v: &Value) {
-        match v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
-            Some(t) => self.rel_since.insert(uid, t.timestamp()),
-            None => self.rel_since.remove(&uid),
-        };
-    }
-
     fn set_activities(&mut self, uid: Id, v: &Value) {
-        if uid == self.me {
-            self.spotify = v.as_array().into_iter().flatten().find(|a| a["name"] == "Spotify").and_then(|a| a["sync_id"].as_str()).map(str::to_string);
-        }
         let list: Vec<_> = v
             .as_array()
             .into_iter()
@@ -1501,7 +1465,6 @@ impl Store {
         self.session = st(&d["session_id"]);
         let me = self.upsert_user(&d["user"]);
         self.me = me;
-        ME.store(me, std::sync::atomic::Ordering::Relaxed);
         for u in d["users"].as_array().into_iter().flatten() {
             self.upsert_user(u);
         }
@@ -1579,7 +1542,6 @@ impl Store {
                 self.upsert_user(&r["user"]);
             }
             self.relationships.insert(uid, r["type"].as_u64().unwrap_or(0) as u8);
-            self.set_since(uid, &r["since"]);
         }
 
         let mut folders: Vec<Folder> = Vec::new();
@@ -1634,13 +1596,11 @@ impl Store {
     pub fn load_supplemental(&mut self, d: &Value) {
         for p in d["merged_presences"]["friends"].as_array().into_iter().flatten() {
             self.set_activities(sid(&p["user_id"]), &p["activities"]);
-            self.set_clients(sid(&p["user_id"]), &p["client_status"]);
             self.presence.insert(sid(&p["user_id"]), Status::parse(p["status"].as_str().unwrap_or("")));
         }
         for list in d["merged_presences"]["guilds"].as_array().into_iter().flatten() {
             for p in list.as_array().into_iter().flatten() {
                 self.set_activities(sid(&p["user_id"]), &p["activities"]);
-                self.set_clients(sid(&p["user_id"]), &p["client_status"]);
                 self.presence.insert(sid(&p["user_id"]), Status::parse(p["status"].as_str().unwrap_or("")));
             }
         }
@@ -1764,16 +1724,6 @@ impl Store {
             .or_else(|| self.refs.get(&id))
     }
 
-    /// MessageLogger's Remove Message History: a deleted message goes, an edited one forgets its old text.
-    pub fn forget_history(&mut self, channel: Id, id: Id) {
-        if let Some(e) = self.msgs.get_mut(&channel) {
-            e.list.retain(|m| !(m.id == id && m.deleted));
-            if let Some(m) = e.list.iter_mut().find(|m| m.id == id) {
-                m.edits.clear();
-            }
-        }
-    }
-
     fn msg_mut(&mut self, channel: Id, id: Id) -> Option<&mut Message> {
         self.msgs.get_mut(&channel)?.list.iter_mut().find(|m| m.id == id)
     }
@@ -1835,27 +1785,12 @@ impl Store {
             .is_some_and(|g| m.mention_roles.iter().any(|r| g.my_roles.contains(r)))
     }
 
-    /// Whether MessageLogger keeps this message's deletes and edits.
-    fn logged(&self, m: &Message) -> bool {
-        let p = "MessageLogger";
-        let guild = self.channels.get(&m.channel).map_or(0, |c| c.guild);
-        !(m.pending
-            || (plugins::flag(p, "ignoreSelf") && m.author == self.me)
-            || (plugins::flag(p, "ignoreBots") && self.users.get(&m.author).is_some_and(|u| u.bot))
-            || plugins::ids(p, "ignoreUsers").contains(&m.author)
-            || plugins::ids(p, "ignoreChannels").contains(&m.channel)
-            || plugins::ids(p, "ignoreGuilds").contains(&guild))
-    }
-
     /// Applies a gateway dispatch. Returns the channel id when a new message arrived.
     pub fn apply(&mut self, t: &str, d: &Value) -> Option<Id> {
         match t {
             "READY" => self.load_ready(d),
             "READY_SUPPLEMENTAL" => self.load_supplemental(d),
             "MESSAGE_CREATE" => {
-                if crate::plugins::flag("NoBlockedMessages", "ignoreMessages") && self.relationships.get(&sid(&d["author"]["id"])) == Some(&BLOCKED) {
-                    return None;
-                }
                 let m = self.parse_message(d);
                 let ch = m.channel;
                 let mentioned = m.author != self.me && self.mentions_me(&m);
@@ -1890,32 +1825,22 @@ impl Store {
             "MESSAGE_UPDATE" => {
                 let ch = sid(&d["channel_id"]);
                 let id = sid(&d["id"]);
-                let log = self.find_msg(ch, id).is_some_and(|m| plugins::flag("MessageLogger", "logEdits") && self.logged(m));
                 if let Some(m) = self.msg_mut(ch, id) {
-                    if log && d["content"].as_str().is_some_and(|c| c != m.content) && !m.content.is_empty() {
-                        let at = iso_ms(&d["edited_timestamp"]);
-                        m.edits.push((m.content.clone(), if at > 0 { at } else { chrono::Utc::now().timestamp_millis() }));
-                    }
                     m.fill(d);
                 }
             }
-            "MESSAGE_DELETE" | "MESSAGE_DELETE_BULK" => {
+            "MESSAGE_DELETE" => {
                 let ch = sid(&d["channel_id"]);
-                let gone = if t == "MESSAGE_DELETE" { vec![sid(&d["id"])] } else { ids(&d["ids"]) };
-                let keep = plugins::flag("MessageLogger", "logDeletes");
-                let logged: Vec<Id> = self
-                    .msgs
-                    .get(&ch)
-                    .map(|e| e.list.iter().filter(|m| keep && gone.contains(&m.id) && self.logged(m)).map(|m| m.id).collect())
-                    .unwrap_or_default();
+                let id = sid(&d["id"]);
                 if let Some(e) = self.msgs.get_mut(&ch) {
-                    e.list.retain(|m| !gone.contains(&m.id) || logged.contains(&m.id));
-                    for m in e.list.iter_mut().filter(|m| logged.contains(&m.id)) {
-                        m.deleted = true;
-                        if !plugins::flag("MessageLogger", "logDeletedAttachments") {
-                            m.attachments.clear();
-                        }
-                    }
+                    e.list.retain(|m| m.id != id);
+                }
+            }
+            "MESSAGE_DELETE_BULK" => {
+                let ch = sid(&d["channel_id"]);
+                let gone = ids(&d["ids"]);
+                if let Some(e) = self.msgs.get_mut(&ch) {
+                    e.list.retain(|m| !gone.contains(&m.id));
                 }
             }
             "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" => {
@@ -2113,7 +2038,6 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.relationships.insert(uid, d["type"].as_u64().unwrap_or(0) as u8);
-                self.set_since(uid, &d["since"]);
             }
             "RELATIONSHIP_REMOVE" => {
                 self.relationships.remove(&sid(&d["id"]));
@@ -2132,7 +2056,6 @@ impl Store {
                 }
                 self.presence.insert(uid, Status::parse(d["status"].as_str().unwrap_or("")));
                 self.set_activities(uid, &d["activities"]);
-                self.set_clients(uid, &d["client_status"]);
             }
             "VOICE_STATE_UPDATE" => {
                 let gid = sid(&d["guild_id"]);
@@ -2211,7 +2134,6 @@ impl Store {
         if let Some(s) = m["presence"]["status"].as_str() {
             self.presence.insert(uid, Status::parse(s));
             self.set_activities(uid, &m["presence"]["activities"]);
-            self.set_clients(uid, &m["presence"]["client_status"]);
         }
         ListItem::Member(uid)
     }

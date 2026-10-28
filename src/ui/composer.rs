@@ -8,7 +8,6 @@ use std::time::Instant;
 use super::icons::{self, Icon};
 use super::{App, avatar, channel_title, icon_button, text};
 use crate::net::{Cmd, Tag};
-use crate::plugins;
 use crate::state::{Channel, Id, make_nonce, sid};
 use crate::theme::*;
 
@@ -16,7 +15,6 @@ pub struct Upload {
     pub path: PathBuf,
     pub name: String,
     pub spoiler: bool,
-    pub anon: bool,
     // kept for the thumbnail; it gets read for the upload anyway
     thumb: Option<egui::load::Bytes>,
 }
@@ -24,14 +22,14 @@ pub struct Upload {
 impl Upload {
     pub fn new(path: PathBuf) -> Self {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-        let mut u = Upload { path, name, spoiler: false, anon: plugins::flag("AnonymiseFileNames", "anonymiseByDefault"), thumb: None };
+        let mut u = Upload { path, name, spoiler: false, thumb: None };
         if u.is_image() && std::fs::metadata(&u.path).is_ok_and(|m| m.len() < 25 << 20) {
             u.thumb = std::fs::read(&u.path).ok().map(Into::into);
         }
         u
     }
 
-    pub fn is_image(&self) -> bool {
+    fn is_image(&self) -> bool {
         let n = self.name.to_ascii_lowercase();
         [".png", ".jpg", ".jpeg", ".gif", ".webp"].iter().any(|e| n.ends_with(e))
     }
@@ -70,12 +68,6 @@ const BUILT_IN: [(&str, &str, &str); 13] = [
     ("msg", "user message", "Message user"),
     ("leave", "silent", "Leave Group"),
 ];
-
-fn built_ins() -> Vec<(&'static str, &'static str, &'static str)> {
-    let mut v = BUILT_IN.to_vec();
-    v.extend(super::slash::commands());
-    v
-}
 
 /// Whether a built-in command makes sense here, as discord's predicates decide.
 fn built_in_here(app: &App, chan: &Channel, name: &str) -> bool {
@@ -182,12 +174,7 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                 let tier = if home { 0 } else if m < 2 { 1 } else { 2 };
                 Some(tier * 100 + locked as u16 * 30 + m as u16 * 10 + unicode as u16)
             };
-            let shown = if plugins::on("NoServerEmojis") { plugins::text("NoServerEmojis", "shownEmojis") } else { "all".into() };
             for (g, e, ok) in store.emojis_for(chan.guild) {
-                let ok = ok || super::outgoing::bypass_emoji();
-                if shown == "onlyUnicode" || (shown == "currentServer" && g.id != chan.guild) {
-                    continue;
-                }
                 if let Some(k) = rank(&e.name, g.id == chan.guild, !ok, false) {
                     let raw = format!("<{}:{}:{}>", if e.animated { "a" } else { "" }, e.name, e.id);
                     out.push((k, Item::Emoji(Em { name: e.name.clone(), raw, url: Some(e.url()), server: Some(g.name.clone()), locked: !ok })));
@@ -215,7 +202,7 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                 }
             }
             // after the apps' own, so an app's /me still comes first as in discord
-            for (i, (name, ..)) in built_ins().iter().enumerate() {
+            for (i, (name, ..)) in BUILT_IN.iter().enumerate() {
                 if built_in_here(app, chan, name)
                     && let Some(s) = score(name, &q)
                 {
@@ -224,14 +211,6 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
             }
         }
         _ => {}
-    }
-    if kind == ':' && plugins::on("FavoriteEmojiFirst") {
-        for (k, it) in out.iter_mut() {
-            let fav = matches!(it, Item::Emoji(e) if app.settings.fav_emoji.iter().any(|f| if f.id != 0 { e.raw.contains(&format!(":{}>", f.id)) } else { f.name == e.raw }));
-            if !fav {
-                *k += 1000;
-            }
-        }
     }
     out.sort_by_key(|(s, _)| *s);
     out.into_iter().map(|(_, i)| i).take(if kind == '/' { 25 } else { 10 }).collect()
@@ -337,9 +316,6 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 app.ac_dismissed = tok.as_ref().map(|t| t.2.clone());
             }
         }
-        if plugins::on("QuickReply") {
-            super::outgoing::quick_reply(app, ui, ch);
-        }
         if accept.is_none() && !in_code && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Enter)) {
             send = true;
         }
@@ -421,7 +397,6 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 match upload_card(ui, f) {
                                     Some(CardAct::Remove) => remove = Some(i),
                                     Some(CardAct::Spoiler) => f.spoiler = !f.spoiler,
-                                    Some(CardAct::Anon) => f.anon = !f.anon,
                                     None => {}
                                 }
                             }
@@ -431,7 +406,6 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
                 ui.painter().hline(sep.x_range(), sep.center().y, Stroke::new(1.0, pal().bg_accent.gamma_multiply(0.5)));
             }
-            super::compose_tools::sticker_chip(app, ui);
             Frame::new().inner_margin(Margin { left: 16, right: 8, top: 0, bottom: 0 }).show(ui, |ui| {
                 // discord's 56px text area, its 22px line centred
                 ui.set_min_height(56.0);
@@ -443,25 +417,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     if presp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
-                    let presp = presp.on_hover_text("Upload a File");
-                    if plugins::on("BetterUploadButton") {
-                        presp.context_menu(|ui| {
-                            if super::menu_item(ui, Some(Icon::Upload), "Upload a File", false) {
-                                attach = true;
-                            }
-                            if super::menu_item(ui, Some(Icon::Apps), "Use Apps", false) {
-                                apps_click = true;
-                            }
-                        });
-                    }
-                    if presp.clicked() {
+                    if presp.on_hover_text("Upload a File").clicked() {
                         attach = true;
                     }
                     // discord's text starts 64 in: 16, the 24 button, then 24 more
                     ui.add_space(23.0);
                     let draft = app.drafts.entry(ch).or_default();
                     // the text stops short of the buttons: five 40 wide, six with the send button
-                    let buttons = (if app.settings.send_button { 240.0 } else { 200.0 }) + super::compose_tools::count() as f32 * 40.0;
+                    let buttons = if app.settings.send_button { 240.0 } else { 200.0 };
                     let w = (ui.available_width() - buttons - 8.0).max(60.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt("composer_scroll").show(ui, |ui| {
@@ -531,7 +494,6 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             tab = Some(super::picker::Tab::Gifs);
                         }
                         gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
-                        super::compose_tools::buttons(app, ui, ch);
                     });
                 });
             });
@@ -549,9 +511,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // negative, and Enter asks to send the lot as a file instead
     let used = app.drafts.get(&ch).map_or(0, |d| d.chars().count());
     let left = limit as i64 - used as i64;
-    if plugins::on("CharacterCounter") {
-        super::compose_tools::counter(app, ui, crect, used, limit);
-    } else if left <= 200 || (limit > 2000 && used > 2000) {
+    if left <= 200 || (limit > 2000 && used > 2000) {
         let col = if left < 0 { RED } else { pal().text_muted };
         let g = ui.painter().layout_no_wrap(left.to_string(), reg(12.0), col);
         let at = pos2(crect.right() - 16.0 - g.size().x, crect.bottom() - 4.0 - g.size().y);
@@ -610,7 +570,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         super::picker::toggle(app, t);
     }
     let changed = app.drafts.get(&ch).is_some_and(|d| d.len() != before && !d.is_empty() && !d.starts_with('/'));
-    if changed && !plugins::flag("SilentTyping", "isEnabled") && app.last_typing.is_none_or(|(c, t)| c != ch || t.elapsed().as_secs() >= 8) {
+    if changed && app.last_typing.is_none_or(|(c, t)| c != ch || t.elapsed().as_secs() >= 8) {
         app.last_typing = Some((ch, Instant::now()));
         app.net.send(Cmd::Typing { channel: ch });
     }
@@ -635,7 +595,6 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
 enum CardAct {
     Remove,
     Spoiler,
-    Anon,
 }
 
 fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
@@ -660,16 +619,11 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
     text::paint(p, pos2(r.left() + 8.0, r.bottom() - 24.0), Align2::LEFT_CENTER, &f.name, reg(14.0), pal().text_normal, 200.0);
 
     // the little action strip that floats over the top-right corner
-    let extra = plugins::on("AnonymiseFileNames");
-    let bar_w = if extra { 108.0 } else { 80.0 };
-    let bar = Rect::from_min_size(pos2(r.right() + 4.0 - bar_w, r.top() - 12.0), vec2(bar_w, 32.0));
+    let bar = Rect::from_min_size(pos2(r.right() - 76.0, r.top() - 12.0), vec2(80.0, 32.0));
     p.rect(bar, CornerRadius::same(4), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let mut act = None;
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink(2.0)).layout(Layout::left_to_right(Align::Center)));
     b.spacing_mut().item_spacing.x = 0.0;
-    if extra && icon_button(&mut b, if f.anon { Icon::EyeOff } else { Icon::Eye }, 28.0, if f.anon { "Keep Filename" } else { "Anonymise Filename" }).clicked() {
-        act = Some(CardAct::Anon);
-    }
     if f.is_image() && icon_button(&mut b, Icon::Image, 28.0, "Spoiler Attachment").clicked() {
         act = Some(CardAct::Spoiler);
     }
@@ -805,7 +759,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, app_name, semi(13.0), pal().header_secondary);
         }
         Item::BuiltIn(i) => {
-            let (name, args, desc) = built_ins()[*i];
+            let (name, args, desc) = BUILT_IN[*i];
             let ir = Rect::from_center_size(pos2(x + 16.0, y), vec2(32.0, 32.0));
             p.circle_filled(ir.center(), 16.0, BLURPLE);
             icons::draw(p, Icon::Discord, ir.shrink(8.0), Color32::WHITE);
@@ -897,7 +851,7 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
             let name = app.commands.get(&scope).and_then(|c| c.list.get(*i)).and_then(|c| c["name"].as_str()).unwrap_or("").to_string();
             (format!("/{name}"), String::new())
         }
-        Item::BuiltIn(i) => (format!("/{}", built_ins()[*i].0), String::new()),
+        Item::BuiltIn(i) => (format!("/{}", BUILT_IN[*i].0), String::new()),
     };
     let insert = format!("{shown} ");
     draft.replace_range(start..cur_b, &insert);
@@ -938,7 +892,7 @@ fn close_colon(app: &mut App, chan: &Channel, cursor: usize) -> Option<usize> {
 
 /// Runs `f` over the stretches of `text` that aren't code, so nothing gets rewritten inside
 /// `inline` spans or fenced blocks.
-pub(super) fn outside_code(text: &str, f: impl Fn(&str) -> String) -> String {
+fn outside_code(text: &str, f: impl Fn(&str) -> String) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(i) = rest.find('`') {
@@ -975,7 +929,7 @@ fn react_emoji(raw: &str) -> Option<crate::state::ReactEmoji> {
 }
 
 /// Length of a ready-made `<:name:id>` / `<a:name:id>` at the start of `s`.
-pub(super) fn custom_len(s: &str) -> Option<usize> {
+fn custom_len(s: &str) -> Option<usize> {
     let body = s.strip_prefix('<')?;
     let end = body.find('>')?;
     let inner = body[..end].strip_prefix('a').unwrap_or(&body[..end]);
@@ -1009,11 +963,8 @@ fn typing_line(app: &App, ui: &mut Ui, chan: &Channel, composer: Rect) {
     let y = composer.top() - 12.0;
     let t = ui.input(|i| i.time) as f32;
     for i in 0..3 {
-        let phase = if crate::plugins::on("NoTypingAnimation") { 1.0 } else { ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0) };
+        let phase = ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
         p.circle_filled(pos2(composer.left() + 19.5 + i as f32 * 8.75, y), 3.5, pal().text_normal.gamma_multiply(0.3 + 0.7 * phase));
-    }
-    if crate::plugins::on("TypingTweaks") {
-        return super::typing::tweaked(app, ui, &p, chan, &users, composer, y);
     }
     let names: Vec<String> = users.iter().map(|u| app.store.name_in(chan.guild, *u)).collect();
     let parts: Vec<(&str, bool)> = match names.as_slice() {
@@ -1179,12 +1130,7 @@ impl App {
             self.search_gifs(args.to_string());
             return true;
         }
-        if super::slash::run(self, chan, rest.trim()) {
-            self.drafts.remove(&ch);
-            self.aliases.remove(&ch);
-            return true;
-        }
-        let Some((_, opts, _)) = built_ins().into_iter().find(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };
+        let Some(&(_, opts, _)) = BUILT_IN.iter().find(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };
         let args = self.resolve_aliases(ch, args);
         // the options as discord types them, so the usual parsing fills them in
         let kinds: Vec<Value> = opts
@@ -1320,7 +1266,7 @@ impl App {
     /// What `:name:` turns into here: the custom emoji we may use (this server's first), else a
     /// unicode glyph. The flag says which of the two it was.
     pub fn emoji_named(&self, guild: Id, name: &str) -> Option<(String, bool)> {
-        let custom = self.store.emojis_for(guild).into_iter().find(|(_, e, ok)| (*ok || super::outgoing::bypass_emoji()) && e.name.eq_ignore_ascii_case(name));
+        let custom = self.store.emojis_for(guild).into_iter().find(|(_, e, ok)| *ok && e.name.eq_ignore_ascii_case(name));
         if let Some((_, e, _)) = custom {
             return Some((format!("<{}:{}:{}>", if e.animated { "a" } else { "" }, e.name, e.id), true));
         }

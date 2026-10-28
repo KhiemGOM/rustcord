@@ -2,7 +2,6 @@ use egui::{Align2, Color32, CornerRadius, Image, Rect, Sense, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
 use super::{App, avatar, badge, text};
-use crate::plugins;
 use crate::state::{Folder, Id};
 use crate::theme::*;
 
@@ -26,7 +25,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
                 icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
             });
-            if incoming > 0 && !plugins::flag("NoPendingCount", "hideFriendRequestsCount") {
+            if incoming > 0 {
                 badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(pal().bg_tertiary));
             }
             app.rects.insert("guild:home".into(), r.rect);
@@ -35,7 +34,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 app.select_guild(None);
                 app.home_clicked();
             }
-            indicators(app, ui);
 
             // dms with something waiting get their own bubble under home, like the official client;
             // a muted one waits quietly in the list instead
@@ -72,18 +70,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
 
             separator(ui);
-
-            if plugins::on("ReadAllNotificationsButton") {
-                let r = item(ui, egui::Id::new("read_all"), false, false, |ui, rect, radius, hot| {
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
-                    icons::draw(ui.painter(), Icon::CircleCheck, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
-                });
-                app.rects.insert("read_all".into(), r.rect);
-                if r.on_hover_text("Read all notifications").clicked() {
-                    let chans: Vec<Id> = app.store.guilds.values().flat_map(|g| g.channels.iter().copied()).collect();
-                    app.mark_read(&chans);
-                }
-            }
 
             // caches written before folders existed only have the flat order
             let folders: Vec<Folder> = if app.store.folders.is_empty() {
@@ -124,35 +110,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             ui.add_space(12.0);
         });
-}
-
-/// ServerListIndicators: friends online and servers joined, in small print under the home tile.
-fn indicators(app: &App, ui: &mut Ui) {
-    if !plugins::on("ServerListIndicators") {
-        return;
-    }
-    let mode = plugins::num("ServerListIndicators", "mode") as u8;
-    let store = &app.store;
-    let mut lines = Vec::new();
-    if mode & 1 != 0 {
-        let online = store.relationships.iter().filter(|(u, t)| **t == crate::state::FRIEND && store.status(**u) != crate::state::Status::Offline).count();
-        lines.push((format!("{online} online"), Some(GREEN)));
-    }
-    if mode & 2 != 0 {
-        lines.push((format!("{} servers", store.guild_order.len()), None));
-    }
-    ui.spacing_mut().item_spacing.y = 2.0;
-    for (t, dot) in lines {
-        let (r, _) = ui.allocate_exact_size(vec2(72.0, 14.0), Sense::hover());
-        let g = ui.painter().layout_no_wrap(t, semi(11.0), pal().header_secondary);
-        let w = g.size().x + if dot.is_some() { 10.0 } else { 0.0 };
-        let x = r.center().x - w / 2.0;
-        if let Some(c) = dot {
-            ui.painter().circle_filled(pos2(x + 3.0, r.center().y), 3.0, c);
-        }
-        ui.painter().galley(pos2(x + if dot.is_some() { 10.0 } else { 0.0 }, r.center().y - g.size().y / 2.0), g, pal().header_secondary);
-    }
-    ui.spacing_mut().item_spacing.y = 8.0;
 }
 
 fn separator(ui: &mut Ui) {
@@ -201,7 +158,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
     app.rects.insert(format!("guild:{gid}"), r.rect);
     app.rects.insert(format!("guildicon:{gid}"), Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)));
     let talking = in_voice(app, gid);
-    let r = guild_tip(app, r, gid, &name, &talking);
+    let r = guild_tip(app, r, &name, &talking);
     if r.clicked() {
         app.select_guild(Some(gid));
     }
@@ -217,8 +174,6 @@ enum Act {
     Web,
     Leave,
     CopyId,
-    Info,
-    View(String),
 }
 
 /// Discord's right-click menu on a server icon.
@@ -234,7 +189,6 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         .filter(|c| store.perms(c) & crate::state::CREATE_INVITE != 0)
         .map(|c| c.id);
     let dev = app.settings.dev;
-    let icons = super::extra::guild_icons(&app.store, gid);
     let mut act = None;
     egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
@@ -277,17 +231,6 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
                 act = Some(Act::Leave);
             }
         }
-        if plugins::on("ServerInfo") || !icons.is_empty() {
-            menu_sep(ui);
-            if plugins::on("ServerInfo") && menu_item(ui, None, "Server Info", false) {
-                act = Some(Act::Info);
-            }
-            for (label, url) in &icons {
-                if menu_item(ui, None, label, false) {
-                    act = Some(Act::View(url.clone()));
-                }
-            }
-        }
         if dev {
             menu_sep(ui);
             if menu_item(ui, Some(Icon::Id), "Copy Server ID", false) {
@@ -309,8 +252,6 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         Some(Act::Web) => r.ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}"))),
         Some(Act::Leave) => super::side::leave(app, gid),
         Some(Act::CopyId) => r.ctx.copy_text(gid.to_string()),
-        Some(Act::Info) => app.open_server_info(gid),
-        Some(Act::View(url)) => super::extra::view(app, url),
         None => {}
     }
 }
@@ -396,10 +337,6 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
         }
         let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
         ui.painter().rect_filled(rect, CornerRadius::same(16), tint);
-        if plugins::on("PlainFolderIcon") {
-            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), color.unwrap_or(BLURPLE));
-            return;
-        }
         for (i, g) in f.guilds.iter().take(4).enumerate() {
             let cell = Rect::from_min_size(
                 rect.min + vec2(4.0 + (i % 2) as f32 * 21.0, 4.0 + (i / 2) as f32 * 21.0),
@@ -526,15 +463,11 @@ fn in_voice(app: &App, gid: Id) -> Vec<(Id, String)> {
 
 /// Discord's server tooltip: the name, and while anyone's talking a speaker with their avatars
 /// overlapping beside it, six at most and a count for the rest.
-fn guild_tip(app: &mut App, r: egui::Response, gid: Id, name: &str, talking: &[(Id, String)]) -> egui::Response {
-    let count = super::extra::count_line(&app.store, gid);
+fn guild_tip(app: &mut App, r: egui::Response, name: &str, talking: &[(Id, String)]) -> egui::Response {
     let rects = &mut app.rects;
     r.on_hover_ui(|ui| {
         ui.set_max_width(196.0);
         text::label(ui, name, semi(16.0), pal().text_normal, Sense::hover());
-        if let Some(c) = &count {
-            text::label(ui, c, reg(12.0), pal().header_secondary, Sense::hover());
-        }
         if talking.is_empty() {
             return;
         }

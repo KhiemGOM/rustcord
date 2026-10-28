@@ -2,7 +2,6 @@ mod actions;
 mod active;
 mod autoscroll;
 mod boosts;
-mod card;
 mod call;
 mod chat;
 mod composer;
@@ -10,30 +9,18 @@ mod create;
 mod directory;
 mod e2e;
 mod events;
-mod extra;
 mod forum;
 mod friends;
-mod hidden;
 pub mod icons;
-mod info;
 mod keys;
 mod login;
 mod members;
-mod oneko;
 mod palette;
 mod picker;
-mod platform;
-mod plugs;
 mod popups;
 mod rail;
-mod rpc;
 mod channel;
 mod community;
-mod compose_tools;
-mod expr;
-mod outgoing;
-pub use outgoing::fake_emoji;
-mod slash;
 mod server;
 mod settings;
 mod share;
@@ -41,8 +28,6 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
-mod typing;
-pub mod vc;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -53,7 +38,6 @@ use std::time::{Duration, Instant};
 
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
-use crate::plugins::{self, flag, on};
 use crate::state::{Id, Message, Page, ReactEmoji, Status, Store};
 use crate::theme::*;
 
@@ -131,7 +115,6 @@ pub struct App {
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: HashMap<Id, serde_json::Value>,
-    pub ext: extra::State,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
@@ -179,7 +162,6 @@ pub struct App {
     pub new_thread: Option<popups::NewThread>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
-    pub plug: outgoing::State,
     // a link waiting on "Leaving Discord", and whether to trust its site from now on
     pub leaving: Option<(String, bool)>,
     // the Ctrl+/ sheet, the Raging Demon it can set off, and breathing with Wumpus
@@ -218,7 +200,6 @@ pub struct App {
     // when the activity feed is next fetched
     feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
-    plugs: plugs::State,
 }
 
 impl App {
@@ -305,7 +286,6 @@ impl App {
             switcher: None,
             profile: None,
             profiles: HashMap::new(),
-            ext: Default::default(),
             pins: None,
             search: None,
             friends: false,
@@ -341,7 +321,6 @@ impl App {
             notes: HashMap::new(),
             new_thread: None,
             emoji_pop: None,
-            plug: Default::default(),
             leaving: None,
             combos: None,
             demon: None,
@@ -366,7 +345,6 @@ impl App {
             badge_at: None,
             feed_at: None,
             synced: None,
-            plugs: Default::default(),
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -418,7 +396,6 @@ impl App {
         self.home = None;
         let guild = c.guild;
         let forum = c.is_forum();
-        let hid = hidden::locked(&self.store, c);
         // member list subscriptions are per parent channel, threads borrow it
         let sub = if c.is_thread() { c.parent } else { ch };
         // search results belong to one server (or one dm), don't carry them elsewhere
@@ -443,10 +420,10 @@ impl App {
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));
         self.marker_bar = self.marker.is_some();
-        if forum && !hid {
+        if forum {
             let path = format!("/channels/{ch}/threads/search?sort_by=last_message_time&sort_order=desc&limit=25&offset=0");
             self.rest("GET", path, None, Tag::Forum(ch));
-        } else if !forum && !hid {
+        } else {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
             let e = self.store.msgs.entry(ch).or_default();
             if !e.fresh && !e.loading && !jumping {
@@ -454,7 +431,7 @@ impl App {
                 self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
             }
         }
-        if guild != 0 && !hid {
+        if guild != 0 {
             let mut chans = serde_json::Map::new();
             chans.insert(sub.to_string(), json!([[0, 99]]));
             self.net.send(Cmd::Gateway(json!({
@@ -553,30 +530,23 @@ impl App {
         if self.settings.emoticons {
             text = emoticons(&text);
         }
-        text = outgoing::rewrite(self, guild, text);
         self.aliases.remove(&ch);
         let files: Vec<(PathBuf, String)> = std::mem::take(&mut self.files)
             .into_iter()
             .map(|u| {
-                let name = if u.anon && plugins::on("AnonymiseFileNames") { outgoing::anon_name(&u.name) } else { u.name };
-                let name = if u.spoiler { format!("SPOILER_{name}") } else { name };
+                let name = if u.spoiler { format!("SPOILER_{}", u.name) } else { u.name };
                 (u.path, name)
             })
             .collect();
-        let stickers: Vec<Id> = self.plug.sticker.take().map(|s| s.0).into_iter().collect();
-        if text.is_empty() && files.is_empty() && stickers.is_empty() {
+        if text.is_empty() && files.is_empty() {
             return;
-        }
-        let silent = self.plug.silent;
-        if plugins::flag("SilentMessageToggle", "autoDisable") {
-            self.plug.silent = false;
         }
         let nonce = crate::state::make_nonce();
         let reply = self.reply.take();
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
         self.jump_to_present(ch);
         let reply = reply.map(|r| (r, self.reply_ping));
-        outgoing::dispatch(self, Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers, tts, silent });
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
         self.hold_ack = None;
         self.last_typing = None;
     }
@@ -591,7 +561,7 @@ impl App {
         let nonce = crate::state::make_nonce();
         self.store.add_pending(ch, text.clone(), nonce.clone(), None);
         self.jump_to_present(ch);
-        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false, silent: false });
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false });
     }
 
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
@@ -650,7 +620,6 @@ impl App {
     }
 
     pub fn rest(&self, method: &'static str, path: String, body: Option<serde_json::Value>, tag: Tag) {
-        plugs::sent(method, &path);
         self.net.send(Cmd::Rest { method, path, body, tag });
     }
 
@@ -733,15 +702,14 @@ impl App {
         let me = self.store.me;
         match t {
             "VOICE_STATE_UPDATE" => {
-                let uid = crate::state::sid(&d["user_id"]);
-                let gid = crate::state::sid(&d["guild_id"]);
-                let was = if uid == me { self.voice.chan.unwrap_or(0) } else { self.store.guilds.get(&gid).and_then(|g| g.voice.get(&uid).copied()).unwrap_or(0) };
-                let now = crate::state::sid(&d["channel_id"]);
-                crate::narrator::voice(&self.store, me, self.voice.chan, gid, uid, was, now);
                 let Some(mine) = self.voice.chan else { return };
+                let uid = crate::state::sid(&d["user_id"]);
                 if uid == me {
                     return;
                 }
+                let gid = crate::state::sid(&d["guild_id"]);
+                let was = self.store.guilds.get(&gid).and_then(|g| g.voice.get(&uid).copied()).unwrap_or(0);
+                let now = crate::state::sid(&d["channel_id"]);
                 if now == mine && was != mine {
                     crate::sound::cue("join");
                 } else if was == mine && now != mine {
@@ -774,18 +742,19 @@ impl App {
     }
 
     /// Our status, with the game we detected unless activity sharing is off.
-    pub(super) fn send_presence(&mut self) {
+    fn send_presence(&mut self) {
         let status = match self.store.presence.get(&self.store.me) {
-            _ if self.plugs.idle => "idle",
             Some(Status::Idle) => "idle",
             Some(Status::Dnd) => "dnd",
             Some(Status::Offline) => "invisible",
             _ => "online",
         };
         self.shared = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
-        let activities = rpc::activities(self);
-        self.ext.rpc.sent = activities.clone();
-        self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": self.plugs.idle } })));
+        let activities = match (&self.game, self.shared) {
+            (Some(g), Some(_)) => json!([{ "name": g.name, "type": 0, "application_id": g.id.to_string(), "timestamps": { "start": g.start } }]),
+            _ => json!([]),
+        };
+        self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": false } })));
     }
 
     pub fn save_settings(&self, ctx: &egui::Context) {
@@ -845,29 +814,6 @@ impl App {
         if !(self.store.mentions_me(&m) || (dm && self.settings.notify_all_dms)) {
             return;
         }
-        if on("XSOverlay") && (!self.store.user(m.author).is_some_and(|u| u.bot) || flag("XSOverlay", "botNotifications")) {
-            let allowed = match c.kind {
-                1 => flag("XSOverlay", "dmNotifications"),
-                3 => flag("XSOverlay", "groupDmNotifications"),
-                _ => flag("XSOverlay", "serverNotifications"),
-            };
-            if allowed {
-                let who = self.store.user(m.author).map(|u| u.username.clone()).unwrap_or_default();
-                let mut title = match self.store.guilds.get(&c.guild) {
-                    Some(g) => format!("{who} ({}, #{})", g.name, c.name),
-                    None if c.kind == 3 => format!("{who} ({})", channel_title(&self.store, c.id)),
-                    None => who,
-                };
-                if m.reply.is_some() {
-                    title += " (reply)";
-                }
-                let mut body = crate::markdown::plain(&m.content, &self.store, c.guild);
-                for a in &m.attachments {
-                    body += &format!(" [{}: {}] ", if a.is_image() { "image" } else { "attachment" }, a.filename);
-                }
-                self.xsoverlay(title, body);
-            }
-        }
         let focused = ctx.input(|i| i.focused);
         if focused && self.cur() == Some(c.id) {
             return;
@@ -885,20 +831,7 @@ impl App {
         }
         let avatar = self.store.user(m.author).map(|u| u.avatar_url()).unwrap_or_default();
         let ping = crate::toast::Ping { title, body, avatar, at: (c.id, m.id) };
-        // OnePingPerDM: a dm that's already unread doesn't ping again until it's read
-        let unread = self.store.reads.get(&c.id).is_some_and(|r| r.last_acked < c.last_msg);
-        let quiet = on("OnePingPerDM")
-            && unread
-            && match plugins::text("OnePingPerDM", "channelToAffect").as_str() {
-                "user_dm" => c.kind == 1,
-                "group_dm" => c.kind == 3,
-                _ => dm,
-            }
-            && !(flag("OnePingPerDM", "allowMentions") && m.mentions.contains(&self.store.me))
-            && !(flag("OnePingPerDM", "allowEveryone") && c.kind == 3 && m.mention_everyone);
-        if !quiet {
-            crate::sound::cue("message");
-        }
+        crate::sound::cue("message");
         if let Some(e) = &mut self.e2e {
             e.mark_once("notified");
             e.pinged.push(c.id);
@@ -916,10 +849,6 @@ impl App {
     fn os_settings(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         if self.settings.theme == crate::theme::Theme::Sync {
             crate::theme::set_theme(ctx, crate::theme::Theme::Sync);
-        }
-        let tint = on("ClientTheme").then(|| plugins::text("ClientTheme", "color"));
-        if crate::theme::client_theme(tint.as_deref()) {
-            crate::theme::style(ctx);
         }
         let z = ctx.zoom_factor();
         if (z - self.settings.zoom).abs() > 0.001 {
@@ -1057,7 +986,7 @@ impl App {
                     Tag::Pins(_) => self.pins = None,
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
-                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Vc(_) => return,
+                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -1206,7 +1135,6 @@ impl App {
                 self.guides.entry(g).or_default().1 = done.filter_map(|(c, _)| c.parse().ok()).collect();
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
-            Tag::Vc(k) => vc::loaded(self, &k, v),
             Tag::Quiet => {}
         }
     }
@@ -1249,7 +1177,6 @@ impl App {
     }
 
     fn pump(&mut self, ctx: &egui::Context) {
-        outgoing::tick(self, ctx);
         let clicked: Vec<(Id, Id)> = self.pings.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
         for (ch, msg) in clicked {
             self.open_ping(ctx, ch, msg);
@@ -1257,7 +1184,6 @@ impl App {
         if let Some(g) = self.games.as_ref().and_then(|r| r.try_iter().last()) {
             self.game = g;
         }
-        extra::tick(self, ctx);
         // a game opening or closing, or sharing switched, goes out once we're connected
         let want = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
         if want != self.shared && self.conn == crate::net::Conn::Online && self.store.me != 0 {
@@ -1290,7 +1216,6 @@ impl App {
                     }
                     self.voice_cues(&t, &d);
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
-                    self.plugin_dispatch(&t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
@@ -1458,12 +1383,9 @@ impl App {
         }
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
-        compose_tools::show(self, &ctx);
-        expr::show(self, &ctx);
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
-        info::show(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);
@@ -1552,8 +1474,6 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.pump(&ctx);
         self.os_settings(&ctx, frame);
-        self.plugin_tick(&ctx);
-        oneko::show(&ctx);
         let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
         if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {
             self.cjk_loaded = want_cjk;
@@ -1671,7 +1591,7 @@ impl eframe::App for App {
                 self.shortcuts(&ctx, layered);
             }
             if self.store.prune_typing() {
-                ctx.request_repaint_after(Duration::from_millis(if on("NoTypingAnimation") { 1000 } else { 50 }));
+                ctx.request_repaint_after(Duration::from_millis(50));
             }
             if let Some(e) = &mut self.e2e
                 && self.frames > 0
@@ -1808,10 +1728,6 @@ pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
     let c = pos2(avatar.right() - r * 0.9, avatar.bottom() - r * 0.9);
     ui.painter().circle_filled(c, r + 2.5, ring);
     let col = status_color(s);
-    if crate::plugins::on("ColorSighted") {
-        ui.painter().circle_filled(c, r, col);
-        return;
-    }
     match s {
         Status::Offline => {
             ui.painter().circle_filled(c, r, col);

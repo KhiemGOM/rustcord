@@ -4,7 +4,6 @@ use serde_json::json;
 use super::{App, avatar, button, channel_title, chat, icon_button, status_dot, text};
 use super::icons::Icon;
 use crate::net::Tag;
-use crate::plugins;
 use crate::state::{Id, Message};
 use crate::theme::*;
 
@@ -128,7 +127,7 @@ pub struct Gif {
 
 impl App {
     pub fn open_gifs(&mut self, at: Pos2) {
-        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: crate::plugins::on("BetterGifPicker") });
+        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: false });
         self.rest("GET", format!("/gifs/trending?{GIF_Q}"), None, Tag::GifCats);
     }
 
@@ -339,7 +338,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
         app.gifs = None;
         if let Some(ch) = app.cur() {
             // shift+click puts the link in the composer instead of sending it
-            if ctx.input(|i| i.modifiers.shift) || crate::plugins::on("GifPaste") {
+            if ctx.input(|i| i.modifiers.shift) {
                 let d = app.drafts.entry(ch).or_default();
                 if !d.is_empty() && !d.ends_with(' ') {
                     d.push(' ');
@@ -370,7 +369,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     leaving(app, ctx);
     emoji_pop(app, ctx);
     timeout(app, ctx);
-    super::vc::raw_modal(app, ctx);
 }
 
 pub(super) fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {
@@ -908,7 +906,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     };
     let p = app.profiles.get(&uid);
     let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
-    let roles: Vec<(String, u32, Id)> = app
+    let roles: Vec<(String, u32)> = app
         .store
         .members
         .get(&gid)
@@ -917,7 +915,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
         .map(|(m, g)| {
             let mut r: Vec<_> = m.roles.iter().filter_map(|r| g.roles.get(r)).collect();
             r.sort_by_key(|r| -r.position);
-            r.into_iter().map(|r| (r.name.clone(), r.color, r.id)).collect()
+            r.into_iter().map(|r| (r.name.clone(), r.color)).collect()
         })
         .unwrap_or_default();
     let name = app.store.name_in(gid, uid);
@@ -926,10 +924,6 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let stranger = !user.bot && uid != me && !app.store.relationships.contains_key(&uid);
     let (mut message, mut more, mut add, mut main) = (None, None, false, false);
     let mut head = Rect::NOTHING;
-    let mut view = None;
-    let mut open_group = None;
-    let mut role_act = None;
-    let groups = super::card::mutual_groups(&app.store, uid);
     let store = &app.store;
 
     // discord's 2025 popout: a 105 banner, round buttons on it, then everything at 16 in
@@ -943,9 +937,8 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(300.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let wash = ui.painter().add(egui::Shape::Noop);
-                let top = card_head(ui, store, &user, p, &name, status);
+                let top = card_head(ui, &user, p, &name, status);
                 head = top;
-                view = super::card::click(ui, top, &user, p, gid == 0);
                 // from a server profile the avatar goes to the main one
                 if gid != 0 {
                     let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
@@ -961,7 +954,6 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
                     mutuals(ui, store, p, pal().bg_secondary);
-                    super::card::extras(ui, store, uid, &groups, &mut open_group);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().header_primary));
@@ -973,7 +965,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             ui.add_space(10.0);
                         }
                         // discord keeps roles to two rows and counts the rest in a "+N" pill
-                        let galleys: Vec<_> = roles.iter().map(|(r, _, _)| ui.painter().layout_no_wrap(r.clone(), reg(12.0), pal().header_primary)).collect();
+                        let galleys: Vec<_> = roles.iter().map(|(r, _)| ui.painter().layout_no_wrap(r.clone(), reg(12.0), pal().header_primary)).collect();
                         let (mut shown, mut x, mut row) = (0, 0.0, 0);
                         for g in &galleys {
                             let w = 32.0 + g.size().x;
@@ -988,23 +980,10 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             x += w + 4.0;
                             shown += 1;
                         }
-                        if crate::plugins::on("AlwaysExpandRoles") {
-                            shown = roles.len();
-                        }
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                            for ((_, c, rid), g) in roles.iter().zip(galleys).take(shown) {
-                                let clickable = crate::plugins::on("BetterRoleContext") || crate::plugins::flag("BetterRoleDot", "copyRoleColorInProfilePopout");
-                                let (pill, resp) = ui.allocate_exact_size(vec2(32.0 + g.size().x, 24.0), if clickable { Sense::click() } else { Sense::hover() });
-                                if let Some(role) = store.guilds.get(&gid).and_then(|g| g.roles.get(rid))
-                                    && let Some(a) = super::extra::role_menu(&resp, role)
-                                {
-                                    role_act = Some(a);
-                                }
-                                let dot = Rect::from_center_size(pos2(pill.left() + 12.0, pill.center().y), vec2(12.0, 12.0));
-                                if resp.clicked() && crate::plugins::flag("BetterRoleDot", "copyRoleColorInProfilePopout") && resp.interact_pointer_pos().is_some_and(|p| dot.expand(4.0).contains(p)) {
-                                    ui.ctx().copy_text(format!("#{c:06x}"));
-                                }
+                            for ((_, c), g) in roles.iter().zip(galleys).take(shown) {
+                                let (pill, _) = ui.allocate_exact_size(vec2(32.0 + g.size().x, 24.0), Sense::hover());
                                 ui.painter().rect_stroke(pill, CornerRadius::same(8), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                                 let col = if *c == 0 { egui::Color32::from_rgb(0xc4, 0xc9, 0xce) } else { role_color(*c) };
                                 ui.painter().circle_filled(pos2(pill.left() + 12.0, pill.center().y), 6.0, col);
@@ -1018,7 +997,6 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             }
                         });
                     }
-                    super::card::connections(ui, p);
                     if uid != me {
                         // discord's box: typed into in place, Enter sends it and opens the dm.
                         // It has the focus as the card opens.
@@ -1054,16 +1032,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
             });
         });
     app.rects.insert("profile_head".into(), head);
-    if let Some(a) = role_act {
-        super::extra::do_role(app, ctx, gid, a);
-    }
-    if let Some(c) = open_group {
-        app.profile = None;
-        app.ui.guild = None;
-        app.open(c);
-    } else if let Some(url) = view {
-        super::extra::view(app, url);
-    } else if let Some(text) = message {
+    if let Some(text) = message {
         app.profile = None;
         app.dm_text(uid, text);
     } else if main {
@@ -1150,9 +1119,6 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
     let (mut more, mut add, mut full) = (None, false, false);
-    let mut view = None;
-    let mut open_group = None;
-    let groups = super::card::mutual_groups(&app.store, uid);
     let height = ui.available_height();
     let store = &app.store;
     let p = app.profiles.get(&uid);
@@ -1161,15 +1127,12 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.set_min_height(height - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         let wash = ui.painter().add(egui::Shape::Noop);
-        let top = card_head(ui, store, &user, p, user.display(), status);
-        view = super::card::click(ui, top, &user, p, true);
+        let top = card_head(ui, &user, p, user.display(), status);
         (more, add) = banner_buttons(ui, top, stranger);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
             ui.set_width(268.0);
             ui.spacing_mut().item_spacing.y = 0.0;
             mutuals(ui, store, p, pal().bg_primary);
-            super::card::extras(ui, store, uid, &groups, &mut open_group);
-            super::card::connections(ui, p);
             ui.add_space(24.0);
             ui.label(RichText::new("Member Since").font(semi(12.0)).color(pal().header_primary));
             ui.add_space(8.0);
@@ -1211,12 +1174,6 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         full = resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
     });
-    if let Some(url) = view {
-        super::extra::view(app, url);
-    }
-    if let Some(c) = open_group {
-        app.open(c);
-    }
     if let Some(at) = more {
         app.user_menu = Some((uid, 0, None, at));
     }
@@ -1235,10 +1192,6 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
 
 /// A profile's nitro theme as discord shows it: primary and accent, dimmed in dark themes.
 fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)> {
-    let mine = p.is_some_and(|p| crate::state::sid(&p["user"]["id"]) == crate::state::ME.load(std::sync::atomic::Ordering::Relaxed));
-    if crate::plugins::on("NoProfileThemes") && !mine {
-        return None;
-    }
     let c = p.and_then(|p| p["user_profile"]["theme_colors"].as_array()).filter(|c| c.len() == 2)?;
     let k = if pal().dark { 0.4 } else { 1.0 };
     let col = |v: &serde_json::Value| {
@@ -1276,16 +1229,14 @@ fn card_avatar(top: Rect) -> Rect {
     Rect::from_min_size(pos2(top.left() + 16.0, top.top() + 61.0), vec2(80.0, 80.0))
 }
 
-pub fn card_head(ui: &mut Ui, store: &crate::state::Store, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
+pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
     let accent = p
         .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
         .map(|c| role_color(c as u32))
         // no banner colour set: discord's pick from the avatar, as in call tiles
         .or_else(|| super::palette::avatar(ui.ctx(), &user.avatar_url()))
         .unwrap_or(BLURPLE);
-    let nitro = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
-    let usrbg = super::extra::usrbg(user.id);
-    let banner = if crate::plugins::flag("USRBG", "nitroFirst") { nitro.or(usrbg) } else { usrbg.or(nitro) };
+    let banner = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
     let pronouns = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty());
     let (top, _) = ui.allocate_exact_size(vec2(300.0, 105.0), Sense::hover());
     let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
@@ -1332,14 +1283,6 @@ pub fn card_head(ui: &mut Ui, store: &crate::state::Store, user: &crate::state::
                 ui.interact(br, ui.id().with(("badge", icon)), Sense::hover()).on_hover_text(b["description"].as_str().unwrap_or(""));
                 x += 22.0;
             }
-            if crate::plugins::flag("PlatformIndicators", "badges") {
-                for (kind, st) in super::platform::of(store, user.id) {
-                    let br = Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0));
-                    super::platform::draw(ui.painter(), kind, br, st);
-                    ui.interact(br, ui.id().with(("platform", kind)), Sense::hover()).on_hover_text(super::platform::NAMES[kind]);
-                    x += 22.0;
-                }
-            }
         });
     });
     top
@@ -1368,8 +1311,7 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
     let wash = ui.painter().add(egui::Shape::Noop);
-    let top = card_head(ui, &app.store, &user, app.profiles.get(&me), user.display(), status);
-    let view = super::card::click(ui, top, &user, app.profiles.get(&me), true);
+    let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
     if let Some(c) = &custom {
         // the speech bubble discord floats beside your avatar
         let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
@@ -1428,9 +1370,6 @@ pub fn account(app: &mut App, ui: &mut Ui) {
         }
     });
     theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
-    if let Some(url) = view {
-        super::extra::view(app, url);
-    }
     match act {
         Some(AccountAct::Status(s)) => app.set_status(s),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
@@ -1929,7 +1868,7 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
             let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size);
             let sized = |size: egui::Vec2| {
                 let sep = if img.contains('?') { '&' } else { '?' };
-                if w > 0 && !img.contains(".mp4") && !crate::plugins::on("FixImagesQuality") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() }
+                if w > 0 && !img.contains(".mp4") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() }
             };
             let url = sized(size);
             let ir = ui.interact(rect, egui::Id::new("viewer_img"), Sense::click());
@@ -1956,14 +1895,10 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
                 return;
             }
             egui::Image::from_uri(crate::gif::uri(ctx, &url, true)).show_loading_spinner(true).paint_at(ui, rect);
-            let lens = crate::plugins::on("ImageZoom");
-            if lens {
-                super::vc::lens(ui, rect, &sized(size * 3.0));
-            }
             if ir.hovered() {
-                ui.ctx().set_cursor_icon(if lens { egui::CursorIcon::Crosshair } else { egui::CursorIcon::ZoomIn });
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
             }
-            if ir.clicked() && !lens {
+            if ir.clicked() {
                 zoomed = true;
             }
             let link = pos2(rect.left(), rect.bottom() + 12.0);
@@ -2006,11 +1941,6 @@ enum UserAct {
     Timeout,
     Kick,
     Ban,
-    Perms,
-    CopyUrl,
-    View(String),
-    Pin(bool),
-    Shift(i32),
 }
 
 /// Discord's menu for a person, from the member list, a message's author or a dm row.
@@ -2036,12 +1966,6 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         (perms & MODERATE_MEMBERS != 0, perms & KICK_MEMBERS != 0, perms & BAN_MEMBERS != 0)
     };
     let mut act = None;
-    let avatar_url = app.store.user(uid).map(|u| match &u.avatar {
-        Some(h) => super::extra::icon_url("avatars", uid, h),
-        None => u.avatar_url(),
-    }).unwrap_or_default();
-    let group_icon = chan.filter(|c| c.kind == 3 && plugins::on("ViewIcons")).and_then(|c| c.icon.as_ref().map(|h| super::extra::icon_url("channel-icons", c.id, h)));
-    let decoration = app.store.user(uid).and_then(|u| u.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=4096&passthrough=true", crate::api::cdn())));
     let open = super::float_menu(ctx, "user_menu", at, |ui| {
         if dm.is_some() {
             if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
@@ -2119,47 +2043,6 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
                 });
             }
         }
-        if let Some(url) = &group_icon {
-            menu_sep(ui);
-            if menu_item(ui, None, "View Icon", false) {
-                act = Some(UserAct::View(url.clone()));
-            }
-        }
-        if !group && (plugins::on("ViewIcons") || (plugins::on("PermissionsViewer") && gid != 0) || plugins::on("CopyUserURLs")) {
-            menu_sep(ui);
-            if plugins::on("ViewIcons") {
-                if menu_item(ui, None, "View Avatar", false) {
-                    act = Some(UserAct::View(avatar_url.clone()));
-                }
-                if let Some(d) = decoration.as_ref() {
-                    if menu_item(ui, None, "View Avatar Decoration", false) {
-                        act = Some(UserAct::View(d.clone()));
-                    }
-                }
-            }
-            if plugins::on("PermissionsViewer") && gid != 0 && menu_item(ui, None, "View Permissions", false) {
-                act = Some(UserAct::Perms);
-            }
-            if plugins::on("CopyUserURLs") && menu_item(ui, None, "Copy User URL", false) {
-                act = Some(UserAct::CopyUrl);
-            }
-        }
-        if let Some(c) = dm.filter(|_| plugins::on("PinDMs")) {
-            menu_sep(ui);
-            let pins = super::extra::pinned(&app.store);
-            let at = pins.iter().position(|p| *p == c);
-            if menu_item(ui, None, if at.is_some() { "Unpin DM" } else { "Pin DM" }, false) {
-                act = Some(UserAct::Pin(at.is_none()));
-            }
-            if let Some(i) = at.filter(|_| plugins::text("PinDMs", "pinOrder") == "1") {
-                if i > 0 && menu_item(ui, None, "Move Up", false) {
-                    act = Some(UserAct::Shift(-1));
-                }
-                if i + 1 < pins.len() && menu_item(ui, None, "Move Down", false) {
-                    act = Some(UserAct::Shift(1));
-                }
-            }
-        }
         if dev {
             menu_sep(ui);
             if !group && menu_item(ui, Some(Icon::Id), "Copy User ID", false) {
@@ -2217,11 +2100,6 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         Some(UserAct::Unblock) => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet),
         Some(UserAct::Mute(m, secs)) => app.mute_for(dm, false, m, secs),
-        Some(UserAct::Perms) => app.view_user_perms(gid, uid),
-        Some(UserAct::CopyUrl) => ctx.copy_text(format!("https://discord.com/users/{uid}")),
-        Some(UserAct::View(url)) => super::extra::view(app, url),
-        Some(UserAct::Pin(on)) => super::extra::pin(dm, on),
-        Some(UserAct::Shift(by)) => super::extra::shift_pin(dm, by),
         Some(UserAct::CopyUser) => ctx.copy_text(uid.to_string()),
         Some(UserAct::CopyChannel) => ctx.copy_text(dm.to_string()),
         None => {}
@@ -2624,11 +2502,11 @@ impl App {
         let stranger = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| {
             c.kind == 1 && c.recipients.first().is_some_and(|u| self.store.relationships.get(u) != Some(&crate::state::FRIEND))
         });
-        let trusted = ours || plugins::flag("AlwaysTrust", "domain") || self.settings.trusted.iter().any(|t| *t == h);
+        let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
         if (masked || stranger) && !trusted {
             self.leaving = Some((url.to_string(), false));
         } else {
-            super::extra::open(ctx, url);
+            ctx.open_url(egui::OpenUrl::new_tab(url));
         }
     }
 }
@@ -2692,7 +2570,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             app.settings.trusted.push(h);
             crate::cache::set_settings(&app.settings);
         }
-        super::extra::open(ctx, &url);
+        ctx.open_url(egui::OpenUrl::new_tab(url));
     } else if close || modal.should_close() {
         app.leaving = None;
     }
@@ -2702,7 +2580,6 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
 /// in, else that it's from one you can't see.
 fn emoji_pop(app: &mut App, ctx: &egui::Context) {
     let Some((id, name, animated, at)) = app.emoji_pop.clone() else { return };
-    let mut dismiss = false;
     let from = app.store.guilds.values().find(|g| g.emojis.iter().any(|e| e.id == id)).map(|g| (g.name.clone(), g.icon_url()));
     let area = egui::Area::new(egui::Id::new("emoji_pop")).order(egui::Order::Foreground).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
@@ -2726,22 +2603,10 @@ fn emoji_pop(app: &mut App, ctx: &egui::Context) {
                     }
                 });
             });
-            let link = |ui: &mut Ui, label: &str| ui.add(egui::Label::new(RichText::new(label).font(medium(14.0)).color(pal().link)).sense(Sense::click())).clicked();
-            if crate::plugins::on("CopyEmojiMarkdown") || crate::plugins::on("ExpressionCloner") {
-                ui.add_space(12.0);
-            }
-            if crate::plugins::on("CopyEmojiMarkdown") && link(ui, "Copy Emoji Markdown") {
-                ctx.copy_text(super::expr::emoji_markdown(id, &name, animated));
-                dismiss = true;
-            }
-            if crate::plugins::on("ExpressionCloner") && link(ui, "Clone Emoji") {
-                super::expr::ask(ctx, super::expr::Cloning::Emoji(id, name.clone(), animated));
-                dismiss = true;
-            }
         });
     });
     app.rects.insert("emoji_pop".into(), area.response.rect);
-    if dismiss || dismissed(ctx, &area.response) {
+    if dismissed(ctx, &area.response) {
         app.emoji_pop = None;
     }
 }
