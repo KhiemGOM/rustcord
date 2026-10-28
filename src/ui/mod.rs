@@ -24,6 +24,7 @@ mod community;
 mod server;
 mod settings;
 mod share;
+mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
@@ -109,6 +110,8 @@ pub struct App {
     pub status_edit: Option<(Id, String)>,
     // go live's picker of windows, screens and devices
     pub share: Option<share::Picker>,
+    // the soundboard popout in a voice call: which guild's sounds, and them once fetched
+    pub soundboard: Option<(Id, Option<Vec<crate::state::Sound>>)>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: HashMap<Id, serde_json::Value>,
@@ -279,6 +282,7 @@ impl App {
             made_invite: None,
             status_edit: None,
             share: None,
+            soundboard: None,
             switcher: None,
             profile: None,
             profiles: HashMap::new(),
@@ -1014,6 +1018,13 @@ impl App {
                 let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
                     self.pins = Some((ch, Some(list)));
+                }
+            }
+            Tag::Soundboard(g) => {
+                let list: Vec<crate::state::Sound> = v["items"].as_array().into_iter().flatten().map(crate::state::Sound::parse).collect();
+                if let Some((cg, slot)) = self.soundboard.as_mut().filter(|(cg, _)| *cg == g) {
+                    let _ = cg;
+                    *slot = Some(list);
                 }
             }
             Tag::Search(_) => {

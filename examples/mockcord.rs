@@ -861,6 +861,10 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id": "7101", "name": "Launcher Only", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": true }] },
         ])),
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
+        ("GET", ["api", "v9", "guilds", _, "soundboard-sounds"]) => ok(json!({ "items": [
+            { "sound_id": "5001", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0 },
+            { "sound_id": "5002", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0 },
+        ] })),
         // the boosts page: discord's powerups catalogue, what Rust Lounge has on, and its boosters
         ("GET", ["api", "v9", "store", "published-listings", "skus"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
@@ -996,6 +1000,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["app"]) => (200, "text/html", br#"<link href="/assets/other.css" rel="stylesheet"><link href="/assets/fonts.css" rel="stylesheet">"#.to_vec()),
         ("GET", ["assets", "other.css"]) => (200, "text/css", b"body{margin:0}".to_vec()),
         ("GET", ["assets", "fonts.css"]) => {

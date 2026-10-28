@@ -272,6 +272,9 @@ def main():
         "poll: rendered in #general, an answer picked and Vote pressed": all("home_poll" in r.get("marks_ms", {}) for r in (cold, warm)),
         "poll: the vote was PUT to discord's poll answers endpoint": any(
             r.get("method") == "PUT" and "/polls/" in r.get("path", "") and r.get("path", "").endswith("/answers/@me") for r in reqs),
+        "soundboard: opened in the guild call and the server's sounds loaded": all("soundboard" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any("/soundboard-sounds" in r.get("path", "") for r in reqs),
+        "soundboard: clicking a sound fetched it to play": any("/soundboard-sounds/5001" in r.get("path", "") for r in reqs),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,

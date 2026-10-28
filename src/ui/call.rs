@@ -761,8 +761,33 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
     let cam = app.voice.camera;
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let me = app.store.me;
+    // discord's soundboard button, leftmost of the call controls
+    let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+    let sb = Rect::from_center_size(c + vec2(-2.5 * 64.0, 0.0), vec2(52.0, 52.0));
+    if guild != 0 {
+        let open = app.soundboard.is_some();
+        let r = ui.interact(sb, egui::Id::new(("ctl", "sb")), Sense::click());
+        let fill = if open { Color32::WHITE } else { pal().bg_mod_selected };
+        ui.painter().circle_filled(sb.center(), 26.0, if r.hovered() { fill.gamma_multiply(0.85) } else { fill });
+        icons::draw(ui.painter(), Icon::Soundboard, Rect::from_center_size(sb.center(), vec2(22.0, 22.0)), if open { Color32::BLACK } else { Color32::WHITE });
+        app.rects.insert("voice:soundboard".into(), sb);
+        if r.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if r.on_hover_text("Soundboard").clicked() {
+            app.soundboard = if open {
+                None
+            } else {
+                app.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
+                Some((guild, None))
+            };
+        }
+    }
+    if app.soundboard.is_some() {
+        super::soundboard::popout(app, ui, sb);
+    }
     for i in 0..5 {
-        let b = Rect::from_center_size(c + vec2((i as f32 - 2.0) * 64.0, 0.0), vec2(52.0, 52.0));
+        let b = Rect::from_center_size(c + vec2((i as f32 - 1.5) * 64.0, 0.0), vec2(52.0, 52.0));
         let r = ui.interact(b, egui::Id::new(("ctl", i)), Sense::click());
         // muted and deafened get the slash; camera and screen just light up when on
         let (on, slash, tip, key) = match i {
