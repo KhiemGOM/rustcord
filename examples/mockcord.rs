@@ -263,6 +263,24 @@ fn seed(cdn: &str) -> Vec<Value> {
         if i == n - 6 || i == n - 40 {
             m["pinned"] = json!(true);
         }
+        if i == n - 11 {
+            m["content"] = json!("");
+            m["poll"] = json!({
+                "question": { "text": "which editor?" },
+                "answers": [
+                    { "answer_id": 1, "poll_media": { "text": "vim", "emoji": { "id": null, "name": "⌨️" } } },
+                    { "answer_id": 2, "poll_media": { "text": "vscode" } },
+                    { "answer_id": 3, "poll_media": { "text": "emacs" } },
+                ],
+                "allow_multiselect": false,
+                "expiry": "2099-01-01T00:00:00+00:00",
+                "results": { "is_finalized": false, "answer_counts": [
+                    { "id": 1, "count": 7, "me_voted": false },
+                    { "id": 2, "count": 11, "me_voted": false },
+                    { "id": 3, "count": 2, "me_voted": false },
+                ] }
+            });
+        }
         out.push(m);
     }
     out.extend(media_msgs(cdn));
@@ -759,6 +777,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
+        ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
         ("GET", ["api", "v9", "channels", ch, "pins"]) => {
             let w = w.lock().unwrap();

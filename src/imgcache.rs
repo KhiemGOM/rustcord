@@ -17,9 +17,39 @@ pub struct DiskLoader {
     limit: Arc<tokio::sync::Semaphore>,
 }
 
+/// Drop the oldest cached image files once the folder grows past `cap` bytes, so a long-lived
+/// install doesn't leave hundreds of megabytes of avatars and emoji on disk. Cheap: one stat
+/// per file, and it only deletes when actually over.
+fn prune(dir: &std::path::Path, cap: u64) {
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            m.is_file().then(|| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()))
+        })
+        .collect();
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    if total <= cap {
+        return;
+    }
+    files.sort_by_key(|f| f.0);
+    for (_, len, path) in &files {
+        if total <= cap {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total = total.saturating_sub(*len);
+        }
+    }
+}
+
 impl DiskLoader {
     pub fn new(dir: PathBuf, rt: Arc<Runtime>) -> Self {
         let _ = std::fs::create_dir_all(&dir);
+        let d = dir.clone();
+        rt.spawn(async move { prune(&d, 256 << 20) });
         DiskLoader {
             cache: Default::default(),
             dir,
