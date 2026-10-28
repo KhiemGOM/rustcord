@@ -69,7 +69,7 @@ pub fn tweaked(app: &App, ui: &mut Ui, p: &Painter, chan: &Channel, users: &[Id]
     let shown = if users.len() > 3 && alt { 2 } else { users.len().min(3) };
     let lay = ui.new_child(egui::UiBuilder::new().layer_id(egui::LayerId::new(egui::Order::Middle, egui::Id::new("typing"))).max_rect(composer));
     let mut x = composer.left() + 64.5;
-    let mut text = |p: &Painter, x: &mut f32, s: &str, name: bool, col: Option<egui::Color32>| {
+    let text = |p: &Painter, x: &mut f32, s: &str, name: bool, col: Option<egui::Color32>| {
         let (font, color) = if name { (semi(12.0), col.unwrap_or(pal().text_normal)) } else { (medium(12.0), pal().header_secondary) };
         *x = p.text(pos2(*x, y), Align2::LEFT_CENTER, s, font, color).right();
     };

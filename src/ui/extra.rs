@@ -12,6 +12,7 @@ pub struct State {
     pub rpc: super::rpc::Rpc,
     pub perms: Option<super::info::Perms>,
     pub info: Option<Id>,
+    call: Option<(Id, std::time::Instant)>,
     usrbg_rx: Option<Receiver<Option<Value>>>,
     usrbg_asked: bool,
 }
@@ -53,7 +54,42 @@ pub fn tick(app: &mut App, ctx: &egui::Context) {
             u.users = v["users"].as_object().into_iter().flatten().filter_map(|(k, t)| Some((k.parse().ok()?, t.as_str()?.to_string()))).collect();
         }
     }
+    if app.voice.chan.is_none() {
+        app.ext.call = None;
+    }
     super::rpc::tick(app);
+}
+
+/// CallTimer: how long we've been in the call, in the format picked.
+pub fn call_timer(app: &mut App, ch: Id) -> Option<String> {
+    if !plugins::on("CallTimer") {
+        return None;
+    }
+    let since = match app.ext.call {
+        Some((c, t)) if c == ch => t,
+        _ => app.ext.call.insert((ch, std::time::Instant::now())).1,
+    };
+    let s = since.elapsed().as_secs();
+    let (d, h, m, sec) = (s / 86400, s / 3600 % 24, s / 60 % 60, s % 60);
+    Some(if plugins::text("CallTimer", "format") == "human" {
+        let mut out = String::new();
+        if d > 0 {
+            out += &format!("{d}d ");
+        }
+        if d > 0 || h > 0 {
+            out += &format!("{h:02}h ");
+        }
+        out + &format!("{m:02}m {sec:02}s")
+    } else {
+        let mut out = String::new();
+        if d > 0 {
+            out += &format!("{d}d ");
+        }
+        if d > 0 || h > 0 {
+            out += &format!("{h:02}:");
+        }
+        out + &format!("{m:02}:{sec:02}")
+    })
 }
 
 /// MemberCount: online, total and in voice, as Vencord words them.
@@ -209,5 +245,48 @@ pub fn shift_pin(ch: Id, by: i32) {
         let j = (i as i32 + by).clamp(0, list.len() as i32 - 1) as usize;
         list.swap(i, j);
         save_pins(list);
+    }
+}
+
+fn app_uri(url: &str) -> Option<String> {
+    const P: &str = "OpenInApp";
+    let rest = url.strip_prefix("https://")?;
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let path_only = path.split(['?', '#']).next().unwrap_or("");
+    let segs: Vec<&str> = path_only.split('/').filter(|s| !s.is_empty()).collect();
+    match host {
+        "open.spotify.com" if plugins::flag(P, "spotify") => {
+            let segs = if segs.first().is_some_and(|s| s.starts_with("intl-")) { &segs[1..] } else { &segs[..] };
+            let kind = segs.first().filter(|k| ["track", "album", "artist", "playlist", "user", "episode", "prerelease"].contains(k))?;
+            (segs.len() > 1).then(|| format!("spotify://{kind}/{}", segs[1..].join("/")))
+        }
+        "steamcommunity.com" | "help.steampowered.com" | "store.steampowered.com" if plugins::flag(P, "steam") => Some(format!("steam://openurl/{url}")),
+        "store.epicgames.com" if plugins::flag(P, "epic") && !path.is_empty() => Some(format!("com.epicgames.launcher://store/{path}")),
+        "tidal.com" | "listen.tidal.com" if plugins::flag(P, "tidal") => {
+            let segs = if segs.first() == Some(&"browse") { &segs[1..] } else { &segs[..] };
+            let kind = segs.first().filter(|k| ["track", "album", "artist", "playlist", "user", "video", "mix"].contains(k))?;
+            let id = segs.get(1).filter(|i| i.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))?;
+            Some(format!("tidal://{kind}/{id}"))
+        }
+        "music.apple.com" | "geo.music.apple.com" if plugins::flag(P, "itunes") => {
+            let segs = if segs.first().is_some_and(|s| s.len() == 2) { &segs[1..] } else { &segs[..] };
+            let kind = segs.first().filter(|k| ["album", "artist", "playlist", "song", "curator"].contains(k))?;
+            let name = segs.get(1)?;
+            Some(match segs.get(2) {
+                Some(id) => format!("itunes://music.apple.com/us/{kind}/{name}/{id}"),
+                None => format!("itunes://music.apple.com/us/{kind}/{name}"),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Opens a link in the browser, or in its app when OpenInApp has one for it.
+pub fn open(ctx: &egui::Context, url: &str) {
+    match app_uri(url) {
+        Some(uri) => {
+            let _ = open::that_detached(uri);
+        }
+        None => ctx.open_url(egui::OpenUrl::new_tab(url)),
     }
 }

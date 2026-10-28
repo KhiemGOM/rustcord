@@ -1147,6 +1147,8 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let status = app.store.status(uid);
     let (mut more, mut add, mut full) = (None, false, false);
     let mut view = None;
+    let mut open_group = None;
+    let groups = super::card::mutual_groups(&app.store, uid);
     let height = ui.available_height();
     let store = &app.store;
     let p = app.profiles.get(&uid);
@@ -1162,6 +1164,8 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
             ui.set_width(268.0);
             ui.spacing_mut().item_spacing.y = 0.0;
             mutuals(ui, store, p, pal().bg_primary);
+            super::card::extras(ui, store, uid, &groups, &mut open_group);
+            super::card::connections(ui, p);
             ui.add_space(24.0);
             ui.label(RichText::new("Member Since").font(semi(12.0)).color(pal().header_primary));
             ui.add_space(8.0);
@@ -1205,6 +1209,9 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     });
     if let Some(url) = view {
         super::extra::view(app, url);
+    }
+    if let Some(c) = open_group {
+        app.open(c);
     }
     if let Some(at) = more {
         app.user_menu = Some((uid, 0, None, at));
@@ -2021,6 +2028,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         Some(h) => super::extra::icon_url("avatars", uid, h),
         None => u.avatar_url(),
     }).unwrap_or_default();
+    let group_icon = chan.filter(|c| c.kind == 3 && plugins::on("ViewIcons")).and_then(|c| c.icon.as_ref().map(|h| super::extra::icon_url("channel-icons", c.id, h)));
     let decoration = app.store.user(uid).and_then(|u| u.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=4096&passthrough=true", crate::api::cdn())));
     let open = super::float_menu(ctx, "user_menu", at, |ui| {
         if dm.is_some() {
@@ -2097,6 +2105,12 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
                         act = Some(UserAct::Mute(true, secs));
                     }
                 });
+            }
+        }
+        if let Some(url) = &group_icon {
+            menu_sep(ui);
+            if menu_item(ui, None, "View Icon", false) {
+                act = Some(UserAct::View(url.clone()));
             }
         }
         if !group && (plugins::on("ViewIcons") || (plugins::on("PermissionsViewer") && gid != 0) || plugins::on("CopyUserURLs")) {
@@ -2598,11 +2612,11 @@ impl App {
         let stranger = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| {
             c.kind == 1 && c.recipients.first().is_some_and(|u| self.store.relationships.get(u) != Some(&crate::state::FRIEND))
         });
-        let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
+        let trusted = ours || plugins::flag("AlwaysTrust", "domain") || self.settings.trusted.iter().any(|t| *t == h);
         if (masked || stranger) && !trusted {
             self.leaving = Some((url.to_string(), false));
         } else {
-            ctx.open_url(egui::OpenUrl::new_tab(url));
+            super::extra::open(ctx, url);
         }
     }
 }
@@ -2666,7 +2680,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             app.settings.trusted.push(h);
             crate::cache::set_settings(&app.settings);
         }
-        ctx.open_url(egui::OpenUrl::new_tab(url));
+        super::extra::open(ctx, &url);
     } else if close || modal.should_close() {
         app.leaving = None;
     }

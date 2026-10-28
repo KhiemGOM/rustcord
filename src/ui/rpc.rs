@@ -172,7 +172,10 @@ pub fn tick(app: &mut App) {
             }
         }
     }
-    if activities(app) != app.ext.rpc.sent {
+    let now = activities(app);
+    if app.ext.rpc.sent.is_null() && now == json!([]) {
+        app.ext.rpc.sent = now;
+    } else if now != app.ext.rpc.sent {
         app.send_presence();
     }
 }
