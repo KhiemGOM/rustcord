@@ -78,6 +78,7 @@ pub const ALL: &[Plugin] = &[
     ]),
     p("BetterSessions", "Enhances the sessions (devices) menu. Allows you to view exact timestamps, give each session a custom name, and receive notifications about new sessions.", &[
         b("backgroundCheck", "Check for new sessions in the background, and display notifications when they are detected", false),
+        n("checkInterval", "How often to check for new sessions in the background (if enabled), in minutes", 20.0),
     ]),
     p("BetterUploadButton", "Upload with a single click, open menu with right click", &[]),
     p("BlurNSFW", "Blur attachments in NSFW channels until hovered", &[n("blurAmount", "Blur Amount (in pixels)", 10.0)]),
@@ -98,7 +99,6 @@ pub const ALL: &[Plugin] = &[
     p("CopyUserURLs", "Adds a 'Copy User URL' option to the user context menu.", &[]),
     p("CustomIdle", "Allows you to set the time before Discord goes idle (or disable auto-idle)", &[
         sl("idleTimeout", "Minutes before Discord goes idle (0 to disable auto-idle)", 0.0, 60.0, 10.0),
-        b("remainInIdle", "When you come back to Discord, remain idle until you confirm you want to go online", true),
     ]),
     p("CustomRPC", "Add a fully customisable Rich Presence (Game status) to your Discord profile", &[
         b("enablePresence", "Whether to show the presence", true),
@@ -200,7 +200,6 @@ pub const ALL: &[Plugin] = &[
     p("MessageLogger", "Temporarily logs deleted and edited messages.", &[
         pick("deleteStyle", "The style of deleted messages", &[("text", "Red text"), ("overlay", "Red overlay")]),
         b("logDeletes", "Whether to log deleted messages", true),
-        b("collapseDeleted", "Whether to collapse deleted messages, similar to blocked messages", false),
         b("logEdits", "Whether to log edited messages", true),
         b("logDeletedAttachments", "Whether to log deleted attachments", true),
         b("inlineEdits", "Whether to display edit history as part of message content", true),
@@ -221,7 +220,6 @@ pub const ALL: &[Plugin] = &[
         b("role", "Suppress All Role @mentions", true),
         b("highlights", "Suppress Highlights automatically", true),
         b("events", "Mute New Events automatically", true),
-        b("showAllChannels", "Show all channels automatically", true),
     ]),
     p("NoBlockedMessages", "Hides all blocked/ignored messages from chat completely", &[
         b("ignoreMessages", "Completely ignores incoming messages from blocked and ignored (if enabled) users", false),
@@ -309,9 +307,7 @@ pub const ALL: &[Plugin] = &[
         b("colorChatMessages", "Color chat messages based on the author's role color", false),
         sl("messageSaturation", "Intensity of message coloring.", 0.0, 100.0, 30.0),
     ]),
-    p("SecretRingToneEnabler", "Always play the secret version of the discord ringtone (except during special ringtone events)", &[
-        b("onlySnow", "Only play the Snow Halation Theme", false),
-    ]),
+    p("SecretRingToneEnabler", "Always play the secret version of the discord ringtone (except during special ringtone events)", &[]),
     p("SendTimestamps", "Send timestamps easily via chat box button & text shortcuts.", &[
         b("replaceMessageContents", "Replace timestamps in message contents", true),
     ]),
@@ -390,10 +386,6 @@ pub const ALL: &[Plugin] = &[
         t("joinMessage", "Join Message", "{{USER}} joined"),
         t("leaveMessage", "Leave Message", "{{USER}} left"),
         t("moveMessage", "Move Message", "{{USER}} moved to {{CHANNEL}}"),
-        t("muteMessage", "Mute Message (only self for now)", "{{USER}} muted"),
-        t("unmuteMessage", "Unmute Message (only self for now)", "{{USER}} unmuted"),
-        t("deafenMessage", "Deafen Message (only self for now)", "{{USER}} deafened"),
-        t("undeafenMessage", "Undeafen Message (only self for now)", "{{USER}} undeafened"),
     ]),
     p("ViewIcons", "Makes avatars and banners in user profiles clickable, adds View Icon/Banner entries in the user, server and group channel context menu.", &[
         pick("format", "Choose the image format to use for non-animated images. Animated images will always use .webp", &[("webp", "webp"), ("png", "png"), ("jpg", "jpg")]),
@@ -412,6 +404,7 @@ pub const ALL: &[Plugin] = &[
         b("serverNotifications", "Allow server notifications", true),
         b("dmNotifications", "Allow Direct Message notifications", true),
         b("groupDmNotifications", "Allow Group DM notifications", true),
+        b("callNotifications", "Allow call notifications", true),
         n("timeout", "Notification duration (secs)", 3.0),
         sl("opacity", "Notif opacity", 0.0, 1.0, 1.0),
         sl("volume", "Volume", 0.0, 1.0, 0.2),

@@ -10,6 +10,7 @@ mod gif;
 mod hotkeys;
 mod imgcache;
 mod markdown;
+mod narrator;
 mod mp4;
 mod net;
 mod plugins;
