@@ -369,6 +369,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     leaving(app, ctx);
     emoji_pop(app, ctx);
     timeout(app, ctx);
+    super::vc::raw_modal(app, ctx);
 }
 
 pub(super) fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {
@@ -1868,7 +1869,7 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
             let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size);
             let sized = |size: egui::Vec2| {
                 let sep = if img.contains('?') { '&' } else { '?' };
-                if w > 0 && !img.contains(".mp4") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() }
+                if w > 0 && !img.contains(".mp4") && !crate::plugins::on("FixImagesQuality") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() }
             };
             let url = sized(size);
             let ir = ui.interact(rect, egui::Id::new("viewer_img"), Sense::click());
@@ -1895,10 +1896,14 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
                 return;
             }
             egui::Image::from_uri(crate::gif::uri(ctx, &url, true)).show_loading_spinner(true).paint_at(ui, rect);
-            if ir.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
+            let lens = crate::plugins::on("ImageZoom");
+            if lens {
+                super::vc::lens(ui, rect, &sized(size * 3.0));
             }
-            if ir.clicked() {
+            if ir.hovered() {
+                ui.ctx().set_cursor_icon(if lens { egui::CursorIcon::Crosshair } else { egui::CursorIcon::ZoomIn });
+            }
+            if ir.clicked() && !lens {
                 zoomed = true;
             }
             let link = pos2(rect.left(), rect.bottom() + 12.0);
