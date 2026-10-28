@@ -1,6 +1,6 @@
 // @webpack/common: the Discord modules plugins reach for most, backed by Fastcord. Stores read
 // its store as Discord-shaped records; anything not here is a stub.
-import React from "react";
+import React, { mount, roots, unmount, useSyncExternalStore } from "react";
 
 const q = (kind, a = "", b = "") => JSON.parse(__fc.q(kind, String(a ?? ""), String(b ?? "")));
 const out = op => __out(op);
@@ -203,9 +203,9 @@ export const FluxDispatcher = {
     _subscriptions: subs,
 };
 export const Flux = { Store: class { constructor() {} getName() { return this.constructor.name; } emitChange() {} addChangeListener() {} removeChangeListener() {} initialize() {} }, connectStores: (_, f) => c => c };
-export const useStateFromStores = (_, get) => get();
-export const useStateFromStoresArray = (_, get) => get();
-export const useStateFromStoresObject = (_, get) => get();
+export const useStateFromStores = (_, get) => useSyncExternalStore(null, get);
+export const useStateFromStoresArray = useStateFromStores;
+export const useStateFromStoresObject = useStateFromStores;
 
 // REST: Fastcord's own client sends it, so it goes with the account's token
 const rest = method => async opts => {
@@ -284,13 +284,15 @@ export const zustandCreate = f => { let s; const set = p => { s = { ...s, ...(ty
 export const zustandPersist = f => f;
 export const MessageTypeSets = new Proxy({}, { get: () => new Set() });
 
-// UI, as elements Fastcord reads: menus become its menus, the rest is laid out as text
-const tag = name => props => VencordCreateElement(name, props);
+// UI, as elements Fastcord draws natively: menus become its menus, Discord's controls its own
+// fc-* controls, everything else plain html
+const el = VencordCreateElement;
+const tag = name => props => el(name, props);
 export const Menu = {
     Menu: p => p.children,
     MenuItem: tag("fc-item"),
-    MenuCheckboxItem: p => VencordCreateElement("fc-item", { ...p, checkbox: true }),
-    MenuRadioItem: p => VencordCreateElement("fc-item", { ...p, radio: true }),
+    MenuCheckboxItem: p => el("fc-item", { ...p, checkbox: true }),
+    MenuRadioItem: p => el("fc-item", { ...p, radio: true }),
     MenuGroup: tag("fc-group"),
     MenuSeparator: tag("fc-sep"),
     MenuControlItem: tag("fc-control"),
@@ -298,35 +300,99 @@ export const Menu = {
     MenuSearchControl: tag("fc-control"),
 };
 export const ContextMenuApi = { openContextMenu() {}, closeContextMenu() {}, openContextMenuLazy() {} };
-export const Tooltip = p => typeof p.children === "function" ? p.children({ onMouseEnter() {}, onMouseLeave() {}, onClick() {}, onContextMenu() {} }) : p.children;
-export const TooltipContainer = p => p.children;
-export const Text = p => VencordCreateElement("span", p);
-export const Heading = Text;
-export const Button = Object.assign(p => VencordCreateElement("button", p), { Colors: {}, Looks: {}, Sizes: {} });
-export const Clickable = p => VencordCreateElement("span", p);
-export const Forms = { FormTitle: Text, FormText: Text, FormSection: p => p.children, FormDivider: () => null, FormItem: p => p.children, FormLabel: Text };
-export const Card = p => p.children;
-export const Switch = () => null;
-export const TextInput = () => null;
-export const TextArea = () => null;
-export const Select = () => null;
-export const SearchableSelect = () => null;
-export const Slider = () => null;
-export const Checkbox = () => null;
-export const Avatar = () => null;
-export const Timestamp = p => VencordCreateElement("span", { children: new Date(p.timestamp).toLocaleString() });
-export const MaskedLink = p => VencordCreateElement("span", p);
-export const ScrollerThin = p => p.children;
-export const Popout = p => null;
-export const Dialog = p => p.children;
-export const TabBar = Object.assign(p => p.children, { Item: p => p.children });
-export const FocusLock = p => p.children;
-export const ColorPicker = () => null;
-export const UserSummaryItem = () => null;
 
-export const openModal = () => (console.warn("plugin modals aren't drawn in Fastcord"), "");
-export const openModalLazy = async () => "";
-export const closeModal = () => {};
-export const closeAllModals = () => {};
-export const Modal = new Proxy({}, { get: () => p => p.children ?? null });
-export const ConfirmModal = () => null;
+const tipProps = { onMouseEnter() {}, onMouseLeave() {}, onClick() {}, onContextMenu() {}, onFocus() {}, onBlur() {} };
+export const Tooltip = p => el("fc-tip", { tooltip: p.text, children: typeof p.children === "function" ? p.children(tipProps, { isShown: false }) : p.children });
+export const TooltipContainer = p => el("fc-tip", { tooltip: p.text, children: p.children });
+
+// Discord's "text-md/semibold" variants as css
+const SIZES = { xxs: "10px", xs: "12px", sm: "14px", md: "16px", lg: "20px", xl: "24px", xxl: "32px" };
+const WEIGHTS = { normal: 400, medium: 500, semibold: 600, bold: 700, extrabold: 800 };
+const COLORS = { "text-muted": "var(--text-muted)", "header-primary": "var(--header-primary)", "header-secondary": "var(--header-secondary)", "text-danger": "var(--text-danger)", "text-positive": "var(--text-positive)", "text-link": "var(--text-link)", "interactive-normal": "var(--interactive-normal)" };
+const variant = (v = "text-md/normal", color, style) => {
+    const [kind, weight] = v.split("/");
+    const size = kind.split("-").pop();
+    return { fontSize: SIZES[size] ?? "16px", fontWeight: WEIGHTS[weight] ?? 400, ...(color ? { color: COLORS[color] ?? color } : {}), ...style };
+};
+export const Text = ({ variant: v, color, style, tag: t = "div", children, ...rest }) => el(t, { ...rest, style: variant(v, color, style), children });
+export const Heading = ({ variant: v = "heading-md/semibold", color, style, tag: t = "h2", children, ...rest }) => el(t, { ...rest, style: variant(v, color ?? "header-primary", style), children });
+
+const LOOK = { RED: "dangerPrimary", GREEN: "positive", BRAND: "primary", PRIMARY: "secondary", TRANSPARENT: "secondary", WHITE: "secondary", LINK: "link", BLURPLE: "primary" };
+export const Button = Object.assign(
+    ({ color = "BRAND", look, size, onClick, disabled, children, style }) => el("fc-button", { variant: look === "LINK" ? "link" : LOOK[color] ?? "primary", size, onClick, disabled, style, children }),
+    { Colors: Object.fromEntries(Object.keys(LOOK).map(k => [k, k])), Looks: { FILLED: "FILLED", OUTLINED: "OUTLINED", LINK: "LINK", BLANK: "BLANK" }, Sizes: { NONE: "none", TINY: "xs", SMALL: "small", MEDIUM: "medium", LARGE: "large", MIN: "min", MAX: "max", ICON: "iconOnly" } },
+);
+export const Clickable = ({ onClick, onContextMenu, children, style }) => el("fc-clickable", { onClick, onContextMenu, style, children });
+export const Forms = {
+    FormTitle: ({ tag: t = "h5", children, style }) => el(t, { style: { fontSize: "12px", fontWeight: 600, color: "var(--header-secondary)", marginBottom: "8px", ...style }, children }),
+    FormText: ({ children, style, type }) => el("p", { style: { fontSize: "14px", color: "var(--header-secondary)", ...style }, children }),
+    FormSection: ({ title, children, style }) => el("section", { style, children: [title ? Forms.FormTitle({ children: title }) : null, children] }),
+    FormDivider: ({ style }) => el("hr", { style }),
+    FormItem: ({ title, children, style }) => el("div", { style, children: [title ? Forms.FormTitle({ children: title }) : null, children] }),
+    FormLabel: ({ children }) => el("label", { style: { fontWeight: 600 }, children }),
+    FormSwitch: p => Switch(p),
+};
+export const Card = ({ children, style, onClick }) => el("div", { onClick, style: { backgroundColor: "var(--background-secondary)", padding: "12px", borderRadius: "8px", ...style }, children });
+export const Switch = ({ value, checked, onChange, disabled, note, children, hideBorder }) => el("fc-switch", { checked: !!(value ?? checked), onChange, disabled, label: children, note, hideBorder });
+export const TextInput = ({ value, defaultValue, onChange, placeholder, type, disabled, maxLength, error, name }) => el("fc-input", { value: value ?? null, defaultValue, placeholder, type, disabled, maxLength, error, onChange: v => onChange?.(v, name) });
+export const TextArea = ({ value, defaultValue, onChange, placeholder, rows, disabled }) => el("fc-textarea", { value: value ?? null, defaultValue, placeholder, rows, disabled, onChange: v => onChange?.(v) });
+export const Select = ({ options = [], isSelected, select, placeholder, isDisabled }) => el("fc-select", { options: options.map(o => ({ ...o, default: !!isSelected?.(o.value) })), placeholder, disabled: isDisabled, onChange: v => select?.(v) });
+export const SearchableSelect = ({ options = [], value, onChange, placeholder, multi }) => {
+    const on = v => Array.isArray(value) ? value.some(x => (x?.value ?? x) === v) : (value?.value ?? value) === v;
+    return el("fc-select", { options: options.map(o => ({ ...o, default: on(o.value) })), placeholder, onChange: v => onChange?.(multi ? [...(Array.isArray(value) ? value : []), v] : v) });
+};
+export const Slider = ({ initialValue, minValue = 0, maxValue = 100, markers, onValueChange, stickToMarkers, disabled }) => el("fc-slider", { value: initialValue, min: minValue, max: maxValue, markers, stickToMarkers, disabled, onChange: onValueChange });
+export const Checkbox = ({ value, onChange, children, disabled }) => el("fc-checkbox", { checked: !!value, disabled, onChange: v => onChange?.({ target: { checked: v } }, v), label: children });
+export const ColorPicker = ({ color, onChange }) => el("fc-color", { color: color ?? 0, onChange });
+export const Avatar = ({ src, size }) => el("img", { src, width: parseInt(String(size).replace(/\D/g, "")) || 32, height: parseInt(String(size).replace(/\D/g, "")) || 32, style: { borderRadius: "50%" } });
+export const Timestamp = p => el("span", { style: { color: "var(--text-muted)", fontSize: "12px" }, children: new Date(p.timestamp).toLocaleString() });
+export const MaskedLink = ({ href, children }) => el("a", { href, children });
+export const ScrollerThin = ({ children, style }) => el("div", { style, children });
+export const Popout = p => typeof p.children === "function" ? p.children(tipProps, { isShown: false }) : null;
+export const Dialog = ({ children, style }) => el("div", { style, children });
+export const TabBar = Object.assign(
+    ({ selectedItem, onItemSelect, children }) => el("fc-tabs", { selected: selectedItem, onChange: onItemSelect, children }),
+    { Item: ({ id, children }) => el("fc-tab", { id, children }) },
+);
+export const FocusLock = p => p.children;
+export const UserSummaryItem = ({ users = [], max = 10 }) => el("div", { style: { display: "flex", gap: "2px" }, children: users.slice(0, max).map(u => el("img", { src: u?.getAvatarURL?.(null, 32) ?? "", width: 20, height: 20, style: { borderRadius: "50%" } })) });
+
+// modals: each a root Fastcord draws as a window over the app
+let nextModal = 1;
+export const ModalRoot = ({ children, size }) => el("fc-modal", { size, children });
+export const ModalHeader = ({ children, separator }) => el("fc-modal-header", { children });
+export const ModalContent = ({ children, style }) => el("fc-modal-content", { style, children });
+export const ModalFooter = ({ children }) => el("fc-modal-footer", { children });
+export const ModalCloseButton = ({ onClick }) => el("fc-modal-close", { onClick });
+export const ModalSize = { SMALL: "small", MEDIUM: "medium", LARGE: "large", DYNAMIC: "dynamic" };
+export function openModal(render, opts = {}) {
+    const id = `modal:${nextModal++}`;
+    const props = { transitionState: 1, onClose: () => closeModal(id) };
+    const Host = () => render(props);
+    mount(id, el(Host, {}));
+    out({ op: "modal", root: id });
+    opts.onCloseCallback && (closers[id] = opts.onCloseCallback);
+    return id;
+}
+const closers = {};
+export async function openModalLazy(factory, opts) {
+    const render = await factory();
+    return openModal(render, opts);
+}
+export function closeModal(id) {
+    unmount(id);
+    out({ op: "modalClose", root: id });
+    closers[id]?.();
+    delete closers[id];
+}
+export const closeAllModals = () => { for (const id of [...roots.keys()]) if (id.startsWith("modal:")) closeModal(id); };
+export const Modal = { Root: ModalRoot, Header: ModalHeader, Content: ModalContent, Footer: ModalFooter, CloseButton: ModalCloseButton };
+export const ConfirmModal = ({ header, children, confirmText = "Confirm", cancelText = "Cancel", onConfirm, onCancel, onClose, transitionState }) => el("fc-modal", {
+    size: "small",
+    children: [
+        el("fc-modal-header", { children: el("h2", { children: header }) }),
+        el("fc-modal-content", { children }),
+        el("fc-modal-footer", { children: [el("fc-button", { variant: "dangerPrimary", onClick: () => { onConfirm?.(); onClose?.(); }, children: confirmText }), el("fc-button", { variant: "secondary", onClick: () => { onCancel?.(); onClose?.(); }, children: cancelText })] }),
+    ],
+});
+export const openMediaModal = ({ items }) => out({ op: "image", url: String(items?.[0]?.url ?? "") });

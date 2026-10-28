@@ -17,9 +17,9 @@ pub fn vencord_dir() -> PathBuf {
 }
 
 impl Sources {
-    pub fn load(extra: &Path) -> Sources {
+    pub fn load(extra: &Path, vencord: &Path) -> Sources {
         let mut files = HashMap::new();
-        let dist = vencord_dir().join("dist");
+        let dist = vencord.join("dist");
         let map = ["vencordDesktopRenderer.js.map", "renderer.js.map"].iter().map(|f| dist.join(f)).find(|p| p.exists());
         if let Some(v) = map.and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
             let names = v["sources"].as_array().cloned().unwrap_or_default();
@@ -32,7 +32,7 @@ impl Sources {
                 }
             }
         }
-        for dir in [vencord_dir().join("userplugins"), extra.to_path_buf()] {
+        for dir in [vencord.join("userplugins"), extra.to_path_buf()] {
             walk(&dir, &dir, &mut files);
         }
         Sources { files }
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     #[ignore]
     fn installed_vencord_transpiles() {
-        let s = super::Sources::load(std::path::Path::new("."));
+        let s = super::Sources::load(std::path::Path::new("."), &super::vencord_dir());
         let mut bad = Vec::new();
         for (k, v) in &s.files {
             if let Err(e) = super::super::transpile::transpile(k, v) {
