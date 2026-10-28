@@ -77,6 +77,21 @@ impl App {
         }
     }
 
+    /// Play an ogg/opus clip inline (voice message, soundboard sound), or pause it if it's the
+    /// one already going. The bytes are fetched off the ui thread.
+    pub fn play_audio(&mut self, url: String) {
+        if crate::audioplay::toggle(&url) {
+            let http = crate::api::http();
+            self.net.rt.spawn(async move {
+                if let Ok(r) = http.get(&url).send().await {
+                    if let Ok(b) = r.bytes().await {
+                        crate::audioplay::play_bytes(url, b.to_vec());
+                    }
+                }
+            });
+        }
+    }
+
     pub fn clear_reactions(&mut self, ch: Id, id: Id, ask: bool) {
         if !ask {
             self.rest("DELETE", format!("/channels/{ch}/messages/{id}/reactions"), None, Tag::Quiet);

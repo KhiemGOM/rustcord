@@ -432,11 +432,25 @@ pub struct Attachment {
     pub w: u32,
     pub h: u32,
     pub ctype: String,
+    // voice messages: length in seconds and the base64 amplitude waveform
+    #[serde(default)]
+    pub duration: f32,
+    #[serde(default)]
+    pub waveform: String,
 }
 
 impl Attachment {
     pub fn is_image(&self) -> bool {
         self.w > 0 && (self.ctype.starts_with("image/") || has_img_ext(&self.filename))
+    }
+
+    pub fn is_audio(&self) -> bool {
+        self.ctype.starts_with("audio/") || [".mp3", ".ogg", ".wav", ".flac", ".m4a", ".opus"].iter().any(|e| self.filename.to_ascii_lowercase().ends_with(e))
+    }
+
+    /// Opus-in-ogg (discord voice messages, soundboard) is what we can decode and play inline.
+    pub fn playable(&self) -> bool {
+        self.ctype.contains("ogg") || self.ctype.contains("opus") || self.filename.to_ascii_lowercase().ends_with(".ogg")
     }
 }
 
@@ -601,6 +615,8 @@ impl Message {
                     w: a["width"].as_u64().unwrap_or(0) as u32,
                     h: a["height"].as_u64().unwrap_or(0) as u32,
                     ctype: st(&a["content_type"]),
+                    duration: a["duration_secs"].as_f64().unwrap_or(0.0) as f32,
+                    waveform: st(&a["waveform"]),
                 })
                 .collect();
         }
@@ -645,11 +661,16 @@ impl Message {
             self.flags = f;
         }
         if let Some(rows) = v["components"].as_array() {
-            self.components = rows
-                .iter()
-                .filter(|r| r["type"].as_u64() == Some(1))
-                .map(|r| r["components"].as_array().into_iter().flatten().filter_map(Comp::parse).collect())
-                .collect();
+            if self.flags & (1 << 15) != 0 {
+                // components v2: the top-level array is the layout tree, each node its own row
+                self.components = rows.iter().filter_map(Comp::parse_v2).map(|c| vec![c]).collect();
+            } else {
+                self.components = rows
+                    .iter()
+                    .filter(|r| r["type"].as_u64() == Some(1))
+                    .map(|r| r["components"].as_array().into_iter().flatten().filter_map(Comp::parse).collect())
+                    .collect();
+            }
         }
     }
 }
@@ -658,6 +679,15 @@ impl Message {
 pub enum Comp {
     Button { style: u8, label: String, emoji: Option<ReactEmoji>, custom_id: String, url: Option<String>, disabled: bool },
     Select { kind: u8, custom_id: String, placeholder: String, options: Vec<(String, String, Option<String>)>, disabled: bool },
+    // components v2 (IS_COMPONENTS_V2): a layout tree instead of plain action rows
+    Row(Vec<Comp>),
+    Text(String),
+    Gallery(Vec<(String, u32, u32)>),
+    Thumbnail(String),
+    FileCard { name: String, size: u64, url: String },
+    Separator { divider: bool },
+    Section { children: Vec<Comp>, accessory: Option<Box<Comp>> },
+    Container { accent: Option<u32>, children: Vec<Comp> },
 }
 
 impl Comp {
@@ -686,6 +716,69 @@ impl Comp {
             }),
             _ => None,
         }
+    }
+
+    /// The components-v2 layout tree. Each node carries its own children, so a container or
+    /// section nests the way discord lays it out.
+    fn parse_v2(v: &Value) -> Option<Comp> {
+        let kids = |v: &Value| v["components"].as_array().into_iter().flatten().filter_map(Comp::parse_v2).collect();
+        match v["type"].as_u64()? {
+            1 => Some(Comp::Row(v["components"].as_array().into_iter().flatten().filter_map(Comp::parse).collect())),
+            2 | 3 | 5..=8 => Comp::parse(v),
+            9 => Some(Comp::Section {
+                children: kids(v),
+                accessory: v["accessory"].is_object().then(|| Comp::parse_v2(&v["accessory"]).map(Box::new)).flatten(),
+            }),
+            10 => Some(Comp::Text(st(&v["content"]))),
+            11 => Some(Comp::Thumbnail(media_src(&v["media"]))),
+            12 => Some(Comp::Gallery(
+                v["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|it| {
+                        let m = &it["media"];
+                        (media_src(m), m["width"].as_u64().unwrap_or(0) as u32, m["height"].as_u64().unwrap_or(0) as u32)
+                    })
+                    .filter(|(u, _, _)| !u.is_empty())
+                    .collect(),
+            )),
+            13 => Some(Comp::FileCard {
+                name: media_src(&v["file"]).rsplit('/').next().unwrap_or("file").split('?').next().unwrap_or("file").to_string(),
+                size: v["size"].as_u64().unwrap_or(0),
+                url: media_src(&v["file"]),
+            }),
+            14 => Some(Comp::Separator { divider: v["divider"].as_bool().unwrap_or(true) }),
+            17 => Some(Comp::Container { accent: v["accent_color"].as_u64().map(|c| c as u32), children: kids(v) }),
+            _ => None,
+        }
+    }
+}
+
+/// A v2 media node's real url: the proxied one discord serves, else the raw url.
+fn media_src(v: &Value) -> String {
+    ost(&v["proxy_url"]).or_else(|| ost(&v["url"])).unwrap_or_default()
+}
+
+#[derive(Clone)]
+pub struct Sound {
+    pub id: Id,
+    pub name: String,
+    pub emoji: Option<ReactEmoji>,
+}
+
+impl Sound {
+    pub fn parse(v: &Value) -> Sound {
+        let emoji = if v["emoji_id"].as_str().is_some() || v["emoji_name"].as_str().is_some() {
+            Some(ReactEmoji {
+                id: sid(&v["emoji_id"]),
+                name: st(&v["emoji_name"]),
+                animated: false,
+            })
+        } else {
+            None
+        };
+        Sound { id: sid(&v["sound_id"]), name: st(&v["name"]), emoji }
     }
 }
 

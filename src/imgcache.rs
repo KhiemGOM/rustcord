@@ -4,17 +4,57 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::Poll;
 use tokio::runtime::Runtime;
 
 type Entry = Poll<Result<(Arc<[u8]>, String), String>>;
 
+// once decoded, egui caches the texture and never asks for the bytes again, so the raw bytes
+// we hold go cold. keep at most this much of them in memory; a cold-evicted image is re-read
+// from the disk cache if it's ever needed again.
+const MEM_CAP: usize = 128 << 20;
+
+struct Slot {
+    entry: Entry,
+    // a monotonic tick bumped on every access, for least-recently-used eviction
+    used: u64,
+}
+
 pub struct DiskLoader {
-    cache: Arc<Mutex<HashMap<String, Entry>>>,
+    cache: Arc<Mutex<HashMap<String, Slot>>>,
+    clock: AtomicU64,
     dir: PathBuf,
     rt: Arc<Runtime>,
     http: reqwest::Client,
     limit: Arc<tokio::sync::Semaphore>,
+}
+
+/// Drops the coldest decoded byte buffers until the in-memory total is back under the cap.
+/// Pending and errored slots carry no bytes, so they're left alone.
+fn evict(cache: &mut HashMap<String, Slot>) {
+    let mut total: usize = cache.values().map(|s| match &s.entry {
+        Poll::Ready(Ok((b, _))) => b.len(),
+        _ => 0,
+    }).sum();
+    if total <= MEM_CAP {
+        return;
+    }
+    let mut warm: Vec<(u64, usize, String)> = cache
+        .iter()
+        .filter_map(|(k, s)| match &s.entry {
+            Poll::Ready(Ok((b, _))) => Some((s.used, b.len(), k.clone())),
+            _ => None,
+        })
+        .collect();
+    warm.sort_by_key(|w| w.0);
+    for (_, len, k) in warm {
+        if total <= MEM_CAP {
+            break;
+        }
+        cache.remove(&k);
+        total = total.saturating_sub(len);
+    }
 }
 
 /// Drop the oldest cached image files once the folder grows past `cap` bytes, so a long-lived
@@ -52,6 +92,7 @@ impl DiskLoader {
         rt.spawn(async move { prune(&d, 256 << 20) });
         DiskLoader {
             cache: Default::default(),
+            clock: AtomicU64::new(0),
             dir,
             rt,
             http: crate::api::http(),
@@ -85,9 +126,11 @@ impl BytesLoader for DiskLoader {
         if !(uri.starts_with("https://") || uri.starts_with("http://")) {
             return Err(LoadError::NotSupported);
         }
+        let tick = self.clock.fetch_add(1, Ordering::Relaxed);
         let mut cache = self.cache.lock();
-        if let Some(e) = cache.get(uri) {
-            return match e {
+        if let Some(s) = cache.get_mut(uri) {
+            s.used = tick;
+            return match &s.entry {
                 Poll::Ready(Ok((b, mime))) => Ok(BytesPoll::Ready {
                     size: None,
                     bytes: Bytes::Shared(b.clone()),
@@ -97,7 +140,7 @@ impl BytesLoader for DiskLoader {
                 Poll::Pending => Ok(BytesPoll::Pending { size: None }),
             };
         }
-        cache.insert(uri.to_string(), Poll::Pending);
+        cache.insert(uri.to_string(), Slot { entry: Poll::Pending, used: tick });
         drop(cache);
 
         let uri = uri.to_string();
@@ -126,8 +169,9 @@ impl BytesLoader for DiskLoader {
             let keep = {
                 let mut c = cache.lock();
                 match c.get_mut(&uri) {
-                    Some(e) => {
-                        *e = Poll::Ready(entry);
+                    Some(s) => {
+                        s.entry = Poll::Ready(entry);
+                        evict(&mut c);
                         true
                     }
                     None => false,
@@ -152,7 +196,7 @@ impl BytesLoader for DiskLoader {
         self.cache
             .lock()
             .values()
-            .map(|e| match e {
+            .map(|s| match &s.entry {
                 Poll::Ready(Ok((b, _))) => b.len(),
                 _ => 0,
             })
@@ -160,7 +204,7 @@ impl BytesLoader for DiskLoader {
     }
 
     fn has_pending(&self) -> bool {
-        self.cache.lock().values().any(|e| e.is_pending())
+        self.cache.lock().values().any(|s| s.entry.is_pending())
     }
 }
 

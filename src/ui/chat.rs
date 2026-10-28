@@ -47,6 +47,8 @@ enum Act {
     ClearEmbeds(Id),
     // a poll vote: the message and the answer ids now picked (empty clears the vote)
     Vote(Id, Vec<u8>),
+    // play/pause an audio attachment (voice message, soundboard) by its url
+    PlayAudio(String),
     // a custom emoji clicked: its id, name, whether animated, and where
     Emoji(Id, String, bool, Pos2),
     EditChannel,
@@ -743,6 +745,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Mention(u) => app.mention(u, chan.guild),
             Act::ClearEmbeds(id) => app.clear_embeds(ch, id, !shift),
             Act::Vote(id, picks) => app.vote(ch, id, picks),
+            Act::PlayAudio(url) => app.play_audio(url),
             Act::EditChannel => app.open_chan_settings(ch),
             Act::Emoji(id, name, animated, at) => app.emoji_pop = Some((id, name, animated, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
@@ -1125,6 +1128,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 if r.clicked() {
                     d.acts.push(Act::View(a.proxy.clone(), a.url.clone(), a.w, a.h));
                 }
+            } else if a.is_audio() {
+                let voice = m.flags & (1 << 13) != 0 || !a.waveform.is_empty();
+                audio_card(&mut cui, d, a, voice);
             } else if file_card(&mut cui, &a.filename, a.size).clicked() {
                 d.acts.push(Act::Url(a.url.clone()));
             }
@@ -1722,6 +1728,70 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
     resp
 }
 
+/// Discord's audio / voice-message player: a pill with a play-pause button, the amplitude
+/// waveform (or a flat track for plain audio) that fills as it plays, and the running time.
+fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment, voice: bool) {
+    let w = ui.available_width().min(if voice { 340.0 } else { 420.0 });
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
+    ui.painter().rect_filled(rect, CornerRadius::same(8), Color32::from_rgba_unmultiplied(151, 151, 159, 31));
+    // play / pause button
+    let btn = Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(32.0, 32.0));
+    let pr = ui.interact(btn, ui.id().with(("aud", &a.url)), Sense::click());
+    ui.painter().circle_filled(btn.center(), 16.0, if pr.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+    let playing = crate::audioplay::is_playing(&a.url);
+    if playing {
+        for dx in [-3.5, 3.5] {
+            ui.painter().rect_filled(Rect::from_center_size(btn.center() + vec2(dx, 0.0), vec2(3.5, 13.0)), CornerRadius::same(1), Color32::WHITE);
+        }
+    } else {
+        icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(btn.center() + vec2(1.0, 0.0), vec2(18.0, 18.0)), Color32::WHITE);
+    }
+    let prog = crate::audioplay::progress(&a.url).unwrap_or(0.0);
+    // the waveform / track
+    let bar = Rect::from_min_max(pos2(btn.right() + 10.0, rect.top() + 14.0), pos2(rect.right() - 54.0, rect.bottom() - 14.0));
+    let bars = decode_waveform(&a.waveform);
+    if voice && !bars.is_empty() {
+        let n = bars.len();
+        let step = bar.width() / n as f32;
+        for (i, amp) in bars.iter().enumerate() {
+            let h = (amp / 255.0 * bar.height()).max(2.0);
+            let x = bar.left() + i as f32 * step;
+            let past = (i as f32 + 0.5) / n as f32 <= prog;
+            let c = if past { Color32::WHITE } else { pal().text_muted };
+            ui.painter().rect_filled(Rect::from_center_size(pos2(x + step / 2.0, bar.center().y), vec2((step - 1.5).max(1.5), h)), CornerRadius::same(1), c);
+        }
+    } else {
+        ui.painter().rect_filled(Rect::from_min_size(bar.left_center() - vec2(0.0, 2.0), vec2(bar.width(), 4.0)), CornerRadius::same(2), pal().text_muted.gamma_multiply(0.4));
+        ui.painter().rect_filled(Rect::from_min_size(bar.left_center() - vec2(0.0, 2.0), vec2(bar.width() * prog, 4.0)), CornerRadius::same(2), Color32::WHITE);
+        ui.painter().circle_filled(pos2(bar.left() + bar.width() * prog, bar.center().y), 5.0, Color32::WHITE);
+    }
+    // time: counts up while playing, else the clip length
+    let secs = if prog > 0.0 && a.duration > 0.0 { a.duration * prog } else { a.duration };
+    let t = format!("{}:{:02}", secs as u32 / 60, secs as u32 % 60);
+    ui.painter().text(pos2(rect.right() - 12.0, rect.center().y), Align2::RIGHT_CENTER, t, medium(12.0), pal().header_secondary);
+    if pr.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if pr.clicked() || (resp.clicked() && !voice) {
+        // ogg/opus plays inline; anything else (an mp3 upload) opens in the browser
+        d.acts.push(if a.playable() { Act::PlayAudio(a.url.clone()) } else { Act::Url(a.url.clone()) });
+    }
+    if crate::audioplay::progress(&a.url).is_some() {
+        ui.ctx().request_repaint();
+    }
+}
+
+fn decode_waveform(b64: &str) -> Vec<f32> {
+    use base64::Engine;
+    if b64.is_empty() {
+        return Vec::new();
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map(|bytes| bytes.iter().map(|b| *b as f32).collect())
+        .unwrap_or_default()
+}
+
 fn human_size(n: u64) -> String {
     match n {
         0..1024 => format!("{n} bytes"),
@@ -1950,8 +2020,100 @@ fn components(ui: &mut Ui, d: &mut D, m: &Message) {
         if i > 0 {
             ui.add_space(8.0);
         }
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+        // a lone components-v2 node (text, gallery, container, …) lays out on its own;
+        // everything else is a v1 action row of buttons and selects
+        if let [c] = row.as_slice() {
+            if !matches!(c, Comp::Button { .. } | Comp::Select { .. }) {
+                render_comp(ui, d, m, c, ui.available_width().min(520.0));
+                continue;
+            }
+        }
+        render_row(ui, d, m, row);
+    }
+}
+
+/// One components-v2 node, laid out like discord's: text as markdown, galleries as images,
+/// containers as a bordered box with an optional accent bar, sections with a side accessory.
+fn render_comp(ui: &mut Ui, d: &mut D, m: &Message, c: &Comp, width: f32) {
+    match c {
+        Comp::Row(children) => render_row(ui, d, m, children),
+        Comp::Text(s) => {
+            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 16.0, color: pal().text_normal, revealed: true, edited: false, embed: false };
+            let blocks = markdown::parse(s, &cx);
+            blocks_ui(ui, &blocks, d, m.id);
+        }
+        Comp::Gallery(items) => {
+            for (url, iw, ih) in items {
+                let (w, h) = if *iw > 0 { fit(*iw, *ih, width.min(400.0), 300.0, width) } else { (width.min(300.0), 200.0) };
+                let r = media(ui, d, url, url, w, h, None);
+                if r.clicked() {
+                    d.acts.push(Act::View(url.clone(), url.clone(), *iw, *ih));
+                }
+                ui.add_space(4.0);
+            }
+        }
+        Comp::Thumbnail(url) => {
+            let r = media(ui, d, url, url, 80.0, 80.0, None);
+            if r.clicked() {
+                d.acts.push(Act::View(url.clone(), url.clone(), 0, 0));
+            }
+        }
+        Comp::FileCard { name, size, url } => {
+            if file_card(ui, name, *size).clicked() {
+                d.acts.push(Act::Url(url.clone()));
+            }
+        }
+        Comp::Separator { divider } => {
+            ui.add_space(4.0);
+            if *divider {
+                let (r, _) = ui.allocate_exact_size(vec2(width, 1.0), Sense::hover());
+                ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0, pal().border_muted));
+            }
+            ui.add_space(4.0);
+        }
+        Comp::Section { children, accessory } => {
+            ui.horizontal_top(|ui| {
+                let aw = if accessory.is_some() { 96.0 } else { 0.0 };
+                ui.vertical(|ui| {
+                    ui.set_width((width - aw - 12.0).max(80.0));
+                    for ch in children {
+                        render_comp(ui, d, m, ch, width - aw - 12.0);
+                    }
+                });
+                if let Some(a) = accessory {
+                    render_comp(ui, d, m, a, aw);
+                }
+            });
+        }
+        Comp::Container { accent, children } => {
+            let col = accent.map(|c| Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8));
+            Frame::new()
+                .fill(pal().bg_secondary)
+                .stroke(Stroke::new(1.0, pal().border_muted))
+                .corner_radius(8)
+                .inner_margin(Margin { left: if col.is_some() { 12 } else { 16 }, right: 16, top: 12, bottom: 12 })
+                .show(ui, |ui| {
+                    ui.set_width(width - 32.0);
+                    if let Some(col) = col {
+                        let g = ui.min_rect();
+                        ui.painter().rect_filled(Rect::from_min_size(pos2(g.left() - 8.0, g.top() - 12.0), vec2(4.0, g.height() + 24.0)), CornerRadius::same(2), col);
+                    }
+                    for (i, ch) in children.iter().enumerate() {
+                        if i > 0 {
+                            ui.add_space(8.0);
+                        }
+                        render_comp(ui, d, m, ch, width - 32.0);
+                    }
+                });
+        }
+        Comp::Button { .. } | Comp::Select { .. } => render_row(ui, d, m, std::slice::from_ref(c)),
+    }
+}
+
+fn render_row(ui: &mut Ui, d: &mut D, m: &Message, row: &[Comp]) {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+        {
             for c in row {
                 match c {
                     Comp::Button { style, label, emoji, custom_id, url, disabled } => {
@@ -2025,10 +2187,11 @@ fn components(ui: &mut Ui, d: &mut D, m: &Message) {
                         }
                         ui.data_mut(|dd| dd.insert_temp(id, open));
                     }
+                    _ => {}
                 }
             }
-        });
-    }
+        }
+    });
 }
 
 fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {

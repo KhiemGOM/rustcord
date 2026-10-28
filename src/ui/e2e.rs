@@ -1018,23 +1018,45 @@ impl Run {
                 self.click(r.center());
                 self.next(300);
             }
+            // the soundboard popout over the guild call controls: open it, play a sound, close it
             77 => {
+                let Some(r) = app.rects.get("voice:soundboard").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            78 => {
+                let loaded = app.soundboard.as_ref().and_then(|(_, s)| s.as_ref()).is_some_and(|v| !v.is_empty());
+                if loaded && app.rects.contains_key("sound:5001") {
+                    self.shot(ctx, "soundboard.png");
+                    let Some(r) = app.rects.get("sound:5001").copied() else { return };
+                    self.click(r.center());
+                    self.mark("soundboard");
+                    self.next(400);
+                }
+            }
+            79 => {
+                if let Some(r) = app.rects.get("voice:soundboard").copied() {
+                    self.click(r.center());
+                }
+                self.next(300);
+            }
+            80 => {
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            78 => {
+            81 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("voice_left");
                     self.next(200);
                 }
             }
-            79 => {
+            82 => {
                 let Some(r) = app.rects.get("guild:home").copied() else { return };
                 self.click(r.center());
                 self.next(1200);
             }
-            80 => {
+            83 => {
                 // the dm with alice, which this step has always meant; the muted one came later
                 let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1) && !app.store.dm_muted(*c)) else {
                     return self.fail("no dm".into());
@@ -1044,29 +1066,29 @@ impl Run {
                 self.click(r.center());
                 self.next(800);
             }
-            81 => {
+            84 => {
                 let Some(r) = app.rects.get("dm:call").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            82 => {
+            85 => {
                 if app.voice.state == State::Connected && app.voice.chan == Some(self.call) && heard {
                     self.mark("dm_call");
                     self.next(500);
                 }
             }
-            83 => {
+            86 => {
                 if heard {
                     self.shot(ctx, "dm_call.png");
                     self.next(300);
                 }
             }
-            84 => {
+            87 => {
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
-            85 => {
+            88 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("dm_left");
                     self.next(300);
@@ -1074,7 +1096,7 @@ impl Run {
             }
             // alice's dm as a toast: her name over the text, her avatar, silent; clicking it opens the
             // message. The taskbar carries discord's badge for the mentions waiting.
-            86 => {
+            89 => {
                 let Some((xml, at)) = self.pings.iter().find(|(_, at)| at.0 == 3000).cloned() else {
                     return self.fail("alice's dm made no toast".into());
                 };
@@ -1090,7 +1112,7 @@ impl Run {
                 app.open_ping(ctx, at.0, at.1);
                 self.next(800);
             }
-            87 => {
+            90 => {
                 if app.cur() == Some(3000) && app.store.msgs.get(&3000).is_some_and(|e| e.list.iter().any(|m| m.id as usize == self.loaded)) {
                     self.mark("toast_click");
                     self.loaded = 0;

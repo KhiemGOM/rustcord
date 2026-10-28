@@ -116,7 +116,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Sounds");
     note(ui, "Call and message sounds are under Notifications.");
     section(ui, "Soundboard");
-    note(ui, "Fastcord doesn't play soundboard sounds yet.");
+    note(ui, "Open the soundboard from the call controls to play a server's sounds.");
     section(ui, "Advanced");
     note(ui, "Fastcord has no advanced voice options yet.");
     changed

@@ -81,6 +81,8 @@ pub enum Tag {
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
     Quiet,
+    // a guild's soundboard sounds, for the call popout
+    Soundboard(Id),
 }
 
 pub enum Cmd {
