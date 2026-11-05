@@ -27,9 +27,6 @@ pub struct Forms {
     pub visit: u32,
     pub page: Option<super::Page>,
     pub gift_code: String,
-    pub plugin_search: String,
-    pub plugin_show: u8,
-    pub plugin_open: std::collections::HashSet<String>,
 }
 
 impl Forms {

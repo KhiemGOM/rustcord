@@ -12,8 +12,6 @@ use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
 
-mod plugin_steps;
-
 
 // sidebar entries that sit low enough to need a scroll down to reach
 const PAGES_BELOW: [&str; 10] = [
@@ -22,8 +20,8 @@ const PAGES_BELOW: [&str; 10] = [
 ];
 
 // the settings sidebar top to bottom
-const SIDEBAR: [&str; 24] = [
-    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Vencord", "Plugins", "Themes", "Updater", "Cloud", "Backup & Restore", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
+const SIDEBAR: [&str; 18] = [
+    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
     "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy", "Connected Apps",
     "Developer", "Log Out",
 ];
@@ -300,9 +298,6 @@ impl Run {
             return;
         }
         if let Some(at) = self.bench {
-            if app.vc.host.is_some() {
-                self.mark_once("vc_started");
-            }
             for c in ctx.repaint_causes() {
                 *self.causes.entry(format!("{}:{} {}", c.file.rsplit(['/', '\\']).next().unwrap_or(c.file), c.line, c.reason)).or_default() += 1;
             }
@@ -1161,7 +1156,6 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
-            560..=599 => self.plugin_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1209,8 +1203,8 @@ impl Run {
 
     /// Settings: a screenshot of every page, then a few real round trips.
     fn settings_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        const PAGES: [&str; 24] = [
-            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Vencord", "Plugins", "Themes", "Updater", "Cloud", "Backup & Restore", "Nitro", "Server Boost", "Subscriptions",
+        const PAGES: [&str; 18] = [
+            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions",
             "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time",
             "Activity Privacy", "Connected Apps", "Developer",
         ];
@@ -3912,8 +3906,7 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 560;
-                    self.step_at = Instant::now();
+                    self.step = 99;
                 }
             }
         }

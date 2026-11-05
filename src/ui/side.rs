@@ -591,9 +591,6 @@ fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, co
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
             act = Some(ChanAct::Read);
         }
-        if !cat {
-            super::react::menu(ui, &format!("menu:channel:{}", c.id));
-        }
         menu_sep(ui);
         if cat {
             if menu_row(ui, None, "Collapse Category", None, false, Trail::Check(collapsed)).clicked() {

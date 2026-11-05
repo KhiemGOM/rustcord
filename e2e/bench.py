@@ -1,12 +1,12 @@
-"""Perf numbers against the mock: startup, the Vencord load, idle and busy CPU, frames drawn, memory.
+"""Perf numbers against the mock: startup, idle and busy CPU, frames drawn, memory.
 
-    python e2e/bench.py [--build] [--no-vencord] [--secs 15] [--rate 20] [--guilds 115] [--target target]
+    python e2e/bench.py [--build] [--secs 15] [--rate 20] [--guilds 115] [--target target]
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
 --rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
 nonstop for --secs to price a frame, and has its memory read. The mock adds --guilds servers of 115 channels each, about a real account's size
-(0 for the plain mock). Plugins come from the installed Vencord unless --no-vencord. The window opens
-behind everything and ignores the real mouse and keyboard. Writes e2e/artifacts/bench.json.
+(0 for the plain mock). The window opens behind everything and ignores the real mouse and
+keyboard. Writes e2e/artifacts/bench.json.
 """
 import ctypes
 import json
@@ -95,8 +95,7 @@ def launch(env, out):
     print(f"{out.name} pid {p.pid}", file=sys.stderr, flush=True)
     ff = wait(lambda: (out / "first_frame_epoch_ms").exists() and (out / "first_frame_epoch_ms").read_text(), 30)
     first = round(float(ff) - spawned) if ff else None
-    want = ["content"] + (["vc_started"] if "RUSTCORD_VENCORD" not in env else [])
-    s = wait(lambda: (s := stats(out)) and all(m in s["marks_ms"] for m in want) and s, 60) or stats(out) or {}
+    s = wait(lambda: (s := stats(out)) and "content" in s["marks_ms"] and s, 60) or stats(out) or {}
     return p, {"spawn_to_first_frame_ms": first, "marks_ms": s.get("marks_ms"), "slow_frames": s.get("slow_frames")}
 
 
@@ -123,8 +122,6 @@ def main():
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
                RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}",
                RUSTCORD_GATEWAY=f"ws://127.0.0.1:{ws}", RUSTCORD_TOKEN="mock-token", RUSTCORD_DATA=str(tmp / "data"), RUSTCORD_SILENT="1")
-    if "--no-vencord" in sys.argv:
-        env["RUSTCORD_VENCORD"] = str(tmp / "no-vencord")
     report: dict = {"exe_mb": round(EXE.stat().st_size / 2**20, 1), "guilds": int(guilds)}
     try:
         time.sleep(0.3)

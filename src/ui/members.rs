@@ -170,13 +170,6 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                         ui.interact(ir, ui.id().with(("boosting", *uid)), Sense::hover()).on_hover_text(format!("Server boosting since {date}"));
                         boosts.push((*uid, ir));
                     }
-                    if super::react::published(ui.ctx()).features[2] > 0 {
-                        let at = Rect::from_min_size(pos2(tx + if since > 0 { 16.0 } else { 0.0 }, ny - 10.0), vec2(80.0, 20.0));
-                        let mut c = ui.new_child(egui::UiBuilder::new().max_rect(at).layout(egui::Layout::left_to_right(egui::Align::Center)));
-                        if !super::react::slot(&mut c, &format!("mem:guild:{uid}")) {
-                            super::react::want(ui.ctx(), format!("mem:{gid}:{uid}:0"));
-                        }
-                    }
                 }
             }
         }
