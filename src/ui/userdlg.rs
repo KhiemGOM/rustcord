@@ -14,6 +14,7 @@ pub enum Dialog {
     Note { uid: Id, text: String },
     Nick { gid: Id, uid: Id, text: String, had: bool },
     Group { ch: Id, text: String, icon: Option<String> },
+    Cleanup { picked: std::collections::HashSet<Id> },
 }
 
 impl Dialog {
@@ -25,6 +26,10 @@ impl Dialog {
         let had = if gid == 0 { store.nicks.contains_key(&uid) } else { store.members.get(&gid).and_then(|m| m.get(&uid)).is_some_and(|m| m.nick.is_some()) };
         let text = if had { store.name_in(gid, uid) } else { String::new() };
         Dialog::Nick { gid, uid, text, had }
+    }
+
+    pub fn cleanup() -> Self {
+        Dialog::Cleanup { picked: Default::default() }
     }
 
     pub fn group(store: &Store, ch: Id) -> Self {
@@ -39,6 +44,9 @@ enum Done {
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
+    if matches!(app.user_dialog, Some(Dialog::Cleanup { .. })) {
+        return cleanup(app, ctx);
+    }
     let Some(d) = &mut app.user_dialog else { return };
     let mut done = None;
     let mut pick = false;
@@ -47,6 +55,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Dialog::Nick { gid: 0, had, .. } => (if *had { "Change Friend Nickname" } else { "Add Friend Nickname" }, Some("Find a friend faster with a personal nickname. It will only be visible to you in your direct messages."), "Friend Nickname"),
         Dialog::Nick { .. } => ("Change Nickname", None, "Nickname"),
         Dialog::Group { .. } => ("Edit Group", None, ""),
+        Dialog::Cleanup { .. } => return,
     };
     let me = app.store.me;
     let icon_of = |ch: Id| app.store.channels.get(&ch).and_then(|c| c.icon.clone());
@@ -98,9 +107,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::Note { .. } => "Click to add a note",
                 Dialog::Nick { .. } => "Nickname",
                 Dialog::Group { .. } => "Group name",
+                Dialog::Cleanup { .. } => "",
             };
             let text = match d {
                 Dialog::Note { text, .. } | Dialog::Nick { text, .. } | Dialog::Group { text, .. } => text,
+                Dialog::Cleanup { .. } => return,
             };
             let multi = label == "Note";
             input_frame().corner_radius(8).inner_margin(12).show(ui, |ui| {
@@ -185,5 +196,86 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             app.rest("PATCH", format!("/channels/{ch}"), Some(body), Tag::Quiet);
         }
+        Dialog::Cleanup { .. } => {}
+    }
+}
+
+/// Clean up Group DMs: the groups by how long they've been quiet, oldest first, to tick and leave.
+fn cleanup(app: &mut App, ctx: &egui::Context) {
+    let mut groups: Vec<(Id, String, i64, usize)> = app
+        .store
+        .dms
+        .iter()
+        .filter_map(|c| app.store.channels.get(c))
+        .filter(|c| c.kind == 3)
+        .map(|c| (c.id, super::channel_title(&app.store, c.id), crate::state::snowflake_ms(c.last_msg.max(c.id)), c.recipients.len() + 1))
+        .collect();
+    groups.sort_by_key(|g| g.2);
+    let Some(Dialog::Cleanup { picked }) = &mut app.user_dialog else { return };
+    let mut done = None;
+    let modal = egui::Modal::new("user_dialog".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
+        .show(ctx, |ui| {
+            ui.set_width(432.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Clean up Group DMs").font(semi(20.0)).color(pal().header_primary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
+                        done = Some(Done::Close);
+                    }
+                });
+            });
+            ui.add_space(8.0);
+            ui.label(RichText::new("Pick the group DMs you're done with, oldest first, and leave them all at once.").font(reg(14.0)).color(pal().text_normal));
+            ui.add_space(16.0);
+            if groups.is_empty() {
+                ui.label(RichText::new("You aren't in any group DMs.").font(reg(14.0)).color(pal().text_muted));
+            }
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for (id, title, last, n) in &groups {
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+                    if resp.hovered() {
+                        ui.painter().rect_filled(r, 4, pal().bg_mod_hover);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    let on = picked.contains(id);
+                    let boxr = egui::Rect::from_center_size(egui::pos2(r.right() - 20.0, r.center().y), vec2(20.0, 20.0));
+                    if on {
+                        ui.painter().rect_filled(boxr, 4, BLURPLE);
+                        super::icons::draw(ui.painter(), Icon::Check, boxr.shrink(3.0), egui::Color32::WHITE);
+                    } else {
+                        ui.painter().rect_stroke(boxr, 4, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                    }
+                    let when = chrono::DateTime::from_timestamp_millis(*last).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
+                    super::text::paint(ui.painter(), egui::pos2(r.left() + 8.0, r.center().y - 9.0), egui::Align2::LEFT_CENTER, title, medium(16.0), pal().header_primary, r.width() - 60.0);
+                    ui.painter().text(egui::pos2(r.left() + 8.0, r.center().y + 10.0), egui::Align2::LEFT_CENTER, format!("{n} Members • Last active {when}"), reg(12.0), pal().text_muted);
+                    if resp.clicked() && !picked.remove(id) {
+                        picked.insert(*id);
+                    }
+                }
+            });
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                if grey_button(ui, "Cancel", 212.0).clicked() {
+                    done = Some(Done::Close);
+                }
+                let label = if picked.is_empty() { "Leave".to_string() } else { format!("Leave {}", picked.len()) };
+                if button(ui, &label, super::DANGER, 212.0).clicked() && !picked.is_empty() {
+                    done = Some(Done::Save);
+                }
+            });
+        });
+    if modal.should_close() {
+        done = Some(Done::Close);
+    }
+    let Some(done) = done else { return };
+    if let (Done::Save, Some(Dialog::Cleanup { picked })) = (done, app.user_dialog.take()) {
+        for c in picked {
+            super::popups::close_dm(app, c);
+        }
+    } else {
+        app.user_dialog = None;
     }
 }
