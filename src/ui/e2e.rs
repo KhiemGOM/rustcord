@@ -1521,8 +1521,8 @@ impl Run {
                 self.next(400);
             }
             141 => {
-                self.key(Key::Escape);
-                self.step = 350;
+                self.step = 143;
+                self.next(0);
             }
             142 => {
                 let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
@@ -1534,6 +1534,96 @@ impl Run {
                 self.key(Key::Escape);
                 self.step = 109;
                 self.next(900);
+            }
+            144 => {
+                if !self.open_page(app, "Server Boost") {
+                    return;
+                }
+                self.next(900);
+            }
+            145 => {
+                if Self::at(ctx, "billing:boost_menu").is_none() || Self::at(ctx, "billing:faq8").is_none() {
+                    return;
+                }
+                self.mark("boost_page");
+                let Some(r) = Self::at(ctx, "billing:boost_banner") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            146 => {
+                if Self::at(ctx, "billing:Boost").is_none() {
+                    return;
+                }
+                self.mark("boost_picker");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            147 => {
+                if !self.open_page(app, "Gift Inventory") {
+                    return;
+                }
+                self.next(900);
+            }
+            148 => {
+                let Some(r) = Self::at(ctx, "gift_input") else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("WUMP-AAAAA-BBBBB-CCCCC".into())]);
+                self.next(400);
+            }
+            149 => {
+                let Some(r) = Self::at(ctx, "billing:Redeem") else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            150 => {
+                if Self::at(ctx, "gift_ok").is_none() {
+                    return;
+                }
+                self.mark("gift_redeemed");
+                self.next(0);
+            }
+            151 => {
+                if !self.open_page(app, "Billing") {
+                    return;
+                }
+                self.next(900);
+            }
+            152 => {
+                let Some(r) = Self::at(ctx, "billing:Edit") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            153 => {
+                let Some(r) = Self::at(ctx, "billing:delete_source") else { return };
+                self.mark("billing_edit");
+                if let Some(d) = Self::at(ctx, "billing:make_default") {
+                    self.click(d.center());
+                    self.mark("billing_manage");
+                    self.step = 155;
+                    return self.next(600);
+                }
+                self.click(r.center());
+                self.next(500);
+            }
+            154 => {
+                if Self::at(ctx, "billing_confirm").is_none() {
+                    return;
+                }
+                self.mark("billing_manage");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            155 => {
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            156 => {
+                if Self::at(ctx, "billing:Next").is_some() && Self::at(ctx, "billing:Previous").is_some() {
+                    self.mark("billing_tx");
+                }
+                self.key(Key::Escape);
+                self.step = 349;
+                self.next(400);
             }
             _ => self.step = 99,
         }
