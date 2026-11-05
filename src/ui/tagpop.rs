@@ -31,8 +31,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
     }
     let Some(p) = app.guild_profiles.get(&gid).filter(|p| !p.is_null()).cloned() else {
         super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
-        super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
-    let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
+        let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.set_height(120.0);
@@ -65,6 +64,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
     let gated = p["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "MEMBER_VERIFICATION_GATE_ENABLED"));
     let icons_by_app = app.store.app_icons.clone();
     let mut go = false;
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
     let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
         Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
