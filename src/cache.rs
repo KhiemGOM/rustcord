@@ -415,7 +415,6 @@ impl Settings {
         self.atten_self = d.atten_self;
         self.atten_others = d.atten_others;
         self.qos = d.qos;
-        self.hw_accel = d.hw_accel;
         self.openh264 = d.openh264;
         self.debug_log = d.debug_log;
         self.aec_dump = d.aec_dump;

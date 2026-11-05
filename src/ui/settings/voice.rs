@@ -342,7 +342,6 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         changed |= toggle(ui, &mut s.atten_self, "When I speak", "");
         changed |= toggle(ui, &mut s.atten_others, "When others speak", "");
         changed |= toggle(ui, &mut s.qos, "Enable Quality of Service High Packet Priority", "Hints to your router that the packets Rustcord is transmitting are high priority.\nSome routers or internet service providers may misbehave when this is set.");
-        changed |= toggle(ui, &mut s.hw_accel, "Hardware Acceleration", "Encodes your screen share on your graphics card when it can.");
         changed |= toggle(ui, &mut s.openh264, "OpenH264 Video Codec provided by Cisco Systems, Inc.", "Turning this off will disable use of OpenH264 for video calls and media playback. This may result in some media being unplayable.");
     }
 
