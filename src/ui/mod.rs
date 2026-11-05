@@ -12,6 +12,7 @@ mod events;
 mod forum;
 mod friends;
 pub mod icons;
+mod iomenu;
 mod keys;
 mod login;
 mod members;

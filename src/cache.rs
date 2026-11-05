@@ -78,6 +78,8 @@ pub struct Settings {
     pub output_volume: f32,
     // krisp-style background noise suppression on the mic
     pub noise_suppression: bool,
+    // the input profile picked from the mic's menu: 0 Voice Isolation, 1 Studio, 2 Custom
+    pub input_profile: u8,
     // what you set from a person's right-click menu in a call: their volume, Mute, Mute Soundboard
     pub people: std::collections::BTreeMap<Id, Person>,
     // keybinds: (action, windows virtual-key codes)
@@ -167,6 +169,7 @@ impl Default for Settings {
             input_volume: 1.0,
             output_volume: 1.0,
             noise_suppression: true,
+            input_profile: 2,
             people: Default::default(),
             keybinds: Vec::new(),
             locale: "en-US".into(),
