@@ -65,6 +65,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+use crate::auth;
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
 use crate::state::{Id, Map, Message, Page, ReactEmoji, Set, Status, Store, Tracked};
@@ -1403,6 +1404,13 @@ impl App {
         }
     }
 
+    pub fn sign_in(&mut self, t: String) {
+        cache::set_token(Some(&t));
+        self.net.send(Cmd::Start(t.clone()));
+        self.token = Some(t);
+        self.login = Default::default();
+    }
+
     pub fn toast(&mut self, s: impl Into<String>) {
         self.toast = Some((s.into(), Instant::now()));
     }
@@ -1521,22 +1529,10 @@ impl App {
                 Ev::Conn(c) => self.conn = c,
                 Ev::AuthFailed => {
                     self.logout();
-                    self.login.err = Some("Your session expired. Log in again.".into());
+                    self.login.expired();
                 }
-                Ev::LoggedIn(t) => {
-                    cache::set_token(Some(&t));
-                    self.net.send(Cmd::Start(t.clone()));
-                    self.token = Some(t);
-                    self.login = Default::default();
-                }
-                Ev::NeedMfa(ticket) => {
-                    self.login.busy = false;
-                    self.login.mfa = Some(ticket);
-                }
-                Ev::LoginError(e) => {
-                    self.login.busy = false;
-                    self.login.err = Some(e);
-                }
+                Ev::Auth(auth::Ev::Token(t)) => self.sign_in(t),
+                Ev::Auth(e) => self.login.event(e, &self.net),
                 Ev::Error(e) | Ev::Toast(e) => self.toast(e),
                 Ev::Rest { tag, res } => self.on_rest(tag, res),
                 Ev::Voice(e) => {
