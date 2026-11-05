@@ -226,6 +226,15 @@ def main():
         "settings: content filter PATCHed to the legacy settings": sum('"explicit_content_filter":2' in r.get("body", "") for r in reqs if r.get("method") == "PATCH") == 2,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
         "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
+        **{f"billing: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("server boost page showed the boosts, perks and faq", "boost_page"), ("boost any server opened the server picker", "boost_picker"),
+                              ("gift code redeemed natively", "gift_redeemed"), ("payment method edit modal opened", "billing_edit"),
+                              ("payment method made default, or delete asked first", "billing_manage"), ("transactions paged", "billing_tx")]},
+        "billing: gift code redeem POSTed": sum(r.get("method") == "POST" and r.get("path", "").endswith("/entitlements/gift-codes/WUMP-AAAAA-BBBBB-CCCCC/redeem") for r in reqs) == 2,
+        "billing: default payment method PATCHed": any(r.get("method") == "PATCH" and "/billing/payment-sources/" in r.get("path", "") and '"default":true' in r.get("body", "") for r in reqs),
+        "billing: nothing was bought or deleted": not any(
+            (r.get("method") != "GET" and "/billing/" in r.get("path", "") and "/payment-sources/" not in r.get("path", "")) or (r.get("method") == "DELETE" and "/payment-sources/" in r.get("path", ""))
+            or any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe")) for r in reqs),
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("animated emoji, mp4 gifv, gif upload and ?query gif each cycled through 3+ distinct frames", "media_animates"),
