@@ -10,6 +10,9 @@ mod apps;
 mod billing;
 mod privacy;
 mod profiles;
+mod keybinds;
+mod notify;
+mod sync;
 mod system;
 mod user;
 mod voice;
@@ -87,7 +90,7 @@ const SIDEBAR: &[Item] = &[
         Icon::SideAccess,
         &["Text Readability", "Visual Density", "Color & Contrast", "Reduced Motion", "Audio & Screen Reader"],
     ),
-    Item::Page(Page::System, "System", Icon::SideSystem, &[]),
+    Item::Page(Page::System, "System", Icon::SideSystem, &["General", "Custom Keybinds", "Default Keybinds"]),
     Item::Page(Page::Language, "Language & Time", Icon::SideLanguage, &[]),
     Item::Head("Games & Apps"),
     Item::Page(Page::Activity, "Activity Privacy", Icon::SideActivity, &["What Activity I Share", "Where I Share Activity", "Who Can Join My Games"]),
@@ -341,7 +344,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::Profiles => profiles::page(app, ui),
                 Page::Privacy => privacy::data(app, ui),
                 Page::Messaging => privacy::messaging(app, ui),
-                Page::Notifications => system::notifications(app, ui),
+                Page::Notifications => notify::page(app, ui),
                 Page::Nitro => billing::nitro(app, ui),
                 Page::Boost => billing::boost(app, ui),
                 Page::Subscriptions => billing::subscriptions(app, ui),

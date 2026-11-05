@@ -262,7 +262,7 @@ impl Tx {
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
         let db = 20.0 * (rms + 1e-9).log10();
         self.shared.level.store(db.max(-100.0) as i32, Relaxed);
-        let muted = self.shared.mute.load(Relaxed) || self.shared.deaf.load(Relaxed);
+        let muted = self.shared.mute.load(Relaxed) || self.shared.deaf.load(Relaxed) || crate::hotkeys::MUTE_HELD.load(Relaxed);
         // automatic sensitivity: follow the noise floor down fast and up slowly, open 15 dB above it
         self.floor = if db < self.floor { db } else { self.floor + (db - self.floor) * 0.002 };
         let threshold = if self.shared.auto_vad.load(Relaxed) {
