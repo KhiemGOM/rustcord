@@ -264,9 +264,27 @@ impl Run {
             735 => {
                 if app.voice.stage.seats.get(&me).is_some_and(|s| s.hand.is_none()) {
                     self.mark("stage_hand_down");
-                    app.join_voice(LOUNGE, false);
-                    self.next(400);
+                    let at = chrono::Utc::now().to_rfc3339();
+                    let d = json!({ "guild_id": app.store.channels.get(&TOWN_HALL).map(|c| c.guild.to_string()), "channel_id": TOWN_HALL.to_string(), "user_id": me.to_string(), "session_id": app.store.session, "suppress": true, "request_to_speak_timestamp": at });
+                    app.rest("POST", "/mock/event".into(), Some(json!({ "t": "VOICE_STATE_UPDATE", "d": d })), crate::net::Tag::Quiet);
+                    self.step = 740;
+                    self.next(0);
                 }
+            }
+            741 => {
+                let heard = crate::sound::heard().iter().any(|n| n == "reconnect");
+                let Some(c) = app.store.channels.get(&TOWN_HALL).cloned() else { return };
+                if !heard || !app.rects.contains_key("stage:invited") {
+                    return;
+                }
+                self.mark("stage_invited_cue");
+                app.request_to_speak(&c, false);
+                self.next(400);
+            }
+            742 => {
+                app.join_voice(LOUNGE, false);
+                self.step = 735;
+                self.next(400);
             }
             736 => {
                 if !app.confirm.as_ref().is_some_and(|c| c.title == "You sure?") {

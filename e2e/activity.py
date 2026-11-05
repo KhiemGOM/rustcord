@@ -56,6 +56,7 @@ def checks(runs, reqs, data):
         and any(d.get("evt") == "ERROR" and d.get("data", {}).get("code") == 5000 for d in said("authorize", "9101"))
         and count(lambda r: r.get("method") == "POST" and ends(r, "/oauth2/authorize") and "client_id=9101" in r.get("path", "")) == 0,
         "activity: the web view followed the call into its own window": both("activity_popout"),
+        "activity: starting one, someone joining it and leaving it played their sounds": both("activity_cues"),
         "activity: leaving the call left the activity": both("activity_left_with_call") and leaves("9101") >= n,
         "activity: the channel list's Join entered the call and the activity": both("activity_list_row") and both("activity_list_join") and launches("9100") >= 2 * n,
     }

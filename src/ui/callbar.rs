@@ -16,6 +16,10 @@ pub struct CallUi {
     pub mic_test: bool,
     pub start: Option<super::stage::Form>,
     pub asked: bool,
+    pub invited: bool,
+    // for the activity sounds: the call we're in, how many activities run in it, and how many
+    // people are in the one we're in
+    pub activities: (Option<Id>, usize, Option<usize>),
     pub started: Option<Id>,
     pub audience_shut: bool,
 }

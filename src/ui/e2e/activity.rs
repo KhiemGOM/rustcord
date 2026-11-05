@@ -201,6 +201,10 @@ impl Run {
             }
             _ => {
                 if app.voice.chan.is_none() && app.activity.run.is_none() {
+                    let heard = crate::sound::heard();
+                    if ["activity_launch", "activity_user_join", "activity_end"].iter().all(|c| heard.iter().any(|n| n == c)) {
+                        self.mark("activity_cues");
+                    }
                     self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 2099 };
                     self.next(300);
                 }
