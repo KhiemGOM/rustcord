@@ -108,6 +108,86 @@ pub fn guild_folders(settings: &[u8]) -> Vec<Folder> {
     out
 }
 
+fn put_varint(out: &mut Vec<u8>, mut v: u64) {
+    while v >= 0x80 {
+        out.push((v & 0x7f) as u8 | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+fn put_bytes(out: &mut Vec<u8>, field: u64, b: &[u8]) {
+    put_varint(out, field << 3 | 2);
+    put_varint(out, b.len() as u64);
+    out.extend_from_slice(b);
+}
+
+fn put_ids(out: &mut Vec<u8>, field: u64, ids: &[Id]) {
+    let packed: Vec<u8> = ids.iter().flat_map(|g| (*g as u64).to_le_bytes()).collect();
+    put_bytes(out, field, &packed);
+}
+
+fn put_wrapped(out: &mut Vec<u8>, field: u64, v: u64) {
+    let mut w = Vec::new();
+    put_varint(&mut w, 1 << 3);
+    put_varint(&mut w, v);
+    put_bytes(out, field, &w);
+}
+
+/// A PreloadedUserSettings holding just the guild folders (14), for a partial update.
+pub fn folders_update(folders: &[Folder]) -> Vec<u8> {
+    let mut list = Vec::new();
+    for f in folders {
+        let mut b = Vec::new();
+        put_ids(&mut b, 1, &f.guilds);
+        if f.id != 0 {
+            put_wrapped(&mut b, 2, f.id as u64);
+        }
+        if let Some(n) = &f.name {
+            let mut w = Vec::new();
+            put_bytes(&mut w, 1, n.as_bytes());
+            put_bytes(&mut b, 3, &w);
+        }
+        if let Some(c) = f.color {
+            put_wrapped(&mut b, 4, c as u64);
+        }
+        put_bytes(&mut list, 1, &b);
+    }
+    let mut out = Vec::new();
+    put_bytes(&mut out, 14, &list);
+    out
+}
+
+/// The privacy settings' (8) lists of servers: 3 direct messages off, 13 activity status off, 15
+/// activity joining off, 16 message requests off. Only the lists the blob carries.
+pub fn privacy(settings: &[u8]) -> Vec<(u64, Vec<Id>)> {
+    let mut out = Vec::new();
+    for (n, v) in fields(settings) {
+        let (8, Val::Bytes(b)) = (n, v) else { continue };
+        for (n, v) in fields(b) {
+            if !matches!(n, 3 | 13 | 15 | 16) {
+                continue;
+            }
+            let ids = match v {
+                Val::Bytes(p) => p.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap()) as Id).collect(),
+                Val::Fixed(g) => vec![g as Id],
+                _ => continue,
+            };
+            out.push((n, ids));
+        }
+    }
+    out
+}
+
+/// One of those lists, set to `ids`, as a partial update.
+pub fn privacy_update(field: u64, ids: &[Id]) -> Vec<u8> {
+    let mut p = Vec::new();
+    put_ids(&mut p, field, ids);
+    let mut out = Vec::new();
+    put_bytes(&mut out, 8, &p);
+    out
+}
+
 /// The account's own custom status text (status settings 11, custom_status 2), unless it ran out.
 /// None when the blob has no status settings at all, so a partial update leaves it be.
 pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {

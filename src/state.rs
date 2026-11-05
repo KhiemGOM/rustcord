@@ -998,6 +998,15 @@ pub struct Store {
     pub opt_in: Set<Id>,
     #[serde(default)]
     pub opted: Set<Id>,
+    // the flags of each channel override: 2048 pinned to the top, 4096 opted in
+    #[serde(default)]
+    pub chan_flags: Map<Id, u64>,
+    #[serde(default)]
+    pub muted_events: Set<Id>,
+    // the servers each privacy list names, by settings field: 3 dms off, 13 activity status off,
+    // 15 activity joining off, 16 message requests off
+    #[serde(skip)]
+    pub privacy: Map<u64, Set<Id>>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -1266,6 +1275,11 @@ impl Store {
         if on(s) {
             self.muted.insert(gid);
         }
+        if s["mute_scheduled_events"].as_bool() == Some(true) {
+            self.muted_events.insert(gid);
+        } else {
+            self.muted_events.remove(&gid);
+        }
         if s["hide_muted_channels"].as_bool() == Some(true) {
             self.hide_muted.insert(gid);
         } else {
@@ -1284,6 +1298,7 @@ impl Store {
         }
         for o in s["channel_overrides"].as_array().into_iter().flatten() {
             let cid = sid(&o["channel_id"]);
+            self.chan_flags.insert(cid, o["flags"].as_u64().unwrap_or(0));
             if o["flags"].as_u64().unwrap_or(0) & (1 << 12) != 0 {
                 self.opted.insert(cid);
             } else {
@@ -1613,6 +1628,7 @@ impl Store {
             use base64::Engine;
             if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(b64) {
                 folders = crate::proto::guild_folders(&raw);
+                self.load_privacy(&raw, true);
                 self.account = crate::proto::account(&raw, true);
                 self.custom_status = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten();
                 self.own_status(&raw);
@@ -1631,17 +1647,22 @@ impl Store {
                 })
                 .collect();
         }
+        self.arrange(folders, &seen);
+    }
+
+    /// Lays the rail out from the account's folders; servers they leave out sit on top, like the
+    /// official client.
+    pub fn arrange(&mut self, mut folders: Vec<Folder>, seen: &[Id]) {
         let mut order = Vec::new();
         for f in &folders {
             order.extend(f.guilds.iter().copied());
         }
-        for g in &seen {
+        for g in seen {
             if !order.contains(g) {
                 order.insert(0, *g);
             }
         }
         order.retain(|g| self.guilds.contains_key(g));
-        // guilds missing from the folder list sit on top, like the official client
         let mut lone: Vec<Folder> = order
             .iter()
             .filter(|g| !folders.iter().any(|f| f.guilds.contains(g)))
@@ -1654,6 +1675,22 @@ impl Store {
         lone.append(&mut folders);
         self.folders = lone;
         self.guild_order = order;
+    }
+
+    /// The privacy lists in a settings blob; a whole snapshot also says which lists are empty.
+    pub fn load_privacy(&mut self, raw: &[u8], full: bool) {
+        if full {
+            self.privacy.clear();
+        }
+        let mut seen: Vec<u64> = Vec::new();
+        for (n, ids) in crate::proto::privacy(raw) {
+            let list = self.privacy.entry(n).or_default();
+            if !seen.contains(&n) {
+                list.clear();
+                seen.push(n);
+            }
+            list.extend(ids);
+        }
     }
 
     pub fn load_supplemental(&mut self, d: &Value) {
@@ -2172,6 +2209,12 @@ impl Store {
                 let raw = d["settings"]["proto"].as_str().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
                 if let Some(raw) = raw {
                     let full = d["partial"].as_bool() == Some(false);
+                    self.load_privacy(&raw, full);
+                    let folders = crate::proto::guild_folders(&raw);
+                    if !folders.is_empty() {
+                        let seen = self.guild_order.clone();
+                        self.arrange(folders, &seen);
+                    }
                     self.account.merge(crate::proto::account(&raw, full));
                     if let Some(c) = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64) {
                         self.custom_status = c;
