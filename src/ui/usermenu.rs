@@ -547,21 +547,9 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         Act::Disconnect => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "channel_id": null })), Tag::Quiet),
         Act::ModView => app.open_mod_view(gid, uid),
         Act::Timeout if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
-        Act::Timeout => app.timeout = Some(super::popups::Timeout::new(gid, uid)),
-        Act::Kick => {
-            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
-            app.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
-                app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::Quiet)
-            }));
-        }
-        Act::Ban => {
-            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let body = format!("Are you sure you want to ban @{name} from {server}?");
-            app.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
-                app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::Quiet)
-            }));
-        }
+        Act::Timeout => app.open_timeout(gid, uid),
+        Act::Kick => app.kick(gid, uid),
+        Act::Ban => app.ban(gid, uid),
         Act::CopyUser => ctx.copy_text(uid.to_string()),
         Act::CopyChannel => ctx.copy_text(chan.to_string()),
     }
