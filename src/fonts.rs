@@ -50,16 +50,32 @@ fn path(stem: &str) -> PathBuf {
     cache::dir().join("fonts").join(format!("{stem}.ttf"))
 }
 
-pub fn cached(stem: &str) -> Option<Vec<u8>> {
-    std::fs::read(path(stem)).ok()
+/// A font file mapped once for the life of the process. egui keeps a second copy of any font
+/// it's handed as owned bytes, and the system fallbacks run to 13-20 MB each; mapped, they cost
+/// only the pages glyphs are actually read from.
+pub fn mapped(path: &std::path::Path) -> Option<&'static [u8]> {
+    static MAPS: std::sync::Mutex<Vec<(PathBuf, &'static [u8])>> = std::sync::Mutex::new(Vec::new());
+    let mut maps = MAPS.lock().unwrap();
+    if let Some((_, b)) = maps.iter().find(|(p, _)| p == path) {
+        return Some(b);
+    }
+    let file = std::fs::File::open(path).ok()?;
+    // SAFETY: font files are only ever written before they exist (see `fetch`), never while mapped
+    let map: &'static memmap2::Mmap = Box::leak(Box::new(unsafe { memmap2::Mmap::map(&file) }.ok()?));
+    maps.push((path.to_path_buf(), map));
+    Some(map)
+}
+
+pub fn cached(stem: &str) -> Option<&'static [u8]> {
+    mapped(&path(stem))
 }
 
 fn name_path(id: u8) -> PathBuf {
     cache::dir().join("fonts").join(format!("name-{id}.ttf"))
 }
 
-pub fn cached_name(id: u8) -> Option<Vec<u8>> {
-    std::fs::read(name_path(id)).ok()
+pub fn cached_name(id: u8) -> Option<&'static [u8]> {
+    mapped(&name_path(id))
 }
 
 /// True once after a download finished, so the UI knows to rebuild its fonts.

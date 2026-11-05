@@ -18,6 +18,7 @@ egui_extras = { version = "0.36.2", default-features = false, features = ["image
 emojis = "0.9.0"
 flate2 = "1.1.10"
 foldhash = "0.2.0"
+memmap2 = "0.9.11"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 nnnoiseless = { version = "0.5.0", default-features = false }
