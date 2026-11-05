@@ -540,7 +540,7 @@ pub fn leave(app: &mut App, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
     let body = format!("Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited.");
     app.confirm = Some(super::Confirm::new(format!("Leave '{name}'"), body, "Leave Server", move |app: &mut App| {
-        app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": false })), crate::net::Tag::Quiet);
+        app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": app.store.lurking.contains(&gid) })), crate::net::Tag::Quiet);
         app.select_guild(None);
     }));
 }

@@ -69,6 +69,8 @@ pub enum Tag {
     // a channel, category or event made from its modal
     Created,
     NewServer,
+    Lurk(Id),
+    Joined(Id),
     // the app directory's lists, by what's showing
     Directory(String),
     // a server settings page's data

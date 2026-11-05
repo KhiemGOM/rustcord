@@ -1007,6 +1007,8 @@ pub struct Store {
     // 15 activity joining off, 16 message requests off
     #[serde(skip)]
     pub privacy: Map<u64, Set<Id>>,
+    #[serde(skip)]
+    pub lurking: Set<Id>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -2042,6 +2044,7 @@ impl Store {
                 if d["unavailable"].as_bool() != Some(true) {
                     let id = sid(&d["id"]);
                     self.guilds.remove(&id);
+                    self.lurking.remove(&id);
                     self.guild_order.retain(|g| *g != id);
                 }
             }
