@@ -2076,12 +2076,22 @@ pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
 }
 
 pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
+    badge_scaled(ui, right_center, n, ring, 1.0);
+}
+
+/// A badge that grows in when it first shows, on discord's .2s (0, 0, .2, 1.1) curve.
+pub fn badge_in(ui: &Ui, id: egui::Id, right_center: Pos2, n: u32, ring: Option<Color32>) {
+    badge_scaled(ui, right_center, n, ring, motion::enter(ui.ctx(), id, 0.2, motion::Curve::Bezier(0.0, 0.0, 0.2, 1.1)));
+}
+
+fn badge_scaled(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>, k: f32) {
     let text = if n > 99 { "99+".to_string() } else { n.to_string() };
     let galley = ui.painter().layout_no_wrap(text, semi(12.0), Color32::WHITE);
     let w = (galley.size().x + 10.0).max(16.0);
     let rect = Rect::from_min_size(pos2(right_center.x - w, right_center.y - 8.0), vec2(w, 16.0));
+    let rect = Rect::from_center_size(rect.center(), rect.size() * k);
     if let Some(ring) = ring {
-        ui.painter().rect_filled(rect.expand(3.0), CornerRadius::same(11), ring);
+        ui.painter().rect_filled(rect.expand(3.0 * k), CornerRadius::same(11), ring);
     }
     ui.painter().rect_filled(rect, CornerRadius::same(8), RED);
     // centre the digits' ink, not the line box, which keeps room under them for descenders
@@ -2093,7 +2103,7 @@ pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
         }
     }
     let mid = if ink.0 < ink.1 { (ink.0 + ink.1) / 2.0 } else { galley.size().y / 2.0 };
-    ui.painter().galley(pos2(rect.center().x - galley.size().x / 2.0, rect.center().y - mid), galley, Color32::WHITE);
+    ui.painter().galley_with_override_text_color(pos2(rect.center().x - galley.size().x / 2.0, rect.center().y - mid), galley, Color32::WHITE.gamma_multiply(k.clamp(0.0, 1.0)));
 }
 
 pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
