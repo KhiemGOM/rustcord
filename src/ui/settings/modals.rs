@@ -21,6 +21,8 @@ pub enum Edit {
     TotpOff,
     Codes,
     Key,
+    AddKey,
+    SmsOff,
 }
 
 pub struct Modal {
@@ -37,6 +39,11 @@ pub struct Modal {
     pub key: Option<(String, String)>,
 }
 
+pub struct Web {
+    rx: std::sync::mpsc::Receiver<Result<String, String>>,
+    create: bool,
+}
+
 pub struct Req {
     method: &'static str,
     path: String,
@@ -47,17 +54,21 @@ pub struct Req {
 pub(super) enum Done {
     Modal,
     Refresh(&'static str),
+    Sms,
 }
 
 pub struct Verify {
     ticket: String,
     methods: Vec<&'static str>,
     at: usize,
+    challenge: String,
+    sent: bool,
     code: String,
     err: Option<String>,
     busy: bool,
 }
 
+pub(super) const SMS_FLAG: u64 = 1 << 4;
 const REASON: &str = "user_settings_update";
 
 pub fn new_modal(kind: Edit) -> Modal {
@@ -111,18 +122,19 @@ pub fn guard_done(app: &mut App, res: Result<Value, String>) {
         && let Some(raw) = e.strip_prefix("mfa:")
     {
         let mfa: Value = serde_json::from_str(raw).unwrap_or_default();
-        let methods: Vec<&'static str> = ["totp", "backup", "password"]
+        let methods: Vec<&'static str> = ["totp", "sms", "backup", "password", "webauthn"]
             .into_iter()
             .filter(|m| mfa["methods"].as_array().is_some_and(|l| l.iter().any(|x| x["type"] == *m)))
             .collect();
         if let Some(m) = &mut app.sform.modal {
             m.busy = false;
         }
+        let challenge = mfa["methods"].as_array().into_iter().flatten().find(|x| x["type"] == "webauthn").and_then(|x| x["challenge"].as_str()).unwrap_or("").to_string();
         if methods.is_empty() {
             app.sform.sudo = None;
-            app.toast("Discord wants a second factor Rustcord can't do. Use discord.com for this one.");
+            app.toast("Discord asked for a second factor Rustcord doesn't know.");
         } else {
-            app.sform.verify = Some(Verify { ticket: mfa["ticket"].as_str().unwrap_or("").to_string(), methods, at: 0, code: String::new(), err: None, busy: false });
+            app.sform.verify = Some(Verify { ticket: mfa["ticket"].as_str().unwrap_or("").to_string(), methods, at: 0, challenge, sent: false, code: String::new(), err: None, busy: false });
         }
         return;
     }
@@ -131,6 +143,10 @@ pub fn guard_done(app: &mut App, res: Result<Value, String>) {
         Done::Modal => modal_done(app, res),
         Done::Refresh(k) => match res {
             Ok(_) => refetch(app, k),
+            Err(e) => app.toast(e),
+        },
+        Done::Sms => match res {
+            Ok(_) => set_sms(app, true),
             Err(e) => app.toast(e),
         },
     }
@@ -156,19 +172,84 @@ pub fn finish_done(app: &mut App, res: Result<Value, String>) {
     }
 }
 
+fn start_web(ctx: &egui::Context, create: bool, options: String) -> Web {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let res = if create { crate::webauthn::make(&options) } else { crate::webauthn::get(&options) };
+        let _ = tx.send(res);
+        ctx.request_repaint();
+    });
+    Web { rx, create }
+}
+
+fn poll_web(app: &mut App) {
+    let Some(w) = &app.sform.web else { return };
+    let Ok(res) = w.rx.try_recv() else { return };
+    let create = w.create;
+    app.sform.web = None;
+    if create {
+        let Some(m) = &mut app.sform.modal else { return };
+        match res {
+            Err(e) => {
+                m.err = Some(e);
+                m.step = 0;
+            }
+            Ok(cred) => {
+                let ticket = m.key.as_ref().map(|k| k.0.clone()).unwrap_or_default();
+                let body = json!({ "name": m.f[0].trim(), "ticket": ticket, "credential": cred });
+                m.step = 2;
+                send(app, Done::Modal, "POST", "/users/@me/mfa/webauthn/credentials", Some(body));
+            }
+        }
+    } else if let Some(v) = &mut app.sform.verify {
+        match res {
+            Err(e) => v.err = Some(e),
+            Ok(cred) => {
+                v.busy = true;
+                let body = json!({ "ticket": v.ticket, "mfa_type": "webauthn", "data": cred });
+                app.net.send(Cmd::Rest { method: "POST", path: "/mfa/finish".into(), body: Some(body), tag: Tag::Remote("mfa_finish") });
+            }
+        }
+    }
+}
+
 fn verify_modal(app: &mut App, ctx: &egui::Context) {
+    let waiting = app.sform.web.is_some();
     let Some(v) = &mut app.sform.verify else { return };
     let method = v.methods[v.at];
     let (head, sub, hint) = match method {
         "totp" => ("Verify with your authenticator app", "Enter the 6-digit code from your authenticator app.", "6-digit authentication code"),
+        "sms" => ("Enter Discord SMS Code", "An SMS was sent to the phone number connected to this account.", "6-digit authentication code"),
         "backup" => ("Verify with a backup code", "If you do not have access to any other methods, enter your backup code and use the button below to proceed.", "8-character backup code"),
+        "webauthn" => ("Use a passkey or security key", "Authenticate with a passkey or security key.", ""),
         _ => ("Verify your password", "Enter your password to continue.", "Password"),
     };
+    if !v.sent && !v.busy {
+        match method {
+            "sms" => {
+                v.sent = true;
+                app.net.send(Cmd::Rest { method: "POST", path: "/auth/mfa/sms/send".into(), body: Some(json!({ "ticket": v.ticket })), tag: Tag::Remote("action") });
+            }
+            "webauthn" if !waiting => {
+                v.sent = true;
+                app.sform.web = Some(start_web(ctx, false, v.challenge.clone()));
+            }
+            _ => {}
+        }
+    }
     let alt: Vec<&'static str> = v.methods.iter().copied().filter(|m| *m != method).collect();
     let mut swap = None;
-    let act = dialog(ctx, "settings_verify", head, sub, "Verify", BLURPLE, None, |ui| {
-        let r = input(ui, &mut v.code, hint, method == "password");
-        super::mark(ui, "verify_input", r.rect);
+    let go = if method == "webauthn" { "Try Again" } else { "Verify" };
+    let act = dialog(ctx, "settings_verify", head, sub, go, BLURPLE, None, |ui| {
+        if method == "webauthn" {
+            if waiting {
+                para(ui, "Follow the prompts from Windows to use your passkey or security key.");
+            }
+        } else {
+            let r = input(ui, &mut v.code, hint, method == "password");
+            super::mark(ui, "verify_input", r.rect);
+        }
         if let Some(e) = &v.err {
             ui.add_space(6.0);
             ui.label(RichText::new(e).font(reg(14.0)).color(RED));
@@ -177,7 +258,9 @@ fn verify_modal(app: &mut App, ctx: &egui::Context) {
         for m in &alt {
             let l = match *m {
                 "totp" => "Use your authenticator app",
+                "sms" => "Receive auth code from SMS",
                 "backup" => "Use a backup code",
+                "webauthn" => "Use a passkey or security key",
                 _ => "Use your password",
             };
             if link(ui, l).clicked() {
@@ -189,16 +272,23 @@ fn verify_modal(app: &mut App, ctx: &egui::Context) {
         v.at = v.methods.iter().position(|x| *x == m).unwrap_or(0);
         v.code.clear();
         v.err = None;
+        v.sent = false;
     }
     if act == Act::Close {
         app.sform.verify = None;
         app.sform.sudo = None;
+        app.sform.web = None;
         if let Some(m) = &mut app.sform.modal {
             m.busy = false;
         }
         return;
     }
-    if act == Act::Go && !v.busy {
+    if act == Act::Go && !v.busy && method == "webauthn" {
+        if !waiting {
+            v.err = None;
+            v.sent = false;
+        }
+    } else if act == Act::Go && !v.busy {
         v.busy = true;
         v.err = None;
         let body = json!({ "ticket": v.ticket, "mfa_type": method, "data": v.code.trim() });
@@ -294,6 +384,14 @@ fn qr(ui: &mut Ui, data: &str) {
 }
 
 pub fn modals(app: &mut App, ctx: &egui::Context) {
+    poll_web(app);
+    if let Some(m) = &mut app.sform.modal
+        && m.kind == Edit::AddKey
+        && m.step == 1
+        && !m.secret.is_empty()
+    {
+        app.sform.web = Some(start_web(ctx, true, std::mem::take(&mut m.secret)));
+    }
     modal(app, ctx);
     verify_modal(app, ctx);
 }
@@ -341,6 +439,10 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         (Edit::Codes, 1) => ("Enter your key", "Enter the verification key we emailed you."),
         (Edit::Codes, _) => ("Backup codes", "Keep these somewhere safe. Each one works once."),
         (Edit::Key, _) => ("Rename security key", ""),
+        (Edit::AddKey, 0) => ("Name Security Key", "Give your passkey or security key a name you will recognise."),
+        (Edit::AddKey, 3) => ("Backup codes", "Keep these somewhere safe. Each one works once."),
+        (Edit::AddKey, _) => ("Register Security Key", "Follow the prompts from Windows to add your passkey or security key."),
+        (Edit::SmsOff, _) => ("Remove SMS Authentication", "This removes the ability to log in with an authentication code through SMS. Are you sure you want to remove this?"),
     };
     let (go, fill, alt) = match (m.kind, step) {
         (Edit::Username, _) | (Edit::Password, _) => ("Done", BLURPLE, None),
@@ -356,7 +458,9 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         (Edit::Owner, _) => ("Okay", BLURPLE, None),
         (Edit::Standing, _) => ("", BLURPLE, None),
         (Edit::TotpOff, _) => ("Remove", RED, None),
-        (Edit::Totp, _) | (Edit::Codes, _) => ("", BLURPLE, None),
+        (Edit::Totp, _) | (Edit::Codes, _) | (Edit::AddKey, 1..) => ("", BLURPLE, None),
+        (Edit::AddKey, _) => ("Continue", BLURPLE, None),
+        (Edit::SmsOff, _) => ("Remove", RED, None),
     };
     let act = dialog(ctx, "settings_modal", head, sub, if m.busy && !go.is_empty() { "…" } else { go }, fill, alt, |ui| {
         match (m.kind, step) {
@@ -419,6 +523,19 @@ fn modal(app: &mut App, ctx: &egui::Context) {
                 input(ui, &mut m.f[2], "", true);
             }
             (Edit::Owner | Edit::TotpOff, _) => {}
+            (Edit::AddKey, 0) => {
+                label(ui, "Name");
+                let r = input(ui, &mut m.f[0], "", false);
+                super::mark(ui, "modal_input", r.rect);
+            }
+            (Edit::AddKey, 1 | 2) => {
+                ui.add(egui::Spinner::new().color(pal().text_muted));
+            }
+            (Edit::SmsOff, _) => {
+                label(ui, "Password");
+                let r = input(ui, &mut m.f[0], "", true);
+                super::mark(ui, "modal_input", r.rect);
+            }
             (Edit::Standing, _) => {
                 let (name, _, _) = standing(standing_state["account_standing"]["state"].as_u64().unwrap_or(100));
                 ui.label(RichText::new(name).font(semi(16.0)).color(pal().header_primary));
@@ -452,7 +569,7 @@ fn modal(app: &mut App, ctx: &egui::Context) {
                 let r = input(ui, &mut m.f[0], "6-digit authentication code", false);
                 super::mark(ui, "modal_input", r.rect);
             }
-            (Edit::Totp, _) | (Edit::Codes, _) => {
+            (Edit::Totp, _) | (Edit::Codes, _) | (Edit::AddKey, _) => {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(12.0, 6.0);
                     for (c, used) in &m.codes {
@@ -532,6 +649,15 @@ fn submit(app: &mut App, alt: bool) {
         }
         (Edit::Totp, 0) => ("POST", "/users/@me/mfa/totp/enable".into(), Some(json!({ "code": m.f[0].trim(), "secret": m.secret }))),
         (Edit::TotpOff, _) => ("POST", "/users/@me/mfa/totp/disable".into(), None),
+        (Edit::SmsOff, _) => ("POST", "/users/@me/mfa/sms/disable".into(), Some(json!({ "password": m.f[0] }))),
+        (Edit::AddKey, 0) => {
+            if m.f[0].trim().is_empty() {
+                m.err = Some("Give it a name first.".into());
+                return;
+            }
+            ("POST", "/users/@me/mfa/webauthn/credentials".into(), Some(json!({})))
+        }
+        (Edit::AddKey, _) => return,
         (Edit::Codes, 0) => ("POST", "/auth/verify/view-backup-codes-challenge".into(), Some(json!({ "password": m.f[0] }))),
         (Edit::Codes, _) => {
             let nonce = if m.regenerate { &m.nonce[1] } else { &m.nonce[0] };
@@ -559,6 +685,9 @@ pub fn modal_done(app: &mut App, res: Result<Value, String>) {
     let v = match res {
         Err(e) => {
             m.err = Some(e);
+            if m.kind == Edit::AddKey {
+                m.step = 0;
+            }
             return;
         }
         Ok(v) => v,
@@ -604,6 +733,26 @@ pub fn modal_done(app: &mut App, res: Result<Value, String>) {
                 m.step = 1;
             }
         }
+        (Edit::AddKey, 0) => {
+            m.key = Some((v["ticket"].as_str().unwrap_or("").to_string(), String::new()));
+            m.secret = v["challenge"].as_str().unwrap_or("").to_string();
+            m.step = 1;
+        }
+        (Edit::AddKey, _) => {
+            app.store.me_raw["mfa_enabled"] = json!(true);
+            refetch(app, "keys");
+            let codes = parse_codes(&v);
+            if codes.is_empty() {
+                close(app, "Security key added.");
+            } else if let Some(m) = &mut app.sform.modal {
+                m.codes = codes;
+                m.step = 3;
+            }
+        }
+        (Edit::SmsOff, _) => {
+            set_sms(app, false);
+            close(app, "SMS authentication removed.");
+        }
         (Edit::TotpOff, _) => {
             adopt_token(app, &v);
             app.store.me_raw["mfa_enabled"] = json!(false);
@@ -629,6 +778,11 @@ pub fn modal_done(app: &mut App, res: Result<Value, String>) {
             close(app, "Saved.");
         }
     }
+}
+
+pub(super) fn set_sms(app: &mut App, on: bool) {
+    let f = app.store.me_raw["flags"].as_u64().unwrap_or(0);
+    app.store.me_raw["flags"] = json!(if on { f | SMS_FLAG } else { f & !SMS_FLAG });
 }
 
 /// A password or second-factor change hands back a fresh token; the old one stops working.

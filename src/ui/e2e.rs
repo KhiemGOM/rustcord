@@ -1641,7 +1641,7 @@ impl Run {
             628 => click_at(self, "disconnect:github", 600),
             629 => {
                 self.mark("connected_apps");
-                self.next(100);
+                click_at(self, "join:ghostie's graveyard", 400);
             }
             630 => {
                 if self.open_page(app, "Profiles") {

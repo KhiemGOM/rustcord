@@ -65,6 +65,7 @@ fn fresh(settings: Vec<u8>) -> Acct {
         connections: vec![
             json!({ "type": "github", "id": "1", "name": "you-on-github", "visibility": 1, "show_activity": true, "verified": true }),
             json!({ "type": "spotify", "id": "2", "name": "you-on-spotify", "visibility": 0, "show_activity": true, "verified": true }),
+            json!({ "type": "twitch", "id": "3", "name": "you-on-twitch", "visibility": 0, "verified": true, "integrations": [{ "id": "7001", "guild": { "id": "999", "name": "ghostie's graveyard", "icon": null }, "account": { "id": "t1", "name": "ghostiefruit" } }] }),
         ],
         oauth: vec![
             json!({ "id": "1290000000000000000", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } }),
@@ -72,7 +73,7 @@ fn fresh(settings: Vec<u8>) -> Acct {
         ],
         blocked: vec![105],
         ignored: vec![104],
-        keys: vec![json!({ "id": "9001", "name": "YubiKey 5" })],
+        keys: vec![json!({ "id": "9001", "name": "YubiKey 5", "last_used": "2026-11-01T10:00:00+00:00" })],
         harvested: false,
         tickets: Vec::new(),
         tokens: Vec::new(),
@@ -92,6 +93,8 @@ fn guarded(a: &mut Acct, method: &str, p: &[&str], body: &Value, token: Option<&
         ("PATCH", ["users", "@me"]) => body["new_password"].is_string(),
         ("POST", ["users", "@me", "disable" | "delete"]) => true,
         ("POST", ["users", "@me", "mfa", "totp", "enable" | "disable"]) => true,
+        ("POST", ["users", "@me", "mfa", "sms", "enable"]) => true,
+        ("POST", ["users", "@me", "mfa", "webauthn", "credentials"]) => true,
         ("POST", ["auth", "sessions", "logout"]) => true,
         ("POST", ["users", "@me", "mfa", "codes-verification"]) => true,
         ("PATCH" | "DELETE", ["users", "@me", "mfa", "webauthn", "credentials", _]) => true,
@@ -113,8 +116,16 @@ fn guarded(a: &mut Acct, method: &str, p: &[&str], body: &Value, token: Option<&
     a.nonce += 1;
     let ticket = format!("ticket-{}", a.nonce);
     a.tickets.push(ticket.clone());
-    let methods = if a.mfa { json!([{ "type": "totp" }, { "type": "backup" }, { "type": "password" }]) } else { json!([{ "type": "password" }]) };
+    let methods = if a.mfa {
+        json!([{ "type": "totp" }, { "type": "sms" }, { "type": "backup" }, { "type": "password" }, { "type": "webauthn", "challenge": challenge() }])
+    } else {
+        json!([{ "type": "password" }])
+    };
     Some((401, json!({ "message": "Two factor is required for this operation", "code": 60003, "mfa": { "ticket": ticket, "methods": methods } })))
+}
+
+fn challenge() -> String {
+    json!({ "publicKey": { "challenge": "bW9jay1jaGFsbGVuZ2U", "rpId": "discord.com", "allowCredentials": [{ "type": "public-key", "id": "AQID" }], "userVerification": "preferred", "timeout": 60000 } }).to_string()
 }
 
 fn codes() -> Value {
@@ -161,6 +172,8 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
                 Some("password") => data == a.password,
                 Some("totp") => data == CODE,
                 Some("backup") => data == "abcd1234",
+                Some("sms") => data == CODE,
+                Some("webauthn") => serde_json::from_str::<Value>(data).is_ok_and(|c| c["response"]["signature"].is_string()),
                 _ => false,
             };
             if !a.tickets.iter().any(|x| x == t) {
@@ -199,6 +212,39 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
                 return Some(err(400, "Invalid verification key"));
             }
             ok(json!({ "backup_codes": codes() }))
+        }
+        ("POST", ["auth", "mfa", "sms", "send"]) => ok(json!({ "phone": "+*********0100" })),
+        ("POST", ["users", "@me", "mfa", "sms", "enable"]) => {
+            let f = a.me.get("flags").and_then(Value::as_u64).unwrap_or(0);
+            a.me.insert("flags".into(), json!(f | 16));
+            ok(json!({}))
+        }
+        ("POST", ["users", "@me", "mfa", "sms", "disable"]) => {
+            if b["password"].as_str() != Some(a.password.as_str()) {
+                return Some(err(400, "Password does not match."));
+            }
+            let f = a.me.get("flags").and_then(Value::as_u64).unwrap_or(0);
+            a.me.insert("flags".into(), json!(f & !16));
+            ok(json!({}))
+        }
+        ("POST", ["users", "@me", "mfa", "webauthn", "credentials"]) => {
+            if b["credential"].is_null() {
+                return ok(json!({ "ticket": "webauthn-ticket", "challenge": json!({ "publicKey": { "challenge": "bW9jaw", "rp": { "id": "discord.com", "name": "Discord" }, "user": { "id": "AQID", "name": "you", "displayName": "you" }, "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }], "excludeCredentials": [] } }).to_string() }));
+            }
+            let cred = serde_json::from_str::<Value>(b["credential"].as_str().unwrap_or("")).unwrap_or_default();
+            if b["ticket"] != "webauthn-ticket" || cred["response"]["attestationObject"].is_null() {
+                return Some(err(400, "Invalid credential"));
+            }
+            a.nonce += 1;
+            let key = json!({ "id": format!("{}", 9100 + a.nonce), "name": b["name"], "last_used": "2026-11-04T10:00:00+00:00" });
+            a.keys.push(key.clone());
+            let mut out = key;
+            if !a.mfa {
+                a.mfa = true;
+                a.me.insert("mfa_enabled".into(), json!(true));
+                out["backup_codes"] = codes();
+            }
+            ok(out)
         }
         ("GET", ["users", "@me", "mfa", "webauthn", "credentials"]) => ok(json!(a.keys)),
         ("PATCH", ["users", "@me", "mfa", "webauthn", "credentials", id]) => {
@@ -304,6 +350,7 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             a.connections.retain(|c| !(c["type"] == *kind && c["id"] == *id));
             Some((204, Value::Null))
         }
+        ("POST", ["integrations", _, "join"]) => Some((204, Value::Null)),
         ("GET", ["connections", kind, "authorize"]) => ok(json!({ "url": format!("mock://oauth/{kind}") })),
         ("GET", ["oauth2", "tokens"]) => ok(json!(a.oauth)),
         ("DELETE", ["oauth2", "tokens", id]) => {
