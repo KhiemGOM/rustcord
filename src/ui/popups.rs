@@ -2121,12 +2121,6 @@ pub struct Timeout {
     reason: String,
 }
 
-impl Timeout {
-    pub fn new(guild: Id, user: Id) -> Self {
-        Timeout { guild, user, secs: 60, reason: String::new() }
-    }
-}
-
 /// Discord's Timeout dialog: what timeout means, the six lengths, a reason for the audit log.
 pub fn timeout(app: &mut App, ctx: &egui::Context) {
     let Some(t) = &mut app.timeout else { return };

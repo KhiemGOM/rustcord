@@ -3,7 +3,6 @@
 
 use super::App;
 use crate::cache::{self, SavedAccount};
-use crate::net::Cmd;
 use crate::state::Id;
 
 impl App {
@@ -17,9 +16,7 @@ impl App {
     pub fn switch_account(&mut self, id: Id) {
         let Some(token) = cache::account_token(id).filter(|_| id != self.store.me) else { return };
         self.reset_session();
-        cache::set_token(Some(&token));
-        self.net.send(Cmd::Start(token.clone()));
-        self.token = Some(token);
+        self.sign_in(token);
     }
 
     /// To the login screen with the current account kept for switching back to.
