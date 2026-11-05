@@ -11,6 +11,7 @@ enum Val<'a> {
     Int(u64),
     Bytes(&'a [u8]),
     Fixed(u64),
+    Float(f32),
 }
 
 fn varint(b: &[u8], i: &mut usize) -> Option<u64> {
@@ -49,10 +50,13 @@ fn fields(b: &[u8]) -> Vec<(u64, Val<'_>)> {
                 i += len as usize;
                 Val::Bytes(s)
             }
-            5 => {
-                i += 4;
-                continue;
-            }
+            5 => match b.get(i..i + 4) {
+                Some(s) => {
+                    i += 4;
+                    Val::Float(f32::from_le_bytes(s.try_into().unwrap()))
+                }
+                None => break,
+            },
             _ => break,
         };
         out.push((key >> 3, v));
@@ -191,6 +195,9 @@ account! {
     gif_autoplay: bool,
     spoilers: Spoilers,
     locale: String,
+    stream_previews: bool,
+    soundboard_volume: f32,
+    entrance: Vec<(Id, Id, Id)>,
 }
 
 fn flag(w: &[u8]) -> bool {
@@ -211,6 +218,49 @@ pub fn account(settings: &[u8], full: bool) -> Account {
     for (n, v) in fields(settings) {
         let Val::Bytes(b) = v else { continue };
         match n {
+            3 => {
+                let mut sounds = Vec::new();
+                for (n, v) in fields(b) {
+                    let (1, Val::Bytes(entry)) = (n, v) else { continue };
+                    let (mut guild, mut sound) = (0, (0, 0));
+                    for (n, v) in fields(entry) {
+                        match (n, v) {
+                            (1, Val::Fixed(g)) => guild = g,
+                            (2, Val::Bytes(gs)) => {
+                                for (n, v) in fields(gs) {
+                                    let (6, Val::Bytes(js)) = (n, v) else { continue };
+                                    for (n, v) in fields(js) {
+                                        match (n, v) {
+                                            (1, Val::Fixed(id)) => sound.0 = id,
+                                            (2, Val::Fixed(g)) => sound.1 = g,
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if sound.0 != 0 {
+                        sounds.push((guild, sound.0, sound.1));
+                    }
+                }
+                sounds.sort();
+                a.entrance = Some(sounds);
+            }
+            5 => {
+                for (n, v) in fields(b) {
+                    match (n, v) {
+                        (9, Val::Bytes(w)) => {
+                            if let Some((_, Val::Float(f))) = fields(w).into_iter().find(|(n, _)| *n == 1) {
+                                a.soundboard_volume = Some(f);
+                            }
+                        }
+                        (10, Val::Bytes(w)) => a.stream_previews = Some(!flag(w)),
+                        _ => {}
+                    }
+                }
+            }
             6 => {
                 for (n, v) in fields(b) {
                     let Val::Bytes(w) = v else { continue };
@@ -276,4 +326,61 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         }
     }
     a
+}
+
+fn tag(out: &mut Vec<u8>, field: u64, wire: u64) {
+    put(out, field << 3 | wire);
+}
+
+fn put(out: &mut Vec<u8>, mut v: u64) {
+    while v >= 0x80 {
+        out.push(v as u8 & 0x7f | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+fn message(out: &mut Vec<u8>, field: u64, body: &[u8]) {
+    tag(out, field, 2);
+    put(out, body.len() as u64);
+    out.extend_from_slice(body);
+}
+
+/// A PreloadedUserSettings update carrying just the voice settings the account mirrors:
+/// soundboard volume (voice_and_video.soundboard_settings) and stream previews turned off.
+pub fn voice_patch(soundboard_volume: f32, stream_previews: bool) -> Vec<u8> {
+    let mut volume = Vec::new();
+    tag(&mut volume, 1, 5);
+    volume.extend_from_slice(&soundboard_volume.to_le_bytes());
+    let mut off = Vec::new();
+    if !stream_previews {
+        tag(&mut off, 1, 0);
+        put(&mut off, 1);
+    }
+    let mut vv = Vec::new();
+    message(&mut vv, 9, &volume);
+    message(&mut vv, 10, &off);
+    let mut out = Vec::new();
+    message(&mut out, 5, &vv);
+    out
+}
+
+/// An update that sets one guild's entrance sound (guild 0 is "All Servers"); a zero sound clears it.
+pub fn entrance_patch(guild: Id, sound: Id, source: Id) -> Vec<u8> {
+    let mut js = Vec::new();
+    tag(&mut js, 1, 1);
+    js.extend_from_slice(&sound.to_le_bytes());
+    tag(&mut js, 2, 1);
+    js.extend_from_slice(&source.to_le_bytes());
+    let mut gs = Vec::new();
+    message(&mut gs, 6, &js);
+    let mut entry = Vec::new();
+    tag(&mut entry, 1, 1);
+    entry.extend_from_slice(&guild.to_le_bytes());
+    message(&mut entry, 2, &gs);
+    let mut all = Vec::new();
+    message(&mut all, 1, &entry);
+    let mut out = Vec::new();
+    message(&mut out, 3, &all);
+    out
 }
