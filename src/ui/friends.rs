@@ -148,7 +148,7 @@ fn list(app: &mut App, ui: &mut Ui) {
     ui.add_space(12.0);
 
     let mut act: Option<(Id, &'static str)> = None;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    crate::theme::auto_scroll(ui, |ui| egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (uid, kind) in people {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
             ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
@@ -216,7 +216,7 @@ fn list(app: &mut App, ui: &mut Ui) {
                 act = Some((uid, "dm"));
             }
         }
-    });
+    }));
     match act {
         Some((u, "dm")) => app.open_dm(u),
         Some((u, "accept")) => {
