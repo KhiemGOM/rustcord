@@ -92,6 +92,7 @@ def launch(env, out):
     out.mkdir(parents=True, exist_ok=True)
     spawned = time.time() * 1000
     p = subprocess.Popen([str(EXE)], env=dict(env, RUSTCORD_BENCH=str(out)))
+    print(f"{out.name} pid {p.pid}", file=sys.stderr, flush=True)
     ff = wait(lambda: (out / "first_frame_epoch_ms").exists() and (out / "first_frame_epoch_ms").read_text(), 30)
     first = round(float(ff) - spawned) if ff else None
     want = ["content"] + (["vc_started"] if "RUSTCORD_VENCORD" not in env else [])
@@ -139,8 +140,8 @@ def main():
         env["RUSTCORD_DATA"] = env_cold["RUSTCORD_DATA"]
         p, report["warm"] = launch(env, tmp / "w")
         h = handle(p.pid)
-        print(f"warm pid {p.pid}", file=sys.stderr, flush=True)
-        time.sleep(5)
+        # past the snapshot save five seconds after READY
+        time.sleep(8)
         report["idle"] = window(h, tmp / "w", secs)
         req = urllib.request.Request(f"http://127.0.0.1:{http}/api/v9/mock/busy", json.dumps({"rate": rate, "secs": secs + 2}).encode(), method="POST")
         urllib.request.urlopen(req).read()
@@ -154,6 +155,7 @@ def main():
         report["frame_cost_ms"] = {"cpu": round(spin["cpu_pct_of_one_core"] * 10 / spin["frames_per_s"], 2), "ui": round(spin["ui_ms_per_s"] / spin["frames_per_s"], 2),
                                    "frames_per_s": spin["frames_per_s"]}
         report["memory_mb"] = mem_mb(h)
+        report["warm"]["slow_frames"] = (stats(tmp / "w") or {}).get("slow_frames")
         p.kill()
         p.wait()
     finally:
