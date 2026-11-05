@@ -1292,6 +1292,9 @@ enum AccountAct {
     Status(&'static str),
     Edit,
     CopyId,
+    Custom,
+    Switch(Id),
+    Manage,
 }
 
 /// What opens from the account panel: your card, then discord's grouped rows.
@@ -1307,17 +1310,37 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     let status = app.store.presence.get(&me).copied().unwrap_or(Status::Online);
     let dev = app.settings.dev;
     let custom = app.store.custom_status.clone();
+    let app_accounts = app.accounts.clone();
     let mut act = None;
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
     let wash = ui.painter().add(egui::Shape::Noop);
     let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
-    if let Some(c) = &custom {
+    let hint = ui.painter().layout_no_wrap("Favorite collectible?".into(), italic(14.0), pal().header_primary.gamma_multiply(0.76));
+    let bubble = match &custom {
         // the speech bubble discord floats beside your avatar
-        let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
-        let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(179.0, (g.size().y + 22.0).max(40.0)));
-        ui.painter().rect(b, 16, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-        ui.painter().galley(pos2(b.left() + 12.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
+        Some(c) => {
+            let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
+            let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(179.0, (g.size().y + 22.0).max(40.0)));
+            ui.painter().rect(b, 16, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            ui.painter().galley(pos2(b.left() + 12.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
+            b
+        }
+        // and with nothing set, the prompt to add one
+        None => {
+            let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(hint.size().x + 48.0, 36.0));
+            ui.painter().rect(b, 18, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            super::icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(pos2(b.left() + 20.0, b.center().y), vec2(16.0, 16.0)), pal().header_primary.gamma_multiply(0.76));
+            ui.painter().galley(pos2(b.left() + 36.0, b.center().y - hint.size().y / 2.0), hint, pal().header_primary);
+            b
+        }
+    };
+    let bubble_hit = ui.interact(bubble, ui.id().with("custom_status"), Sense::click());
+    if bubble_hit.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if bubble_hit.clicked() {
+        act = Some(AccountAct::Custom);
     }
     let label = match status {
         Status::Online => "Online",
@@ -1361,19 +1384,40 @@ pub fn account(app: &mut App, ui: &mut Ui) {
                 }
             });
         });
-        if dev {
-            card(ui, &mut |ui| {
-                if account_row(ui, Some(Icon::Id), "Copy User ID", false, false).clicked() {
-                    act = Some(AccountAct::CopyId);
+        let others = app_accounts.clone();
+        card(ui, &mut |ui| {
+            let r = account_row(ui, Some(Icon::Person), "Switch Accounts", true, false);
+            egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for a in &others {
+                    let (resp, lead) = super::menu_row_at(ui, true, &a.name, None, false, super::Trail::Check(a.id == me));
+                    let url = match &a.avatar {
+                        Some(h) => format!("{}/avatars/{}/{h}.png?size=64", crate::api::cdn(), a.id),
+                        None => format!("{}/embed/avatars/{}.png", crate::api::cdn(), (a.id >> 22) % 6),
+                    };
+                    avatar(ui, lead.expand(2.0), &url);
+                    if resp.clicked() && a.id != me {
+                        act = Some(AccountAct::Switch(a.id));
+                    }
+                }
+                super::menu_sep(ui);
+                if super::menu_item(ui, None, "Manage Accounts", false) {
+                    act = Some(AccountAct::Manage);
                 }
             });
-        }
+            if dev && account_row(ui, Some(Icon::Id), "Copy User ID", false, true).clicked() {
+                act = Some(AccountAct::CopyId);
+            }
+        });
     });
     theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
     match act {
         Some(AccountAct::Status(s)) => app.set_status(s),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),
+        Some(AccountAct::Custom) => app.user_dialog = Some(super::userdlg::Dialog::Status { text: custom.unwrap_or_default(), clear: 0 }),
+        Some(AccountAct::Switch(id)) => app.switch_account(id),
+        Some(AccountAct::Manage) => app.user_dialog = Some(super::userdlg::Dialog::Accounts),
         None => {}
     }
     if act.is_some() {

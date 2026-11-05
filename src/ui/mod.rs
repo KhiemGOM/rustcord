@@ -1,3 +1,4 @@
+mod accounts;
 mod actions;
 mod active;
 mod autoscroll;
@@ -61,6 +62,8 @@ pub struct App {
     pub store: Tracked,
     pub ui: UiState,
     pub token: Option<String>,
+    // the other accounts signed in on this machine, for Switch Accounts
+    pub accounts: Vec<cache::SavedAccount>,
     pub conn: Conn,
     pub login: login::Form,
     pub drafts: Map<Id, String>,
@@ -250,6 +253,7 @@ impl App {
             store: store.into(),
             ui,
             token,
+            accounts: cache::accounts(),
             conn: Conn::Connecting,
             login: Default::default(),
             drafts: Map::default(),
@@ -1239,6 +1243,15 @@ impl App {
     }
 
     pub fn logout(&mut self) {
+        if self.store.me != 0 {
+            cache::forget_account(self.store.me);
+            self.accounts = cache::accounts();
+        }
+        self.reset_session();
+    }
+
+    /// Drops the signed-in session and its cached data, back to the login screen.
+    pub fn reset_session(&mut self) {
         self.voice.leave(&self.net);
         self.net.send(Cmd::Stop);
         cache::set_token(None);
@@ -1303,6 +1316,7 @@ impl App {
                         e.cost("ready_apply", took.elapsed());
                     }
                     if t == "READY" {
+                        self.remember_me();
                         // cached channel lists can be stale, refetch whatever is open
                         for m in self.store.msgs.values_mut() {
                             m.fresh = false;

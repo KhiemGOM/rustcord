@@ -15,6 +15,8 @@ pub enum Dialog {
     Nick { gid: Id, uid: Id, text: String, had: bool },
     Group { ch: Id, text: String, icon: Option<String> },
     Cleanup { picked: std::collections::HashSet<Id> },
+    Status { text: String, clear: u8 },
+    Accounts,
 }
 
 impl Dialog {
@@ -44,8 +46,11 @@ enum Done {
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
-    if matches!(app.user_dialog, Some(Dialog::Cleanup { .. })) {
-        return cleanup(app, ctx);
+    match app.user_dialog {
+        Some(Dialog::Cleanup { .. }) => return cleanup(app, ctx),
+        Some(Dialog::Status { .. }) => return super::accounts::status_modal(app, ctx),
+        Some(Dialog::Accounts) => return super::accounts::manage_modal(app, ctx),
+        _ => {}
     }
     let Some(d) = &mut app.user_dialog else { return };
     let mut done = None;
@@ -55,7 +60,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Dialog::Nick { gid: 0, had, .. } => (if *had { "Change Friend Nickname" } else { "Add Friend Nickname" }, Some("Find a friend faster with a personal nickname. It will only be visible to you in your direct messages."), "Friend Nickname"),
         Dialog::Nick { .. } => ("Change Nickname", None, "Nickname"),
         Dialog::Group { .. } => ("Edit Group", None, ""),
-        Dialog::Cleanup { .. } => return,
+        Dialog::Cleanup { .. } | Dialog::Status { .. } | Dialog::Accounts => return,
     };
     let me = app.store.me;
     let icon_of = |ch: Id| app.store.channels.get(&ch).and_then(|c| c.icon.clone());
@@ -107,11 +112,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::Note { .. } => "Click to add a note",
                 Dialog::Nick { .. } => "Nickname",
                 Dialog::Group { .. } => "Group name",
-                Dialog::Cleanup { .. } => "",
+                Dialog::Cleanup { .. } | Dialog::Status { .. } | Dialog::Accounts => "",
             };
             let text = match d {
                 Dialog::Note { text, .. } | Dialog::Nick { text, .. } | Dialog::Group { text, .. } => text,
-                Dialog::Cleanup { .. } => return,
+                Dialog::Cleanup { .. } | Dialog::Status { .. } | Dialog::Accounts => return,
             };
             let multi = label == "Note";
             input_frame().corner_radius(8).inner_margin(12).show(ui, |ui| {
@@ -196,7 +201,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             app.rest("PATCH", format!("/channels/{ch}"), Some(body), Tag::Quiet);
         }
-        Dialog::Cleanup { .. } => {}
+        Dialog::Cleanup { .. } | Dialog::Status { .. } | Dialog::Accounts => {}
     }
 }
 
