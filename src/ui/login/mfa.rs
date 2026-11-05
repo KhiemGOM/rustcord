@@ -2,7 +2,7 @@ use egui::{Sense, Ui, vec2};
 use std::time::{Duration, Instant};
 
 use super::{Form, Page, input, label, link, primary, problem, secondary};
-use crate::auth::{self, Challenge, Cmd as Auth};
+use crate::auth::{Challenge, Cmd as Auth};
 use crate::net::Cmd;
 use crate::theme::*;
 use crate::ui::App;
@@ -28,7 +28,7 @@ impl State {
     fn methods(&self) -> Vec<&'static str> {
         let c = &self.challenge;
         [
-            (c.webauthn.is_some() && auth::webauthn_ready(), "webauthn"),
+            (c.webauthn.is_some(), "webauthn"),
             (c.totp, "totp"),
             (c.sms, "sms"),
             (c.backup, "backup"),
@@ -136,7 +136,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             f.rects.insert("webauthn", r.rect);
             if r.clicked() && !f.mfa.busy {
                 f.mfa.err = None;
-                match f.mfa.challenge.webauthn.as_deref().map(auth::webauthn_assert) {
+                match f.mfa.challenge.webauthn.as_deref().map(crate::webauthn::get)
+ {
                     Some(Ok(code)) => {
                         f.mfa.busy = true;
                         app.net.send(Cmd::Auth(Auth::Mfa { kind: "webauthn", ticket: f.mfa.challenge.ticket.clone(), code }));

@@ -67,13 +67,7 @@ pub enum Ev {
     Forgot,
 }
 
-pub fn webauthn_ready() -> bool {
-    false
-}
 
-pub fn webauthn_assert(_challenge: &str) -> Result<String, String> {
-    Err("Security keys aren't available yet.".into())
-}
 
 fn messages(v: &Value, field: &str, out: &mut Vec<(String, String, String)>) {
     let Some(o) = v.as_object() else { return };
