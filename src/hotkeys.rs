@@ -18,6 +18,11 @@ fn down(vk: u32) -> bool {
     unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
 }
 
+/// Whether anything is being polled for.
+pub fn watching() -> bool {
+    BINDS.lock().is_ok_and(|b| !b.is_empty())
+}
+
 pub fn set(binds: &[(String, Vec<u32>)]) {
     if let Ok(mut b) = BINDS.lock() {
         *b = binds.iter().filter(|(_, k)| !k.is_empty()).cloned().collect();

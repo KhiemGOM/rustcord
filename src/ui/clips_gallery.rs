@@ -307,6 +307,21 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+/// One message in `ch` carrying the clips, each cut to its trim first.
+pub fn send_clips(app: &mut App, ch: Id, note: String, clips: &[Clip]) {
+    let files: Vec<_> = clips
+        .iter()
+        .filter_map(|c| super::clips_trim::export(c).map(|p| (p.clone(), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), String::new())))
+        .collect();
+    if files.is_empty() {
+        return;
+    }
+    let nonce = crate::state::make_nonce();
+    app.store.add_pending(ch, note.clone(), nonce.clone(), None);
+    app.net.send(crate::net::Cmd::Send { channel: ch, content: note, nonce, reply: None, files, stickers: Vec::new(), tts: false });
+    app.toast("Clip shared");
+}
+
 fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     let Some(s) = &mut g.share else { return };
     let store = &app.store;
@@ -371,20 +386,8 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     if send {
         let (ids, to, note) = (s.ids.clone(), s.to, s.note.clone());
         if let Some(ch) = to {
-            let files: Vec<_> = app
-                .clips
-                .list
-                .iter()
-                .flatten()
-                .filter(|c| ids.contains(&c.id))
-                .filter_map(|c| super::clips_trim::export(c).map(|p| (p.clone(), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), String::new())))
-                .collect();
-            if !files.is_empty() {
-                let nonce = crate::state::make_nonce();
-                app.store.add_pending(ch, note.clone(), nonce.clone(), None);
-                app.net.send(crate::net::Cmd::Send { channel: ch, content: note, nonce, reply: None, files, stickers: Vec::new(), tts: false });
-                app.toast("Clip shared");
-            }
+            let picked: Vec<Clip> = app.clips.list.iter().flatten().filter(|c| ids.contains(&c.id)).cloned().collect();
+            send_clips(app, ch, note, &picked);
         }
         g.share = None;
         g.sel.clear();

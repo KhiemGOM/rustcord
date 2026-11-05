@@ -301,7 +301,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                 }
                 for (data, t) in frames {
                     shared.video_out.fetch_add(1, Relaxed);
-                    if clip {
+                    if clip && crate::clips::active() {
                         crate::clips::video(&data, base + t, crate::clips::is_key(&data));
                     }
                     let ts = (t as u64 * 9 / 1000) as u32;

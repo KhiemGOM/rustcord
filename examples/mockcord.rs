@@ -2296,6 +2296,13 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                     Some(5) => line["speaking"] = d["speaking"].clone(),
                     Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
                     Some(12) | Some(15) | Some(31) => line["d"] = d.clone(),
+                    // clip flags: once the client says it's clipping, the other speaker says so too
+                    Some(18) => {
+                        line["d"] = d.clone();
+                        if kind == Kind::Voice && d["flags"].as_u64().unwrap_or(0) & 1 != 0 {
+                            out.push(Reply::Json(json!({ "op": 18, "d": { "user_id": SPEAKER.to_string(), "flags": 3 } })));
+                        }
+                    }
                     Some(23) => {
                         // everyone is ready, so media switches to E2EE now
                         line["d"] = d.clone();

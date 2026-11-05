@@ -23,6 +23,12 @@ pub struct State {
 
 pub const CALL_WARNING: &str = "A participant in the call you joined has clipping enabled, your voice may be recorded.";
 
+impl State {
+    pub fn warned_for(&self, ch: Id) -> bool {
+        self.warned == Some(ch)
+    }
+}
+
 impl App {
     pub fn sync_hotkeys(&self) {
         let wanted = self.settings.clips && clips::active();
@@ -58,7 +64,7 @@ impl App {
                     }
                     self.toast("You recently captured a clip!");
                 }
-                Outcome::Failed(_) => {
+                Outcome::Failed => {
                     crate::sound::cue("clip_error");
                     self.toast("Unable to save clip");
                 }
