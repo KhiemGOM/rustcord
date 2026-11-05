@@ -147,7 +147,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         super::mark(ui, "profile:pronouns", r.rect);
         ui.add_space(12.0);
         h5(ui, "Avatar & Decoration");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if primary(ui, "Change Avatar").clicked() {
                 act = Act::Avatar;
             }
@@ -163,7 +163,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         });
         ui.add_space(12.0);
         h5(ui, "Theme & Banner");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if secondary(ui, "Change Banner").clicked() {
                 act = Act::Banner;
             }
@@ -192,7 +192,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         });
         ui.add_space(12.0);
         h5(ui, "Nameplate");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             match &draft.nameplate {
                 Some(n) => {
                     let (r, _) = ui.allocate_exact_size(vec2(224.0, 42.0), Sense::hover());
