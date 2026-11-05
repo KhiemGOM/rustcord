@@ -538,10 +538,18 @@ fn entrance(app: &mut App, ui: &mut Ui) -> bool {
     let mut set: Option<Option<(u64, u64)>> = None;
     let (r, resp) = ui.allocate_exact_size(vec2(w.min(400.0), 40.0), Sense::click());
     ui.painter().rect(r, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, super::faint(61)), egui::StrokeKind::Inside);
-    ui.painter().text(r.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, &label, reg(16.0), pal().text_normal);
+    let shown = ui.painter().text(r.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, &label, reg(16.0), pal().text_normal);
     icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(pos2(r.right() - 22.0, r.center().y), vec2(20.0, 20.0)), pal().header_primary);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let sp = Rect::from_center_size(pos2(shown.right() + 18.0, r.center().y), vec2(24.0, 24.0));
+    let preview = ui.interact(sp, Id::new("entrance_preview"), Sense::click());
+    icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(sp.center(), vec2(18.0, 18.0)), if current.is_some() { pal().header_primary } else { pal().text_muted });
+    if preview.clicked()
+        && let Some((_, sound, source)) = current
+    {
+        app.play_sound(sound, Some(source).filter(|s| *s != 0));
     }
     super::mark(ui, "entrance:sound", r);
     egui::Popup::menu(&resp).width(r.width()).show(|ui| {
