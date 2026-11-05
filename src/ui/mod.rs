@@ -1558,6 +1558,15 @@ impl App {
                         }
                         self.toast(format!("Voice disconnected: {err}"));
                     }
+                    if let Some((key, img)) = self.voice.preview_job.take() {
+                        self.stream_preview(key, img);
+                    }
+                    if std::mem::take(&mut self.voice.entrance_due) {
+                        self.entrance_sound();
+                    }
+                    if self.voice.shared.no_audio.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                        self.toast("No audio detected from your mic. Check the input device in Voice & Video settings.");
+                    }
                 }
             }
         }
@@ -2273,12 +2282,17 @@ pub fn rows_of(menu: impl FnOnce()) -> Vec<(String, egui::Id)> {
 /// A select's option, listed with the menu's rows for `select_keys`.
 pub fn option(ui: &mut Ui, on: bool, label: &str) -> egui::Response {
     let r = ui.selectable_label(on, label);
+    list_row(label, r.id);
+    r
+}
+
+/// Lists a hand-drawn row with its menu's rows for `select_keys`.
+pub fn list_row(label: &str, id: egui::Id) {
     ROWS.with(|rows| {
         if let Some(v) = rows.borrow_mut().as_mut() {
-            v.push((label.to_string(), r.id));
+            v.push((label.to_string(), id));
         }
     });
-    r
 }
 
 /// A select's keys, once its list is open: up and down move by one and wrap, page up and down
@@ -2389,11 +2403,7 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     let w = indent + text.size().x.max(sub.as_ref().map_or(0.0, |s| s.size().x)) + tail;
     let h = if sub.is_some() { 52.0 } else if lead || trail != Trail::None { 36.0 } else { 34.0 };
     let (r, resp) = ui.allocate_at_least(vec2(w, h), Sense::click());
-    ROWS.with(|rows| {
-        if let Some(v) = rows.borrow_mut().as_mut() {
-            v.push((label.to_string(), resp.id));
-        }
-    });
+    list_row(label, resp.id);
     // menus have no app to report to; the e2e driver finds rows here by label
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
     let p = ui.painter();

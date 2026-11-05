@@ -4115,6 +4115,7 @@ dependencies = [
  "opus-rs",
  "qrcode",
  "raw-window-handle",
+ "realfft",
  "reqwest",
  "rfd",
  "rtrb",

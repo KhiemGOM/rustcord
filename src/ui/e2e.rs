@@ -54,6 +54,8 @@ pub struct Run {
     call: Id,
     cues: usize,
     loaded: usize,
+    // which section of the settings page being toured is up, for pages longer than a screen
+    section: usize,
     text: String,
     error: Option<String>,
     done: bool,
@@ -136,6 +138,7 @@ impl Run {
             call: 0,
             cues: 0,
             loaded: 0,
+            section: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
             done: false,
@@ -1300,6 +1303,7 @@ impl Run {
             1800..=1899 => self.player_steps(app, ctx),
             2300..=2319 => self.sound_steps(),
             1900..=1999 => self.more_steps(app, ctx),
+            2400..=2499 => self.voice_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -2782,7 +2786,25 @@ impl Run {
                     return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
                 }
                 let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
-                self.shot(ctx, &format!("settings_{:02}_{slug}.png", self.loaded + 1));
+                let sections: &[&str] = if PAGES[self.loaded] == "Voice & Video" { &["@", "@", "@", "Camera", "Streaming", "Sounds", "Soundboard", "Advanced"] } else { &[] };
+                let part = if self.section == 0 { String::new() } else { format!("_{}", self.section) };
+                self.shot(ctx, &format!("settings_{:02}_{slug}{part}.png", self.loaded + 1));
+                if let Some(next) = sections.get(self.section) {
+                    for key in ["advanced", "sounds", "diagnostics"] {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("voice_open", key)), true));
+                    }
+                    if *next == "@" {
+                        let at = egui::pos2(700.0, 450.0);
+                        self.queue.push_back(vec![Event::PointerMoved(at)]);
+                        self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -520.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    } else {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), next.to_string()));
+                    }
+                    self.section += 1;
+                    self.wait = Instant::now() + Duration::from_millis(900);
+                    return;
+                }
+                self.section = 0;
                 self.loaded += 1;
                 self.step = 327;
                 self.wait = Instant::now() + Duration::from_millis(200);
@@ -5280,6 +5302,114 @@ impl Run {
         }
     }
 
+
+    /// Voice & Video: the mic test, input profiles, settings reaching the engine, a switch and
+    /// a sound toggle clicked, and what goes to the account.
+    fn voice_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::cache::{InputProfile, Noise};
+        use crate::ui::settings::Page;
+        use std::sync::atomic::Ordering::Relaxed;
+        let sh = app.voice.shared.clone();
+        let late = self.step_at.elapsed() > Duration::from_secs(3);
+        let goto = |ctx: &egui::Context, name: &str| ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), name.to_string()));
+        match self.step {
+            2400 => {
+                app.settings_page = Some(Page::Voice);
+                self.next(900);
+            }
+            2401 => {
+                let Some(r) = Self::at(ctx, "mic_test") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            2402 => {
+                if crate::voice::probe::testing() {
+                    self.mark("voice_test_on");
+                }
+                let Some(r) = Self::at(ctx, "mic_test") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            2403 => {
+                if !crate::voice::probe::testing() {
+                    self.mark("voice_test_off");
+                }
+                app.settings.input_profile = InputProfile::Studio;
+                app.save_settings(ctx);
+                self.next(300);
+            }
+            2404 => {
+                if sh.open_mic.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 0 {
+                    self.mark("voice_studio");
+                }
+                app.settings.input_profile = InputProfile::Custom;
+                app.save_settings(ctx);
+                self.next(300);
+            }
+            2405 => {
+                if !sh.open_mic.load(Relaxed) && sh.echo.load(Relaxed) {
+                    self.mark("voice_custom");
+                }
+                let gen_before = sh.dev_gen.load(Relaxed);
+                app.settings.attenuation = 40;
+                app.settings.atten_self = true;
+                app.settings.agc = false;
+                app.settings.echo_cancel = false;
+                app.settings.noise = Noise::Standard;
+                app.settings.mic = Some("e2e microphone".into());
+                app.save_settings(ctx);
+                let applied = sh.atten.load(Relaxed) == 40 && sh.atten_self.load(Relaxed) && !sh.agc.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 2;
+                if applied {
+                    self.mark("voice_engine_flags");
+                }
+                if sh.dev_gen.load(Relaxed) != gen_before {
+                    self.mark("voice_device_live");
+                }
+                app.settings.reset_voice();
+                app.save_settings(ctx);
+                if app.settings.mic.is_none() && sh.atten.load(Relaxed) == 0 && sh.agc.load(Relaxed) && sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 1 {
+                    self.mark("voice_reset");
+                }
+                goto(ctx, "Streaming");
+                self.next(800);
+            }
+            2406 => {
+                match Self::at(ctx, "toggle:Show Stream Previews") {
+                    Some(r) => self.click(r.center()),
+                    None if !late => return,
+                    None => {}
+                }
+                self.next(800);
+            }
+            2407 => {
+                if !app.settings.stream_previews {
+                    self.mark("voice_previews_off");
+                }
+                goto(ctx, "Sounds");
+                self.next(800);
+            }
+            2408 => {
+                match Self::at(ctx, "sound:mute") {
+                    Some(r) => self.click(r.center()),
+                    None if !late => return,
+                    None => {}
+                }
+                self.next(500);
+            }
+            2409 => {
+                if app.settings.muted_sounds.iter().any(|m| m == "mute") {
+                    self.mark("voice_sound_off");
+                }
+                app.settings.stream_previews = true;
+                app.settings.muted_sounds.clear();
+                app.save_settings(ctx);
+                app.settings_page = None;
+                self.step = 99;
+            }
+            _ => self.step = 99,
+        }
+    }
+
     /// Settings that follow the account: theme and friends, from user_settings_proto.
     fn sync_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         use crate::net::Tag;
@@ -5521,7 +5651,7 @@ impl Run {
                     self.next(0);
                 }
             }
-            _ => self.step = 99,
+            _ => self.step = 2400,
         }
     }
 }

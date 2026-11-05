@@ -1,10 +1,16 @@
 //! Voice channels and DM calls. The UI side (`VoiceUi`) lives on `App` and
 //! talks to the main gateway; the session itself runs on the net runtime.
 
+mod aec;
 pub mod audio;
 mod capture;
 mod conn;
+mod dsp;
+mod duck;
 mod hwenc;
+mod log;
+pub mod probe;
+mod qos;
 mod rtp;
 pub mod stage;
 mod video;
@@ -130,6 +136,7 @@ pub struct Live {
     endpoint: Option<(String, String)>,
     tag: u64,
     share: Option<(video::Source, video::Quality)>,
+    preview_at: Option<std::time::Instant>,
 }
 
 #[derive(Default)]
@@ -168,6 +175,10 @@ pub struct VoiceUi {
     pub suppressed: bool,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
+    /// set when a call connects, for the entrance sound
+    pub entrance_due: bool,
+    /// our own stream's picture, when it's time to send Discord a preview of it
+    pub preview_job: Option<(String, Arc<egui::ColorImage>)>,
     session: Option<String>,
     server: Option<(String, String, Id)>,
     joined: Option<(String, String)>,
@@ -329,7 +340,7 @@ impl VoiceUi {
         let key = self.stream_key(user)?;
         let tag = self.next_tag();
         let mine = share.is_some();
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share });
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share, preview_at: None });
         Some(key)
     }
 
@@ -552,7 +563,13 @@ impl VoiceUi {
         {
             match e.kind {
                 Kind::State(s) => l.state = s,
-                Kind::Frame(_, img) => l.frame = Some(img),
+                Kind::Frame(_, img) => {
+                    if l.mine && l.preview_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300)) {
+                        l.preview_at = Some(std::time::Instant::now());
+                        self.preview_job = Some((l.key.clone(), img.clone()));
+                    }
+                    l.frame = Some(img);
+                }
                 Kind::Error(err) => return Some(err),
                 Kind::Closed(err) => {
                     self.stream = None;
@@ -574,7 +591,10 @@ impl VoiceUi {
                 self.tex.remove(&format!("cam:{u}"));
             }
             Kind::Error(err) => return Some(err),
-            Kind::State(s) => self.state = s,
+            Kind::State(s) => {
+                self.entrance_due |= s == State::Connected && matches!(self.state, State::Joining | State::Connecting);
+                self.state = s;
+            }
             Kind::Speaking(u, true) => {
                 self.speaking.insert(u);
             }
@@ -606,21 +626,17 @@ impl VoiceUi {
         None
     }
 
-    /// Device choice is read when a call starts; the VAD threshold applies live.
+    /// Everything on Voice & Video that acts live, devices included.
     pub fn configure(&self, s: &crate::cache::Settings) {
-        self.shared.vad_db.store(s.vad_db, Relaxed);
-        self.shared.auto_vad.store(s.auto_sensitivity, Relaxed);
-        self.shared.denoise.store(s.noise_suppression, Relaxed);
-        self.shared.ptt.store(s.ptt, Relaxed);
-        self.shared.ptt_delay_ms.store(s.ptt_delay_ms, Relaxed);
-        self.shared.in_gain.store(s.input_volume.to_bits(), Relaxed);
-        self.shared.out_gain.store(s.output_volume.to_bits(), Relaxed);
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(duck::recover);
+        self.shared.apply(s);
         if let Ok(mut p) = self.shared.peers.lock() {
             *p = s.peers.iter().filter(|(_, v)| v.muted || v.volume != 100.0).map(|(u, v)| (*u, if v.muted { 0.0 } else { v.volume / 100.0 })).collect();
         }
-        if let Ok(mut d) = self.shared.devices.lock() {
-            *d = (s.mic.clone(), s.speaker.clone());
-        }
+        log::set(s.debug_log);
+        video::set_codecs(s.hw_accel, s.openh264);
+        crate::audioplay::set_soundboard_volume(s.soundboard_volume);
     }
 
     pub fn is_speaking(&self, u: Id) -> bool {
