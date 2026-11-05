@@ -1737,6 +1737,53 @@ impl Run {
                 self.shot(ctx, "side_members.png");
                 self.next(300);
             }
+            226 => {
+                app.select_guild(Some(1003));
+                self.next(400);
+            }
+            227 => {
+                if rect(app, "chan:2302").is_none() {
+                    return;
+                }
+                app.chan_flag(2302, super::PINNED, true);
+                self.next(400);
+            }
+            228 => {
+                let (Some(head), Some(ch), Some(cat)) = (rect(app, "side:pinned"), rect(app, "chan:2302"), app.rects.iter().filter(|(k, _)| k.starts_with("cat:")).map(|(_, r)| r.top()).reduce(f32::min)) else { return };
+                if head.bottom() <= ch.top() && ch.bottom() <= cat {
+                    self.mark("side_pinned");
+                }
+                app.chan_flag(2302, super::PINNED, false);
+                self.next(400);
+            }
+            229 => {
+                if rect(app, "side:pinned").is_some() {
+                    return;
+                }
+                self.mark("side_unpinned");
+                super::lurk::start(app, 9000, 9001);
+                self.next(400);
+            }
+            230 => {
+                let Some(r) = rect(app, "lurk:join") else { return };
+                if app.ui.guild != Some(9000) {
+                    return;
+                }
+                self.mark("lurk_preview");
+                self.shot(ctx, "lurk_preview.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            231 => {
+                if app.store.lurking.contains(&9000) {
+                    return;
+                }
+                self.mark("lurk_join");
+                app.store.apply("GUILD_DELETE", &json!({ "id": "9000" }));
+                app.select_guild(Some(self.target.0));
+                app.open(self.target.1);
+                self.next(300);
+            }
             _ => {
                 self.mark("side");
                 self.step = 240;
