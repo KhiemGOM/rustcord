@@ -32,7 +32,7 @@ fn period(v: &View) -> std::time::Duration {
 }
 
 fn icon_btn(ui: &mut Ui, id: Id, rect: Rect, icon: Icon, size: f32, live: bool) -> egui::Response {
-    let r = ui.interact(rect, id, if live { Sense::CLICK } else { Sense::HOVER });
+    let r = ui.interact(rect, id, if live { Sense::click() } else { Sense::hover() });
     let c = if r.hovered() && live { Color32::WHITE } else { pal().header_secondary };
     icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(size, size)), c);
     if r.hovered() && live {
@@ -88,7 +88,7 @@ fn controls(ui: &mut Ui, id: Id, rect: Rect, b: &Bar, out: &mut Vec<Do>) {
         return;
     }
     ctx.data_mut(|d| d.insert_temp(Id::new(("player_bar", b.fs)), (bar, vol)));
-    let hit = ui.interact(bar.expand2(vec2(0.0, 9.0)), id.with("seek"), if b.live { Sense::CLICK | Sense::DRAG } else { Sense::HOVER });
+    let hit = ui.interact(bar.expand2(vec2(0.0, 9.0)), id.with("seek"), if b.live { Sense::click_and_drag() } else { Sense::hover() });
     let frac = |hit: &egui::Response| hit.interact_pointer_pos().or(hit.hover_pos()).map_or(0.0, |p| ((p.x - bar.left()) / bar.width()).clamp(0.0, 1.0) as f64);
     let rest_id = id.with("seek_resume");
     if hit.drag_started() {
@@ -134,7 +134,7 @@ fn volume_popup(ui: &mut Ui, id: Id, btn: Rect, live: bool, out: &mut Vec<Do>) {
         return;
     }
     let area = egui::Area::new(pid).order(egui::Order::Tooltip).fixed_pos(zone.min).show(&ctx, |ui| {
-        let (_, resp) = ui.allocate_exact_size(zone.size(), Sense::CLICK | Sense::DRAG);
+        let (_, resp) = ui.allocate_exact_size(zone.size(), Sense::click_and_drag());
         let panel = Rect::from_min_max(pos2(btn.center().x - 14.0, track.top() - 10.0), pos2(btn.center().x + 14.0, track.bottom() + 10.0));
         ui.painter().rect_filled(panel, CornerRadius::same(6), Color32::from_black_alpha(190));
         let (level, muted) = media::volume();
@@ -196,6 +196,20 @@ fn key_actions(ui: &mut Ui, s: &Session, v: &View, key: &str, out: &mut Vec<Do>)
             }
         }
     });
+}
+
+/// The widget with keyboard focus if it's the player `id` or one of its buttons: a click on the
+/// seek bar or the volume leaves the keys with the player, as in Discord.
+fn focused(ctx: &Context, id: Id) -> Option<Id> {
+    let f = ctx.memory(|m| m.focused())?;
+    [id, id.with("play"), id.with("seek"), id.with("vol"), id.with("fs")].contains(&f).then_some(f)
+}
+
+/// A press on the player gives it the keys, whichever of its buttons took the click.
+fn take_focus(ui: &Ui, id: Id, hovered: bool) {
+    if hovered && ui.input(|i| i.pointer.any_pressed() || i.pointer.any_click()) {
+        ui.memory_mut(|m| m.request_focus(id));
+    }
 }
 
 fn pop(ctx: &Context, id: Id, rect: Rect, p: &egui::Painter) {
@@ -269,10 +283,12 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
             Phase::Ready => {
                 if resp.clicked() {
                     s.toggle();
-                    ctx.data_mut(|d| d.insert_temp(id.with("pop"), (now(&ctx), !v.playing)));
+                    let t = now(&ctx);
+                    ctx.data_mut(|d| d.insert_temp(id.with("pop"), (t, !v.playing)));
                 }
                 if hovered && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
-                    ctx.data_mut(|d| d.insert_temp(id.with("move"), now(&ctx)));
+                    let t = now(&ctx);
+                    ctx.data_mut(|d| d.insert_temp(id.with("move"), t));
                 }
                 let moved = ctx.data(|d| d.get_temp::<f64>(id.with("move"))).unwrap_or(0.0);
                 let show = !v.playing || (hovered && now(&ctx) - moved < 3.0);
@@ -286,8 +302,8 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
                     controls(&mut inner, id, bar, &b, out);
                 }
                 pop(&ctx, id.with("pop"), rect, ui.painter());
-                if resp.has_focus() {
-                    ctx.memory_mut(|m| m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
+                if let Some(f) = focused(&ctx, id) {
+                    ctx.memory_mut(|m| m.set_focus_lock_filter(f, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
                     key_actions(ui, s, v, &a.url, out);
                 }
                 if v.playing {
@@ -316,9 +332,7 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
     if hovered && session.is_none() {
         ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if hovered && ui.input(|i| i.pointer.any_pressed()) {
-        ctx.memory_mut(|m| m.request_focus(id));
-    }
+    take_focus(ui, id, hovered);
     rect
 }
 
@@ -367,9 +381,10 @@ pub fn audio(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
             let track = Rect::from_min_max(pos2(bar.left() + 147.0, bar.center().y - 3.0), pos2(bar.right() - 39.0, bar.center().y + 3.0));
             p.rect_filled(track, CornerRadius::same(3), Color32::from_rgba_unmultiplied(201, 202, 206, 77));
             icons::draw(&p, Icon::Volume, Rect::from_center_size(pos2(bar.right() - 16.0, bar.center().y), vec2(24.0, 24.0)), pal().header_secondary);
-            if placeholder.clicked() || (resp.has_focus() && ui.input(|i| i.key_pressed(Key::K))) {
+            if placeholder.clicked() || (focused(&ctx, id).is_some() && ui.input(|i| i.key_pressed(Key::K))) {
                 out.push(Do::Open { key: a.url.clone(), url: a.url.clone(), video: false });
             }
+            take_focus(ui, id, hovered);
             return rect;
         }
     };
@@ -387,8 +402,8 @@ pub fn audio(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
         Phase::Ready => {
             let b = Bar { key: &a.url, s, v, video: false, fs: false, live: true };
             controls(ui, id, bar, &b, out);
-            if resp.has_focus() {
-                ctx.memory_mut(|m| m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
+            if let Some(f) = focused(&ctx, id) {
+                ctx.memory_mut(|m| m.set_focus_lock_filter(f, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
                 key_actions(ui, s, v, &a.url, out);
             }
             if v.playing {
@@ -396,9 +411,7 @@ pub fn audio(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
             }
         }
     }
-    if hovered && ui.input(|i| i.pointer.any_pressed()) {
-        ctx.memory_mut(|m| m.request_focus(id));
-    }
+    take_focus(ui, id, hovered);
     rect
 }
 
@@ -424,10 +437,12 @@ pub fn overlay(app: &mut App, ctx: &Context) {
         s.seen(ctx.cumulative_frame_nr());
         if resp.clicked() {
             s.toggle();
-            ctx.data_mut(|d| d.insert_temp(id.with("pop"), (now(ctx), !v.playing)));
+            let t = now(ctx);
+            ctx.data_mut(|d| d.insert_temp(id.with("pop"), (t, !v.playing)));
         }
         if ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
-            ctx.data_mut(|d| d.insert_temp(id.with("move"), now(ctx)));
+            let t = now(ctx);
+            ctx.data_mut(|d| d.insert_temp(id.with("move"), t));
         }
         let moved = ctx.data(|d| d.get_temp::<f64>(id.with("move"))).unwrap_or(0.0);
         let vis = ctx.animate_bool_with_time(id.with("vis"), !v.playing || now(ctx) - moved < 1.0, 0.2);
