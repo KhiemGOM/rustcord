@@ -3238,10 +3238,15 @@ impl Run {
                 }
                 self.shot(ctx, "active_now.png");
                 self.mark("active_now_cards");
+                self.next(400);
+                self.step = 1211;
+            }
+            1211 => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
                 app.friends = false;
                 app.select_guild(Some(self.target.0));
                 app.open_profile(101, self.target.0, pos2(300.0, 160.0));
+                self.step = 1201;
                 self.next(900);
             }
             1202 => {

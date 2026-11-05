@@ -892,8 +892,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             }))
         }
         ("GET", ["api", "v9", "content-inventory", "users", _, "outbox"]) => ok(json!({ "entries": [
-            { "content": { "id": "1100000000000000000", "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
-            { "content": { "id": "1100000000000000001", "content_type": 6, "author_id": "101", "extra": { "artist": { "name": "marQ" } } } },
+            { "content": { "id": snow(now_ms() - 7_200_000).to_string(), "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
+            { "content": { "id": snow(now_ms() - 259_200_000).to_string(), "content_type": 6, "author_id": "101", "extra": { "artist": { "name": "marQ" } } } },
         ] })),
         ("GET", ["api", "v9", "guild-profile", id]) => ok(json!({
             "id": id, "name": "Rustaceans", "icon_hash": null, "description": "Crabs only.", "member_count": 4200, "online_count": 321,
