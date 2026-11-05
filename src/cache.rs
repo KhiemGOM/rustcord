@@ -91,6 +91,8 @@ pub struct Settings {
     pub inbox_all: bool,
     // advanced
     pub dev: bool,
+    // voice channels whose people show as avatars only
+    pub hide_names: Vec<crate::state::Id>,
     // voice
     pub mic: Option<String>,
     pub speaker: Option<String>,
@@ -237,6 +239,7 @@ impl Default for Settings {
             inbox_roles: true,
             inbox_all: true,
             dev: false,
+            hide_names: Vec::new(),
             mic: None,
             speaker: None,
             vad_db: -50,

@@ -2537,6 +2537,13 @@ impl App {
         if ours && !modded {
             let path: Vec<&str> = url.split("/channels/").nth(1).unwrap_or("").split(['?', '#']).next().unwrap_or("").split('/').collect();
             let ch = path.get(1).and_then(|c| c.parse::<Id>().ok()).filter(|c| self.store.channels.contains_key(c));
+            if ch.is_none()
+                && let (Some(g), Some(c)) = (path.first().and_then(|g| g.parse::<Id>().ok()), path.get(1).and_then(|c| c.parse::<Id>().ok()))
+                && !self.store.guilds.contains_key(&g)
+            {
+                super::lurk::start(self, g, c);
+                return;
+            }
             if let Some(c) = ch {
                 match path.get(2).and_then(|m| m.parse::<Id>().ok()) {
                     Some(m) => self.jump_to(c, m),

@@ -66,7 +66,7 @@ impl Form {
     }
 }
 
-fn faint(a: u8) -> Color32 {
+pub(super) fn faint(a: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(151, 151, 159, a)
 }
 

@@ -55,15 +55,7 @@ impl App {
 
     /// Takes a channel off the list of a server that only lists picked ones.
     pub fn opt_out(&mut self, ch: Id) {
-        let Some(g) = self.store.channels.get(&ch).map(|c| c.guild) else { return };
-        let unreads = match self.store.unreads.get(&ch) {
-            Some(true) => 1024,
-            Some(false) => 512,
-            None => 0,
-        };
-        self.store.opted.remove(&ch);
-        let body = json!({ "channel_overrides": { ch.to_string(): { "flags": unreads } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.chan_flag(ch, super::OPTED, false);
     }
 }
 
@@ -736,6 +728,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
     let q = h.browse.trim().to_lowercase();
     ui.add_space(16.0);
     let mut toggle: Vec<(Id, bool)> = Vec::new();
+    let mut open: Option<Id> = None;
     let mut groups: Vec<(Id, Vec<&Channel>)> = Vec::new();
     for c in listed.iter().filter(|c| q.is_empty() || c.name.to_lowercase().contains(&q)) {
         match groups.iter_mut().find(|(p, _)| *p == c.parent) {
@@ -783,15 +776,23 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 let cb = Rect::from_center_size(pos2(r.right() - 28.0, r.center().y), vec2(20.0, 20.0));
                 checkbox(ui, cb, on, resp.hovered());
                 app.rects.insert(format!("browse:chan:{}", c.id), cb);
-                if resp.clicked() && opt_in {
-                    toggle.push((c.id, !on));
+                if resp.clicked() {
+                    let on_box = resp.interact_pointer_pos().is_some_and(|p| cb.expand(6.0).contains(p));
+                    if opt_in && (on_box || ui.input(|i| i.modifiers.shift)) {
+                        toggle.push((c.id, !on));
+                    } else {
+                        open = Some(c.id);
+                    }
                 }
-                if resp.hovered() && opt_in {
+                if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
             }
         });
         ui.add_space(20.0);
+    }
+    if let Some(id) = open {
+        app.open(id);
     }
     for (id, on) in toggle {
         let cat = app.store.channels.get(&id).is_some_and(|c| c.kind == 4);
