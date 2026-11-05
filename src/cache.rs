@@ -65,6 +65,8 @@ pub struct Settings {
     pub spoilers: Spoilers,
     pub animate_emoji: bool,
     pub gif_autoplay: bool,
+    pub media_volume: f32,
+    pub media_muted: bool,
     // advanced
     pub dev: bool,
     // voice
@@ -155,6 +157,8 @@ impl Default for Settings {
             spoilers: Spoilers::OnClick,
             animate_emoji: true,
             gif_autoplay: true,
+            media_volume: 1.0,
+            media_muted: false,
             dev: false,
             mic: None,
             speaker: None,
