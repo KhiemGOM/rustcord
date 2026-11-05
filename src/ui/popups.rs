@@ -424,7 +424,9 @@ pub(super) fn pressed_outside(ctx: &egui::Context, area: &egui::Response) -> boo
 }
 
 fn invite(app: &mut App, ctx: &egui::Context) {
+    super::invitecard::tick(app, ctx);
     let Some(text) = &mut app.invite else { return };
+    let card = &app.invite_card;
     let mut join = None;
     let mut close = false;
     let modal = egui::Modal::new("invite".into())
@@ -437,6 +439,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
                 ui.label(RichText::new("Enter an invite below to join an existing server").color(pal().header_secondary));
             });
             ui.add_space(16.0);
+            card.draw(ui);
             ui.label(RichText::new("Invite Link").font(medium(14.0)).color(pal().header_secondary));
             ui.add_space(8.0);
             input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
@@ -459,7 +462,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
             });
         });
     if let Some(t) = join {
-        let code = t.trim().trim_end_matches('/').rsplit('/').next().unwrap_or("").to_string();
+        let code = super::invitecard::code_of(&t);
         if !code.is_empty() {
             app.rest("POST", format!("/invites/{code}"), Some(json!({})), Tag::Invite);
         }

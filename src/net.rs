@@ -37,6 +37,8 @@ pub enum Ev {
 /// What a generic REST reply is for, so the UI knows where to put it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tag {
+    // the server behind the link in the Join a Server dialog
+    InvitePreview(String),
     Pins(Id),
     Search(Id),
     Profile(Id),

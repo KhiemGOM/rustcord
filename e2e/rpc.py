@@ -44,6 +44,7 @@ def checks(runs, reqs, data):
         "rpc: AUTHORIZE and a token-less AUTHENTICATE asked in a window first, then returned a code and a token that AUTHENTICATE accepted": both("rpc_authorize_consented")
             and oauth("POST") == 4 and oauth("GET") == 6,
         "rpc: cancelling the prompt denied that connection for good, and a token for another app was refused": both("rpc_authorize_denied"),
+        "rpc: the join dialog showed the invite's server, from a preview with counts": both("rpc_invite_preview") and len(sent("GET", "/invites/e2eRpc1?with_counts=true")) >= 2,
         "rpc: INVITE_BROWSER from discord.com opened the join dialog with the invite and Join Server joined it": both("rpc_web_invite_reply") and both("rpc_invite_modal") and both("rpc_invite_accept")
             and len(sent("POST", "/invites/e2eRpc1")) == 2,
         "rpc: GUILD_TEMPLATE_BROWSER over the websocket showed the template and Create made the server": both("rpc_web_socket") and both("rpc_template_modal") and both("rpc_template_create")

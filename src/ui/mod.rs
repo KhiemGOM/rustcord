@@ -40,6 +40,7 @@ mod picker;
 mod player;
 mod plus;
 mod poll;
+mod invitecard;
 mod popups;
 mod presence;
 mod reactions;
@@ -161,6 +162,7 @@ pub struct App {
     pub settings: Settings,
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
+    pub invite_card: invitecard::Card,
     pub folders: folders::State,
     pub wizard: Option<newserver::Wizard>,
     pub lurk_goto: Option<(Id, Id)>,
@@ -394,6 +396,7 @@ impl App {
             settings: cache::settings(),
             settings_page: None,
             invite: None,
+            invite_card: Default::default(),
             folders: Default::default(),
             wizard: None,
             lurk_goto: None,
@@ -1281,6 +1284,7 @@ impl App {
             Err(e) => {
                 match tag {
                     Tag::Activity(k) => return activity::failed(self, &k, e),
+                    Tag::InvitePreview(_) => return,
                     Tag::Pins(_) => self.pins = None,
                     Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
@@ -1414,6 +1418,7 @@ impl App {
                     self.store.app_icons.insert(crate::state::sid(&a["id"]), a["icon"].as_str().map(str::to_string));
                 }
             }
+            Tag::InvitePreview(code) => self.invite_card.got(&code, &v),
             Tag::Invite => {
                 let name = v["guild"]["name"].as_str().unwrap_or("the server").to_string();
                 self.toast(format!("Joined {name}"));
