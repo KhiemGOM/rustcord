@@ -9,6 +9,7 @@ mod dsp;
 mod duck;
 mod hwenc;
 pub mod probe;
+mod qos;
 mod rtp;
 mod video;
 

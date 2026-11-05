@@ -43,6 +43,7 @@ struct Sess {
     tx: Tx,
     shared: Arc<Shared>,
     udp: Arc<UdpSocket>,
+    qos: Option<super::qos::Qos>,
     ssrc: u32,
     cipher: Option<Cipher>,
     seq_ack: i64,
@@ -108,6 +109,7 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         tx: tx.clone(),
         shared,
         udp: Arc::new(udp),
+        qos: None,
         ssrc: 0,
         cipher: None,
         seq_ack: -1,
@@ -236,6 +238,7 @@ impl Sess {
             return Err("no supported encryption mode".into());
         };
         self.udp.connect((ip.as_str(), port)).await.map_err(|e| e.to_string())?;
+        self.qos = self.shared.qos.load(Relaxed).then(|| super::qos::mark(&self.udp)).flatten();
         let (addr, port) = discover(&self.udp, self.ssrc).await?;
         send(&mut ws, &json!({ "op": 1, "d": {
             "protocol": "udp",
