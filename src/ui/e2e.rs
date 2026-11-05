@@ -49,6 +49,10 @@ pub struct Run {
     rects: serde_json::Map<String, serde_json::Value>,
     steady: Option<egui::Rect>,
     pub tour: bool,
+    // RUSTCORD_BENCH: nothing scripted, the frame counts written down for e2e/bench.py
+    bench: Option<Instant>,
+    spin: bool,
+    causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
     blur: bool,
@@ -90,7 +94,8 @@ enum Probe {
 impl Run {
     pub fn from_env(t0: Instant) -> Option<Run> {
         let tour = std::env::var_os("RUSTCORD_TOUR").is_some();
-        let dir = PathBuf::from(std::env::var_os("RUSTCORD_E2E").or_else(|| std::env::var_os("RUSTCORD_TOUR"))?);
+        let bench = std::env::var_os("RUSTCORD_BENCH").is_some();
+        let dir = PathBuf::from(std::env::var_os("RUSTCORD_E2E").or_else(|| std::env::var_os("RUSTCORD_TOUR")).or_else(|| std::env::var_os("RUSTCORD_BENCH"))?);
         let _ = std::fs::create_dir_all(&dir);
         crate::gif::trace();
         Some(Run {
@@ -114,6 +119,9 @@ impl Run {
             rects: Default::default(),
             steady: None,
             tour,
+            bench: bench.then(Instant::now),
+            spin: false,
+            causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
             blur: false,
@@ -191,7 +199,9 @@ impl Run {
                     | Event::Zoom(_)
             )
         });
-        raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
+        if self.bench.is_none() {
+            raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
+        }
         if let Some(batch) = self.queue.pop_front() {
             raw.events.extend(batch);
         }
@@ -287,6 +297,25 @@ impl Run {
 
     pub fn step(&mut self, app: &mut App, ctx: &egui::Context) {
         if self.done {
+            return;
+        }
+        if let Some(at) = self.bench {
+            if app.vc.host.is_some() {
+                self.mark_once("vc_started");
+            }
+            for c in ctx.repaint_causes() {
+                *self.causes.entry(format!("{}:{} {}", c.file.rsplit(['/', '\\']).next().unwrap_or(c.file), c.line, c.reason)).or_default() += 1;
+            }
+            if self.spin {
+                ctx.request_repaint();
+            }
+            if at.elapsed() > Duration::from_millis(100) {
+                self.bench = Some(Instant::now());
+                self.spin = self.dir.join("spin").exists();
+                let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes });
+                let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
+            }
             return;
         }
         // something asked the window to close mid-script; say where instead of vanishing
@@ -3079,7 +3108,8 @@ impl Run {
                 }
                 self.shot(ctx, "invite.png");
                 // sending the invite sets the mock's dms off; under do not disturb they mustn't ping
-                app.store.presence.insert(app.store.me, crate::state::Status::Dnd);
+                let me = app.store.me;
+                app.store.presence.insert(me, crate::state::Status::Dnd);
                 self.dnd = Some((self.pinged.len(), app.store.channels.get(&3000).map_or(0, |c| c.last_msg)));
                 self.click(r.center());
                 self.next(800);
@@ -3097,7 +3127,8 @@ impl Run {
                     if self.pinged.len() == pings {
                         self.mark("dnd_quiet");
                     }
-                    app.store.presence.insert(app.store.me, crate::state::Status::Online);
+                    let me = app.store.me;
+                    app.store.presence.insert(me, crate::state::Status::Online);
                     self.next(300);
                 }
             }
