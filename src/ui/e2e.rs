@@ -50,6 +50,8 @@ pub struct Run {
     // RUSTCORD_BENCH: nothing scripted, the frame counts written down for e2e/bench.py
     bench: Option<Instant>,
     spin: bool,
+    // the channels a "browse" file has us open one after another, the next one, and when
+    browse: Option<(Vec<Id>, usize, Instant)>,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -121,6 +123,7 @@ impl Run {
             tour,
             bench: bench.then(Instant::now),
             spin: false,
+            browse: None,
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -332,7 +335,24 @@ impl Run {
             if self.spin {
                 ctx.request_repaint();
             }
+            if let Some((list, i, when)) = &mut self.browse
+                && when.elapsed() > Duration::from_secs(3)
+            {
+                if let Some(ch) = list.get(*i).copied() {
+                    let g = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+                    app.ui.guild = (g != 0).then_some(g);
+                    app.open(ch);
+                }
+                *i += 1;
+                *when = Instant::now();
+            }
+            if self.browse.is_some() {
+                ctx.request_repaint_after(Duration::from_secs(1));
+            }
             if at.elapsed() > Duration::from_millis(100) {
+                if self.browse.is_none() && self.dir.join("browse").exists() {
+                    self.browse = Some((app.ui.recent.clone(), 0, Instant::now() - Duration::from_secs(3)));
+                }
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
@@ -344,7 +364,7 @@ impl Run {
                 {
                     images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
                 }
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1) });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
@@ -737,7 +757,11 @@ impl Run {
                 self.next(600);
             }
             36 => {
-                let Some(r) = app.rects.get("reply").copied() else { return };
+                // the glide can carry it off again: go back and find it
+                let Some(r) = app.rects.get("reply").copied() else {
+                    self.step = 35;
+                    return;
+                };
                 // the start of the line: the hover toolbar covers the message's top right
                 self.click(r.left_center() + vec2(40.0_f32.min(r.width() / 2.0), 0.0));
                 self.next(0);
