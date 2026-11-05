@@ -861,6 +861,18 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             });
             ok(json!({}))
         }
+        // any gateway event, after `after_ms`: calls ringing, voice states, call messages
+        ("POST", ["api", "v9", "mock", "event"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let after = Duration::from_millis(b["after_ms"].as_u64().unwrap_or(0));
+            let (t, d) = (b["t"].clone(), b["d"].clone());
+            let w = w.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(after).await;
+                let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+            });
+            ok(json!({}))
+        }
         ("POST", ["api", "v9", "mock", "premium"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let tx = w.lock().unwrap().events.clone();
@@ -1583,6 +1595,7 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                     }
                     Some(3) => {
                         line["seq_ack"] = d["seq_ack"].clone();
+                        tokio::time::sleep(Duration::from_millis(40)).await;
                         let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
                     }
                     Some(5) => line["speaking"] = d["speaking"].clone(),

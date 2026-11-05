@@ -155,3 +155,17 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::lasted;
+
+    #[test]
+    fn durations() {
+        assert_eq!(lasted(5_000), "a few seconds");
+        assert_eq!(lasted(65_000), "a minute");
+        assert_eq!(lasted(125_000), "2 minutes");
+        assert_eq!(lasted(3_900_000), "an hour");
+        assert_eq!(lasted(7_300_000), "2 hours");
+    }
+}

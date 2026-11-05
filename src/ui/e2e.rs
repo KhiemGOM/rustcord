@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod call;
 mod stage;
 
 use super::{App, side};
@@ -42,6 +43,7 @@ pub struct Run {
     voice: serde_json::Value,
     target: (Id, Id),
     call: Id,
+    cues: usize,
     loaded: usize,
     text: String,
     error: Option<String>,
@@ -115,6 +117,7 @@ impl Run {
             voice: serde_json::Value::Null,
             target: (0, 0),
             call: 0,
+            cues: 0,
             loaded: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
@@ -1214,6 +1217,7 @@ impl Run {
             }
             100..=199 => self.settings_steps(app, ctx),
             700..=759 => self.stage_steps(app, ctx),
+            2100..=2199 => self.call_steps(app, ctx),
             200..=219 => self.media_steps(app, ctx),
             220..=239 => self.side_steps(app, ctx),
             240..=259 => self.layout_steps(app, ctx),
