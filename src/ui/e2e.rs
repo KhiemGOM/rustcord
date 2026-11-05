@@ -4192,11 +4192,21 @@ impl Run {
                 }
                 self.mark("quests");
                 self.shot(ctx, "quests.png");
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(800.0, 500.0))]);
+                self.queue.push_back(vec![Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -600.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Modifiers::NONE,
+                }]);
+                self.next(900);
+            }
+            1329 => {
                 if click_at(self, "quest:Accept Quest") {
                     self.next(900);
                 }
             }
-            1329 => {
+            1330 => {
                 let enrolled = app.quests.as_ref().and_then(|q| q.offered.as_ref()).is_some_and(|l| l.iter().any(|q| q["id"] == "9002" && q["user_status"]["enrolled_at"].is_string()));
                 if !enrolled {
                     return;
@@ -4206,7 +4216,7 @@ impl Run {
                     self.next(900);
                 }
             }
-            1330 => {
+            1331 => {
                 let Some(q) = &app.quests else { return };
                 if q.claimed.as_ref().is_none_or(|l| l.len() != 1) || q.orbs != Some(2340) {
                     return;

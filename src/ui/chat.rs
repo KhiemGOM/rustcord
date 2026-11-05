@@ -162,7 +162,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
         return super::call::room(app, ui, &chan);
     }
-    let side = app.side_thread.filter(|t| app.store.channels.get(t).is_some_and(|t| t.parent == chan.id) && ui.available_width() >= 488.0 + 420.0);
+    let side = app.side_thread.filter(|t| app.store.channels.get(t).is_some_and(|t| t.parent == chan.id) && ui.available_width() >= 488.0 + 400.0);
     if let Some(t) = side {
         let thread = app.store.channels[&t].clone();
         egui::Panel::right("side_thread")

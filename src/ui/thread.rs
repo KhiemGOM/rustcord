@@ -122,7 +122,7 @@ fn menu_item(ui: &mut Ui, icon: Option<Icon>, label: &str, danger: bool) -> bool
 /// Open in Split View becomes Open in Full View.
 pub fn more(app: &mut App, ui: &mut Ui, chan: &Channel, side: bool) {
     let b = icon_button(ui, Icon::More, 32.0, "More");
-    app.rects.insert(if side { "side_thread:more" } else { "thread:more" }.into(), b.rect);
+    super::settings::mark(ui, if side { "side_thread:more" } else { "thread:more" }, b.rect);
     let manage = app.store.perms(chan) & MANAGE_THREADS != 0;
     let owner = !chan.locked && chan.owner == app.store.me;
     let can_edit = manage || owner;
