@@ -920,7 +920,9 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("PUT", ["api", "v9", "guilds", "9000", "members", "@me"]) => {
             let g = json!({ "id": "9000", "name": "Preview Land", "owner_id": "102", "member_count": 40, "emojis": [], "roles": [{ "id": "9000", "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" }],
                             "channels": [{ "id": "9001", "type": 0, "guild_id": "9000", "name": "welcome", "position": 0, "permission_overwrites": [], "last_message_id": null }] });
-            let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_CREATE", "d": g }));
+            if path.contains("lurker=true") {
+                let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_CREATE", "d": g }));
+            }
             ok(json!({}))
         }
         ("POST", ["api", "v9", "guilds", "1000", "channels"]) => {

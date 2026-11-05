@@ -307,7 +307,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.ui.collapsed.contains(&c.id)) };
                 if pin_sec {
                     ui.add_space(15.0);
-                    if category(ui, "Pinned Channels", collapsed, false).0.clicked() {
+                    let (head, _) = category(ui, "Pinned Channels", collapsed, false);
+                    app.rects.insert("side:pinned".into(), head.rect);
+                    if head.clicked() {
                         toggle = Some(gid);
                     }
                 }
