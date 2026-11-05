@@ -975,24 +975,26 @@ impl Run {
                         }
                     }
                     3 => {
-                        let Some(r) = Self::at(ctx, "camera:bg:blur") else { return };
+                        let Some(r) = Self::at(ctx, "toggle:Always preview video") else { return };
                         self.click(r.center());
                         to(ctx, 4);
                     }
                     4 => {
-                        if app.settings.video_bg == crate::cache::VideoBg::Blur && crate::voice::effects::PLACED.load(std::sync::atomic::Ordering::Relaxed) > 5 {
-                            self.mark("camera_background");
+                        if app.settings.preview_video {
+                            self.mark("camera_always_preview");
+                            ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Video Background".to_string()));
                             to(ctx, 5);
+                            self.wait = Instant::now() + Duration::from_millis(600);
                         }
                     }
                     5 => {
-                        let Some(r) = Self::at(ctx, "toggle:Always preview video") else { return };
+                        let Some(r) = Self::at(ctx, "camera:bg:blur") else { return };
                         self.click(r.center());
                         to(ctx, 6);
                     }
                     _ => {
-                        if app.settings.preview_video {
-                            self.mark("camera_always_preview");
+                        if app.settings.video_bg == crate::cache::VideoBg::Blur && crate::voice::effects::PLACED.load(std::sync::atomic::Ordering::Relaxed) > 5 {
+                            self.mark("camera_background");
                             ctx.data_mut(|d| d.remove::<u8>(id));
                             self.next(300);
                         }

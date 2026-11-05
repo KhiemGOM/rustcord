@@ -185,7 +185,11 @@ fn pick_custom(app: &mut App) -> bool {
 
 fn backgrounds(app: &mut App, ui: &mut Ui) -> bool {
     let mut changed = false;
-    ui.add(egui::Label::new(RichText::new("Video Background").font(medium(16.0)).color(pal().header_primary)).selectable(false));
+    let head = ui.add(egui::Label::new(RichText::new("Video Background").font(medium(16.0)).color(pal().header_primary)).selectable(false));
+    if ui.data_mut(|d| d.get_temp::<String>(Id::new("settings_goto"))).as_deref() == Some("Video Background") {
+        ui.data_mut(|d| d.remove_temp::<String>(Id::new("settings_goto")));
+        ui.scroll_to_rect(head.rect.translate(vec2(0.0, -64.0)), Some(egui::Align::TOP));
+    }
     ui.add_space(16.0);
     let w = ui.available_width();
     let cols = (((w + 16.0) / 148.0) as usize).max(1);
