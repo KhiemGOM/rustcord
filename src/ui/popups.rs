@@ -371,6 +371,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     leaving(app, ctx);
     emoji_pop(app, ctx);
     timeout(app, ctx);
+    super::poll::show(app, ctx);
+    super::attach::modify(app, ctx);
+    super::follow::show(app, ctx);
+    super::dmpick::show(app, ctx);
+    super::topic::show(app, ctx);
+    super::plus::launcher(app, ctx);
 }
 
 pub(super) fn dismissed(ctx: &egui::Context, area: &egui::Response) -> bool {

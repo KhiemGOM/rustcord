@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 mod web;
 mod stage;
+mod composer;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -106,7 +107,7 @@ impl Run {
             dir,
             t0,
             marks: Vec::new(),
-            step: std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()).unwrap_or(0),
+            step: 0,
             step_at: Instant::now(),
             sub: 0,
             wait: Instant::now(),
@@ -446,6 +447,9 @@ impl Run {
                     self.mark("messages");
                     self.loaded = n;
                     self.next(1500);
+                    if let Some(from) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
+                        self.step = from;
+                    }
                 }
             }
             4 => {
@@ -1228,6 +1232,7 @@ impl Run {
             520..=559 => self.home_steps(app, ctx),
             600..=699 => self.server_steps(app, ctx),
             2000..=2059 => self.account_steps(app, ctx),
+            560..=599 => self.composer_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -4511,7 +4516,8 @@ impl Run {
             634 => {
                 app.confirm = None;
                 app.server = None;
-                self.step = 99;
+                self.step = 560;
+                self.step_at = Instant::now();
             }
             _ => {}
         }

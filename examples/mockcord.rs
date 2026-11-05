@@ -379,6 +379,11 @@ const FORUM: u64 = 2030;
 const POST_A: u64 = 2031;
 const POST_B: u64 = 2032;
 
+fn side_thread(id: u64, name: &str, meta: Value) -> Value {
+    json!({ "id": id.to_string(), "type": 11, "guild_id": "1000", "parent_id": GENERAL.to_string(), "name": name, "owner_id": "101",
+            "message_count": 1, "member_count": 2, "thread_metadata": meta, "last_message_id": null, "member": { "user_id": ME.to_string() } })
+}
+
 fn thread() -> Value {
     json!({ "id": THREAD.to_string(), "type": 11, "guild_id": "1000", "parent_id": GENERAL.to_string(), "name": "release planning",
             "owner_id": "101", "message_count": 4, "member_count": 4, "thread_metadata": { "archived": false },
@@ -507,10 +512,16 @@ fn ready(last_general: u64) -> Value {
     help["last_message_id"] = json!(snow(now_ms() - 60_000).to_string());
     let mut forum = ch(FORUM, 15, "ideas", 4, Some(2010));
     forum["available_tags"] = json!([{ "id": "1", "name": "feature", "emoji_name": "✨" }, { "id": "2", "name": "ux" }]);
+    let mut slow = ch(2015, 0, "slow", 6, Some(2010));
+    slow["rate_limit_per_user"] = json!(30);
+    let mut readonly = ch(2016, 0, "read-only", 7, Some(2010));
+    readonly["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "2048" }]);
+    let mut news = ch(2002, 5, "📢・announcements", 1, Some(2000));
+    news["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "2048" }]);
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
-        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "281474976713728", "hoist": false },
+        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "844736315296768", "hoist": false },
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },
@@ -528,11 +539,11 @@ fn ready(last_general: u64) -> Value {
         ],
         "channels": [
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
-            ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "📢・announcements", 1, Some(2000)),
+            ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
             forum, ch(MEDIA, 0, "media", 5, Some(2010)),
         ],
-        "threads": [thread()],
+        "threads": [thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
         "voice_states": [{ "user_id": "101", "channel_id": "2021", "mute": true }, { "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }],
     });
@@ -979,6 +990,12 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
+            if let Some(p) = b["poll"].as_object() {
+                let answers: Vec<Value> = p["answers"].as_array().into_iter().flatten().enumerate().map(|(i, a)| json!({ "answer_id": i + 1, "poll_media": a["poll_media"] })).collect();
+                let hours = p["duration"].as_u64().unwrap_or(24);
+                m["poll"] = json!({ "question": p["question"], "answers": answers, "allow_multiselect": p["allow_multiselect"], "expiry": iso(now_ms() + hours * 3_600_000),
+                                    "results": { "is_finalized": false, "answer_counts": [] } });
+            }
             let tx = {
                 let mut w = w.lock().unwrap();
                 w.msgs.push(m.clone());
@@ -1058,6 +1075,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ok(json!({}))
         }
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
+        ("PUT", ["api", "v9", "channels", _, "recipients", _]) => (204, "application/json", Vec::new()),
+        ("POST", ["api", "v9", "channels", ch, "followers"]) => ok(json!({ "channel_id": ch, "webhook_id": "9100" })),
         ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
@@ -1154,8 +1173,11 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         ("POST", ["api", "v9", "users", "@me", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
-            let to: u64 = b["recipients"][0].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
-            ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to)] }))
+            let to: Vec<u64> = b["recipients"].as_array().into_iter().flatten().filter_map(|s| s.as_str().and_then(|s| s.parse().ok())).collect();
+            if to.len() > 1 {
+                return ok(json!({ "id": "3011", "type": 3, "name": null, "owner_id": ME.to_string(), "last_message_id": null, "recipients": to.iter().map(|u| user(*u)).collect::<Vec<_>>() }));
+            }
+            ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to.first().copied().unwrap_or(0))] }))
         }
         ("POST", ["api", "v9", "guilds", "1000", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
