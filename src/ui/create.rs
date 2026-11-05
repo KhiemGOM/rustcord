@@ -71,7 +71,7 @@ fn faint(a: u8) -> Color32 {
 }
 
 /// Discord's modal: 480 wide, 24 in, the title and a close cross on top.
-fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
+pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
     let r = egui::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
@@ -91,14 +91,14 @@ fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, add: impl F
     close || r.should_close()
 }
 
-fn label(ui: &mut Ui, s: &str) {
+pub(super) fn label(ui: &mut Ui, s: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
     ui.painter().text(r.left_center(), Align2::LEFT_CENTER, s, medium(16.0), pal().header_primary);
     ui.add_space(8.0);
 }
 
 /// The radio rows: ring, icon, name, and a muted line under them.
-fn choice(ui: &mut Ui, on: bool, icon: Icon, name: &str, desc: &str) -> bool {
+pub(super) fn choice(ui: &mut Ui, on: bool, icon: Icon, name: &str, desc: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
     let p = ui.painter();
     let c = pos2(r.left() + 10.0, r.top() + 10.0);
@@ -119,7 +119,7 @@ fn choice(ui: &mut Ui, on: bool, icon: Icon, name: &str, desc: &str) -> bool {
 }
 
 /// A 40 tall box with an optional glyph in front, the way discord's channel name field looks.
-fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<Icon>, rows: usize) -> egui::Response {
+pub(super) fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<Icon>, rows: usize) -> egui::Response {
     let r = Frame::new()
         .fill(Color32::from_black_alpha(31))
         .stroke(Stroke::new(1.0, faint(61)))
@@ -150,7 +150,7 @@ fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<Icon>, rows:
 }
 
 /// Lock, label and blurb on the left, the switch on the right.
-fn private(ui: &mut Ui, on: &mut bool, what: &str, desc: &str) {
+pub(super) fn private(ui: &mut Ui, on: &mut bool, what: &str, desc: &str) {
     let w = ui.available_width();
     let g = ui.painter().layout(desc.into(), reg(14.0), pal().header_secondary, w - 72.0);
     let (r, _) = ui.allocate_exact_size(vec2(w, 24.0 + g.size().y), Sense::hover());
@@ -166,7 +166,7 @@ fn private(ui: &mut Ui, on: &mut bool, what: &str, desc: &str) {
 
 /// Cancel on the left, the action on the right, each half the width. The action stays dim
 /// until there's something to send.
-fn footer(ui: &mut Ui, go: &str, ready: bool) -> (bool, bool) {
+pub(super) fn footer(ui: &mut Ui, go: &str, ready: bool) -> (bool, bool) {
     ui.add_space(24.0);
     let w = (ui.available_width() - 9.0) / 2.0;
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
@@ -176,7 +176,7 @@ fn footer(ui: &mut Ui, go: &str, ready: bool) -> (bool, bool) {
 }
 
 /// A button at a set place and size: blurple, or the faint grey of discord's secondary.
-fn plate(ui: &Ui, r: Rect, text: &str, primary: bool, ready: bool) -> bool {
+pub(super) fn plate(ui: &Ui, r: Rect, text: &str, primary: bool, ready: bool) -> bool {
     let resp = ui.interact(r, ui.id().with(("plate", text)), if ready { Sense::click() } else { Sense::hover() });
     super::settings::mark(ui, &format!("plate:{text}"), r);
     let fade = if ready { 1.0 } else { 0.5 };
