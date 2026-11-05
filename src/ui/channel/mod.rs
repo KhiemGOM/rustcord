@@ -193,7 +193,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let area = Rect::from_min_max(pos2(screen.left(), screen.top() + 32.0), screen.max);
     let (mut goto, mut close, mut delete) = (None, false, false);
-    egui::Area::new("chan_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min).show(ctx, |ui| {
+    crate::ui::motion::layer(ctx, egui::Area::new("chan_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min), area).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
         let side_right = area.center().x - 280.0;

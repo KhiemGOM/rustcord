@@ -632,9 +632,7 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, members: &[Id], rol
     let mut remove = None;
     for (u, name) in &shown {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
-        if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-        }
+        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
         let user = app.store.user(*u).cloned();
         if let Some(us) = &user {
             crate::ui::avatar(ui, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(24.0, 24.0)), &us.avatar_url());
@@ -690,9 +688,7 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             for (u, name) in list.into_iter().take(200) {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-                }
+                crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                 let on = picked.contains(&u);
                 let cb = Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(20.0, 20.0));
                 if on {

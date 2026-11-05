@@ -30,7 +30,9 @@ fn tag(app: &mut App, ctx: &egui::Context) {
         app.rest("GET", format!("/guild-profile/{gid}"), None, Tag::GuildProfile(gid));
     }
     let Some(p) = app.guild_profiles.get(&gid).filter(|p| !p.is_null()).cloned() else {
-        let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
+        super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
+        super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
+    let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.set_height(120.0);
@@ -178,6 +180,7 @@ fn role(app: &mut App, ctx: &egui::Context) {
     let total = if rid == gid { g.member_count as usize } else { people.len() };
     let (name, color) = (role.name.clone(), role.color);
     let mut open = None;
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("role_pop")), vec2(0.0, 1.0));
     let area = egui::Area::new(egui::Id::new("role_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
         Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(8).show(ui, |ui| {

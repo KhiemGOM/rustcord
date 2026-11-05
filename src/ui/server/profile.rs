@@ -271,9 +271,7 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
             }
             for (id, n, icon) in hits {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-                }
+                crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                 if let Some(i) = icon {
                     super::super::text::image(ui.painter(), &format!("{}/app-icons/{id}/{i}.png?size=64", crate::api::cdn()), Rect::from_min_size(pos2(r.left() + 6.0, r.center().y - 12.0), vec2(24.0, 24.0)));
                 }

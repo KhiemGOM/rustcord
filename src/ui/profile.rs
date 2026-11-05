@@ -264,6 +264,7 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
     list.sort_by_key(|(id, ..)| std::cmp::Reverse(store.guilds[&gid].roles[id].position));
     let mut pick = None;
     let mut query = std::mem::take(&mut app.role_add.as_mut().unwrap().3);
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("role_picker")), vec2(0.0, 1.0));
     let area = egui::Area::new(egui::Id::new("role_picker"))
         .order(egui::Order::Tooltip)
         .fixed_pos(at)

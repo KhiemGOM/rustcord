@@ -1499,9 +1499,7 @@ fn account_row(ui: &mut Ui, icon: Option<Icon>, label: &str, caret: bool, rule: 
     if rule {
         ui.painter().hline(r.x_range().shrink(12.0), r.top(), egui::Stroke::new(1.0, pal().border_subtle));
     }
-    if resp.hovered() {
-        ui.painter().rect_filled(r.shrink(4.0), CornerRadius::same(4), MENU_HOVER);
-    }
+    crate::ui::motion::wash(ui, &resp, r.shrink(4.0), CornerRadius::same(4), MENU_HOVER, 0.05);
     if let Some(i) = icon {
         super::icons::draw(ui.painter(), i, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
     }
@@ -1756,9 +1754,7 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                 let row = |ui: &mut Ui, icon: Icon, avatar_url: Option<String>, title: &str, key: &str, hint: &str| {
                     let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
                     let p = ui.painter();
-                    if resp.hovered() {
-                        p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
                     super::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
                     let mut x = r.left() + 45.0;
                     if let Some(url) = avatar_url {
@@ -1792,9 +1788,7 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                         for h in history {
                             let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
                             let p = ui.painter();
-                            if resp.hovered() {
-                                p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
-                            }
+                            crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
                             super::icons::draw(p, Icon::Clock, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
                             text::paint(p, pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, h, semi(14.0), pal().header_primary, 290.0);
                             if resp.clicked() {
@@ -1806,9 +1800,7 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                     ui.add_space(8.0);
                     let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
                     let p = ui.painter();
-                    if resp.hovered() {
-                        p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
                     super::icons::draw(p, Icon::Search, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
                     let s = p.text(pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, "Search for ", medium(14.0), pal().header_primary);
                     text::paint(p, pos2(s.right(), r.center().y), Align2::LEFT_CENTER, &typed, semi(14.0), pal().header_primary, 290.0 - s.width());
@@ -1831,9 +1823,7 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                         for (_, name) in &places {
                             let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
                             let p = ui.painter();
-                            if resp.hovered() {
-                                p.rect_filled(r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER);
-                            }
+                            crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
                             super::icons::draw(p, Icon::Hash, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
                             let k = p.text(pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, "in:", semi(14.0), pal().header_secondary);
                             text::paint(p, pos2(k.right() + 4.0, r.center().y), Align2::LEFT_CENTER, &format!("# {name}"), semi(14.0), pal().header_primary, 280.0);
@@ -2395,9 +2385,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                         let Some(ch) = store.channels.get(c) else { continue };
                         let (r, resp) = ui.allocate_exact_size(vec2(430.0, 48.0), Sense::click());
                         let on = f.picked.contains(c);
-                        if resp.hovered() {
-                            ui.painter().rect_filled(r.expand2(vec2(8.0, 0.0)), 8, MENU_HOVER);
-                        }
+                        crate::ui::motion::wash(ui, &resp, r.expand2(vec2(8.0, 0.0)), 8, MENU_HOVER, 0.05);
                         let icon = Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(32.0, 32.0));
                         match (ch.recipients.first().and_then(|u| store.user(*u)), store.guilds.get(&ch.guild)) {
                             (Some(u), _) if ch.kind == 1 => avatar(ui, icon, &u.avatar_url()),
@@ -2723,6 +2711,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
 fn emoji_pop(app: &mut App, ctx: &egui::Context) {
     let Some((id, name, animated, at)) = app.emoji_pop.clone() else { return };
     let from = app.store.guilds.values().find(|g| g.emojis.iter().any(|e| e.id == id)).map(|g| (g.name.clone(), g.icon_url()));
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Foreground, egui::Id::new("emoji_pop")), vec2(0.0, 1.0));
     let area = egui::Area::new(egui::Id::new("emoji_pop")).order(egui::Order::Foreground).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
         Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(16).show(ui, |ui| {

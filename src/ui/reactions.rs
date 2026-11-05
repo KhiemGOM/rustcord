@@ -172,9 +172,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 for u in users {
                     let Some(user) = store.user(*u) else { continue };
                     let (r, resp) = ui.allocate_exact_size(vec2(list.width(), 52.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), MENU_HOVER);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), MENU_HOVER, 0.05);
                     avatar(ui, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(32.0, 32.0)), &user.avatar_url());
                     let display = store.name_in(guild, *u);
                     let sub = user.username.clone();

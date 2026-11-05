@@ -87,9 +87,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
         });
         let granted = inv["roles"].as_array().into_iter().flatten().filter_map(|r| roles.iter().find(|x| x.0 == sid(&r["id"])).map(|x| x.1.clone())).collect::<Vec<_>>().join(", ");
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
-        if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-        }
+        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
         ui.painter().hline(r.x_range(), r.bottom() - 0.5, egui::Stroke::new(1.0, faint(31)));
         let cells = [(&who, pal().header_primary, 0.3), (&code, pal().text_normal, 0.22), (&uses, pal().text_normal, 0.12), (&expires, pal().text_normal, 0.18), (&granted, pal().text_normal, 0.18)];
         for ((text, col, w), (x, _)) in cells.into_iter().zip(COLS) {
