@@ -14,7 +14,7 @@ fn pick(ui: &mut Ui, label: &str, icon: Icon, names: &[String], cur: &mut Option
     let w = ui.available_width();
     dropdown(ui, w, Some(icon), &shown, |ui| {
         for name in std::iter::once(None).chain(names.iter().map(Some)) {
-            if ui.selectable_label(cur.as_ref() == name, name.map(String::as_str).unwrap_or("Default")).clicked() {
+            if crate::ui::option(ui, cur.as_ref() == name, name.map(String::as_str).unwrap_or("Default")).clicked() {
                 *cur = name.cloned();
                 changed = true;
             }

@@ -51,7 +51,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 None => icons::draw(ui.painter(), Icon::File, Rect::from_center_size(box_.center(), vec2(72.0, 72.0)), BLURPLE),
             }
             label(ui, "Filename");
-            let single = |ui: &mut egui::Ui, text: &mut String, focus: bool| {
+            let single = |ui: &mut egui::Ui, text: &mut String, focus: bool| -> egui::Response {
                 let (r, _) = ui.allocate_exact_size(vec2(432.0, 40.0), Sense::hover());
                 ui.painter().rect_filled(r, 8, pal().input_bg);
                 let e = ui.put(r.shrink2(vec2(12.0, 10.0)), egui::TextEdit::singleline(text).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
@@ -59,8 +59,10 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 if focus {
                     e.request_focus();
                 }
+                e
             };
-            single(ui, &mut m.name, std::mem::take(&mut m.fresh));
+            let name = single(ui, &mut m.name, std::mem::take(&mut m.fresh));
+            save |= name.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             label(ui, "Description (Alt Text)");
             let (r, _) = ui.allocate_exact_size(vec2(432.0, 88.0), Sense::hover());
             ui.painter().rect_filled(r, 8, pal().input_bg);
@@ -80,13 +82,15 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 close |= super::grey_button(ui, "Cancel", 212.0).clicked();
                 let b = button(ui, "Save", BLURPLE, 212.0);
                 super::settings::mark(ui, "modify:save", b.rect);
-                save = b.clicked();
+                save |= b.clicked();
             });
         });
+    save |= super::enter_submits(ctx, false);
     if save && let Some(m) = app.modify.take() {
         if let Some(f) = app.files.get_mut(m.idx) {
-            if !m.name.trim().is_empty() {
-                f.name = m.name.trim().to_string();
+            let name: String = m.name.trim().chars().filter(|c| !matches!(c, '/' | '\\')).collect();
+            if !name.is_empty() {
+                f.name = name;
             }
             f.alt = m.alt;
             f.spoiler = m.spoiler;

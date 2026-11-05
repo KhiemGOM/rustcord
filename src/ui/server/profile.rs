@@ -93,13 +93,20 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
             d["icon"] = Value::Null;
         }
     });
-    if pick && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() {
-        if let Some(uri) = form::data_uri(&path) {
-            if let Ok(bytes) = std::fs::read(&path) {
-                ui.data_mut(|m| m.insert_temp(Id::new("server_icon_bytes"), Arc::<[u8]>::from(bytes)));
+    if pick
+        && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file()
+        && let Ok(bytes) = std::fs::read(&path)
+    {
+        let ctx = ui.ctx().clone();
+        super::super::crop::open(app, bytes, 1.0, move |app: &mut App, uri: String| {
+            use base64::Engine;
+            if let Some(b) = uri.split_once(',').and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok()) {
+                ctx.data_mut(|m| m.insert_temp(Id::new("server_icon_bytes"), Arc::<[u8]>::from(b)));
             }
-            d["icon"] = json!(uri);
-        }
+            if let Some(d) = app.server.as_mut().and_then(|s| s.draft.get_mut("profile")) {
+                d["icon"] = json!(uri);
+            }
+        });
     }
 
     form::rule(ui);

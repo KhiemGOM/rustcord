@@ -18,6 +18,7 @@ use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
 
+mod more;
 mod players;
 
 
@@ -1298,6 +1299,7 @@ impl Run {
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),
             2300..=2319 => self.sound_steps(),
+            1900..=1999 => self.more_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);

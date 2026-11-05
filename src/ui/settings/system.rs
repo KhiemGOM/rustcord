@@ -184,7 +184,7 @@ pub fn system(app: &mut App, ui: &mut Ui) -> bool {
                 let w = cols[0].available_width();
                 dropdown(&mut cols[0], w, None, shown, |ui| {
                     for (k, l) in ACTIONS {
-                        if ui.selectable_label(action == k, l).clicked() {
+                        if crate::ui::option(ui, action == k, l).clicked() {
                             *action = k.to_string();
                             changed = true;
                         }

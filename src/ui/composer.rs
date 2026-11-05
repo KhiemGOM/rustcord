@@ -51,6 +51,8 @@ enum Item {
     User(Id, String, String),
     Role(Id, String, u32),
     Everyone(&'static str),
+    AtTime,
+    When(i64, char),
     Channel(Id, String),
     Emoji(Em),
     Command(usize),
@@ -59,13 +61,15 @@ enum Item {
 }
 
 /// Discord's own commands, listed after the apps' as "Built-In": name, options, description.
-const BUILT_IN: [(&str, &str, &str); 13] = [
+const BUILT_IN: [(&str, &str, &str); 15] = [
     ("shrug", "message", "Appends ¯\\_(ツ)_/¯ to your message."),
     ("tableflip", "message", "Appends (╯°□°)╯︵ ┻━┻ to your message."),
     ("unflip", "message", "Appends ┬─┬ ノ( ゜-゜ノ) to your message."),
     ("tts", "message", "Use text-to-speech to read the message to all members currently viewing the channel."),
     ("me", "message", "Displays text with emphasis."),
     ("spoiler", "message", "Marks your message as a spoiler."),
+    ("gif", "query", "Search for a GIF to send."),
+    ("sticker", "query", "Search for a sticker to send."),
     ("nick", "new_nick", "Change nickname on this server."),
     ("thread", "name message", "Start new thread"),
     ("kick", "user reason", "Kick user"),
@@ -80,7 +84,8 @@ fn built_in_here(app: &App, chan: &Channel, name: &str) -> bool {
     use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
     let perms = app.store.perms(chan);
     match name {
-        "tts" | "nick" => chan.guild != 0,
+        "tts" => chan.guild != 0 && perms & (1 << 12) != 0,
+        "nick" => chan.guild != 0,
         "thread" => chan.guild != 0 && matches!(chan.kind, 0 | 5),
         "kick" => chan.guild != 0 && perms & KICK_MEMBERS != 0,
         "ban" => chan.guild != 0 && perms & BAN_MEMBERS != 0,
@@ -104,6 +109,12 @@ fn token(draft: &str, cursor: usize) -> Option<(usize, char, String)> {
     let bytes: Vec<(usize, char)> = draft.char_indices().collect();
     let cur_b = bytes.get(cursor).map(|(b, _)| *b).unwrap_or(draft.len());
     let before = &draft[..cur_b];
+    if let Some(i) = before.rfind("@time ")
+        && before[..i].chars().next_back().is_none_or(char::is_whitespace)
+        && !before[i..].contains('\n')
+    {
+        return Some((i, 'T', before[i + 6..].to_string()));
+    }
     let start = before.rfind(|c: char| c.is_whitespace()).map(|i| i + 1).unwrap_or(0);
     let word = &before[start..];
     let first = word.chars().next()?;
@@ -146,6 +157,9 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     out.push((s as u16, Item::User(u, name, user.username.clone())));
                 }
             }
+            if "time".starts_with(&q) {
+                out.push((2, Item::AtTime));
+            }
             if chan.guild != 0 {
                 for e in ["everyone", "here"] {
                     if e.starts_with(&q) {
@@ -159,6 +173,11 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                         }
                     }
                 }
+            }
+        }
+        'T' => {
+            if let Some(t) = super::when::parse(&q, chrono::Local::now()) {
+                out.extend(super::when::STYLES.iter().map(|(st, _)| (0, Item::When(t.timestamp(), *st))));
             }
         }
         '#' => {
@@ -291,8 +310,27 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let typed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Paste(_))));
     // tab with nothing focused lands in the composer too, as in discord
     let modal = app.modal_open();
-    let tabbed = nothing_focused && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
-    if !side && app.editing.is_none() && !modal && !off && (app.focus_composer || tabbed || (nothing_focused && typed)) {
+    // egui has already moved the focus on by the time this runs, so it's last frame's that counts
+    let idle_id = egui::Id::new(("composer_idle", side));
+    let was_idle = ui.data(|d| d.get_temp::<bool>(idle_id)).unwrap_or(true);
+    ui.data_mut(|d| d.insert_temp(idle_id, nothing_focused));
+    let tabbed = was_idle && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
+    // the push-to-talk key held in a call is for talking, not typing
+    let talking = app.settings.ptt && app.voice.chan.is_some() && crate::hotkeys::PTT_HELD.load(std::sync::atomic::Ordering::Relaxed);
+    // Tab (not the mouse) into the composer rings it in discord's keyboard blue
+    let ring_id = egui::Id::new(("composer_ring", side));
+    // asked again next frame too, in case egui's own Tab move won this one
+    let retry_id = egui::Id::new(("composer_tab_retry", side));
+    let retry = ui.data_mut(|d| d.remove_temp::<bool>(retry_id)).unwrap_or(false);
+    if tabbed {
+        ui.data_mut(|d| d.insert_temp(retry_id, true));
+    }
+    if tabbed || (!modal && ui.input(|i| i.key_pressed(Key::Tab))) {
+        ui.data_mut(|d| d.insert_temp(ring_id, true));
+    } else if ui.input(|i| i.pointer.any_pressed()) {
+        ui.data_mut(|d| d.insert_temp(ring_id, false));
+    }
+    if !side && app.editing.is_none() && !modal && !off && (app.focus_composer || tabbed || retry || (nothing_focused && typed && !talking)) {
         ui.memory_mut(|m| m.request_focus(tid));
         app.focus_composer = false;
         app.focus_msg = None;
@@ -558,6 +596,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let crect = r.response.rect;
     // discord's border sits on the box's own fill, not beside it
     ui.painter().rect_stroke(crect, radius, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    if ui.memory(|m| m.has_focus(tid)) && ui.data(|d| d.get_temp::<bool>(ring_id)).unwrap_or(false) {
+        ui.painter().rect_stroke(crect.expand(2.0), radius, Stroke::new(2.0, Color32::from_rgb(0x00, 0xa8, 0xfc)), egui::StrokeKind::Inside);
+        app.rects.insert("composer_ring".into(), crect);
+    }
     app.rects.insert("composer".into(), crect);
     if let (Some(at), Some(r)) = (sel_at, selection) {
         if let Some(m) = format_bar(ui.ctx(), at) {
@@ -725,6 +767,7 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
         '@' => "Members".to_string(),
         '#' => "Text Channels".to_string(),
         ':' => "Emoji Matching".to_string(),
+        'T' => "Time".to_string(),
         _ => "Commands".to_string(),
     };
     let row_h = if kind == '/' { 52.0 } else { 34.0 };
@@ -783,6 +826,15 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), pal().header_primary);
             let note = if *e == "here" { "Notify everyone online in this channel." } else { "Notify everyone who has permission to view this channel." };
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
+        }
+        Item::AtTime => {
+            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@time", semi(15.0), pal().header_primary);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Refer to a time dynamically in the viewer's time zone", reg(13.0), pal().header_secondary);
+        }
+        Item::When(secs, st) => {
+            text::paint(p, pos2(x + 4.0, y), Align2::LEFT_CENTER, &crate::markdown::fmt_ts(*secs, *st), semi(15.0), pal().header_primary, r.width() * 0.7);
+            let name = super::when::STYLES.iter().find(|(c, _)| c == st).map_or("", |(_, n)| n);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, name, reg(13.0), pal().header_secondary);
         }
         Item::Channel(id, name) => {
             let ir = Rect::from_center_size(pos2(x + 10.0, y), vec2(18.0, 18.0));
@@ -931,6 +983,11 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         Item::User(u, name, _) => (format!("@{name}"), format!("<@{u}>")),
         Item::Role(id, name, _) => (format!("@{name}"), format!("<@&{id}>")),
         Item::Everyone(e) => (format!("@{e}"), format!("@{e}")),
+        Item::AtTime => ("@time".into(), "@time".into()),
+        Item::When(secs, st) => {
+            let raw = format!("<t:{secs}:{st}>");
+            (raw.clone(), raw)
+        }
         Item::Channel(id, name) => (format!("#{name}"), format!("<#{id}>")),
         Item::Emoji(e) if e.locked => (format!(":{}:", e.name), String::new()),
         Item::Emoji(e) if e.url.is_some() => (format!(":{}:", e.name), e.raw.clone()),
@@ -1227,6 +1284,14 @@ impl App {
             let at = self.rects.get("gif_button").map_or(pos2(800.0, 600.0), |r| r.left_top());
             self.open_gifs(at);
             self.search_gifs(args.to_string());
+            return true;
+        }
+        if name == "sticker" {
+            self.drafts.remove(&ch);
+            self.sticker_q = Some(args.to_string());
+            self.gifs = None;
+            self.picker = None;
+            self.stickers = Some(super::picker::anchor(self));
             return true;
         }
         let Some(&(_, opts, _)) = BUILT_IN.iter().find(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };

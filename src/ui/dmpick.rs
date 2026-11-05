@@ -1,4 +1,4 @@
-use egui::{Align, Align2, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, pos2, vec2};
+use egui::{Align, Align2, Frame, Key, Layout, Margin, Rect, RichText, Sense, Stroke, pos2, vec2};
 use serde_json::json;
 
 use super::icons::{self, Icon};
@@ -58,6 +58,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(8.0);
                 ui.label(RichText::new(format!("Group DMs can have up to {LIMIT} members.")).font(reg(16.0)).color(pal().header_secondary));
                 ui.add_space(16.0);
+                if p.q.is_empty() && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Backspace)) {
+                    p.picked.pop();
+                }
                 let (field, _) = ui.allocate_exact_size(vec2(432.0, 40.0), Sense::hover());
                 ui.painter().rect_filled(field, 8, pal().input_bg);
                 let e = ui.put(
@@ -65,7 +68,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     egui::TextEdit::singleline(&mut p.q).hint_text(RichText::new("Search").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(field, 8, Stroke::new(1.0, BLURPLE), egui::StrokeKind::Inside);
-                if std::mem::take(&mut p.fresh) {
+                if std::mem::take(&mut p.fresh) || ui.memory(|m| m.focused().is_none()) {
                     e.request_focus();
                 }
                 ui.add_space(8.0);
@@ -78,6 +81,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     for u in &people {
                         let Some(user) = store.user(*u) else { continue };
                         let (r, resp) = ui.allocate_exact_size(vec2(464.0, 48.0), Sense::click());
+                        super::settings::mark(ui, &format!("pick:{u}"), r);
                         let on = p.picked.contains(u);
                         if resp.hovered() || on {
                             ui.painter().rect_filled(r, 8, pal().control_hover);
@@ -115,6 +119,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 });
             });
         });
+    if ctx.input(|i| i.key_pressed(Key::Enter)) {
+        if ql.is_empty() {
+            go |= !p.picked.is_empty();
+        } else if let Some(u) = people.first() {
+            if p.picked.contains(u) {
+                p.picked.retain(|x| x != u);
+            } else if p.picked.len() < max {
+                p.picked.push(*u);
+            }
+            p.q.clear();
+        }
+    }
     if go && let Some(p) = app.group_pick.take() {
         match p.base.and_then(|c| app.store.channels.get(&c).map(|c| (c.id, c.kind, c.recipients.clone()))) {
             Some((c, 3, _)) => {

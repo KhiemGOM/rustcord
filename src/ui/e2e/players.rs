@@ -225,7 +225,7 @@ impl Run {
             }
             1823 => {
                 if self.pending_shots == 0 {
-                    self.step = 2300;
+                    self.step = 1900;
                     self.wait = Instant::now() + Duration::from_millis(100);
                 }
             }
