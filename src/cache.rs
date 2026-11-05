@@ -108,6 +108,8 @@ pub struct Settings {
     pub fav_gifs: Vec<(String, String, f32, f32)>,
     // the hidden ディスコード sounds, from clicking home sixteen times
     pub discodo: bool,
+    // discord's halloween sound pack, while it runs
+    pub halloween_sounds: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -185,6 +187,7 @@ impl Default for Settings {
             fav_emoji: Vec::new(),
             fav_gifs: Vec::new(),
             discodo: false,
+            halloween_sounds: true,
         }
     }
 }
