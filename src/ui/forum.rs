@@ -24,6 +24,7 @@ fn ago(id: Id) -> String {
 struct View {
     gallery: bool,
     by_date: bool,
+    match_all: bool,
     tags: HashSet<Id>,
     query: String,
 }
@@ -93,7 +94,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             let mut posts: Vec<&Channel> = posts
                 .iter()
                 .filter_map(|p| app.store.channels.get(p))
-                .filter(|p| v.tags.is_empty() || p.applied.iter().any(|t| v.tags.contains(t)))
+                .filter(|p| v.tags.is_empty() || if v.match_all { v.tags.iter().all(|t| p.applied.contains(t)) } else { p.applied.iter().any(|t| v.tags.contains(t)) })
                 .filter(|p| q.is_empty() || p.name.to_lowercase().contains(&q))
                 .collect();
             if v.by_date {
@@ -150,7 +151,8 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
         app.post = None;
     }
     if let Some(p) = open {
-        app.open(p);
+        let shift = ui.input(|i| i.modifiers.shift);
+        app.open_thread(p, false, shift);
     }
 }
 
@@ -258,6 +260,22 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
         }
         if menu_row(ui, None, "Gallery", None, false, Trail::Radio(v.gallery)).clicked() {
             v.gallery = true;
+        }
+        if !forum.tags.is_empty() {
+            menu_sep(ui);
+            head(ui, "Tag Matching");
+            if menu_row(ui, None, "Match Some", None, false, Trail::Radio(!v.match_all)).clicked() {
+                v.match_all = false;
+            }
+            if menu_row(ui, None, "Match All", None, false, Trail::Radio(v.match_all)).clicked() {
+                v.match_all = true;
+            }
+        }
+        menu_sep(ui);
+        if menu_row(ui, None, "Reset to default", None, false, Trail::None).clicked() {
+            v.by_date = false;
+            v.match_all = false;
+            v.gallery = forum.layout == 2;
         }
     });
     if forum.tags.is_empty() {

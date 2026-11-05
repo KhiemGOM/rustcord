@@ -112,14 +112,14 @@ impl Run {
             571 => when!(app.follow.is_some(), {
                 self.mark("composer_follow_modal");
                 if let Some(f) = app.follow.as_mut() {
-                    f.guild = 1001;
-                    f.chan = 2100;
+                    f.guild = Some(1001);
+                    f.target = Some(2100);
                 }
                 self.next(300);
             }),
-            572 => when!(Self::at(ctx, "follow:go").is_some(), {
+            572 => when!(Self::at(ctx, "follow:Follow").is_some(), {
                 self.shot(ctx, "composer_follow_modal.png");
-                let r = Self::at(ctx, "follow:go").unwrap_or(egui::Rect::ZERO);
+                let r = Self::at(ctx, "follow:Follow").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());
                 self.next(600);
             }),

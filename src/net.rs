@@ -87,6 +87,12 @@ pub enum Tag {
     Home(&'static str),
     // the events window: 0 the server's events, 1 the ones you're interested in
     Events(Id, u8),
+    // who is interested in an event: its server and the event
+    EventUsers(Id, Id),
+    // the quests hub: 0 on offer, 1 claimed, 2 the Orbs balance, 3 an accept or claim went through
+    Quests(u8),
+    // a follow of an announcement channel, from its dialog
+    Follow,
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
     // the people who reacted to a message with an emoji: channel, message, emoji, whether super

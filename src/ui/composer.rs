@@ -237,7 +237,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         return super::lurk::bar(app, ui, chan);
     }
     let ch = chan.id;
-    let tid = egui::Id::new("composer");
+    let side = app.side_thread == Some(ch);
+    let tid = egui::Id::new(if side { "composer_side" } else { "composer" });
+    let reply = app.reply.filter(|r| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.id == *r)));
     // the reply bar is part of the composer, so the typing line goes above it
     let stack_top = ui.cursor().top();
     let gate = super::gate::check(app, chan);
@@ -249,7 +251,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     super::gate::banner(app, ui, chan);
     super::gate::notice(app, ui, chan);
 
-    if let Some(rid) = app.reply {
+    if let Some(rid) = reply {
         let name = app.store.find_msg(ch, rid).map(|m| app.store.name_in(chan.guild, m.author)).unwrap_or_default();
         // replies to your own messages never ping, so there's no switch for them
         let own = app.store.find_msg(ch, rid).is_some_and(|m| m.author == app.store.me);
@@ -290,7 +292,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // tab with nothing focused lands in the composer too, as in discord
     let modal = app.modal_open();
     let tabbed = nothing_focused && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
-    if app.editing.is_none() && !modal && !off && (app.focus_composer || tabbed || (nothing_focused && typed)) {
+    if !side && app.editing.is_none() && !modal && !off && (app.focus_composer || tabbed || (nothing_focused && typed)) {
         ui.memory_mut(|m| m.request_focus(tid));
         app.focus_composer = false;
         app.focus_msg = None;
@@ -386,7 +388,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if !app.files.is_empty() && !popped && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
         app.files.clear();
     }
-    if app.reply.is_some() && app.editing.is_none() && !popped && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
+    if reply.is_some() && app.editing.is_none() && !popped && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Escape)) {
         app.reply = None;
     }
 
@@ -396,7 +398,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         _ => format!("Message #{}", chan.name),
     };
     let hint = super::gate::placeholder(chan, &gate).map_or(hint, str::to_string);
-    let top_r = if app.reply.is_some() { 0 } else { 8 };
+    let top_r = if reply.is_some() { 0 } else { 8 };
     let mut attach = false;
     let mut tab = None;
     let mut apps_click = false;
@@ -422,7 +424,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             ui.set_width(ui.available_width());
             if !app.files.is_empty() {
                 Frame::new().inner_margin(Margin { left: 10, right: 10, top: 20, bottom: 10 }).show(ui, |ui| {
-                    egui::ScrollArea::horizontal().id_salt("uploads").show(ui, |ui| {
+                    egui::ScrollArea::horizontal().id_salt(("uploads", side)).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 24.0;
                             for (i, f) in app.files.iter_mut().enumerate() {
@@ -466,7 +468,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let buttons = if off { 0.0 } else if app.settings.send_button { 240.0 } else { 200.0 };
                     let w = (ui.available_width() - buttons - 8.0).max(60.0);
                     let mut text_pos = egui::Pos2::ZERO;
-                    egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt("composer_scroll").show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt(("composer_scroll", side)).show(ui, |ui| {
                         // the row is horizontal; padding above and below the text has to be vertical
                         ui.vertical(|ui| {
                             ui.add_space(17.0);
@@ -573,7 +575,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         } else {
             format!("{left} characters remaining")
         };
-        ui.interact(r, egui::Id::new("char_count"), Sense::hover()).on_hover_text(tip);
+        ui.interact(r, egui::Id::new(("char_count", side)), Sense::hover()).on_hover_text(tip);
     }
 
     if open {

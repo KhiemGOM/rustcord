@@ -262,6 +262,7 @@ account! {
     clock24: bool,
     compact: bool,
     compact_avatars: bool,
+    thread_sidebar: bool,
     inline_links: bool,
     inline_uploads: bool,
     embeds: bool,
@@ -295,6 +296,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                 for (n, v) in fields(b) {
                     let Val::Bytes(w) = v else { continue };
                     match n {
+                        3 => a.thread_sidebar = Some(flag(w)),
                         4 => {
                             a.spoilers = match text(w).as_deref() {
                                 Some("ALWAYS") => Some(Spoilers::Always),

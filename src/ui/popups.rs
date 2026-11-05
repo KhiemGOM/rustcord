@@ -1958,7 +1958,8 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
         }
     });
     if let Some(c) = open {
-        app.open(c);
+        let shift = button.ctx.input(|i| i.modifiers.shift);
+        app.open_thread(c, true, shift);
     }
     if create {
         app.new_thread = Some(NewThread::blank(ch));

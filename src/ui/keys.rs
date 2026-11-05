@@ -294,7 +294,7 @@ impl App {
             self.mark_read(&[ch]);
             self.marker = None;
             self.hold_ack = None;
-        } else {
+        } else if self.side_thread.take().is_none() {
             self.jump_to_present(ch);
         }
     }

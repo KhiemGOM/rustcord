@@ -1235,6 +1235,7 @@ impl Run {
             560..=599 => self.composer_steps(app, ctx),
             800..=839 => self.messages_steps(app, ctx),
             1200..=1219 => self.people_steps(app, ctx),
+            1300..=1399 => self.item_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -4904,6 +4905,265 @@ impl Run {
                     self.mark("msg_configure");
                 }
                 app.server = None;
+                self.step = 1300;
+            }
+            _ => self.step = 1300,
+        }
+    }
+
+    /// Threads in split view and their menu, events managed, following an announcement channel and
+    /// the quests hub, each against the mock's own server (1001 is ours).
+    fn item_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let click_at = |this: &mut Self, key: &str| -> bool {
+            let Some(r) = Self::at(ctx, key) else { return false };
+            this.click(r.center());
+            true
+        };
+        match self.step {
+            1300 => {
+                if app.conn != Conn::Online || app.store.guilds.is_empty() {
+                    return;
+                }
+                app.select_guild(Some(1001));
+                app.open(2100);
+                self.next(700);
+            }
+            // shift on a channel-list thread opens it beside its parent, with who is in it
+            1301 => {
+                if !app.store.channels.contains_key(&2160) {
+                    return;
+                }
+                app.open_thread(2160, true, true);
+                self.next(700);
+            }
+            1302 => {
+                let loaded = app.store.msgs.get(&2160).is_some_and(|e| !e.list.is_empty());
+                if app.side_thread != Some(2160) || !loaded || app.store.thread_members.get(&2160).is_none_or(|l| l.len() != 3) {
+                    return;
+                }
+                self.mark("thread_split");
+                self.mark("thread_members");
+                self.shot(ctx, "thread_split.png");
+                if click_at(self, "side_thread:more") {
+                    self.next(400);
+                }
+            }
+            1303 => {
+                if click_at(self, "thread_menu:Join Thread") {
+                    self.next(600);
+                }
+            }
+            1304 => {
+                if !app.store.channels.get(&2160).is_some_and(|c| c.joined) {
+                    return;
+                }
+                self.mark("thread_join");
+                if click_at(self, "side_thread:more") {
+                    self.next(400);
+                }
+            }
+            1305 => {
+                if click_at(self, "thread_menu:Close Thread") {
+                    self.next(600);
+                }
+            }
+            1306 => {
+                if !app.store.channels.get(&2160).is_some_and(|c| c.archived) {
+                    return;
+                }
+                self.mark("thread_close");
+                if click_at(self, "side_thread:more") {
+                    self.next(400);
+                }
+            }
+            1307 => {
+                if click_at(self, "thread_menu:Lock Thread") {
+                    self.next(600);
+                }
+            }
+            1308 => {
+                if !app.store.channels.get(&2160).is_some_and(|c| c.locked) {
+                    return;
+                }
+                self.mark("thread_lock");
+                app.side_thread = None;
+                app.open_events(1001);
+                self.next(700);
+            }
+            // the Events window of a server we run: both events, a card's details with who's interested
+            1309 => {
+                if app.events.as_ref().is_none_or(|e| e.list.as_ref().is_none_or(|l| l.len() != 2)) {
+                    return;
+                }
+                self.shot(ctx, "events_manage.png");
+                let Some(r) = Self::at(ctx, "event_card:6200") else { return };
+                self.click(r.min + vec2(120.0, 24.0));
+                self.next(700);
+            }
+            1310 => {
+                let users = app.events.as_ref().and_then(|e| e.users.get(&6200)).is_some_and(|u| u.as_ref().is_some_and(|l| l.len() == 2));
+                if app.events.as_ref().is_none_or(|e| e.detail != Some(6200)) || !users {
+                    return;
+                }
+                self.mark("event_detail");
+                self.shot(ctx, "event_detail.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            1311 => {
+                if app.events.as_ref().is_some_and(|e| e.detail.is_some()) {
+                    return;
+                }
+                if click_at(self, "event_more:6201") {
+                    self.next(400);
+                }
+            }
+            1312 => {
+                if click_at(self, "event_menu:Start Event") {
+                    self.next(500);
+                }
+            }
+            1313 => {
+                if app.confirm.as_ref().is_some_and(|c| c.title == "Start Event") {
+                    self.key(Key::Enter);
+                    self.next(700);
+                }
+            }
+            1314 => {
+                if app.confirm.is_some() {
+                    return;
+                }
+                self.mark("event_start");
+                if click_at(self, "event_more:6200") {
+                    self.next(400);
+                }
+            }
+            1315 => {
+                if click_at(self, "event_menu:Cancel Event") {
+                    self.next(500);
+                }
+            }
+            1316 => {
+                if app.confirm.as_ref().is_some_and(|c| c.title == "Cancel Event?") {
+                    self.key(Key::Enter);
+                    self.next(900);
+                }
+            }
+            1317 => {
+                if app.confirm.is_some() || app.events.as_ref().is_none_or(|e| e.list.as_ref().is_none_or(|l| l.len() != 1)) {
+                    return;
+                }
+                self.mark("event_cancel");
+                if click_at(self, "event_more:6201") {
+                    self.next(400);
+                }
+            }
+            // Edit Event fills the wizard from the event
+            1318 => {
+                if click_at(self, "event_menu:Edit Event") {
+                    self.next(500);
+                }
+            }
+            1319 => {
+                if app.create.as_ref().is_some_and(|f| f.edit == Some(6201) && f.name == "Map review" && !f.voice && f.location == "the community hall") {
+                    self.mark("event_edit");
+                    self.shot(ctx, "event_edit.png");
+                    app.create = None;
+                    self.next(300);
+                }
+            }
+            // the Events row's menu mutes new events
+            1320 => {
+                let Some(r) = Self::at(ctx, "home_row:Events") else { return };
+                self.rclick(r.center());
+                self.next(400);
+            }
+            1321 => {
+                if click_at(self, "events_menu:mute") {
+                    self.next(600);
+                }
+            }
+            1322 => {
+                if !app.store.events_muted.contains(&1001) {
+                    return;
+                }
+                self.mark("events_mute");
+                app.select_guild(Some(1000));
+                app.open(2002);
+                self.next(700);
+            }
+            // an announcement channel: Follow in its header opens the dialog; Follow sends it
+            1323 => {
+                if app.cur() != Some(2002) {
+                    return;
+                }
+                let Some(r) = app.rects.get("follow").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            1324 => {
+                let Some(f) = &mut app.follow else { return };
+                f.guild = Some(1001);
+                f.target = Some(2100);
+                self.next(300);
+            }
+            1325 => {
+                self.shot(ctx, "follow.png");
+                if click_at(self, "follow:Follow") {
+                    self.next(700);
+                }
+            }
+            1326 => {
+                if app.follow.is_some() {
+                    return;
+                }
+                self.mark("follow");
+                app.publish_msg(2002, 1);
+                self.next(400);
+            }
+            // the quests hub: accept one, claim the finished one
+            1327 => {
+                app.open_quests();
+                self.next(800);
+            }
+            1328 => {
+                let Some(q) = &app.quests else { return };
+                if q.offered.as_ref().is_none_or(|l| l.len() != 3) || q.orbs != Some(1500) {
+                    return;
+                }
+                self.mark("quests");
+                self.shot(ctx, "quests.png");
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(800.0, 500.0))]);
+                self.queue.push_back(vec![Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -600.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Modifiers::NONE,
+                }]);
+                self.next(900);
+            }
+            1329 => {
+                if click_at(self, "quest:Accept Quest") {
+                    self.next(900);
+                }
+            }
+            1330 => {
+                let enrolled = app.quests.as_ref().and_then(|q| q.offered.as_ref()).is_some_and(|l| l.iter().any(|q| q["id"] == "9002" && q["user_status"]["enrolled_at"].is_string()));
+                if !enrolled {
+                    return;
+                }
+                self.mark("quest_accept");
+                if click_at(self, "quest:Claim Reward") {
+                    self.next(900);
+                }
+            }
+            1331 => {
+                let Some(q) = &app.quests else { return };
+                if q.claimed.as_ref().is_none_or(|l| l.len() != 1) || q.orbs != Some(2340) {
+                    return;
+                }
+                self.mark("quest_claim");
+                app.quests = None;
                 self.step = 99;
             }
             _ => self.step = 99,

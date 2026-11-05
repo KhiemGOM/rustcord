@@ -194,6 +194,8 @@ pub struct Channel {
     #[serde(default)]
     pub joined: bool,
     #[serde(default)]
+    pub locked: bool,
+    #[serde(default)]
     pub msg_count: u32,
     #[serde(default)]
     pub tags: Vec<Tag>,
@@ -209,8 +211,6 @@ pub struct Channel {
     pub last_pin: i64,
     #[serde(default)]
     pub rate: u32,
-    #[serde(default)]
-    pub locked: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -250,6 +250,7 @@ impl Channel {
             owner: sid(&v["owner_id"]),
             archived: v["thread_metadata"]["archived"].as_bool().unwrap_or(false),
             joined: v["member"].is_object(),
+            locked: v["thread_metadata"]["locked"].as_bool().unwrap_or(false),
             msg_count: v["message_count"].as_u64().unwrap_or(0) as u32,
             tags: v["available_tags"]
                 .as_array()
@@ -262,7 +263,6 @@ impl Channel {
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
             layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
             rate: v["rate_limit_per_user"].as_u64().unwrap_or(0) as u32,
-            locked: v["thread_metadata"]["locked"].as_bool().unwrap_or(false),
         }
     }
 
@@ -385,6 +385,8 @@ pub struct Guild {
     pub tier: u8,
     #[serde(default)]
     pub events: u32,
+    #[serde(default)]
+    pub newest_event: Id,
     // our member flags here and when we joined (unix seconds), for the server guide's checklist
     #[serde(default)]
     pub my_flags: u64,
@@ -1082,6 +1084,11 @@ pub struct Store {
     // servers where muted channels are left out of the list
     #[serde(default)]
     pub hide_muted: Set<Id>,
+    // servers whose new events are muted, and how far you've read their event notifications
+    #[serde(default)]
+    pub events_muted: Set<Id>,
+    #[serde(default)]
+    pub event_reads: Map<Id, ReadState>,
     // servers that only list the channels picked in onboarding or browse channels, and the picks
     #[serde(default)]
     pub opt_in: Set<Id>,
@@ -1090,8 +1097,6 @@ pub struct Store {
     // the flags of each channel override: 2048 pinned to the top, 4096 opted in
     #[serde(default)]
     pub chan_flags: Map<Id, u64>,
-    #[serde(default)]
-    pub muted_events: Set<Id>,
     // the servers each privacy list names, by settings field: 3 dms off, 13 activity status off,
     // 15 activity joining off, 16 message requests off
     #[serde(skip)]
@@ -1102,6 +1107,9 @@ pub struct Store {
     pub folders: Vec<Folder>,
     #[serde(skip)]
     pub account: crate::proto::Account,
+    // who is in each thread, from the gateway's thread member lists
+    #[serde(skip)]
+    pub thread_members: Map<Id, Vec<Id>>,
     #[serde(default)]
     pub custom_status: Option<String>,
     // activity sharing turned off: discord's show_current_game
@@ -1285,13 +1293,21 @@ impl Store {
         self.guilds.get(&gid).map_or(0, |g| (g.my_timeout - chrono::Utc::now().timestamp()).max(0))
     }
 
-    /// Whether we may write here: a timeout takes the permission away, a thread asks for its own.
+    /// Whether we may write here: a timeout takes the permission away, a thread asks for its own
+    /// and a locked one needs manage threads.
+
     pub fn can_send(&self, c: &Channel) -> bool {
         if c.guild == 0 {
             return true;
         }
+        let p = self.perms(c);
+        if p & VIEW_CHANNEL == 0 {
+            return true;
+        }
         let bit = if c.is_thread() { SEND_IN_THREADS } else { SEND_MESSAGES };
-        self.timeout_left(c.guild) == 0 && self.perms(c) & bit != 0
+        let unlocked = !c.locked || p & MANAGE_THREADS != 0;
+        self.timeout_left(c.guild) == 0 && p & bit != 0 && unlocked
+
     }
 
     /// Milliseconds until slowmode lets us post again here.
@@ -1393,15 +1409,15 @@ impl Store {
         if on(s) {
             self.muted.insert(gid);
         }
-        if s["mute_scheduled_events"].as_bool() == Some(true) {
-            self.muted_events.insert(gid);
-        } else {
-            self.muted_events.remove(&gid);
-        }
         if s["hide_muted_channels"].as_bool() == Some(true) {
             self.hide_muted.insert(gid);
         } else {
             self.hide_muted.remove(&gid);
+        }
+        if s["mute_scheduled_events"].as_bool() == Some(true) {
+            self.events_muted.insert(gid);
+        } else {
+            self.events_muted.remove(&gid);
         }
         if let Some(all) = unreads(s, 2048, 4096) {
             self.unreads.insert(gid, all);
@@ -1626,7 +1642,8 @@ impl Store {
         g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
         g.tier = p["premium_tier"].as_u64().or(v["premium_tier"].as_u64()).unwrap_or(0) as u8;
         if let Some(e) = v["guild_scheduled_events"].as_array() {
-            g.events = e.len() as u32;
+            g.events = e.iter().filter(|e| matches!(e["status"].as_u64(), Some(1 | 2))).count() as u32;
+            g.newest_event = e.iter().map(|e| sid(&e["id"])).max().unwrap_or(0);
         }
         if let Some(t) = v["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
             g.joined = t.timestamp();
@@ -1718,18 +1735,18 @@ impl Store {
 
         let rs = if d["read_state"].is_array() { &d["read_state"] } else { &d["read_state"]["entries"] };
         self.reads.clear();
+        self.event_reads.clear();
         for r in rs.as_array().into_iter().flatten() {
-            if r["read_state_type"].as_u64().unwrap_or(0) != 0 {
-                continue;
-            }
-            self.reads.insert(
-                sid(&r["id"]),
-                ReadState {
-                    last_acked: sid(&r["last_message_id"]),
-                    mentions: r["mention_count"].as_u64().unwrap_or(0) as u32,
-                    last_pin: iso_ms(&r["last_pin_timestamp"]),
-                },
-            );
+            let state = ReadState {
+                last_acked: sid(&r["last_message_id"]),
+                mentions: r["mention_count"].as_u64().unwrap_or(0) as u32,
+                last_pin: iso_ms(&r["last_pin_timestamp"]),
+            };
+            match r["read_state_type"].as_u64().unwrap_or(0) {
+                0 => self.reads.insert(sid(&r["id"]), state),
+                1 => self.event_reads.insert(sid(&r["id"]), state),
+                _ => None,
+            };
         }
 
         let ugs = if d["user_guild_settings"].is_array() {
@@ -1738,6 +1755,7 @@ impl Store {
             &d["user_guild_settings"]["entries"]
         };
         self.muted.clear();
+        self.events_muted.clear();
         self.unreads.clear();
         self.levels.clear();
         self.opt_in.clear();
@@ -2240,6 +2258,21 @@ impl Store {
                 }
             }
             "GUILD_MEMBER_LIST_UPDATE" => self.member_list(d),
+            "GUILD_SCHEDULED_EVENT_CREATE" | "GUILD_SCHEDULED_EVENT_UPDATE" | "GUILD_SCHEDULED_EVENT_DELETE" => {
+                let gid = sid(&d["guild_id"]);
+                let live = matches!(d["status"].as_u64(), Some(1 | 2));
+                if let Some(g) = self.guilds.get_mut(&gid) {
+                    match t {
+                        "GUILD_SCHEDULED_EVENT_CREATE" if live => {
+                            g.events += 1;
+                            g.newest_event = g.newest_event.max(sid(&d["id"]));
+                        }
+                        "GUILD_SCHEDULED_EVENT_UPDATE" if !live => g.events = g.events.saturating_sub(1),
+                        "GUILD_SCHEDULED_EVENT_DELETE" if live => g.events = g.events.saturating_sub(1),
+                        _ => {}
+                    }
+                }
+            }
             "THREAD_CREATE" | "THREAD_UPDATE" => {
                 let mut c = Channel::parse(d, 0);
                 if let Some(old) = self.channels.get(&c.id) {
@@ -2290,11 +2323,57 @@ impl Store {
                 }
             }
             "THREAD_MEMBERS_UPDATE" => {
-                if ids(&d["removed_member_ids"]).contains(&self.me)
-                    && let Some(c) = self.channels.get_mut(&sid(&d["id"]))
+                let id = sid(&d["id"]);
+                let removed = ids(&d["removed_member_ids"]);
+                if removed.contains(&self.me)
+                    && let Some(c) = self.channels.get_mut(&id)
                 {
                     c.joined = false;
                 }
+                let guild = sid(&d["guild_id"]);
+                let added: Vec<Id> = d["added_members"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|m| {
+                        let uid = sid(&m["user_id"]);
+                        if m["member"]["user"].is_object() {
+                            self.upsert_user(&m["member"]["user"]);
+                            self.upsert_member(guild, uid, &m["member"]);
+                        }
+                        uid
+                    })
+                    .collect();
+                if let Some(list) = self.thread_members.get_mut(&id) {
+                    list.retain(|u| !removed.contains(u));
+                    for u in added {
+                        if !list.contains(&u) {
+                            list.push(u);
+                        }
+                    }
+                }
+            }
+            "THREAD_MEMBER_LIST_UPDATE" => {
+                let guild = sid(&d["guild_id"]);
+                for p in d["presences"].as_array().into_iter().flatten() {
+                    let uid = sid(&p["user"]["id"]);
+                    self.presence.insert(uid, Status::parse(p["status"].as_str().unwrap_or("")));
+                    self.set_activities(uid, &p["activities"]);
+                }
+                let list = d["members"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|m| {
+                        let uid = sid(&m["user_id"]);
+                        if m["member"]["user"].is_object() {
+                            self.upsert_user(&m["member"]["user"]);
+                            self.upsert_member(guild, uid, &m["member"]);
+                        }
+                        uid
+                    })
+                    .collect();
+                self.thread_members.insert(sid(&d["thread_id"]), list);
             }
             "RELATIONSHIP_ADD" | "RELATIONSHIP_UPDATE" => {
                 let uid = sid(&d["id"]);
