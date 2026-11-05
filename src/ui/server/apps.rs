@@ -236,7 +236,7 @@ fn webhook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
     }
     ui.painter().text(pos2(r.left() + 72.0, r.center().y - 9.0), Align2::LEFT_CENTER, &name, semi(16.0), pal().header_primary);
     ui.painter().text(pos2(r.left() + 72.0, r.center().y + 11.0), Align2::LEFT_CENTER, &cname, reg(12.0), pal().header_secondary);
-    icons::draw(ui.painter(), if open { Icon::ChevronDown } else { Icon::ChevronRight }, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+    crate::ui::motion::chevron(ui, resp.id, open, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
     if resp.clicked() {
         if let Some(s) = &mut app.server {
             let k = &mut s.pages.apps.hook;

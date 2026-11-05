@@ -392,8 +392,8 @@ pub fn permissions(app: &mut App, ui: &mut Ui, c: &Channel) {
     ui.add_space(32.0);
     let head = ui.horizontal(|ui| {
         ui.label(RichText::new("Advanced permissions").font(semi(20.0)).color(pal().header_primary));
-        let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-        icons::draw(ui.painter(), if s.advanced { Icon::ChevronDown } else { Icon::ChevronRight }, egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
+        let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+        crate::ui::motion::chevron(ui, resp.id, s.advanced, egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
     });
     let hr = ui.interact(head.response.rect, ui.id().with("adv_head"), Sense::click());
     settings::mark(ui, "chanset:advanced", hr.rect);

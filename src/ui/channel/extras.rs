@@ -315,7 +315,7 @@ fn webhooks(app: &mut App, ui: &mut Ui, c: &Channel, hooks: &[Value]) {
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-                    icons::draw(ui.painter(), if editing { Icon::ChevronDown } else { Icon::ChevronRight }, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
+                    crate::ui::motion::chevron(ui, ui.id().with(("hook_chev", id)), editing, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
                 });
             });
             let head = ui.interact(top.response.rect, ui.id().with(("hook", id)), Sense::click());
