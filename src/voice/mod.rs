@@ -8,6 +8,7 @@ mod conn;
 mod dsp;
 mod duck;
 mod hwenc;
+mod log;
 pub mod probe;
 mod qos;
 mod rtp;
@@ -134,6 +135,7 @@ pub struct Live {
     endpoint: Option<(String, String)>,
     tag: u64,
     share: Option<(video::Source, video::Quality)>,
+    preview_at: Option<std::time::Instant>,
 }
 
 #[derive(Default)]
@@ -166,6 +168,8 @@ pub struct VoiceUi {
     pub shared: Arc<Shared>,
     /// set when a call connects, for the entrance sound
     pub entrance_due: bool,
+    /// our own stream's picture, when it's time to send Discord a preview of it
+    pub preview_job: Option<(String, Arc<egui::ColorImage>)>,
     session: Option<String>,
     server: Option<(String, String, Id)>,
     joined: Option<(String, String)>,
@@ -311,7 +315,7 @@ impl VoiceUi {
         let key = self.stream_key(user)?;
         let tag = self.next_tag();
         let mine = share.is_some();
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share });
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share, preview_at: None });
         Some(key)
     }
 
@@ -522,7 +526,13 @@ impl VoiceUi {
         {
             match e.kind {
                 Kind::State(s) => l.state = s,
-                Kind::Frame(_, img) => l.frame = Some(img),
+                Kind::Frame(_, img) => {
+                    if l.mine && l.preview_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300)) {
+                        l.preview_at = Some(std::time::Instant::now());
+                        self.preview_job = Some((l.key.clone(), img.clone()));
+                    }
+                    l.frame = Some(img);
+                }
                 Kind::Error(err) => return Some(err),
                 Kind::Closed(err) => {
                     self.stream = None;
@@ -583,6 +593,7 @@ impl VoiceUi {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(duck::recover);
         self.shared.apply(s);
+        log::set(s.debug_log);
         video::set_codecs(s.hw_accel, s.openh264);
         crate::audioplay::set_soundboard_volume(s.soundboard_volume);
     }
