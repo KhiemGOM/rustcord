@@ -29,6 +29,7 @@ from pathlib import Path
 import look
 import polish
 import home
+import people
 import qol
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -389,6 +390,7 @@ def main():
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
+        **people.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}

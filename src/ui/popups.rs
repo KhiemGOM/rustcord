@@ -1,7 +1,7 @@
 use egui::{Align, Align2, CornerRadius, Frame, Key, Layout, Margin, Pos2, Rect, RichText, Sense, Ui, pos2, vec2};
 use serde_json::json;
 
-use super::{App, avatar, button, channel_title, chat, icon_button, status_dot, text};
+use super::{App, activity, avatar, button, channel_title, chat, icon_button, profile, status_dot, text};
 use super::icons::Icon;
 use crate::net::Tag;
 use crate::state::{Id, Message};
@@ -77,6 +77,28 @@ impl App {
             let q = if guild != 0 { format!("&guild_id={guild}") } else { String::new() };
             self.rest("GET", format!("/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true{q}"), None, Tag::Profile(user));
         }
+    }
+
+    pub fn open_timeout(&mut self, gid: Id, uid: Id) {
+        self.timeout = Some(Timeout { guild: gid, user: uid, secs: 60, reason: String::new() });
+    }
+
+    pub fn kick(&mut self, gid: Id, uid: Id) {
+        let name = self.store.name_in(gid, uid);
+        let server = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+        let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
+        self.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
+            app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::Quiet)
+        }));
+    }
+
+    pub fn ban(&mut self, gid: Id, uid: Id) {
+        let name = self.store.name_in(gid, uid);
+        let server = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+        let body = format!("Are you sure you want to ban @{name} from {server}?");
+        self.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
+            app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::Quiet)
+        }));
     }
 
     pub fn open_dm(&mut self, user: Id) {
@@ -364,6 +386,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     status_edit(app, ctx);
     switcher(app, ctx);
     profile(app, ctx);
+    super::profile::show(app, ctx);
+    super::profile::role_picker(app, ctx);
+    super::tagpop::show(app, ctx);
+    super::modview::show(app, ctx);
     pins(app, ctx);
     new_thread(app, ctx);
     leaving(app, ctx);
@@ -904,27 +930,31 @@ fn profile(app: &mut App, ctx: &egui::Context) {
         app.profile = None;
         return;
     };
+    if !app.notes.contains_key(&uid) {
+        app.notes.insert(uid, String::new());
+        app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
+    }
     let p = app.profiles.get(&uid);
     let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
-    let roles: Vec<(String, u32)> = app
-        .store
-        .members
-        .get(&gid)
-        .and_then(|m| m.get(&uid))
-        .zip(app.store.guilds.get(&gid))
-        .map(|(m, g)| {
-            let mut r: Vec<_> = m.roles.iter().filter_map(|r| g.roles.get(r)).collect();
-            r.sort_by_key(|r| -r.position);
-            r.into_iter().map(|r| (r.name.clone(), r.color)).collect()
-        })
-        .unwrap_or_default();
+    let roles = if gid != 0 { profile::member_roles(&app.store, p, gid, uid) } else { Vec::new() };
     let name = app.store.name_in(gid, uid);
     let status = app.store.status(uid);
     let me = app.store.me;
-    let stranger = !user.bot && uid != me && !app.store.relationships.contains_key(&uid);
-    let (mut message, mut more, mut add, mut main) = (None, None, false, false);
+    let rel = app.store.relationships.get(&uid).copied();
+    let stranger = !user.bot && uid != me && rel.is_none();
+    let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| activity::shown(l).cloned().collect()).unwrap_or_default();
+    let spotify = app.profiles.get(&me).is_some_and(|m| m["connected_accounts"].as_array().is_some_and(|a| a.iter().any(|c| c["type"] == "spotify")));
+    let app_icons = app.store.app_icons.clone();
+    let saved = app.notes.get(&uid).cloned().unwrap_or_default();
+    let note_open_id = egui::Id::new(("note_open", uid));
+    let react_id = egui::Id::new(("react_open", uid));
+    let note_open: bool = !saved.is_empty() || ctx.data(|d| d.get_temp(note_open_id)).unwrap_or(false);
+    let mod_view = uid != me && gid != 0 && app.store.members.get(&gid).is_some_and(|m| m.contains_key(&uid)) && super::modview::allowed(&app.store, gid);
+    let (mut message, mut banner, mut main, mut full, mut tab) = (None, BannerAct::default(), false, false, None);
+    let (mut role_act, mut note_save, mut open_url): (Option<profile::RoleAct>, Option<String>, Option<String>) = (None, None, None);
     let mut head = Rect::NOTHING;
     let store = &app.store;
+    let notes = &mut app.rects;
 
     // discord's 2025 popout: a 105 banner, round buttons on it, then everything at 16 in
     let area = egui::Area::new(egui::Id::new("profile"))
@@ -939,6 +969,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 let wash = ui.painter().add(egui::Shape::Noop);
                 let top = card_head(ui, &user, p, &name, status);
                 head = top;
+                full = ui.interact(top, ui.id().with("profile_banner"), Sense::click()).clicked();
                 // from a server profile the avatar goes to the main one
                 if gid != 0 {
                     let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
@@ -948,65 +979,82 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     main = hit.on_hover_text("View Main Profile").clicked();
                 }
                 if uid != me {
-                    (more, add) = banner_buttons(ui, top, stranger);
+                    banner = banner_buttons(ui, top, stranger, rel == Some(crate::state::FRIEND), mod_view);
+                    let nb = Rect::from_min_size(pos2(top.right() - 40.0, top.bottom() + 44.0), vec2(24.0, 24.0));
+                    let resp = ui.interact(nb, ui.id().with("add_note"), Sense::click());
+                    super::icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(nb.center(), vec2(16.0, 16.0)), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+                    if resp.on_hover_text("Add Note (only visible to you)").clicked() {
+                        ui.data_mut(|d| d.insert_temp(note_open_id, true));
+                    }
+                }
+                let st = profile::status_bubble(ui, top, store, uid, uid != me);
+                if matches!(st, Some(profile::StatusAct::React)) {
+                    let open: bool = ui.data(|d| d.get_temp(react_id)).unwrap_or(false);
+                    ui.data_mut(|d| d.insert_temp(react_id, !open));
+                }
+                if matches!(st, Some(profile::StatusAct::Reply)) {
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new(("reply_status", uid)), true));
+                    ui.memory_mut(|m| m.request_focus(egui::Id::new("profile_msg_box")));
+                }
+                if ui.data(|d| d.get_temp(react_id)).unwrap_or(false) {
+                    let bar = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() + 36.0), vec2(6.0 * 32.0 + 8.0, 40.0));
+                    ui.painter().rect(bar, 12, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    for (i, e) in ["\u{1f44d}", "\u{2764}\u{fe0f}", "\u{1f602}", "\u{1f62e}", "\u{1f622}", "\u{1f525}"].into_iter().enumerate() {
+                        let c = Rect::from_center_size(pos2(bar.left() + 20.0 + i as f32 * 32.0, bar.center().y), vec2(28.0, 28.0));
+                        let resp = ui.interact(c, ui.id().with(("react", i)), Sense::click());
+                        if resp.hovered() {
+                            ui.painter().rect_filled(c, 6, pal().bg_mod_hover);
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        text::image(ui.painter(), &crate::markdown::twemoji(e), Rect::from_center_size(c.center(), vec2(20.0, 20.0)));
+                        if resp.clicked() {
+                            message = Some(e.to_string());
+                        }
+                    }
                 }
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    mutuals(ui, store, p, pal().bg_secondary);
+                    tab = mutuals(ui, store, p, pal().bg_secondary);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().header_primary));
                     }
-                    if !roles.is_empty() {
+                    for a in &live {
+                        ui.add_space(12.0);
+                        let icon = app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
+                        match activity::card(ui, a, 268.0, &icon, spotify) {
+                            Some(activity::Act::Play(u)) => open_url = Some(u),
+                            Some(activity::Act::Connect) => open_url = Some("https://discord.com/settings/connections".into()),
+                            None => {}
+                        }
+                    }
+                    if !roles.is_empty() || (gid != 0 && profile::can_manage_any(store, gid)) {
                         ui.add_space(14.0);
                         if !bio.is_empty() {
                             ui.label(RichText::new("Roles").font(semi(12.0)).color(pal().header_primary));
                             ui.add_space(10.0);
                         }
-                        // discord keeps roles to two rows and counts the rest in a "+N" pill
-                        let galleys: Vec<_> = roles.iter().map(|(r, _)| ui.painter().layout_no_wrap(r.clone(), reg(12.0), pal().header_primary)).collect();
-                        let (mut shown, mut x, mut row) = (0, 0.0, 0);
-                        for g in &galleys {
-                            let w = 32.0 + g.size().x;
-                            if x > 0.0 && x + w > 268.0 {
-                                row += 1;
-                                x = 0.0;
-                            }
-                            let reserve = if row == 1 && shown + 1 < galleys.len() { 44.0 } else { 0.0 };
-                            if row > 1 || x + w + reserve > 268.0 {
-                                break;
-                            }
-                            x += w + 4.0;
-                            shown += 1;
-                        }
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                            for ((_, c), g) in roles.iter().zip(galleys).take(shown) {
-                                let (pill, _) = ui.allocate_exact_size(vec2(32.0 + g.size().x, 24.0), Sense::hover());
-                                ui.painter().rect_stroke(pill, CornerRadius::same(8), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-                                let col = if *c == 0 { egui::Color32::from_rgb(0xc4, 0xc9, 0xce) } else { role_color(*c) };
-                                ui.painter().circle_filled(pos2(pill.left() + 12.0, pill.center().y), 6.0, col);
-                                ui.painter().galley(pos2(pill.left() + 22.0, pill.center().y - g.size().y / 2.0), g, pal().header_primary);
-                            }
-                            if shown < roles.len() {
-                                let g = ui.painter().layout_no_wrap(format!("+{}", roles.len() - shown), reg(12.0), pal().header_secondary);
-                                let (pill, _) = ui.allocate_exact_size(vec2(16.0 + g.size().x, 24.0), Sense::hover());
-                                ui.painter().rect_stroke(pill, CornerRadius::same(8), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-                                ui.painter().galley(pill.center() - g.size() / 2.0, g, pal().header_secondary);
-                            }
-                        });
+                        role_act = profile::roles_row(ui, store, gid, uid, &roles, 268.0, 2);
+                    }
+                    if uid != me && note_open {
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
+                        ui.add_space(4.0);
+                        note_save = profile::note_box(ui, notes, "popout_note", uid, &saved, 268.0, 12.0, true);
                     }
                     if uid != me {
                         // discord's box: typed into in place, Enter sends it and opens the dm.
                         // It has the focus as the card opens.
                         ui.add_space(16.0);
                         let draft = egui::Id::new(("profile_msg", uid));
+                        let replying = ui.data(|d| d.get_temp::<bool>(egui::Id::new(("reply_status", uid)))).unwrap_or(false);
                         let mut text: String = ui.data(|d| d.get_temp(draft)).unwrap_or_default();
                         let (r, _) = ui.allocate_exact_size(vec2(268.0, 46.0), Sense::hover());
                         ui.painter().rect(r, 8, pal().input_bg, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                         super::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(r.right() - 29.0, r.center().y), vec2(18.0, 18.0)), pal().header_secondary);
                         let field = Rect::from_min_max(pos2(r.left() + 16.0, r.top() + 1.0), pos2(r.right() - 44.0, r.bottom() - 1.0));
+                        let hint = if replying { format!("Reply to {name}'s status") } else { format!("Message @{name}") };
                         let edit = ui.put(
                             field,
                             egui::TextEdit::singleline(&mut text)
@@ -1015,13 +1063,13 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                                 .font(reg(14.0))
                                 .text_color(pal().text_normal)
                                 .vertical_align(egui::Align::Center)
-                                .hint_text(RichText::new(format!("Message @{name}")).font(reg(14.0)).color(pal().text_muted))
+                                .hint_text(RichText::new(hint).font(reg(14.0)).color(pal().text_muted))
                                 .desired_width(field.width()),
                         );
                         if !ui.ctx().memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {
                             edit.request_focus();
                         }
-                        app.rects.insert("profile_msg".into(), r);
+                        notes.insert("profile_msg".into(), r);
                         if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !text.trim().is_empty() {
                             message = Some(std::mem::take(&mut text));
                         }
@@ -1032,47 +1080,91 @@ fn profile(app: &mut App, ctx: &egui::Context) {
             });
         });
     app.rects.insert("profile_head".into(), head);
+    let tag = tag_clicked(ctx);
+    if let Some(r) = role_act {
+        profile::do_role(app, gid, uid, r);
+    }
+    if let Some(n) = note_save {
+        app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": n })), Tag::Quiet);
+        app.notes.insert(uid, n);
+    }
+    if let Some(u) = open_url {
+        ctx.open_url(egui::OpenUrl::new_tab(u));
+    }
     if let Some(text) = message {
         app.profile = None;
         app.dm_text(uid, text);
+    } else if let Some(g) = tag {
+        app.tag_pop = Some((g, at + vec2(0.0, 60.0)));
+    } else if let Some(t) = tab {
+        app.open_full(uid, gid, t);
+    } else if full {
+        app.open_full(uid, gid, profile::Tab::Activity);
     } else if main {
         app.open_profile(uid, 0, at);
-    } else if let Some(at) = more {
+    } else if let Some(at) = banner.more {
         app.user_menu = Some((uid, gid, None, at));
-    } else if add {
+    } else if let Some(at) = banner.friend {
+        app.user_menu = Some((uid, gid, None, at));
+    } else if banner.add {
         app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
-    } else if dismissed(ctx, &area.response) && app.user_menu.is_none() {
+    } else if banner.mod_view {
+        app.open_mod_view(gid, uid);
+    } else if dismissed(ctx, &area.response) && app.user_menu.is_none() && app.role_add.is_none() && app.tag_pop.is_none() {
         app.profile = None;
     }
 }
 
-/// The round buttons on a profile's banner: "..." for the person's menu, and add friend to a
-/// stranger. Hands back where the menu should open and whether add was clicked.
-fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool) -> (Option<Pos2>, bool) {
+/// A server tag chip clicked on a card this frame: its server.
+fn tag_clicked(ctx: &egui::Context) -> Option<Id> {
+    ctx.data_mut(|d| d.remove_temp::<Id>(egui::Id::new("card_tag_clicked")))
+}
+
+#[derive(Default)]
+struct BannerAct {
+    more: Option<Pos2>,
+    friend: Option<Pos2>,
+    add: bool,
+    mod_view: bool,
+}
+
+/// The round buttons on a profile's banner, right to left: "..." for the person's menu, add
+/// friend for a stranger or the friend button for a friend, and Mod View for moderators.
+fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool, friend: bool, mod_view: bool) -> BannerAct {
     let mut x = top.right() - 12.0;
     let mut round = |ui: &mut Ui, icon: Icon, tip: &str| {
         let r = Rect::from_min_size(pos2(x - 32.0, top.top() + 8.0), vec2(32.0, 32.0));
         x -= 40.0;
         let resp = ui.interact(r, ui.id().with(("banner_btn", tip)), Sense::click());
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "banner", tip)), r));
         let fill = egui::Color32::from_black_alpha(if resp.hovered() { 184 } else { 143 });
         ui.painter().circle(r.center(), 16.0, fill, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)));
         super::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), egui::Color32::WHITE);
-        resp.on_hover_text(tip)
+        let at = r.left_bottom() + vec2(0.0, 4.0);
+        (resp.on_hover_text(tip), at)
     };
-    let r = round(ui, Icon::More, "More");
-    let more = r.clicked().then(|| r.rect.left_bottom() + vec2(0.0, 4.0));
-    let add = stranger && round(ui, Icon::PersonAdd, "Add Friend").clicked();
-    (more, add)
+    let (r, at) = round(ui, Icon::More, "More");
+    let mut out = BannerAct { more: r.clicked().then_some(at), ..Default::default() };
+    if stranger {
+        out.add = round(ui, Icon::PersonAdd, "Add Friend").0.clicked();
+    } else if friend {
+        let (r, at) = round(ui, Icon::Friends, "Friend");
+        out.friend = r.clicked().then_some(at);
+    }
+    if mod_view {
+        out.mod_view = round(ui, Icon::Shield, "Open in Mod View").0.clicked();
+    }
+    out
 }
 
-/// "6 Mutual Friends • 7 Mutual Servers" with the first three friends' faces. `card` is what
-/// the faces' rings are cut from.
-fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32) {
+/// "6 Mutual Friends • 7 Mutual Servers" with the first three friends' faces; each count opens
+/// the full profile on its tab. `card` is what the faces' rings are cut from.
+fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32) -> Option<profile::Tab> {
     let friends: Vec<Id> = p.and_then(|p| p["mutual_friends"].as_array()).into_iter().flatten().map(|f| crate::state::sid(&f["id"])).collect();
     let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
     let n_guilds = p.and_then(|p| p["mutual_guilds"].as_array()).map_or(0, |g| g.len() as u64);
     if n_friends == 0 && n_guilds == 0 {
-        return;
+        return None;
     }
     ui.add_space(19.0);
     let (r, _) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::hover());
@@ -1090,14 +1182,28 @@ fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Valu
         x += 7.0;
     }
     let plural = |n: u64, what: &str| format!("{n} Mutual {what}{}", if n == 1 { "" } else { "s" });
-    let parts: Vec<String> = [(n_friends, "Friend"), (n_guilds, "Server")].into_iter().filter(|(n, _)| *n > 0).map(|(n, w)| plural(n, w)).collect();
-    for (i, t) in parts.iter().enumerate() {
+    let parts: Vec<(String, profile::Tab)> = [(n_friends, "Friend", profile::Tab::Friends), (n_guilds, "Server", profile::Tab::Servers)].into_iter().filter(|(n, ..)| *n > 0).map(|(n, w, t)| (plural(n, w), t)).collect();
+    let mut hit = None;
+    for (i, (t, tab)) in parts.iter().enumerate() {
         if i > 0 {
             ui.painter().circle_filled(pos2(x + 6.0, r.center().y), 2.0, pal().header_secondary);
             x += 12.0;
         }
-        x = ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, t, reg(12.0), pal().header_secondary).right();
+        let g = ui.painter().layout_no_wrap(t.clone(), reg(12.0), pal().header_secondary);
+        let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, 16.0));
+        let resp = ui.interact(tr, ui.id().with(("mutual", t)), Sense::click());
+        let ink = if resp.hovered() { pal().header_primary } else { pal().header_secondary };
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            ui.painter().hline(tr.x_range(), tr.bottom(), egui::Stroke::new(1.0, ink));
+        }
+        ui.painter().galley(pos2(x, r.center().y - g.size().y / 2.0), g, ink);
+        x = tr.right();
+        if resp.clicked() {
+            hit = Some(*tab);
+        }
     }
+    hit
 }
 
 /// The card discord keeps beside a one-on-one dm: the person's profile, full height.
@@ -1111,16 +1217,14 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         app.notes.insert(uid, String::new());
         app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
     }
-    // what's saved, and what's being typed over it while the box has focus
     let saved = app.notes.get(&uid).cloned().unwrap_or_default();
-    let draft = egui::Id::new(("note_draft", uid));
-    let mut note: String = ui.data(|d| d.get_temp(draft)).unwrap_or_else(|| saved.clone());
-    let mut save_note = false;
+    let mut save_note = None;
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
-    let (mut more, mut add, mut full) = (None, false, false);
+    let (mut banner, mut full, mut tab) = (BannerAct::default(), false, None);
     let height = ui.available_height();
     let store = &app.store;
+    let notes = &mut app.rects;
     let p = app.profiles.get(&uid);
     Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
         ui.set_width(300.0);
@@ -1128,44 +1232,20 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.spacing_mut().item_spacing.y = 0.0;
         let wash = ui.painter().add(egui::Shape::Noop);
         let top = card_head(ui, &user, p, user.display(), status);
-        (more, add) = banner_buttons(ui, top, stranger);
+        banner = banner_buttons(ui, top, stranger, !stranger && !user.bot, false);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
             ui.set_width(268.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            mutuals(ui, store, p, pal().bg_primary);
+            tab = mutuals(ui, store, p, pal().bg_primary);
             ui.add_space(24.0);
             ui.label(RichText::new("Member Since").font(semi(12.0)).color(pal().header_primary));
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
             ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
-            // the note only you see: Enter saves it, Shift+Enter starts a new line, six at most
             ui.add_space(24.0);
             ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
             ui.add_space(4.0);
-            let nid = egui::Id::new(("note", uid));
-            let focused = ui.memory(|m| m.has_focus(nid));
-            let enter = focused && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Enter));
-            let before = note.clone();
-            let r = ui.add(
-                egui::TextEdit::multiline(&mut note)
-                    .id(nid)
-                    .frame(Frame::NONE)
-                    .desired_rows(1)
-                    .font(reg(12.0))
-                    .hint_text(RichText::new("Click to add a note").font(reg(12.0)).color(pal().text_muted))
-                    .desired_width(268.0),
-            );
-            if note.lines().count() > 6 {
-                note = before;
-            }
-            app.rects.insert("note".into(), r.rect);
-            if enter {
-                r.surrender_focus();
-            }
-            save_note = enter || r.lost_focus();
-            if !save_note && !r.has_focus() {
-                note = saved.clone();
-            }
+            save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
@@ -1174,19 +1254,20 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         full = resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
     });
-    if let Some(at) = more {
+    if let Some(at) = banner.more.or(banner.friend) {
         app.user_menu = Some((uid, 0, None, at));
     }
-    if add {
+    if banner.add {
         app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
     }
-    if save_note && note != saved {
-        app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": note })), Tag::Quiet);
-        app.notes.insert(uid, note.clone());
+    if let Some(n) = save_note {
+        app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": n })), Tag::Quiet);
+        app.notes.insert(uid, n);
     }
-    ui.data_mut(|d| d.insert_temp(draft, note));
-    if full {
-        app.open_profile(uid, 0, ui.min_rect().left_top() - vec2(310.0, 0.0));
+    if let Some(t) = tab {
+        app.open_full(uid, 0, t);
+    } else if full {
+        app.open_full(uid, 0, profile::Tab::Activity);
     }
 }
 
@@ -1202,13 +1283,13 @@ fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)
     Some((col(&c[0]), col(&c[1])))
 }
 
-fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> {
+pub(super) fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> {
     theme(p).map(|(a, _)| a)
 }
 
 /// A nitro profile theme: the card washed from its primary colour down to its accent, dimmed the
 /// way discord dims them in dark themes. Paints into `slot`, reserved before the card's content.
-fn theme_wash(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Value>, rect: Rect) {
+pub(super) fn theme_wash(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Value>, rect: Rect) {
     let Some((a, b)) = theme(p) else { return };
     let mut mesh = egui::Mesh::default();
     let size = ui.ctx().fonts(|f| f.font_image_size());
@@ -1274,15 +1355,14 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
                 ui.add_space(18.0);
                 r = text::label(ui, pr, reg(14.0), pal().header_primary, Sense::hover()).rect;
             }
-            let mut x = super::tag_chip(ui.painter(), user, pos2(r.right() + 8.0, r.center().y), 1.0).map_or(r.right() + 8.0, |t| t.right() + 6.0);
-            // the profile's badges, 20 apiece, each telling what it's for on hover
-            for b in p.and_then(|p| p["badges"].as_array()).into_iter().flatten() {
-                let Some(icon) = b["icon"].as_str() else { continue };
-                let br = Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0));
-                egui::Image::from_uri(format!("{}/badge-icons/{icon}.png", crate::api::cdn())).show_loading_spinner(false).paint_at(ui, br);
-                ui.interact(br, ui.id().with(("badge", icon)), Sense::hover()).on_hover_text(b["description"].as_str().unwrap_or(""));
-                x += 22.0;
+            let chip = super::tag_chip(ui.painter(), user, pos2(r.right() + 8.0, r.center().y), 1.0);
+            if let Some(t) = chip
+                && super::tagpop::hit(ui, t, "card_tag")
+                && let Some((_, g, _)) = &user.tag
+            {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("card_tag_clicked"), *g));
             }
+            profile::badges(ui, p, chip.map_or(r.right() + 8.0, |t| t.right() + 6.0), r.center().y, 20.0);
         });
     });
     top
@@ -2063,21 +2143,9 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         Some(UserAct::Mention) => app.mention(uid, gid),
         // ctrl+click times them out for a minute without asking how long
         Some(UserAct::Timeout) if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
-        Some(UserAct::Timeout) => app.timeout = Some(Timeout { guild: gid, user: uid, secs: 60, reason: String::new() }),
-        Some(UserAct::Kick) => {
-            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
-            app.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
-                app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Ban) => {
-            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let body = format!("Are you sure you want to ban @{name} from {server}?");
-            app.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
-                app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::Quiet)
-            }));
-        }
+        Some(UserAct::Timeout) => app.open_timeout(gid, uid),
+        Some(UserAct::Kick) => app.kick(gid, uid),
+        Some(UserAct::Ban) => app.ban(gid, uid),
         Some(UserAct::Message) => app.open_dm(uid),
         Some(UserAct::Close) if group => {
             let title = channel_title(&app.store, dm);
