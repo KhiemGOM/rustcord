@@ -54,7 +54,7 @@ pub struct Run {
     wheel_at: Instant,
     notches: u32,
     costs: Vec<f32>,
-    opened: bool,
+    chat_open: bool,
     travel: f32,
     last_off: f32,
     causes: std::collections::HashMap<String, u32>,
@@ -132,7 +132,7 @@ impl Run {
             wheel_at: Instant::now(),
             notches: 0,
             costs: Vec::new(),
-            opened: false,
+            chat_open: false,
             travel: 0.0,
             last_off: 0.0,
             causes: Default::default(),
@@ -361,11 +361,11 @@ impl Run {
                 ctx.request_repaint();
             }
             if self.scroll
-                && !self.opened
+                && !self.chat_open
                 && let Some(&g) = app.store.guild_order.first()
                 && let Some(ch) = side::first_channel(&app.store, g)
             {
-                self.opened = true;
+                self.chat_open = true;
                 app.select_guild(Some(g));
                 app.open(ch);
             }
