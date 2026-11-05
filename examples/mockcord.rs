@@ -1,6 +1,6 @@
 //! Tiny fake Discord for the e2e harness: REST + CDN over plain HTTP, gateway over ws,
 //! and a voice server (ws + udp on the same port number) with one fake speaker.
-//! usage: mockcord <http_port> <ws_port> <request_log.jsonl> [voice_port]
+//! usage: mockcord <http_port> <ws_port> <request_log.jsonl> [voice_port] [remote_auth_port]
 
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
@@ -22,6 +22,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message as Ws;
+
+#[path = "mockcord_auth/mod.rs"]
+mod auth;
 
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -706,6 +709,9 @@ fn gg_stand_in(face: &str) -> Vec<u8> {
 async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
     let ok = |v: Value| (200, "application/json", v.to_string().into_bytes());
     let clean = path.split('?').next().unwrap_or("");
+    if let Some((code, v)) = auth::route(method, clean, body) {
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {
@@ -1777,6 +1783,9 @@ async fn main() {
     let ws_port: u16 = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(7702);
     let log = args.get(3).cloned().unwrap_or_else(|| "mock_requests.jsonl".into());
     let voice_port: u16 = args.get(4).and_then(|p| p.parse().ok()).unwrap_or(ws_port + 1);
+    if let Some(port) = args.get(5).and_then(|p| p.parse().ok()) {
+        tokio::spawn(auth::gateway(port));
+    }
     let cdn = format!("http://127.0.0.1:{http_port}/cdn");
     PORT.store(http_port, std::sync::atomic::Ordering::Relaxed);
     let (events, _) = broadcast::channel(256);
