@@ -4094,6 +4094,7 @@ dependencies = [
  "openmls_rust_crypto",
  "opus-rs",
  "raw-window-handle",
+ "realfft",
  "reqwest",
  "rfd",
  "rtrb",

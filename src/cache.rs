@@ -76,8 +76,25 @@ pub struct Settings {
     pub ptt_delay_ms: u32,
     pub input_volume: f32,
     pub output_volume: f32,
-    // krisp-style background noise suppression on the mic
-    pub noise_suppression: bool,
+    pub input_profile: InputProfile,
+    pub noise: Noise,
+    pub echo_cancel: bool,
+    pub agc: bool,
+    pub adv_vad: bool,
+    pub silence_warning: bool,
+    // how far other apps duck, in percent, and when
+    pub attenuation: u32,
+    pub atten_self: bool,
+    pub atten_others: bool,
+    pub qos: bool,
+    pub hw_accel: bool,
+    pub openh264: bool,
+    pub debug_log: bool,
+    pub aec_dump: bool,
+    pub stream_previews: bool,
+    pub soundboard_volume: f32,
+    // (guild, sound, the guild it came from) to play on joining that guild's calls; guild 0 is all servers
+    pub entrance: Vec<(Id, Id, Id)>,
     // keybinds: (action, windows virtual-key codes)
     pub keybinds: Vec<(String, Vec<u32>)>,
     // language
@@ -116,6 +133,22 @@ pub enum RoleColors {
     InNames,
     NextToNames,
     Hidden,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum InputProfile {
+    VoiceIsolation,
+    Studio,
+    #[default]
+    Custom,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum Noise {
+    #[default]
+    Krisp,
+    Standard,
+    None,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -164,7 +197,23 @@ impl Default for Settings {
             ptt_delay_ms: 20,
             input_volume: 1.0,
             output_volume: 1.0,
-            noise_suppression: true,
+            input_profile: InputProfile::Custom,
+            noise: Noise::Krisp,
+            echo_cancel: true,
+            agc: true,
+            adv_vad: true,
+            silence_warning: true,
+            attenuation: 0,
+            atten_self: false,
+            atten_others: true,
+            qos: false,
+            hw_accel: true,
+            openh264: true,
+            debug_log: false,
+            aec_dump: false,
+            stream_previews: true,
+            soundboard_volume: 1.0,
+            entrance: Vec::new(),
             keybinds: Vec::new(),
             locale: "en-US".into(),
             open_on_startup: false,
@@ -194,6 +243,36 @@ impl Settings {
         self.streamer && self.hide_personal
     }
 
+    /// Back to Discord's defaults for everything on Voice & Video, devices included.
+    pub fn reset_voice(&mut self) {
+        let d = Settings::default();
+        self.mic = d.mic;
+        self.speaker = d.speaker;
+        self.vad_db = d.vad_db;
+        self.auto_sensitivity = d.auto_sensitivity;
+        self.ptt = d.ptt;
+        self.ptt_delay_ms = d.ptt_delay_ms;
+        self.input_volume = d.input_volume;
+        self.output_volume = d.output_volume;
+        self.input_profile = d.input_profile;
+        self.noise = d.noise;
+        self.echo_cancel = d.echo_cancel;
+        self.agc = d.agc;
+        self.adv_vad = d.adv_vad;
+        self.silence_warning = d.silence_warning;
+        self.attenuation = d.attenuation;
+        self.atten_self = d.atten_self;
+        self.atten_others = d.atten_others;
+        self.qos = d.qos;
+        self.hw_accel = d.hw_accel;
+        self.openh264 = d.openh264;
+        self.debug_log = d.debug_log;
+        self.aec_dump = d.aec_dump;
+        self.stream_previews = d.stream_previews;
+        self.soundboard_volume = d.soundboard_volume;
+        self.voice_switch_ok = d.voice_switch_ok;
+        self.muted_sounds.retain(|m| !crate::sound::VOICE_EVENTS.iter().any(|(k, _)| k == m));
+    }
 }
 
 pub fn settings() -> Settings {

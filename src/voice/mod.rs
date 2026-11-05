@@ -1,10 +1,14 @@
 //! Voice channels and DM calls. The UI side (`VoiceUi`) lives on `App` and
 //! talks to the main gateway; the session itself runs on the net runtime.
 
+mod aec;
 pub mod audio;
 mod capture;
 mod conn;
+mod dsp;
+mod duck;
 mod hwenc;
+pub mod probe;
 mod rtp;
 mod video;
 
@@ -159,6 +163,8 @@ pub struct VoiceUi {
     pub stream: Option<Live>,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
+    /// set when a call connects, for the entrance sound
+    pub entrance_due: bool,
     session: Option<String>,
     server: Option<(String, String, Id)>,
     joined: Option<(String, String)>,
@@ -281,6 +287,7 @@ impl VoiceUi {
     }
 
     pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
+        crate::sound::cue(if on { "camera_on" } else { "camera_off" });
         self.camera = on;
         if !on {
             self.video.remove(&me);
@@ -536,7 +543,10 @@ impl VoiceUi {
                 self.tex.remove(&format!("cam:{u}"));
             }
             Kind::Error(err) => return Some(err),
-            Kind::State(s) => self.state = s,
+            Kind::State(s) => {
+                self.entrance_due |= s == State::Connected && matches!(self.state, State::Joining | State::Connecting);
+                self.state = s;
+            }
             Kind::Speaking(u, true) => {
                 self.speaking.insert(u);
             }
@@ -567,18 +577,13 @@ impl VoiceUi {
         None
     }
 
-    /// Device choice is read when a call starts; the VAD threshold applies live.
+    /// Everything on Voice & Video that acts live, devices included.
     pub fn configure(&self, s: &crate::cache::Settings) {
-        self.shared.vad_db.store(s.vad_db, Relaxed);
-        self.shared.auto_vad.store(s.auto_sensitivity, Relaxed);
-        self.shared.denoise.store(s.noise_suppression, Relaxed);
-        self.shared.ptt.store(s.ptt, Relaxed);
-        self.shared.ptt_delay_ms.store(s.ptt_delay_ms, Relaxed);
-        self.shared.in_gain.store(s.input_volume.to_bits(), Relaxed);
-        self.shared.out_gain.store(s.output_volume.to_bits(), Relaxed);
-        if let Ok(mut d) = self.shared.devices.lock() {
-            *d = (s.mic.clone(), s.speaker.clone());
-        }
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(duck::recover);
+        self.shared.apply(s);
+        video::set_codecs(s.hw_accel, s.openh264);
+        crate::audioplay::set_soundboard_volume(s.soundboard_volume);
     }
 
     pub fn is_speaking(&self, u: Id) -> bool {
