@@ -28,6 +28,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 `ci.yml` builds on push and PR. The e2e is `workflow_dispatch` only: the runner renders in software (Mesa llvmpipe), so frame and startup timing checks are flaky there.
 
 ## Traps
+- eframe stops calling `ui()` while the window is minimized, and Rustcord skips drawing while it sits in the tray; only `logic()` runs then. Anything that has to keep up with the gateway (notifications, the taskbar badge, the tray icon, global keybinds) belongs in `logic()`.
 - `src/ui/e2e.rs` is compiled into every build, release included; it only activates when `RUSTCORD_E2E`, `RUSTCORD_TOUR` or `RUSTCORD_BENCH` is set.
 - `App.store` is a `Tracked` wrapper: taking it mutably drops the sums worked out from the whole store (server badges, the mention count). Code that runs every frame reads first and takes `&mut` only when it changes something.
 - Every `request_repaint()` is two frames, and an idle window should draw only for the caret. Ask for repaints only for what's on screen; `bench.json`'s `repaints_asked_by` says who did.

@@ -315,6 +315,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     glyph(ui, icon, rect, 18.0, col);
                     if hit {
                         match name {
+                            "close" if app.settings.minimize_to_tray => app.hide_to_tray(&ctx),
                             "close" => ctx.send_viewport_cmd(ViewportCommand::Close),
                             "min" => ctx.send_viewport_cmd(ViewportCommand::Minimized(true)),
                             _ => toggle_maximized(&ctx),
