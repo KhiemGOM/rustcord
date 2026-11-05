@@ -1218,6 +1218,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            2000..=2019 => self.sound_steps(),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3968,7 +3969,7 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 2000;
                 }
             }
         }
@@ -4184,6 +4185,38 @@ impl Run {
                 self.mark("look");
                 self.step = 260;
             }
+        }
+    }
+}
+
+impl Run {
+    /// Discord's sounds: fetched from the mock, decoded, and queued for a play that
+    /// RUSTCORD_SILENT keeps off the speakers. Without ffmpeg the mock has no files to serve, so
+    /// the marks are left off instead of failing the run.
+    fn sound_steps(&mut self) {
+        let late = self.step_at.elapsed() > Duration::from_secs(8);
+        match self.step {
+            2000 => {
+                if crate::cache::dir().join("sounds").join("message1.mp3").exists() || late {
+                    if crate::sound::stats().0 > 0 {
+                        self.mark("sound_fetched");
+                    }
+                    self.rects.insert("sound_queued_before".into(), json!(crate::sound::stats().2));
+                    crate::sound::play("message");
+                    self.next(0);
+                }
+            }
+            2001 => {
+                let (_, decoded, queued) = crate::sound::stats();
+                if decoded > 0 && queued as u64 > self.rects.get("sound_queued_before").and_then(|v| v.as_u64()).unwrap_or(0) {
+                    self.mark("sound_decoded");
+                    self.mark("sound_queued");
+                    self.next(0);
+                } else if late {
+                    self.next(0);
+                }
+            }
+            _ => self.step = 99,
         }
     }
 }

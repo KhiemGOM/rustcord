@@ -1072,10 +1072,15 @@ impl App {
                 }
             }
             Tag::Soundboard(g) => {
-                let list: Vec<crate::state::Sound> = v["items"].as_array().into_iter().flatten().map(crate::state::Sound::parse).collect();
-                if let Some((cg, slot)) = self.soundboard.as_mut().filter(|(cg, _)| *cg == g) {
-                    let _ = cg;
-                    *slot = Some(list);
+                let items = if g == 0 { v.as_array() } else { v["items"].as_array() };
+                let list: Vec<crate::state::Sound> = items.into_iter().flatten().map(crate::state::Sound::parse).collect();
+                if let Some((_, slot)) = self.soundboard.as_mut() {
+                    let all = slot.get_or_insert_with(Vec::new);
+                    if g == 0 {
+                        all.extend(list);
+                    } else {
+                        all.splice(0..0, list);
+                    }
                 }
             }
             Tag::Search(_) => {

@@ -779,6 +779,7 @@ fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
                 None
             } else {
                 app.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
+                app.rest("GET", "/soundboard-default-sounds".into(), None, crate::net::Tag::Soundboard(0));
                 Some((guild, None))
             };
         }

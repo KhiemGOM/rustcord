@@ -402,3 +402,39 @@ fn synth(name: &str, rate: usize) -> Clip {
     }
     Clip { pcm, ch: 1, rate }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(discodo: bool, halloween: bool) -> Config {
+        Config { on: true, muted: Vec::new(), discodo, halloween, speaker: None, volume: 1.0 }
+    }
+
+    #[test]
+    fn packs_swap_the_files_discord_swaps() {
+        assert_eq!(file_of("message", &cfg(false, false), 0), "message1");
+        assert_eq!(file_of("message", &cfg(true, false), 0), "discodo");
+        assert_eq!(file_of("message", &cfg(false, true), 0), "halloween_message1");
+        assert_eq!(file_of("join", &cfg(false, true), 0), "halloween_user_join");
+        assert_eq!(file_of("moved", &cfg(false, true), 0), "user_moved");
+        assert_eq!(file_of("stream_join", &cfg(false, false), 0), "stream_user_joined");
+    }
+
+    #[test]
+    fn one_ring_in_a_thousand_is_a_secret_tune() {
+        let c = cfg(false, false);
+        assert_eq!(file_of("ring", &c, 499), "call_ringing_beat");
+        assert_eq!(file_of("ring", &c, 1499), "call_ringing_snow_halation");
+        assert_eq!(file_of("ring", &c, 498), "call_ringing");
+        assert_eq!(file_of("ring", &cfg(false, true), 499), "halloween_call_ringing");
+    }
+
+    #[test]
+    fn asset_names_come_out_of_the_bundle() {
+        let js = r#"x},696354(e,t,n){var i={"./activity_end.mp3":"440261","./user_join.mp3":"902775"};function r(){}},440261(e,t,n){"use strict";e.exports=n.p+"878f7e7f2b3bf972.mp3"},902775(e,t,n){"use strict";e.exports=n.p+"a71f183dc4de32a3.mp3"}"#;
+        let t = assets(js);
+        assert_eq!(t.get("activity_end").map(String::as_str), Some("878f7e7f2b3bf972"));
+        assert_eq!(t.get("user_join").map(String::as_str), Some("a71f183dc4de32a3"));
+    }
+}

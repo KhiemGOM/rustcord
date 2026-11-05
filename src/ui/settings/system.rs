@@ -16,6 +16,9 @@ pub fn notifications(app: &mut App, ui: &mut Ui) -> bool {
         s.sounds = on;
         changed = true;
     }
+    if crate::sound::halloween_season() {
+        changed |= toggle(ui, &mut s.halloween_sounds, "Enable 🎃 Halloween Sound Pack", "");
+    }
     let mut preview = None;
     for (key, label) in SOUNDS {
         super::lead(ui);
