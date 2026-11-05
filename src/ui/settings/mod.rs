@@ -153,7 +153,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if changed {
         app.save_settings(&ctx);
     }
-    if modal.backdrop_response.clicked() && app.sform.modal.is_none() && !app.sform.recording() {
+    if modal.backdrop_clicked() && app.sform.modal.is_none() && !app.sform.recording() {
         app.settings_page = None;
     }
     if logout {
