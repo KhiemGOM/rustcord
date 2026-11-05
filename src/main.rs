@@ -2,6 +2,7 @@
 
 mod api;
 mod audioplay;
+mod auth;
 mod cache;
 mod emoji_font;
 mod fonts;

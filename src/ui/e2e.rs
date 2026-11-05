@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 mod web;
 mod stage;
 mod composer;
+mod login;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -116,7 +117,7 @@ impl Run {
             dir,
             t0,
             marks: Vec::new(),
-            step: 0,
+            step: if std::env::var_os("RUSTCORD_E2E_LOGIN").is_some() { 1500 } else { 0 },
             step_at: Instant::now(),
             sub: 0,
             wait: Instant::now(),
@@ -1286,6 +1287,7 @@ impl Run {
             1400..=1419 => self.scroll_steps(app, ctx),
             1700..=1719 => self.spell_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
+            1500..=1599 => self.login_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);

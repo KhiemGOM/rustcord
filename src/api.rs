@@ -45,6 +45,11 @@ pub fn gateway() -> &'static str {
     V.get_or_init(|| env_or("RUSTCORD_GATEWAY", "wss://gateway.discord.gg"))
 }
 
+pub fn remote_auth() -> &'static str {
+    static V: OnceLock<String> = OnceLock::new();
+    V.get_or_init(|| env_or("RUSTCORD_REMOTE_AUTH", "wss://remote-auth-gateway.discord.gg"))
+}
+
 pub fn props() -> Value {
     json!({
         "os": "Windows",
@@ -92,6 +97,16 @@ pub fn esc(s: &str) -> String {
         }
     }
     out
+}
+
+pub struct Reply {
+    pub status: u16,
+    pub body: Value,
+}
+
+pub struct Captcha {
+    pub key: String,
+    pub rqtoken: Option<String>,
 }
 
 pub struct Api {
@@ -267,17 +282,44 @@ impl Api {
         self.call(Method::POST, &format!("/channels/{ch}/typing"), None).await
     }
 
-    // auth endpoints put the interesting bits (captcha, mfa ticket) in error bodies
-    async fn raw(&self, path: &str, body: Value) -> Result<Value, String> {
-        let res = self.build(Method::POST, path).json(&body).send().await.map_err(|e| e.to_string())?;
-        Ok(res.json().await.unwrap_or_default())
+    async fn auth_post(&self, path: &str, mut body: Value, cap: Option<Captcha>) -> Result<Reply, String> {
+        let mut req = self.build(Method::POST, path);
+        if let Some(c) = cap {
+            body["captcha_key"] = json!(c.key);
+            if let Some(rq) = c.rqtoken {
+                req = req.header("X-Captcha-Rqtoken", rq);
+            }
+        }
+        let res = req.json(&body).send().await.map_err(|e| e.to_string())?;
+        let status = res.status().as_u16();
+        Ok(Reply { status, body: res.json().await.unwrap_or(Value::Null) })
     }
 
-    pub async fn login(&self, login: &str, password: &str) -> Result<Value, String> {
-        self.raw("/auth/login", json!({ "login": login, "password": password, "undelete": false })).await
+    pub async fn login(&self, login: &str, password: &str, undelete: bool, cap: Option<Captcha>) -> Result<Reply, String> {
+        self.auth_post("/auth/login", json!({ "login": login, "password": password, "undelete": undelete }), cap).await
     }
 
-    pub async fn mfa(&self, ticket: &str, code: &str) -> Result<Value, String> {
-        self.raw("/auth/mfa/totp", json!({ "code": code, "ticket": ticket })).await
+    pub async fn mfa(&self, kind: &str, ticket: &str, code: &str) -> Result<Reply, String> {
+        self.auth_post(&format!("/auth/mfa/{kind}"), json!({ "code": code, "ticket": ticket }), None).await
+    }
+
+    pub async fn sms(&self, ticket: &str) -> Result<Reply, String> {
+        self.auth_post("/auth/mfa/sms/send", json!({ "ticket": ticket }), None).await
+    }
+
+    pub async fn register(&self, body: &Value, cap: Option<Captcha>) -> Result<Reply, String> {
+        self.auth_post("/auth/register", body.clone(), cap).await
+    }
+
+    pub async fn username_taken(&self, name: &str) -> Result<Reply, String> {
+        self.auth_post("/unique-username/username-attempt-unauthed", json!({ "username": name }), None).await
+    }
+
+    pub async fn forgot(&self, login: &str, cap: Option<Captcha>) -> Result<Reply, String> {
+        self.auth_post("/auth/forgot", json!({ "login": login }), cap).await
+    }
+
+    pub async fn remote_login(&self, ticket: &str) -> Result<Reply, String> {
+        self.auth_post("/users/@me/remote-auth/login", json!({ "ticket": ticket }), None).await
     }
 }

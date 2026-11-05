@@ -6,6 +6,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::api::{self, Api};
+use crate::auth;
 use crate::gateway;
 use crate::state::{Id, Page};
 use crate::voice;
@@ -26,9 +27,7 @@ pub enum Ev {
     MessagesFailed { channel: Id },
     // `again` when it'll be retried by itself
     SendFailed { channel: Id, nonce: String, err: String, again: bool },
-    LoggedIn(String),
-    NeedMfa(String),
-    LoginError(String),
+    Auth(auth::Ev),
     Error(String),
     Toast(String),
     Rest { tag: Tag, res: Result<Value, String> },
@@ -107,8 +106,8 @@ pub enum Tag {
 pub enum Cmd {
     Start(String),
     Stop,
-    Login { login: String, password: String },
-    Mfa { ticket: String, code: String },
+    Auth(auth::Cmd),
+    QrLogin(bool),
     Messages { channel: Id, page: Page },
     Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
@@ -228,6 +227,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let (outbox, queue) = mpsc::unbounded_channel();
     tokio::spawn(sender(queue, tx.clone()));
 
+    let mut qr: Option<tokio::task::JoinHandle<()>> = None;
     let readonly = std::env::var_os("RUSTCORD_READONLY").is_some();
     while let Some(cmd) = rx.recv().await {
         if readonly && !allowed(&cmd) {
@@ -252,11 +252,16 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     let _ = g.send(v);
                 }
             }
-            Cmd::Login { login, password } => {
-                tokio::spawn(async move { login_result(&tx, a.login(&login, &password).await) });
+            Cmd::Auth(c) => {
+                tokio::spawn(auth::run(c, a, tx));
             }
-            Cmd::Mfa { ticket, code } => {
-                tokio::spawn(async move { login_result(&tx, a.mfa(&ticket, &code).await) });
+            Cmd::QrLogin(on) => {
+                if let Some(h) = qr.take() {
+                    h.abort();
+                }
+                if on {
+                    qr = Some(tokio::spawn(auth::qr_login(a, tx)));
+                }
             }
             Cmd::Messages { channel, page } => {
                 tokio::spawn(async move {
@@ -347,26 +352,5 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             }
             Cmd::Voice(c) => voice.cmd(c, &tx),
         }
-    }
-}
-
-fn login_result(tx: &Tx, r: Result<Value, String>) {
-    match r {
-        Ok(v) if v["token"].is_string() => tx.send(Ev::LoggedIn(v["token"].as_str().unwrap().to_string())),
-        Ok(v) if v["mfa"].as_bool() == Some(true) => {
-            tx.send(Ev::NeedMfa(v["ticket"].as_str().unwrap_or("").to_string()))
-        }
-        Ok(v) if v.get("captcha_key").is_some() => tx.send(Ev::LoginError(
-            "Discord wants a captcha for this login. Use a token instead.".into(),
-        )),
-        Ok(v) => {
-            let msg = v["errors"]["login"]["_errors"][0]["message"]
-                .as_str()
-                .or_else(|| v["errors"]["password"]["_errors"][0]["message"].as_str())
-                .or_else(|| v["message"].as_str())
-                .unwrap_or("Login failed.");
-            tx.send(Ev::LoginError(msg.to_string()))
-        }
-        Err(e) => tx.send(Ev::LoginError(e)),
     }
 }
