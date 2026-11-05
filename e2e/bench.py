@@ -4,7 +4,8 @@
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
 --rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
-nonstop for --secs to price a frame, and has its memory read. The mock adds --guilds servers of 115 channels each, about a real account's size
+nonstop for --secs to price a frame, has its memory read, then opens its recent channels for
+3x --secs and has it read again. The mock adds --guilds servers of 115 channels each, about a real account's size
 (0 for the plain mock). The window opens behind everything and ignores the real mouse and
 keyboard. Writes e2e/artifacts/bench.json.
 """
@@ -32,7 +33,8 @@ psapi = ctypes.WinDLL("psapi", use_last_error=True)
 class Mem(ctypes.Structure):
     _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
         (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
-                                       "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
+                                       "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage", "PrivateUsage",
+                                       "PrivateWorkingSetSize", "SharedCommitUsage")]
 
 
 def handle(pid):
@@ -49,7 +51,8 @@ def mem_mb(h):
     m = Mem()
     m.cb = ctypes.sizeof(m)
     psapi.GetProcessMemoryInfo(h, ctypes.byref(m), m.cb)
-    return {"working_set": m.WorkingSetSize >> 20, "private": m.PrivateUsage >> 20, "peak_working_set": m.PeakWorkingSetSize >> 20}
+    # task manager's "memory" is the private working set
+    return {"task_manager": m.PrivateWorkingSetSize >> 20, "working_set": m.WorkingSetSize >> 20, "private": m.PrivateUsage >> 20, "peak_working_set": m.PeakWorkingSetSize >> 20}
 
 
 def close(pid):
@@ -152,6 +155,11 @@ def main():
         report["frame_cost_ms"] = {"cpu": round(spin["cpu_pct_of_one_core"] * 10 / spin["frames_per_s"], 2), "ui": round(spin["ui_ms_per_s"] / spin["frames_per_s"], 2),
                                    "frames_per_s": spin["frames_per_s"]}
         report["memory_mb"] = mem_mb(h)
+        # the recent channels one after another, three seconds each, as someone reading around would
+        (tmp / "w" / "spin").unlink()
+        (tmp / "w" / "browse").touch()
+        time.sleep(secs * 3)
+        report["memory_after_browsing_mb"] = mem_mb(h)
         report["warm"]["slow_frames"] = (stats(tmp / "w") or {}).get("slow_frames")
         p.kill()
         p.wait()
