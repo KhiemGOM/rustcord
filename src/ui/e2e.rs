@@ -359,6 +359,14 @@ impl Run {
                 ctx.request_repaint();
             }
             if self.scroll
+                && app.cur().is_none()
+                && let Some(&g) = app.store.guild_order.first()
+                && let Some(ch) = side::first_channel(&app.store, g)
+            {
+                app.select_guild(Some(g));
+                app.open(ch);
+            }
+            if self.scroll
                 && let Some(off) = app.cur().and_then(|c| app.offsets.get(&c).copied())
             {
                 self.travel += (off - self.last_off).abs();
