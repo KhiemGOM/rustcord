@@ -306,7 +306,6 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
     let at = |i: u64| snow(t0 + i * 60_000);
     let mut out = Vec::new();
 
-    // older than the rest, so the newest messages the other media steps look at stay put
     let early = |i: u64| snow(t0 - 6 * 60_000 + i * 60_000);
     let file = |name: &str, size: u64, ctype: &str, w: u32, h: u32| {
         let url = format!("{cdn}/media/{name}?ex=65f0a1b2&is=65ee2cb2&hm=abc");

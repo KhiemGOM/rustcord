@@ -87,7 +87,6 @@ struct St {
     phase: Phase,
     info: Info,
     has_video: bool,
-    // audio reaches a device, so its sample count is the clock
     out: bool,
     playing: bool,
     ended: bool,
@@ -125,7 +124,6 @@ pub fn stop() {
     }
 }
 
-/// Pauses the clip if nothing drew its player this frame or the one before.
 pub fn tick(frame: u64) {
     let Some(s) = CUR.lock().unwrap().clone() else { return };
     let gone = {
@@ -156,7 +154,6 @@ pub fn open(rt: &tokio::runtime::Runtime, key: &str, url: &str, video: bool, fra
     });
 }
 
-/// Clips left in the temp dir by earlier runs, a day old or more.
 fn sweep() {
     let old = Duration::from_secs(24 * 3600);
     for f in std::fs::read_dir(std::env::temp_dir().join("rustcord-media")).into_iter().flatten().flatten() {
@@ -358,7 +355,6 @@ impl Session {
         View { phase: st.phase.clone(), info: st.info, pos: if st.ended { st.info.dur } else { pos }, playing: st.playing }
     }
 
-    /// The picture for the current time, uploaded only when it changed.
     pub fn frame(&self, ctx: &egui::Context) -> Option<egui::TextureId> {
         let (t, playing) = {
             let st = self.st.lock().unwrap();
@@ -736,7 +732,6 @@ mod tests {
         [k, u].iter().map(|t| ((t.dwHighDateTime as u64) << 32 | t.dwLowDateTime as u64) as f64 / 1e7).sum()
     }
 
-    /// RUSTCORD_BENCH_CLIP=<mp4> cargo test --release --bin rustcord plays_a_clip -- --ignored --nocapture
     #[test]
     #[ignore]
     fn plays_a_clip_for_how_much_cpu() {

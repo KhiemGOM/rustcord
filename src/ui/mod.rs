@@ -140,7 +140,6 @@ pub struct App {
     pub scroll_tries: u8,
     pub flash: Option<(Id, Instant)>,
     pub viewer: Option<(String, String, u32, u32)>,
-    // the url of the video shown full window
     pub media_fs: Option<String>,
     // the open message's pictures, which the viewer's arrows step through
     pub gallery: Vec<(String, String, u32, u32)>,
