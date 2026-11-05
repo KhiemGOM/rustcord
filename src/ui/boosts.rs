@@ -304,7 +304,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
                 s.page = if name == "Enhanced Role Styles" { super::server::Page::Roles } else { super::server::Page::Tag };
             }
         }
-        Some((_, false)) => ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/boosts"))),
+        Some((_, false)) => crate::webwin::checkout(&format!("/channels/{gid}/boosts")),
         None => {}
     }
 }
@@ -373,8 +373,7 @@ fn side(app: &mut App, ui: &mut Ui, gid: Id) {
         });
     });
     if boost {
-        // buying or moving a boost is discord's checkout, which stays on the web
-        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/boosts")));
+        crate::webwin::checkout(&format!("/channels/{gid}/boosts"));
     }
 }
 
