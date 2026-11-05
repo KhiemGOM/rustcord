@@ -515,19 +515,19 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     let have: Vec<&str> = crate::fonts::FACES
         .iter()
         .filter_map(|(stem, ..)| {
-            f.font_data.insert(stem.to_string(), Arc::new(FontData::from_owned(crate::fonts::cached(stem)?)));
+            f.font_data.insert(stem.to_string(), Arc::new(FontData::from_static(crate::fonts::cached(stem)?)));
             Some(*stem)
         })
         .collect();
     let gg = |stem: &'static str, or: Option<&'static str>| if have.contains(&stem) { Some(stem) } else { or };
     let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()) + "\\Fonts\\";
     let mut add = |key: &str, file: &str| -> bool {
-        match std::fs::read(format!("{dir}{file}")) {
-            Ok(b) => {
-                f.font_data.insert(key.into(), Arc::new(FontData::from_owned(b)));
+        match crate::fonts::mapped(std::path::Path::new(&format!("{dir}{file}"))) {
+            Some(b) => {
+                f.font_data.insert(key.into(), Arc::new(FontData::from_static(b)));
                 true
             }
-            Err(_) => false,
+            None => false,
         }
     };
     let ui = add("ui", "segoeui.ttf");
@@ -580,7 +580,7 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     // every name font family exists from the start; until its file arrives it's just gg sans
     for (id, ..) in crate::fonts::NAME_FONTS {
         let key = format!("name{id}");
-        let have = crate::fonts::cached_name(id).map(|b| f.font_data.insert(key.clone(), Arc::new(FontData::from_owned(b)))).is_some();
+        let have = crate::fonts::cached_name(id).map(|b| f.font_data.insert(key.clone(), Arc::new(FontData::from_static(b)))).is_some();
         let fam = chain(if have { Some(key.as_str()) } else { gg("ggsans-500", None) });
         f.families.insert(FontFamily::Name(key.into()), fam);
     }

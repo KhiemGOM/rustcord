@@ -4870,6 +4870,7 @@ dependencies = [
  "foldhash",
  "futures-util",
  "image",
+ "memmap2",
  "nnnoiseless",
  "ogg",
  "open",
