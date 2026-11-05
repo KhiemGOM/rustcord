@@ -231,6 +231,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut set_status: Option<Id> = None;
     let mut boost_page = false;
     let mut events_page = false;
+    let mut events_act: Option<EventsAct> = None;
     let mut open_chat: Option<Id> = None;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
@@ -273,7 +274,11 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     let done = app.guides.get(&gid).map_or(0, |(_, d)| acts.iter().filter(|c| d.contains(c)).count());
                     get_started(ui, gid, acts.len(), done);
                 }
-                match home_rows(ui, g, store.my_perms(gid), open_page) {
+                let muted = store.events_muted.contains(&gid);
+                let read = store.event_reads.get(&gid);
+                let mentions = if muted { 0 } else { read.map_or(0, |r| r.mentions) };
+                let unread = !muted && g.newest_event > read.map_or(0, |r| r.last_acked);
+                match home_rows(ui, g, store.my_perms(gid), open_page, EventsRow { muted, unread, mentions }, &mut events_act) {
                     Some("Server Boosts") => boost_page = true,
                     Some("Events") => events_page = true,
                     Some("Members") => home_page = Some(super::community::Page::Members),
@@ -420,6 +425,18 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     if events_page {
         app.open_events(gid);
     }
+    match events_act {
+        Some(EventsAct::Mute(on)) => {
+            if on {
+                app.store.events_muted.insert(gid);
+            } else {
+                app.store.events_muted.remove(&gid);
+            }
+            app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(serde_json::json!({ "mute_scheduled_events": on })), crate::net::Tag::Quiet);
+        }
+        Some(EventsAct::Read) => app.read_events(gid),
+        None => {}
+    }
     if let Some(p) = home_page {
         app.open_home(gid, p);
     }
@@ -433,7 +450,8 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
             app.join_voice(c, true);
         }
-        app.open(c);
+        let shift = ui.input(|i| i.modifiers.shift);
+        app.open_thread(c, true, shift);
     }
     // the voice channel without joining it, its chat open beside the call
     if let Some(c) = open_chat {
@@ -780,7 +798,7 @@ fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
 /// The rows over the channels, in discord's order and on its conditions. Server Boosts, Members
 /// and Channels & Roles are pages in place of the chat, Events is a window, and what's left opens
 /// discord's own page in the browser. Hands back the row clicked and which page is open.
-fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>) -> Option<&'static str> {
+fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
     let has = |f: &str| g.features.iter().any(|x| x == f);
     let id = g.id;
@@ -826,9 +844,22 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        let col = if selected { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+        let is_events = label == "Events";
+        let lit = is_events && ev.unread;
+        let col = if selected || lit { pal().header_primary } else if is_events && ev.muted { pal().channel_muted } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+        if lit && !selected {
+            ui.painter().rect_filled(Rect::from_min_size(pos2(row.left(), row.center().y - 4.0), vec2(4.0, 8.0)), CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().header_primary);
+        }
         icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
-        text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col, inner.width() - 40.0);
+        let shown = if is_events && g.events > 0 { format!("{} Event{}", g.events, if g.events == 1 { "" } else { "s" }) } else { label.to_string() };
+        let room = inner.width() - 40.0 - if is_events && ev.mentions > 0 { 32.0 } else { 0.0 };
+        text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, &shown, if lit { semi(16.0) } else { medium(16.0) }, col, room);
+        if is_events {
+            if ev.mentions > 0 {
+                super::badge(ui, pos2(inner.right() - 8.0, row.center().y), ev.mentions, None);
+            }
+            events_menu(&resp, ev, ev_act);
+        }
         if resp.clicked() {
             if url.is_empty() {
                 clicked = Some(label);
@@ -842,6 +873,35 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
     // drawn a row under its slot so the first category's 15 lands 17 below the line
     ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y + 1.0, egui::Stroke::new(1.0, pal().border_subtle));
     clicked
+}
+
+#[derive(Clone, Copy)]
+struct EventsRow {
+    muted: bool,
+    unread: bool,
+    mentions: u32,
+}
+
+enum EventsAct {
+    Mute(bool),
+    Read,
+}
+
+/// The Events row's right-click menu: mark its notifications read, mute new events.
+fn events_menu(r: &egui::Response, ev: EventsRow, out: &mut Option<EventsAct>) {
+    use super::{Trail, menu_row, menu_sep};
+    egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if ui.add_enabled_ui(ev.unread || ev.mentions > 0, |ui| super::menu_item(ui, None, "Mark As Read", false)).inner {
+            *out = Some(EventsAct::Read);
+        }
+        menu_sep(ui);
+        let mute = menu_row(ui, None, "Mute New Events", None, false, Trail::Check(ev.muted));
+        super::settings::mark(ui, "events_menu:mute", mute.rect);
+        if mute.clicked() {
+            *out = Some(EventsAct::Mute(!ev.muted));
+        }
+    });
 }
 
 /// A category header, and whether its create-channel plus was clicked.
@@ -1067,12 +1127,12 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 (Icon::Friends, "Friends", None),
                 (Icon::Nitro, "Nitro Home", Some("https://discord.com/store")),
                 (Icon::Shop, "Shop", Some("https://discord.com/shop")),
-                (Icon::Quests, "Quests", Some("https://discord.com/quest-home")),
+                (Icon::Quests, "Quests", None),
             ];
             for (icon, label, url) in rows {
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
                 let inner = row.shrink2(vec2(8.0, 0.0));
-                let on = url.is_none() && app.friends;
+                let on = if label == "Quests" { app.quests.is_some() } else { url.is_none() && app.friends };
                 if on {
                     ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
                 } else if resp.hovered() {
@@ -1081,7 +1141,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 let col = if on { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
-                if url.is_none() {
+                if url.is_none() && label == "Friends" {
                     if pending > 0 {
                         badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
                     }
@@ -1093,7 +1153,11 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     match url {
                         Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
-                        None => app.friends = true,
+                        None if label == "Quests" => app.open_quests(),
+                        None => {
+                            app.friends = true;
+                            app.quests = None;
+                        }
                     }
                 }
             }
@@ -1111,7 +1175,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             for &id in &store.dms {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
+                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends && app.quests.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 if r.clicked() {
                     open = Some(id);

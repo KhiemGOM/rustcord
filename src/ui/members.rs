@@ -5,7 +5,7 @@ use super::{App, avatar, status_dot};
 use crate::state::{FeedEntry, Id, ListItem, Status, Store, snowflake_ms};
 use crate::theme::*;
 
-pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
+pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
     let mut clicked = None;
     // shift+click puts an @mention of them in the composer
     let mut mention = None;
@@ -19,7 +19,20 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
 
     // until the gateway sends a member list, fall back to people we've seen talk
     let fallback: Vec<ListItem>;
-    let items: &[ListItem] = if g.list.is_empty() {
+    let items: &[ListItem] = if let Some(t) = thread {
+        let mut seen: Vec<Id> = store.thread_members.get(&t).cloned().unwrap_or_default();
+        seen.sort_by_key(|u| store.name_in(gid, *u).to_lowercase());
+        let (on, off): (Vec<Id>, Vec<Id>) = seen.into_iter().partition(|u| store.status(*u) != Status::Offline);
+        let mut v = Vec::new();
+        for (id, list) in [("online", on), ("offline", off)] {
+            if !list.is_empty() {
+                v.push(ListItem::Group { id: id.into(), count: list.len() as u32 });
+                v.extend(list.into_iter().map(ListItem::Member));
+            }
+        }
+        fallback = v;
+        &fallback
+    } else if g.list.is_empty() {
         let mut seen: Vec<Id> = store.members.get(&gid).map(|m| m.keys().copied().collect()).unwrap_or_default();
         seen.sort_by_key(|u| store.name_in(gid, *u).to_lowercase());
         let (on, off): (Vec<Id>, Vec<Id>) = seen.into_iter().partition(|u| store.status(*u) != Status::Offline);
@@ -42,7 +55,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // discord's rows sit flush; a group header is 20 above, 18 tall, 4 over its first row
         ui.spacing_mut().item_spacing.y = 0.0;
-        if let Some(a) = activity(ui, store, gid, &mut named) {
+        if thread.is_none()
+            && let Some(a) = activity(ui, store, gid, &mut named)
+        {
             match a {
                 Pick::Gear => gear = true,
                 Pick::Card(u, r) => clicked = Some((u, r.left_top() - vec2(310.0, 0.0))),

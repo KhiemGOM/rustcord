@@ -10,6 +10,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 - `python e2e/run.py` builds, then runs the client cold and warm against the mock. `--no-build` reuses `target/release`. It needs a real window and GPU.
 - Output: `e2e/artifacts/report.json` (`checks`: name -> bool, plus `cold`/`warm` results), `report.md`, screenshots, `mock_requests.jsonl`. The exit code is 1 if any check is false.
 - Checks are named strings in `e2e/run.py`, `look.py`, `polish.py`, `qol.py`, `home.py`. Most are `marks_ms` set by `e2e.rs` steps, or assertions on the mock's request log.
+- `RUSTCORD_E2E_FROM=<step>` starts the scripted steps at that number (the groups are in the dispatch in `src/ui/e2e.rs`), to rerun one group against the mock without the rest.
 - The run replaces the clipboard (the paste step) and picks random ports, so parallel runs are fine.
 - Mock alone: `target/release/examples/mockcord.exe <http> <ws> <log.jsonl> [voice]` (the voice port takes tcp and udp). Point the client at it with `RUSTCORD_API=http://127.0.0.1:<http>/api/v9`, `RUSTCORD_CDN`, `RUSTCORD_EMOJI_CDN`, `RUSTCORD_FONTS`, `RUSTCORD_GATEWAY=ws://127.0.0.1:<ws>`, `RUSTCORD_TOKEN`, `RUSTCORD_DATA`. `run_client` in `run.py` has the full list.
 - Real-account checks never run from `run.py`; they need an env var and the saved login (or `RUSTCORD_TOKEN`):

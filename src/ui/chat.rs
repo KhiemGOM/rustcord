@@ -135,6 +135,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if app.ui.guild.is_none() && app.friends {
         return super::friends::show(app, ui);
     }
+    if app.ui.guild.is_none() && app.quests.is_some() {
+        return super::quests::show(app, ui);
+    }
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }
@@ -158,6 +161,16 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .show(ui, |ui| voice_chat(app, ui, &chan));
         }
         return super::call::room(app, ui, &chan);
+    }
+    let side = app.side_thread.filter(|t| app.store.channels.get(t).is_some_and(|t| t.parent == chan.id) && ui.available_width() >= 488.0 + 420.0);
+    if let Some(t) = side {
+        let thread = app.store.channels[&t].clone();
+        egui::Panel::right("side_thread")
+            .exact_size(488.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin { left: 8, ..Default::default() }))
+            .show(ui, |ui| super::thread::side(app, ui, &thread));
     }
     header(app, ui, &chan);
     if chan.guild == 0 {
@@ -196,14 +209,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::members::group(app, ui, &chan));
-    } else if chan.guild != 0 && !app.ui.hide_members && room >= members_w + 420.0 {
+    } else if chan.guild != 0 && side.is_none() && !app.ui.hide_members && room >= members_w + 420.0 {
         let r = egui::Panel::right("members")
             .default_size(members_w)
             .size_range(200.0..=(room - 420.0).clamp(200.0, 480.0))
             .resizable(true)
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
-            .show(ui, |ui| super::members::show(app, ui, chan.guild));
+            .show(ui, |ui| super::members::show(app, ui, chan.guild, chan.is_thread().then_some(chan.id)));
         let mr = r.response.rect;
         ui.painter().vline(mr.left() + 0.5, mr.y_range(), Stroke::new(1.0, pal().border_subtle));
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), members_w) {
@@ -251,16 +264,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// A voice channel's own text chat beside the call: discord's card, rounded at the top left with
-/// a hairline down its left and along its top, its header, then the channel as any other.
+/// A voice channel's own text chat beside the call.
 fn voice_chat(app: &mut App, ui: &mut Ui, chan: &Channel) {
+    let mut close = false;
+    side_card(app, ui, chan, "voice_chat", |app, ui, h| {
+        let y = h.top() + 25.0;
+        icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(h.left() + 26.0, y), vec2(20.0, 20.0)), pal().channel_default);
+        text::paint_em(ui.painter(), pos2(h.left() + 45.0, y), Align2::LEFT_CENTER, &chan.name, medium(16.0), pal().header_primary, h.width() - 100.0, 1.0);
+        let x = Rect::from_center_size(pos2(h.right() - 25.0, y), vec2(20.0, 20.0));
+        let r = ui.interact(x.expand(4.0), ui.id().with("voice_chat_close"), Sense::click());
+        icons::draw(ui.painter(), Icon::Close, x, if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        app.rects.insert("voice_chat:close".into(), x);
+        close = r.on_hover_text("Close").clicked();
+    });
+    if close {
+        app.voice_chat = false;
+    }
+}
+
+/// A channel's chat in discord's side card, rounded at the top left with a hairline down its
+/// left and along its top: the header `head` draws into, then the channel as any other.
+pub fn side_card(app: &mut App, ui: &mut Ui, chan: &Channel, key: &'static str, head: impl FnOnce(&mut App, &mut Ui, Rect)) {
     let card = ui.max_rect();
     let round = CornerRadius { nw: 12, ..Default::default() };
     ui.painter().rect_filled(card, round, pal().bg_primary);
     let edge = Rect::from_min_max(card.min, card.max + vec2(4.0, 4.0));
     ui.painter().with_clip_rect(card).rect_stroke(edge, round, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-    let mut close = false;
-    egui::Panel::top("voice_chat_head")
+    egui::Panel::top(egui::Id::new((key, "head")))
         .exact_size(49.0)
         .resizable(false)
         .show_separator_line(false)
@@ -268,27 +298,17 @@ fn voice_chat(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .show(ui, |ui| {
             let h = ui.max_rect();
             ui.painter().hline(h.left() + 1.0..=h.right(), h.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
-            let y = h.top() + 25.0;
-            icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(h.left() + 26.0, y), vec2(20.0, 20.0)), pal().channel_default);
-            text::paint_em(ui.painter(), pos2(h.left() + 45.0, y), Align2::LEFT_CENTER, &chan.name, medium(16.0), pal().header_primary, h.width() - 100.0, 1.0);
-            let x = Rect::from_center_size(pos2(h.right() - 25.0, y), vec2(20.0, 20.0));
-            let r = ui.interact(x.expand(4.0), ui.id().with("voice_chat_close"), Sense::click());
-            icons::draw(ui.painter(), Icon::Close, x, if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
-            app.rects.insert("voice_chat:close".into(), x);
-            close = r.on_hover_text("Close").clicked();
+            head(app, ui, h);
         });
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
-        egui::Panel::bottom("voice_chat_composer")
+        egui::Panel::bottom(egui::Id::new((key, "composer")))
             .resizable(false)
             .show_separator_line(false)
             .frame(Frame::new().inner_margin(Margin { left: 8, right: 8, top: 0, bottom: 0 }))
             .show(ui, |ui| super::composer::show(app, ui, chan));
         egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| messages(app, ui, chan));
     });
-    app.rects.insert("voice_chat".into(), card);
-    if close {
-        app.voice_chat = false;
-    }
+    app.rects.insert(key.into(), card);
 }
 
 fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
@@ -353,6 +373,9 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, ui.available_width(), 1.0);
                     let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
+                    if super::follow::can_follow(app, chan) {
+                        super::follow::header_button(app, ui, chan);
+                    }
                 });
                 if let Some(topic) = &chan.topic {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
@@ -416,6 +439,9 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     ui.data_mut(|d| d.insert_temp(qid, q));
                     ui.add_space(4.0);
                     ui.spacing_mut().item_spacing.x = 8.0;
+                    if chan.is_thread() {
+                        super::thread::more(app, ui, chan, false);
+                    }
                     if chan.kind == 1 {
                         let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };
                         if super::toggle_button(ui, Icon::UserProfile, 32.0, tip, !app.ui.hide_dm_profile).clicked() {
@@ -453,10 +479,10 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     if chan.guild != 0 {
                         bell(app, ui, chan);
                     }
-                    if chan.guild != 0 && matches!(chan.kind, 0 | 5) {
+                    if chan.guild != 0 && (matches!(chan.kind, 0 | 5) || chan.is_thread()) {
                         let t = icon_button(ui, Icon::Thread, 32.0, "Threads");
                         app.rects.insert("threads_button".into(), t.rect);
-                        super::popups::threads_menu(app, &t, chan.id);
+                        super::popups::threads_menu(app, &t, if chan.is_thread() { chan.parent } else { chan.id });
                     }
                     if chan.guild == 0 {
                         super::call::call_button(app, ui, chan.id);
@@ -467,7 +493,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
 }
 
 /// The header's notification bell: Discord's menu to mute the channel or pick its level.
-fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
+pub fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
     use super::{Trail, menu_item, menu_row, menu_sep};
     let muted = app.store.muted.contains(&chan.id);
     let level = app.store.levels.get(&chan.id).copied();
@@ -746,7 +772,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Menu(id, at) => app.menu = Some((ch, id, at)),
             Act::Url(u) => app.open_link(ui.ctx(), &u, false),
             Act::Masked(u) => app.open_link(ui.ctx(), &u, true),
-            Act::Channel(c) => app.open(c),
+            Act::Channel(c) => app.open_thread(c, false, shift),
             Act::Reveal(id) => {
                 app.revealed.insert(id);
             }
@@ -2527,6 +2553,7 @@ fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
 }
 
 enum MenuPick {
+    Publish,
     React,
     Edit,
     Reply,
@@ -2557,6 +2584,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     let pinned = m.pinned;
     let reacted = !m.reactions.is_empty();
     let has_thread = m.thread.is_some();
+    let published = m.flags & 1 != 0;
     let dev = app.settings.dev;
     let mut frequent: Vec<ReactEmoji> = app.ui.quick.clone();
     for n in ["✅", "❤️", "🔥", "😂", "👍", "😭", "💀", "👀", "🙏", "😊"] {
@@ -2570,6 +2598,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     // pinning and deleting other people's messages take manage messages, except in dms
     let manage = chan.guild == 0 || app.store.perms(&chan) & crate::state::MANAGE_MESSAGES != 0;
     let threads = chan.guild != 0 && matches!(chan.kind, 0 | 5) && !has_thread;
+    let publishable = chan.kind == 5 && (own || manage);
     let saved = app.bookmarks.contains(&id);
     // the apps' message commands, for the Apps submenu
     app.ensure_commands(&chan);
@@ -2631,6 +2660,9 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
         if threads && menu_item(ui, Some(Icon::ThreadPlus), "Create Thread", false) {
             pick = Some(MenuPick::Thread);
+        }
+        if publishable && !published && menu_item(ui, Some(Icon::Megaphone), "Publish", false) {
+            pick = Some(MenuPick::Publish);
         }
         menu_sep(ui);
         if menu_item(ui, Some(Icon::Copy), "Copy Text", false) {
@@ -2715,6 +2747,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
         Some(MenuPick::Forward) => app.forward = Some(super::popups::Forward::new(ch, id)),
         Some(MenuPick::Thread) => app.new_thread = Some(super::popups::NewThread::from(app, ch, id)),
+        Some(MenuPick::Publish) => app.publish_msg(ch, id),
         Some(MenuPick::Copy) => ctx.copy_text(content),
         Some(MenuPick::Pin) => app.pin_msg(ch, id, !shift),
         Some(MenuPick::Bookmark) => app.bookmark(ch, id),

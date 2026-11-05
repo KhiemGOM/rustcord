@@ -85,6 +85,10 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
         &[(Spoilers::OnClick, "On click", ""), (Spoilers::Moderated, "On servers I moderate", ""), (Spoilers::Always, "Always", "")],
     );
 
+    sub(ui, "Threads");
+    changed |= toggle(ui, &mut app.settings.thread_sidebar, "Open threads in split view", "");
+    let s = &mut app.settings;
+
     section(ui, "Chat Box");
     chat |= toggle(
         ui,

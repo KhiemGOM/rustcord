@@ -96,6 +96,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     if let Some(t) = open {
         app.active_threads = None;
-        app.open(t);
+        let shift = ctx.input(|i| i.modifiers.shift);
+        app.open_thread(t, true, shift);
     }
 }
