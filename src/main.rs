@@ -27,6 +27,7 @@ mod winsys;
 
 fn main() -> eframe::Result {
     let t0 = std::time::Instant::now();
+    let _ = rustls::crypto::ring::default_provider().install_default();
     if let Some(local) = dirs::data_local_dir()
         && std::env::var_os("RUSTCORD_DATA").is_none()
         && !cache::dir().exists()
