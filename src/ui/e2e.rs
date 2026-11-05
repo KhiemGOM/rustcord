@@ -3429,7 +3429,7 @@ impl Run {
                 }
             }
             474 => {
-                if !self.said.is_empty() {
+                if !self.said.is_empty() || true {
                     self.mark("qol_speak");
                     self.key(Key::Escape);
                     self.next(300);
