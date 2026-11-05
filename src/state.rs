@@ -475,6 +475,19 @@ impl Attachment {
         self.ctype.starts_with("audio/") || [".mp3", ".ogg", ".wav", ".flac", ".m4a", ".opus"].iter().any(|e| self.filename.to_ascii_lowercase().ends_with(e))
     }
 
+    pub fn is_video(&self) -> bool {
+        let n = self.filename.to_ascii_lowercase();
+        self.w > 0 && (self.ctype.starts_with("video/") || [".mp4", ".m4v", ".mov", ".webm", ".wmv"].iter().any(|e| n.ends_with(e)))
+    }
+
+    pub fn is_text(&self) -> bool {
+        const EXTS: [&str; 34] = [
+            "txt", "md", "log", "rs", "py", "js", "mjs", "ts", "tsx", "jsx", "json", "html", "htm", "css", "c", "h", "cpp", "hpp", "cs", "java", "go", "kt", "rb", "sh", "yml", "yaml", "toml", "xml", "csv", "ini", "cfg", "lua", "sql", "php",
+        ];
+        let ext = self.filename.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+        self.size > 0 && (self.ctype.starts_with("text/") || ext.is_some_and(|e| EXTS.contains(&e.as_str())))
+    }
+
     /// Opus-in-ogg (discord voice messages, soundboard) is what we can decode and play inline.
     pub fn playable(&self) -> bool {
         self.ctype.contains("ogg") || self.ctype.contains("opus") || self.filename.to_ascii_lowercase().ends_with(".ogg")

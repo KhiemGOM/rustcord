@@ -32,6 +32,12 @@ pub fn toggle(key: &str) -> bool {
     true
 }
 
+pub fn stop() {
+    if let Some(c) = CUR.lock().unwrap().take() {
+        c.stop.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Decode and play the fetched bytes for `key`.
 pub fn play_bytes(key: String, bytes: Vec<u8>) {
     spawn(key, bytes);

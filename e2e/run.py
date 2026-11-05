@@ -36,6 +36,7 @@ import composer
 import messages
 import rail
 import people
+import players
 import qol
 import web
 
@@ -482,6 +483,7 @@ def main():
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
+        **players.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

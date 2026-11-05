@@ -128,7 +128,7 @@ impl Run {
                     return;
                 }
                 self.mark("discover_preview");
-                self.step = 99;
+                self.step = 1800;
             }
             _ => self.step = 99,
         }

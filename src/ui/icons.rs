@@ -163,6 +163,12 @@ pub enum Icon {
     Phone,
     Filter,
     LinkExternal,
+    Pause,
+    Volume,
+    VolumeOff,
+    Expand,
+    ExpandExit,
+    Code,
 }
 
 macro_rules! svg {
@@ -325,6 +331,12 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Poll => svg!("poll"),
         Icon::Timer => svg!("timer"),
         Icon::FileUpload => svg!("file_upload"),
+        Icon::Pause => svg!("pause"),
+        Icon::Volume => svg!("volume"),
+        Icon::VolumeOff => svg!("volume_off"),
+        Icon::Expand => svg!("expand"),
+        Icon::ExpandExit => svg!("expand_exit"),
+        Icon::Code => svg!("code"),
         Icon::Minimize | Icon::Maximize | Icon::Restore => return None,
     })
 }

@@ -119,6 +119,7 @@ impl App {
     /// one already going. The bytes are fetched off the ui thread.
     pub fn play_audio(&mut self, url: String) {
         if crate::audioplay::toggle(&url) {
+            crate::media::stop();
             let http = crate::api::http();
             self.net.rt.spawn(async move {
                 if let Ok(r) = http.get(&url).send().await {
