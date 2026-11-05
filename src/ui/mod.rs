@@ -814,7 +814,7 @@ impl App {
         if !(self.store.mentions_me(&m) || (dm && self.settings.notify_all_dms)) {
             return;
         }
-        let focused = ctx.input(|i| i.focused);
+        let focused = ctx.input(|i| i.raw.focused);
         if focused && self.cur() == Some(c.id) {
             return;
         }
@@ -840,7 +840,7 @@ impl App {
             crate::toast::send(ping);
         }
         if !focused && self.settings.flash && self.e2e.is_none() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+            crate::winsys::flash();
         }
     }
 
@@ -947,9 +947,12 @@ impl App {
         // on, a dot while anything's unread. Unreads take a walk over every channel, so once a second.
         let mut badge = n.min(i32::MAX as u32) as i32;
         if badge == 0 && self.settings.badge {
-            let stale = self.badge_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(1));
-            badge = match (stale, self.badge) {
-                (false, Some(b)) => b.min(0),
+            let wait = self.badge_at.map_or(Duration::ZERO, |t| Duration::from_secs(1).saturating_sub(t.elapsed()));
+            badge = match (wait.is_zero(), self.badge) {
+                (false, Some(b)) => {
+                    ctx.request_repaint_after(wait);
+                    b.min(0)
+                }
                 _ => {
                     self.badge_at = Some(Instant::now());
                     let s = &self.store;
@@ -964,6 +967,11 @@ impl App {
                 self.badge = Some(badge);
             }
         }
+    }
+
+    /// Minimized: eframe stops calling ui(), so logic() keeps the badge and the title up to date.
+    fn away(&self, ctx: &egui::Context) -> bool {
+        self.frames > 0 && ctx.input(|i| i.viewport().visible() == Some(false))
     }
 
     /// A clicked toast: the window back up and the message on screen.
@@ -1477,11 +1485,21 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.pump(ctx);
+        self.os_settings(ctx, frame);
+        if self.away(ctx) {
+            self.update_title(ctx);
+            if let Some(mut e) = self.e2e.take() {
+                e.hidden(self, ctx);
+                self.e2e = Some(e);
+            }
+        }
+    }
+
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
-        self.pump(&ctx);
-        self.os_settings(&ctx, frame);
         self.vc_tick(&ctx);
         let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
         if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {

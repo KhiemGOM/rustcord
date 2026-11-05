@@ -213,6 +213,21 @@ pub fn set_badge(count: i32) {
     }
 }
 
+/// Electron's flashFrame: the taskbar button blinks four times, then stays lit until the window
+/// is looked at.
+pub fn flash() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FLASHW_ALL, FLASHWINFO, FlashWindowEx};
+    let fwi = FLASHWINFO { cbSize: size_of::<FLASHWINFO>() as u32, hwnd: WINDOW.load(Ordering::Relaxed) as HWND, dwFlags: FLASHW_ALL, uCount: 4, dwTimeout: 0 };
+    unsafe { FlashWindowEx(&fwi) };
+}
+
+/// Minimizes or restores the window without activating anything, for the e2e run.
+pub fn show_quietly(minimized: bool) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, ShowWindow};
+    let hwnd = WINDOW.load(Ordering::Relaxed) as HWND;
+    unsafe { ShowWindow(hwnd, if minimized { SW_SHOWMINNOACTIVE } else { SW_SHOWNOACTIVATE }) };
+}
+
 /// What the window answers for a point at each edge and corner plus the middle, for the e2e run.
 pub fn probe_edges() -> Vec<u32> {
     use windows_sys::Win32::Foundation::RECT;

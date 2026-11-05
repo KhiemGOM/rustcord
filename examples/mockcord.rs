@@ -779,6 +779,20 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
             ok(json!({}))
         }
+        ("POST", ["api", "v9", "mock", "dm"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let (ch, from, text) = (b["channel"].as_u64().unwrap_or(3000), b["from"].as_u64().unwrap_or(101), b["text"].as_str().unwrap_or("").to_string());
+            let after = Duration::from_millis(b["after_ms"].as_u64().unwrap_or(0));
+            let w = w.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(after).await;
+                let m = msg(fresh(), ch, from, &text);
+                let mut w = w.lock().unwrap();
+                w.msgs.push(m.clone());
+                let _ = w.events.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
+            });
+            ok(json!({}))
+        }
         ("POST", ["api", "v9", "mock", "premium"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let tx = w.lock().unwrap().events.clone();
