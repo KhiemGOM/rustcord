@@ -221,11 +221,20 @@ def main():
         **{f"settings: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("every page opened and was captured", "settings_tour"), ("profile edit saved via the unsaved-changes bar", "profile_saved"),
                               ("sidebar sub-section scrolled its section into view", "settings_scrolled_to"), ("light theme applied", "theme_light"), ("compact mode applied", "compact"), ("streamer mode toggled", "streamer"),
-                              ("display name changed through the modal", "display_name")]},
+                              ("username changed through the modal with the password", "display_name"),
+                              ("authenticator enabled through a sudo ticket", "mfa_on"), ("device logged out once the second factor was given", "sessions_logout"),
+                              ("message requests and spam filter written to the settings blob", "messaging_privacy"), ("activity sharing switched off for every server", "activity_servers"),
+                              ("who can join my games written", "activity_join"), ("authorized app and connection removed", "connected_apps"),
+                              ("avatar decoration picked and saved", "profile_decoration"), ("disable account says you own servers", "owner_modal")]},
         "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
-        "settings: content filter PATCHed to the legacy settings": sum('"explicit_content_filter":2' in r.get("body", "") for r in reqs if r.get("method") == "PATCH") == 2,
+        "settings: privacy switches PATCHed to the settings blob": sum(1 for r in reqs if r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/settings-proto/1")) >= 2 * 4,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
-        "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
+        "settings: username PATCHed with the password": sum('"username":"you!"' in r.get("body", "") and '"password":"hunter2"' in r.get("body", "") for r in reqs) == 2,
+        "settings: sudo ticket finished and the token sent on the retry": sum(1 for r in reqs if r.get("path", "").endswith("/mfa/finish")) == 4,
+        "settings: data request, connection sign-in, app and connection removal, integration join reached discord": all(
+            sum(1 for r in reqs if r.get("method") == m and p in r.get("path", "")) == 2
+            for m, p in [("POST", "/users/@me/harvest"), ("GET", "/connections/github/authorize"), ("DELETE", "/oauth2/tokens/"), ("DELETE", "/users/@me/connections/github/1"), ("POST", "/integrations/7001/join")]),
+        "settings: decoration sku sent with the profile": sum('"avatar_decoration_sku_id":"7001"' in r.get("body", "") for r in reqs) == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("animated emoji, mp4 gifv, gif upload and ?query gif each cycled through 3+ distinct frames", "media_animates"),

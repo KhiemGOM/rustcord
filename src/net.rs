@@ -102,6 +102,7 @@ pub enum Cmd {
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
+    Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     Voice(voice::Cmd),
 }
 
@@ -115,7 +116,7 @@ pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 fn allowed(c: &Cmd) -> bool {
     match c {
         Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
-        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) => false,
+        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
         Cmd::Rest { method, .. } => *method == "GET",
         Cmd::Sticker { .. } => false,
         // member requests and lazy member-list subscriptions only read
@@ -291,6 +292,13 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     if let Err(e) = a.sticker(guild, [("name", name), ("tags", tags), ("description", description)], file).await {
                         tx.send(Ev::Error(e));
                     }
+                });
+            }
+            Cmd::Sudo { method, path, body, mfa, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+                    let res = a.call_mfa(m, &path, body, mfa.as_deref()).await;
+                    tx.send(Ev::Rest { tag, res });
                 });
             }
             Cmd::Download { url, path } => {

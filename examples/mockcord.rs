@@ -23,6 +23,9 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
+#[path = "mockcord/account.rs"]
+mod account;
+
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 const GENERAL: u64 = 2011;
@@ -581,7 +584,7 @@ fn ready(last_general: u64) -> Value {
     merged.extend((0..extra).map(|_| json!([])));
     json!({
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
-        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0 },
+        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0, "mfa_enabled": false, "phone": "+15555550100", "nsfw_allowed": true },
         "users": users,
         "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
         "guilds": guilds,
@@ -1357,10 +1360,16 @@ async fn http_conn(mut s: TcpStream, w: W) {
             let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale });
             let _ = writeln!(wl.log, "{line}");
         }
-        let (code, ctype, out) = route(&w, &method, &path, &body).await;
+        let mfa = header("x-discord-mfa-authorization");
+        let (code, ctype, out) = match account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user) {
+            Some((code, v)) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
+            None => route(&w, &method, &path, &body).await,
+        };
         let reason = match code {
             200 => "OK",
             204 => "No Content",
+            400 => "Bad Request",
+            401 => "Unauthorized",
             _ => "Not Found",
         };
         let head = format!("HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n", out.len());
@@ -1984,6 +1993,7 @@ async fn main() {
     let voice_port: u16 = args.get(4).and_then(|p| p.parse().ok()).unwrap_or(ws_port + 1);
     let cdn = format!("http://127.0.0.1:{http_port}/cdn");
     PORT.store(http_port, std::sync::atomic::Ordering::Relaxed);
+    account::init(&settings_proto(1, true));
     let (events, _) = broadcast::channel(256);
     let w: W = Arc::new(Mutex::new(World {
         msgs: seed(&cdn),

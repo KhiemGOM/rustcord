@@ -118,8 +118,17 @@ impl Api {
     }
 
     pub async fn call(&self, m: Method, path: &str, body: Option<Value>) -> Result<Value, String> {
+        self.call_mfa(m, path, body, None).await
+    }
+
+    /// `call` for the requests discord guards with a second factor: the token from /mfa/finish
+    /// rides in X-Discord-MFA-Authorization, and a 60003 answer comes back as `mfa:<ticket and methods>`.
+    pub async fn call_mfa(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, String> {
         for _ in 0..4 {
             let mut req = self.build(m.clone(), path);
+            if let Some(t) = mfa {
+                req = req.header("X-Discord-MFA-Authorization", t);
+            }
             if let Some(b) = &body {
                 req = req.json(b);
             }
@@ -137,6 +146,9 @@ impl Api {
             let v: Value = res.json().await.unwrap_or(Value::Null);
             if status.is_success() {
                 return Ok(v);
+            }
+            if v["code"].as_u64() == Some(60003) && v["mfa"].is_object() {
+                return Err(format!("mfa:{}", v["mfa"]));
             }
             return Err(v["message"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string()));
         }

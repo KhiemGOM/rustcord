@@ -1221,6 +1221,7 @@ impl Run {
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
             600..=699 => self.server_steps(app, ctx),
+            2000..=2059 => self.account_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -1433,7 +1434,7 @@ impl Run {
                 self.next(900);
             }
             124 => {
-                let Some(r) = Self::at(ctx, "radio:Keep me safe") else { return };
+                let Some(r) = Self::at(ctx, "radio:Filter all spam") else { return };
                 self.click(r.center());
                 self.next(500);
             }
@@ -1491,14 +1492,16 @@ impl Run {
                 self.next(800);
             }
             134 => {
-                let Some(r) = Self::at(ctx, "edit:Display Name") else { return };
+                let Some(r) = Self::at(ctx, "edit:Username") else { return };
                 self.click(r.center());
                 self.next(500);
             }
             135 => {
-                let Some(r) = Self::at(ctx, "modal_input") else { return };
+                let (Some(r), Some(p)) = (Self::at(ctx, "modal_input"), Self::at(ctx, "modal_password")) else { return };
                 self.click(r.right_center() - vec2(4.0, 0.0));
                 self.queue.push_back(vec![Event::Text("!".into())]);
+                self.click(p.center());
+                self.queue.push_back(vec![Event::Text("hunter2".into())]);
                 self.next(400);
             }
             136 => {
@@ -1508,7 +1511,7 @@ impl Run {
                 self.next(0);
             }
             137 => {
-                if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
+                if app.sform.modal_closed() && app.store.user(app.store.me).map(|u| u.username.as_str()) == Some("you!") {
                     self.mark("display_name");
                     self.next(300);
                 }
@@ -1526,6 +1529,7 @@ impl Run {
             }
             140 => {
                 self.shot(ctx, "settings_devices.png");
+                self.step = 1999;
                 self.next(400);
             }
             141 => {
@@ -1544,6 +1548,142 @@ impl Run {
                 self.next(900);
             }
             _ => self.step = 99,
+        }
+    }
+
+    /// Account settings that talk to the second factor and the privacy blob: turn on the
+    /// authenticator, log a device out through the ticket, then flip a few switches and read
+    /// the blob back.
+    fn account_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let mfa_on = app.store.me_raw["mfa_enabled"].as_bool() == Some(true);
+        let click_at = |this: &mut Self, key: &str, pause: u64| {
+            let Some(r) = Self::at(ctx, key) else { return };
+            this.click(r.center());
+            this.next(pause);
+        };
+        let typed = |this: &mut Self, key: &str, text: &str| {
+            let Some(r) = Self::at(ctx, key) else { return };
+            this.click(r.center());
+            this.queue.push_back(vec![Event::Text(text.into())]);
+            this.next(300);
+        };
+        match self.step {
+            2000 => {
+                app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
+                self.step = 2009;
+                self.next(400);
+            }
+            2010 => click_at(self, "crumb", 500),
+            2011 => click_at(self, "nav:Multi-Factor Authentication", 700),
+            2012 => click_at(self, "action:Enable Authenticator App", 600),
+            2013 => typed(self, "modal_input", "123456"),
+            2014 => click_at(self, "modal_done", 800),
+            2015 => typed(self, "verify_input", "hunter2"),
+            2016 => click_at(self, "verify_done", 0),
+            2017 => {
+                if mfa_on {
+                    self.mark("mfa_on");
+                    self.next(300);
+                }
+            }
+            2018 => click_at(self, "modal_cancel", 500),
+            2019 => click_at(self, "crumb", 500),
+            2020 => click_at(self, "nav:Logged-in Devices", 900),
+            2021 => click_at(self, "logout:bbb", 800),
+            2022 => typed(self, "verify_input", "123456"),
+            2023 => click_at(self, "verify_done", 0),
+            2024 => {
+                let left = match app.remote.get("sessions") {
+                    Some(Some(Ok(v))) => v["user_sessions"].as_array().map(Vec::len),
+                    _ => None,
+                };
+                if left == Some(2) {
+                    self.mark("sessions_logout");
+                    self.next(300);
+                }
+            }
+            2025 => {
+                if self.open_page(app, "Messaging Permissions") {
+                    self.next(900);
+                }
+            }
+            2026 => click_at(self, "toggle:Message requests", 600),
+            2027 => {
+                if crate::ui::settings::proto_ids(app, 8, 16) > 0 && crate::ui::settings::proto_num(app, 6, 27) == Some(3) {
+                    self.mark("messaging_privacy");
+                    self.next(200);
+                }
+            }
+            2028 => {
+                if self.open_page(app, "Activity Privacy") {
+                    self.next(900);
+                }
+            }
+            2029 => click_at(self, "toggle_all", 600),
+            2030 => {
+                if crate::ui::settings::proto_ids(app, 8, 13) == app.store.guilds.len() {
+                    self.mark("activity_servers");
+                    self.next(200);
+                }
+            }
+            2031 => click_at(self, "toggle:Allow friends to join my game", 600),
+            2032 => {
+                if crate::ui::settings::proto_flag(app, 8, 1) == Some(false) {
+                    self.mark("activity_join");
+                    self.next(200);
+                }
+            }
+            2033 => {
+                if self.open_page(app, "Data & Privacy") {
+                    self.next(900);
+                }
+            }
+            2034 => click_at(self, "action:Request all of my Data", 600),
+            2035 => {
+                if self.open_page(app, "Connected Apps") {
+                    self.next(900);
+                }
+            }
+            2036 => click_at(self, "provider:github", 500),
+            2037 => click_at(self, "deauthorize:Dyno", 500),
+            2038 => click_at(self, "disconnect:github", 600),
+            2039 => {
+                self.mark("connected_apps");
+                click_at(self, "join:ghostie's graveyard", 400);
+            }
+            2040 => {
+                if self.open_page(app, "Profiles") {
+                    self.next(1200);
+                }
+            }
+            2041 => click_at(self, "pick:decoration", 500),
+            2042 => click_at(self, "collectible:7001", 300),
+            2043 => click_at(self, "picker_done", 300),
+            2044 => click_at(self, "save_changes", 0),
+            2045 => {
+                if app.store.user(app.store.me).and_then(|u| u.decoration.as_deref()) == Some("a_deco7001") {
+                    self.mark("profile_decoration");
+                    self.next(300);
+                }
+            }
+            2046 => {
+                if self.open_page(app, "Account") {
+                    self.next(800);
+                }
+            }
+            2047 => click_at(self, "action:Disable your account", 500),
+            2048 => {
+                if app.sform.modal_open() {
+                    self.mark("owner_modal");
+                    self.next(100);
+                }
+            }
+            2049 => click_at(self, "modal_done", 400),
+            2050 => {
+                self.step = 140;
+                self.next(200);
+            }
+            _ => self.step = 2050,
         }
     }
 
