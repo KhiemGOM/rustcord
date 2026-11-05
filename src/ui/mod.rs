@@ -1685,9 +1685,10 @@ impl eframe::App for App {
                 e.cost("cache_save", took.elapsed());
             }
         }
-        if self.sweep_at.elapsed() >= Duration::from_secs(30) {
+        // images off screen for two minutes go, animations (all their frames in memory) after ten seconds
+        if self.sweep_at.elapsed() >= Duration::from_secs(5) {
             self.sweep_at = Instant::now();
-            for uri in self.textures.stale(Duration::from_secs(120)) {
+            for uri in self.textures.stale(Duration::from_secs(120), Duration::from_secs(10)) {
                 ctx.forget_image(&uri);
             }
         }
