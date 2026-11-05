@@ -204,6 +204,9 @@ pub struct App {
     synced: Option<crate::proto::Account>,
     pub vc: vencord::Vc,
     pub vcnet: vcnet::VcNet,
+    // images drawn lately, so the rest can be let go now and then
+    textures: std::sync::Arc<crate::imgcache::Textures>,
+    sweep_at: Instant,
 }
 
 impl App {
@@ -217,6 +220,8 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
+        let textures = std::sync::Arc::new(crate::imgcache::Textures::default());
+        ctx.add_texture_loader(textures.clone());
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
         // added last so it's asked first: no other loader knows its scheme
         ctx.add_image_loader(std::sync::Arc::new(crate::emoji_font::Loader::default()));
@@ -351,6 +356,8 @@ impl App {
             synced: None,
             vc: Default::default(),
             vcnet: Default::default(),
+            textures,
+            sweep_at: Instant::now(),
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -1620,6 +1627,12 @@ impl eframe::App for App {
             cache::save(&self.store, &self.ui);
             if let Some(e) = &mut self.e2e {
                 e.cost("cache_save", took.elapsed());
+            }
+        }
+        if self.sweep_at.elapsed() >= Duration::from_secs(30) {
+            self.sweep_at = Instant::now();
+            for uri in self.textures.stale(Duration::from_secs(120)) {
+                ctx.forget_image(&uri);
             }
         }
         autoscroll::paint(&ctx, &self.autoscroll);

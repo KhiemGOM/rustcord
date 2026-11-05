@@ -21,7 +21,7 @@ use std::time::Duration;
 // pixels kept per animation; longer gifs get cut short, mp4s get thinned out
 const BUDGET: usize = 96 << 20;
 // egui's own frame uris use '#', and it tacks another one onto anything ending in .gif
-const SEP: char = '\u{1f}';
+pub const SEP: char = '\u{1f}';
 
 #[derive(Clone, Copy)]
 enum Kind {
