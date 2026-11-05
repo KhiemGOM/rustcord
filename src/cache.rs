@@ -67,6 +67,8 @@ pub struct Settings {
     pub gif_autoplay: bool,
     // advanced
     pub dev: bool,
+    // voice channels whose people show as avatars only
+    pub hide_names: Vec<crate::state::Id>,
     // voice
     pub mic: Option<String>,
     pub speaker: Option<String>,
@@ -156,6 +158,7 @@ impl Default for Settings {
             animate_emoji: true,
             gif_autoplay: true,
             dev: false,
+            hide_names: Vec::new(),
             mic: None,
             speaker: None,
             vad_db: -50,
