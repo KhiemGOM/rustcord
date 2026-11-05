@@ -16,6 +16,7 @@ mod media;
 mod mp4;
 mod net;
 mod proto;
+mod rpc;
 mod sound;
 mod spell;
 mod speech;
@@ -32,6 +33,9 @@ mod webwin;
 mod winsys;
 
 fn main() -> eframe::Result {
+    if !rpc::link::first_instance() {
+        return Ok(());
+    }
     let t0 = std::time::Instant::now();
     let _ = rustls::crypto::ring::default_provider().install_default();
     if let Some(local) = dirs::data_local_dir()

@@ -1571,6 +1571,39 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id": "7100", "name": "Mockcord Quest", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": false }] },
             { "id": "7101", "name": "Launcher Only", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": true }] },
         ])),
+        // what a game's rich presence and a website's invite and template need to look up
+        ("GET", ["api", "v9", "oauth2", "applications", id, "rpc"]) => match *id {
+            "7100" | "7200" => ok(json!({ "id": id, "name": if *id == "7100" { "Mockcord Quest" } else { "Mock Arena" }, "icon": null, "description": "", "rpc_origins": [] })),
+            _ => (404, "application/json", json!({ "message": "Unknown Application", "code": 10002 }).to_string().into_bytes()),
+        },
+        ("GET", ["api", "v9", "oauth2", "authorize"]) => ok(json!({ "application": { "id": "7200", "name": "Mock Arena" }, "authorized": false, "scopes": ["identify"] })),
+        ("POST", ["api", "v9", "oauth2", "authorize"]) => {
+            let token = query_str(path, "response_type") == "token";
+            let location = if token { "https://localhost/#access_token=mock-token&token_type=Bearer&expires_in=604800&scope=identify" } else { "https://localhost/?code=mock-code" };
+            ok(json!({ "location": location }))
+        }
+        ("GET", ["api", "v9", "oauth2", "@me"]) => ok(json!({
+            "application": { "id": "7200", "name": "Mock Arena", "description": "", "icon": null }, "user": user(ME), "scopes": ["identify"], "expires": "2099-01-01T00:00:00.000000+00:00",
+        })),
+        ("GET", ["api", "v9", "oauth2", "applications", _, "assets"]) => ok(json!([{ "id": "9001", "type": 1, "name": "logo" }, { "id": "9002", "type": 1, "name": "badge" }])),
+        ("POST", ["api", "v9", "applications", _, "external-assets"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let list: Vec<Value> = b["urls"].as_array().into_iter().flatten().map(|u| json!({ "url": u, "external_asset_path": format!("external/mock/{}", u.as_str().unwrap_or("").replace("https://", "")) })).collect();
+            ok(json!(list))
+        }
+        ("GET", ["api", "v9", "invites", "e2eRpc1"]) => ok(json!({
+            "code": "e2eRpc1", "guild": { "id": "1000", "name": "Mock Server", "icon": null }, "channel": { "id": "2010", "name": "general" },
+            "inviter": user(101), "approximate_presence_count": 2, "approximate_member_count": 5,
+        })),
+        ("POST", ["api", "v9", "invites", code]) if *code == "e2eRpc1" => ok(json!({ "code": code, "guild": { "id": "1000", "name": "Mock Server" } })),
+        ("GET", ["api", "v9", "guilds", "templates", "e2eTpl1"]) => ok(json!({ "code": "e2eTpl1", "name": "Mock Template", "description": "A starting point.", "usage_count": 3 })),
+        ("POST", ["api", "v9", "guilds", "templates", "e2eTpl1"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            ok(json!({ "id": "1999", "name": b["name"] }))
+        }
+        ("GET", ["api", "v9", "invites", _]) | ("GET", ["api", "v9", "guilds", "templates", _]) => {
+            (404, "application/json", json!({ "message": "Unknown Invite", "code": 10006 }).to_string().into_bytes())
+        }
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
         ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
         ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(json!([])),
