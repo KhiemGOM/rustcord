@@ -1624,7 +1624,7 @@ impl eframe::App for App {
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
             self.save_at = None;
             let took = Instant::now();
-            cache::save(&self.store, &self.ui);
+            cache::save(&self.store, &self.ui, false);
             if let Some(e) = &mut self.e2e {
                 e.cost("cache_save", took.elapsed());
             }
@@ -1730,7 +1730,7 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if self.token.is_some() {
-            cache::save(&self.store, &self.ui);
+            cache::save(&self.store, &self.ui, true);
         }
         if let Some(w) = self.win {
             cache::set_window(w);
