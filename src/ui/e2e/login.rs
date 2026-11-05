@@ -32,12 +32,7 @@ fn scan() {
     let (addr, path) = base.split_once('/').map(|(a, p)| (a, format!("/{p}"))).unwrap_or((base, String::new()));
     if let Ok(mut s) = std::net::TcpStream::connect(addr) {
         let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
-        let _ = write!(s, "POST {path}/mock/scan HTTP/1.1
-Host: {addr}
-Content-Length: 0
-Connection: close
-
-");
+        let _ = write!(s, "POST {path}/mock/scan HTTP/1.1\r\nHost: {addr}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         let _ = s.read_to_string(&mut String::new());
     }
 }
