@@ -370,8 +370,11 @@ fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
 }
 
 /// Green ring around a speaking user's avatar.
-pub fn ring(ui: &Ui, av: Rect) {
-    ui.painter().circle_stroke(av.center(), av.width() / 2.0 + 1.5, Stroke::new(2.0, GREEN));
+pub fn ring(ui: &Ui, av: Rect, u: Id, speaking: bool) {
+    let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", u, av.width() as i32)), speaking, 0.15, super::motion::EASE);
+    if k > 0.0 {
+        ui.painter().circle_stroke(av.center(), av.width() / 2.0 + 1.5, Stroke::new(2.0, GREEN.gamma_multiply(k)));
+    }
 }
 
 pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
@@ -505,16 +508,18 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     match app.voice.video.get(u).cloned() {
                         Some(img) => {
                             frame(app, ui, format!("cam:{u}"), &img, a);
-                            if app.voice.is_speaking(*u) {
-                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, GREEN), egui::StrokeKind::Outside);
+                            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "cam")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
+                            if k > 0.0 {
+                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, GREEN.gamma_multiply(k)), egui::StrokeKind::Outside);
                             }
                         }
                         None => {
                             if let Some(user) = app.store.user(*u) {
                                 avatar(ui, a, &user.avatar_url());
                             }
-                            if app.voice.is_speaking(*u) {
-                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, GREEN));
+                            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "stage")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
+                            if k > 0.0 {
+                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, GREEN.gamma_multiply(k)));
                             }
                         }
                     }
@@ -728,8 +733,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             if app.voice.live.contains(u) {
                 live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
             }
-            if app.voice.is_speaking(*u) {
-                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN), egui::StrokeKind::Inside);
+            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "tile")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
+            if k > 0.0 {
+                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN.gamma_multiply(k)), egui::StrokeKind::Inside);
             }
             super::tile::options(app, ui, chan, *u, tile, shown);
         }

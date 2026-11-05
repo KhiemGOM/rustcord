@@ -634,8 +634,7 @@ fn section(ui: &mut Ui, title: &str, lead: Lead, shut: &mut Vec<String>) -> bool
         }
     }
     let t = ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, title, semi(14.0), col);
-    let chev = if open { super::icons::Icon::ChevronDown } else { super::icons::Icon::ChevronRight };
-    super::icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 10.0, r.center().y), vec2(12.0, 12.0)), col);
+    super::motion::chevron(ui, resp.id, open, Rect::from_center_size(pos2(t.right() + 10.0, r.center().y), vec2(12.0, 12.0)), col);
     if resp.clicked() {
         if open {
             shut.push(title.to_string());

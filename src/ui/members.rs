@@ -259,7 +259,7 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>
     let g = ui.interact(gr, ui.id().with("activity_gear"), Sense::click()).on_hover_text("Activity Settings");
     icons::draw(p, Icon::Gear, Rect::from_center_size(gr.center(), vec2(12.0, 12.0)), if g.hovered() { pal().interactive_hover } else { pal().channel_default });
     let chev = Rect::from_center_size(pos2(head.right() - 12.0, r.center().y), vec2(12.0, 12.0));
-    icons::draw(p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, chev, if resp.hovered() { pal().interactive_hover } else { pal().channel_default });
+    super::motion::chevron(ui, resp.id, open, chev, if resp.hovered() { pal().interactive_hover } else { pal().channel_default });
     if g.clicked() {
         pick = Some(Pick::Gear);
     } else if resp.clicked() {

@@ -202,6 +202,12 @@ pub fn tooltips(ctx: &Context) {
     }
 }
 
+/// A disclosure chevron: points down open, turns to point right over .2s ease-out.
+pub fn chevron(ui: &Ui, id: Id, open: bool, rect: egui::Rect, color: Color32) {
+    let turn = (1.0 - tween(ui.ctx(), id.with("chev"), open, 0.2, EASE_OUT)) * -std::f32::consts::FRAC_PI_2;
+    crate::ui::icons::draw_turned(ui.painter(), crate::ui::icons::Icon::ChevronDown, rect, color, turn);
+}
+
 /// A hover wash that fades in and out instead of switching.
 pub fn wash(ui: &Ui, resp: &Response, rect: egui::Rect, radius: impl Into<egui::CornerRadius>, color: Color32, secs: f32) {
     let k = hover(ui.ctx(), resp, secs);

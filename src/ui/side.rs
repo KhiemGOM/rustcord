@@ -989,9 +989,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
                 if let Some(user) = store.user(*u) {
                     avatar(ui, av, &user.avatar_url());
                 }
-                if voice.is_speaking(*u) {
-                    super::call::ring(ui, av);
-                }
+                super::call::ring(ui, av, *u, voice.is_speaking(*u));
             }
         }
         return;
@@ -1003,9 +1001,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             avatar(ui, av, &user.avatar_url());
         }
         let speaking = voice.is_speaking(u);
-        if speaking {
-            super::call::ring(ui, av);
-        }
+        super::call::ring(ui, av, u, speaking);
         let used = super::call::badges(ui, voice, u, row);
         // discord's usernameSpeaking: the name goes bright while they talk
         let col = if speaking { pal().interactive_hover } else { pal().channel_default };
