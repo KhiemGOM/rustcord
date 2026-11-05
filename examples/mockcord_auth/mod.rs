@@ -15,6 +15,7 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 pub const TOKEN: &str = "mock-token";
 
+static SCAN: std::sync::LazyLock<tokio::sync::broadcast::Sender<()>> = std::sync::LazyLock::new(|| tokio::sync::broadcast::channel(4).0);
 static LOGINS: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 static TICKETS: Mutex<Option<HashMap<String, Vec<u8>>>> = Mutex::new(None);
 
@@ -105,6 +106,10 @@ pub fn route(method: &str, path: &str, body: &[u8]) -> Option<(u16, Option<Value
         ("POST", "/auth/login") => login(&b),
         ("POST", "/auth/mfa/sms/send") => (200, Some(json!({ "phone": "+1•••••••12" }))),
         ("POST", p) if p.starts_with("/auth/mfa/") => mfa(&p["/auth/mfa/".len()..], &b),
+        ("POST", "/mock/scan") => {
+            let _ = SCAN.send(());
+            (204, None)
+        }
         ("POST", "/auth/register") => register(&b),
         ("POST", "/unique-username/username-attempt-unauthed") => (200, Some(json!({ "taken": b["username"] == "taken" }))),
         ("POST", "/auth/forgot") if b["login"] == "unknown@mock.test" => form(vec![field("login", "EMAIL_DOES_NOT_EXIST", "No account with that email.")]),
@@ -186,9 +191,13 @@ async fn session(s: tokio::net::TcpStream, step: Duration) {
     let mut spki: Vec<u8> = Vec::new();
     let mut nonce = [0u8; 32];
     let mut stage: Option<u8> = None;
+    let mut scan = SCAN.subscribe();
     loop {
         let wake = async {
             match stage {
+                Some(0) => {
+                    let _ = scan.recv().await;
+                }
                 Some(_) => tokio::time::sleep(step).await,
                 None => std::future::pending().await,
             }
@@ -235,6 +244,6 @@ async fn session(s: tokio::net::TcpStream, step: Duration) {
 pub async fn gateway(port: u16) {
     let l = TcpListener::bind(("127.0.0.1", port)).await.expect("bind remote auth");
     while let Ok((s, _)) = l.accept().await {
-        tokio::spawn(session(s, Duration::from_millis(2500)));
+        tokio::spawn(session(s, Duration::from_millis(1500)));
     }
 }
