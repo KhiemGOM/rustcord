@@ -379,6 +379,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut colon_at = None;
     // where a selection starts on screen, for the formatting toolbar over it
     let mut sel_at = None;
+    let mut spell_changed = false;
     let colon = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == ":")));
     let before = draft_now.len();
     let radius = CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 };
@@ -442,6 +443,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .lock_focus(true)
                                 .show(ui);
                             text_pos = out.galley_pos;
+                            spell_changed = super::spelling::composer(&mut app.spell, &mut app.settings, ui, &out, draft, tid);
                             if let Some(r) = out.cursor_range.filter(|r| !r.is_empty() && out.response.has_focus()) {
                                 let [a, _] = r.sorted_cursors();
                                 sel_at = Some(out.galley_pos + out.galley.pos_from_cursor(a).left_top().to_vec2());
@@ -457,7 +459,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             ui.add_space(17.0);
                         });
                     });
-                    app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
+                    if spell_changed {
+        app.save_settings(ui.ctx());
+    }
+    app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
                     // discord's row, right to left: apps, emoji, sticker, gif, gift; 20px icons 40 apart
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                         let slot = |ui: &mut Ui, icon: Icon, tip: &str| {
