@@ -211,7 +211,7 @@ impl Run {
                 self.mark("forgot_sent");
                 self.next(200);
             }
-            1541 if on_login(app) && self.press(app, "register") => self.next(200),
+            1541 if on_login(app) && self.press(app, "register") => self.next(600),
             1542 if app.login.page == Page::Register && has(app, &["email", "submit"]) => {
                 self.press(app, "submit");
                 self.next(200);

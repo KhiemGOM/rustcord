@@ -245,17 +245,20 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(80) })
             .show(ui, |ui| {
                 ui.set_width(if wide { 720.0 } else { 416.0 });
-                match app.login.page {
+                ui.with_layout(Layout::top_down(Align::Min), |ui| match app.login.page {
                     Page::Login => login_page(app, ui),
                     Page::Register => register::show(app, ui),
                     Page::Forgot => forgot(app, ui),
                     Page::Sent => sent(app, ui),
                     Page::Mfa => mfa::show(app, ui),
                     Page::Disabled(_) | Page::Deletion => closed(app, ui),
-                }
+                });
             });
         h = card.response.rect.height();
     });
+    if (h - app.login.card_h).abs() > 0.5 {
+        ui.ctx().request_repaint();
+    }
     app.login.card_h = h;
 }
 

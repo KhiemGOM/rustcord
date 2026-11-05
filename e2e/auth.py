@@ -38,7 +38,7 @@ def checks(run, reqs):
             and any(b.get("login") == "deleted@mock.test" and b.get("undelete") is True for b in logins),
         "login: forgot password showed the server's error, then the sent screen": ok("forgot_error") and ok("forgot_sent")
             and [b.get("login") for b in sent("/auth/forgot")] == ["unknown@mock.test", "ok@mock.test"],
-        "register: empty and under-age forms were stopped before the request": ok("register_required") and not any(b.get("email") == "" for b in registers),
+        "register: an empty form was stopped before the request and listed what it lacked": ok("register_required") and not any(b.get("email") == "" for b in registers),
         "register: the username was checked live, taken and then free": ok("register_name_taken") and ok("register_name_free")
             and {b.get("username") for b in sent("/unique-username/username-attempt-unauthed")} >= {"taken", "e2e_user"},
         "register: a server error landed on its field, the fixed form registered with a birthday and consent": ok("register_field_error") and ok("register_ok")
