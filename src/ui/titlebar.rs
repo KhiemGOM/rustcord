@@ -169,15 +169,6 @@ impl App {
     }
 }
 
-fn mentions(store: &Store) -> u32 {
-    store
-        .reads
-        .iter()
-        .filter(|(ch, _)| store.channels.get(ch).is_some_and(|c| !store.muted.contains(&c.id) && !store.muted.contains(&c.guild)))
-        .map(|(_, r)| r.mentions)
-        .sum()
-}
-
 fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
     let radius = CornerRadius::same((rect.width() * 0.25) as u8);
     let Some(g) = store.guilds.get(&gid) else { return };
@@ -347,7 +338,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let open = app.inbox.is_some();
                 if signed_in {
                     glyph(ui, Icon::Inbox, inbox, 16.0, if on || open { lit } else { idle });
-                    let n = mentions(&app.store);
+                    let n = app.store.mention_count();
                     if n > 0 {
                         badge(ui, inbox.center() + vec2(22.0, -6.0), n, Some(pal().frame_bg));
                     }

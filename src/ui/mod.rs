@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
-use crate::state::{Id, Map, Message, Page, ReactEmoji, Set, Status, Store};
+use crate::state::{Id, Map, Message, Page, ReactEmoji, Set, Status, Store, Tracked};
 use crate::theme::*;
 
 /// Discord's zoom levels, in percent: the accessibility slider's ticks, which ctrl+wheel and
@@ -57,7 +57,7 @@ pub enum Pick {
 pub struct App {
     pub net: Net,
     rx: Receiver<Ev>,
-    pub store: Store,
+    pub store: Tracked,
     pub ui: UiState,
     pub token: Option<String>,
     pub conn: Conn,
@@ -237,7 +237,7 @@ impl App {
         let mut app = App {
             net,
             rx,
-            store,
+            store: store.into(),
             ui,
             token,
             conn: Conn::Connecting,
@@ -737,7 +737,8 @@ impl App {
     }
 
     pub fn set_status(&mut self, s: &str) {
-        self.store.presence.insert(self.store.me, Status::parse(s));
+        let me = self.store.me;
+        self.store.presence.insert(me, Status::parse(s));
         self.send_presence();
     }
 
@@ -928,16 +929,8 @@ impl App {
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
-        let mut n: u32 = self
-            .store
-            .reads
-            .iter()
-            .filter(|(ch, _)| {
-                self.store.channels.get(ch).is_some_and(|c| !self.store.muted.contains(&c.id) && !self.store.muted.contains(&c.guild))
-            })
-            .map(|(_, r)| r.mentions)
-            .sum();
-        n += self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
+        let n = self.store.mention_count()
+            + self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
         if self.title_count != Some(n) {
             self.title_count = Some(n);
             let t = if n > 0 { format!("({n}) Rustcord") } else { "Rustcord".into() };
@@ -1174,7 +1167,7 @@ impl App {
         self.net.send(Cmd::Stop);
         cache::set_token(None);
         self.token = None;
-        self.store = Store::default();
+        self.store = Tracked::default();
         self.ui = UiState::default();
         self.nav = Default::default();
         self.inbox = None;
@@ -1311,13 +1304,15 @@ impl App {
         }
         self.hold_ack = None;
         let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { return };
+        let (acked, mentions) = self.store.reads.get(&ch).map_or((0, 0), |r| (r.last_acked, r.mentions));
+        if last <= acked && mentions == 0 {
+            return;
+        }
         let r = self.store.reads.entry(ch).or_default();
-        if last > r.last_acked || r.mentions > 0 {
-            r.last_acked = last.max(r.last_acked);
-            r.mentions = 0;
-            if last != 0 {
-                self.net.send(Cmd::Ack { channel: ch, id: last });
-            }
+        r.last_acked = last.max(r.last_acked);
+        r.mentions = 0;
+        if last != 0 {
+            self.net.send(Cmd::Ack { channel: ch, id: last });
         }
     }
 
