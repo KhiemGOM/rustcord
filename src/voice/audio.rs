@@ -54,6 +54,7 @@ pub struct Shared {
     pub auto_vad: AtomicBool,
     /// krisp-style noise suppression (rnnoise) on the mic
     pub denoise: AtomicBool,
+    pub peers: Mutex<std::collections::HashMap<u64, f32>>,
 }
 
 impl Default for Shared {
@@ -81,6 +82,7 @@ impl Default for Shared {
             out_gain: AtomicU32::new(1.0f32.to_bits()),
             auto_vad: AtomicBool::new(true),
             denoise: AtomicBool::new(true),
+            peers: Mutex::default(),
         }
     }
 }
