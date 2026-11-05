@@ -1632,7 +1632,11 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message, sys: system::Sys) {
         }
         if let Some((label, go)) = &sys.button {
             ui.add_space(8.0);
-            if small_button(ui, label).clicked() {
+            let b = small_button(ui, label);
+            if matches!(go, system::Go::JoinCall(_)) {
+                d.rects.push((format!("call_msg_join:{}", d.ch), b.rect));
+            }
+            if b.clicked() {
                 d.acts.push(Act::System(go.clone(), Pos2::ZERO));
             }
         }

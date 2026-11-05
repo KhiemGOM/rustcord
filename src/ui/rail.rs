@@ -36,15 +36,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 app.home_clicked();
             }
 
-            // dms with something waiting get their own bubble under home, like the official client;
-            // a muted one waits quietly in the list instead
+            // dms with something waiting or a call going get their own bubble under home, like the
+            // official client; a muted one waits quietly in the list instead
             let waiting: Vec<(Id, u32)> = app
                 .store
                 .dms
                 .iter()
-                .filter(|c| !app.store.dm_muted(**c))
+                .filter(|c| !app.store.dm_muted(**c) || app.voice.chan == Some(**c))
                 .map(|c| (*c, app.store.mentions(*c)))
-                .filter(|(_, n)| *n > 0)
+                .filter(|(c, n)| *n > 0 || app.voice.chan == Some(*c) || app.voice.calls.get(c).is_some_and(|u| !u.is_empty()) || app.voice.ringing == Some(*c))
                 .take(8)
                 .collect();
             for (c, n) in waiting {
@@ -62,7 +62,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         icons::draw(ui.painter(), Icon::People, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), Color32::WHITE);
                     }
                 });
-                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(pal().bg_tertiary));
+                if n > 0 {
+                    badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(pal().bg_tertiary));
+                }
+                let mine = app.voice.chan == Some(c);
+                if mine || app.voice.ringing == Some(c) || app.voice.calls.get(&c).is_some_and(|u| !u.is_empty()) {
+                    let at = upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)), Icon::Speaker, mine, pal().bg_tertiary);
+                    app.rects.insert(format!("dmcall:{c}"), Rect::from_center_size(at, vec2(16.0, 16.0)));
+                }
+                if app.voice.ringing == Some(c) {
+                    let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
+                    ui.painter().rect_stroke(r.rect.expand(2.0 + 4.0 * k), CornerRadius::same(RADIUS + 2), egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)), egui::StrokeKind::Outside);
+                    ui.ctx().request_repaint();
+                }
                 app.rects.insert(format!("dmbubble:{c}"), r.rect);
                 if tip(r, &title).clicked() {
                     app.ui.guild = None;

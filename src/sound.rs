@@ -53,7 +53,8 @@ struct Config {
 }
 
 static CFG: Mutex<Config> = Mutex::new(Config { on: true, muted: Vec::new(), discodo: false, halloween: false, speaker: None, volume: 1.0 });
-static LOOP: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+static LOOPS: Mutex<Vec<(String, Arc<AtomicBool>)>> = Mutex::new(Vec::new());
+static HEARD: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static CLIPS: Mutex<Option<HashMap<String, Arc<Clip>>>> = Mutex::new(None);
 static FETCHED: AtomicUsize = AtomicUsize::new(0);
 static DECODED: AtomicUsize = AtomicUsize::new(0);
@@ -82,6 +83,20 @@ pub fn halloween_season() -> bool {
     (HALLOWEEN_FROM..=HALLOWEEN_TO).contains(&now_ms())
 }
 
+/// Every cue that was allowed to play, oldest first, for the e2e run to check.
+pub fn heard() -> Vec<String> {
+    HEARD.lock().map(|h| h.clone()).unwrap_or_default()
+}
+
+fn note(cue: &str) {
+    if let Ok(mut h) = HEARD.lock() {
+        h.push(cue.to_string());
+        if h.len() > 256 {
+            h.remove(0);
+        }
+    }
+}
+
 /// (files fetched, clips decoded, plays queued) since start, for the e2e checks.
 pub fn stats() -> (usize, usize, usize) {
     (FETCHED.load(Relaxed), DECODED.load(Relaxed), QUEUED.load(Relaxed))
@@ -101,19 +116,9 @@ pub fn configure(s: &cache::Settings) {
     }
 }
 
-/// The cue names callers use (and the settings list mutes by) against discord's sound names.
+/// Cues are discord's sound names, the settings list included; only `message` differs.
 fn sound_of(cue: &str) -> &str {
-    match cue {
-        "message" => "message1",
-        "join" => "user_join",
-        "leave" => "user_leave",
-        "ring" => "call_ringing",
-        "calling" => "call_calling",
-        "moved" => "user_moved",
-        "stream_join" => "stream_user_joined",
-        "stream_leave" => "stream_user_left",
-        c => c,
-    }
+    if cue == "message" { "message1" } else { cue }
 }
 
 /// The file behind a cue under the current pack: discodo turns every message into the
@@ -146,24 +151,31 @@ fn allowed(cue: &str) -> bool {
 /// Play a cue unless the user turned it (or all sounds) off.
 pub fn cue(name: &str) {
     if allowed(name) {
+        note(name);
         play(name);
     }
 }
 
-/// Play a cue and loop it (an incoming or outgoing ring) until `release`.
+/// Keep a cue looping on its own length until `release`. Called every frame while a call rings.
 pub fn hold(name: &str) {
-    release();
-    if !allowed(name) {
-        return;
+    let Ok(mut loops) = LOOPS.lock() else { return };
+    let at = loops.iter().position(|(n, _)| n == name);
+    match (allowed(name), at) {
+        (true, None) => {
+            let stop = Arc::new(AtomicBool::new(false));
+            loops.push((name.to_string(), stop.clone()));
+            note(name);
+            spawn(name.to_string(), Some(stop));
+        }
+        (false, Some(i)) => loops.remove(i).1.store(true, Relaxed),
+        _ => {}
     }
-    let stop = Arc::new(AtomicBool::new(false));
-    *LOOP.lock().unwrap() = Some(stop.clone());
-    spawn(name.to_string(), Some(stop));
 }
 
-pub fn release() {
-    if let Some(stop) = LOOP.lock().unwrap().take() {
-        stop.store(true, Relaxed);
+pub fn release(name: &str) {
+    let Ok(mut loops) = LOOPS.lock() else { return };
+    if let Some(i) = loops.iter().position(|(n, _)| n == name) {
+        loops.remove(i).1.store(true, Relaxed);
     }
 }
 
@@ -176,7 +188,7 @@ fn spawn(cue: String, stop: Option<Arc<AtomicBool>>) {
     std::thread::spawn(move || {
         let (file, speaker, volume) = {
             let Ok(c) = CFG.lock() else { return };
-            (file_of(&cue, &c, if cue == "ring" { dice() } else { 0 }), c.speaker.clone(), c.volume)
+            (file_of(&cue, &c, if cue == "call_ringing" { dice() } else { 0 }), c.speaker.clone(), c.volume)
         };
         let (clip, gain) = match load(&file) {
             Some(c) => (c, (volume * LEVEL).min(1.0)),
@@ -187,10 +199,25 @@ fn spawn(cue: String, stop: Option<Arc<AtomicBool>>) {
         }
         QUEUED.fetch_add(1, Relaxed);
         if std::env::var_os("RUSTCORD_SILENT").is_some() {
+            if let Some(stop) = stop {
+                loop_silently(&cue, &clip, &stop);
+            }
             return;
         }
-        output(&clip, gain, speaker.as_deref(), stop);
+        output(&cue, &clip, gain, speaker.as_deref(), stop);
     });
+}
+
+fn loop_silently(cue: &str, clip: &Clip, stop: &AtomicBool) {
+    let every = Duration::from_secs_f32(clip.pcm.len() as f32 / (clip.ch * clip.rate) as f32);
+    let mut last = std::time::Instant::now();
+    while !stop.load(Relaxed) {
+        if last.elapsed() >= every {
+            last = std::time::Instant::now();
+            note(cue);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn load(file: &str) -> Option<Arc<Clip>> {
@@ -238,7 +265,7 @@ fn decode(bytes: &[u8]) -> Option<Clip> {
     (ch > 0 && rate > 0 && !pcm.is_empty()).then_some(Clip { pcm, ch, rate })
 }
 
-fn output(clip: &Clip, gain: f32, speaker: Option<&str>, stop: Option<Arc<AtomicBool>>) {
+fn output(cue: &str, clip: &Clip, gain: f32, speaker: Option<&str>, stop: Option<Arc<AtomicBool>>) {
     let host = cpal::default_host();
     let named = speaker.and_then(|n| host.output_devices().ok()?.find(|d| d.description().is_ok_and(|d| d.name() == n)));
     let Some(dev) = named.or_else(|| host.default_output_device()) else { return };
@@ -269,7 +296,13 @@ fn output(clip: &Clip, gain: f32, speaker: Option<&str>, stop: Option<Arc<Atomic
         return;
     }
     let stopped = || stop.as_ref().is_some_and(|s| s.load(Relaxed));
+    let mut plays = 0;
     while !stopped() && (looping || at.load(Relaxed) < len) {
+        let n = at.load(Relaxed) / len;
+        if n > plays {
+            plays = n;
+            note(cue);
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
     std::thread::sleep(Duration::from_millis(60));
@@ -404,6 +437,11 @@ fn synth(name: &str, rate: usize) -> Clip {
 }
 
 #[cfg(test)]
+pub fn has_file(cue: &str) -> bool {
+    CLASSIC.iter().any(|(n, _)| *n == sound_of(cue))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -416,18 +454,18 @@ mod tests {
         assert_eq!(file_of("message", &cfg(false, false), 0), "message1");
         assert_eq!(file_of("message", &cfg(true, false), 0), "discodo");
         assert_eq!(file_of("message", &cfg(false, true), 0), "halloween_message1");
-        assert_eq!(file_of("join", &cfg(false, true), 0), "halloween_user_join");
-        assert_eq!(file_of("moved", &cfg(false, true), 0), "user_moved");
-        assert_eq!(file_of("stream_join", &cfg(false, false), 0), "stream_user_joined");
+        assert_eq!(file_of("user_join", &cfg(false, true), 0), "halloween_user_join");
+        assert_eq!(file_of("user_moved", &cfg(false, true), 0), "user_moved");
+        assert_eq!(file_of("stream_user_joined", &cfg(false, false), 0), "stream_user_joined");
     }
 
     #[test]
     fn one_ring_in_a_thousand_is_a_secret_tune() {
         let c = cfg(false, false);
-        assert_eq!(file_of("ring", &c, 499), "call_ringing_beat");
-        assert_eq!(file_of("ring", &c, 1499), "call_ringing_snow_halation");
-        assert_eq!(file_of("ring", &c, 498), "call_ringing");
-        assert_eq!(file_of("ring", &cfg(false, true), 499), "halloween_call_ringing");
+        assert_eq!(file_of("call_ringing", &c, 499), "call_ringing_beat");
+        assert_eq!(file_of("call_ringing", &c, 1499), "call_ringing_snow_halation");
+        assert_eq!(file_of("call_ringing", &c, 498), "call_ringing");
+        assert_eq!(file_of("call_ringing", &cfg(false, true), 499), "halloween_call_ringing");
     }
 
     #[test]

@@ -17,6 +17,14 @@ pub struct Ping {
     pub avatar: String,
     // channel and message a click opens
     pub at: (Id, Id),
+    // a call ringing, which gets Answer and Decline buttons
+    pub call: bool,
+}
+
+pub enum Click {
+    Open(Id, Id),
+    Answer(Id),
+    Decline(Id),
 }
 
 static QUEUE: OnceLock<Mutex<Sender<Ping>>> = OnceLock::new();
@@ -42,8 +50,8 @@ fn register(dir: &Path) {
     }
 }
 
-/// Starts the toast thread; what comes back is every toast clicked, as (channel, message).
-pub fn start(ctx: egui::Context) -> Receiver<(Id, Id)> {
+/// Starts the toast thread; what comes back is every toast or button clicked.
+pub fn start(ctx: egui::Context) -> Receiver<Click> {
     let (tx, rx) = std::sync::mpsc::channel::<Ping>();
     let (clicks, clicked) = std::sync::mpsc::channel();
     let _ = QUEUE.set(Mutex::new(tx));
@@ -108,18 +116,26 @@ pub fn set_long(on: bool) {
 /// Electron's toast, which is what discord sends: title, body, the avatar as the square app
 /// logo override, and silent.
 pub fn xml(p: &Ping, pic: Option<&Path>) -> String {
+    let (scenario, actions) = if p.call {
+        (
+            r#" scenario="incomingCall""#,
+            r#"<actions><action content="Answer" arguments="answer" activationType="foreground"/><action content="Decline" arguments="decline" activationType="foreground"/></actions>"#,
+        )
+    } else {
+        ("", "")
+    };
     let image = pic
         .map(|f| format!(r#"<image placement="appLogoOverride" hint-crop="none" src="file:///{}"/>"#, escape(&f.display().to_string().replace('\\', "/"))))
         .unwrap_or_default();
     format!(
-        r#"<toast{long}><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text>{image}</binding></visual><audio silent="true"/></toast>"#,
+        r#"<toast{long}{scenario}><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text>{image}</binding></visual>{actions}<audio silent="true"/></toast>"#,
         escape(&p.title),
         escape(&p.body),
         long = if LONG.load(std::sync::atomic::Ordering::Relaxed) { r#" duration="long""# } else { "" }
     )
 }
 
-fn show(p: &Ping, pic: Option<&Path>, clicks: Sender<(Id, Id)>, ctx: egui::Context) -> windows::core::Result<windows::UI::Notifications::ToastNotification> {
+fn show(p: &Ping, pic: Option<&Path>, clicks: Sender<Click>, ctx: egui::Context) -> windows::core::Result<windows::UI::Notifications::ToastNotification> {
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::Foundation::TypedEventHandler;
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
@@ -128,8 +144,14 @@ fn show(p: &Ping, pic: Option<&Path>, clicks: Sender<(Id, Id)>, ctx: egui::Conte
     doc.LoadXml(&HSTRING::from(xml(p, pic)))?;
     let toast = ToastNotification::CreateToastNotification(&doc)?;
     let at = p.at;
-    toast.Activated(&TypedEventHandler::new(move |_, _| {
-        let _ = clicks.send(at);
+    toast.Activated(&TypedEventHandler::new(move |_, args: windows::core::Ref<'_, windows::core::IInspectable>| {
+        use windows::core::Interface;
+        let button = args.as_ref().and_then(|a| a.cast::<windows::UI::Notifications::ToastActivatedEventArgs>().ok()).and_then(|a| a.Arguments().ok()).map(|a| a.to_string());
+        let _ = clicks.send(match button.as_deref() {
+            Some("answer") => Click::Answer(at.0),
+            Some("decline") => Click::Decline(at.0),
+            _ => Click::Open(at.0, at.1),
+        });
         ctx.request_repaint();
         Ok(())
     }))?;
