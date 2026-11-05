@@ -1002,6 +1002,7 @@ fn typing_line(app: &App, ui: &mut Ui, chan: &Channel, composer: Rect) {
 
     let y = composer.top() - 12.0;
     let t = ui.input(|i| i.time) as f32;
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     for i in 0..3 {
         let phase = ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
         p.circle_filled(pos2(composer.left() + 19.5 + i as f32 * 8.75, y), 3.5, pal().text_normal.gamma_multiply(0.3 + 0.7 * phase));
