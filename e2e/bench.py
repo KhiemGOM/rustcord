@@ -133,7 +133,11 @@ def main():
         p, report["cold"] = launch(env_cold, tmp / "c")
         time.sleep(2)
         close(p.pid)
-        p.wait(20)
+        try:
+            p.wait(20)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
         env["RUSTCORD_DATA"] = env_cold["RUSTCORD_DATA"]
         p, report["warm"] = launch(env, tmp / "w")
         h = handle(p.pid)
