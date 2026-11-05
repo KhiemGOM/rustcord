@@ -227,6 +227,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut open: Option<Id> = None;
     let mut toggle: Option<Id> = None;
     let mut menu: Option<(Id, ChanAct)> = None;
+    let mut person: Option<(Id, Id, bool, egui::Pos2)> = None;
     let mut make_invite: Option<Id> = None;
     let mut set_status: Option<Id> = None;
     let mut boost_page = false;
@@ -367,7 +368,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         channel_menu(&r, store, t, store.unread(t), false, dev, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
-                        voice_users(ui, store, &app.voice, gid, c.id);
+                        if let Some((u, secondary, at)) = voice_users(ui, store, &app.voice, gid, c.id) {
+                            person = Some((u, c.id, secondary, at));
+                        }
                     }
                 }
             }
@@ -375,6 +378,14 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         });
         ui.ctx().data_mut(|d| d.insert_temp(scroll_id, out.state.offset.y));
     });
+    if let Some((u, c, secondary, at)) = person {
+        if secondary {
+            app.user_menu = Some((u, gid, None, at));
+            app.menu_from = super::usermenu::Origin::Voice(c);
+        } else {
+            app.open_profile(u, gid, at);
+        }
+    }
     match menu {
         Some((c, ChanAct::Read)) => {
             let mut chans: Vec<Id> = app.store.channels.values().filter(|x| x.parent == c).map(|x| x.id).collect();
@@ -1011,13 +1022,22 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     (resp, emoji, invite, edit, set, chat)
 }
 
-fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
-    let Some(g) = store.guilds.get(&gid) else { return };
+fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) -> Option<(Id, bool, egui::Pos2)> {
+    let g = store.guilds.get(&gid)?;
+    let mut hit = None;
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
     // discord lists them by name, 32 to a row, in their own display name font and server tag
     users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
     for u in users {
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(4), pal().bg_mod_hover);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.clicked() || resp.secondary_clicked() {
+            hit = Some((u, resp.secondary_clicked(), resp.interact_pointer_pos().unwrap_or(row.center())));
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("voice_row", u)), row));
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
         if let Some(user) = store.user(u) {
             avatar(ui, av, &user.avatar_url());
@@ -1037,6 +1057,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             super::tag_chip(&ui.painter().with_clip_rect(clip), user, pos2(r.right() + 4.0, row.center().y), 1.0);
         }
     }
+    hit
 }
 
 fn dms(app: &mut App, ui: &mut Ui) {

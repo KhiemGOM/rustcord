@@ -496,7 +496,7 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         Act::Profile => app.open_profile(uid, gid, at),
         Act::Mention => app.mention(uid, gid),
         Act::Message => app.open_dm(uid),
-        Act::Call => app.call_user(uid),
+        Act::Call => app.call_user(uid, false),
         Act::Note => app.user_dialog = Some(super::userdlg::Dialog::note(app, uid)),
         Act::FriendNick => app.user_dialog = Some(super::userdlg::Dialog::nick(&app.store, 0, uid)),
         Act::Nick => app.user_dialog = Some(super::userdlg::Dialog::nick(&app.store, gid, uid)),
@@ -596,7 +596,8 @@ impl App {
     }
 
     /// Rings them: in the dm you have with them, made first when there isn't one.
-    pub fn call_user(&mut self, uid: Id) {
+    pub fn call_user(&mut self, uid: Id, video: bool) {
+        self.voice.video_call = video;
         let existing = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [uid]));
         match existing {
             Some(c) => {

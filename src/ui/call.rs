@@ -667,7 +667,12 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             stage(app, ui, top, f);
             area.min.y = top.bottom() + 8.0;
         }
-        for (u, tile) in members.iter().zip(grid(area, members.len())) {
+        let focus = app.voice.focus.filter(|f| members.len() > 1 && members.contains(f));
+        let tiles: Vec<(Id, Rect)> = match focus {
+            Some(f) => focused(area, &members, f),
+            None => members.iter().copied().zip(grid(area, members.len())).collect(),
+        };
+        for (u, tile) in tiles.iter().map(|(u, t)| (u, *t)) {
             let fill = tile_color(app, ui.ctx(), *u, chan.guild);
             ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
             app.rects.insert(format!("voice:tile:{u}"), tile);
@@ -708,6 +713,22 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
     });
+}
+
+/// Focus This Person: theirs fills the top of the call, everyone else a row of small tiles below.
+fn focused(area: Rect, members: &[Id], who: Id) -> Vec<(Id, Rect)> {
+    let gap = 8.0;
+    let strip_h = (area.height() * 0.22).clamp(80.0, 140.0);
+    let big = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - strip_h - gap));
+    let mut out = vec![(who, big)];
+    let rest: Vec<Id> = members.iter().copied().filter(|u| *u != who).collect();
+    let w = (strip_h * 16.0 / 9.0).min((area.width() - gap * (rest.len() - 1) as f32) / rest.len() as f32);
+    let total = w * rest.len() as f32 + gap * (rest.len() - 1) as f32;
+    let x0 = area.center().x - total / 2.0;
+    for (i, u) in rest.into_iter().enumerate() {
+        out.push((u, Rect::from_min_size(pos2(x0 + i as f32 * (w + gap), area.bottom() - strip_h), vec2(w, w * 9.0 / 16.0))));
+    }
+    out
 }
 
 fn grid(area: Rect, n: usize) -> Vec<Rect> {
