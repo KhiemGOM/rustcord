@@ -1150,10 +1150,8 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         } else if !m.content.is_empty() && !(d.embeds && d.s.inline_links && link_only(m)) {
             let color = if m.failed {
                 RED
-            } else if m.pending {
-                pal().text_muted
             } else {
-                pal().text_normal
+                super::motion::mix(pal().text_muted, pal().text_normal, super::motion::tween(d.ctx, egui::Id::new(("sent", m.id)), !m.pending, 0.2, super::motion::EASE))
             };
             let revealed = d.revealed.contains(&m.id)
                 || d.s.spoilers == crate::cache::Spoilers::Always
@@ -2358,13 +2356,13 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             let g = ui.painter().layout_no_wrap(count, semi(14.0), if r.me { pal().mention_fg } else { pal().header_secondary });
             let size = vec2(6.0 + 16.0 + 6.0 + g.size().x + 8.0, 24.0);
             let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-            let (fill, stroke) = if r.me {
-                (Color32::from_rgba_premultiplied(13, 15, 36, 38), BLURPLE)
-            } else if resp.hovered() {
-                (pal().bg_secondary, pal().bg_accent)
-            } else {
-                (pal().bg_secondary, Color32::TRANSPARENT)
-            };
+            let on = super::motion::tween(ui.ctx(), resp.id.with("me"), r.me, 0.1, super::motion::EASE);
+            let hot = super::motion::hot(ui.ctx(), &resp);
+            let idle = (pal().bg_secondary, super::motion::mix(Color32::TRANSPARENT, pal().bg_accent, hot));
+            let (fill, stroke) = (
+                super::motion::mix(idle.0, Color32::from_rgba_premultiplied(13, 15, 36, 38), on),
+                super::motion::mix(idle.1, BLURPLE, on),
+            );
             ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
             let er = Rect::from_min_size(pos2(rect.left() + 7.0, rect.center().y - 8.0), vec2(16.0, 16.0));
             Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
