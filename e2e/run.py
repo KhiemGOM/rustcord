@@ -29,6 +29,7 @@ from pathlib import Path
 import look
 import polish
 import call
+import discover
 import home
 import composer
 import messages
@@ -94,6 +95,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_TOKEN": "mock-token",
         "RUSTCORD_DATA": str(data_dir),
         "RUSTCORD_E2E": str(out),
+        "RUSTCORD_SPELL_WORDS": str(ROOT / "e2e" / "spell_words.txt"),
     })
     env.update(extra or {})
     exe = ROOT / "target" / "release" / "rustcord.exe"
@@ -474,6 +476,7 @@ def main():
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
+        **discover.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

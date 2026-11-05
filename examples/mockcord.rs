@@ -909,6 +909,23 @@ fn png(w: u32, h: u32, seed: u64, round: bool) -> Vec<u8> {
     out.into_inner()
 }
 
+fn query_str(path: &str, key: &str) -> String {
+    let q = path.split_once('?').map_or("", |p| p.1);
+    q.split('&').find_map(|kv| kv.strip_prefix(&format!("{key}="))).unwrap_or("").replace('+', " ").replace("%20", " ")
+}
+
+/// Thirty discoverable servers, the first eight of them the featured ones; names carry "rust" in every third.
+fn discoverable(i: u64) -> Value {
+    let base = ["Crab Chess Club", "Pixel Painters", "Synthwave Radio", "Mock Quest Guild", "Speedrun Central", "Lofi Study Hall"];
+    let name = if i % 3 == 0 { format!("Rust Learners {i}") } else { format!("{} {i}", base[(i % 6) as usize]) };
+    let cat = [1, 2, 3, 5, 6][(i % 5) as usize];
+    json!({ "id": (9000 + i).to_string(), "name": name, "description": format!("A mock community for the discovery page, number {i}."),
+            "icon": format!("dg{i}"), "discovery_splash": format!("ds{i}"), "banner": null, "splash": null,
+            "features": if i % 2 == 0 { json!(["VERIFIED", "DISCOVERABLE"]) } else { json!(["DISCOVERABLE"]) },
+            "approximate_member_count": 120_000 + i * 1111, "approximate_presence_count": 9_000 + i * 37,
+            "primary_category_id": cat })
+}
+
 fn query(path: &str, key: &str) -> Option<u64> {
     let q = path.split_once('?')?.1;
     q.split('&').find_map(|kv| kv.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
@@ -1439,6 +1456,18 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = w.lock().unwrap().events.send(json!({ "t": "CHANNEL_CREATE", "d": c.clone() }));
             ok(c)
         }
+        ("GET", ["api", "v9", "discovery", "categories"]) => ok(json!([
+            { "id": 1, "name": "Gaming", "is_primary": true }, { "id": 2, "name": "Music", "is_primary": true }, { "id": 3, "name": "Entertainment", "is_primary": true },
+            { "id": 5, "name": "Science & Tech", "is_primary": true }, { "id": 6, "name": "Education", "is_primary": true }, { "id": 4, "name": "Anime", "is_primary": false },
+        ])),
+        ("GET", ["api", "v9", "discoverable-guilds"]) => ok(json!({ "guilds": (0..8).map(discoverable).collect::<Vec<_>>(), "total": 8, "offset": 0, "limit": 30 })),
+        ("GET", ["api", "v9", "discoverable-guilds", "search"]) => {
+            let (q, cat) = (query_str(path, "query").to_lowercase(), query(path, "category_id"));
+            let hits: Vec<Value> = (0..30).map(discoverable).filter(|g| g["name"].as_str().unwrap().to_lowercase().contains(&q) && cat.is_none_or(|c| g["primary_category_id"] == c)).collect();
+            let (offset, limit) = (query(path, "offset").unwrap_or(0) as usize, query(path, "limit").unwrap_or(24) as usize);
+            ok(json!({ "guilds": hits.iter().skip(offset).take(limit).collect::<Vec<_>>(), "total_count": hits.len(), "categories": [] }))
+        }
+        ("PUT", ["api", "v9", "guilds", _, "members", "@me"]) => (201, "application/json", b"{}".to_vec()),
         ("GET", ["api", "v9", "application-directory-static", "categories"]) => ok(json!([{ "id": 6, "name": "Games" }, { "id": 9, "name": "Social" }])),
         ("GET", ["api", "v9", "application-directory-static", "collections"]) => {
             let app = |id: &str, name: &str| json!({ "application": { "id": id, "name": name, "icon": "icon".to_string() + id, "cover_image": "cover".to_string() + id,

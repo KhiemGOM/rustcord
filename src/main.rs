@@ -14,6 +14,7 @@ mod mp4;
 mod net;
 mod proto;
 mod sound;
+mod spell;
 mod speech;
 mod state;
 mod theme;
