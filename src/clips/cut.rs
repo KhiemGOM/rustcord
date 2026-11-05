@@ -9,20 +9,29 @@ use windows::core::{GUID, HSTRING, Interface};
 type Result<T> = windows::core::Result<T>;
 
 const TICKS_MS: u64 = 10_000;
+// the encoder holds back its last frames when the session ends, so the cut runs this far past the end asked for
+const DRAIN_MS: u64 = 450;
 
-fn has_audio(source: &IMFMediaSource) -> Result<bool> {
+/// The source's picture size and frame rate (as MF packs them), and whether it has sound.
+fn streams(source: &IMFMediaSource) -> Result<(u64, u64, bool)> {
     unsafe {
         let pd = source.CreatePresentationDescriptor()?;
+        let (mut size, mut rate, mut audio) = (0, 0, false);
         for i in 0..pd.GetStreamDescriptorCount()? {
             let (mut sel, mut sd) = (windows::core::BOOL(0), None);
             pd.GetStreamDescriptorByIndex(i, &mut sel, &mut sd)?;
-            if let Some(sd) = sd
-                && sd.GetMediaTypeHandler()?.GetMajorType()? == MFMediaType_Audio
-            {
-                return Ok(true);
+            let Some(h) = sd.map(|s| s.GetMediaTypeHandler()).transpose()? else { continue };
+            match h.GetMajorType()? {
+                t if t == MFMediaType_Audio => audio = true,
+                t if t == MFMediaType_Video => {
+                    let cur = h.GetCurrentMediaType()?;
+                    size = cur.GetUINT64(&MF_MT_FRAME_SIZE).unwrap_or(0);
+                    rate = cur.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(0);
+                }
+                _ => {}
             }
         }
-        Ok(false)
+        Ok((size, rate, audio))
     }
 }
 
@@ -36,7 +45,8 @@ pub fn cut(src: &Path, dst: &Path, from_ms: i64, to_ms: i64) -> Result<()> {
         let bytes = std::fs::metadata(src).map_or(0, |m| m.len());
         let whole = bytes * 8000 / (to_ms.max(1) as u64).max(1);
         let profile = MFCreateTranscodeProfile()?;
-        if has_audio(&source)? {
+        let (size, rate, audio) = streams(&source)?;
+        if audio {
             let mut a = None;
             MFCreateAttributes(&mut a, 4)?;
             let a = a.ok_or_else(windows::core::Error::empty)?;
@@ -48,9 +58,13 @@ pub fn cut(src: &Path, dst: &Path, from_ms: i64, to_ms: i64) -> Result<()> {
             profile.SetAudioAttributes(&a)?;
         }
         let mut v = None;
-        MFCreateAttributes(&mut v, 2)?;
+        MFCreateAttributes(&mut v, 4)?;
         let v = v.ok_or_else(windows::core::Error::empty)?;
         v.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+        if size != 0 {
+            v.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
+            v.SetUINT64(&MF_MT_FRAME_RATE, rate)?;
+        }
         v.SetUINT32(&MF_MT_AVG_BITRATE, whole.clamp(1_000_000, 20_000_000) as u32)?;
         profile.SetVideoAttributes(&v)?;
         let mut c = None;
@@ -63,7 +77,7 @@ pub fn cut(src: &Path, dst: &Path, from_ms: i64, to_ms: i64) -> Result<()> {
         for i in 0..nodes.GetElementCount()? {
             let n: IMFTopologyNode = nodes.GetElement(i)?.cast()?;
             n.SetUINT64(&MF_TOPONODE_MEDIASTART, from_ms as u64 * TICKS_MS)?;
-            n.SetUINT64(&MF_TOPONODE_MEDIASTOP, to_ms as u64 * TICKS_MS)?;
+            n.SetUINT64(&MF_TOPONODE_MEDIASTOP, (to_ms as u64 + DRAIN_MS) * TICKS_MS)?;
         }
         let session = MFCreateMediaSession(None)?;
         session.SetTopology(0, &topo)?;
@@ -107,13 +121,17 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (src, dst) = (dir.join("a.mp4"), dir.join("b.mp4"));
         mux::write(&src, &frames, (320, 240), 30, &tone).unwrap();
-        super::cut(&src, &dst, 1000, 3000).unwrap();
-        let bytes = std::fs::read(&dst).unwrap();
-        assert!(bytes.windows(4).any(|w| w == b"mp4a"), "no audio in the cut");
-        let pics = crate::mp4::frames(&bytes, 1 << 28).unwrap();
+        for (from, to, first) in [(0, 2000, 0), (1000, 3000, 30), (3000, 5000, 90)] {
+            super::cut(&src, &dst, from, to).unwrap();
+            let bytes = std::fs::read(&dst).unwrap();
+            assert!(bytes.windows(4).any(|w| w == b"mp4a"), "no audio in the cut");
+            let pics = crate::mp4::frames(&bytes, 1 << 28).unwrap();
+            let want = (to - from) as usize * 30 / 1000;
+            assert!(pics.len().abs_diff(want) <= 2, "{from}..{to}: {} frames, wanted {want}", pics.len());
+            // the picture's red channel drifts 4 a frame, so it says which frame the cut began on
+            let red = pics[0].0.pixels[0].r() as i32;
+            assert!((red - (first * 4 % 256) as i32).abs() <= 12, "{from}..{to} began on red {red}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
-        let secs: f64 = pics.iter().map(|p| p.1.as_secs_f64()).sum();
-        assert!((secs - 2.0).abs() < 0.25, "{secs} s, {} frames", pics.len());
-        let _ = TICKS;
     }
 }

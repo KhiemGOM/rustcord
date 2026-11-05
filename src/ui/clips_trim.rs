@@ -76,11 +76,12 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     let Some(t) = &mut g.edit else { return };
     let (mut save, mut close) = (false, false);
     ctx.input_mut(|i| {
-        let fine = i.modifiers.shift;
-        let by = if fine { 1000 } else { STEP };
         for (key, dir) in [(egui::Key::ArrowLeft, -1), (egui::Key::ArrowRight, 1)] {
-            while i.consume_key(egui::Modifiers::NONE, key) || i.consume_key(egui::Modifiers::SHIFT, key) {
-                t.nudge(dir * by);
+            while i.consume_key(egui::Modifiers::SHIFT, key) {
+                t.nudge(dir * 1000);
+            }
+            while i.consume_key(egui::Modifiers::NONE, key) {
+                t.nudge(dir * STEP);
             }
         }
         if i.consume_key(egui::Modifiers::NONE, egui::Key::Tab) {
@@ -207,4 +208,44 @@ pub fn export(c: &Clip) -> Option<PathBuf> {
     meta.length_ms = to - from;
     library::write_meta(&meta);
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trim(len: i64) -> Trim {
+        Trim::new(&Clip { length_ms: len, ..Clip::default() })
+    }
+
+    #[test]
+    fn handles_move_a_tenth_of_a_second_and_stay_apart_and_inside() {
+        let mut t = trim(5000);
+        t.nudge(STEP);
+        t.nudge(1000);
+        assert_eq!(t.start, 1100);
+        t.end_active = true;
+        t.nudge(-STEP);
+        assert_eq!(t.end, 4900);
+        t.nudge(100_000);
+        assert_eq!(t.end, 5000);
+        t.nudge(-100_000);
+        assert_eq!(t.end, 1100 + MIN);
+        t.end_active = false;
+        t.nudge(100_000);
+        assert_eq!(t.start, 1100);
+        t.nudge(-100_000);
+        assert_eq!(t.start, 0);
+    }
+
+    #[test]
+    fn a_click_picks_the_nearer_handle() {
+        let mut t = trim(10_000);
+        t.near(8000);
+        assert!(t.end_active);
+        assert_eq!(t.end, 8000);
+        t.near(1000);
+        assert!(!t.end_active);
+        assert_eq!(t.start, 1000);
+    }
 }

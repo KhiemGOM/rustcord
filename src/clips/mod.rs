@@ -47,7 +47,7 @@ struct Rec {
 
 pub enum Outcome {
     Saved(Clip),
-    Failed(String),
+    Failed,
 }
 
 pub struct Context {
@@ -71,6 +71,10 @@ pub fn active() -> bool {
 
 pub fn streaming() -> bool {
     STREAMING.load(Relaxed)
+}
+
+pub fn buffered() -> usize {
+    REC.lock().unwrap().as_ref().map_or(0, |r| r.video.bytes() + r.audio.len() * 2)
 }
 
 pub fn saving() -> usize {
@@ -251,7 +255,7 @@ pub fn save(ctx: &egui::Context, dir: PathBuf, me: Context) -> Result<(), &'stat
             READY.store(true, Relaxed);
             DONE.lock().unwrap().push(match out {
                 Ok(c) => Outcome::Saved(c),
-                Err(e) => Outcome::Failed(e),
+                Err(_) => Outcome::Failed,
             });
             ctx.request_repaint();
         })
@@ -325,7 +329,7 @@ mod tests {
     #[test]
     fn a_save_writes_the_buffered_seconds_with_both_tracks() {
         let _g = ONE.lock().unwrap_or_else(|e| e.into_inner());
-        configure(true, 3);
+        configure(true, 5);
         stream_start((320, 240), 30, "Some Game: 2".into());
         run_stream(8);
         let t = now() * RATE / TICKS - 8 * RATE;
@@ -347,7 +351,7 @@ mod tests {
         configure(false, 30);
         let Some(Outcome::Saved(c)) = got else { panic!("no clip saved") };
         assert!(c.path.exists() && c.path.to_string_lossy().contains("Some Game_ 2_"));
-        assert!(c.length_ms >= 3000 && c.length_ms < 5200, "{}", c.length_ms);
+        assert!(c.length_ms >= 5000 && c.length_ms < 7200, "{}", c.length_ms);
         assert_eq!(c.users, vec![1, 2]);
         let listed = library::scan(&dir);
         assert_eq!(listed.len(), 1);
