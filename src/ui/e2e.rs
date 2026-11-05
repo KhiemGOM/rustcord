@@ -1788,7 +1788,10 @@ impl Run {
                 }
             }
             2018 => click_at(self, "modal_cancel", 500),
-            2019 => click_at(self, "crumb", 500),
+            2019 => {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Password & Security".to_string()));
+                click_at(self, "crumb", 800);
+            }
             2020 => click_at(self, "nav:Logged-in Devices", 900),
             2021 => click_at(self, "logout:bbb", 800),
             2022 => typed(self, "verify_input", "123456"),
