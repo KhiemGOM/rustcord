@@ -582,7 +582,8 @@ impl Sess {
             Out::Voice(opus) => {
                 if !self.talking {
                     self.talking = true;
-                    send(ws, &json!({ "op": 5, "d": { "speaking": 1, "delay": 0, "ssrc": self.ssrc } })).await?;
+                    let flags = 1 | if crate::hotkeys::PRIORITY_HELD.load(Relaxed) { 4 } else { 0 };
+                    send(ws, &json!({ "op": 5, "d": { "speaking": flags, "delay": 0, "ssrc": self.ssrc } })).await?;
                     self.emit(Kind::Speaking(self.c.me, true));
                 }
                 self.shared.voiced.fetch_add(1, Relaxed);

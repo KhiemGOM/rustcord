@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from base64 import b64decode
 from pathlib import Path
 
 import auth
@@ -244,7 +245,9 @@ def main():
                               ("authenticator enabled through a sudo ticket", "mfa_on"), ("device logged out once the second factor was given", "sessions_logout"),
                               ("message requests and spam filter written to the settings blob", "messaging_privacy"), ("activity sharing switched off for every server", "activity_servers"),
                               ("who can join my games written", "activity_join"), ("authorized app and connection removed", "connected_apps"),
-                              ("avatar decoration picked and saved", "profile_decoration"), ("disable account says you own servers", "owner_modal")]},
+                              ("avatar decoration picked and saved", "profile_decoration"), ("disable account says you own servers", "owner_modal"),
+                              ("hardware acceleration switched off", "hw_accel_off"), ("notifications, system, language and developer pages were driven", "system_pages"),
+                              ("settings search found a control by its label", "settings_search"), ("a keybind was added", "keybind_added")]},
         "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
         "settings: privacy switches PATCHed to the settings blob": sum(1 for r in reqs if r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/settings-proto/1")) >= 2 * 4,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
@@ -263,6 +266,11 @@ def main():
         "billing: nothing was bought or deleted": not any(
             (r.get("method") != "GET" and "/billing/" in r.get("path", "") and "/payment-sources/" not in r.get("path", "")) or (r.get("method") == "DELETE" and "/payment-sources/" in r.get("path", ""))
             or any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe")) for r in reqs),
+        **{f"settings: {name} PATCHed to the account's settings proto": sum(b64decode(json.loads(r["body"])["settings"]) == want for r in reqs
+                                                                            if r.get("method") == "PATCH" and "/settings-proto/" in r.get("path", "") and r.get("body")) == 2
+           for name, want in [("friends online off", bytes([0x3a, 2, 0x62, 0])), ("tts command off", bytes([0x32, 3, 0x82, 1, 0])),
+                              ("24-hour clock", bytes([0x6a, 2, 0x48, 2])), ("developer mode", bytes([0x6a, 2, 0x10, 1]))]},
+        "settings: email category PATCHed natively": sum('"social":false' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/email-settings") and r.get("method") == "PATCH") == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("animated emoji, mp4 gifv, gif upload and ?query gif each cycled through 3+ distinct frames", "media_animates"),
