@@ -839,7 +839,9 @@ fn device_menu(app: &mut App, ui: &mut Ui, output: bool, off: bool) {
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
     let resp = resp.on_hover_text(if output { "Output Options" } else { "Input Options" });
     let mut res = (false, false);
-    egui::Popup::menu(&resp).show(|ui| res = super::callbar::audio_menu(ui, &mut app.settings, output));
+    let mut rows = Vec::new();
+    egui::Popup::menu(&resp).show(|ui| rows = super::rows_of(|| res = super::callbar::audio_menu(ui, &mut app.settings, output)));
+    super::select_keys(ui.ctx(), &rows, egui::Popup::default_response_id(&resp));
     if res.0 {
         app.save_settings(ui.ctx());
     }
