@@ -1,5 +1,6 @@
 mod actions;
 mod attach;
+mod activity;
 mod active;
 mod autoscroll;
 mod boosts;
@@ -24,6 +25,8 @@ mod lurk;
 mod login;
 mod mdpreview;
 mod members;
+mod modview;
+mod now;
 mod palette;
 mod newserver;
 mod menus;
@@ -34,6 +37,7 @@ mod popups;
 mod reactions;
 mod report;
 mod system;
+mod profile;
 mod rail;
 mod reorder;
 mod channel;
@@ -45,6 +49,7 @@ mod soundboard;
 mod stage;
 mod tile;
 mod side;
+mod tagpop;
 pub mod text;
 mod titlebar;
 mod topic;
@@ -145,6 +150,15 @@ pub struct App {
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: Map<Id, serde_json::Value>,
+    pub full_profile: Option<profile::Full>,
+    pub outbox: Map<Id, Vec<profile::Recent>>,
+    // the + button's role list: server, member, where, search
+    pub role_add: Option<(Id, Id, Pos2, String)>,
+    // a server tag's popout, a role mention's, and what the first one fetched
+    pub tag_pop: Option<(Id, Pos2)>,
+    pub role_pop: Option<(Id, Id, Pos2)>,
+    pub guild_profiles: Map<Id, serde_json::Value>,
+    pub mod_view: Option<modview::State>,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
@@ -342,6 +356,13 @@ impl App {
             switcher: None,
             profile: None,
             profiles: Map::default(),
+            full_profile: None,
+            outbox: Map::default(),
+            role_add: None,
+            tag_pop: None,
+            role_pop: None,
+            guild_profiles: Map::default(),
+            mod_view: None,
             pins: None,
             search: None,
             friends: false,
@@ -1155,7 +1176,7 @@ impl App {
                     Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
-                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) => return,
+                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -1225,6 +1246,13 @@ impl App {
                 }
                 self.profiles.insert(u, v);
             }
+            Tag::Outbox(u) => {
+                self.outbox.insert(u, profile::recents(&v));
+            }
+            Tag::GuildProfile(g) => {
+                self.guild_profiles.insert(g, v);
+            }
+            Tag::ModView(u) => modview::loaded(self, u, &v),
             Tag::Inbox => {
                 let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
                 if let Some(i) = &mut self.inbox {

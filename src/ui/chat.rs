@@ -50,6 +50,9 @@ enum Act {
     PlayAudio(String),
     // a custom emoji clicked: its id, name, whether animated, and where
     Emoji(Id, String, bool, Pos2),
+    Role(Id, Pos2),
+    // a server tag chip: its server and where it sits
+    Tag(Id, Pos2),
     EditChannel,
     System(system::Go, Pos2),
     // a chip hovered: who reacted wants fetching
@@ -786,6 +789,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 system::Go::GuildSettings(g) => app.open_server_settings(g),
             },
             Act::Emoji(id, name, animated, at) => app.emoji_pop = Some((id, name, animated, at)),
+            Act::Role(r, at) => app.role_pop = Some((chan.guild, r, at)),
+            Act::Tag(g, at) => app.tag_pop = Some((g, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
             Act::Picker(id, at) => app.picker = Some((Pick::React(ch, id), at)),
             Act::Menu(id, at) => app.menu = Some((ch, id, at)),
@@ -1471,6 +1476,11 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     let cy = row.center().y;
     let user = d.store.user(m.author);
     if let Some(r) = user.filter(|u| !u.bot).and_then(|u| super::tag_chip(ui.painter(), u, pos2(x, cy), 1.0)) {
+        if super::tagpop::hit(ui, r, ("msg_tag", m.id))
+            && let Some((_, g, _)) = user.and_then(|u| u.tag.as_ref())
+        {
+            d.acts.push(Act::Tag(*g, r.left_bottom() + vec2(0.0, 8.0)));
+        }
         x = r.right() + 4.0;
     }
     if let Some((r, url)) = d.store.role_icon(d.guild, m.author).and_then(|r| Some((r, r.icon_url(40)?))) {
@@ -1763,6 +1773,7 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                                 Link::Url(u) => d.acts.push(Act::Url(u.clone())),
                                 Link::Masked(u) => d.acts.push(Act::Masked(u.clone())),
                                 Link::Channel(c) => d.acts.push(Act::Channel(*c)),
+                                Link::Role(r) => d.acts.push(Act::Role(*r, p + vec2(8.0, 8.0))),
                                 Link::Spoiler => d.acts.push(Act::Reveal(msg)),
                                 Link::User(u) if ui.input(|i| i.modifiers.shift) => d.acts.push(Act::Mention(*u)),
                                 Link::User(u) => {

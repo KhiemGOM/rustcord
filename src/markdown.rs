@@ -14,6 +14,7 @@ pub enum Link {
     Masked(String),
     User(Id),
     Channel(Id),
+    Role(Id),
     Spoiler,
     // a custom emoji: its id, name and whether it moves
     Emoji(Id, String, bool),
@@ -563,7 +564,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
             }
             None => (pal().mention_fg, pal().mention_bg),
         };
-        pill(b, &name, None, fg, bg);
+        pill(b, &name, Some(Link::Role(id)), fg, bg);
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
