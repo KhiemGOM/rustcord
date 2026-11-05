@@ -54,6 +54,7 @@ pub struct Run {
     wheel_at: Instant,
     notches: u32,
     costs: Vec<f32>,
+    opened: bool,
     travel: f32,
     last_off: f32,
     causes: std::collections::HashMap<String, u32>,
@@ -131,6 +132,7 @@ impl Run {
             wheel_at: Instant::now(),
             notches: 0,
             costs: Vec::new(),
+            opened: false,
             travel: 0.0,
             last_off: 0.0,
             causes: Default::default(),
@@ -359,10 +361,11 @@ impl Run {
                 ctx.request_repaint();
             }
             if self.scroll
-                && app.cur().is_none()
+                && !self.opened
                 && let Some(&g) = app.store.guild_order.first()
                 && let Some(ch) = side::first_channel(&app.store, g)
             {
+                self.opened = true;
                 app.select_guild(Some(g));
                 app.open(ch);
             }
@@ -377,7 +380,7 @@ impl Run {
                 self.spin = self.dir.join("spin").exists();
                 self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel, "dbg": json!({ "cur": app.cur(), "off": app.cur().and_then(|c| app.offsets.get(&c).copied()), "notches": self.notches, "msgs": app.cur().and_then(|c| app.store.msgs.get(&c)).map(|e| e.list.len()) }) });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
