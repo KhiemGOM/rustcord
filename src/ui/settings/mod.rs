@@ -120,10 +120,6 @@ fn faint(a: u8) -> Color32 {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let Some(page) = app.settings_page else { return };
     let ctx = ui.ctx().clone();
-    if app.sform.modal.is_none() && app.sform.verify.is_none() && !app.sform.recording() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
-        app.settings_page = None;
-        return;
-    }
     // reopening starts every list at the top, and so does moving to another page
     let now = ctx.cumulative_frame_nr();
     if ctx.data_mut(|d| d.get_temp::<u64>(Id::new("settings_frame"))).is_none_or(|t| now > t + 1) {
@@ -155,7 +151,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if changed {
         app.save_settings(&ctx);
     }
-    if modal.backdrop_response.clicked() && app.sform.modal.is_none() && !app.sform.recording() {
+    let escape = || modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
+    if !app.sform.recording() && (modal.backdrop_response.clicked() || escape()) {
         app.settings_page = None;
     }
     if logout {
