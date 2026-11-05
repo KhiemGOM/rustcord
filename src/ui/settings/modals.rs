@@ -343,7 +343,8 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         (Edit::Key, _) => ("Rename security key", ""),
     };
     let (go, fill, alt) = match (m.kind, step) {
-        (Edit::Username, _) | (Edit::Password, _) | (Edit::Totp, 0) => ("Done", BLURPLE, None),
+        (Edit::Username, _) | (Edit::Password, _) => ("Done", BLURPLE, None),
+        (Edit::Totp, 0) => ("Activate", BLURPLE, None),
         (Edit::Email, 0) => ("Send Verification Code", BLURPLE, None),
         (Edit::Email, 1) | (Edit::Phone, 2) | (Edit::Codes, 1) => ("Verify", BLURPLE, None),
         (Edit::Email, _) | (Edit::Phone, 3) => ("Done", BLURPLE, None),
