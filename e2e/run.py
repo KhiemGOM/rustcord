@@ -283,6 +283,7 @@ def main():
            for name, what in [("quick switcher (ctrl+k) jumped to #help", "switcher"), ("forum posts loaded", "forum"),
                               ("thread opened from sidebar", "thread"), ("profile popout loaded", "profile"),
                               ("search returned results", "search"), ("pins loaded", "pins"), ("settings opened", "settings"),
+                              ("clicking outside settings closes it", "settings_backdrop"),
                               ("dm from someone else raised a notification", "notified"),
                               ("a muted dm's message neither pinged nor popped up in the rail", "muted_dm"),
                               ("toast: a dm's ping is the sender's name over the text, with their avatar, silent", "toast"),
