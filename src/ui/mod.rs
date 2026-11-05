@@ -3,6 +3,7 @@ mod active;
 mod autoscroll;
 mod boosts;
 mod call;
+mod callbar;
 mod chat;
 mod composer;
 mod create;
@@ -25,6 +26,8 @@ mod server;
 mod settings;
 mod share;
 mod soundboard;
+mod stage;
+mod tile;
 mod side;
 pub mod text;
 mod titlebar;
@@ -130,6 +133,7 @@ pub struct App {
     pub home: Option<community::Home>,
     // a voice channel's chat open beside the call
     pub voice_chat: bool,
+    pub call: callbar::CallUi,
     pub events: Option<events::Events>,
     pub friends_tab: u8,
     pub add_friend: String,
@@ -302,6 +306,7 @@ impl App {
             chan_settings: None,
             home: None,
             voice_chat: false,
+            call: Default::default(),
             events: None,
             friends_tab: 0,
             add_friend: String::new(),
@@ -1373,6 +1378,7 @@ impl App {
         server::show(self, &ctx);
         channel::show(self, &ctx);
         events::show(self, &ctx);
+        stage::modals(self, &ctx);
         share::show(self, &ctx);
         if let Some((text, at)) = &self.toast {
             if at.elapsed() > Duration::from_secs(4) {
@@ -1605,17 +1611,25 @@ impl eframe::App for App {
                 self.heights.clear();
                 self.heights_w = w;
             }
-            let rail = egui::Panel::left("rail")
-                .exact_size(72.0)
-                .resizable(false)
-                .show_separator_line(false)
-                .frame(Frame::new().fill(pal().bg_tertiary))
-                .show(ui, |ui| rail::show(self, ui))
-                .response
-                .rect;
+            let full = self.call.full && self.voice.chan.is_some() && self.cur() == self.voice.chan;
+            self.call.full = full;
+            let rail = if full {
+                Rect::NOTHING
+            } else {
+                egui::Panel::left("rail")
+                    .exact_size(72.0)
+                    .resizable(false)
+                    .show_separator_line(false)
+                    .frame(Frame::new().fill(pal().bg_tertiary))
+                    .show(ui, |ui| rail::show(self, ui))
+                    .response
+                    .rect
+            };
             // discord: 375 wide with the rail and its 1px frame line, draggable between 264 and 432
             let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 302.0 };
-            let cr = if self.directory.is_some() {
+            let cr = if full {
+                egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| chat::show(self, ui)).response.rect
+            } else if self.directory.is_some() {
                 // discord's discover page brings its own sidebar
                 let c = egui::CentralPanel::default()
                     .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
@@ -1645,6 +1659,7 @@ impl eframe::App for App {
             };
             ui.painter().hline(cr.x_range(), cr.top() + 0.5, egui::Stroke::new(1.0, pal().frame_border));
             self.overlays(ui);
+            callbar::popout(self, &ctx);
             self.update_title(&ctx);
             if !settings_open {
                 self.ack_current(&ctx);
