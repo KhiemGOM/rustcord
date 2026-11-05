@@ -21,6 +21,7 @@ const PRESETS: [(&str, &str); 4] = [
 const BLUR_TILE: &str = "9b1bb92a5685e3f1d67378826197687bb24f8cf1319a4ab2375fbc8a3fb7d0fe";
 
 static TICKET: AtomicU64 = AtomicU64::new(0);
+static UPLOADS: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static APPLIED: RefCell<Option<(Option<String>, VideoBg, Option<String>, bool)>> = const { RefCell::new(None) };
@@ -217,7 +218,18 @@ pub fn use_custom(app: &mut App, path: &std::path::Path) -> bool {
     }
     app.settings.custom_bg = Some(dest.to_string_lossy().into_owned());
     app.settings.video_bg = VideoBg::Custom;
+    UPLOADS.fetch_add(1, Relaxed);
     true
+}
+
+fn custom_uri(ctx: &Context, path: &str) -> Option<String> {
+    let uri = format!("bytes://custom_bg/{}", UPLOADS.load(Relaxed));
+    let id = Id::new("custom_bg_uri");
+    if ctx.data(|d| d.get_temp::<String>(id)).as_deref() != Some(&uri) {
+        ctx.include_bytes(uri.clone(), std::fs::read(path).ok()?);
+        ctx.data_mut(|d| d.insert_temp(id, uri.clone()));
+    }
+    Some(uri)
 }
 
 fn backgrounds(app: &mut App, ui: &mut Ui) -> bool {
@@ -261,7 +273,9 @@ fn backgrounds(app: &mut App, ui: &mut Ui) -> bool {
     mark(ui, "camera:bg:custom", r);
     if let Some(p) = &custom {
         let r = at();
-        if picture_tile(ui, r, &format!("file://{}", p.replace('\\', "/")), cur == VideoBg::Custom, Id::new("bg_custom_pic")) {
+        if let Some(uri) = custom_uri(ui.ctx(), p)
+            && picture_tile(ui, r, &uri, cur == VideoBg::Custom, Id::new("bg_custom_pic"))
+        {
             pick = Some(VideoBg::Custom);
         }
     }
