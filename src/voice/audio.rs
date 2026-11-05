@@ -71,6 +71,7 @@ pub struct Shared {
     pub dev_gen: AtomicU32,
     pub qos: AtomicBool,
     pub silence_warn: AtomicBool,
+    pub aec_dump: AtomicBool,
     /// set when the mic has been dead silent for a while in a call
     pub no_audio: AtomicBool,
 }
@@ -105,6 +106,7 @@ impl Shared {
         self.atten_others.store(s.atten_others, Relaxed);
         self.qos.store(s.qos, Relaxed);
         self.silence_warn.store(s.silence_warning, Relaxed);
+        self.aec_dump.store(s.aec_dump, Relaxed);
         let want = (s.mic.clone(), s.speaker.clone());
         if let Ok(mut d) = self.devices.lock()
             && *d != want
@@ -113,6 +115,14 @@ impl Shared {
             self.dev_gen.fetch_add(1, Relaxed);
         }
     }
+}
+
+fn want_in_name(s: &Shared) -> Option<String> {
+    s.devices.lock().ok().and_then(|d| d.0.clone())
+}
+
+fn want_out_name(s: &Shared) -> Option<String> {
+    s.devices.lock().ok().and_then(|d| d.1.clone())
 }
 
 /// Milliseconds on a clock that starts with the first call.
@@ -158,6 +168,7 @@ impl Default for Shared {
             dev_gen: AtomicU32::new(0),
             qos: AtomicBool::new(false),
             silence_warn: AtomicBool::new(true),
+            aec_dump: AtomicBool::new(false),
             no_audio: AtomicBool::new(false),
         }
     }
@@ -226,6 +237,7 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
         let play = pick_out(host, want_out).filter(|_| !silent).and_then(|d| playback(&d, &mix));
         let mic = if fake { None } else { pick_in(host, want_in).and_then(|d| capture(&d)) };
         shared.mic.store(if fake { MIC_FAKE } else if mic.is_some() { MIC_DEVICE } else { MIC_NONE }, Relaxed);
+        super::log::line(&format!("audio in {:?} out {:?} mic {}", want_in_name(&shared), want_out_name(&shared), shared.mic.load(Relaxed)));
         (play, mic)
     };
     let mut seen = shared.dev_gen.load(Relaxed);
@@ -283,9 +295,24 @@ struct Tx {
     stereo: Vec<f32>,
     pkt: [u8; 1276],
     dead: u32,
+    dump: std::collections::VecDeque<i16>,
+}
+
+impl Drop for Tx {
+    fn drop(&mut self) {
+        self.save_dump();
+    }
 }
 
 impl Tx {
+    fn save_dump(&mut self) {
+        if !self.dump.is_empty() {
+            let (a, b) = self.dump.as_slices();
+            super::log::wav(&[a, b].concat());
+            self.dump.clear();
+        }
+    }
+
     fn new(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, far: Consumer<f32>) -> Tx {
         let enc = opus_rs::OpusEncoder::new(48_000, 2, opus_rs::Application::Voip).ok().map(|mut e| {
             e.bitrate_bps = 64_000;
@@ -302,6 +329,7 @@ impl Tx {
             stereo: vec![0.0; FRAME * 2],
             pkt: [0; 1276],
             dead: 0,
+            dump: Default::default(),
         }
     }
 
@@ -315,6 +343,14 @@ impl Tx {
         let muted = self.shared.mute.load(Relaxed) || self.shared.deaf.load(Relaxed);
         let send = self.gate.open(&self.shared, db, speech, muted);
         self.shared.talking.store(send, Relaxed);
+        if self.shared.aec_dump.load(Relaxed) {
+            self.dump.extend(pcm.iter().map(|x| (x * 32767.0) as i16));
+            while self.dump.len() > 48_000 * 300 {
+                self.dump.drain(..FRAME);
+            }
+        } else {
+            self.save_dump();
+        }
         if muted || db > -99.0 {
             self.dead = 0;
         } else {

@@ -61,6 +61,9 @@ pub fn watch(s: &crate::cache::Settings) -> Reading {
 
 fn run(mon: Arc<Mon>) {
     let host = cpal::default_host();
+    // test runs never record or play anything
+    let fake = std::env::var_os("RUSTCORD_FAKE_MIC").is_some();
+    let silent = std::env::var_os("RUSTCORD_SILENT").is_some();
     let shared = mon.shared.clone();
     let (far_p, far_c) = RingBuffer::<f32>::new(48_000);
     let (mut slot, slot_c) = RingBuffer::<f32>::new(48_000);
@@ -80,13 +83,13 @@ fn run(mon: Arc<Mon>) {
             drop(mic.take());
             buf.clear();
             let (want_in, _) = shared.devices.lock().map(|d| d.clone()).unwrap_or_default();
-            mic = audio::pick_in(&host, want_in).and_then(|d| audio::capture(&d));
+            mic = audio::pick_in(&host, want_in).filter(|_| !fake).and_then(|d| audio::capture(&d));
             mon.has_mic.store(mic.is_some(), Relaxed);
         }
         if test != was {
             was = test;
             play = None;
-            if test {
+            if test && !silent {
                 let (_, want_out) = shared.devices.lock().map(|d| d.clone()).unwrap_or_default();
                 play = audio::pick_out(&host, want_out).and_then(|d| audio::playback(&d, &mix));
             }
