@@ -16,14 +16,15 @@ use crate::{api, cache};
 /// (sound, asset): the sounds the client plays, with the asset each had in the build these
 /// were read from. Asset names change with every discord deploy; they only save the lookup
 /// while they're current.
-const CLASSIC: [(&str, &str); 23] = [
+const CLASSIC: [(&str, &str); 27] = [
     ("message1", "3ed22d14f3c30bc4"), ("deafen", "529ff198eac567af"), ("undeafen", "b150f03c89944403"), ("mute", "2d3b4ba32c34c862"),
     ("unmute", "e74c4a06134a20e4"), ("disconnect", "dd0911025fe00b2e"), ("ptt_start", "f5c8ec31889c5317"), ("ptt_stop", "34b5969be3a063ba"),
     ("user_join", "b135ff6c8e091b43"), ("user_leave", "7b9a183742515fc2"), ("user_moved", "4003230e4086b680"), ("call_calling", "5146737af413d88e"),
     ("call_ringing", "c2a7111bb44b8da0"), ("call_ringing_beat", "574220f72e718dad"), ("call_ringing_snow_halation", "82954088613583bc"),
     ("stream_started", "abe52a3c92953edb"), ("stream_ended", "cbff07b5a83e0321"), ("stream_user_joined", "3d2af2764581bb2e"),
     ("stream_user_left", "24ae9dc0184bd570"), ("reconnect", "7dfc49b36dea3a6c"), ("camera_on", "855607d0932ea396"),
-    ("camera_off", "b1dd204729fe78b4"), ("discodo", "cb85be48267eb1b4"),
+    ("camera_off", "b1dd204729fe78b4"), ("discodo", "cb85be48267eb1b4"), ("activity_launch", "a71f183dc4de32a3"), ("activity_end", "878f7e7f2b3bf972"),
+    ("activity_user_join", "31d2551c00b7c91e"), ("activity_user_left", "9f34f40112215f5e"),
 ];
 
 const HALLOWEEN: [(&str, &str); 10] = [
@@ -41,7 +42,8 @@ const HALLOWEEN_FROM: u64 = 1_791_388_800_000;
 const HALLOWEEN_TO: u64 = 1_793_638_800_000;
 
 /// The call sounds Voice & Video lets you switch off one by one, as (cue, Discord's label).
-pub const VOICE_EVENTS: [(&str, &str); 17] = [
+/// Invited to Speak is discord's `reconnect` sound.
+pub const VOICE_EVENTS: [(&str, &str); 22] = [
     ("deafen", "Deafen"),
     ("undeafen", "Undeafen"),
     ("mute", "Mute"),
@@ -59,6 +61,11 @@ pub const VOICE_EVENTS: [(&str, &str); 17] = [
     ("stream_ended", "Stream Stopped"),
     ("stream_user_joined", "Viewer Join"),
     ("stream_user_left", "Viewer Leave"),
+    ("activity_launch", "Activity Start"),
+    ("activity_end", "Activity End"),
+    ("activity_user_join", "Activity User Join"),
+    ("activity_user_left", "Activity User Leave"),
+    ("reconnect", "Invited to Speak"),
 ];
 
 /// Volume discord plays its sounds at before the speaker volume scales it.
@@ -448,6 +455,11 @@ fn notes(name: &str) -> &'static [(f32, f32)] {
         "stream_ended" => &[(1046.5, 0.05), (784.0, 0.05), (523.3, 0.1)],
         "stream_user_joined" => &[(698.5, 0.05), (880.0, 0.1)],
         "stream_user_left" => &[(880.0, 0.05), (698.5, 0.1)],
+        "activity_launch" => &[(659.3, 0.05), (880.0, 0.05), (1174.7, 0.1)],
+        "activity_end" => &[(1174.7, 0.05), (880.0, 0.05), (659.3, 0.1)],
+        "activity_user_join" => &[(880.0, 0.05), (1174.7, 0.1)],
+        "activity_user_left" => &[(1174.7, 0.05), (880.0, 0.1)],
+        "reconnect" => &[(784.0, 0.07), (987.8, 0.12)],
         "discodo" => &[(523.3, 0.07), (659.3, 0.07), (784.0, 0.07), (1046.5, 0.07), (784.0, 0.07), (1046.5, 0.18)],
         "call_ringing" => &[(659.3, 0.18), (0.0, 0.08), (784.0, 0.18), (0.0, 0.3), (659.3, 0.18), (0.0, 0.08), (784.0, 0.18)],
         _ => &[],
@@ -475,6 +487,13 @@ pub fn has_file(cue: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_sound_row_has_a_file() {
+        for cue in VOICE_EVENTS.iter().map(|(c, _)| *c).chain(["message", "call_ringing"]) {
+            assert!(has_file(cue), "{cue}");
+        }
+    }
 
     fn cfg(discodo: bool, halloween: bool) -> Config {
         Config { on: true, muted: Vec::new(), discodo, halloween, speaker: None, volume: 1.0 }
