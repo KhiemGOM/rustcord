@@ -73,6 +73,8 @@ impl App {
     }
 
     fn clip_flags(&mut self) {
+        let stage = self.voice.chan.and_then(|c| self.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
+        clips::set_stage(stage);
         let connected = self.voice.state == voice::State::Connected && self.voice.chan.is_some();
         if !connected {
             self.clips.sent = None;
@@ -109,7 +111,6 @@ impl App {
         (!k.is_empty()).then(|| super::settings::combo(k))
     }
 
-    /// Discord's tooltip for the clip button, in the order its hook checks.
     pub fn clip_tip(&self) -> String {
         if !self.settings.clips {
             "Clipping is disabled".into()
@@ -128,7 +129,6 @@ impl App {
     }
 }
 
-/// The clip button beside the account panel's mic and headphones.
 pub fn panel_button(app: &mut App, ui: &mut Ui) {
     let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let ready = clips::streaming() && clips::saving() < clips::MAX_SAVES;
@@ -157,7 +157,6 @@ pub fn panel_button(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// "Enabled" beside a clapper in the call: you're clipping, or someone in it is.
 pub fn badge(app: &mut App, ui: &mut Ui, at: egui::Pos2) {
     if !(app.settings.clips && clips::streaming() || clips::others_clipping(app.store.me)) {
         return;

@@ -195,7 +195,6 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     }
 }
 
-/// The file to send for `c`: the clip itself, or its trim cut out into the temp folder.
 pub fn export(c: &Clip) -> Option<PathBuf> {
     let Some((from, to)) = c.edit else { return Some(c.path.clone()) };
     let dir = std::env::temp_dir().join("rustcord").join("clips");

@@ -13,8 +13,6 @@ pub struct Frame {
     pub key: bool,
 }
 
-/// Annex B access units, kept from the keyframe before the oldest second wanted, so any cut starts
-/// on something that decodes.
 pub struct Video {
     frames: VecDeque<Frame>,
     keys: VecDeque<u64>,
@@ -62,7 +60,6 @@ impl Video {
         }
     }
 
-    /// The last `len` ticks, starting on the latest keyframe at or before that point.
     pub fn cut(&self, len: i64) -> Vec<Frame> {
         let Some(last) = self.frames.back() else { return Vec::new() };
         let from = last.pts - len;
@@ -72,8 +69,6 @@ impl Video {
     }
 }
 
-/// Mono 48 kHz, mixed in place by wall-clock sample index so voices from different sources line
-/// up without being queued.
 pub struct Audio {
     ring: Vec<i16>,
     head: i64,
@@ -124,8 +119,6 @@ impl Audio {
     }
 }
 
-/// Where each source's next samples go: back to back while it keeps talking, re-anchored to the
-/// clock after a gap or when it drifts.
 #[derive(Default)]
 pub struct Cursors(Vec<(u64, i64)>);
 

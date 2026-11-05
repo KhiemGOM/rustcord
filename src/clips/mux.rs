@@ -42,7 +42,6 @@ fn sample(data: &[u8], time: i64, dur: i64) -> Result<IMFSample> {
     }
 }
 
-/// The SPS and PPS of an Annex B access unit, start codes and all.
 fn header(b: &[u8]) -> Vec<u8> {
     let mut starts = Vec::new();
     let mut i = 0;
@@ -100,7 +99,6 @@ fn audio_type(sub: &GUID, bytes_per_sec: u32, align: u32) -> Result<IMFMediaType
     }
 }
 
-/// `pcm` is mono 48 kHz starting at the first frame's time. Returns the clip's length in ticks.
 pub fn write(path: &Path, frames: &[Frame], size: (u32, u32), fps: u32, pcm: &[i16]) -> Result<i64> {
     let first = frames.first().ok_or_else(windows::core::Error::empty)?;
     let seq = header(&first.data);

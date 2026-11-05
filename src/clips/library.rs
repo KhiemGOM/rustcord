@@ -58,7 +58,6 @@ pub fn thumbnail(img: &ColorImage, to: &Path) -> bool {
     small.save(to).is_ok()
 }
 
-/// Newest first. A video with no metadata beside it still lists, as an unnamed clip.
 pub fn scan(dir: &Path) -> Vec<Clip> {
     let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut out: Vec<Clip> = rd

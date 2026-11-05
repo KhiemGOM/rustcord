@@ -34,6 +34,7 @@ static REC: Mutex<Option<Rec>> = Mutex::new(None);
 static FLAGS: Mutex<Vec<(u64, u32)>> = Mutex::new(Vec::new());
 static DONE: Mutex<Vec<Outcome>> = Mutex::new(Vec::new());
 static READY: AtomicBool = AtomicBool::new(false);
+static STAGE: AtomicBool = AtomicBool::new(false);
 
 struct Rec {
     video: Video,
@@ -88,8 +89,6 @@ fn refresh() {
     }
 }
 
-/// What the settings say: whether clips are on and how long one is. A new length starts the
-/// buffer over, since it was sized for the old one.
 pub fn configure(enabled: bool, secs: u32) {
     let secs = secs.max(5);
     let changed = SECS.swap(secs, Relaxed) != secs;
@@ -105,7 +104,6 @@ fn buffers(secs: u32) -> (Video, Audio) {
     (Video::new(secs as i64 * TICKS, VIDEO_CAP), Audio::new(secs as i64 + SLACK + 4))
 }
 
-/// Our own Go Live started: the encoder reports the picture it's sending.
 pub fn stream_start(size: (usize, usize), fps: u32, app: String) {
     STREAMING.store(true, Relaxed);
     refresh();
@@ -138,17 +136,15 @@ pub fn look(img: &Arc<ColorImage>) {
     }
 }
 
-/// A mono 48 kHz frame of our own mic, for as long as we're not muted.
 pub fn mic(pcm: &[f32]) {
-    if !ACTIVE.load(Relaxed) {
+    if !ACTIVE.load(Relaxed) || STAGE.load(Relaxed) {
         return;
     }
     add(now() * RATE / TICKS, 0, pcm);
 }
 
-/// The stereo frame decoded from `user`; only people who allowed it are kept.
 pub fn voice(user: u64, pcm: &[f32]) {
-    if !ACTIVE.load(Relaxed) || !allowed(user) {
+    if !ACTIVE.load(Relaxed) || STAGE.load(Relaxed) || !allowed(user) {
         return;
     }
     let mono: Vec<f32> = pcm.chunks_exact(2).map(|p| (p[0] + p[1]) * 0.5).collect();
@@ -162,7 +158,10 @@ fn add(clock: i64, src: u64, pcm: &[f32]) {
     }
 }
 
-/// What the voice server last said about `user`'s clip settings (op 18's flags).
+pub fn set_stage(on: bool) {
+    STAGE.store(on, Relaxed);
+}
+
 pub fn set_flags(user: u64, flags: u32) {
     let mut f = FLAGS.lock().unwrap();
     match f.iter_mut().find(|e| e.0 == user) {
@@ -183,7 +182,6 @@ pub fn allowed(user: u64) -> bool {
     flags(user) & ALLOW_VOICE_RECORDING != 0
 }
 
-/// Whether the other end of the call is clipping: any participant (not us) with the flag up.
 pub fn others_clipping(me: u64) -> bool {
     FLAGS.lock().unwrap().iter().any(|e| e.0 != me && e.1 & CLIPS_ENABLED != 0)
 }
@@ -223,8 +221,6 @@ fn file_stem(app: &str, id: u64) -> String {
     format!("{}_{id}", name.trim())
 }
 
-/// Starts writing the buffer out. The slow part runs on its own thread; its result shows up in
-/// `outcomes`. Err says why nothing started.
 pub fn save(ctx: &egui::Context, dir: PathBuf, me: Context) -> Result<(), &'static str> {
     if !ACTIVE.load(Relaxed) {
         return Err("no_source");
