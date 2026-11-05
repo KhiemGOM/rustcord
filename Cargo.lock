@@ -3717,6 +3717,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+
+[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4083,6 +4089,7 @@ dependencies = [
  "flate2",
  "foldhash",
  "futures-util",
+ "getrandom 0.3.4",
  "image",
  "memmap2",
  "nnnoiseless",
@@ -4093,6 +4100,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "opus-rs",
+ "qrcode",
  "raw-window-handle",
  "reqwest",
  "rfd",

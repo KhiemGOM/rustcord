@@ -2,12 +2,18 @@
 //! grouped sidebar on the left that unfolds the open page's sections, the page on the
 //! right, ESC to close.
 
+mod account;
+mod modals;
 mod activity;
 mod app;
+mod apps;
 mod billing;
+mod privacy;
+mod profiles;
 mod system;
 mod user;
 mod voice;
+mod wire;
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
@@ -18,6 +24,19 @@ use crate::net::Tag;
 use crate::theme::*;
 
 pub use user::Forms;
+
+/// Read back what a settings page wrote, for the e2e.
+pub fn proto_flag(app: &App, g: u64, f: u64) -> Option<bool> {
+    wire::flag(&privacy::current(app), g, f)
+}
+
+pub fn proto_num(app: &App, g: u64, f: u64) -> Option<u64> {
+    wire::num(&privacy::current(app), g, f)
+}
+
+pub fn proto_ids(app: &App, g: u64, f: u64) -> usize {
+    wire::ids(&privacy::current(app), g, f).len()
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Page {
@@ -98,7 +117,7 @@ fn faint(a: u8) -> Color32 {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let Some(page) = app.settings_page else { return };
     let ctx = ui.ctx().clone();
-    if app.sform.modal.is_none() && !app.sform.recording() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+    if app.sform.modal.is_none() && app.sform.verify.is_none() && !app.sform.recording() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
         app.settings_page = None;
         return;
     }
@@ -129,7 +148,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         logout = sidebar(app, ui, Rect::from_min_size(area.min, vec2(253.0, area.height())), page);
         changed = body(app, ui, Rect::from_min_max(pos2(area.left() + 253.0, area.top()), area.max), page);
     });
-    user::modal(app, &ctx);
+    modals::modals(app, &ctx);
     if changed {
         app.save_settings(&ctx);
     }
@@ -223,7 +242,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     }
                     if resp.clicked() && !on {
                         app.settings_page = Some(*p);
-                        app.sform.devices_open = false;
+                        app.sform.sub = account::Sub::None;
                     }
                     if on && !subs.is_empty() {
                         let top = ui.cursor().top();
@@ -285,7 +304,7 @@ fn sep(ui: &mut Ui, left: f32) {
 
 fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     let head = Rect::from_min_size(area.min, vec2(area.width(), 49.0));
-    ui.painter().text(pos2(head.left() + 16.0, head.top() + 24.0), Align2::LEFT_CENTER, label(page), medium(16.0), pal().text_normal);
+    account::crumbs(app, ui, head, label(page));
     ui.painter().hline(head.x_range(), head.bottom() - 0.5, Stroke::new(1.0, faint(51)));
     let x = Rect::from_min_size(pos2(head.right() - 40.0, head.top() + 8.0), vec2(32.0, 32.0));
     let resp = ui.interact(x, Id::new("settings_close"), Sense::click());
@@ -318,10 +337,10 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
             v.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
             ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
             changed = match page {
-                Page::Account => user::account(app, ui),
-                Page::Profiles => user::profiles(app, ui),
-                Page::Privacy => user::privacy(app, ui),
-                Page::Messaging => user::messaging(app, ui),
+                Page::Account => account::account(app, ui),
+                Page::Profiles => profiles::page(app, ui),
+                Page::Privacy => privacy::data(app, ui),
+                Page::Messaging => privacy::messaging(app, ui),
                 Page::Notifications => system::notifications(app, ui),
                 Page::Nitro => billing::nitro(app, ui),
                 Page::Boost => billing::boost(ui),
@@ -334,13 +353,13 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::System => system::system(app, ui),
                 Page::Language => system::language(app, ui),
                 Page::Activity => activity::privacy(app, ui),
-                Page::Apps => user::apps(app, ui),
+                Page::Apps => apps::page(app, ui),
                 Page::Developer => system::developer(app, ui),
             };
         });
         ui.add_space(96.0);
     });
-    user::save_bar(app, ui, view);
+    profiles::save_bar(app, ui, view);
     changed
 }
 
@@ -359,8 +378,11 @@ pub fn refetch(app: &mut App, key: &'static str) {
 
 pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
     match key {
-        "modal" => user::modal_done(app, res),
-        "profile_save" | "nick_save" => user::profile_saved(app, key, res),
+        "guard" => modals::guard_done(app, res),
+        "mfa_finish" => modals::finish_done(app, res),
+        "profile_save" => profiles::saved(app, res),
+        "proto_set" => privacy::proto_done(app, res),
+        "conn_auth" => apps::authorize_done(app, res),
         "action" => match res {
             Ok(_) => {}
             Err(e) => app.toast(e),
@@ -460,7 +482,7 @@ pub fn switch(ui: &mut Ui, on: bool) -> egui::Response {
     resp
 }
 
-fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
+pub(super) fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
     let t = ui.ctx().animate_bool_with_time(resp.id, on, 0.12);
     if on {
         ui.painter().rect_filled(r, CornerRadius::same(12), BLURPLE);
