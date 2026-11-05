@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod call;
 mod web;
 mod stage;
 mod composer;
@@ -50,6 +51,7 @@ pub struct Run {
     voice: serde_json::Value,
     target: (Id, Id),
     call: Id,
+    cues: usize,
     loaded: usize,
     text: String,
     error: Option<String>,
@@ -85,6 +87,7 @@ pub struct Run {
     dnd: Option<(usize, Id)>,
     // the toasts those would have been, and the message each opens
     pub pings: Vec<(String, (Id, Id))>,
+    pub call_toasts: Vec<String>,
     // toasts so far and the title's count when the window was minimized for a ping
     hidden: Option<(usize, i32)>,
     // what Speak Message would have read out
@@ -130,6 +133,7 @@ impl Run {
             voice: serde_json::Value::Null,
             target: (0, 0),
             call: 0,
+            cues: 0,
             loaded: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
@@ -159,6 +163,7 @@ impl Run {
             rtc: 0,
             share_at: None,
             pings: Vec::new(),
+            call_toasts: Vec::new(),
             said: Vec::new(),
             heard: Vec::new(),
             y0: 0.0,
@@ -1270,6 +1275,7 @@ impl Run {
             900..=919 => self.web_steps(),
             100..=199 => self.settings_steps(app, ctx),
             700..=759 => self.stage_steps(app, ctx),
+            2100..=2199 => self.call_steps(app, ctx),
             200..=219 => self.media_steps(app, ctx),
             220..=239 => self.side_steps(app, ctx),
             240..=259 => self.layout_steps(app, ctx),

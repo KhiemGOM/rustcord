@@ -299,10 +299,23 @@ impl Settings {
 }
 
 pub fn settings() -> Settings {
-    std::fs::read(dir().join("settings.json"))
+    let mut s: Settings = std::fs::read(dir().join("settings.json"))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    rename_muted(&mut s.muted_sounds);
+    s
+}
+
+fn rename_muted(muted: &mut [String]) {
+    for m in muted {
+        match m.as_str() {
+            "join" => *m = "user_join".into(),
+            "leave" => *m = "user_leave".into(),
+            "ring" => *m = "call_ringing".into(),
+            _ => {}
+        }
+    }
 }
 
 pub fn set_settings(s: &Settings) {
@@ -411,4 +424,14 @@ pub fn window() -> Option<[f32; 2]> {
 
 pub fn set_window(size: [f32; 2]) {
     let _ = std::fs::write(dir().join("window"), format!("{} {}", size[0], size[1]));
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn old_muted_sound_names_move_to_discords() {
+        let mut m = ["join", "leave", "ring", "mute"].map(String::from);
+        super::rename_muted(&mut m);
+        assert_eq!(m, ["user_join", "user_leave", "call_ringing", "mute"]);
+    }
 }

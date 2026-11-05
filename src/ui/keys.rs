@@ -349,6 +349,8 @@ impl App {
 
     pub fn answer(&mut self, ch: Id) {
         self.voice.ringing = None;
+        self.ui.guild = None;
+        self.open(ch);
         self.voice.join(&self.net, &self.store, ch, false);
     }
 
@@ -387,7 +389,7 @@ impl App {
             self.settings.discodo = !self.settings.discodo;
             crate::cache::set_settings(&self.settings);
             crate::sound::configure(&self.settings);
-            crate::sound::cue(if self.settings.discodo { "discodo" } else { "leave" });
+            crate::sound::cue(if self.settings.discodo { "discodo" } else { "user_leave" });
             self.discodo_at = Some(now);
             // the font for the katakana comes in on demand
             crate::theme::CJK_WANTED.store(true, std::sync::atomic::Ordering::Relaxed);

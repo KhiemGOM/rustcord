@@ -1100,7 +1100,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             for &id in &store.dms {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends && app.quests.is_none());
+                let r = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 if r.clicked() {
                     open = Some(id);
@@ -1120,7 +1120,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
     }
 }
 
-fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) -> egui::Response {
+fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> egui::Response {
     let (row, resp, hl) = dense_row(ui, 42.0);
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -1149,6 +1149,11 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
                 icons::draw(ui.painter(), Icon::People, Rect::from_center_size(av.center(), vec2(20.0, 20.0)), Color32::WHITE);
             }
         }
+    }
+    if voice.ringing == Some(c.id) {
+        let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
+        ui.painter().circle_stroke(av.center(), 18.0 + 4.0 * k, egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)));
+        ui.ctx().request_repaint();
     }
     if muted {
         let under = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };

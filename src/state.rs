@@ -717,6 +717,12 @@ impl Message {
         if let Some(b) = v["mention_everyone"].as_bool() {
             self.mention_everyone = b;
         }
+        if v["call"].is_object() {
+            self.call = Some(Call {
+                with: ids(&v["call"]["participants"]),
+                ended: v["call"]["ended_timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
+            });
+        }
         if let Some(b) = v["pinned"].as_bool() {
             self.pinned = b;
         }
@@ -1908,12 +1914,6 @@ impl Store {
         m.app_id = if v["application_id"].is_null() { author } else { sid(&v["application_id"]) };
         if v["thread"].is_object() {
             self.put_channel(Channel::parse(&v["thread"], guild));
-        }
-        if v["call"].is_object() {
-            m.call = Some(Call {
-                with: ids(&v["call"]["participants"]),
-                ended: v["call"]["ended_timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
-            });
         }
         if let Some(r) = v["message_reference"]["message_id"].as_str().and_then(|r| r.parse().ok()) {
             m.refer = Some((sid(&v["message_reference"]["channel_id"]), r));
