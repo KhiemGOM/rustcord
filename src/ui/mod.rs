@@ -23,6 +23,7 @@ mod friends;
 pub mod icons;
 mod keys;
 mod lurk;
+mod links;
 mod login;
 mod mdpreview;
 mod members;
@@ -259,9 +260,12 @@ pub struct App {
     // toasts clicked, as (channel, message); none under e2e, which never shows any
     pings: Option<std::sync::mpsc::Receiver<(Id, Id)>>,
     games: Option<std::sync::mpsc::Receiver<Option<crate::games::Game>>>,
+    // the program we spotted running, and what the account card shows: that or a game's rich presence
+    detected: Option<crate::games::Game>,
     pub game: Option<crate::games::Game>,
-    // the game the gateway has from us; identify sends none
-    shared: Option<Id>,
+    links: links::State,
+    // the game and the rich presence changes the gateway has from us; identify sends none
+    shared: (Option<Id>, u64),
     // servers we've asked for their voice channels' statuses and start times this session
     info_asked: Set<Id>,
     // the taskbar badge's count, and when unreads were last looked over for its dot
@@ -444,8 +448,10 @@ impl App {
             save_at: None,
             pings: None,
             games: None,
+            detected: None,
             game: None,
-            shared: None,
+            links: Default::default(),
+            shared: (None, 0),
             info_asked: Default::default(),
             badge: None,
             badge_at: None,
@@ -466,6 +472,7 @@ impl App {
             app.pings = Some(crate::toast::start(ctx.clone()));
         }
         app.games = Some(crate::games::start(ctx.clone()));
+        app.links.rx = Some(crate::rpc::start(ctx.clone()));
         app.obs_seen = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
         if app.settings.start_minimized && std::env::args().any(|a| a == "--startup") {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
@@ -892,11 +899,8 @@ impl App {
             Some(Status::Offline) => "invisible",
             _ => "online",
         };
-        self.shared = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
-        let activities = match (&self.game, self.shared) {
-            (Some(g), Some(_)) => json!([{ "name": g.name, "type": 0, "application_id": g.id.to_string(), "timestamps": { "start": g.start } }]),
-            _ => json!([]),
-        };
+        self.shared = self.presence_key();
+        let activities = if self.store.hide_game { json!([]) } else { json!(self.activities()) };
         self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": false } })));
     }
 
@@ -1191,6 +1195,9 @@ impl App {
     }
 
     fn on_rest(&mut self, tag: Tag, res: Result<serde_json::Value, String>) {
+        if let Tag::Link(k) = tag {
+            return self.on_link_rest(k, res);
+        }
         if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
             return settings::on_remote(self, k, Err(e.clone()));
         }
@@ -1238,6 +1245,7 @@ impl App {
             }
         };
         match tag {
+            Tag::Link(_) => {}
             Tag::Pins(ch) => {
                 let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
@@ -1418,6 +1426,9 @@ impl App {
     pub fn logout(&mut self) {
         self.voice.leave(&self.net);
         self.net.send(Cmd::Stop);
+        crate::rpc::signed_out();
+        self.links.clear();
+        self.refresh_game();
         cache::set_token(None);
         self.token = None;
         self.store = Tracked::default();
@@ -1432,10 +1443,12 @@ impl App {
             self.open_ping(ctx, ch, msg);
         }
         if let Some(g) = self.games.as_ref().and_then(|r| r.try_iter().last()) {
-            self.game = g;
+            self.detected = g;
+            self.refresh_game();
         }
-        // a game opening or closing, or sharing switched, goes out once we're connected
-        let want = self.game.as_ref().filter(|_| !self.store.hide_game).map(|g| g.id);
+        self.links_pump(ctx);
+        // a game opening or closing, rich presence changing, or sharing switched, goes out once we're connected
+        let want = self.presence_key();
         if want != self.shared && self.conn == crate::net::Conn::Online && self.store.me != 0 {
             self.send_presence();
         }
@@ -1443,6 +1456,7 @@ impl App {
             match ev {
                 Ev::Dispatch(t, d) => {
                     if t == "MESSAGE_CREATE" {
+                        crate::rpc::on_message(&d);
                         self.notify(&d, ctx);
                     }
                     if t == "INTERACTION_FAILURE" {
@@ -1452,7 +1466,10 @@ impl App {
                         if let Some(e) = &mut self.e2e {
                             e.mark("ready");
                         }
-                        self.shared = None;
+                        self.shared = (None, 0);
+                        if let Some(tk) = &self.token {
+                            crate::rpc::signed_in(tk, &d["user"], d["session_id"].as_str().unwrap_or(""));
+                        }
                         self.info_asked.clear();
                         self.feed_at = Some(Instant::now());
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
@@ -1653,6 +1670,7 @@ impl App {
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
         attach::dragging(self, &ctx);
+        links::show(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);

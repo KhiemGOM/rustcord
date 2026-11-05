@@ -17,6 +17,8 @@ use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
 
+mod local;
+
 
 // sidebar entries that sit low enough to need a scroll down to reach
 const PAGES_BELOW: [&str; 10] = [
@@ -98,6 +100,7 @@ pub struct Run {
     live: Option<Id>,
     live_at: Option<Instant>,
     samples: Vec<serde_json::Value>,
+    local: local::State,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -165,6 +168,7 @@ impl Run {
             live: std::env::var("RUSTCORD_LIVE").ok().and_then(|v| v.parse().ok()),
             live_at: None,
             samples: Vec::new(),
+            local: Default::default(),
         })
     }
 
@@ -1288,6 +1292,7 @@ impl Run {
             1700..=1719 => self.spell_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
+            1600..=1699 => self.local_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
