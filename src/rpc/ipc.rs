@@ -14,6 +14,9 @@ use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::{Instant, sleep_until, timeout};
 
+mod auth;
+pub use auth::SCOPES;
+
 use super::activity::{self, Fail};
 use super::{Bus, Msg, call};
 use crate::state::Id;
@@ -124,6 +127,8 @@ struct Client {
     assets: Option<(Instant, HashMap<String, String>)>,
     external: HashMap<String, String>,
     live: bool,
+    authed: bool,
+    denied: bool,
     pending: Option<Option<Value>>,
     published: Option<Instant>,
     extra: Vec<Value>,
@@ -276,8 +281,8 @@ impl Client {
                 Ok(Value::Null)
             }
             "ACCEPT_ACTIVITY_INVITE" => self.accept(args).await,
-            "AUTHORIZE" => Err((5000, "OAuth2 Error: access_denied: Rustcord can't authorize apps".into())),
-            "AUTHENTICATE" => Err((4009, "Invalid access token".into())),
+            "AUTHORIZE" => self.authorize(args).await,
+            "AUTHENTICATE" => self.authenticate(args).await,
             c if NEEDS_TOKEN_COMMANDS.contains(&c) => Err((4006, "Not authenticated or invalid scope".into())),
             c => Err((4002, format!("Invalid command: {c}"))),
         }

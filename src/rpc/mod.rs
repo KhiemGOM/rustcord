@@ -23,6 +23,7 @@ pub enum Msg {
     Template(String),
     Open(link::Link),
     CloseJoinRequest(Id),
+    Consent { app: Id, name: String, icon: Option<String>, scopes: Vec<String>, reply: tokio::sync::oneshot::Sender<bool> },
 }
 
 #[derive(Clone)]
@@ -47,6 +48,10 @@ static PIPE: OnceLock<String> = OnceLock::new();
 /// really running, or hand a game's presence to the mock.
 pub fn testing() -> bool {
     ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some())
+}
+
+pub fn scope_text(scope: &str) -> Option<&'static str> {
+    ipc::SCOPES.iter().find(|(n, _)| *n == scope).map(|(_, t)| *t)
 }
 
 pub fn web_port() -> u16 {

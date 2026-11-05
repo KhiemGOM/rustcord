@@ -25,6 +25,8 @@ struct Shared {
 pub struct State {
     game: Arc<Shared>,
     web: Arc<Shared>,
+    auth: Arc<Shared>,
+    asked: u32,
     exit: Arc<Mutex<Option<i32>>>,
     home: (Option<Id>, Id),
     seen: Option<egui::Rect>,
@@ -127,6 +129,34 @@ fn game(s: Arc<Shared>, name: String, me: String) {
         }
         pause(100);
     }
+}
+
+fn join(name: &str, client: &str) -> Option<File> {
+    let mut f = dial(name)?;
+    put(&mut f, 0, &json!({ "v": 1, "client_id": client }));
+    get(&mut f).filter(|(_, v)| v["evt"] == "READY")?;
+    Some(f)
+}
+
+fn consent_game(s: Arc<Shared>, name: String, me: String) {
+    let Some(mut a) = join(&name, "7200") else { return };
+    set(&s, "scope", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify", "guilds.join"] }))));
+    set(&s, "redirect", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"], "redirect_uri": "https://example.com" }))));
+    set(&s, "other_app", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7100", "scopes": ["identify"] }))));
+    set(&s, "implicit", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"], "response_type": "token" }))));
+    set(&s, "code", cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify", "email"] }))["data"]["code"].clone());
+    let au = cmd(&mut a, "AUTHENTICATE", None, json!({ "access_token": "mock-token" }));
+    set(&s, "authenticate", json!(au["data"]["user"]["id"] == me.as_str() && au["data"]["application"]["id"] == "7200" && au["data"]["scopes"] == json!(["identify"])));
+    set(&s, "again", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"] }))));
+    let Some(mut b) = join(&name, "7200") else { return };
+    set(&s, "denied", code(&cmd(&mut b, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"] }))));
+    set(&s, "denied_again", code(&cmd(&mut b, "AUTHENTICATE", None, json!({}))));
+    let Some(mut c) = join(&name, "7100") else { return };
+    set(&s, "wrong_app_token", code(&cmd(&mut c, "AUTHENTICATE", None, json!({ "access_token": "mock-token" }))));
+    let Some(mut d) = join(&name, "7200") else { return };
+    let au = cmd(&mut d, "AUTHENTICATE", None, json!({}));
+    set(&s, "implicit_flow", json!(au["data"]["access_token"] == "mock-token" && au["data"]["user"]["id"] == me.as_str()));
+    set(&s, "done", json!(true));
 }
 
 fn http(port: u16, req: &str) -> (u16, String, String) {
@@ -319,21 +349,20 @@ impl Run {
                 self.next(0);
             }
             1605 => {
-                let Some(r) = app.rects.get("link_invite:accept").copied() else { return };
-                if app.links.invite.as_ref().is_none_or(|i| i.info.is_none()) {
+                if app.invite.as_deref() != Some("https://discord.gg/e2eRpc1") {
                     return;
                 }
-                if self.local.seen.replace(r) != Some(r) {
+                let o = read(&self.local.web);
+                if o["done"] != true {
                     return;
                 }
                 self.shot(ctx, "rpc_invite.png");
                 self.mark("rpc_invite_modal");
-                self.click(r.center());
-                self.local.seen = None;
+                self.key(Key::Enter);
                 self.next(600);
             }
             1606 => {
-                if app.links.invite.is_some() {
+                if app.invite.is_some() {
                     return;
                 }
                 self.mark("rpc_invite_accept");
@@ -385,7 +414,7 @@ impl Run {
                 self.next(0);
             }
             1610 => {
-                if app.links.invite.as_ref().is_none_or(|i| i.info.is_none()) {
+                if app.invite.as_deref() != Some("https://discord.gg/e2eRpc1") {
                     return;
                 }
                 self.mark("rpc_link_invite");
@@ -393,16 +422,47 @@ impl Run {
                 self.next(400);
             }
             1611 => {
-                if app.links.invite.is_some() || self.local.exit.lock().ok().and_then(|e| *e).is_none() {
+                if app.invite.is_some() || self.local.exit.lock().ok().and_then(|e| *e).is_none() {
                     return;
                 }
                 self.mark("rpc_link_closed");
-                let (guild, ch) = self.local.home;
-                app.ui.guild = guild;
-                if ch != 0 {
-                    app.open(ch);
+                let (s, name, me) = (self.local.auth.clone(), crate::rpc::pipe_name().unwrap_or("").to_string(), app.store.me.to_string());
+                std::thread::spawn(move || consent_game(s, name, me));
+                self.next(0);
+            }
+            1612 => {
+                let o = read(&self.local.auth);
+                if o["done"] == true {
+                    let is = |k: &str, v: Value| o[k] == v;
+                    if is("scope", json!(5000)) && is("redirect", json!(5000)) && is("other_app", json!(4007)) && is("implicit", json!(4002)) && is("again", json!(4002)) {
+                        self.mark("rpc_authorize_refusals");
+                    }
+                    if is("code", json!("mock-code")) && is("authenticate", json!(true)) && is("implicit_flow", json!(true)) && self.local.asked == 3 {
+                        self.mark("rpc_authorize_consented");
+                    }
+                    if is("denied", json!(5000)) && is("denied_again", json!(5000)) && is("wrong_app_token", json!(4007)) {
+                        self.mark("rpc_authorize_denied");
+                    }
+                    let (guild, ch) = self.local.home;
+                    app.ui.guild = guild;
+                    if ch != 0 {
+                        app.open(ch);
+                    }
+                    self.step = 100;
+                    return;
                 }
-                self.step = 100;
+                let Some(r) = app.rects.get("link_consent:authorize").copied() else { return };
+                if app.links.consent.is_none() || self.local.seen.replace(r) != Some(r) {
+                    return;
+                }
+                self.local.seen = None;
+                self.local.asked += 1;
+                if self.local.asked == 2 {
+                    self.shot(ctx, "rpc_consent.png");
+                    self.key(Key::Escape);
+                } else {
+                    self.click(r.center());
+                }
             }
             _ => self.step = 100,
         }

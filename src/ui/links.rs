@@ -21,10 +21,12 @@ struct Act {
     activity: Value,
 }
 
-pub struct Invite {
-    code: String,
-    pub info: Option<Value>,
-    failed: bool,
+pub struct Consent {
+    app: Id,
+    name: String,
+    icon: Option<String>,
+    scopes: Vec<String>,
+    reply: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
 pub struct Template {
@@ -41,19 +43,19 @@ pub struct State {
     acts: Vec<Act>,
     rev: u64,
     waiting: Vec<Msg>,
-    pub invite: Option<Invite>,
+    pub consent: Option<Consent>,
     pub template: Option<Template>,
 }
 
 impl State {
     pub fn modal(&self) -> bool {
-        self.invite.is_some() || self.template.is_some()
+        self.consent.is_some() || self.template.is_some()
     }
 
     pub fn clear(&mut self) {
         self.acts.clear();
         self.waiting.clear();
-        self.invite = None;
+        self.consent = None;
         self.template = None;
         self.rev += 1;
     }
@@ -111,6 +113,15 @@ impl App {
     }
 
     fn handle(&mut self, ctx: &egui::Context, m: Msg) {
+        if let Msg::Consent { app, name, icon, scopes, reply } = m {
+            self.show_window(ctx);
+            if self.links.consent.is_none() {
+                self.links.consent = Some(Consent { app, name, icon, scopes, reply: Some(reply) });
+            } else {
+                let _ = reply.send(false);
+            }
+            return;
+        }
         let link = match m {
             Msg::Invite(c) => Link::Invite(c),
             Msg::Template(c) => Link::Template(c),
@@ -128,11 +139,9 @@ impl App {
                     self.open(channel);
                 }
             }
+            Link::Channel { guild, channel, .. } if guild != 0 && !self.store.guilds.contains_key(&guild) => super::lurk::start(self, guild, channel),
             Link::Channel { .. } => self.toast("You can't open that channel."),
-            Link::Invite(code) => {
-                self.rest("GET", format!("/invites/{code}?with_counts=true&with_expiration=true"), None, Tag::Link("invite"));
-                self.links.invite = Some(Invite { code, info: None, failed: false });
-            }
+            Link::Invite(code) => self.invite = Some(format!("https://discord.gg/{code}")),
             Link::Template(code) => {
                 self.rest("GET", format!("/guilds/templates/{code}"), None, Tag::Link("template"));
                 self.links.template = Some(Template { code, info: None, failed: false, name: String::new(), busy: false });
@@ -142,12 +151,6 @@ impl App {
 
     pub(super) fn on_link_rest(&mut self, k: &'static str, res: Result<Value, String>) {
         match (k, res) {
-            ("invite", r) => {
-                if let Some(i) = &mut self.links.invite {
-                    i.failed = r.is_err();
-                    i.info = r.ok();
-                }
-            }
             ("template", r) => {
                 let name = self.store.user(self.store.me).map(|u| format!("{}'s server", u.display())).unwrap_or_default();
                 if let Some(t) = &mut self.links.template {
@@ -187,65 +190,56 @@ fn decline(ui: &mut egui::Ui, text: &str) -> bool {
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
-    invite(app, ctx);
+    consent(app, ctx);
     template(app, ctx);
 }
 
-fn invite(app: &mut App, ctx: &egui::Context) {
-    let Some(inv) = &app.links.invite else { return };
-    let (mut accept, mut close) = (None, false);
+fn consent(app: &mut App, ctx: &egui::Context) {
+    let Some(c) = &app.links.consent else { return };
+    let mut answer = None;
     let mut rect = None;
-    let modal = egui::Modal::new("link_invite".into()).frame(modal_frame()).show(ctx, |ui| {
+    let modal = egui::Modal::new("link_consent".into()).frame(modal_frame()).show(ctx, |ui| {
         ui.set_width(440.0);
-        match (&inv.info, inv.failed) {
-            (Some(v), _) => {
-                let name = v["guild"]["name"].as_str().or(v["channel"]["name"].as_str()).unwrap_or("a server");
-                let who = v["inviter"]["global_name"].as_str().or(v["inviter"]["username"].as_str());
-                ui.vertical_centered(|ui| {
-                    if let (Some(g), Some(icon)) = (v["guild"]["id"].as_str(), v["guild"]["icon"].as_str()) {
-                        let (r, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
-                        egui::Image::from_uri(format!("{}/icons/{g}/{icon}.png?size=128", crate::api::cdn())).corner_radius(16).show_loading_spinner(false).paint_at(ui, r);
-                        ui.add_space(12.0);
-                    }
-                    let line = who.map_or("You've been invited to join".to_string(), |w| format!("{w} invited you to join"));
-                    ui.label(RichText::new(line).font(medium(12.0)).color(pal().header_secondary));
-                    ui.label(RichText::new(name).font(semi(24.0)).color(pal().header_primary));
-                    if let (Some(on), Some(all)) = (v["approximate_presence_count"].as_u64(), v["approximate_member_count"].as_u64()) {
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(format!("{on} Online    {all} Members")).font(medium(14.0)).color(pal().text_muted));
-                    }
-                });
-                ui.add_space(16.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let b = button(ui, "Accept Invite", BLURPLE, 140.0);
-                    rect = Some(b.rect);
-                    if b.clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
-                        accept = Some(inv.code.clone());
-                    }
-                    close = decline(ui, "No thanks");
-                });
+        ui.vertical_centered(|ui| {
+            if let Some(icon) = &c.icon {
+                let (r, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
+                egui::Image::from_uri(format!("{}/app-icons/{}/{icon}.png?size=128", crate::api::cdn(), c.app)).corner_radius(16).show_loading_spinner(false).paint_at(ui, r);
+                ui.add_space(12.0);
             }
-            (None, true) => {
-                heading(ui, "Invite Invalid", "The invite is invalid or has expired.");
-                ui.add_space(16.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    close = button(ui, "Okay", BLURPLE, 120.0).clicked();
-                });
-            }
-            (None, false) => {
-                ui.vertical_centered(|ui| ui.add(egui::Spinner::new()));
-            }
+            ui.label(RichText::new(&c.name).font(semi(24.0)).color(pal().header_primary));
+            ui.label(RichText::new("wants to access your Discord account").color(pal().header_secondary));
+        });
+        ui.add_space(16.0);
+        ui.label(RichText::new("THIS WILL ALLOW THE APPLICATION TO").font(semi(12.0)).color(pal().header_secondary));
+        ui.add_space(8.0);
+        for s in &c.scopes {
+            let line = crate::rpc::scope_text(s).unwrap_or(s);
+            ui.label(RichText::new(line).color(pal().text_normal));
+            ui.add_space(4.0);
         }
+        ui.add_space(12.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let b = button(ui, "Authorize", BLURPLE, 120.0);
+            rect = Some(b.rect);
+            if b.clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                answer = Some(true);
+            }
+            if decline(ui, "Cancel") {
+                answer = Some(false);
+            }
+        });
     });
     if let Some(r) = rect {
-        app.rects.insert("link_invite:accept".into(), r);
+        app.rects.insert("link_consent:authorize".into(), r);
     }
-    if let Some(code) = accept {
-        app.rest("POST", format!("/invites/{code}"), Some(json!({})), Tag::Invite);
-        close = true;
+    if modal.should_close() {
+        answer = Some(false);
     }
-    if close || modal.should_close() {
-        app.links.invite = None;
+    if let Some(yes) = answer
+        && let Some(mut c) = app.links.consent.take()
+        && let Some(reply) = c.reply.take()
+    {
+        let _ = reply.send(yes);
     }
 }
 
