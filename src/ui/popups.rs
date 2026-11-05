@@ -1155,7 +1155,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
                     .hint_text(RichText::new("Click to add a note").font(reg(12.0)).color(pal().text_muted))
                     .desired_width(268.0),
             );
-            if note.lines().count() > 6 {
+            if note.split('\n').count() > 6 {
                 note = before;
             }
             app.rects.insert("note".into(), r.rect);
@@ -2169,6 +2169,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
                 go = button(ui, "Timeout", BLURPLE, 212.0).clicked();
             });
         });
+    go |= super::enter_submits(ctx, false);
     if go && let Some(t) = app.timeout.take() {
         app.time_out(t.guild, t.user, t.secs);
     } else if close || modal.should_close() {
@@ -2355,6 +2356,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
+    send |= !f.picked.is_empty() && super::enter_submits(ctx, true);
     if send {
         let f = app.forward.take().expect("checked above");
         let guild = app.store.channels.get(&f.ch).map_or(0, |c| c.guild);
@@ -2565,6 +2567,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
                 go = v.clicked();
             });
         });
+    go |= super::enter_submits(ctx, true);
     if go && let Some((url, trust)) = app.leaving.take() {
         if trust && !app.settings.trusted.contains(&h) {
             app.settings.trusted.push(h);

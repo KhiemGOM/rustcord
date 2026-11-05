@@ -302,15 +302,9 @@ fn profile(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if pick && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() {
         if let Ok(bytes) = std::fs::read(&path) {
-            use base64::Engine;
-            let mime = match bytes.get(..4) {
-                Some([0x89, b'P', ..]) => "image/png",
-                Some([b'G', b'I', ..]) => "image/gif",
-                Some([b'R', b'I', ..]) => "image/webp",
-                _ => "image/jpeg",
-            };
-            let icon = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
-            app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "icon": icon })), Tag::Quiet);
+            super::crop::open(app, bytes, 1.0, move |app: &mut App, icon: String| {
+                app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "icon": icon })), Tag::Quiet);
+            });
         }
     }
 }
