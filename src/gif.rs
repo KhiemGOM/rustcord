@@ -21,7 +21,7 @@ use std::time::Duration;
 // pixels kept per animation; longer gifs get cut short, mp4s get thinned out
 const BUDGET: usize = 96 << 20;
 // egui's own frame uris use '#', and it tacks another one onto anything ending in .gif
-const SEP: char = '\u{1f}';
+pub const SEP: char = '\u{1f}';
 
 #[derive(Clone, Copy)]
 enum Kind {
@@ -130,10 +130,7 @@ fn frame_at(ctx: &egui::Context, url: &str) -> usize {
     for (i, d) in durs.all().enumerate() {
         end += d.as_millis();
         if t < end {
-            // egui shaves its predicted frame time off the delay, which turns every wait shorter
-            // than that into a repaint on each vsync until the frame is due
-            let slack = Duration::from_secs_f32(ctx.input(|i| i.predicted_dt));
-            ctx.request_repaint_after(Duration::from_millis((end - t) as u64) + slack);
+            ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
             return i;
         }
     }

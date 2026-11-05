@@ -5,6 +5,10 @@ use std::time::Instant;
 
 use crate::api;
 
+/// std's map and set with foldhash: SipHash over snowflakes was a fifth of every frame.
+pub type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
+pub type Set<K> = HashSet<K, foldhash::fast::RandomState>;
+
 pub type Id = u64;
 
 pub fn sid(v: &Value) -> Id {
@@ -339,7 +343,7 @@ pub struct Guild {
     pub name: String,
     pub icon: Option<String>,
     pub owner: Id,
-    pub roles: HashMap<Id, Role>,
+    pub roles: Map<Id, Role>,
     pub emojis: Vec<Emoji>,
     #[serde(default)]
     pub stickers: Vec<(Id, String, u8)>,
@@ -372,7 +376,7 @@ pub struct Guild {
     #[serde(default)]
     pub joined: i64,
     #[serde(skip)]
-    pub voice: HashMap<Id, Id>,
+    pub voice: Map<Id, Id>,
     #[serde(skip)]
     pub list: Vec<ListItem>,
 }
@@ -909,34 +913,91 @@ pub const BLOCKED: u8 = 2;
 pub const INCOMING: u8 = 3;
 pub const OUTGOING: u8 = 4;
 
+/// The store, plus what's worked out from all of it (server badges, the mention count) once and
+/// kept until something takes the store mutably: a walk over every channel is too much per frame.
+#[derive(Default)]
+pub struct Tracked {
+    store: Store,
+    sums: std::cell::OnceCell<Sums>,
+}
+
+struct Sums {
+    badges: Map<Id, (bool, u32)>,
+    mentions: u32,
+}
+
+impl std::ops::Deref for Tracked {
+    type Target = Store;
+    fn deref(&self) -> &Store {
+        &self.store
+    }
+}
+
+impl std::ops::DerefMut for Tracked {
+    fn deref_mut(&mut self) -> &mut Store {
+        self.sums.take();
+        &mut self.store
+    }
+}
+
+impl From<Store> for Tracked {
+    fn from(store: Store) -> Self {
+        Tracked { store, sums: Default::default() }
+    }
+}
+
+impl Tracked {
+    fn sums(&self) -> &Sums {
+        self.sums.get_or_init(|| {
+            let s = &self.store;
+            let mentions = s
+                .reads
+                .iter()
+                .filter(|(ch, _)| s.channels.get(ch).is_some_and(|c| !s.muted.contains(&c.id) && !s.muted.contains(&c.guild)))
+                .map(|(_, r)| r.mentions)
+                .sum();
+            Sums { badges: s.guilds.keys().map(|g| (*g, s.guild_badge(*g))).collect(), mentions }
+        })
+    }
+
+    pub fn guild_badge(&self, gid: Id) -> (bool, u32) {
+        self.sums().badges.get(&gid).copied().unwrap_or_default()
+    }
+
+    /// Mentions over every channel that isn't muted, as the inbox and the title count them.
+    pub fn mention_count(&self) -> u32 {
+        self.sums().mentions
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,
-    pub users: HashMap<Id, User>,
-    pub guilds: HashMap<Id, Guild>,
+    pub users: Map<Id, User>,
+    pub guilds: Map<Id, Guild>,
     pub guild_order: Vec<Id>,
-    pub channels: HashMap<Id, Channel>,
+    pub channels: Map<Id, Channel>,
     pub dms: Vec<Id>,
-    pub reads: HashMap<Id, ReadState>,
-    pub members: HashMap<Id, HashMap<Id, Member>>,
-    pub muted: HashSet<Id>,
+    pub reads: Map<Id, ReadState>,
+    pub members: Map<Id, Map<Id, Member>>,
+    pub muted: Set<Id>,
     // "unreads" overrides by guild or channel id: true for all messages, false for only @mentions
     #[serde(default)]
-    pub unreads: HashMap<Id, bool>,
+    pub unreads: Map<Id, bool>,
     // the account opted into discord's newer notification settings, which is what makes the above count
     #[serde(default)]
     pub new_notifs: bool,
     // message_notifications the user picked per server or channel (3 = inherit is left out)
     #[serde(default)]
-    pub levels: HashMap<Id, u8>,
+    pub levels: Map<Id, u8>,
     // servers where muted channels are left out of the list
     #[serde(default)]
-    pub hide_muted: HashSet<Id>,
+    pub hide_muted: Set<Id>,
     // servers that only list the channels picked in onboarding or browse channels, and the picks
     #[serde(default)]
-    pub opt_in: HashSet<Id>,
+    pub opt_in: Set<Id>,
     #[serde(default)]
-    pub opted: HashSet<Id>,
+    pub opted: Set<Id>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -948,36 +1009,36 @@ pub struct Store {
     pub hide_game: bool,
     // voice channels' statuses and when their calls started (unix seconds), from op 43
     #[serde(skip)]
-    pub voice_status: HashMap<Id, String>,
+    pub voice_status: Map<Id, String>,
     #[serde(skip)]
-    pub voice_start: HashMap<Id, i64>,
+    pub voice_start: Map<Id, i64>,
     #[serde(default)]
-    pub relationships: HashMap<Id, u8>,
+    pub relationships: Map<Id, u8>,
     #[serde(default)]
     pub email: Option<String>,
     // READY's user object as-is: phone, mfa, verified, premium type, flags
     #[serde(default)]
     pub me_raw: Value,
     #[serde(skip)]
-    pub forum_posts: HashMap<Id, Vec<Id>>,
+    pub forum_posts: Map<Id, Vec<Id>>,
     #[serde(skip)]
     pub session: String,
     #[serde(skip)]
-    pub msgs: HashMap<Id, Msgs>,
+    pub msgs: Map<Id, Msgs>,
     #[serde(skip)]
-    pub refs: HashMap<Id, Message>,
+    pub refs: Map<Id, Message>,
     #[serde(skip)]
-    pub presence: HashMap<Id, Status>,
+    pub presence: Map<Id, Status>,
     // what each user is doing, live from presences: (kind, name, state, emoji url)
     #[serde(skip)]
-    pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
+    pub activities: Map<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
     #[serde(skip)]
-    pub typing: HashMap<Id, Vec<(Id, Instant)>>,
+    pub typing: Map<Id, Vec<(Id, Instant)>>,
     // the activity feed, best first, and application icons by id (None once looked up and missing)
     #[serde(skip)]
     pub feed: Vec<FeedEntry>,
     #[serde(skip)]
-    pub app_icons: HashMap<Id, Option<String>>,
+    pub app_icons: Map<Id, Option<String>>,
 }
 
 impl Store {
@@ -1710,15 +1771,6 @@ impl Store {
         self.msgs.entry(channel).or_default().list.push(m);
     }
 
-    /// A message only this client sees, from Clyde: what plugin commands answer with.
-    pub fn local_message(&mut self, channel: Id, content: String) {
-        const CLYDE: Id = 1;
-        self.users.entry(CLYDE).or_insert_with(|| User { id: CLYDE, username: "Clyde".into(), bot: true, ..Default::default() });
-        let id = (((chrono::Utc::now().timestamp_millis() - 1_420_070_400_000) as u64) << 22) | 1;
-        let m = Message { id, channel, author: CLYDE, content, flags: 1 << 6, ..Default::default() };
-        self.msgs.entry(channel).or_default().list.push(m);
-    }
-
     pub fn fail_pending(&mut self, channel: Id, nonce: &str) {
         if let Some(e) = self.msgs.get_mut(&channel) {
             for m in e.list.iter_mut().filter(|m| m.nonce.as_deref() == Some(nonce)) {
@@ -2192,7 +2244,7 @@ impl Store {
                 _ => {}
             }
         }
-        let counts: HashMap<String, u32> = d["groups"]
+        let counts: Map<String, u32> = d["groups"]
             .as_array()
             .into_iter()
             .flatten()
@@ -2262,13 +2314,11 @@ impl Store {
         true
     }
 
-    pub fn prune_typing(&mut self) -> bool {
-        let mut any = false;
-        for v in self.typing.values_mut() {
+    pub fn prune_typing(&mut self) {
+        self.typing.retain(|_, v| {
             v.retain(|(_, t)| t.elapsed().as_secs() < 10);
-            any |= !v.is_empty();
-        }
-        any
+            !v.is_empty()
+        });
     }
 }
 
