@@ -38,7 +38,6 @@ pub struct UiState {
 pub struct Settings {
     // notifications
     pub notify: bool,
-    pub notify_all_dms: bool,
     pub flash: bool,
     pub badge: bool,
     pub sounds: bool,
@@ -213,7 +212,6 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             notify: true,
-            notify_all_dms: true,
             flash: true,
             badge: true,
             sounds: true,

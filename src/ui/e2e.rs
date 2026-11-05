@@ -32,6 +32,7 @@ const SIDEBAR: [&str; 18] = [
 ];
 
 mod spell_discover;
+mod system;
 
 pub struct Run {
     dir: PathBuf,
@@ -1282,6 +1283,7 @@ impl Run {
             520..=559 => self.home_steps(app, ctx),
             600..=699 => self.server_steps(app, ctx),
             2000..=2059 => self.account_steps(app, ctx),
+            2700..=2799 => self.system_steps(app, ctx),
             560..=599 => self.composer_steps(app, ctx),
             800..=839 => self.messages_steps(app, ctx),
             1200..=1219 => self.people_steps(app, ctx),
@@ -1720,7 +1722,7 @@ impl Run {
                     self.mark("billing_tx");
                 }
                 self.key(Key::Escape);
-                self.step = 349;
+                self.step = 2699;
                 self.next(400);
             }
             _ => self.step = 99,

@@ -12,6 +12,7 @@ mod privacy;
 mod profiles;
 mod keybinds;
 mod notify;
+mod search;
 mod system;
 mod user;
 mod voice;
@@ -225,7 +226,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     sep(ui, left);
                     ui.add_space(4.0);
                 }
-                Item::Page(p, name, icon, subs) if q.is_empty() || name.to_lowercase().contains(&q) || subs.iter().any(|s| s.to_lowercase().contains(&q)) => {
+                Item::Page(p, name, icon, subs) if q.is_empty() || name.to_lowercase().contains(&q) || subs.iter().any(|s| s.to_lowercase().contains(&q)) || search::hits(*p, &q) => {
                     let (r, resp) = row(ui, name);
                     if ui.clip_rect().contains_rect(r) {
                         app.rects.insert(format!("settings:{name}"), r);
