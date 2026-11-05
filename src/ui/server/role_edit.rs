@@ -677,7 +677,7 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
     let Some((q, picked)) = e.add.as_mut() else { return };
     let mut done = false;
     let mut submit = false;
-    egui::Modal::new(egui::Id::new("role_add_members")).show(ui.ctx(), |ui| {
+    let m = egui::Modal::new(egui::Id::new("role_add_members")).show(ui.ctx(), |ui| {
         ui.set_width(440.0);
         ui.label(RichText::new("Add Members").font(bold(20.0)).color(pal().header_primary));
         ui.label(RichText::new(role.name.clone()).font(reg(14.0)).color(pal().header_secondary));
@@ -721,7 +721,8 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
             }
         });
     });
-    if ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+    if m.should_close() || ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+
         done = true;
     }
     if submit {

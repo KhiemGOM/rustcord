@@ -273,7 +273,7 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
 fn sticker_form(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(mut f) = app.server.as_mut().and_then(|s| s.pages.emoji.form.take()) else { return };
     let (mut done, mut save) = (false, false);
-    egui::Modal::new(egui::Id::new("sticker_form")).show(ui.ctx(), |ui| {
+    let m = egui::Modal::new(egui::Id::new("sticker_form")).show(ui.ctx(), |ui| {
         ui.set_width(440.0);
         ui.label(RichText::new(if f.id == 0 { "Upload Sticker" } else { "Edit Sticker" }).font(bold(20.0)).color(pal().header_primary));
         ui.add_space(16.0);
@@ -312,7 +312,8 @@ fn sticker_form(app: &mut App, ui: &mut Ui, gid: Id) {
             }
         });
     });
-    if ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+    if m.should_close() || ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+
         done = true;
     }
     if save {
