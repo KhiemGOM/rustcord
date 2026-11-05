@@ -26,7 +26,7 @@ impl Run {
             _ => {
                 if !crate::webwin::is_open() {
                     self.mark("web_closed");
-                    self.step = 100;
+                    self.step = 1600;
                 }
             }
         }
