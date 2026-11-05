@@ -69,7 +69,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             });
         });
 
-    if app.friends_tab != 4 && ui.available_width() > 1000.0 {
+    if app.friends_tab != 4 && ui.ctx().content_rect().width() > 1200.0 {
         active_now(app, ui);
     }
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
@@ -234,7 +234,7 @@ fn list(app: &mut App, ui: &mut Ui) {
 /// The friends page's right column: what friends are up to right now.
 fn active_now(app: &mut App, ui: &mut Ui) {
     egui::Panel::right("active_now")
-        .exact_size(360.0)
+        .exact_size((ui.available_width() * 0.3).clamp(360.0, 420.0))
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 0 }))
