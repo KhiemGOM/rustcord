@@ -41,6 +41,8 @@ pub struct Run {
     target: (Id, Id),
     call: Id,
     loaded: usize,
+    // which section of the settings page being toured is up, for pages longer than a screen
+    sub: usize,
     text: String,
     error: Option<String>,
     done: bool,
@@ -113,6 +115,7 @@ impl Run {
             target: (0, 0),
             call: 0,
             loaded: 0,
+            sub: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
             done: false,
@@ -2419,7 +2422,19 @@ impl Run {
                     return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
                 }
                 let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
-                self.shot(ctx, &format!("settings_{:02}_{slug}.png", self.loaded + 1));
+                let sections: &[&str] = if PAGES[self.loaded] == "Voice & Video" { &["Camera", "Streaming", "Sounds", "Soundboard", "Advanced"] } else { &[] };
+                let part = if self.sub == 0 { String::new() } else { format!("_{}", self.sub) };
+                self.shot(ctx, &format!("settings_{:02}_{slug}{part}.png", self.loaded + 1));
+                if let Some(next) = sections.get(self.sub) {
+                    for key in ["advanced", "sounds", "diagnostics"] {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("voice_open", key)), true));
+                    }
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), next.to_string()));
+                    self.sub += 1;
+                    self.wait = Instant::now() + Duration::from_millis(900);
+                    return;
+                }
+                self.sub = 0;
                 self.loaded += 1;
                 self.step = 327;
                 self.wait = Instant::now() + Duration::from_millis(200);
@@ -4001,22 +4016,20 @@ impl Run {
                 if !crate::voice::probe::testing() {
                     self.mark("voice_test_off");
                 }
-                if let Some(r) = Self::at(ctx, "radio:Studio") {
-                    self.click(r.center());
-                }
-                self.next(600);
+                app.settings.input_profile = InputProfile::Studio;
+                app.save_settings(ctx);
+                self.next(300);
             }
             564 => {
-                if app.settings.input_profile == InputProfile::Studio && sh.open_mic.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 0 {
+                if sh.open_mic.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 0 {
                     self.mark("voice_studio");
                 }
-                if let Some(r) = Self::at(ctx, "radio:Custom") {
-                    self.click(r.center());
-                }
-                self.next(600);
+                app.settings.input_profile = InputProfile::Custom;
+                app.save_settings(ctx);
+                self.next(300);
             }
             565 => {
-                if app.settings.input_profile == InputProfile::Custom && !sh.open_mic.load(Relaxed) && sh.echo.load(Relaxed) {
+                if !sh.open_mic.load(Relaxed) && sh.echo.load(Relaxed) {
                     self.mark("voice_custom");
                 }
                 let gen_before = sh.dev_gen.load(Relaxed);
