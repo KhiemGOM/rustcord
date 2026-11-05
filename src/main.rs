@@ -23,6 +23,7 @@ mod toast;
 mod tray;
 mod ui;
 mod voice;
+mod webwin;
 mod winsys;
 
 fn main() -> eframe::Result {
