@@ -106,7 +106,7 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 static BUTTON_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+pub static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 // width of the invisible resize border, in points
 const EDGE: f32 = 6.0;

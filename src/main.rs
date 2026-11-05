@@ -24,6 +24,7 @@ mod tray;
 mod ui;
 mod voice;
 mod webauthn;
+mod webwin;
 mod winsys;
 
 fn main() -> eframe::Result {

@@ -778,8 +778,9 @@ fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
 }
 
 /// The rows over the channels, in discord's order and on its conditions. Server Boosts, Members
-/// and Channels & Roles are pages in place of the chat, Events is a window, and what's left opens
-/// discord's own page in the browser. Hands back the row clicked and which page is open.
+/// and Channels & Roles are pages in place of the chat, Events is a window, the shop opens in the
+/// checkout window and what's left opens discord's own page in the browser. Hands back the row clicked
+/// and which page is open.
 fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
     let has = |f: &str| g.features.iter().any(|x| x == f);
@@ -799,7 +800,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
     }
     // servers selling role subscriptions get discord's shop row
     if has("ROLE_SUBSCRIPTIONS_AVAILABLE_FOR_PURCHASE") {
-        rows.push((Icon::Shop, "Server Shop", format!("https://discord.com/channels/{id}/shop")));
+        rows.push((Icon::Shop, "Server Shop", format!("/channels/{id}/shop")));
     }
     // the member table is for moderators, in community servers or ones with discord's tools on
     let moderator = perms & (BAN_MEMBERS | KICK_MEMBERS | MODERATE_MEMBERS | MANAGE_GUILD) != 0;
@@ -832,6 +833,8 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         if resp.clicked() {
             if url.is_empty() {
                 clicked = Some(label);
+            } else if url.starts_with('/') {
+                crate::webwin::checkout(&url);
             } else {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
             }
@@ -1069,11 +1072,11 @@ fn dms(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(8.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-            // friends, then the store pages rustcord leaves to the browser
+            // friends, the store pages in the checkout window, and quests in the browser
             let rows = [
                 (Icon::Friends, "Friends", None),
-                (Icon::Nitro, "Nitro Home", Some("https://discord.com/store")),
-                (Icon::Shop, "Shop", Some("https://discord.com/shop")),
+                (Icon::Nitro, "Nitro Home", Some("/store")),
+                (Icon::Shop, "Shop", Some("/shop")),
                 (Icon::Quests, "Quests", Some("https://discord.com/quest-home")),
             ];
             for (icon, label, url) in rows {
@@ -1099,6 +1102,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 if resp.clicked() {
                     match url {
+                        Some(u) if u.starts_with('/') => crate::webwin::checkout(u),
                         Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
                         None => app.friends = true,
                     }

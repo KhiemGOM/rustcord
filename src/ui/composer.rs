@@ -570,7 +570,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 
     if gift_click {
-        ui.ctx().open_url(egui::OpenUrl::new_tab("https://discord.com/nitro"));
+        crate::webwin::checkout("/store");
     }
     // the apps button opens what rustcord has of the app launcher: the slash command list
     if apps_click {
