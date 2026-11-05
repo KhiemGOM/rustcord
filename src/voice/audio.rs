@@ -290,6 +290,7 @@ impl Tx {
         }
         if self.hang > 0 {
             let Some(enc) = &mut self.enc else { return };
+            crate::clips::mic(pcm);
             for (i, x) in pcm.iter().enumerate() {
                 self.stereo[i * 2] = *x;
                 self.stereo[i * 2 + 1] = *x;

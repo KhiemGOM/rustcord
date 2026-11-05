@@ -12,6 +12,7 @@ const USE_COMMANDS: u64 = 1 << 31;
 
 pub enum Plus {
     Upload,
+    Clip,
     Thread,
     Poll,
     Apps,
@@ -26,6 +27,9 @@ pub fn menu(app: &App, resp: &egui::Response, chan: &Channel) -> Option<Plus> {
         ui.spacing_mut().item_spacing.y = 0.0;
         if perms & ATTACH_FILES != 0 && menu_item(ui, Some(Icon::FileUpload), "Upload a File", false) {
             pick = Some(Plus::Upload);
+        }
+        if app.settings.clips && perms & ATTACH_FILES != 0 && menu_item(ui, Some(Icon::Clips), "Share a Clip", false) {
+            pick = Some(Plus::Clip);
         }
         if chan.guild != 0 && matches!(chan.kind, 0 | 5) && perms & CREATE_THREADS != 0 && menu_item(ui, Some(Icon::Thread), "Create Thread", false) {
             pick = Some(Plus::Thread);

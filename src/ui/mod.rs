@@ -7,6 +7,9 @@ mod boosts;
 mod call;
 mod callbar;
 mod chat;
+mod clips;
+mod clips_gallery;
+mod clips_trim;
 mod composer;
 mod create;
 mod directory;
@@ -201,6 +204,7 @@ pub struct App {
     pub gallery: Vec<(String, String, u32, u32)>,
     pub remote: Map<&'static str, Option<Result<serde_json::Value, String>>>,
     hotkey_rx: Option<Receiver<(String, bool)>>,
+    pub clips: clips::State,
     obs_seen: bool,
     capture_hidden: bool,
     pub sform: settings::Forms,
@@ -405,6 +409,7 @@ impl App {
             gallery: Vec::new(),
             remote: Map::default(),
             hotkey_rx: None,
+            clips: Default::default(),
             obs_seen: false,
             capture_hidden: false,
             sform: Default::default(),
@@ -942,7 +947,8 @@ impl App {
         crate::toast::set_long(s.min_toast_secs > 5.0);
         crate::theme::style(ctx);
         crate::sound::configure(s.sounds && !(s.streamer && s.streamer_no_sounds), &s.muted_sounds);
-        crate::hotkeys::set(&s.keybinds);
+        self.sync_hotkeys();
+        crate::clips::configure(s.clips, s.clips_secs);
         crate::api::set_locale(&s.locale);
         self.voice.configure(s);
     }
@@ -1050,6 +1056,7 @@ impl App {
                     self.settings.streamer = !self.settings.streamer;
                     self.save_settings(ctx);
                 }
+                "save_clip" => self.save_clip(ctx),
                 "open" => self.show_window(ctx),
                 "badge" => self.badge = None,
                 "hide" => self.hide_to_tray(ctx),
@@ -1061,6 +1068,7 @@ impl App {
                 _ => {}
             }
         }
+        self.clips_tick(ctx);
         let obs = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
         if obs != self.obs_seen {
             self.obs_seen = obs;
@@ -1590,6 +1598,7 @@ impl App {
         events::show(self, &ctx);
         stage::modals(self, &ctx);
         share::show(self, &ctx);
+        clips_gallery::show(self, &ctx);
         if let Some((text, at)) = &self.toast {
             if at.elapsed() > Duration::from_secs(4) {
                 self.toast = None;

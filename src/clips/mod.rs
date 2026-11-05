@@ -2,6 +2,7 @@
 //! on, and written out as an MP4 when the save keybind (or the clip button) fires. Nothing is
 //! allocated, and nothing but a few atomics is read, while clips are off or no stream is live.
 
+pub mod cut;
 pub mod library;
 pub mod mux;
 pub mod ring;
@@ -32,6 +33,7 @@ static EPOCH: OnceLock<Instant> = OnceLock::new();
 static REC: Mutex<Option<Rec>> = Mutex::new(None);
 static FLAGS: Mutex<Vec<(u64, u32)>> = Mutex::new(Vec::new());
 static DONE: Mutex<Vec<Outcome>> = Mutex::new(Vec::new());
+static READY: AtomicBool = AtomicBool::new(false);
 
 struct Rec {
     video: Video,
@@ -183,7 +185,25 @@ pub fn others_clipping(me: u64) -> bool {
 }
 
 pub fn outcomes() -> Vec<Outcome> {
+    if !READY.swap(false, Relaxed) {
+        return Vec::new();
+    }
     std::mem::take(&mut *DONE.lock().unwrap())
+}
+
+pub fn is_key(au: &[u8]) -> bool {
+    au.windows(4).any(|w| w[..3] == [0, 0, 1] && w[3] & 0x1f == 5)
+}
+
+pub fn source_name(window: Option<isize>) -> String {
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+    let Some(h) = window else { return "Screen".into() };
+    let mut buf = [0u16; 256];
+    let n = unsafe { GetWindowTextW(h as _, buf.as_mut_ptr(), buf.len() as i32) };
+    match String::from_utf16_lossy(&buf[..n.max(0) as usize]).trim() {
+        "" => "Screen".into(),
+        t => t.into(),
+    }
 }
 
 pub fn default_dir() -> PathBuf {
@@ -228,6 +248,7 @@ pub fn save(ctx: &egui::Context, dir: PathBuf, me: Context) -> Result<(), &'stat
         .spawn(move || {
             let out = write(&dir, frames, pcm, size, fps, app, thumb, trim, me);
             SAVING.fetch_sub(1, Relaxed);
+            READY.store(true, Relaxed);
             DONE.lock().unwrap().push(match out {
                 Ok(c) => Outcome::Saved(c),
                 Err(e) => Outcome::Failed(e),
@@ -258,12 +279,13 @@ fn write(dir: &std::path::Path, frames: Vec<Frame>, pcm: Vec<i16>, size: (u32, u
         guild: me.guild,
         channel: me.channel,
         favorite: false,
+        edit: None,
         size: std::fs::metadata(&path).map_or(0, |m| m.len()),
         path: path.clone(),
+        has_thumb: false,
     };
-    if let Some(img) = thumb {
-        library::thumbnail(&img, &clip.thumb());
-    }
+    let mut clip = clip;
+    clip.has_thumb = thumb.is_some_and(|img| library::thumbnail(&img, &clip.thumb()));
     library::write_meta(&clip);
     Ok(clip)
 }

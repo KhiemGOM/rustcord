@@ -607,6 +607,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     match plus {
         Some(super::plus::Plus::Upload) => attach = true,
+        Some(super::plus::Plus::Clip) => {
+            app.open_clips();
+            if let Some(g) = &mut app.clips.gallery {
+                g.pick = Some(ch);
+            }
+        }
         Some(super::plus::Plus::Thread) => app.new_thread = Some(super::popups::NewThread::blank(ch)),
         Some(super::plus::Plus::Poll) => app.poll = Some(super::poll::Draft::new(ch)),
         Some(super::plus::Plus::Apps) => app.launcher = Some(super::plus::Launcher::new()),

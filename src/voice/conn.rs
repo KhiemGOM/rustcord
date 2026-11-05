@@ -383,6 +383,7 @@ impl Sess {
                 }
                 c = ctl.recv() => match c {
                     Some(Ctl::Camera(on)) => self.video(ws, on.then_some((Source::Camera, Quality::CAMERA))).await,
+                    Some(Ctl::Flags(f)) => send(ws, &json!({ "op": 18, "d": { "flags": f } })).await,
                     None => return End::Quit,
                 },
             };
@@ -431,6 +432,10 @@ impl Sess {
                 if let Some(t) = d["t"].as_i64().or(d.as_i64()) {
                     self.emit(Kind::Ping((chrono::Utc::now().timestamp_millis() - t).clamp(0, 60_000) as u32));
                 }
+            }
+            18 if self.c.kind == Media::Voice => {
+                crate::clips::set_flags(sid(&d["user_id"]), d["flags"].as_u64().unwrap_or(0) as u32);
+                self.emit(Kind::Clips);
             }
             11 => {
                 for u in d["user_ids"].as_array().into_iter().flatten() {
@@ -713,6 +718,7 @@ impl Sess {
             return;
         }
         self.shared.decoded.fetch_add(1, Relaxed);
+        crate::clips::voice(i.user, pcm);
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
         let gain = self.shared.peers.lock().ok().and_then(|p| p.get(&i.user).copied()).unwrap_or(1.0);
         if gain != 1.0 {
@@ -805,7 +811,13 @@ impl Sess {
         self.cam = None;
         if let Some((src, q)) = src {
             let (tx, tag, me) = (self.tx.clone(), self.c.tag, self.c.me);
-            let preview = move |img| tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }));
+            let clip = src != Source::Camera;
+            let preview = move |img: std::sync::Arc<egui::ColorImage>| {
+                if clip {
+                    crate::clips::look(&img);
+                }
+                tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }))
+            };
             match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
                 Ok(s) => self.cam = Some(s),
                 Err(e) => self.emit(Kind::Error(format!("couldn't start {}: {e}", if src == Source::Camera { "the camera" } else { "screen capture" }))),

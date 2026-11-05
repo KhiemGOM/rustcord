@@ -19,8 +19,11 @@ pub struct Clip {
     pub channel: u64,
     pub favorite: bool,
     pub size: u64,
+    pub edit: Option<(i64, i64)>,
     #[serde(skip)]
     pub path: PathBuf,
+    #[serde(skip)]
+    pub has_thumb: bool,
 }
 
 impl Clip {
@@ -47,12 +50,12 @@ pub fn write_meta(c: &Clip) {
     }
 }
 
-pub fn thumbnail(img: &ColorImage, to: &Path) {
+pub fn thumbnail(img: &ColorImage, to: &Path) -> bool {
     let [w, h] = img.size;
     let rgb: Vec<u8> = img.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
-    let Some(full) = image::RgbImage::from_raw(w as u32, h as u32, rgb) else { return };
+    let Some(full) = image::RgbImage::from_raw(w as u32, h as u32, rgb) else { return false };
     let small = image::imageops::thumbnail(&full, 480, (480 * h / w.max(1)).max(1) as u32);
-    let _ = small.save(to);
+    small.save(to).is_ok()
 }
 
 /// Newest first. A video with no metadata beside it still lists, as an unnamed clip.
@@ -69,12 +72,19 @@ pub fn scan(dir: &Path) -> Vec<Clip> {
                 Clip { id: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(), created: made, ..Clip::default() }
             });
             c.size = md.len();
+            c.has_thumb = path.with_extension("jpg").exists();
             c.path = path;
             Some(c)
         })
         .collect();
     out.sort_by_key(|c| std::cmp::Reverse(c.created));
     out
+}
+
+pub fn read(video: &Path) -> Option<Clip> {
+    let mut c: Clip = serde_json::from_slice(&std::fs::read(video.with_extension("json")).ok()?).ok()?;
+    c.path = video.to_path_buf();
+    Some(c)
 }
 
 pub fn delete(c: &Clip) {
