@@ -48,6 +48,8 @@ fn kind(b: &[u8]) -> Option<Kind> {
 
 struct Anim {
     frames: Vec<Arc<ColorImage>>,
+    // the longest side the frames were scaled down to, if they were
+    side: Option<u32>,
 }
 
 type Entry = Poll<Result<Arc<Anim>, String>>;
@@ -55,31 +57,57 @@ type Entry = Poll<Result<Arc<Anim>, String>>;
 #[derive(Default)]
 pub struct GifLoader {
     cache: Arc<Mutex<HashMap<String, Entry>>>,
+    // animations being decoded again, bigger, for a bigger place to draw them
+    redo: Arc<Mutex<HashSet<String>>>,
 }
 
-fn collect(frames: impl Iterator<Item = image::ImageResult<image::Frame>>) -> Result<(Vec<Arc<ColorImage>>, Vec<Duration>), String> {
+/// The longest side worth decoding for where it's drawn: an emoji drawn at 33 pixels doesn't
+/// need its 128-pixel frames. None for "as big as it comes".
+fn side(hint: SizeHint) -> Option<u32> {
+    match hint {
+        SizeHint::Size { width, height, .. } => Some(width.max(height).max(1)),
+        _ => None,
+    }
+}
+
+/// `img` scaled down so its longest side is at most `side`, keeping what it's laid out as.
+fn shrink(img: ColorImage, side: Option<u32>) -> ColorImage {
+    let [w, h] = img.size;
+    let Some(side) = side.filter(|s| (w.max(h) as u32) > *s) else { return img };
+    let s = side as f32 / w.max(h) as f32;
+    let (nw, nh) = (((w as f32 * s).round() as u32).max(1), ((h as f32 * s).round() as u32).max(1));
+    let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, img.as_raw().to_vec()) else { return img };
+    // premultiplied, so transparent edges don't darken
+    let small = image::imageops::resize(&buf, nw, nh, image::imageops::FilterType::Triangle);
+    let mut out = ColorImage::from_rgba_premultiplied([nw as usize, nh as usize], small.as_raw());
+    out.source_size = img.source_size;
+    out
+}
+
+fn collect(frames: impl Iterator<Item = image::ImageResult<image::Frame>>, side: Option<u32>) -> Result<(Vec<Arc<ColorImage>>, Vec<Duration>), String> {
     let mut out = Vec::new();
     let mut durations = Vec::new();
     let mut bytes = 0;
     for f in frames {
         let f = f.map_err(|e| e.to_string())?;
         let buf = f.buffer();
-        bytes += buf.as_raw().len();
+        let img = shrink(ColorImage::from_rgba_unmultiplied([buf.width() as usize, buf.height() as usize], buf.as_raw()), side);
+        bytes += img.pixels.len() * 4;
         if bytes > BUDGET && !out.is_empty() {
             break;
         }
-        out.push(Arc::new(ColorImage::from_rgba_unmultiplied([buf.width() as usize, buf.height() as usize], buf.as_raw())));
+        out.push(Arc::new(img));
         durations.push(f.delay().into());
     }
     Ok((out, durations))
 }
 
-fn decode(kind: Kind, data: &[u8]) -> Result<(Anim, Vec<Duration>), String> {
+fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Duration>), String> {
     let (frames, mut durations) = match kind {
-        Kind::Gif => collect(image::codecs::gif::GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames())?,
-        Kind::Webp => collect(image::codecs::webp::WebPDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames())?,
-        Kind::Mp4 => crate::mp4::frames(data, BUDGET)?.into_iter().map(|(img, d)| (Arc::new(img), d)).unzip(),
-        Kind::Apng => collect(image::codecs::png::PngDecoder::new(Cursor::new(data)).and_then(|d| d.apng()).map_err(|e| e.to_string())?.into_frames())?,
+        Kind::Gif => collect(image::codecs::gif::GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
+        Kind::Webp => collect(image::codecs::webp::WebPDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
+        Kind::Mp4 => crate::mp4::frames(data, BUDGET)?.into_iter().map(|(img, d)| (Arc::new(shrink(img, side)), d)).unzip(),
+        Kind::Apng => collect(image::codecs::png::PngDecoder::new(Cursor::new(data)).and_then(|d| d.apng()).map_err(|e| e.to_string())?.into_frames(), side)?,
     };
     if frames.is_empty() {
         return Err("no frames".into());
@@ -90,7 +118,7 @@ fn decode(kind: Kind, data: &[u8]) -> Result<(Anim, Vec<Duration>), String> {
             *d = Duration::from_millis(100);
         }
     }
-    Ok((Anim { frames }, durations))
+    Ok((Anim { frames, side }, durations))
 }
 
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a
@@ -155,42 +183,63 @@ pub fn current(part: &str) -> usize {
     SHOWN.lock().iter().find(|(u, _)| u.contains(part)).map_or(0, |(_, f)| f.1)
 }
 
+impl GifLoader {
+    fn spawn(&self, ctx: &egui::Context, uri: &str, kind: Kind, bytes: Vec<u8>, side: Option<u32>) {
+        let (cache, redo, ctx, uri) = (self.cache.clone(), self.redo.clone(), ctx.clone(), uri.to_string());
+        std::thread::spawn(move || {
+            let entry = match decode(kind, &bytes, side) {
+                Ok((anim, durations)) => {
+                    ctx.data_mut(|d| *d.get_temp_mut_or_default(Id::new(uri.as_str())) = FrameDurations::new(durations));
+                    Ok(Arc::new(anim))
+                }
+                Err(e) => Err(e),
+            };
+            // forgotten while it decoded: it stays forgotten; a failed redo keeps what's there
+            if let Some(slot) = cache.lock().get_mut(&uri)
+                && (entry.is_ok() || matches!(slot, Poll::Pending))
+            {
+                *slot = Poll::Ready(entry);
+            }
+            redo.lock().remove(&uri);
+            ctx.request_repaint();
+        });
+    }
+}
+
 impl ImageLoader for GifLoader {
     fn id(&self) -> &str {
         egui::generate_loader_id!(GifLoader)
     }
 
-    fn load(&self, ctx: &egui::Context, frame_uri: &str, _: SizeHint) -> ImageLoadResult {
+    fn load(&self, ctx: &egui::Context, frame_uri: &str, hint: SizeHint) -> ImageLoadResult {
         let (uri, index) = match frame_uri.rsplit_once(SEP) {
             Some((u, i)) => (u, i.parse().map_err(|_| LoadError::NotSupported)?),
             None => decode_animated_image_uri(frame_uri).map_err(|_| LoadError::NotSupported)?,
         };
-        if let Some(e) = self.cache.lock().get(uri) {
-            return match e {
-                Poll::Ready(Ok(a)) => Ok(ImagePoll::Ready { image: a.frames[index % a.frames.len()].clone() }),
-                Poll::Ready(Err(e)) => Err(LoadError::Loading(e.clone())),
-                Poll::Pending => Ok(ImagePoll::Pending { size: None }),
-            };
+        let want = side(hint);
+        let have = match self.cache.lock().get(uri) {
+            Some(Poll::Ready(Ok(a))) => Some((a.frames[index % a.frames.len()].clone(), a.side)),
+            Some(Poll::Ready(Err(e))) => return Err(LoadError::Loading(e.clone())),
+            Some(Poll::Pending) => return Ok(ImagePoll::Pending { size: None }),
+            None => None,
+        };
+        if let Some((frame, side)) = have {
+            // drawn bigger than it was decoded for (the image viewer): decode it again, bigger
+            let bigger = side.is_some_and(|s| want.is_none_or(|w| w > s + s / 4));
+            if bigger
+                && let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(uri)
+                && let Some(kind) = kind(&bytes)
+                && self.redo.lock().insert(uri.to_string())
+            {
+                self.spawn(ctx, uri, kind, bytes.to_vec(), want);
+            }
+            return Ok(ImagePoll::Ready { image: frame });
         }
         match ctx.try_load_bytes(uri) {
             Ok(BytesPoll::Ready { bytes, .. }) => {
                 let Some(kind) = kind(&bytes) else { return Err(LoadError::NotSupported) };
                 self.cache.lock().insert(uri.to_string(), Poll::Pending);
-                let (cache, ctx, uri) = (self.cache.clone(), ctx.clone(), uri.to_string());
-                let bytes = bytes.to_vec();
-                std::thread::spawn(move || {
-                    let entry = match decode(kind, &bytes) {
-                        Ok((anim, durations)) => {
-                            ctx.data_mut(|d| *d.get_temp_mut_or_default(Id::new(uri.as_str())) = FrameDurations::new(durations));
-                            Ok(Arc::new(anim))
-                        }
-                        Err(e) => Err(e),
-                    };
-                    if let Some(slot) = cache.lock().get_mut(&uri) {
-                        *slot = Poll::Ready(entry);
-                    }
-                    ctx.request_repaint();
-                });
+                self.spawn(ctx, uri, kind, bytes.to_vec(), want);
                 Ok(ImagePoll::Pending { size: None })
             }
             Ok(BytesPoll::Pending { size }) => Ok(ImagePoll::Pending { size }),
