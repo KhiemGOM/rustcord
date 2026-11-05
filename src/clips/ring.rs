@@ -91,6 +91,9 @@ impl Audio {
     pub fn mix(&mut self, at: i64, pcm: &[f32]) {
         let cap = self.ring.len() as i64;
         let end = at + pcm.len() as i64;
+        if at < 0 {
+            return;
+        }
         if self.head == 0 {
             self.head = at;
         }

@@ -55,7 +55,7 @@ pub struct Context {
 }
 
 pub fn ticks(at: Instant) -> i64 {
-    let e = *EPOCH.get_or_init(Instant::now);
+    let e = *EPOCH.get_or_init(|| Instant::now().checked_sub(std::time::Duration::from_secs(3600)).unwrap_or_else(Instant::now));
     (at.saturating_duration_since(e).as_nanos() / 100) as i64
 }
 
