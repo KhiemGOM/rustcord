@@ -1,4 +1,4 @@
-use egui::{Context, Event, MouseWheelUnit, RawInput, TouchPhase, Vec2, vec2};
+use egui::{Context, Event, Key, MouseWheelUnit, RawInput, Rect, TouchPhase, Vec2, vec2};
 use std::time::Instant;
 use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWHEELSCROLLLINES, SystemParametersInfoW};
 
@@ -132,13 +132,19 @@ pub struct Wheel {
     epoch: Instant,
     x: Axis,
     y: Axis,
+    keys: Axis,
+    keys_chat: bool,
     live: bool,
     last: f64,
+    /// the message pane, drawn this frame; the keys scroll it while the composer has focus
+    pub chat: Option<Rect>,
+    /// what the keys have scrolled the chat since it last asked
+    pub chat_delta: f32,
 }
 
 impl Wheel {
     pub fn new() -> Self {
-        Self { epoch: Instant::now(), x: Axis::default(), y: Axis::default(), live: false, last: 0.0 }
+        Self { epoch: Instant::now(), x: Axis::default(), y: Axis::default(), keys: Axis::default(), keys_chat: false, live: false, last: 0.0, chat: None, chat_delta: 0.0 }
     }
 
     pub fn now(&self) -> f64 {
@@ -149,12 +155,40 @@ impl Wheel {
     /// place: a notch is lines*100/3 px animated with the curve above, shift turns it sideways,
     /// and the fractions a precision touchpad sends go through as they come, unsmoothed. egui
     /// is told they come from a touch so it adds no smoothing of its own.
-    pub fn filter(&mut self, ctx: &Context, raw: &mut RawInput) {
+    ///
+    /// PageUp and PageDown scroll a screenful, and with `nav` Home, End and the arrows too, in the
+    /// chat when the composer has focus or the pointer is over it, else in the pane under the pointer.
+    pub fn filter(&mut self, ctx: &Context, raw: &mut RawInput, nav: bool) {
         let t = self.now();
         let ppp = ctx.pixels_per_point();
         let mut out = Vec::with_capacity(raw.events.len() + 2);
         let mut direct = Vec2::ZERO;
+        let chat = self.chat.take();
+        let to_chat = chat.is_some_and(|r| ctx.memory(|m| m.has_focus(egui::Id::new("composer"))) || ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
+        let nav = nav && !ctx.egui_wants_keyboard_input();
         for e in raw.events.drain(..) {
+            if let Event::Key { key, pressed: true, modifiers, .. } = e
+                && modifiers.matches_exact(egui::Modifiers::NONE)
+            {
+                let page = match (to_chat, chat) {
+                    (true, Some(r)) => r.height(),
+                    _ => raw.screen_rect.map_or(600.0, |r| r.height() - 48.0),
+                } * 0.875;
+                let d = match key {
+                    Key::PageUp => page,
+                    Key::PageDown => -page,
+                    Key::Home if nav => 1e6,
+                    Key::End if nav => -1e6,
+                    Key::ArrowUp if nav => 40.0,
+                    Key::ArrowDown if nav => -40.0,
+                    _ => 0.0,
+                };
+                if d != 0.0 {
+                    self.keys_chat = to_chat;
+                    self.keys.push(d, t, Kind::Key, ppp);
+                    continue;
+                }
+            }
             let Event::MouseWheel { unit: MouseWheelUnit::Line, delta, modifiers, .. } = e else {
                 out.push(e);
                 continue;
@@ -178,6 +212,12 @@ impl Wheel {
                 self.y.push(d.y, t, Kind::Wheel, ppp);
             }
         }
+        let k = self.keys.step(t);
+        if self.keys_chat {
+            self.chat_delta += k;
+        } else {
+            direct.y += k;
+        }
         let d = direct + vec2(self.x.step(t), self.y.step(t));
         if d != Vec2::ZERO {
             if !self.live {
@@ -187,7 +227,7 @@ impl Wheel {
             self.last = t;
             out.push(Event::MouseWheel { unit: MouseWheelUnit::Point, delta: d, phase: TouchPhase::Move, modifiers: Default::default() });
         }
-        if self.x.animating() || self.y.animating() {
+        if self.x.animating() || self.y.animating() || self.keys.animating() {
             ctx.request_repaint();
         } else if self.live {
             if t - self.last > LINGER {

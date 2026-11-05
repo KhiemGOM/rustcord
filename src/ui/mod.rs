@@ -98,7 +98,6 @@ pub struct App {
     pub marker_bar: bool,
     pub autoscroll: Option<autoscroll::Auto>,
     pub wheel: wheel::Wheel,
-    pub paging: wheel::Axis,
     // ctrl+wheel travel not yet worth a zoom step
     zoom_acc: f32,
     pub focus_composer: bool,
@@ -278,7 +277,6 @@ impl App {
             marker_bar: false,
             autoscroll: None,
             wheel: wheel::Wheel::new(),
-            paging: Default::default(),
             zoom_acc: 0.0,
             focus_composer: true,
             rects: Map::default(),
@@ -1734,7 +1732,8 @@ impl eframe::App for App {
             e.inject(raw);
         }
         autoscroll::filter(&mut self.autoscroll, raw);
-        self.wheel.filter(ctx, raw);
+        let nav = self.focus_msg.is_none() && !self.modal_open() && !self.layered(ctx);
+        self.wheel.filter(ctx, raw, nav);
         // ctrl+wheel: a zoom level a notch
         let mut notches = 0.0;
         raw.events.retain(|e| match e {

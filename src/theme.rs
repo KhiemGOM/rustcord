@@ -545,16 +545,20 @@ pub fn thumb(auto: bool) -> Color32 {
     rgb(THUMBS[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize][auto as usize])
 }
 
-/// The look of discord's `auto` scrollers (the chat): the thumb sits 4px in from the edge in a
-/// slightly lighter grey. Returns the style to put back once the area is shown.
-pub fn auto_scroller(ui: &mut egui::Ui) -> std::sync::Arc<egui::Style> {
+/// Shows `add` with the look of discord's `auto` scrollers (the chat, the friends list): an 8px thumb
+/// 4px in from the edge, where the thin ones have a 4px thumb 2px in.
+pub fn auto_scroll<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let prev = ui.style().clone();
     let st = ui.style_mut();
+    st.spacing.scroll.bar_width = 8.0;
+    st.spacing.scroll.floating_width = 8.0;
     st.spacing.scroll.bar_outer_margin = 4.0;
     for w in [&mut st.visuals.widgets.inactive, &mut st.visuals.widgets.hovered, &mut st.visuals.widgets.active] {
         w.bg_fill = thumb(true);
     }
-    prev
+    let out = add(ui);
+    ui.set_style(prev);
+    out
 }
 
 /// egui's own style, rebuilt from the current palette whenever the theme changes.
@@ -599,7 +603,8 @@ pub fn style(ctx: &egui::Context) {
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.scroll = egui::style::ScrollStyle {
-        bar_width: 8.0,
+        bar_width: 4.0,
+        bar_outer_margin: 2.0,
         floating: true,
         floating_allocated_width: 0.0,
         // thin() paints the track at full opacity even at rest; discord has no track and hides the thumb until hover or scroll
@@ -609,7 +614,7 @@ pub fn style(ctx: &egui::Context) {
         dormant_handle_opacity: 0.0,
         active_handle_opacity: 1.0,
         interact_handle_opacity: 1.0,
-        floating_width: 8.0,
+        floating_width: 4.0,
         handle_min_length: 40.0,
         ..egui::style::ScrollStyle::thin()
     };

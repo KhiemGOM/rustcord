@@ -532,24 +532,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 
     let pointer = ui.ctx().pointer_hover_pos();
-    // page up and down move a screenful, discord's chat keys
-    let page = ui.input_mut(|i| {
-        if super::take_key(i, Modifiers::NONE, Key::PageUp) {
-            1.0
-        } else if super::take_key(i, Modifiers::NONE, Key::PageDown) {
-            -1.0
-        } else {
-            0.0
-        }
-    });
-    if page != 0.0 {
-        let ppp = ui.ctx().pixels_per_point();
-        app.paging.push(page * (ui.available_height() - 80.0).max(100.0), app.wheel.now(), super::wheel::Kind::Key, ppp);
-    }
-    nudge += app.paging.step(app.wheel.now());
-    if app.paging.animating() {
-        ui.ctx().request_repaint();
-    }
+    nudge += std::mem::take(&mut app.wheel.chat_delta);
+    app.wheel.chat = Some(ui.max_rect());
     let hover_lock = app.bar.and_then(|(id, r)| pointer.filter(|p| r.contains(*p)).map(|_| id));
     // the hover toolbar floats on its own layer; a wheel over it still scrolls the chat, like discord
     let over_bar = pointer.and_then(|p| ui.ctx().layer_id_at(p)) == Some(egui::LayerId::new(egui::Order::Middle, egui::Id::new("msg_bar")));
@@ -598,8 +582,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // last frame's height says how much room to leave above it
     let fill_id = egui::Id::new(("chat_fill", ch));
     let natural: f32 = ctx.data(|d| d.get_temp(fill_id)).unwrap_or(f32::MAX);
-    let skin = crate::theme::auto_scroller(ui);
-    let out = sa.show_viewport(ui, |ui, vp| {
+    let out = crate::theme::auto_scroll(ui, |ui| sa.show_viewport(ui, |ui, vp| {
         if nudge != 0.0 {
             ui.scroll_with_delta_animation(vec2(0.0, nudge), egui::style::ScrollAnimation::none());
         }
@@ -653,9 +636,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             // instant: images still loading above would bend a smooth scroll through the anchor fix
             ui.scroll_to_cursor_animation(Some(Align::BOTTOM), egui::style::ScrollAnimation::none());
         }
-    });
+    }));
 
-    ui.set_style(skin);
     let D { acts, bar, rects, .. } = d;
     app.bar = bar;
     app.rects.extend(rects);
