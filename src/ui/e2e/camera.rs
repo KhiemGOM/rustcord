@@ -17,6 +17,11 @@ impl Run {
         let placed = |ctx: &egui::Context| effects::PLACED.load(Relaxed) > saved(ctx).0 + 5;
         match self.step {
             2800 => {
+                app.settings.camera = None;
+                app.settings.preview_video = false;
+                app.settings.video_bg = crate::cache::VideoBg::None;
+                app.settings.custom_bg = None;
+                app.save_settings(ctx);
                 goto(ctx, "Video Background");
                 self.next(700);
             }
@@ -45,7 +50,7 @@ impl Run {
                 self.next(0);
             }
             2804 => {
-                if app.voice.tex.contains_key("settings") && placed(ctx) && effects::LOADS.load(Relaxed) == 1 {
+                if app.voice.tex.contains_key("settings") && placed(ctx) && effects::LOADS.load(Relaxed) >= 1 {
                     self.mark("camera_test_video");
                     self.mark("camera_background");
                     self.shot(ctx, "settings_camera.png");

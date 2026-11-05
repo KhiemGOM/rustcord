@@ -353,7 +353,8 @@ fn begin(ctx: &Context, key: &'static str, visit: (u32, u32)) -> (Arc<Preview>, 
 }
 
 fn stop(ctx: &Context, key: &str) {
-    ctx.data_mut(|d| d.remove::<(Arc<Preview>, (u32, u32))>(Id::new(("camera_preview", key))));
+    let old = ctx.data_mut(|d| d.remove_temp::<(Arc<Preview>, (u32, u32))>(Id::new(("camera_preview", key))));
+    drop(old);
 }
 
 pub fn section(app: &mut App, ui: &mut Ui) -> bool {
