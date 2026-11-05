@@ -49,6 +49,17 @@ pub fn preferences() -> Prefs {
     Prefs { animations: anim != 0, high_contrast: flags & 1 != 0 }
 }
 
+/// Whether windows' own clock is set to 24 hours (iTime 1).
+pub fn system_24h() -> bool {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    let key = wide("Control Panel\\International");
+    let name = wide("iTime");
+    let mut buf = [0u16; 4];
+    let mut len = size_of_val(&buf) as u32;
+    let ok = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut len) };
+    ok == 0 && buf[0] == b'1' as u16
+}
+
 pub fn exclude_from_capture(frame: &eframe::Frame, on: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};

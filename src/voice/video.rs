@@ -203,6 +203,9 @@ pub enum Source {
     Device(usize),
 }
 
+/// Whether the card's encoder may be used, from the System page's hardware acceleration.
+pub static HW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 /// How Go Live sends: the tallest the picture gets (0 keeps the source's size) and its frame rate.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Quality {
@@ -252,7 +255,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
     let th = std::thread::Builder::new()
         .name("video-encode".into())
         .spawn(move || {
-            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, true) {
+            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, HW.load(std::sync::atomic::Ordering::Relaxed)) {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = opened.send(Err(e));

@@ -40,6 +40,7 @@ pub struct Run {
     step: u32,
     step_at: Instant,
     sub: u8,
+    picking: bool,
     wait: Instant,
     queue: VecDeque<Vec<Event>>,
     frames: Vec<f32>,
@@ -120,6 +121,7 @@ impl Run {
             step: if std::env::var_os("RUSTCORD_E2E_LOGIN").is_some() { 1500 } else { 0 },
             step_at: Instant::now(),
             sub: 0,
+            picking: false,
             wait: Instant::now(),
             queue: VecDeque::new(),
             frames: Vec::new(),
@@ -1329,6 +1331,22 @@ impl Run {
         false
     }
 
+    /// Opens a dropdown and clicks one of its items; true once the item is clicked.
+    fn pick(&mut self, ctx: &egui::Context, head: &str, item: &str) -> bool {
+        if !self.picking {
+            let Some(r) = Self::at(ctx, head) else { return false };
+            ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", item))));
+            self.click(r.center());
+            self.picking = true;
+            self.wait = Instant::now() + Duration::from_millis(500);
+            return false;
+        }
+        let Some(r) = Self::at(ctx, item) else { return false };
+        self.click(r.center());
+        self.picking = false;
+        true
+    }
+
     fn at(ctx: &egui::Context, key: &str) -> Option<egui::Rect> {
         ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", key))))
     }
@@ -1511,8 +1529,9 @@ impl Run {
                 self.next(600);
             }
             126 => {
-                let Some(r) = Self::at(ctx, "lang:de") else { return };
-                self.click(r.center());
+                if !self.pick(ctx, "lang", "lang:de") {
+                    return;
+                }
                 self.next(400);
             }
             127 => {
@@ -1541,8 +1560,9 @@ impl Run {
                 self.next(600);
             }
             131 => {
-                let Some(r) = Self::at(ctx, "lang:en-US") else { return };
-                self.click(r.center());
+                if !self.pick(ctx, "lang", "lang:en-US") {
+                    return;
+                }
                 self.next(300);
             }
             132 => {

@@ -134,7 +134,7 @@ fn stamp(ts: i64) -> String {
     } else if d.date_naive().succ_opt() == Some(now.date_naive()) {
         format!("Yesterday at {time}")
     } else {
-        format!("{}, {}", d.format("%-m/%-d/%y"), d.format(markdown::hm()))
+        format!("{}, {}", d.format(&markdown::short_date("%y", false)), d.format(markdown::hm()))
     }
 }
 
