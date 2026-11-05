@@ -1213,6 +1213,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            560..=579 => self.people_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3204,11 +3205,17 @@ impl Run {
                 self.key(Key::Escape);
                 self.mark("profile_more");
                 self.next(500);
-                self.step = 5000;
+                self.step = 560;
             }
-            // the profile family: Active Now's cards, the popout's Mod View, role add and remove,
-            // the full profile and its tabs, a server tag's popout and a role mention's
-            5000 => {
+            _ => self.step = 99,
+        }
+    }
+
+    /// The profile family: Active Now's cards, the popout's Mod View, role add and remove, the
+    /// full profile and its tabs, a server tag's popout and a role mention's.
+    fn people_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        match self.step {
+            560 => {
                 use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MANAGE_ROLES, MODERATE_MEMBERS};
                 if let Some(r) = app.store.guilds.get_mut(&self.target.0).and_then(|g| g.roles.get_mut(&1101)) {
                     r.perms |= MANAGE_ROLES | KICK_MEMBERS | BAN_MEMBERS | MODERATE_MEMBERS;
@@ -3223,7 +3230,7 @@ impl Run {
                 app.friends = true;
                 self.next(900);
             }
-            5001 => {
+            561 => {
                 let Some((card, bodies)) = ctx.data(|d| d.get_temp::<(egui::Rect, usize)>(egui::Id::new(("e2e", "now_card", 101u64)))) else { return };
                 if bodies < 3 || card.height() < 68.0 + 3.0 * 68.0 {
                     return self.fail(format!("alice's Active Now card had {bodies} rows over {}px", card.height()));
@@ -3235,7 +3242,7 @@ impl Run {
                 app.open_profile(101, self.target.0, pos2(300.0, 160.0));
                 self.next(900);
             }
-            5002 => {
+            562 => {
                 if app.profiles.get(&101).is_none_or(|p| p.is_null()) {
                     return;
                 }
@@ -3244,7 +3251,7 @@ impl Run {
                 self.click(b.center());
                 self.next(700);
             }
-            5003 => {
+            563 => {
                 if !app.mod_view.as_ref().is_some_and(|m| m.msgs.is_some()) {
                     return;
                 }
@@ -3254,13 +3261,13 @@ impl Run {
                 self.click(b.center());
                 self.next(500);
             }
-            5004 => {
+            564 => {
                 let Some(r) = Self::at(ctx, "role_pick") else { return };
                 self.shot(ctx, "role_picker.png");
                 self.click(r.center());
                 self.next(600);
             }
-            5005 => {
+            565 => {
                 if !app.store.members.get(&self.target.0).and_then(|m| m.get(&101)).is_some_and(|m| m.roles.contains(&1102)) {
                     return;
                 }
@@ -3269,16 +3276,16 @@ impl Run {
                 self.click(x.center());
                 self.next(600);
             }
-            5006 => {
+            566 => {
                 if app.store.members.get(&self.target.0).and_then(|m| m.get(&101)).is_some_and(|m| m.roles.contains(&1102)) {
                     return;
                 }
                 self.mark("role_removed");
-                self.key(Key::Escape);
+                app.mod_view = None;
                 app.open_full(101, self.target.0, super::profile::Tab::Activity);
                 self.next(900);
             }
-            5007 => {
+            567 => {
                 if app.profiles.get(&101).is_none_or(|p| p.is_null()) || app.outbox.get(&101).is_none_or(|o| o.is_empty()) || app.mod_view.is_some() {
                     return;
                 }
@@ -3288,7 +3295,7 @@ impl Run {
                 self.click(t.center());
                 self.next(500);
             }
-            5008 => {
+            568 => {
                 if !app.full_profile.as_ref().is_some_and(|f| f.tab == super::profile::Tab::Friends) {
                     return self.fail("the Mutual Friends tab didn't open".into());
                 }
@@ -3298,7 +3305,7 @@ impl Run {
                 app.tag_pop = Some((1001, pos2(400.0, 300.0)));
                 self.next(900);
             }
-            5009 => {
+            569 => {
                 if app.guild_profiles.get(&1001).is_none_or(|p| p.is_null()) {
                     return;
                 }
@@ -3308,7 +3315,7 @@ impl Run {
                 app.role_pop = Some((self.target.0, 1100, pos2(400.0, 300.0)));
                 self.next(600);
             }
-            5010 => {
+            570 => {
                 self.shot(ctx, "role_popout.png");
                 self.mark("role_popout");
                 app.role_pop = None;

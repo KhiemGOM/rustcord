@@ -969,7 +969,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                 let wash = ui.painter().add(egui::Shape::Noop);
                 let top = card_head(ui, &user, p, &name, status);
                 head = top;
-                full = ui.interact(top, ui.id().with("profile_banner"), Sense::click()).clicked();
+                full = clicked_flag(ui.ctx(), "card_name_clicked") == Some(uid);
                 // from a server profile the avatar goes to the main one
                 if gid != 0 {
                     let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
@@ -1080,7 +1080,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
             });
         });
     app.rects.insert("profile_head".into(), head);
-    let tag = tag_clicked(ctx);
+    let tag = clicked_flag(ctx, "card_tag_clicked");
     if let Some(r) = role_act {
         profile::do_role(app, gid, uid, r);
     }
@@ -1115,9 +1115,16 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// A server tag chip clicked on a card this frame: its server.
-fn tag_clicked(ctx: &egui::Context) -> Option<Id> {
-    ctx.data_mut(|d| d.remove_temp::<Id>(egui::Id::new("card_tag_clicked")))
+/// Something on a card was clicked in this pass: `card_head` leaves the click here for whichever
+/// card called it to pick up.
+fn click_flag(ctx: &egui::Context, key: &str, v: Id) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(key), (v, pass)));
+}
+
+fn clicked_flag(ctx: &egui::Context, key: &str) -> Option<Id> {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(Id, u64)>(egui::Id::new(key))).filter(|(_, p)| *p == pass).map(|(v, _)| v)
 }
 
 #[derive(Default)]
@@ -1341,7 +1348,13 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { bold(20.0) };
-            let r = text::label(ui, name, face, pal().header_primary, Sense::hover());
+            let r = text::label(ui, name, face, pal().header_primary, Sense::click());
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if r.clicked() {
+                click_flag(ui.ctx(), "card_name_clicked", user.id);
+            }
             if user.bot {
                 super::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0);
             }
@@ -1360,7 +1373,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
                 && super::tagpop::hit(ui, t, "card_tag")
                 && let Some((_, g, _)) = &user.tag
             {
-                ui.data_mut(|d| d.insert_temp(egui::Id::new("card_tag_clicked"), *g));
+                click_flag(ui.ctx(), "card_tag_clicked", *g);
             }
             profile::badges(ui, p, chip.map_or(r.right() + 8.0, |t| t.right() + 6.0), r.center().y, 20.0);
         });
