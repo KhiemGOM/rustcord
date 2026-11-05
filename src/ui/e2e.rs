@@ -3228,7 +3228,8 @@ impl Run {
                 app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021" }));
                 app.select_guild(None);
                 app.friends = true;
-                self.next(900);
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
+                self.next(1200);
             }
             1201 => {
                 let Some((card, bodies)) = ctx.data(|d| d.get_temp::<(egui::Rect, usize)>(egui::Id::new(("e2e", "now_card", 101u64)))) else { return };
@@ -3237,6 +3238,7 @@ impl Run {
                 }
                 self.shot(ctx, "active_now.png");
                 self.mark("active_now_cards");
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
                 app.friends = false;
                 app.select_guild(Some(self.target.0));
                 app.open_profile(101, self.target.0, pos2(300.0, 160.0));
