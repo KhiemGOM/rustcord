@@ -1518,10 +1518,10 @@ impl Run {
                 self.next(300);
             }
             120 => {
-                if !self.open_page(app, "Streamer Mode") {
-                    return;
+                let label = if app.rects.contains_key("settings:Streamer Mode") { "Streamer Mode" } else { "Appearance" };
+                if self.open_page(app, label) && label == "Streamer Mode" {
+                    self.next(800);
                 }
-                self.next(800);
             }
             121 => {
                 let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
