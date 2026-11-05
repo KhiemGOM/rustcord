@@ -318,6 +318,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     if r.clicked() {
                         toggle = Some(cat.id);
                     }
+                    app.rects.insert(format!("cat:{}", cat.id), r.rect);
+                    if store.perms(cat) & crate::state::MANAGE_CHANNELS != 0 {
+                        super::reorder::grab(ui.ctx(), &r, cat.id);
+                    }
                     if add {
                         menu = Some((cat.id, ChanAct::Create));
                     }
@@ -370,6 +374,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         menu = Some((c.id, ChanAct::Edit));
                     }
                     app.rects.insert(format!("chan:{}", c.id), r.rect);
+                    if store.perms(c) & crate::state::MANAGE_CHANNELS != 0 {
+                        super::reorder::grab(ui.ctx(), &r, c.id);
+                    }
                     if let Some(e) = emoji {
                         app.rects.insert(format!("chanemoji:{}", c.id), e);
                     }
@@ -397,6 +404,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         });
         ui.ctx().data_mut(|d| d.insert_temp(scroll_id, out.state.offset.y));
     });
+    super::reorder::drag(app, ui.ctx());
     match menu {
         Some((c, ChanAct::Read)) => {
             let mut chans: Vec<Id> = app.store.channels.values().filter(|x| x.parent == c).map(|x| x.id).collect();
@@ -742,7 +750,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
 
 /// A category header, and whether its create-channel plus was clicked.
 fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click_and_drag());
     let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
     let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
     let y = rect.top() + 12.0;
@@ -806,7 +814,7 @@ fn elapsed(secs: i64) -> String {
 #[allow(clippy::too_many_arguments)]
 fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool, new: usize, voice: Option<&VoiceRow>) -> (egui::Response, Option<Rect>, bool, bool, bool, bool) {
     let sub = voice.and_then(|v| v.sub.as_ref());
-    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if sub.is_some() { 48.0 } else { 32.0 }), Sense::click());
+    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if sub.is_some() { 48.0 } else { 32.0 }), Sense::click_and_drag());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let y = row.top() + 16.0;
     let here = voice.is_some_and(|v| v.here);
