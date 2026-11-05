@@ -1429,6 +1429,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             }
             ok(u)
         }
+        ("GET", ["api", "v9", "users", "@me", "email-settings"]) => ok(json!({ "initialized": true, "categories": { "communication": true, "social": true, "updates_and_announcements": false, "tips": false, "recommendations_and_events": false } })),
+        ("PATCH", ["api", "v9", "users", "@me", "email-settings"]) => ok(json!({ "initialized": true, "categories": serde_json::from_slice::<Value>(body).unwrap_or_default()["settings"]["categories"] })),
         ("GET", ["api", "v9", "users", "@me", "consent"]) => ok(json!({ "usage_statistics": { "consented": true }, "personalization": { "consented": false } })),
         ("GET", ["api", "v9", "auth", "sessions"]) => ok(json!({ "user_sessions": [
             { "id_hash": "aaa", "approx_last_used_time": "2026-10-07T10:00:00+00:00", "client_info": { "os": "Windows", "platform": "Discord Client", "location": "Bangkok, Thailand" } },

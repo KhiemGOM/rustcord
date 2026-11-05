@@ -1,0 +1,66 @@
+use super::Page;
+
+const CONTROLS: &[(Page, &[&str])] = &[
+    (
+        Page::Notifications,
+        &[
+            "Enable Desktop Notifications",
+            "Enable Taskbar Flashing",
+            "Notify me when...",
+            "People I know start streaming in small servers",
+            "A friend and I reach a friendship anniversary",
+            "Friends come online",
+            "A server has an upcoming event",
+            "Friends update their profile",
+            "Someone reacts to my messages",
+            "New Message",
+            "New Message in the channel I’m currently reading",
+            "Incoming Ring",
+            "Disable All Notification Sounds",
+            "Voice & Video sounds",
+            "Enable Unread Message Badge",
+            "Communication Emails",
+            "Social Emails",
+            "Announcements and Update Emails",
+            "Tip Emails",
+            "Recommendations Emails",
+            "Unsubscribe from all marketing emails",
+            "Mobile Notification Delay",
+            "Allow playback and usage of /tts command",
+            "Speak all messages out loud",
+            "Text-to-speech",
+        ],
+    ),
+    (
+        Page::System,
+        &[
+            "Automatically open Rustcord when your computer starts up",
+            "Start Rustcord minimized",
+            "Minimize Rustcord to System Tray",
+            "Enable Hardware Acceleration",
+            "Custom Keybinds",
+            "Add a Keybind",
+            "Push to Talk",
+            "Push to Mute",
+            "Toggle Mute",
+            "Toggle Deafen",
+            "Toggle VAD",
+            "Toggle Streamer Mode",
+            "Toggle Camera",
+            "Toggle Screen Share",
+            "Navigate Back",
+            "Navigate Forward",
+            "Switch To Voice Channel",
+            "Disconnect From Voice Channel",
+            "Open Soundboard",
+            "Default Keybinds",
+            "Keyboard Shortcuts",
+        ],
+    ),
+    (Page::Language, &["Select a Language", "Time format", "Auto", "12-hour", "24-hour"]),
+    (Page::Developer, &["Developer Mode", "Image Cache"]),
+];
+
+pub fn hits(page: Page, q: &str) -> bool {
+    CONTROLS.iter().any(|(p, labels)| *p == page && labels.iter().any(|l| l.to_lowercase().contains(q)))
+}

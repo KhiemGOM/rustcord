@@ -919,7 +919,8 @@ impl App {
         ctx.set_zoom_factor(s.zoom);
         crate::tray::set_close_hides(s.minimize_to_tray && std::env::var_os("RUSTCORD_BENCH").is_none());
         crate::media::set_volume(s.media_volume, s.media_muted);
-        crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
+        crate::markdown::CLOCK24.store(s.clock24(), std::sync::atomic::Ordering::Relaxed);
+        crate::markdown::set_date_order(&s.locale);
         crate::theme::set_reduced_motion(self.reduced_motion());
         crate::theme::set_view(crate::theme::View {
             underline_links: s.underline_links,
@@ -958,8 +959,27 @@ impl App {
         );
     }
 
+    fn speak_incoming(&self, m: &crate::state::Message, tts: bool) {
+        let here = self.cur() == Some(m.channel);
+        let s = &self.settings;
+        let wanted = (s.tts_command && tts && here) || match s.tts_notify {
+            2 => true,
+            1 => here,
+            _ => false,
+        };
+        if !wanted || m.author == self.store.me || self.voice.deaf {
+            return;
+        }
+        let guild = self.store.channels.get(&m.channel).map_or(0, |c| c.guild);
+        let text = crate::markdown::plain(&m.content, &self.store, guild);
+        if !text.is_empty() {
+            crate::speech::say(format!("{} says {text}", self.store.name_in(guild, m.author)));
+        }
+    }
+
     fn notify(&mut self, d: &serde_json::Value, ctx: &egui::Context) {
         let m = self.store.parse_message(d);
+        self.speak_incoming(&m, d["tts"].as_bool() == Some(true));
         if m.author == self.store.me || !self.settings.notify || (self.settings.streamer && self.settings.streamer_no_notifications) {
             return;
         }
@@ -971,12 +991,15 @@ impl App {
         if self.store.muted.contains(&c.id) || self.store.muted.contains(&c.guild) {
             return;
         }
-        let dm = c.guild == 0;
-        if !(self.store.mentions_me(&m) || (dm && self.settings.notify_all_dms)) {
-            return;
-        }
         let focused = ctx.input(|i| i.raw.focused);
         if focused && self.cur() == Some(c.id) {
+            if self.settings.notify_selected {
+                crate::sound::cue("message");
+            }
+            return;
+        }
+        let dm = c.guild == 0;
+        if !(self.store.mentions_me(&m) || dm) {
             return;
         }
         let who = self.store.name_in(c.guild, m.author);
@@ -1026,14 +1049,55 @@ impl App {
             cache::set_settings(&self.settings);
         }
         let events: Vec<(String, bool)> = self.hotkey_rx.as_ref().map(|rx| rx.try_iter().collect()).unwrap_or_default();
+        crate::hotkeys::pause(self.settings_page == Some(settings::Page::System));
         for (action, pressed) in events {
             if action == "ptt" && self.settings.ptt && self.voice.chan.is_some() && !self.voice.mute {
                 crate::sound::cue(if pressed { "ptt_start" } else { "ptt_stop" });
+            }
+            if action == "soundboard_hold" && !pressed {
+                self.soundboard = None;
             }
             if !pressed {
                 continue;
             }
             match action.as_str() {
+                "voice_mode" => {
+                    self.settings.ptt = !self.settings.ptt;
+                    self.save_settings(ctx);
+                }
+                "voice_chat" if self.voice.chan.is_some() => self.voice_chat = !self.voice_chat,
+                "camera" if self.voice.chan.is_some() => {
+                    let on = !self.voice.camera;
+                    self.voice.set_camera(&self.net, self.store.me, on);
+                }
+                "screenshare" if self.voice.chan.is_some() => {
+                    if self.voice.stream.as_ref().is_some_and(|l| l.mine) {
+                        self.voice.end_stream(&self.net);
+                    } else if self.share.is_none() {
+                        self.show_window(ctx);
+                        self.share = Some(share::Picker::new(ctx));
+                    }
+                }
+                "back" => self.go(true),
+                "forward" => self.go(false),
+                "goto_voice" => {
+                    if let Some(c) = self.voice.chan {
+                        self.show_window(ctx);
+                        let g = self.store.channels.get(&c).map_or(0, |c| c.guild);
+                        self.ui.guild = (g != 0).then_some(g);
+                        self.open(c);
+                    }
+                }
+                "disconnect" => self.voice.leave(&self.net),
+                "soundboard" | "soundboard_hold" => {
+                    let guild = self.voice.chan.and_then(|c| self.store.channels.get(&c)).map_or(0, |c| c.guild);
+                    if self.soundboard.is_some() && action == "soundboard" {
+                        self.soundboard = None;
+                    } else if guild != 0 {
+                        self.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
+                        self.soundboard = Some((guild, None));
+                    }
+                }
                 "mute" => {
                     let on = !self.voice.mute;
                     self.voice.set_mute(&self.net, on);

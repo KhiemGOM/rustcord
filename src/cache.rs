@@ -39,11 +39,26 @@ pub struct UiState {
 pub struct Settings {
     // notifications
     pub notify: bool,
-    pub notify_all_dms: bool,
     pub flash: bool,
     pub badge: bool,
     pub sounds: bool,
     pub muted_sounds: Vec<String>,
+    // the message sound for every message in the channel that's open, not only pings
+    pub notify_selected: bool,
+    // speak incoming messages out loud: 0 never, 1 in the open channel, 2 in every channel
+    pub tts_notify: u8,
+    // the account's notification choices: reactions (0 all, 1 dms only, 2 never) and who may notify
+    pub reaction_notify: u8,
+    pub stream_notify: bool,
+    pub friend_anniv: bool,
+    pub friend_online: bool,
+    pub server_events: bool,
+    pub profile_updates: bool,
+    // seconds idle on the desktop before the phone gets pushes, and /tts playback
+    pub push_delay: u32,
+    pub tts_command: bool,
+    // video goes through the card's encoder and decoder
+    pub hw_accel: bool,
     // appearance
     pub theme: crate::theme::Theme,
     pub custom_theme: Option<u8>,
@@ -55,7 +70,8 @@ pub struct Settings {
     pub font_size: f32,
     pub group_space: f32,
     pub zoom: f32,
-    pub clock24: bool,
+    // 0 follows windows, 1 is 12-hour, 2 is 24-hour: the account's timestamp hour cycle
+    pub hour_cycle: u8,
     // accessibility
     pub underline_links: bool,
     pub name_styles: bool,
@@ -117,7 +133,6 @@ pub struct Settings {
     pub atten_self: bool,
     pub atten_others: bool,
     pub qos: bool,
-    pub hw_accel: bool,
     pub openh264: bool,
     pub debug_log: bool,
     pub aec_dump: bool,
@@ -234,11 +249,21 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             notify: true,
-            notify_all_dms: true,
             flash: true,
             badge: true,
             sounds: true,
             muted_sounds: Vec::new(),
+            notify_selected: false,
+            tts_notify: 0,
+            reaction_notify: 0,
+            stream_notify: true,
+            friend_anniv: true,
+            friend_online: true,
+            server_events: true,
+            profile_updates: true,
+            push_delay: 60,
+            tts_command: true,
+            hw_accel: true,
             theme: Default::default(),
             custom_theme: None,
             sync_theme: true,
@@ -249,7 +274,7 @@ impl Default for Settings {
             font_size: 16.0,
             group_space: 16.0,
             zoom: 1.0,
-            clock24: false,
+            hour_cycle: 0,
             underline_links: false,
             name_styles: true,
             density: Density::Default,
@@ -303,7 +328,6 @@ impl Default for Settings {
             atten_self: false,
             atten_others: true,
             qos: false,
-            hw_accel: true,
             openh264: true,
             debug_log: false,
             aec_dump: false,
@@ -342,6 +366,13 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub fn clock24(&self) -> bool {
+        match self.hour_cycle {
+            0 => crate::winsys::system_24h(),
+            c => c == 2,
+        }
+    }
+
     pub fn hiding_personal(&self) -> bool {
         self.streamer && self.hide_personal
     }
