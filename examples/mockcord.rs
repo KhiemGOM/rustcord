@@ -539,6 +539,36 @@ fn ready(last_general: u64) -> Value {
     guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
     guilds.extend(side_guilds());
+    let mut folders = vec![json!({ "guild_ids": ["1000"] }), json!({ "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] }),
+                           json!({ "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }), json!({ "guild_ids": ["1007"] }), json!({ "guild_ids": ["1008"] })];
+    // e2e/bench.py: MOCK_GUILDS more servers of 115 channels each, about the size of a real account
+    let extra: u64 = std::env::var("MOCK_GUILDS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut extra_reads = Vec::new();
+    for g in 0..extra {
+        let gid = 10_000 + g;
+        let chans: Vec<Value> = (0..115u64)
+            .map(|j| {
+                let id = 100_000 + g * 200 + j;
+                let mut c = if j % 15 == 0 { ch(id, 4, &format!("category {j}"), j as i32, None) } else { ch(id, if j % 15 == 14 { 2 } else { 0 }, &format!("channel-{j}"), j as i32, Some(100_000 + g * 200 + j / 15 * 15)) };
+                c["last_message_id"] = json!(snow(now_ms() - (g * 115 + j) * 60_000).to_string());
+                if j % 2 == 0 {
+                    extra_reads.push(json!({ "id": id.to_string(), "last_message_id": snow(now_ms() - (g * 115 + j) * 60_000 - if j % 8 == 0 { 30_000 } else { 0 }).to_string(), "mention_count": (j % 40 == 0) as u32 }));
+                }
+                c
+            })
+            .collect();
+        let roles: Vec<Value> = std::iter::once(json!({ "id": gid.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" }))
+            .chain((1..20u64).map(|r| json!({ "id": (gid * 100 + r).to_string(), "name": format!("role {r}"), "color": r * 0x0a0b0c, "position": r, "permissions": "0", "hoist": r % 5 == 0 })))
+            .collect();
+        guilds.push(json!({ "id": gid.to_string(), "name": format!("Server {g}"), "icon": if g % 3 == 0 { Value::Null } else { json!(format!("icon{gid}")) },
+                            "owner_id": "102", "member_count": 1000 + g * 37, "roles": roles, "emojis": [], "channels": chans }));
+        if g % 8 == 0 {
+            folders.push(json!({ "id": 1000 + g, "name": format!("Folder {g}"), "guild_ids": [] }));
+        }
+        folders.last_mut().unwrap()["guild_ids"].as_array_mut().unwrap().push(json!(gid.to_string()));
+    }
+    let mut users = vec![user(101), user(102), user(103), user(104), user(105), user(106)];
+    users.extend((0..extra * 6).map(|i| user(20_000 + i)));
     let mut reads = vec![
         json!({ "id": GENERAL.to_string(), "last_message_id": snow(now_ms() - 20 * 95_000).to_string(), "mention_count": 1,
                 "last_pin_timestamp": iso(now_ms() - 2 * 86_400_000) }),
@@ -546,13 +576,16 @@ fn ready(last_general: u64) -> Value {
         json!({ "id": "3000", "last_message_id": "0", "mention_count": 0 }),
     ];
     reads.extend(side_reads());
+    reads.extend(extra_reads);
+    let mut merged = vec![json!([{ "user_id": ME.to_string(), "roles": ["1101"] }]), json!([]), json!([]), json!([{ "user_id": ME.to_string(), "roles": ["1201"] }]), json!([]), json!([]), json!([]), json!([]), json!([])];
+    merged.extend((0..extra).map(|_| json!([])));
     json!({
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
         "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0 },
-        "users": [user(101), user(102), user(103), user(104), user(105), user(106)],
+        "users": users,
         "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
         "guilds": guilds,
-        "merged_members": [[{ "user_id": ME.to_string(), "roles": ["1101"] }], [], [], [{ "user_id": ME.to_string(), "roles": ["1201"] }], [], [], [], [], []],
+        "merged_members": merged,
         "private_channels": [
             { "id": "3000", "type": 1, "recipient_ids": ["101"], "last_message_id": snow(now_ms() - 3_600_000).to_string() },
             { "id": "3001", "type": 3, "name": "", "recipient_ids": ["102", "103"], "last_message_id": snow(now_ms() - 7_200_000).to_string() },
@@ -569,8 +602,7 @@ fn ready(last_general: u64) -> Value {
             { "guild_id": null, "channel_overrides": [{ "channel_id": "3002", "muted": true }] },
         ] },
         "user_settings_proto": settings_proto(1, true),
-        "user_settings": { "guild_folders": [{ "guild_ids": ["1000"] }, { "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] },
-                                          { "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }, { "guild_ids": ["1007"] }, { "guild_ids": ["1008"] }] },
+        "user_settings": { "guild_folders": folders },
     })
 }
 
@@ -777,6 +809,31 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let proto = settings_proto(b["theme"].as_u64().unwrap_or(1), b["compact_avatars"].as_bool().unwrap_or(false));
             let tx = w.lock().unwrap().events.clone();
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
+            ok(json!({}))
+        }
+        // e2e/bench.py: a busy account's background traffic for `secs`, `rate` events a second:
+        // presences in the open server, typing and messages in another one
+        ("POST", ["api", "v9", "mock", "busy"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let (rate, secs) = (b["rate"].as_u64().unwrap_or(20).max(1), b["secs"].as_u64().unwrap_or(15));
+            let w = w.clone();
+            tokio::spawn(async move {
+                let statuses = ["online", "idle", "dnd", "online"];
+                for i in 0..rate * secs {
+                    tokio::time::sleep(Duration::from_millis(1000 / rate)).await;
+                    let e = match i % 10 {
+                        0 => {
+                            let m = msg(fresh(), 2101, 102 + i % 3, &format!("busy message {i}"));
+                            w.lock().unwrap().msgs.push(m.clone());
+                            json!({ "t": "MESSAGE_CREATE", "d": m })
+                        }
+                        1..=3 => json!({ "t": "TYPING_START", "d": { "channel_id": "2100", "user_id": (102 + i % 3).to_string(), "guild_id": "1001", "timestamp": now_ms() / 1000 } }),
+                        _ => json!({ "t": "PRESENCE_UPDATE", "d": { "guild_id": "1000", "user": { "id": (101 + i % 5).to_string() },
+                                     "status": statuses[(i / 10 % 4) as usize], "activities": [], "client_status": { "desktop": statuses[(i / 10 % 4) as usize] } } }),
+                    };
+                    let _ = w.lock().unwrap().events.send(e);
+                }
+            });
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "premium"]) => {

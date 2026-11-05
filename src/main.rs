@@ -53,7 +53,7 @@ fn main() -> eframe::Result {
     }
     // the e2e run opens behind everything and never takes focus, so whoever's at the machine
     // isn't interrupted; its input is injected anyway
-    if std::env::var_os("RUSTCORD_E2E").is_some() {
+    if std::env::var_os("RUSTCORD_E2E").is_some() || std::env::var_os("RUSTCORD_BENCH").is_some() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
     }
     let opts = eframe::NativeOptions {
