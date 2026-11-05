@@ -21,7 +21,6 @@ mod games;
 mod shareable;
 mod toast;
 mod ui;
-mod vencord;
 mod voice;
 mod winsys;
 
@@ -42,12 +41,8 @@ fn main() -> eframe::Result {
         .with_title("Rustcord")
         .with_decorations(false)
         .with_app_id("rustcord")
-        .with_inner_size(size);
-    // Vencord's "Disable minimum window size"
-    let vencord: Option<serde_json::Value> = std::fs::read(cache::dir().join("vencord.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
-    if !vencord.is_some_and(|v| v["disableMinSize"] == true) {
-        viewport = viewport.with_min_inner_size([940.0, 500.0]);
-    }
+        .with_inner_size(size)
+        .with_min_inner_size([940.0, 500.0]);
     if let Some(l) = logo {
         viewport = viewport.with_icon(egui::IconData { width: l.width(), height: l.height(), rgba: l.into_raw() });
     }

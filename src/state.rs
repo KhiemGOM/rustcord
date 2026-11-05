@@ -1710,15 +1710,6 @@ impl Store {
         self.msgs.entry(channel).or_default().list.push(m);
     }
 
-    /// A message only this client sees, from Clyde: what plugin commands answer with.
-    pub fn local_message(&mut self, channel: Id, content: String) {
-        const CLYDE: Id = 1;
-        self.users.entry(CLYDE).or_insert_with(|| User { id: CLYDE, username: "Clyde".into(), bot: true, ..Default::default() });
-        let id = (((chrono::Utc::now().timestamp_millis() - 1_420_070_400_000) as u64) << 22) | 1;
-        let m = Message { id, channel, author: CLYDE, content, flags: 1 << 6, ..Default::default() };
-        self.msgs.entry(channel).or_default().list.push(m);
-    }
-
     pub fn fail_pending(&mut self, channel: Id, nonce: &str) {
         if let Some(e) = self.msgs.get_mut(&channel) {
             for m in e.list.iter_mut().filter(|m| m.nonce.as_deref() == Some(nonce)) {
