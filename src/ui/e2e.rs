@@ -12,6 +12,8 @@ use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
 
+mod players;
+
 
 // sidebar entries that sit low enough to need a scroll down to reach
 const PAGES_BELOW: [&str; 10] = [
@@ -1218,6 +1220,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            1800..=1899 => self.player_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3968,7 +3971,7 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 1800;
                 }
             }
         }
