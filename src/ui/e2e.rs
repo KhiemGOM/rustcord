@@ -1213,6 +1213,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            600..=699 => self.server_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3963,9 +3964,270 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 600;
                 }
             }
+        }
+    }
+
+    fn type_end(&mut self, text: &str) {
+        self.key(Key::End);
+        self.queue.push_back(vec![Event::Text(text.into())]);
+    }
+
+    /// Server settings pages on the mock: edit, see the bar, save, and what went to discord.
+    fn server_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use super::server::Page;
+        let page = |app: &mut App, p: Page| {
+            if let Some(s) = &mut app.server {
+                s.page = p;
+            }
+        };
+        let loaded = |app: &App, k: &str| app.server.as_ref().is_some_and(|s| s.data.get(k).is_some_and(|v| !v.is_null()));
+        match self.step {
+            600 => {
+                app.open_server_settings(1001);
+                self.next(800);
+            }
+            601 => {
+                if !loaded(app, "profile") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "field:server_name") else { return };
+                self.click(r.center());
+                self.type_end(" X");
+                self.next(400);
+            }
+            602 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                let name = app.server.as_ref().and_then(|s| s.draft.get("profile")).and_then(|d| d["name"].as_str().map(str::to_string)).unwrap_or_default();
+                if !name.ends_with(" X") {
+                    return self.fail(format!("server profile name draft is {name:?}"));
+                }
+                self.shot(ctx, "server_profile_dirty.png");
+                self.mark("server_bar");
+                self.click(r.center());
+                self.next(600);
+            }
+            603 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) || !app.server.as_ref().and_then(|s| s.data.get("profile")).is_some_and(|p| p["name"].as_str().is_some_and(|n| n.ends_with(" X"))) {
+                    return;
+                }
+                self.mark("server_profile_saved");
+                page(app, Page::Tag);
+                self.next(500);
+            }
+            604 => {
+                let Some(r) = Self::at(ctx, "field:tag") else { return };
+                self.click(r.center());
+                self.type_end("RUST");
+                self.next(300);
+            }
+            605 => {
+                let Some(r) = Self::at(ctx, "badge:sword") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            606 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                self.shot(ctx, "server_tag.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            607 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) {
+                    return;
+                }
+                self.mark("server_tag");
+                page(app, Page::Engagement);
+                self.next(600);
+            }
+            608 => {
+                if !loaded(app, "guild") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "toggle:Send helpful tips for server setup.") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            609 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                self.shot(ctx, "server_engagement.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            610 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) {
+                    return;
+                }
+                self.mark("server_engagement");
+                page(app, Page::Perks);
+                self.next(500);
+            }
+            611 => {
+                let Some(r) = Self::at(ctx, "toggle:Show Boost progress bar") else { return };
+                self.shot(ctx, "server_perks.png");
+                self.click(r.center());
+                self.next(400);
+            }
+            612 => {
+                self.mark("server_perks");
+                page(app, Page::Soundboard);
+                self.next(600);
+            }
+            613 => {
+                let Some(r) = Self::at(ctx, "sound:airhorn") else { return };
+                self.shot(ctx, "server_soundboard.png");
+                self.click(egui::pos2(r.center().x, r.center().y));
+                self.next(400);
+            }
+            614 => {
+                if app.server.as_ref().is_none_or(|s| s.sound.is_none()) {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "field:Name your sound") else { return };
+                self.shot(ctx, "server_sound_edit.png");
+                self.click(r.center());
+                self.type_end("2");
+                self.next(300);
+            }
+            615 => {
+                let Some(r) = Self::at(ctx, "plate:Save") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            616 => {
+                let renamed = app.server.as_ref().and_then(|s| s.data.get("sounds")).is_some_and(|v| v["items"].as_array().is_some_and(|l| l.iter().any(|s| s["name"] == "airhorn2")));
+                if !renamed {
+                    return;
+                }
+                self.mark("server_soundboard");
+                page(app, Page::Access);
+                self.next(600);
+            }
+            617 => {
+                if !loaded(app, "verification") || !loaded(app, "guild") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "join:Apply to Join") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            618 => {
+                let Some(r) = Self::at(ctx, "button:Add a question") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            619 => {
+                let Some(r) = Self::at(ctx, "question:0") else { return };
+                self.click(r.center());
+                self.type_end("Why do you want to join?");
+                self.next(300);
+            }
+            620 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                self.shot(ctx, "server_access.png");
+                self.click(r.center());
+                self.next(700);
+            }
+            621 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) {
+                    return;
+                }
+                self.mark("server_access");
+                app.open_server_settings(1002);
+                page(app, Page::Community);
+                self.next(600);
+            }
+            622 => {
+                let Some(r) = Self::at(ctx, "button:Enable Community") else { return };
+                self.shot(ctx, "server_enable_community.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            623 => {
+                let Some(r) = Self::at(ctx, "check:Verified email required.") else { return };
+                self.click(r.center());
+                self.next(200);
+            }
+            624 => {
+                let Some(r) = Self::at(ctx, "check:Scan media content from all members.") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            625 => {
+                let Some(r) = Self::at(ctx, "plate:Next") else { return };
+                self.shot(ctx, "server_community_setup.png");
+                self.click(r.center());
+                self.next(400);
+            }
+            626 => {
+                if let Some(s) = &mut app.server {
+                    if let Some(d) = s.draft.get_mut("community") {
+                        d["rules"] = json!("2200");
+                        d["updates"] = json!("2201");
+                    }
+                }
+                let Some(r) = Self::at(ctx, "plate:Next") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            627 => {
+                let Some(r) = Self::at(ctx, "check:I agree to follow Discord's Community Guidelines.") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            628 => {
+                let Some(r) = Self::at(ctx, "plate:Finish Setup") else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            629 => {
+                if app.server.as_ref().is_none_or(|s| s.sub != 4) {
+                    return;
+                }
+                self.mark("server_community");
+                if let Some(s) = &mut app.server {
+                    s.sub = 0;
+                    s.page = Page::Template;
+                }
+                self.next(500);
+            }
+            630 => {
+                if !loaded(app, "template") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "field:template_title") else { return };
+                self.click(r.center());
+                self.type_end("Design fans");
+                self.next(300);
+            }
+            631 => {
+                let Some(r) = Self::at(ctx, "button:Generate Template") else { return };
+                self.shot(ctx, "server_template.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            632 => {
+                if !app.server.as_ref().and_then(|s| s.data.get("template")).is_some_and(|t| t.as_array().is_some_and(|a| !a.is_empty())) {
+                    return;
+                }
+                self.mark("server_template");
+                let Some(r) = Self::at(ctx, "side:Delete Server") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            633 => {
+                if app.confirm.is_none() {
+                    return;
+                }
+                self.shot(ctx, "server_delete.png");
+                self.mark("server_delete");
+                app.confirm = None;
+                app.server = None;
+                self.step = 99;
+            }
+            _ => {}
         }
     }
 
