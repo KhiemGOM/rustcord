@@ -105,6 +105,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             for (i, n) in names.iter().enumerate() {
                 let g = ui.painter().layout_no_wrap(n.clone(), medium(16.0), Color32::WHITE);
                 let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
+                app.rects.insert(format!("discover:tab:{i}"), tr);
                 let on = d.tab == i && d.searched.is_empty();
                 let col = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
                 ui.painter().galley(pos2(tr.left(), tr.center().y - g.size().y / 2.0), g, col);
@@ -138,6 +139,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         .inner
                     })
                     .inner;
+                app.rects.insert("discover:search".into(), r.rect);
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     d.searched = d.query.trim().to_string();
                 }
