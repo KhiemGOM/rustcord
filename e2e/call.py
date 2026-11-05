@@ -27,6 +27,7 @@ def checks(runs, reqs, data):
         "call sounds: joining, others joining and leaving, a stream starting, and disconnecting each played their cue":
             all(both(m) for m in ("call_cue_own_join", "call_cue_others_join", "call_cue_stream_started", "call_cue_others_leave", "call_cue_disconnect")),
         "call: the connection ping updated live from the voice heartbeat": both("call_ping_live"),
+        "call: a server-muted person's tile carries the muted badge": both("call_tile_state"),
         "call: a call ringing for us showed its popup, a toast with Answer and Decline, and the rail bubble": both("call_incoming") and both("call_toast") and both("call_ring_rail"),
         "call: the ringtone looped while ringing and stopped once declined": both("call_ring_loops") and both("call_ring_stops"),
         "call: the calling ring looped while waiting, stopped when they picked up, and their join played": all(both(m) for m in ("call_calling_rings", "call_cue_pickup", "call_calling_stops")),

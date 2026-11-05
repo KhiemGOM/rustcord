@@ -4,6 +4,7 @@ const DEN: Id = 1008;
 const HANGOUT: Id = 2801;
 const DM: Id = 3000;
 const ALICE: Id = 101;
+const WALTER: Id = 102;
 
 fn event(app: &mut App, t: &str, d: serde_json::Value) {
     app.rest("POST", "/mock/event".into(), Some(json!({ "t": t, "d": d })), crate::net::Tag::Quiet);
@@ -38,21 +39,30 @@ impl Run {
                 if !ready {
                     return;
                 }
-                if count("user_join") >= 2 {
-                    self.mark("call_cue_others_join");
-                }
                 if count("stream_started") > 0 {
                     self.mark("call_cue_stream_started");
                 }
                 if app.voice.pings.iter().any(|(_, ms)| (30..=400).contains(ms)) && app.rects.contains_key("voice:status") {
                     self.mark("call_ping_live");
                 }
+                if app.rects.contains_key(&format!("voice:tile_state:{ALICE}")) {
+                    self.mark("call_tile_state");
+                }
                 self.shot(ctx, "call_connected_panel.png");
-                self.cues = count("user_leave");
-                event(app, "VOICE_STATE_UPDATE", json!({ "guild_id": DEN.to_string(), "channel_id": null, "user_id": ALICE.to_string(), "session_id": "other" }));
+                self.cues = count("user_join");
+                event(app, "VOICE_STATE_UPDATE", json!({ "guild_id": DEN.to_string(), "channel_id": HANGOUT.to_string(), "user_id": WALTER.to_string(), "session_id": "walter" }));
                 self.next(0);
             }
             2102 => {
+                if count("user_join") <= self.cues {
+                    return;
+                }
+                self.mark("call_cue_others_join");
+                self.cues = count("user_leave");
+                event(app, "VOICE_STATE_UPDATE", json!({ "guild_id": DEN.to_string(), "channel_id": null, "user_id": WALTER.to_string(), "session_id": "walter" }));
+                self.next(0);
+            }
+            2103 => {
                 if count("user_leave") <= self.cues {
                     return;
                 }
@@ -61,7 +71,7 @@ impl Run {
                 self.click(r.center());
                 self.next(0);
             }
-            2103 => {
+            2104 => {
                 if app.voice.chan.is_some() || count("disconnect") == 0 {
                     return;
                 }
@@ -74,7 +84,7 @@ impl Run {
                 );
                 self.next(0);
             }
-            2104 => {
+            2105 => {
                 if app.voice.ringing != Some(DM) || count("call_ringing") <= self.cues || self.call_toasts.is_empty() {
                     return;
                 }
@@ -85,25 +95,25 @@ impl Run {
                 if app.rects.contains_key(&format!("dmbubble:{DM}")) && app.rects.contains_key(&format!("dmcall:{DM}")) {
                     self.mark("call_ring_rail");
                 }
-                self.shot(ctx, "call_incoming.png");
                 self.next(3700);
             }
-            2105 => {
+            2106 => {
                 if count("call_ringing") >= self.cues + 2 {
                     self.mark("call_ring_loops");
                 }
                 let Some(r) = app.rects.get("call:decline").copied() else { return };
+                self.shot(ctx, "call_incoming.png");
                 self.click(r.center());
                 self.next(300);
             }
-            2106 => {
+            2107 => {
                 if app.voice.ringing.is_some() {
                     return;
                 }
                 self.cues = count("call_ringing");
                 self.next(3700);
             }
-            2107 => {
+            2108 => {
                 if count("call_ringing") == self.cues {
                     self.mark("call_ring_stops");
                 }
@@ -113,7 +123,7 @@ impl Run {
                 app.join_voice(DM, false);
                 self.next(0);
             }
-            2108 => {
+            2109 => {
                 if app.voice.state != State::Connected || app.voice.chan != Some(DM) {
                     return;
                 }
@@ -122,20 +132,20 @@ impl Run {
                 event(app, "CALL_UPDATE", json!({ "channel_id": DM.to_string(), "ringing": [ALICE.to_string()], "voice_states": [dm_voice(me, true)] }));
                 self.next(0);
             }
-            2109 => {
+            2110 => {
                 if count("call_calling") <= self.cues {
                     return;
                 }
                 self.mark("call_calling_rings");
                 self.next(3700);
             }
-            2110 => {
+            2111 => {
                 self.cues = count("user_join");
                 event(app, "CALL_UPDATE", json!({ "channel_id": DM.to_string(), "ringing": [], "voice_states": [dm_voice(me, true)] }));
                 event(app, "VOICE_STATE_UPDATE", dm_voice(ALICE, true));
                 self.next(300);
             }
-            2111 => {
+            2112 => {
                 if count("user_join") <= self.cues {
                     return;
                 }
@@ -143,7 +153,7 @@ impl Run {
                 self.cues = count("call_calling");
                 self.next(3700);
             }
-            2112 => {
+            2113 => {
                 if count("call_calling") == self.cues {
                     self.mark("call_calling_stops");
                 }
@@ -159,7 +169,7 @@ impl Run {
                 );
                 self.next(0);
             }
-            2113 => {
+            2114 => {
                 if !app.rects.contains_key(&format!("call_msg_join:{DM}")) {
                     return;
                 }
@@ -174,7 +184,7 @@ impl Run {
                 );
                 self.next(0);
             }
-            2114 => {
+            2115 => {
                 let ended = app.store.msgs.get(&DM).and_then(|m| m.list.iter().rev().find(|m| m.kind == 3)).and_then(|m| m.call.as_ref()).is_some_and(|c| c.ended.is_some());
                 if !ended || app.rects.contains_key(&format!("call_msg_join:{DM}")) {
                     return;

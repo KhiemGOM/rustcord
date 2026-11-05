@@ -686,12 +686,25 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                 }
             }
+            // discord's state badge: a 32 square in the corner for a muted or deafened person, red
+            // when the server did it
+            let mut inset = 0.0;
+            if let Some([mute, server_mute, deaf, server_deaf]) = app.voice.muted.get(u).copied() {
+                let (icon, server) = if deaf { (Icon::HeadphonesOff, server_deaf) } else { (Icon::MicOff, server_mute) };
+                if mute || deaf {
+                    let b = Rect::from_min_size(pos2(tile.left() + 12.0, tile.bottom() - 44.0), vec2(32.0, 32.0));
+                    ui.painter().rect_filled(b, CornerRadius::same(8), Color32::from_black_alpha(160));
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), if server { pal().critical } else { Color32::WHITE });
+                    app.rects.insert(format!("voice:tile_state:{u}"), b);
+                    inset = 40.0;
+                }
+            }
             // discord's overlay title: 12 in from the corner, a black wash, gone while idle
             if shown > 0.0 && !app.settings.hide_call_names {
                 let name = app.store.name_in(chan.guild, *u);
                 let g = ui.painter().layout_no_wrap(name, medium(14.0), Color32::WHITE);
-                let size = vec2((g.size().x + 24.0).min(tile.width() - 32.0), 30.0);
-                let tag = Rect::from_min_size(pos2(tile.left() + 12.0, tile.bottom() - 12.0 - size.y), size);
+                let size = vec2((g.size().x + 24.0).min(tile.width() - 32.0 - inset), 30.0);
+                let tag = Rect::from_min_size(pos2(tile.left() + 12.0 + inset, tile.bottom() - 12.0 - size.y), size);
                 ui.painter().rect_filled(tag, CornerRadius::same(8), Color32::from_black_alpha((143.0 * shown) as u8));
                 ui.painter().with_clip_rect(tag.shrink2(vec2(12.0, 0.0))).galley(pos2(tag.left() + 12.0, tag.center().y - g.size().y / 2.0), g, Color32::WHITE.gamma_multiply(shown));
             }
