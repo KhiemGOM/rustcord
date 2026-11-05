@@ -67,13 +67,13 @@ fn body(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, at: egui::Pos2) {
     if u != me {
         menu_sep(ui);
         let mut peer = app.peer(u);
-        let mut pct = peer.volume;
+        let mut at = super::usermenu::vol_pos(peer.volume / 100.0);
         ui.horizontal(|ui| {
             ui.add_space(8.0);
             ui.label(RichText::new("User Volume").font(medium(14.0)).color(pal().header_primary));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(8.0);
-                ui.label(RichText::new(format!("{}%", pct.round())).font(reg(12.0)).color(pal().text_muted));
+                ui.label(RichText::new(format!("{}%", peer.volume.round())).font(reg(12.0)).color(pal().text_muted));
             });
         });
         ui.add_space(4.0);
@@ -81,11 +81,11 @@ fn body(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, at: egui::Pos2) {
             .horizontal(|ui| {
                 ui.add_space(8.0);
                 let w = ui.available_width() - 8.0;
-                super::settings::slider(ui, w, &mut pct, 0.0, 200.0)
+                super::settings::slider(ui, w, &mut at, 0.0, 1.0)
             })
             .inner;
         if moved {
-            peer.volume = pct.round();
+            peer.volume = (super::usermenu::vol_gain(at) * 100.0).round();
             app.set_peer(u, peer, false);
         }
         if ui.input(|i| i.pointer.any_released()) && app.settings.peers.get(&u).is_some_and(|p| p.volume != 100.0) {
