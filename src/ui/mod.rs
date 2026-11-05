@@ -1336,6 +1336,9 @@ impl App {
                         }
                         self.toast(format!("Voice disconnected: {err}"));
                     }
+                    if let Some((key, img)) = self.voice.preview_job.take() {
+                        self.stream_preview(key, img);
+                    }
                     if std::mem::take(&mut self.voice.entrance_due) {
                         self.entrance_sound();
                     }
