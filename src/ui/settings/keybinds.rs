@@ -85,7 +85,9 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
     banner(ui, "Keybinds are disabled while this page is visible.");
     let mut changed = false;
     super::lead(ui);
-    if button(ui, "Add a Keybind", Look::Secondary).clicked() {
+    let add = button(ui, "Add a Keybind", Look::Secondary);
+    super::mark(ui, "keybind:add", add.rect);
+    if add.clicked() {
         app.settings.keybinds.push((String::new(), Vec::new()));
         app.sform.recording = Some(app.settings.keybinds.len() - 1);
         app.sform.rec_keys.clear();
