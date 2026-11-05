@@ -82,6 +82,7 @@ pub fn watch_streaming(ctx: egui::Context) {
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static BUTTON_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 // width of the invisible resize border, in points
@@ -93,6 +94,14 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if msg == WM_CLOSE && crate::tray::close_hides() {
+        crate::tray::send("hide");
+        return 0;
+    }
+    // a new taskbar button (shown again from the tray, or explorer restarted) has no badge yet
+    if msg != 0 && msg == BUTTON_CREATED.load(Ordering::Relaxed) {
+        crate::tray::send("badge");
+    }
     if msg == WM_NCHITTEST && unsafe { IsZoomed(hwnd) } == 0 {
         let (x, y) = (lp as i16 as i32, ((lp >> 16) as i16) as i32);
         let mut r: RECT = unsafe { std::mem::zeroed() };
@@ -137,6 +146,8 @@ pub fn frameless(frame: &eframe::Frame) {
     let hwnd = w.hwnd.get() as HWND;
     unsafe {
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE as u32, (&DWMWCP_ROUND as *const i32).cast(), 4);
+        let name: Vec<u16> = "TaskbarButtonCreated".encode_utf16().chain(Some(0)).collect();
+        BUTTON_CREATED.store(windows_sys::Win32::UI::WindowsAndMessaging::RegisterWindowMessageW(name.as_ptr()), Ordering::Relaxed);
         let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
         OLD_PROC.store(old, Ordering::Relaxed);
         // e2e: maximise and fullscreen would otherwise activate the window over someone's game
@@ -160,7 +171,8 @@ pub fn badge() -> i32 {
 pub fn set_badge(count: i32) {
     use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
     use windows::Win32::UI::Shell::{ITaskbarList3, TaskbarList};
-    use windows::Win32::UI::WindowsAndMessaging::{CreateIconFromResourceEx, DestroyIcon, GetSystemMetrics, HICON, LR_DEFAULTCOLOR, SM_CXSMICON};
+    use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, HICON};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
     const ICONS: [&[u8]; 11] = [
         include_bytes!("../assets/badges/badge-1.ico"),
         include_bytes!("../assets/badges/badge-2.ico"),
@@ -183,25 +195,12 @@ pub fn set_badge(count: i32) {
         0 => (None, "No Notifications".to_string()),
         n => (Some(n.clamp(1, 10) as usize - 1), format!("{n} notifications")),
     };
-    // the .ico's entry nearest the overlay size, handed to Windows as is
-    let icon = |ico: &[u8]| -> Option<HICON> {
-        let want = unsafe { GetSystemMetrics(SM_CXSMICON) };
-        let n = u16::from_le_bytes([ico[4], ico[5]]) as usize;
-        let (size, off, len) = (0..n)
-            .map(|i| {
-                let e = &ico[6 + 16 * i..22 + 16 * i];
-                let size = if e[0] == 0 { 256 } else { e[0] as i32 };
-                (size, u32::from_le_bytes([e[12], e[13], e[14], e[15]]) as usize, u32::from_le_bytes([e[8], e[9], e[10], e[11]]) as usize)
-            })
-            .min_by_key(|(s, _, _)| if *s >= want { s - want } else { 1000 + want - s })?;
-        unsafe { CreateIconFromResourceEx(ico.get(off..off + len)?, true, 0x00030000, size.min(want.max(16)), size.min(want.max(16)), LR_DEFAULTCOLOR).ok() }
-    };
     unsafe {
         let Ok(bar) = CoCreateInstance::<_, ITaskbarList3>(&TaskbarList, None, CLSCTX_INPROC_SERVER) else { return };
         if bar.HrInit().is_err() {
             return;
         }
-        let hicon = index.and_then(|i| icon(ICONS[i])).unwrap_or_default();
+        let hicon = index.and_then(|i| ico(ICONS[i], GetSystemMetrics(SM_CXSMICON))).map(HICON).unwrap_or_default();
         let set = bar.SetOverlayIcon(windows::Win32::Foundation::HWND(hwnd as _), hicon, &windows::core::HSTRING::from(what));
         // the taskbar keeps its own copy
         if !hicon.is_invalid() {
@@ -213,12 +212,47 @@ pub fn set_badge(count: i32) {
     }
 }
 
+/// The entry of an .ico nearest `want` pixels (the next size up if there is one): its size and
+/// bytes, which are a PNG or a DIB.
+pub fn ico_entry(ico: &[u8], want: i32) -> Option<(i32, &[u8])> {
+    let n = u16::from_le_bytes([ico[4], ico[5]]) as usize;
+    let (size, off, len) = (0..n)
+        .map(|i| {
+            let e = &ico[6 + 16 * i..22 + 16 * i];
+            let size = if e[0] == 0 { 256 } else { e[0] as i32 };
+            (size, u32::from_le_bytes([e[12], e[13], e[14], e[15]]) as usize, u32::from_le_bytes([e[8], e[9], e[10], e[11]]) as usize)
+        })
+        .min_by_key(|(s, _, _)| if *s >= want { s - want } else { 1000 + want - s })?;
+    Some((size, ico.get(off..off + len)?))
+}
+
+/// That entry as an icon `want` pixels across, handed to Windows as is.
+pub fn ico(ico: &[u8], want: i32) -> Option<windows_sys::Win32::UI::WindowsAndMessaging::HICON> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CreateIconFromResourceEx, LR_DEFAULTCOLOR};
+    let (size, bytes) = ico_entry(ico, want)?;
+    let px = size.min(want.max(16));
+    let h = unsafe { CreateIconFromResourceEx(bytes.as_ptr(), bytes.len() as u32, 1, 0x00030000, px, px, LR_DEFAULTCOLOR) };
+    (!h.is_null()).then_some(h)
+}
+
 /// Electron's flashFrame: the taskbar button blinks four times, then stays lit until the window
 /// is looked at.
 pub fn flash() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{FLASHW_ALL, FLASHWINFO, FlashWindowEx};
     let fwi = FLASHWINFO { cbSize: size_of::<FLASHWINFO>() as u32, hwnd: WINDOW.load(Ordering::Relaxed) as HWND, dwFlags: FLASHW_ALL, uCount: 4, dwTimeout: 0 };
     unsafe { FlashWindowEx(&fwi) };
+}
+
+/// Asks the window to close the way Alt+F4 does, for the e2e run.
+pub fn send_close() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+    unsafe { PostMessageW(WINDOW.load(Ordering::Relaxed) as HWND, WM_CLOSE, 0, 0) };
+}
+
+/// Whether the window is on screen at all, rather than put away in the tray.
+pub fn shown() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+    unsafe { IsWindowVisible(WINDOW.load(Ordering::Relaxed) as HWND) != 0 }
 }
 
 /// Minimizes or restores the window without activating anything, for the e2e run.

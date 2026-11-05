@@ -20,6 +20,7 @@ mod theme;
 mod games;
 mod shareable;
 mod toast;
+mod tray;
 mod ui;
 mod vencord;
 mod voice;
