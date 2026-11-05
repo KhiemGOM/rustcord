@@ -50,7 +50,7 @@ pub fn loaded(d: &mut Dir, key: &str, v: Value) {
             .collect();
         return;
     }
-    let Some((feed, _)) = key.rsplit_once('@') else { return };
+    let Some((feed, _)) = key.strip_prefix("sv:").and_then(|k| k.rsplit_once('@')) else { return };
     let f = d.sv.feeds.entry(feed.to_string()).or_default();
     f.loading = false;
     f.fetched = true;
@@ -200,10 +200,11 @@ fn hero(ui: &mut Ui, title: &str, sub: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 300.0), Sense::hover());
     hero_paint(ui, r);
     let title = title.to_uppercase();
-    let g = ui.painter().layout(title, bold(44.0), Color32::WHITE, (r.width() - 88.0).min(760.0));
+    let g = ui.painter().layout(title, bold(44.0), Color32::WHITE, (r.width() - 88.0).min(700.0));
     let at = pos2(r.left() + 44.0, r.top() + 96.0);
+    let below = at.y + g.size().y + 24.0;
     ui.painter().galley(at, g, Color32::WHITE);
-    ui.painter().text(pos2(r.left() + 44.0, r.top() + 206.0), Align2::LEFT_CENTER, sub, medium(16.0), Color32::from_white_alpha(120));
+    ui.painter().text(pos2(r.left() + 44.0, below), Align2::LEFT_CENTER, sub, medium(16.0), Color32::from_white_alpha(120));
 }
 
 fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
