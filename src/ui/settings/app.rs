@@ -43,12 +43,9 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
 
     ui.add_space(40.0);
     super::lead(ui);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Color Themes").font(semi(16.0)).color(pal().text_normal));
-        ui.add_space(4.0);
-        let (badge, _) = ui.allocate_exact_size(vec2(16.0, 20.0), Sense::hover());
-        icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(badge.center(), vec2(16.0, 16.0)), pal().header_primary);
-    });
+    let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+    let title = ui.painter().text(head.left_center(), Align2::LEFT_CENTER, "Color Themes", semi(16.0), pal().text_normal);
+    icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(title.right() + 12.0, head.center().y), vec2(16.0, 16.0)), pal().header_primary);
     ui.add_space(4.0);
     ui.add(egui::Label::new(RichText::new("Make Discord yours. Only with Nitro.").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
     ui.add_space(20.0);
@@ -78,7 +75,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     ui.painter().rect_filled(r, CornerRadius::same(8), BLURPLE);
     egui::Image::new(egui::include_image!("../../../assets/discord.png")).paint_at(ui, logo);
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
-    super::end(ui, 16.0);
+    ui.add_space(8.0);
     ui.add(egui::Label::new(RichText::new("Blurple (Default)").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
 
     section(ui, "Messages");
