@@ -95,7 +95,7 @@ fn pitch(app: &mut App, ui: &mut Ui, _gid: Snow) {
 fn overview(app: &mut App, ui: &mut Ui, gid: Snow) {
     title(ui, "Community Overview", "Community Servers are larger spaces where people with shared interests can come together.");
     let Some(raw) = app.server_data("guild", format!("/guilds/{gid}")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     ui.set_max_width(660.0);
@@ -187,7 +187,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
     let (mut next, mut back, mut close) = (false, false, false);
     let size = vec2(681.0, 628.0);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-    let m = egui::Modal::new(Id::new("community_setup")).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new(Id::new("community_setup")).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         let (all, _) = ui.allocate_exact_size(size, Sense::hover());
         let left = Rect::from_min_size(all.min, vec2(240.0, size.y));
         let mut m = egui::Mesh::default();
@@ -274,7 +274,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
                 ready = agree;
             }
             5 => {
-                body.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+                body.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
             }
             _ => {}
         }

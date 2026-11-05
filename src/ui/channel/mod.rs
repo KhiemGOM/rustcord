@@ -161,7 +161,7 @@ fn same_perms(a: &[Overwrite], b: &[Overwrite]) -> bool {
 fn modal(ctx: &egui::Context, id: &'static str, title: &str, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
-    let r = egui::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let r = crate::ui::motion::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(432.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (r, _) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::hover());

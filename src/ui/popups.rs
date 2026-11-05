@@ -2000,7 +2000,7 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
     // pointer pans it; another click anywhere zooms back out
     let zid = egui::Id::new(("viewer_zoom", &img));
     let mut zoomed = ctx.data(|d| d.get_temp::<bool>(zid)).unwrap_or(false);
-    let pop = super::motion::enter(ctx, egui::Id::new("viewer"), 0.31, super::motion::ZOOM);
+    let pop = super::motion::enter(ctx, egui::Id::new("viewer"), 0.2, super::motion::POP);
     egui::Area::new(egui::Id::new("viewer"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)

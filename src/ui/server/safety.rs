@@ -86,7 +86,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     let info = app.server_data("guild", format!("/guilds/{gid}")).cloned().unwrap_or(Value::Null);
     if info.is_null() {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     }
     let owner = g.owner == app.store.me;

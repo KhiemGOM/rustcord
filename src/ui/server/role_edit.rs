@@ -552,7 +552,7 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
     }
     let _ = role;
     let Some(list) = e.links.clone() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     ui.label(RichText::new("CREATE LINKED ROLE").font(bold(12.0)).color(pal().header_secondary));
@@ -677,7 +677,7 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
     let Some((q, picked)) = e.add.as_mut() else { return };
     let mut done = false;
     let mut submit = false;
-    let m = egui::Modal::new(egui::Id::new("role_add_members")).show(ui.ctx(), |ui| {
+    let m = crate::ui::motion::Modal::new(egui::Id::new("role_add_members")).show(ui.ctx(), |ui| {
         ui.set_width(440.0);
         ui.label(RichText::new("Add Members").font(bold(20.0)).color(pal().header_primary));
         ui.label(RichText::new(role.name.clone()).font(reg(14.0)).color(pal().header_secondary));

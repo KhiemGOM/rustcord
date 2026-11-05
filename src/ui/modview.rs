@@ -111,7 +111,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let h = (screen.height() - 100.0).clamp(420.0, 720.0);
     let mut act = None;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = egui::Modal::new("mod_view".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("mod_view".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(520.0);
         ui.set_height(h);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -192,7 +192,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 head(ui, "Recent messages");
                 match msgs {
                     None => {
-                        ui.spinner();
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                     }
                     Some(l) if l.is_empty() => {
                         ui.label(RichText::new("No recent messages").font(reg(14.0)).color(pal().header_secondary));

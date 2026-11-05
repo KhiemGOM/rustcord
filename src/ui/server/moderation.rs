@@ -318,7 +318,7 @@ pub fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
         s.pages.log.action = action;
     }
     if log.is_null() {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     }
     let entries = log["audit_log_entries"].as_array().cloned().unwrap_or_default();

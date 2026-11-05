@@ -11,19 +11,16 @@ use crate::theme::anim;
 #[derive(Clone, Copy)]
 pub enum Curve {
     Bezier(f32, f32, f32, f32),
-    Spring { k: f32, c: f32, m: f32, clamp: bool, secs: f32 },
+    Spring { k: f32, c: f32, m: f32, clamp: bool },
 }
 
 pub const EASE: Curve = Curve::Bezier(0.25, 0.1, 0.25, 1.0);
 pub const EASE_IN: Curve = Curve::Bezier(0.42, 0.0, 1.0, 1.0);
 pub const EASE_OUT: Curve = Curve::Bezier(0.0, 0.0, 0.58, 1.0);
 pub const EASE_IN_OUT: Curve = Curve::Bezier(0.42, 0.0, 0.58, 1.0);
-/// {mass 1, tension 500, friction 18, clamp}: Discord's usual enter and leave spring.
-pub const POP: Curve = Curve::Spring { k: 500.0, c: 18.0, m: 1.0, clamp: true, secs: 0.097 };
-/// {tension 800, friction 32}: the shared control spring the switch rides.
-pub const SWITCH: Curve = Curve::Spring { k: 800.0, c: 32.0, m: 1.0, clamp: false, secs: 0.3 };
-/// {tension 300, friction 30}: the image viewer's zoom, scale .9 to 1.
-pub const ZOOM: Curve = Curve::Spring { k: 300.0, c: 30.0, m: 1.0, clamp: false, secs: 0.31 };
+pub const POP: Curve = Curve::Spring { k: 500.0, c: 18.0, m: 1.0, clamp: true };
+pub const SWITCH: Curve = Curve::Spring { k: 800.0, c: 32.0, m: 1.0, clamp: false };
+pub const TOOLTIP: Curve = Curve::Spring { k: 2400.0, c: 52.0, m: 1.0, clamp: false };
 
 fn bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     let at = |a: f32, b: f32, s: f32| 3.0 * a * s * (1.0 - s) * (1.0 - s) + 3.0 * b * s * s * (1.0 - s) + s * s * s;
@@ -51,16 +48,36 @@ fn spring(k: f32, c: f32, m: f32, t: f32) -> f32 {
 }
 
 impl Curve {
+    /// How long the curve runs: a CSS transition's own length, or a spring's time to rest
+    /// (react-spring: first crossing of 1 when clamped, else position within .001 and velocity
+    /// within .1 a second of rest).
+    pub fn duration(self, css: f32) -> f32 {
+        let Curve::Spring { k, c, m, clamp } = self else { return css };
+        let w = (k / m).sqrt();
+        let z = c / (2.0 * (k * m).sqrt());
+        if z < 1.0 {
+            let wd = w * (1.0 - z * z).sqrt();
+            if clamp {
+                return (std::f32::consts::PI - ((1.0 - z * z).sqrt() / z).atan()) / wd;
+            }
+            let pos = (1.0 + (z * w / wd).powi(2)).sqrt() / 0.001;
+            let vel = w / (1.0 - z * z).sqrt() / 0.1;
+            return pos.max(vel).ln() / (z * w);
+        }
+        let slow = w * (z - (z * z - 1.0).max(0.0).sqrt());
+        (w / 0.1).max(1000.0).ln() / slow
+    }
+
     /// Progress for `u` in 0..=1 of the curve's length.
     pub fn at(self, u: f32) -> f32 {
         let u = u.clamp(0.0, 1.0);
         match self {
             Curve::Bezier(a, b, c, d) => bezier(a, b, c, d, u),
-            Curve::Spring { k, c, m, clamp, secs } => {
+            Curve::Spring { k, c, m, clamp } => {
                 if u >= 1.0 {
                     return 1.0;
                 }
-                let x = spring(k, c, m, u * secs);
+                let x = spring(k, c, m, u * self.duration(0.0));
                 if clamp { x.min(1.0) } else { x }
             }
         }
@@ -73,12 +90,12 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 
 /// Eases 0 to 1 as `on` flips and back again, over `secs` (CSS transition length).
 pub fn tween(ctx: &Context, id: Id, on: bool, secs: f32, curve: Curve) -> f32 {
-    curve.at(ctx.animate_bool_with_time(id, on, anim(secs)))
+    curve.at(ctx.animate_bool_with_time(id, on, anim(curve.duration(secs))))
 }
 
 /// A number that glides to `target` whenever it changes, like a CSS transition on height.
 pub fn follow(ctx: &Context, id: Id, target: f32, secs: f32, curve: Curve) -> f32 {
-    let secs = anim(secs);
+    let secs = anim(curve.duration(secs));
     let now = ctx.input(|i| i.time);
     let (from, to, start) = ctx.data(|d| d.get_temp::<(f32, f32, f64)>(id)).unwrap_or((target, target, now - 1e3));
     let u = if secs == 0.0 { 1.0 } else { ((now - start) as f32 / secs).clamp(0.0, 1.0) };
@@ -105,7 +122,7 @@ pub fn hover(ctx: &Context, resp: &Response, secs: f32) -> f32 {
 /// Seconds-long enter progress for something drawn every frame while it is open, restarting
 /// when it has been gone for a moment. Returns 1 once it has settled.
 pub fn enter(ctx: &Context, id: Id, secs: f32, curve: Curve) -> f32 {
-    let secs = anim(secs);
+    let secs = anim(curve.duration(secs));
     if secs == 0.0 {
         return 1.0;
     }
@@ -321,25 +338,48 @@ impl Modal {
 mod tests {
     use super::*;
 
+    fn close(a: f32, b: f32, tol: f32) -> bool {
+        (a - b).abs() < tol
+    }
+
     #[test]
-    fn curves_end_where_they_should() {
-        for c in [EASE, EASE_IN, EASE_OUT, EASE_IN_OUT, POP, ZOOM, SWITCH] {
-            assert!(c.at(0.0).abs() < 1e-3);
-            assert!((c.at(1.0) - 1.0).abs() < 1e-3);
+    fn css_curves_match_their_control_points() {
+        for (c, mid) in [(EASE, 0.8024), (EASE_IN, 0.3154), (EASE_OUT, 0.6846), (EASE_IN_OUT, 0.5)] {
+            assert!(close(c.at(0.0), 0.0, 1e-4) && close(c.at(1.0), 1.0, 1e-4));
+            assert!(close(c.at(0.5), mid, 1e-3), "{} vs {mid}", c.at(0.5));
         }
-        assert!((EASE_OUT.at(0.5) - 0.68).abs() < 0.03);
+        assert!(close(EASE_OUT.at(0.25), 0.3781, 1e-3) && close(EASE_OUT.at(0.75), 0.9065, 1e-3));
+    }
+
+    #[test]
+    fn pop_spring_first_reaches_one_at_its_clamp() {
+        let (w, z) = (500f32.sqrt(), 18.0 / (2.0 * 500f32.sqrt()));
+        let wd = w * (1.0 - z * z).sqrt();
+        assert!(close(z, 0.4025, 1e-4) && close(wd, 20.469, 1e-3));
+        let t = POP.duration(0.0);
+        assert!(close(t, 0.09698, 1e-4), "{t}");
+        assert!(close(spring(500.0, 18.0, 1.0, t), 1.0, 1e-4));
+        assert!(spring(500.0, 18.0, 1.0, t - 0.005) < 0.99);
+        let peak = std::f32::consts::PI / wd;
+        assert!(close(peak, 0.15348, 1e-4));
+        assert!(close(spring(500.0, 18.0, 1.0, peak), 1.2513, 1e-3));
+        assert!(POP.at(0.99) <= 1.0);
+    }
+
+    #[test]
+    fn unclamped_springs_overshoot_then_rest() {
+        let peak = 1.0 + (-0.5657f32 * std::f32::consts::PI / (1.0 - 0.5657f32.powi(2)).sqrt()).exp();
+        assert!(close(peak, 1.1159, 1e-3));
+        let top = (0..300).map(|i| SWITCH.at(i as f32 / 300.0)).fold(0.0f32, f32::max);
+        assert!(close(top, peak, 5e-3), "{top}");
+        assert!(close(SWITCH.duration(0.0), 0.4426, 5e-3), "{}", SWITCH.duration(0.0));
+        assert!(close(TOOLTIP.at(1.0), 1.0, 1e-6));
     }
 
     #[test]
     fn keys_interpolate() {
         let f = [(0.0, 0.32), (0.25, 1.0), (0.5, 0.32), (1.0, 0.32)];
-        assert!((keys(&f, 0.125) - 0.66).abs() < 1e-3);
-        assert!((keys(&f, 0.9) - 0.32).abs() < 1e-3);
-    }
-
-    #[test]
-    fn pop_spring_first_reaches_one_at_its_clamp() {
-        assert!((spring(500.0, 18.0, 1.0, 0.097) - 1.0).abs() < 0.02);
-        assert!(spring(500.0, 18.0, 1.0, 0.05) < 1.0);
+        assert!(close(keys(&f, 0.125), 0.66, 1e-3));
+        assert!(close(keys(&f, 0.9), 0.32, 1e-3));
     }
 }

@@ -132,7 +132,7 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
                 let msg = if first && loading { None } else { Some(if searching { "No servers found." } else { "Nothing here yet." }) };
                 match msg {
                     None => {
-                        ui.add(egui::Spinner::new().color(pal().text_muted));
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                     }
                     Some(m) => {
                         ui.label(RichText::new(m).font(reg(16.0)).color(pal().header_secondary));
@@ -161,7 +161,7 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
             }
             if loading || guilds.len() < total {
                 ui.add_space(8.0);
-                ui.add(egui::Spinner::new().color(pal().text_muted));
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             }
             ui.add_space(48.0);
         });

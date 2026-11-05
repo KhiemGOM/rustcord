@@ -153,7 +153,7 @@ fn settle(app: &mut App, ui: &Ui) {
 
 fn confirm(ctx: &egui::Context, id: &str, head: &str, body: &str, ok: &str, red: bool) -> Option<bool> {
     let mut out = None;
-    let r = egui::Modal::new(Id::new(("billing_modal", id))).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
+    let r = crate::ui::motion::Modal::new(Id::new(("billing_modal", id))).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
         ui.set_width(440.0);
         Frame::new().inner_margin(16).show(ui, |ui| {
             ui.set_width(408.0);
@@ -603,7 +603,7 @@ fn edit_source(app: &mut App, ui: &mut Ui, sources: &[Value]) {
     }
     let default = s["default"] == true;
     let (mut close, mut make, mut delete) = (false, false, false);
-    let r = egui::Modal::new(Id::new("billing_edit_source")).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ui.ctx(), |ui| {
+    let r = crate::ui::motion::Modal::new(Id::new("billing_edit_source")).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ui.ctx(), |ui| {
         ui.set_width(440.0);
         Frame::new().inner_margin(16).show(ui, |ui| {
             ui.set_width(408.0);

@@ -241,7 +241,7 @@ fn details(app: &App, ctx: &egui::Context, gid: Id, e: &Value, rsvp: &HashSet<Id
     let mut close = false;
     let screen = ctx.content_rect();
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-    let m = egui::Modal::new("event_details".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("event_details".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(604.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (head, _) = ui.allocate_exact_size(vec2(604.0, 56.0), Sense::hover());
@@ -258,7 +258,7 @@ fn details(app: &App, ctx: &egui::Context, gid: Id, e: &Value, rsvp: &HashSet<Id
             match users {
                 None => {
                     ui.add_space(20.0);
-                    ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+                    ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
                 }
                 Some(l) => {
                     for u in l {

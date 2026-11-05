@@ -470,7 +470,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let store = &app.store;
     let notes = &mut app.rects;
     let frame = Frame::new().fill(pal().bg_primary).corner_radius(16).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = egui::Modal::new("full_profile".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("full_profile".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(960.0);
         ui.set_height(h);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);

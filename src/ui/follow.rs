@@ -93,7 +93,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut cancel = false;
     let mut go = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = egui::Modal::new("follow".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("follow".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(520.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (band, _) = ui.allocate_exact_size(vec2(520.0, 80.0), Sense::hover());

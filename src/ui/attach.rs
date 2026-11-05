@@ -34,7 +34,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
     let preview = f.thumb_bytes();
     let uri = format!("bytes://upload/{}", f.path.to_string_lossy());
     let (mut save, mut close) = (false, false);
-    let modal = egui::Modal::new("modify_attachment".into())
+    let modal = crate::ui::motion::Modal::new("modify_attachment".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);

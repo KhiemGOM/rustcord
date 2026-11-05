@@ -310,7 +310,7 @@ enum Act {
 fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str, fill: Color32, alt: Option<(&str, Color32)>, body: impl FnOnce(&mut Ui)) -> Act {
     let mut act = Act::None;
     let at = if id == "settings_modal" { "modal" } else { "verify" };
-    let r = egui::Modal::new(id.into()).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
+    let r = crate::ui::motion::Modal::new(id.into()).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
         ui.set_width(440.0);
         Frame::new().inner_margin(16).show(ui, |ui| {
             ui.set_width(408.0);
@@ -529,7 +529,7 @@ fn modal(app: &mut App, ctx: &egui::Context) {
                 super::mark(ui, "modal_input", r.rect);
             }
             (Edit::AddKey, 1 | 2) => {
-                ui.add(egui::Spinner::new().color(pal().text_muted));
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             }
             (Edit::SmsOff, _) => {
                 label(ui, "Password");

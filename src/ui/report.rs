@@ -145,7 +145,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut submit = false;
     let store = &app.store;
     let preview = store.find_msg(r.ch, r.msg).cloned();
-    let modal = egui::Modal::new("report".into())
+    let modal = crate::ui::motion::Modal::new("report".into())
         .frame(Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(440.0);
@@ -167,7 +167,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.set_width(392.0);
                     match &r.err {
                         Some(e) => ui.label(RichText::new(e).font(reg(14.0)).color(pal().critical)),
-                        None => ui.add(egui::Spinner::new()),
+                        None => crate::ui::motion::spinner(ui, 24.0, pal().text_muted),
                     };
                 });
                 return;

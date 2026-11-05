@@ -34,11 +34,11 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     title(ui, "Access", "");
     let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
     let Some(ver) = app.server_data("verification", format!("/guilds/{gid}/member-verification?with_guild=false")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let Some(raw) = app.server_data("guild", format!("/guilds/{gid}")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let community = g.features.iter().any(|f| f == "COMMUNITY");
