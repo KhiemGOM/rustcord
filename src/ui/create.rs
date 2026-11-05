@@ -127,7 +127,7 @@ pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, 
             ui.painter().text(pos2(r.left(), r.top() + 2.0), Align2::LEFT_TOP, t, semi(20.0), pal().header_primary);
             let x = Rect::from_center_size(pos2(r.right() + 6.0, r.center().y - 4.0), vec2(40.0, 40.0));
             let resp = ui.interact(x, ui.id().with("close"), Sense::click());
-            icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+            icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             close = resp.clicked();
             ui.add_space(24.0);
         }
@@ -228,7 +228,7 @@ pub(super) fn plate(ui: &Ui, r: Rect, text: &str, primary: bool, ready: bool) ->
     let (fill, ink) = if primary {
         (if resp.hovered() && ready { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE }, Color32::WHITE)
     } else {
-        (if resp.hovered() { faint(51) } else { faint(31) }, pal().header_primary)
+        (crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary)
     };
     ui.painter().rect_filled(r, CornerRadius::same(8), fill.gamma_multiply(fade));
     let edge = if primary { Color32::from_white_alpha(20) } else { faint(61) };
@@ -539,7 +539,7 @@ fn cover(ui: &mut Ui, f: &mut Form) {
         ui.painter().galley(at, g, pal().header_secondary);
         let x = Rect::from_center_size(pos2(r.right() - 12.0, r.center().y), vec2(20.0, 20.0));
         let resp = ui.interact(x.expand(4.0), ui.id().with("cover_drop"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
         if resp.clicked() {
             f.cover = None;
         }

@@ -168,7 +168,7 @@ fn modal(ctx: &egui::Context, id: &'static str, title: &str, add: impl FnOnce(&m
         ui.painter().text(pos2(r.left(), r.top() + 2.0), Align2::LEFT_TOP, title, semi(20.0), pal().header_primary);
         let x = Rect::from_center_size(pos2(r.right() + 6.0, r.center().y - 4.0), vec2(40.0, 40.0));
         let resp = ui.interact(x, ui.id().with("close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
         close = resp.clicked();
         ui.add_space(16.0);
         add(ui);
@@ -253,7 +253,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
         let esc = Rect::from_center_size(pos2(area.right() - 56.0, area.top() + 64.0), vec2(36.0, 36.0));
         let er = ui.interact(esc, ui.id().with("chan_esc"), Sense::click());
-        let ink = if er.hovered() { pal().header_primary } else { pal().header_secondary };
+        let ink = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er));
         ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, ink));
         icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), ink);
         ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);

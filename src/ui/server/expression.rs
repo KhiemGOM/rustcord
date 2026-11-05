@@ -231,7 +231,7 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
                 for (k, (icon, what)) in [(Icon::Pencil, "edit"), (Icon::Trash, "delete")].into_iter().enumerate() {
                     let b = Rect::from_center_size(pos2(t.right() - 20.0 - k as f32 * 32.0, t.top() + 20.0), vec2(28.0, 28.0));
                     let br = ui.interact(b, ui.id().with(("sticker_btn", id, k)), Sense::click());
-                    ui.painter().circle_filled(b.center(), 14.0, if br.hovered() { faint(81) } else { pal().bg_floating });
+                    ui.painter().circle_filled(b.center(), 14.0, crate::ui::motion::mix(pal().bg_floating, faint(81), crate::ui::motion::hot(ui.ctx(), &br)));
                     icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if what == "delete" { RED } else { pal().header_primary });
                     if br.clicked() {
                         act = Some((what, st.clone()));

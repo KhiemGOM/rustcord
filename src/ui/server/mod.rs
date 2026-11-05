@@ -318,8 +318,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         // the round ESC button off to the right
         let esc = Rect::from_center_size(pos2(area.right() - 56.0, area.top() + 78.0 - 32.0 + 18.0), vec2(36.0, 36.0));
         let er = ui.interact(esc, ui.id().with("esc"), Sense::click());
-        ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, if er.hovered() { pal().header_primary } else { pal().header_secondary }));
-        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), if er.hovered() { pal().header_primary } else { pal().header_secondary });
+        ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er))));
+        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er)));
         ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);
         close = er.clicked();
         let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 900.0).min(esc.left() - 40.0), area.bottom()));

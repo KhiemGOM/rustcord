@@ -310,7 +310,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
         let body = on.then(|| ui.painter().layout(a.to_string(), reg(14.0), pal().header_secondary, ui.available_width() - 32.0));
         let h = 54.0 + body.as_ref().map_or(0.0, |g| g.size().y + 16.0);
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-        ui.painter().rect(r, CornerRadius::same(8), if resp.hovered() { faint(20) } else { pal().bg_primary }, Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+        ui.painter().rect(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_primary, faint(20), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
         ui.painter().text(pos2(r.left() + 16.0, r.top() + 27.0), Align2::LEFT_CENTER, *q, medium(16.0), pal().header_primary);
         icons::draw(ui.painter(), if on { Icon::ChevronUp } else { Icon::ChevronDown }, Rect::from_center_size(pos2(r.right() - 24.0, r.top() + 27.0), vec2(20.0, 20.0)), pal().header_primary);
         if let Some(g) = body {

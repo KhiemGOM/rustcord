@@ -314,7 +314,7 @@ fn grid(ui: &mut Ui, apps: &[(Value, bool)], cat_name: &dyn Fn(&Value) -> Option
             let r = Rect::from_min_size(pos2(row.left() + i as f32 * (w + 24.0), row.top()), vec2(w, cover_h + 160.0));
             let resp = ui.interact(r, ui.id().with(("app", a["id"].as_str().unwrap_or_default())), Sense::click());
             let p = ui.painter();
-            p.rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().bg_floating } else { pal().bg_secondary });
+            p.rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_floating, crate::ui::motion::hot(ui.ctx(), &resp)));
             p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
             let id = a["id"].as_str().unwrap_or_default();
             let cover = Rect::from_min_size(r.min, vec2(w, cover_h));

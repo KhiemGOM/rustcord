@@ -57,7 +57,7 @@ pub fn placeholder(chan: &Channel, gate: &Gate) -> Option<&'static str> {
 pub fn button(ui: &mut Ui, label: &str) -> egui::Response {
     let g = ui.painter().layout_no_wrap(label.into(), medium(14.0), pal().header_primary);
     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::click());
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, 8, fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     ui.painter().galley(pos2(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, pal().header_primary);
     if resp.hovered() {

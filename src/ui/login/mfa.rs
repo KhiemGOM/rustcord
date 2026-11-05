@@ -76,7 +76,7 @@ fn names(kind: &str) -> &'static str {
 
 fn row(ui: &mut Ui, text: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-    let fill = if resp.hovered() { pal().bg_mod_selected } else { pal().bg_mod_hover };
+    let fill = crate::ui::motion::mix(pal().bg_mod_hover, pal().bg_mod_selected, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect_filled(rect, 3.0, fill);
     ui.painter().text(rect.left_center() + vec2(16.0, 0.0), egui::Align2::LEFT_CENTER, text, semi(16.0), pal().text_normal);
     ui.painter().text(rect.right_center() - vec2(16.0, 0.0), egui::Align2::RIGHT_CENTER, "›", semi(20.0), pal().text_muted);

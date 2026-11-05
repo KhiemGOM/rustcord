@@ -415,7 +415,7 @@ fn welcome(app: &mut App, ctx: &egui::Context) {
         ui.painter().add(fade);
         let close = Rect::from_center_size(pos2(panel.right() + 8.0, top + 32.0), vec2(24.0, 24.0));
         let x = ui.interact(close, egui::Id::new("stage_welcome_x"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, close, if x.hovered() { Color32::WHITE } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, close, crate::ui::motion::mix(pal().header_secondary, Color32::WHITE, crate::ui::motion::hot(ui.ctx(), &x)));
         done |= x.clicked();
         ui.add_space(40.0);
         let (art, _) = ui.allocate_exact_size(vec2(416.0, 160.0), Sense::hover());
@@ -438,7 +438,7 @@ fn welcome(app: &mut App, ctx: &egui::Context) {
         }
         ui.add_space(40.0);
         let (b, resp) = ui.allocate_exact_size(vec2(416.0, 48.0), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { Color32::from_rgb(0x47, 0x52, 0xc4) } else { BLURPLE });
+        ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Got it!", medium(16.0), Color32::WHITE);
         app.rects.insert("stage:welcome_ok".into(), b);
         done |= resp.clicked();
@@ -482,7 +482,7 @@ fn start(app: &mut App, ctx: &egui::Context) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (b, resp) = ui.allocate_exact_size(vec2(if form.edit { 120.0 } else { 120.0 }, 38.0), Sense::click());
             let ready = !form.topic.trim().is_empty();
-            ui.painter().rect_filled(b, CornerRadius::same(8), if !ready { BLURPLE.gamma_multiply(0.5) } else if resp.hovered() { Color32::from_rgb(0x47, 0x52, 0xc4) } else { BLURPLE });
+            ui.painter().rect_filled(b, CornerRadius::same(8), if !ready { BLURPLE.gamma_multiply(0.5) } else { crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)) });
             ui.painter().text(b.center(), Align2::CENTER_CENTER, if form.edit { "Update Stage" } else { "Start Stage" }, medium(16.0), Color32::WHITE);
             app.rects.insert("stage:start_ok".into(), b);
             go = ready && (resp.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)));

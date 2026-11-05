@@ -126,7 +126,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 match e {
                     Some(em) if em.id != 0 => text::image(ui.painter(), &format!("{}/emojis/{}.png?size=48", crate::api::emoji_cdn(), em.id), face.shrink(2.0)),
                     Some(em) => text::image(ui.painter(), &crate::markdown::twemoji(&em.name), face.shrink(2.0)),
-                    None => icons::draw(ui.painter(), Icon::Smile, face.shrink(2.0), if fr.hovered() { pal().interactive_hover } else { pal().header_secondary }),
+                    None => icons::draw(ui.painter(), Icon::Smile, face.shrink(2.0), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &fr))),
                 }
                 let at = fr.rect.left_top();
                 if fr.on_hover_text("Select Emoji").clicked() {
@@ -134,7 +134,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 let tr = Rect::from_center_size(pos2(row.right() - 22.0, row.center().y), vec2(24.0, 24.0));
                 let tresp = ui.interact(tr, ui.id().with(("poll_del", i)), Sense::click());
-                let col = if many { if tresp.hovered() { pal().interactive_hover } else { pal().header_secondary } } else { pal().text_muted.gamma_multiply(0.5) };
+                let col = if many { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &tresp)) } else { pal().text_muted.gamma_multiply(0.5) };
                 icons::draw(ui.painter(), Icon::Trash, tr.shrink(2.0), col);
                 if many && tresp.on_hover_text("Remove Answer").clicked() {
                     remove = Some(i);
@@ -144,7 +144,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if d.answers.len() < 10 {
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                     let (r, resp) = ui.allocate_exact_size(vec2(166.0, 40.0), Sense::click());
-                    ui.painter().rect(r, 8, if resp.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().rect(r, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(r.left() + 22.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
                     ui.painter().text(pos2(r.left() + 38.0, r.center().y), Align2::LEFT_CENTER, "Add another answer", medium(14.0), pal().header_primary);
                     if resp.hovered() {

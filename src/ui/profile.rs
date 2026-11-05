@@ -204,7 +204,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
             let b = Rect::from_center_size(pos2(pill.right() - 12.0, pill.center().y), vec2(16.0, 16.0));
             let resp = ui.interact(b, ui.id().with(("role_x", id)), Sense::click());
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "role_x", id)), b));
-            icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(b.center(), vec2(10.0, 10.0)), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+            icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(b.center(), vec2(10.0, 10.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -231,7 +231,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "role_add")), pill));
         let p = ui.painter();
         p.rect_stroke(pill, CornerRadius::same(8), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-        icons::draw(p, Icon::Plus, Rect::from_center_size(pill.center(), vec2(12.0, 12.0)), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+        icons::draw(p, Icon::Plus, Rect::from_center_size(pill.center(), vec2(12.0, 12.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
@@ -360,7 +360,7 @@ pub fn status_bubble(ui: &mut Ui, top: Rect, store: &Store, uid: Id, reacts: boo
             let c = Rect::from_center_size(pos2(b.right() + 18.0 + i as f32 * 28.0, b.center().y), vec2(24.0, 24.0));
             let resp = ui.interact(c, ui.id().with(("status_btn", i)), Sense::click());
             let p = ui.painter();
-            p.circle(c.center(), 12.0, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_floating }, Stroke::new(1.0, pal().border_subtle));
+            p.circle(c.center(), 12.0, crate::ui::motion::mix(pal().bg_floating, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle));
             icons::draw(p, icon, Rect::from_center_size(c.center(), vec2(14.0, 14.0)), pal().header_primary);
             if resp.on_hover_text(tip).clicked() {
                 act = Some(what);
@@ -754,7 +754,7 @@ fn row_frame(ui: &Ui, r: Rect, resp: &egui::Response) {
 
 fn text_button(ui: &mut Ui, r: Rect, label: &str, icon: Icon, primary: bool) -> bool {
     let resp = ui.interact(r, ui.id().with(("fp_text_btn", label)), Sense::click());
-    let fill = if primary { if resp.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE } } else { Color32::from_rgba_unmultiplied(151, 151, 159, 31) };
+    let fill = if primary { crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)) } else { Color32::from_rgba_unmultiplied(151, 151, 159, 31) };
     ui.painter().rect_filled(r, CornerRadius::same(8), fill);
     let g = ui.painter().layout_no_wrap(label.into(), medium(14.0), Color32::WHITE);
     let total = 20.0 + g.size().x;

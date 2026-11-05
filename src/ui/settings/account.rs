@@ -389,7 +389,7 @@ fn devices(app: &mut App, ui: &mut Ui) -> bool {
         ui.painter().text(pos2(r.left() + 52.0, r.center().y + 10.0), Align2::LEFT_CENTER, format!("{loc} · {when}"), reg(14.0), pal().header_secondary);
         let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(24.0, 24.0));
         let resp = ui.interact(x, egui::Id::new(("logout_session", hash.as_str())), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
         super::mark(ui, &format!("logout:{hash}"), x);
         if resp.on_hover_text("Log out").clicked() {
             out.push(hash);

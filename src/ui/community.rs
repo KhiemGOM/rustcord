@@ -429,7 +429,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
             if resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0))) {
                 let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
                 let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
-                icons::draw(ui.painter(), Icon::CirclePlus, plus, if pr.hovered() { pal().header_primary } else { pal().header_secondary });
+                icons::draw(ui.painter(), Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
                 egui::Popup::menu(&pr).show(|ui| {
                     super::menu_body(ui, |ui| {
                         let mut left: Vec<&(Id, String, u32, i32)> = roles.iter().filter(|r| r.0 != gid && !mine.iter().any(|m| m.0 == r.0)).collect();
@@ -626,7 +626,7 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
                             let label = format!("{}{title}", emoji.map(|e| format!("{e} ")).unwrap_or_default());
                             let g = super::text::layout_em(ui.ctx(), &label, medium(16.0), pal().text_normal, f32::INFINITY, 1.0);
                             let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 40.0).max(270.0), 48.0), Sense::click());
-                            ui.painter().rect(r, 8, if resp.hovered() { faint(31) } else { Color32::from_black_alpha(31) }, Stroke::new(if on { 2.0 } else { 1.0 }, if on { BLURPLE } else { faint(61) }), egui::StrokeKind::Inside);
+                            ui.painter().rect(r, 8, crate::ui::motion::mix(Color32::from_black_alpha(31), faint(31), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(if on { 2.0 } else { 1.0 }, if on { BLURPLE } else { faint(61) }), egui::StrokeKind::Inside);
                             g.paint(ui.painter(), pos2(r.left() + 20.0, r.center().y - g.size().y / 2.0));
                             if on {
                                 let c = pos2(r.right(), r.top());

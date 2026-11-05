@@ -247,7 +247,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         let g = ui.painter().layout_no_wrap("Add to Channel List".into(), medium(14.0), Color32::WHITE);
                         let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
                         app.rects.insert("add_to_list".into(), b);
-                        ui.painter().rect_filled(b, 8, if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+                        ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
                         icons::draw(ui.painter(), Icon::Plus, Rect::from_min_size(pos2(b.left() + 12.0, b.center().y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
                         ui.painter().galley(pos2(b.left() + 32.0, b.center().y - g.size().y / 2.0), g, Color32::WHITE);
                         if resp.hovered() {
@@ -283,7 +283,7 @@ fn voice_chat(app: &mut App, ui: &mut Ui, chan: &Channel) {
         text::paint_em(ui.painter(), pos2(h.left() + 45.0, y), Align2::LEFT_CENTER, &chan.name, medium(16.0), pal().header_primary, h.width() - 100.0, 1.0);
         let x = Rect::from_center_size(pos2(h.right() - 25.0, y), vec2(20.0, 20.0));
         let r = ui.interact(x.expand(4.0), ui.id().with("voice_chat_close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x, if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &r)));
         app.rects.insert("voice_chat:close".into(), x);
         close = r.on_hover_text("Close").clicked();
     });
@@ -433,7 +433,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                     if q.is_empty() {
                                         icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
                                     } else {
-                                        icons::draw(ui.painter(), Icon::Close, ir, if x.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                                        icons::draw(ui.painter(), Icon::Close, ir, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &x)));
                                         clear = x.clicked();
                                     }
                                     r
@@ -1217,7 +1217,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             if let Some(r) = r.filter(|_| i == 0 && hot && m.author == me && !d.popout) {
                 let x = Rect::from_min_size(pos2(r.right() + 4.0, r.top()), vec2(16.0, 16.0));
                 let resp = cui.interact(x, cui.id().with(("clear_embeds", m.id)), Sense::click());
-                icons::draw(cui.painter(), Icon::Close, x, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                icons::draw(cui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 d.rects.push(("clear_embeds".into(), x));
                 if resp.on_hover_text("Remove all embeds").clicked() {
                     d.acts.push(Act::ClearEmbeds(m.id));
@@ -1562,7 +1562,7 @@ fn compact_name_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, color: Col
 fn small_button(ui: &mut Ui, text: &str) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.to_string(), medium(14.0), pal().header_primary);
     let (rect, resp) = ui.allocate_exact_size(vec2(g.size().x + 32.0, 32.0), Sense::click());
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     ui.painter().galley(rect.center() - g.size() / 2.0, g, pal().header_primary);
     if resp.hovered() {
@@ -1893,7 +1893,7 @@ fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment, voice: bool)
     // play / pause button
     let btn = Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(32.0, 32.0));
     let pr = ui.interact(btn, ui.id().with(("aud", &a.url)), Sense::click());
-    ui.painter().circle_filled(btn.center(), 16.0, if pr.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+    ui.painter().circle_filled(btn.center(), 16.0, crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &pr)));
     let playing = crate::audioplay::is_playing(&a.url);
     if playing {
         for dx in [-3.5, 3.5] {
@@ -2330,7 +2330,7 @@ fn render_row(ui: &mut Ui, d: &mut D, m: &Message, row: &[Comp]) {
                             for (label, value, desc) in options {
                                 let h = if desc.is_some() { 48.0 } else { 36.0 };
                                 let (or, oresp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
-                                ui.painter().rect_filled(or, CornerRadius::ZERO, if oresp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary });
+                                ui.painter().rect_filled(or, CornerRadius::ZERO, crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &oresp)));
                                 ui.painter().text(pos2(or.left() + 12.0, or.top() + 18.0), Align2::LEFT_CENTER, label, semi(15.0), pal().header_primary);
                                 if let Some(dsc) = desc {
                                     ui.painter().text(pos2(or.left() + 12.0, or.top() + 36.0), Align2::LEFT_CENTER, dsc, reg(13.0), pal().header_secondary);
@@ -2435,7 +2435,7 @@ fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
                     let fill = if a.me { Color32::from_rgb(0x3d, 0x45, 0xa5) } else { pal().control };
                     ui.painter().rect_filled(bar, CornerRadius::same(8), fill);
                 } else {
-                    let fill = if resp.hovered() { pal().bg_accent } else { pal().input_bg };
+                    let fill = crate::ui::motion::mix(pal().input_bg, pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp));
                     ui.painter().rect(row, CornerRadius::same(8), fill, Stroke::new(1.0, if picked { BLURPLE } else { Color32::TRANSPARENT }), egui::StrokeKind::Inside);
                 }
                 let mut x = row.left() + 14.0;
@@ -2801,7 +2801,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
             for (i, e) in quick.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::click());
                 tiles.push(r);
-                ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
+                ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 let er = Rect::from_center_size(r.center(), vec2(24.0, 24.0));
                 Image::from_uri(gif::uri(ui.ctx(), &emoji_url(e), true)).show_loading_spinner(false).paint_at(ui, er);
                 // not discord's: right-click a slot to put another emoji there
