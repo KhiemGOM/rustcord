@@ -1760,7 +1760,7 @@ impl Store {
         }
         if matches!(m.kind, 25 | 44) {
             m.extra = if v["role_subscription_data"].is_object() { v["role_subscription_data"].clone() } else { v["purchase_notification"].clone() };
-        } else if matches!(m.kind, 32..=34) {
+        } else if matches!(m.kind, 32..=34 | 49) {
             m.extra = serde_json::json!({ "application": v["application"]["name"] });
         }
         if v["referenced_message"].is_object() {
