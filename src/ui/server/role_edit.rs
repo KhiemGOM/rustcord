@@ -570,7 +570,7 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
         ui.painter().rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
         ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Must connect {name}"), medium(16.0), pal().header_primary);
         let x = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(24.0, 24.0));
-        icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), if resp.hovered() { RED } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), crate::ui::motion::mix(pal().header_secondary, RED, crate::ui::motion::hot(ui.ctx(), &resp)));
         if resp.clicked() && members == 0 {
             next.remove(i);
             break;
@@ -643,7 +643,7 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, members: &[Id], rol
         }
         let x = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(28.0, 28.0));
         let xr = ui.interact(x, ui.id().with(("role_rm", *u)), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), if xr.hovered() { RED } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), crate::ui::motion::mix(pal().header_secondary, RED, crate::ui::motion::hot(ui.ctx(), &xr)));
         if xr.on_hover_text("Remove member").clicked() {
             remove = Some((*u, name.clone()));
         }

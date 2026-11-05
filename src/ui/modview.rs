@@ -125,7 +125,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.painter().text(chip.center(), Align2::CENTER_CENTER, "Mod View", semi(11.0), Color32::WHITE);
         let x = egui::Rect::from_center_size(pos2(top.right() - 32.0, a.center().y), vec2(32.0, 32.0));
         let xr = ui.interact(x, ui.id().with("mv_close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, egui::Rect::from_center_size(x.center(), vec2(18.0, 18.0)), if xr.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, egui::Rect::from_center_size(x.center(), vec2(18.0, 18.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &xr)));
         if xr.clicked() {
             act = Some(Do::Close);
         }

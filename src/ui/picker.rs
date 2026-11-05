@@ -139,7 +139,7 @@ pub fn shell(ctx: &egui::Context, at: Pos2, pivot: Align2, tab: Option<Tab>, bod
                             if on || resp.hovered() {
                                 ui.painter().rect_filled(r, 8, if on { pal().control_hover } else { MENU_HOVER });
                             }
-                            let col = if on { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().text_normal };
+                            let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().text_normal, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                             ui.painter().galley(r.center() - g.size() / 2.0, g, col);
                             if resp.clicked() && !on {
                                 to = Some(t);
@@ -181,7 +181,7 @@ pub fn search_box_in(ui: &mut Ui, q: &mut String, hint: &str, back: Option<&mut 
     match back {
         Some(b) => {
             let hit = ui.interact(ir.expand(6.0), ui.id().with("picker_back"), Sense::click());
-            super::icons::draw(ui.painter(), super::icons::Icon::ArrowLeft, ir, if hit.hovered() { pal().interactive_hover } else { pal().header_primary });
+            super::icons::draw(ui.painter(), super::icons::Icon::ArrowLeft, ir, crate::ui::motion::mix(pal().header_primary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
             *b = hit.clicked();
         }
         None => super::icons::draw(ui.painter(), super::icons::Icon::Search, ir, pal().header_primary),
@@ -271,7 +271,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         let add = Rect::from_min_size(pos2(hand.right() + 8.0, row.y), vec2(108.0, 40.0));
         let ar = ui.interact(add, ui.id().with("add_emoji"), Sense::click());
-        ui.painter().rect(add, 8, if ar.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+        ui.painter().rect(add, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &ar)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(add.center(), Align2::CENTER_CENTER, "Add Emoji", medium(16.0), pal().header_primary);
         add_emoji = ar.clicked();
         header_rule(ui);
@@ -617,7 +617,7 @@ fn section(ui: &mut Ui, title: &str, lead: Lead, shut: &mut Vec<String>) -> bool
     let open = !shut.iter().any(|s| s == title);
     ui.add_space(12.0);
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-    let col = if resp.hovered() { pal().header_primary } else { pal().header_secondary };
+    let col = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
     let mut x = r.left() + 12.0;
     let lr = Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0));
     match lead {

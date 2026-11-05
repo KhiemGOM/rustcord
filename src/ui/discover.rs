@@ -254,7 +254,7 @@ fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
         ui.painter().galley(pos2(x + 12.0, cy - t.size().y / 2.0), t, pal().text_normal);
         x += 12.0 + w + 16.0;
     }
-    let edge = if resp.hovered() { faint(110) } else { faint(51) };
+    let edge = crate::ui::motion::mix(faint(51), faint(110), crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect_stroke(r, radius, Stroke::new(1.0, edge), StrokeKind::Inside);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

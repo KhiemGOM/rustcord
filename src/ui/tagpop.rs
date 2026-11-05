@@ -132,7 +132,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(16.0);
                 let (b, resp) = ui.allocate_exact_size(vec2(268.0, 32.0), Sense::click());
                 let label = if member { "Go to Server" } else if gated { "Apply to Join" } else { "Join Server" };
-                ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+                ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)));
                 ui.painter().text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), Color32::WHITE);
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

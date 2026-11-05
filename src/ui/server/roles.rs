@@ -153,7 +153,7 @@ fn list(app: &mut App, ui: &mut Ui, gid: Id) {
             let b = Rect::from_center_size(pos2(x, r.center().y), vec2(36.0, 36.0));
             x -= 44.0;
             let br = ui.interact(b, ui.id().with(("role_btn", role.id, i)), Sense::click());
-            ui.painter().rect(b, CornerRadius::same(8), if br.hovered() { faint(51) } else { faint(31) }, Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+            ui.painter().rect(b, CornerRadius::same(8), crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &br)), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
             icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(18.0, 18.0)), pal().header_primary);
             if br.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

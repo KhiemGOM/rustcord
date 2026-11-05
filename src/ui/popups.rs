@@ -653,7 +653,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
                 let shown = link.clone().unwrap_or_else(|| "Generating link…".into());
                 text::paint(ui.painter(), pos2(field.left() + 10.0, field.center().y), Align2::LEFT_CENTER, &shown, reg(16.0), pal().text_normal, b.left() - field.left() - 18.0);
                 let resp = ui.interact(b, ui.id().with("invite_copy"), Sense::click());
-                ui.painter().rect_filled(b, 8, if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+                ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
                 ui.painter().text(b.center(), Align2::CENTER_CENTER, "Copy", medium(14.0), egui::Color32::WHITE);
                 copy = link.is_some() && resp.clicked();
                 ui.add_space(14.0);
@@ -997,7 +997,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     banner = banner_buttons(ui, top, stranger, rel == Some(crate::state::FRIEND), mod_view);
                     let nb = Rect::from_min_size(pos2(top.right() - 40.0, top.bottom() + 44.0), vec2(24.0, 24.0));
                     let resp = ui.interact(nb, ui.id().with("add_note"), Sense::click());
-                    super::icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(nb.center(), vec2(16.0, 16.0)), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+                    super::icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(nb.center(), vec2(16.0, 16.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
                     if resp.on_hover_text("Add Note (only visible to you)").clicked() {
                         ui.data_mut(|d| d.insert_temp(note_open_id, true));
                     }
@@ -1214,7 +1214,7 @@ fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Valu
         let g = ui.painter().layout_no_wrap(t.clone(), reg(12.0), pal().header_secondary);
         let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, 16.0));
         let resp = ui.interact(tr, ui.id().with(("mutual", t)), Sense::click());
-        let ink = if resp.hovered() { pal().header_primary } else { pal().header_secondary };
+        let ink = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             ui.painter().hline(tr.x_range(), tr.bottom(), egui::Stroke::new(1.0, ink));
@@ -1575,7 +1575,7 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
                                         let resp = ui.interact(r, ui.id().with((key, m.id)), Sense::click());
                                         app.rects.insert(format!("pins:{key}:{}", m.id), r);
                                         if hot {
-                                            ui.painter().rect(r, 8, if resp.hovered() { pal().control_hover } else { pal().control }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                                            ui.painter().rect(r, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                                             super::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
                                         }
                                         hot && resp.on_hover_text(tip).clicked()
@@ -1610,7 +1610,7 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
 
 fn sort_button(ui: &mut Ui) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(78.0, 32.0), Sense::click());
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(rect, 8, fill, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     super::icons::draw(ui.painter(), Icon::Sort, Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(16.0, 16.0)), pal().header_primary);
     ui.painter().text(pos2(rect.left() + 32.0, rect.center().y), Align2::LEFT_CENTER, "Sort", medium(14.0), pal().header_primary);
@@ -1895,7 +1895,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
         ui.ctx().data_mut(|d| d.insert_temp(qid, q.clone()));
         let b = Rect::from_min_size(pos2(head.right() - 80.0, head.top() + 8.0), vec2(64.0, 32.0));
         let br = ui.interact(b, ui.id().with("thread_create"), Sense::click());
-        ui.painter().rect_filled(b, 8, if br.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+        ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create", medium(14.0), egui::Color32::WHITE);
         create |= br.clicked();
 
@@ -1917,7 +1917,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
             p.text(pos2(c.x, body.top() + 215.0), Align2::CENTER_CENTER, "Stay focused on a conversation with a thread - a temporary text channel.", reg(16.0), pal().text_normal);
             let b = Rect::from_center_size(pos2(c.x, body.top() + 259.0), vec2(130.0, 40.0));
             let br = ui.interact(b, ui.id().with("thread_create_big"), Sense::click());
-            ui.painter().rect_filled(b, 8, if br.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+            ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
             ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create Thread", medium(16.0), egui::Color32::WHITE);
             create |= br.clicked();
             if create {
@@ -1932,7 +1932,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
                 ui.label(RichText::new(format!("{n} Active Thread{}", if n == 1 { "" } else { "s" })).font(medium(14.0)).color(pal().header_secondary));
                 for c in list {
                     let (r, resp) = ui.allocate_exact_size(vec2(565.0, 64.0), Sense::click());
-                    ui.painter().rect_filled(r, 8, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_floating });
+                    ui.painter().rect_filled(r, 8, crate::ui::motion::mix(pal().bg_floating, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                     text::paint(ui.painter(), pos2(r.left() + 16.0, r.top() + 22.0), Align2::LEFT_CENTER, &c.name, semi(16.0), pal().header_primary, r.width() - 32.0);
                     let when = (c.last_msg != 0).then(|| ago(crate::state::snowflake_ms(c.last_msg))).unwrap_or_default();
                     let sub = format!("{} message{}{}", c.msg_count, if c.msg_count == 1 { "" } else { "s" }, if when.is_empty() { String::new() } else { format!(" • {when}") });
@@ -2268,7 +2268,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
                     let (r, resp) = ui.allocate_exact_size(vec2(72.0, 36.0), Sense::click());
                     let cr = CornerRadius { nw: if i == 0 { 8 } else { 0 }, sw: if i == 0 { 8 } else { 0 }, ne: if i == 5 { 8 } else { 0 }, se: if i == 5 { 8 } else { 0 } };
                     let on = t.secs == secs;
-                    ui.painter().rect(r, cr, if on { BLURPLE } else if resp.hovered() { pal().control_hover } else { pal().control }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().rect(r, cr, if on { BLURPLE } else { crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)) }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     ui.painter().text(r.center(), Align2::CENTER_CENTER, label, semi(14.0), if on { egui::Color32::WHITE } else { pal().header_primary });
                     if resp.clicked() {
                         t.secs = secs;
@@ -2466,7 +2466,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                     super::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(field.right() - 22.0, field.center().y), vec2(20.0, 20.0)), pal().header_secondary);
                     let b = Rect::from_min_size(pos2(field.right() + 10.0, row.top()), vec2(100.0, 40.0));
                     let resp = ui.interact(b, ui.id().with("forward_send"), Sense::click());
-                    let fill = if n == 0 { BLURPLE.gamma_multiply(0.5) } else if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE };
+                    let fill = if n == 0 { BLURPLE.gamma_multiply(0.5) } else { crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)) };
                     ui.painter().rect_filled(b, 8, fill);
                     let label = if n > 1 { format!("Send ({n})") } else { "Send".to_string() };
                     let g = ui.painter().layout_no_wrap(label, medium(16.0), egui::Color32::WHITE);

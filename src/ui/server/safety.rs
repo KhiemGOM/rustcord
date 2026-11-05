@@ -158,7 +158,7 @@ fn overview(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info: 
     let mut go = None;
     for (head, sub, page) in cards {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), egui::Sense::click());
-        ui.painter().rect(r, egui::CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, egui::Stroke::new(1.0, super::faint(51)), egui::StrokeKind::Inside);
+        ui.painter().rect(r, egui::CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), egui::Stroke::new(1.0, super::faint(51)), egui::StrokeKind::Inside);
         ui.painter().text(pos2(r.left() + 20.0, r.center().y - 10.0), egui::Align2::LEFT_CENTER, head, semi(16.0), pal().header_primary);
         ui.painter().text(pos2(r.left() + 20.0, r.center().y + 12.0), egui::Align2::LEFT_CENTER, sub, medium(12.0), pal().header_secondary);
         ui.painter().text(pos2(r.right() - 20.0, r.center().y), egui::Align2::RIGHT_CENTER, "Edit", medium(14.0), pal().link);

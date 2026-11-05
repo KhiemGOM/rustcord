@@ -126,7 +126,7 @@ fn bots(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         let aid = sid(&a["id"]);
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 96.0), Sense::click());
-        ui.painter().rect(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+        ui.painter().rect(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
         if let Some(ic) = a["icon"].as_str() {
             egui::Image::from_uri(format!("{}/app-icons/{aid}/{ic}.png?size=96", crate::api::cdn())).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 16.0), vec2(64.0, 64.0)));
         } else {
@@ -225,7 +225,7 @@ fn webhook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
     let channel = sid(&h["channel_id"]);
     let cname = app.store.channels.get(&channel).map(|c| format!("#{}", c.name)).unwrap_or_default();
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
-    ui.painter().rect(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
     let av = Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 12.0), vec2(40.0, 40.0));
     match h["avatar"].as_str() {
         Some(a) => crate::ui::avatar(ui, av, &format!("{}/avatars/{id}/{a}.png?size=64", crate::api::cdn())),

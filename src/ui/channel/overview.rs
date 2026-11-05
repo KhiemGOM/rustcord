@@ -126,7 +126,7 @@ pub fn emoji_popup(resp: &egui::Response) -> Option<String> {
 
 fn smile(ui: &mut Ui, r: Rect, id: &'static str) -> egui::Response {
     let resp = ui.interact(r, ui.id().with(id), Sense::click());
-    icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+    icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -226,7 +226,7 @@ fn topic(ui: &mut Ui, d: &mut Value, forum: bool) {
             }
             let b = Rect::from_min_size(pos2(x, bar.top() + 4.0), vec2(30.0, 30.0));
             let resp = ui.interact(b, id.with(("fmt", i)), Sense::click());
-            icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+            icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -283,7 +283,7 @@ fn tags(ui: &mut Ui, d: &mut Value, tag: &mut Option<TagEdit>) {
             let label = format!("{}{}", t["emoji_name"].as_str().map_or(String::new(), |e| format!("{e} ")), t["name"].as_str().unwrap_or_default());
             let g = ui.painter().layout_no_wrap(label, medium(14.0), pal().text_normal);
             let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::click_and_drag());
-            ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { faint(31) });
+            ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(faint(31), pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             ui.painter().galley(pos2(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, pal().text_normal);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -306,7 +306,7 @@ fn tags(ui: &mut Ui, d: &mut Value, tag: &mut Option<TagEdit>) {
         }
         if list.len() < 20 {
             let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-            ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+            ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
             icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(r.center(), vec2(18.0, 18.0)), Color32::WHITE);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

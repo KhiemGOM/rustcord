@@ -159,7 +159,7 @@ fn list(app: &mut App, ui: &mut Ui) {
             }
             let st = app.store.status(uid);
             if kind == FRIEND {
-                status_dot(ui, av, st, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary });
+                status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
             let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), pal().header_primary, row.width() - 220.0);
             super::tag_chip(ui.painter(), u, pos2(nr.right() + 9.0, nr.center().y), 1.0);

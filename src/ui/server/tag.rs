@@ -108,7 +108,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     if !unlocked {
         let (r, resp) = ui.allocate_exact_size(vec2(220.0, 40.0), Sense::click());
         ui.painter().rect_filled(r.expand(1.0), CornerRadius::same(8), Color32::from_rgba_unmultiplied(0x9b, 0x5c, 0xff, 90));
-        ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { Color32::from_gray(235) } else { Color32::WHITE });
+        ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(Color32::WHITE, Color32::from_gray(235), crate::ui::motion::hot(ui.ctx(), &resp)));
         super::super::icons::draw(ui.painter(), super::super::icons::Icon::BoostGem, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(18.0, 18.0)), Color32::BLACK);
         ui.painter().text(pos2(r.left() + 44.0, r.center().y), Align2::LEFT_CENTER, "Unlock with Boosting", medium(16.0), Color32::BLACK);
         super::super::settings::mark(ui, "button:Unlock with Boosting", r);
