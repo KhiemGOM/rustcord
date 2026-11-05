@@ -36,6 +36,12 @@ fn render(name: &str, rate: f32) -> Vec<f32> {
 }
 
 static ON: Mutex<(bool, Vec<String>)> = Mutex::new((true, Vec::new()));
+static HEARD: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Every cue that was allowed to play, oldest first, for the e2e run to check.
+pub fn heard() -> Vec<String> {
+    HEARD.lock().map(|h| h.clone()).unwrap_or_default()
+}
 
 /// What the settings say about sounds: master switch and the muted list.
 pub fn configure(on: bool, muted: &[String]) {
@@ -47,8 +53,16 @@ pub fn configure(on: bool, muted: &[String]) {
 /// Play a cue unless the user turned it (or all sounds) off.
 pub fn cue(name: &str) {
     let allowed = ON.lock().map(|s| s.0 && !s.1.iter().any(|m| m == name)).unwrap_or(true);
-    if allowed && std::env::var_os("RUSTCORD_SILENT").is_none() {
-        play(name);
+    if allowed {
+        if let Ok(mut h) = HEARD.lock() {
+            h.push(name.to_string());
+            if h.len() > 256 {
+                h.remove(0);
+            }
+        }
+        if std::env::var_os("RUSTCORD_SILENT").is_none() {
+            play(name);
+        }
     }
 }
 

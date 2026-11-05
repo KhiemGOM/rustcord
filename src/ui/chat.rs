@@ -23,6 +23,7 @@ enum Act {
     Menu(Id, Pos2),
     Url(String),
     Channel(Id),
+    JoinCall(Id),
     Reveal(Id),
     SaveEdit(Id, String),
     CancelEdit,
@@ -750,6 +751,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Url(u) => app.open_link(ui.ctx(), &u, false),
             Act::Masked(u) => app.open_link(ui.ctx(), &u, true),
             Act::Channel(c) => app.open(c),
+            Act::JoinCall(c) => app.answer(c),
             Act::Reveal(id) => {
                 app.revealed.insert(id);
             }
@@ -1491,7 +1493,15 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message) {
         8..=11 => (Icon::Gem, format!("{name} just boosted the server!"), Color32::from_rgb(0xff, 0x73, 0xfa)),
         1 => (Icon::ArrowRight, format!("{name} added someone to the group."), GREEN),
         2 => (Icon::ArrowLeft, format!("{name} removed someone from the group."), RED),
-        3 => (Icon::Speaker, format!("{name} started a call."), GREEN),
+        3 => {
+            let call = m.call.clone().unwrap_or_default();
+            let took_part = m.author == d.store.me || call.parts.contains(&d.store.me);
+            match call.ended {
+                None => (Icon::Phone, format!("{name} started a call."), GREEN),
+                Some(e) if took_part => (Icon::Phone, format!("{name} started a call that lasted {}.", super::callfx::lasted(e - m.ts())), pal().header_secondary),
+                Some(e) => (Icon::Phone, format!("You missed a call from {name} that lasted {}.", super::callfx::lasted(e - m.ts())), RED),
+            }
+        }
         4 => (Icon::Pencil, format!("{name} changed the channel name."), pal().header_secondary),
         18 => (Icon::Thread, format!("{name} started a thread: {}", m.content), pal().header_secondary),
         _ => (Icon::ArrowRight, if m.content.is_empty() { format!("{name} did something.") } else { m.content.clone() }, pal().header_secondary),
@@ -1501,6 +1511,16 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message) {
     icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(left - 36.0, y), vec2(16.0, 16.0)), col);
     ui.horizontal_wrapped(|ui| {
         text::label(ui, &text, reg(16.0), pal().header_secondary, Sense::hover());
+        if m.kind == 3 && m.call.as_ref().is_some_and(|c| c.ended.is_none()) {
+            let join = text::label(ui, "Join the call", medium(16.0), pal().link, Sense::click());
+            if join.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            d.rects.push((format!("call_msg_join:{}", d.ch), join.rect));
+            if join.clicked() {
+                d.acts.push(Act::JoinCall(d.ch));
+            }
+        }
         ui.add(Label::new(RichText::new(stamp(m.ts())).font(medium(12.0)).color(pal().chat_muted)).selectable(false));
     });
 }

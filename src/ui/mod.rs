@@ -4,6 +4,7 @@ mod autoscroll;
 mod boosts;
 mod call;
 mod callbar;
+mod callfx;
 mod chat;
 mod composer;
 mod create;
@@ -190,7 +191,7 @@ pub struct App {
     frames: u64,
     save_at: Option<Instant>,
     // toasts clicked, as (channel, message); none under e2e, which never shows any
-    pings: Option<std::sync::mpsc::Receiver<(Id, Id)>>,
+    pings: Option<std::sync::mpsc::Receiver<crate::toast::Click>>,
     games: Option<std::sync::mpsc::Receiver<Option<crate::games::Game>>>,
     pub game: Option<crate::games::Game>,
     // the game the gateway has from us; identify sends none
@@ -710,35 +711,6 @@ impl App {
         self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
     }
 
-    // join/leave chimes for people entering or leaving the call you're in, and the ring
-    fn voice_cues(&self, t: &str, d: &serde_json::Value) {
-        let me = self.store.me;
-        match t {
-            "VOICE_STATE_UPDATE" => {
-                let Some(mine) = self.voice.chan else { return };
-                let uid = crate::state::sid(&d["user_id"]);
-                if uid == me {
-                    return;
-                }
-                let gid = crate::state::sid(&d["guild_id"]);
-                let was = self.store.guilds.get(&gid).and_then(|g| g.voice.get(&uid).copied()).unwrap_or(0);
-                let now = crate::state::sid(&d["channel_id"]);
-                if now == mine && was != mine {
-                    crate::sound::cue("join");
-                } else if was == mine && now != mine {
-                    crate::sound::cue("leave");
-                }
-            }
-            "CALL_CREATE" | "CALL_UPDATE" => {
-                let ringing = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| crate::state::sid(u) == me));
-                if ringing && self.voice.chan.is_none() {
-                    crate::sound::cue("ring");
-                }
-            }
-            _ => {}
-        }
-    }
-
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
         // ack the message before this one so it shows as the first unread
         let prev = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
@@ -845,7 +817,7 @@ impl App {
             body = "Uploaded a file".into();
         }
         let avatar = self.store.user(m.author).map(|u| u.avatar_url()).unwrap_or_default();
-        let ping = crate::toast::Ping { title, body, avatar, at: (c.id, m.id) };
+        let ping = crate::toast::Ping { title, body, avatar, at: (c.id, m.id), call: false };
         crate::sound::cue("message");
         if let Some(e) = &mut self.e2e {
             e.mark_once("notified");
@@ -1230,10 +1202,18 @@ impl App {
     }
 
     fn pump(&mut self, ctx: &egui::Context) {
-        let clicked: Vec<(Id, Id)> = self.pings.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
-        for (ch, msg) in clicked {
-            self.open_ping(ctx, ch, msg);
+        let clicked: Vec<crate::toast::Click> = self.pings.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
+        for click in clicked {
+            match click {
+                crate::toast::Click::Open(ch, msg) => self.open_ping(ctx, ch, msg),
+                crate::toast::Click::Answer(ch) => {
+                    self.show_window(ctx);
+                    self.answer(ch);
+                }
+                crate::toast::Click::Decline(ch) => self.decline(ch),
+            }
         }
+        self.call_fx(ctx);
         if let Some(g) = self.games.as_ref().and_then(|r| r.try_iter().last()) {
             self.game = g;
         }

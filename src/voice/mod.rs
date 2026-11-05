@@ -149,6 +149,12 @@ pub struct VoiceUi {
     pub calls: HashMap<Id, Vec<Id>>,
     /// a dm call ringing for us, while we're in no call
     pub ringing: Option<Id>,
+    /// who is being rung in each DM call
+    pub rung: HashMap<Id, Vec<Id>>,
+    /// who is watching the stream we own or watch
+    pub viewers: HashSet<Id>,
+    /// the channel we're in is a stage, which has no join or leave sounds
+    pub stage_room: bool,
     pub camera: bool,
     /// latest camera frame per user, ours included
     pub video: HashMap<Id, Arc<egui::ColorImage>>,
@@ -187,6 +193,10 @@ impl VoiceUi {
             self.video.clear();
             self.tex.clear();
         }
+        self.stage_room = c.kind == 13;
+        if !self.stage_room {
+            crate::sound::cue("user_join");
+        }
         let ring = ring && c.guild == 0 && !self.calls.get(&ch).is_some_and(|u| !u.is_empty());
         self.chan = Some(ch);
         self.guild = c.guild;
@@ -214,10 +224,16 @@ impl VoiceUi {
         if self.chan.is_none() {
             return;
         }
-        crate::sound::cue("disconnect");
+        self.dropped();
         self.chan = None;
         self.op4(net);
         self.reset(net);
+    }
+
+    fn dropped(&self) {
+        if !self.stage_room {
+            crate::sound::cue("disconnect");
+        }
     }
 
     /// The voice server's name, like discord shows it: the endpoint's first label.
@@ -239,6 +255,7 @@ impl VoiceUi {
         self.camera = false;
         self.video.clear();
         self.tex.clear();
+        self.viewers.clear();
         self.chan = None;
         self.state = State::Idle;
         self.session = None;
@@ -285,6 +302,7 @@ impl VoiceUi {
     }
 
     pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
+        crate::sound::cue(if on { "camera_on" } else { "camera_off" });
         self.camera = on;
         if !on {
             self.video.remove(&me);
@@ -441,6 +459,7 @@ impl VoiceUi {
                 }
                 if ch == 0 {
                     // the server dropped us (kicked, or we joined from another device)
+                    self.dropped();
                     self.reset(net);
                     return;
                 }
@@ -473,6 +492,9 @@ impl VoiceUi {
                 if let Some(vs) = d["voice_states"].as_array() {
                     self.calls.insert(ch, vs.iter().map(|v| sid(&v["user_id"])).collect());
                 }
+                if let Some(r) = d["ringing"].as_array() {
+                    self.rung.insert(ch, r.iter().map(sid).collect());
+                }
                 let rung = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| sid(u) == me));
                 if rung && self.chan != Some(ch) {
                     self.ringing = Some(ch);
@@ -483,6 +505,7 @@ impl VoiceUi {
             "CALL_DELETE" => {
                 let ch = sid(&d["channel_id"]);
                 self.calls.remove(&ch);
+                self.rung.remove(&ch);
                 if self.ringing == Some(ch) {
                     self.ringing = None;
                 }
@@ -567,6 +590,7 @@ impl VoiceUi {
                 self.state = State::Idle;
                 self.speaking.clear();
                 if err.is_some() {
+                    self.dropped();
                     self.chan = None;
                     self.session = None;
                     self.server = None;

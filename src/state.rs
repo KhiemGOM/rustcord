@@ -563,6 +563,13 @@ pub struct Reaction {
     pub me: bool,
 }
 
+/// A call message's `call` field: who took part, and when it ended (ms), still going while None.
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct CallInfo {
+    pub parts: Vec<Id>,
+    pub ended: Option<i64>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Message {
     pub id: Id,
@@ -592,6 +599,8 @@ pub struct Message {
     pub poll: Option<Poll>,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub call: Option<CallInfo>,
     #[serde(skip)]
     pub pending: bool,
     #[serde(skip)]
@@ -653,6 +662,10 @@ impl Message {
         }
         if let Some(b) = v["mention_everyone"].as_bool() {
             self.mention_everyone = b;
+        }
+        if v["call"].is_object() {
+            let ended = Some(iso_ms(&v["call"]["ended_timestamp"])).filter(|t| *t != 0);
+            self.call = Some(CallInfo { parts: v["call"]["participants"].as_array().into_iter().flatten().map(sid).collect(), ended });
         }
         if let Some(b) = v["pinned"].as_bool() {
             self.pinned = b;

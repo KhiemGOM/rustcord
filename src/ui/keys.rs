@@ -327,6 +327,8 @@ impl App {
 
     pub fn answer(&mut self, ch: Id) {
         self.voice.ringing = None;
+        self.ui.guild = None;
+        self.open(ch);
         self.voice.join(&self.net, &self.store, ch, false);
     }
 
