@@ -1006,7 +1006,7 @@ impl App {
             return;
         }
         let dm = c.guild == 0;
-        if !(self.store.mentions_me(&m) || (dm && self.settings.notify_all_dms)) {
+        if !(self.store.mentions_me(&m) || dm) {
             return;
         }
         let who = self.store.name_in(c.guild, m.author);

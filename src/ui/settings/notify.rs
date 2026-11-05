@@ -1,4 +1,4 @@
-use egui::{Align, Align2, Id, Layout, Sense, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, Align2, Id, Layout, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 use serde_json::json;
 
 use super::privacy::write;
@@ -87,10 +87,13 @@ fn sounds(app: &mut App, ui: &mut Ui) -> bool {
         super::lead(ui);
         let s = &mut app.settings;
         let mut enabled = if key == "selected" { s.notify_selected } else { !s.muted_sounds.iter().any(|m| m == key) };
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-        ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, medium(16.0), if on { pal().header_primary } else { pal().text_muted });
-        let mut c = ui.new_child(UiBuilder::new().max_rect(r).layout(Layout::right_to_left(Align::Center)));
-        let sw = switch(&mut c, enabled && on);
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
+        ui.painter().text(r.left_top(), Align2::LEFT_TOP, label, medium(16.0), if on { pal().header_primary } else { pal().text_muted });
+        let mut c = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(r.left_top() + vec2(0.0, 28.0), vec2(160.0, 20.0))));
+        if super::link(&mut c, "Preview Sound").clicked() {
+            preview = Some(if key == "selected" { "message" } else { key });
+        }
+        let sw = switch(&mut ui.new_child(UiBuilder::new().max_rect(r).layout(Layout::right_to_left(Align::TOP))), enabled && on);
         super::mark(ui, &format!("toggle:{label}"), sw.rect);
         if sw.clicked() && on {
             enabled = !enabled;
@@ -104,11 +107,7 @@ fn sounds(app: &mut App, ui: &mut Ui) -> bool {
             }
             changed = true;
         }
-        c.add_space(16.0);
-        if crate::ui::icon_button(&mut c, Icon::Play, 24.0, "Preview Sound").clicked() {
-            preview = Some(if key == "selected" { "message" } else { key });
-        }
-        super::end(ui, 32.0);
+        super::end(ui, 24.0);
     }
     if let Some(k) = preview {
         crate::sound::play(k);
@@ -118,14 +117,14 @@ fn sounds(app: &mut App, ui: &mut Ui) -> bool {
         ui,
         &mut off,
         "Disable All Notification Sounds",
-        "Disables all notification sounds, including voice & video sound effects. Your individual sound preferences will be saved and restored if you turn this on.",
+        "Disables all notification sounds, including voice and video sound effects. Your individual sound preferences will be saved and restored if you turn this on.",
     ) {
         app.settings.sounds = !off;
         changed = true;
     }
     sub(ui, "Related Settings");
     super::lead(ui);
-    let g = ui.painter().layout("Enable/disable sounds that play when you’re in a call, like Mute, Unmute, Deafen, and more.".into(), reg(14.0), pal().header_secondary, ui.available_width() - 64.0);
+    let g = ui.painter().layout("Enable/disable sounds that play when you’re in a call, like Mute, Unmute, Deafen and more.".into(), reg(14.0), pal().header_secondary, ui.available_width() - 64.0);
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0 + g.size().y), Sense::click());
     ui.painter().text(r.left_top(), Align2::LEFT_TOP, "Voice & Video", medium(16.0), pal().link);
     ui.painter().galley(r.left_top() + vec2(0.0, 24.0), g, pal().header_secondary);
@@ -187,17 +186,16 @@ fn advanced(app: &mut App, ui: &mut Ui) -> bool {
         },
     );
     let mut on = app.settings.tts_command;
-    if toggle(ui, &mut on, "Allow playback and usage of /tts command", "Change Text-to-Speech speed in Accessibility Settings.") {
+    if toggle(ui, &mut on, "Allow playback and usage of /tts command", "Using the /tts command speaks your message out loud. Turn this off if you prefer to see /tts messages as text only. You can control the speed of playback on the Accessibility settings page.") {
         app.settings.tts_command = on;
         write(app, Patch::new().flag(6, 16, on));
     }
-    sub(ui, "Speak all messages out loud");
+    super::caption(ui, "Speak all messages out loud", "Speaks messages out loud, even if they weren’t using the /tts command.");
     let mut tts = app.settings.tts_notify;
     if super::radio(ui, &mut tts, &[(2, "For all channels", ""), (1, "Only for currently selected channel", ""), (0, "Never", "")]) {
         app.settings.tts_notify = tts;
         changed = true;
     }
-    changed |= toggle(ui, &mut app.settings.notify_all_dms, "Notify me about every direct message", "Otherwise only direct messages that mention you notify.");
     changed
 }
 
@@ -239,4 +237,21 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Advanced");
     changed |= advanced(app, ui);
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Patch;
+    use crate::proto::account;
+
+    #[test]
+    fn patches_read_back_through_the_account_parser() {
+        assert_eq!(account(&Patch::new().num(13, 2, 1).bytes(), false).dev, Some(true));
+        assert_eq!(account(&Patch::new().text(12, 1, "de").bytes(), false).locale.as_deref(), Some("de"));
+        assert_eq!(account(&Patch::new().flag(7, 12, false).bytes(), false).friend_online, Some(false));
+        assert_eq!(account(&Patch::new().sub(5, 6, &[(1, 300)]).bytes(), false).push_delay, Some(300));
+        assert_eq!(account(&Patch::new().num(7, 7, 2).bytes(), false).reaction_notify, Some(2));
+        assert_eq!(account(&Patch::new().flag(6, 16, true).bytes(), false).tts_command, Some(true));
+        assert_eq!(account(&Patch::new().num(13, 9, 2).bytes(), false).hour_cycle, Some(2));
+    }
 }

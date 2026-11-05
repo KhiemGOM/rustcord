@@ -58,7 +58,7 @@ pub fn system(app: &mut App, ui: &mut Ui) -> bool {
         }
     });
     changed |= toggle(ui, &mut s.minimize_to_tray, "Minimize Rustcord to System Tray", "Clicking X minimizes Rustcord instead of closing it completely.");
-    changed |= toggle(ui, &mut s.hw_accel, "Enable Hardware Acceleration", "Sends your streams through your graphics card's video encoder.");
+    changed |= toggle(ui, &mut s.hw_accel, "Enable Hardware Acceleration", "Uses your GPU to make Rustcord run more smoothly. Turn this off if you’re experiencing visual glitches like frame drops in games or performance problems.");
     if !s.hw_accel {
         note(ui, "Hardware acceleration is disabled, which degrades system performance and visual quality.");
     }

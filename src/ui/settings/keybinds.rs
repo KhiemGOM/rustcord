@@ -3,6 +3,7 @@ use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, RichText, Sense, 
 use super::{Look, button, dropdown, section};
 use crate::theme::*;
 use crate::ui::App;
+use crate::ui::icons::Icon;
 use crate::ui::keys::{SHEET, keycap};
 
 pub const ACTIONS: [(&str, &str, &str); 17] = [
@@ -10,12 +11,12 @@ pub const ACTIONS: [(&str, &str, &str); 17] = [
     ("ptt_priority", "Push to Talk (Priority)", "Hold to temporarily enable your microphone while in Push to Talk mode. Other speakers who are not also transmitting with priority will temporarily have their volume lowered while you are speaking."),
     ("push_to_mute", "Push to Mute", "Hold to temporarily disable your microphone while in Voice Activity mode."),
     ("vad_priority", "Voice Activity Priority", "Hold to transmit your voice with priority in Voice Activity mode. Other speakers who are not also transmitting with priority will temporarily have their volume lowered while you are speaking."),
-    ("mute", "Toggle Mute", "Toggle your microphone on and off."),
-    ("deafen", "Toggle Deafen", "Toggle deafening yourself, which also mutes your microphone."),
+    ("mute", "Toggle Mute", "Toggle your microphone’s transmission on and off."),
+    ("deafen", "Toggle Deafen", "Toggle your speaker’s playback on and off. Also disables your microphone while deafened."),
     ("voice_mode", "Toggle VAD", "Toggle to switch between Push To Talk and Voice Activity mode."),
     ("streamer", "Toggle Streamer Mode", "Toggle to enable/disable Streamer Mode."),
     ("voice_chat", "Toggle Voice Channel Chat", "Toggle the text chat panel for the voice channel you are connected to."),
-    ("camera", "Toggle Camera", "Toggle your camera on and off."),
+    ("camera", "Toggle Camera", "Toggle your camera on while in a voice channel."),
     ("screenshare", "Toggle Screen Share", "Toggle to start/stop streaming in your current voice channel."),
     ("back", "Navigate Back", "Navigate backward in page history"),
     ("forward", "Navigate Forward", "Navigate forward in page history"),
@@ -103,6 +104,9 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
     if app.sform.recording.is_some() {
         ui.ctx().request_repaint();
     }
+    if app.settings.keybinds.is_empty() {
+        super::note(ui, "You haven’t added any custom keybinds yet.");
+    }
     let mut remove = None;
     for i in 0..app.settings.keybinds.len() {
         let recording = app.sform.recording == Some(i);
@@ -117,17 +121,16 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
                 let shown = ACTIONS.iter().find(|a| a.0 == id).map_or("Unassigned", |a| a.1);
                 let w = cols[0].available_width();
                 dropdown(&mut cols[0], w, None, shown, |ui| {
-                    for (k, l, _) in ACTIONS {
+                    for (k, l) in std::iter::once(("", "Unassigned")).chain(ACTIONS.iter().map(|a| (a.0, a.1))) {
                         if ui.selectable_label(id == k, l).clicked() {
                             *action = format!("{}{k}", if off { "!" } else { "" });
                             changed = true;
                         }
                     }
                 });
-                if let Some(a) = ACTIONS.iter().find(|a| a.0 == id) {
-                    cols[0].add_space(8.0);
-                    cols[0].add(egui::Label::new(RichText::new(a.2).font(reg(12.0)).color(pal().text_muted)));
-                }
+                let about = ACTIONS.iter().find(|a| a.0 == id).map_or("This action doesn’t do anything! Please choose one from the drop down.", |a| a.2);
+                cols[0].add_space(8.0);
+                cols[0].add(egui::Label::new(RichText::new(about).font(reg(12.0)).color(pal().text_muted)));
                 cols[1].label(RichText::new("Keybind").font(medium(14.0)).color(pal().header_secondary));
                 cols[1].add_space(8.0);
                 let shown = if recording { combo(&app.sform.rec_keys) } else { combo(keys) };
@@ -164,7 +167,7 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
                     changed = true;
                 }
                 ui.add_space(8.0);
-                if super::link(ui, "Remove Keybind").clicked() {
+                if crate::ui::icon_button(ui, Icon::Trash, 24.0, "Remove Keybind").clicked() {
                     remove = Some(i);
                 }
             });
