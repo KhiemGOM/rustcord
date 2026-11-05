@@ -345,7 +345,7 @@ fn preview(ctx: &egui::Context, g: &crate::state::Guild, d: &Value, raw: &Value)
     let color = d["brand_color_primary"].as_str().and_then(|c| BANNERS.iter().find(|b| b.1.eq_ignore_ascii_case(c))).map(|b| (b.2, b.3)).unwrap_or(([0x1c, 0x1c, 0x1f], [0x48, 0x48, 0x4c]));
     let bytes = ctx.data(|m| m.get_temp::<Arc<[u8]>>(Id::new("server_icon_bytes")));
     let picked = d["icon"].as_str().is_some_and(|i| i.starts_with("data:"));
-    egui::Area::new(Id::new("server_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
+    let shown = egui::Area::new(Id::new("server_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
             ui.set_width(300.0);
             let (top, _) = ui.allocate_exact_size(vec2(300.0, 120.0), Sense::hover());
@@ -394,4 +394,5 @@ fn preview(ctx: &egui::Context, g: &crate::state::Guild, d: &Value, raw: &Value)
             });
         });
     });
+    ctx.move_to_top(shown.response.layer_id);
 }

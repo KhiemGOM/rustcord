@@ -106,7 +106,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     }
     ui.add_space(16.0);
     if !unlocked {
-        let (r, resp) = ui.allocate_exact_size(vec2(186.0, 40.0), Sense::click());
+        let (r, resp) = ui.allocate_exact_size(vec2(220.0, 40.0), Sense::click());
         ui.painter().rect_filled(r.expand(1.0), CornerRadius::same(8), Color32::from_rgba_unmultiplied(0x9b, 0x5c, 0xff, 90));
         ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { Color32::from_gray(235) } else { Color32::WHITE });
         super::super::icons::draw(ui.painter(), super::super::icons::Icon::BoostGem, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(18.0, 18.0)), Color32::BLACK);
@@ -248,7 +248,7 @@ fn preview(ctx: &egui::Context, d: &Value) {
     let tag = d["tag"].as_str().filter(|t| !t.is_empty()).unwrap_or("WUMP").to_uppercase();
     let (c1, c2) = (hex(d["badge_color_primary"].as_str().unwrap_or("#816bee")), hex(d["badge_color_secondary"].as_str().unwrap_or("#b79cf8")));
     let id = d["badge"].as_u64().unwrap_or(6);
-    egui::Area::new(Id::new("server_tag_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
+    let shown = egui::Area::new(Id::new("server_tag_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         let rows = [("Roka", "anyone down for aram", Color32::from_rgb(0x75, 0x7e, 0xf6), false), ("hongo", "count me in", Color32::from_rgb(0x2d, 0xc7, 0x70), false), ("Lily", "check out my tag!", Color32::from_rgb(0xf0, 0x8a, 0x36), true), ("sharon", "woah how did you get that", Color32::from_rgb(0x8a, 0xd0, 0x6a), false), ("Lily", "anyone here can get it!", Color32::from_rgb(0xf0, 0x8a, 0x36), false)];
         for (name, msg, col, mine) in rows {
             let (r, _) = ui.allocate_exact_size(vec2(300.0, 52.0), Sense::hover());
@@ -265,4 +265,5 @@ fn preview(ctx: &egui::Context, d: &Value) {
             ui.painter().text(pos2(r.left() + 52.0, r.top() + 34.0), Align2::LEFT_CENTER, msg, medium(16.0), pal().text_normal.gamma_multiply(dim));
         }
     });
+    ctx.move_to_top(shown.response.layer_id);
 }

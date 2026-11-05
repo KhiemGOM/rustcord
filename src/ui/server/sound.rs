@@ -187,6 +187,7 @@ pub fn modal_form(app: &mut App, ctx: &egui::Context) {
             done = true;
         }
     });
+    form::raise(ctx, "sound_form");
     if !(close || done) {
         app.server.as_mut().unwrap().sound = Some(f);
     }

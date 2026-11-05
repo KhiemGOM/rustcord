@@ -54,7 +54,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         });
     }
     d["system_channel_flags"] = json!(set);
-    ui.add_space(8.0);
+    ui.add_space(16.0);
     let cur = d["system_channel_id"].as_str().and_then(|s| s.parse::<Snow>().ok());
     row(ui, "System Messages Channel", "This is the channel we send system event messages to.", |ui| {
         if let Some(p) = form::channel(ui, app, gid, 268.0, cur, false, Some("No System Messages")) {
