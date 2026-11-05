@@ -123,8 +123,17 @@ async fn conn(mut s: TcpStream, port: u16) {
     let _ = timeout(Duration::from_secs(10), http(&mut s, req)).await;
 }
 
+/// Closing on a request that wasn't read resets the connection and the answer with it, so the
+/// rest of what was sent is let go first.
+async fn finish(s: &mut TcpStream) {
+    let _ = s.shutdown().await;
+    let mut sink = [0u8; 1024];
+    let _ = timeout(Duration::from_millis(300), async { while s.read(&mut sink).await.is_ok_and(|n| n > 0) {} }).await;
+}
+
 async fn refuse(s: &mut TcpStream, status: &str) {
     let _ = s.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await;
+    finish(s).await;
 }
 
 async fn answer(s: &mut TcpStream, status: &str, headers: &[(&str, &str)], body: &[u8]) {
@@ -136,6 +145,7 @@ async fn answer(s: &mut TcpStream, status: &str, headers: &[(&str, &str)], body:
     let mut bytes = out.into_bytes();
     bytes.extend(body);
     let _ = s.write_all(&bytes).await;
+    finish(s).await;
 }
 
 fn referrer_origin(req: &Req) -> Option<String> {
