@@ -2,7 +2,7 @@ use egui::{Align, Align2, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, 
 use serde_json::{Value, json};
 
 use super::icons::{self, Icon};
-use super::{App, Pick, button, icon_button, text};
+use super::{App, Pick, button, icon_button, menu_item, text};
 use crate::net::Tag;
 use crate::state::{Id, ReactEmoji, make_nonce};
 use crate::theme::*;
@@ -55,7 +55,24 @@ fn label(ui: &mut Ui, s: &str) {
     ui.add_space(8.0);
 }
 
-fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f32, focus: bool) -> egui::Response {
+pub fn check_row(ui: &mut Ui, on: &mut bool, label: &str) {
+    let g = ui.painter().layout_no_wrap(label.into(), reg(16.0), pal().header_primary);
+    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 36.0, 24.0), Sense::click());
+    let cb = Rect::from_min_size(r.min, vec2(24.0, 24.0));
+    ui.painter().rect(cb, 4, if *on { BLURPLE } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if *on { BLURPLE } else { pal().header_secondary }), egui::StrokeKind::Inside);
+    if *on {
+        icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), egui::Color32::WHITE);
+    }
+    ui.painter().galley(pos2(r.left() + 36.0, r.center().y - g.size().y / 2.0), g, pal().header_primary);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        *on = !*on;
+    }
+}
+
+fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f32, focus: bool) -> (egui::Response, Rect) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     ui.painter().rect_filled(r, 8, pal().input_bg);
     let inner = Rect::from_min_max(pos2(r.left() + left, r.top() + (h - 20.0) / 2.0), pos2(r.right() - right, r.bottom() - (h - 20.0) / 2.0));
@@ -64,7 +81,7 @@ fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f
     if focus {
         e.request_focus();
     }
-    e
+    (e, r)
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -103,8 +120,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if t.chars().count() > 55 {
                     *t = t.chars().take(55).collect();
                 }
-                let r = field(ui, t, "Type your answer", 40.0, 44.0, 44.0, false).rect.expand2(vec2(0.0, 0.0));
-                let row = Rect::from_x_y_ranges(r.x_range(), r.y_range());
+                let (_, row) = field(ui, t, "Type your answer", 40.0, 44.0, 44.0, false);
                 let face = Rect::from_center_size(pos2(row.left() + 24.0, row.center().y), vec2(24.0, 24.0));
                 let fr = ui.interact(face, ui.id().with(("poll_emoji", i)), Sense::click());
                 match e {
@@ -142,14 +158,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.add_space(16.0);
             label(ui, "Duration");
             let cur = DURATIONS.iter().find(|(h, _)| *h == d.hours).map_or("24 hours", |(_, n)| n);
-            egui::ComboBox::from_id_salt("poll_duration").selected_text(cur).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
+            let mut hours = d.hours;
+            super::settings::dropdown(ui, 432.0, None, cur, |ui| {
                 for (h, n) in DURATIONS {
-                    ui.selectable_value(&mut d.hours, h, n);
+                    if menu_item(ui, (h == hours).then_some(Icon::Check), n, false) {
+                        hours = h;
+                    }
                 }
             });
+            d.hours = hours;
             ui.add_space(24.0);
             ui.horizontal(|ui| {
-                ui.checkbox(&mut d.multi, RichText::new("Allow Multiple Answers").font(reg(16.0)).color(pal().header_primary));
+                check_row(ui, &mut d.multi, "Allow Multiple Answers");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let b = ui.add_enabled_ui(ready, |ui| button(ui, "Post", BLURPLE, 100.0)).inner;
                     super::settings::mark(ui, "poll:post", b.rect);

@@ -37,20 +37,10 @@ pub fn check(app: &App, chan: &Channel) -> Gate {
     if chan.is_thread() && chan.locked && s.perms(chan) & MANAGE_THREADS == 0 {
         return Gate::Off(NO_PERM);
     }
-    if chan.is_thread() && chan.archived && !chan.locked {
-        return Gate::Off(ARCHIVED).open();
-    }
     Gate::Open
 }
 
 impl Gate {
-    fn open(self) -> Gate {
-        match self {
-            Gate::Off(_) => Gate::Open,
-            g => g,
-        }
-    }
-
     pub fn off(&self) -> bool {
         matches!(self, Gate::Off(_))
     }

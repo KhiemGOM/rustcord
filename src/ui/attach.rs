@@ -73,7 +73,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 m.alt = m.alt.chars().take(1024).collect();
             }
             ui.add_space(16.0);
-            ui.checkbox(&mut m.spoiler, RichText::new("Mark as spoiler").font(reg(16.0)).color(pal().header_primary));
+            super::poll::check_row(ui, &mut m.spoiler, "Mark as spoiler");
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;

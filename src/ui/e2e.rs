@@ -443,6 +443,9 @@ impl Run {
                     self.mark("messages");
                     self.loaded = n;
                     self.next(1500);
+                    if let Some(from) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
+                        self.step = from;
+                    }
                 }
             }
             4 => {

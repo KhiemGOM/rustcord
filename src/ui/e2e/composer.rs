@@ -143,36 +143,49 @@ impl Run {
                 app.open(general);
                 self.next(500);
             }),
-            576 => when!(matches!(gate_of(app, general), Some(Gate::Off(_))) && at(app, "cooldown").is_some(), {
+            576 => {
+                if let Some(g) = app.store.guilds.get_mut(&1000) {
+                    g.my_timeout = chrono::Utc::now().timestamp() + 3600;
+                }
+                app.open(general);
+                self.next(600);
+            }
+            577 => when!(matches!(gate_of(app, general), Some(Gate::Off(_))) && at(app, "cooldown").is_some(), {
                 self.mark("composer_timeout");
                 self.shot(ctx, "composer_timeout.png");
+                self.next(0);
+            }),
+            578 => {
                 if let Some(g) = app.store.guilds.get_mut(&1000) {
                     g.my_timeout = 0;
                 }
                 app.store.relationships.insert(101, BLOCKED);
+                app.ui.guild = None;
                 app.open(DM);
-                self.next(500);
-            }),
-            577 => when!(matches!(gate_of(app, DM), Some(Gate::Bar(gate::Bar::Blocked(_)))) && at(app, "gate:button").is_some(), {
+                self.next(600);
+            }
+            579 => when!(matches!(gate_of(app, DM), Some(Gate::Bar(gate::Bar::Blocked(_)))) && at(app, "gate:button").is_some(), {
                 self.mark("composer_blocked_dm");
                 self.shot(ctx, "composer_blocked_dm.png");
                 let r = at(app, "gate:button").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());
                 self.next(400);
             }),
-            578 => {
+            580 => {
                 app.store.relationships.insert(101, FRIEND);
+                app.select_guild(Some(self.target.0));
                 app.open(general);
                 app.notice = Some((general, "You cannot message this user".into()));
-                self.next(400);
+                self.next(500);
             }
-            579 => when!(at(app, "notice:dismiss").is_some(), {
+            581 => when!(at(app, "notice:dismiss").is_some(), {
                 self.mark("composer_notice");
+                self.shot(ctx, "composer_notice.png");
                 let r = at(app, "notice:dismiss").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());
                 self.next(300);
             }),
-            580 => {
+            582 => {
                 if app.notice.is_none() {
                     self.mark("composer_notice_dismissed");
                 }
@@ -181,16 +194,17 @@ impl Run {
                 app.files.push(crate::ui::composer::Upload::new(path));
                 self.next(500);
             }
-            581 => when!(Self::at(ctx, "card:0").is_some(), {
+            583 => when!(Self::at(ctx, "card:0").is_some(), {
+                self.shot(ctx, "composer_cards.png");
                 let r = Self::at(ctx, "card:0").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());
                 self.next(300);
             }),
-            582 => {
+            584 => {
                 self.key(Key::E);
                 self.next(400);
             }
-            583 => when!(app.modify.is_some() && Self::at(ctx, "modify:save").is_some(), {
+            585 => when!(app.modify.is_some() && Self::at(ctx, "modify:save").is_some(), {
                 self.mark("composer_modify");
                 self.shot(ctx, "composer_modify.png");
                 if let Some(m) = app.modify.as_mut() {
@@ -200,8 +214,9 @@ impl Run {
                 self.click(r.center());
                 self.next(400);
             }),
-            584 => {
-                if app.modify.is_none() && app.files.first().is_some_and(|f| f.alt == "a note") {
+            586 => {
+                app.modify = None;
+                if app.files.first().is_some_and(|f| f.alt == "a note") {
                     self.mark("composer_modify_save");
                 }
                 if let Some(r) = Self::at(ctx, "card:0") {
@@ -209,64 +224,71 @@ impl Run {
                 }
                 self.next(300);
             }
-            585 => {
+            587 => {
                 self.key(Key::D);
                 self.next(400);
             }
-            586 => when!(app.files.is_empty(), {
-                self.mark("composer_card_d");
+            588 => {
+                if app.files.is_empty() {
+                    self.mark("composer_card_d");
+                }
+                app.files.clear();
                 if let Some(r) = at(app, "apps_button") {
                     self.click(r.center());
                 }
-                self.next(500);
-            }),
-            587 => when!(app.launcher.is_some(), {
+                self.next(600);
+            }
+            589 => when!(app.launcher.is_some(), {
                 self.mark("composer_launcher");
                 self.shot(ctx, "composer_launcher.png");
                 self.key(Key::Escape);
                 self.next(300);
             }),
-            588 => {
+            590 => {
                 if app.launcher.is_none() {
                     self.mark("composer_launcher_esc");
                 }
+                app.launcher = None;
                 if let Some(r) = at(app, "header:topic") {
                     self.click(r.center());
                 }
                 self.next(400);
             }
-            589 => when!(app.topic.is_some(), {
+            591 => when!(app.topic.is_some(), {
                 self.mark("composer_topic");
                 self.shot(ctx, "composer_topic.png");
                 self.key(Key::Escape);
                 self.next(300);
             }),
-            590 => {
+            592 => {
                 app.topic = None;
+                app.ui.guild = None;
                 app.open(DM);
-                self.next(600);
+                self.next(700);
             }
-            591 => when!(at(app, "dm:video").is_some() && at(app, "dm:add").is_some(), {
+            593 => when!(at(app, "dm:video").is_some() && at(app, "dm:add").is_some(), {
                 self.mark("composer_dm_header");
+                self.shot(ctx, "composer_dm_header.png");
                 let r = at(app, "dm:add").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());
-                self.next(400);
+                self.next(500);
             }),
-            592 => when!(app.group_pick.is_some(), {
+            594 => when!(app.group_pick.is_some(), {
                 self.mark("composer_group_pick");
                 if let Some(p) = app.group_pick.as_mut() {
                     p.picked = vec![102, 103];
                 }
-                self.next(300);
+                self.next(400);
             }),
-            593 => when!(Self::at(ctx, "pick:go").is_some(), {
+            595 => when!(Self::at(ctx, "pick:go").is_some(), {
                 self.shot(ctx, "composer_group_pick.png");
                 let r = Self::at(ctx, "pick:go").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());
-                self.next(800);
+                self.next(900);
             }),
-            594 => when!(app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 3 && c.recipients.len() == 3), {
+            596 => when!(app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 3 && c.recipients.len() == 3), {
                 self.mark("composer_group_dm");
+                app.select_guild(Some(self.target.0));
                 app.open(general);
                 self.next(300);
             }),
