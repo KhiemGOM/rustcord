@@ -448,7 +448,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     ui.add_space(23.0);
                     let draft = app.drafts.entry(ch).or_default();
                     // the text stops short of the buttons: five 40 wide, six with the send button
-                    let buttons = if app.settings.send_button { 240.0 } else { 200.0 };
+                    let buttons = if off { 0.0 } else if app.settings.send_button { 240.0 } else { 200.0 };
                     let w = (ui.available_width() - buttons - 8.0).max(60.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt("composer_scroll").show(ui, |ui| {
@@ -642,6 +642,9 @@ enum CardAct {
 
 fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     let (r, card) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::click());
+    if card.clicked() {
+        card.request_focus();
+    }
     super::settings::mark(ui, &format!("card:{i}"), r);
     let p = ui.painter();
     p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);

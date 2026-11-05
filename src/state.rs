@@ -1475,7 +1475,9 @@ impl Store {
         {
             g.my_roles = m.roles.clone();
             g.my_flags = v["flags"].as_u64().unwrap_or(g.my_flags);
-            g.my_timeout = v["communication_disabled_until"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
+            if let Some(t) = v.get("communication_disabled_until") {
+                g.my_timeout = t.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
+            }
             if let Some(t) = v["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
                 g.joined = t.timestamp();
             }

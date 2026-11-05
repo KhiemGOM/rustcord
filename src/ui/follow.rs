@@ -24,18 +24,24 @@ fn targets(app: &App, gid: Id) -> Vec<&Channel> {
     g.channels.iter().filter_map(|c| s.channels.get(c)).filter(|c| c.kind == 0 && s.perms(c) & MANAGE_WEBHOOKS != 0).collect()
 }
 
-fn pick(ui: &mut Ui, id: &str, label: &str, enabled: bool, items: Vec<(Id, String)>, cur: &mut Id) {
+fn pick(ui: &mut Ui, label: &str, enabled: bool, items: Vec<(Id, String)>, cur: &mut Id) {
     ui.add_space(8.0);
     ui.label(RichText::new(label).font(semi(16.0)).color(pal().header_primary));
     ui.add_space(8.0);
     let shown = items.iter().find(|(i, _)| i == cur).map_or("Select...".to_string(), |(_, n)| n.clone());
+    let mut chosen = None;
     ui.add_enabled_ui(enabled, |ui| {
-        egui::ComboBox::from_id_salt(id).selected_text(shown).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
-            for (i, n) in items {
-                ui.selectable_value(cur, i, n);
+        super::settings::dropdown(ui, 432.0, None, &shown, |ui| {
+            for (i, n) in &items {
+                if super::menu_item(ui, (i == cur).then_some(Icon::Check), n, false) {
+                    chosen = Some(*i);
+                }
             }
         });
     });
+    if let Some(i) = chosen {
+        *cur = i;
+    }
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -63,12 +69,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             });
             ui.add_space(16.0);
             let before = gid;
-            pick(ui, "follow_guild", "Send to", true, guilds, &mut gid);
+            pick(ui, "Send to", true, guilds, &mut gid);
             if gid != before {
                 chan = 0;
             }
             ui.add_space(16.0);
-            pick(ui, "follow_chan", "Select channel", gid != 0, chans, &mut chan);
+            pick(ui, "Select channel", gid != 0, chans, &mut chan);
             ui.add_space(16.0);
             ui.label(RichText::new("Only servers and channels you have webhook permissions in are shown.").font(reg(14.0)).color(pal().header_secondary));
             ui.add_space(24.0);
