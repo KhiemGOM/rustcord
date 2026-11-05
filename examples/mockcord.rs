@@ -1535,6 +1535,15 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             "7100" | "7200" => ok(json!({ "id": id, "name": if *id == "7100" { "Mockcord Quest" } else { "Mock Arena" }, "icon": null, "description": "", "rpc_origins": [] })),
             _ => (404, "application/json", json!({ "message": "Unknown Application", "code": 10002 }).to_string().into_bytes()),
         },
+        ("GET", ["api", "v9", "oauth2", "authorize"]) => ok(json!({ "application": { "id": "7200", "name": "Mock Arena" }, "authorized": false, "scopes": ["identify"] })),
+        ("POST", ["api", "v9", "oauth2", "authorize"]) => {
+            let token = query_str(path, "response_type") == "token";
+            let location = if token { "https://localhost/#access_token=mock-token&token_type=Bearer&expires_in=604800&scope=identify" } else { "https://localhost/?code=mock-code" };
+            ok(json!({ "location": location }))
+        }
+        ("GET", ["api", "v9", "oauth2", "@me"]) => ok(json!({
+            "application": { "id": "7200", "name": "Mock Arena", "description": "", "icon": null }, "user": user(ME), "scopes": ["identify"], "expires": "2099-01-01T00:00:00.000000+00:00",
+        })),
         ("GET", ["api", "v9", "oauth2", "applications", _, "assets"]) => ok(json!([{ "id": "9001", "type": 1, "name": "logo" }, { "id": "9002", "type": 1, "name": "badge" }])),
         ("POST", ["api", "v9", "applications", _, "external-assets"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
