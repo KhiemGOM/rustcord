@@ -69,28 +69,37 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 save |= b.clicked();
             });
         });
-    if clear || (save && s.text.trim().is_empty()) {
+    if clear || save {
+        let text = if clear { String::new() } else { s.text.trim().to_string() };
+        let length = s.length;
         app.status_text = None;
-        app.store.custom_status = None;
-        app.rest("PATCH", "/users/@me/settings".into(), Some(json!({ "custom_status": null })), Tag::Quiet);
-    } else if save {
-        let text = s.text.trim().to_string();
-        let expires = match LENGTHS[s.length].1 {
-            None => json!(null),
-            Some(secs) => {
-                let now = chrono::Local::now();
-                let end = if secs < 0 {
-                    (now.date_naive() + chrono::Duration::days(1)).and_hms_opt(0, 0, 0).and_then(|t| t.and_local_timezone(chrono::Local).single()).unwrap_or(now)
-                } else {
-                    now + chrono::Duration::seconds(secs)
-                };
-                json!(end.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
-            }
-        };
-        app.status_text = None;
-        app.store.custom_status = Some(text.clone());
-        app.rest("PATCH", "/users/@me/settings".into(), Some(json!({ "custom_status": { "text": text, "expires_at": expires, "emoji_id": null, "emoji_name": null } })), Tag::Quiet);
+        app.set_custom_status(&text, length);
     } else if close || modal.should_close() {
         app.status_text = None;
+    }
+}
+
+impl App {
+    /// Empty text clears it; `length` is a row of LENGTHS.
+    pub fn set_custom_status(&mut self, text: &str, length: usize) {
+        let body = if text.is_empty() {
+            json!({ "custom_status": null })
+        } else {
+            let expires = match LENGTHS[length].1 {
+                None => json!(null),
+                Some(secs) => {
+                    let now = chrono::Local::now();
+                    let end = if secs < 0 {
+                        (now.date_naive() + chrono::Duration::days(1)).and_hms_opt(0, 0, 0).and_then(|t| t.and_local_timezone(chrono::Local).single()).unwrap_or(now)
+                    } else {
+                        now + chrono::Duration::seconds(secs)
+                    };
+                    json!(end.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                }
+            };
+            json!({ "custom_status": { "text": text, "expires_at": expires, "emoji_id": null, "emoji_name": null } })
+        };
+        self.store.custom_status = (!text.is_empty()).then(|| text.to_string());
+        self.rest("PATCH", "/users/@me/settings".into(), Some(body), Tag::Quiet);
     }
 }

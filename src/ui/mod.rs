@@ -1,3 +1,4 @@
+mod accounts;
 mod actions;
 mod attach;
 mod activity;
@@ -64,6 +65,8 @@ pub mod text;
 mod titlebar;
 mod topic;
 mod wheel;
+mod userdlg;
+mod usermenu;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -99,6 +102,8 @@ pub struct App {
     pub store: Tracked,
     pub ui: UiState,
     pub token: Option<String>,
+    // the other accounts signed in on this machine, for Switch Accounts
+    pub accounts: Vec<cache::SavedAccount>,
     pub conn: Conn,
     pub login: login::Form,
     pub drafts: Map<Id, String>,
@@ -127,6 +132,10 @@ pub struct App {
     pub menu: Option<(Id, Id, Pos2)>,
     // a person's right-click menu: user, server, the dm it came from, where
     pub user_menu: Option<(Id, Id, Option<Id>, Pos2)>,
+    // where it opened: the call and friends lists add rows
+    pub menu_from: usermenu::Origin,
+    // the note, nickname or group dialog from that menu
+    pub user_dialog: Option<userdlg::Dialog>,
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
     pub reactors: Option<reactions::Reactors>,
@@ -329,6 +338,7 @@ impl App {
             store: store.into(),
             ui,
             token,
+            accounts: cache::accounts(),
             conn: Conn::Connecting,
             login: Default::default(),
             drafts: Map::default(),
@@ -359,6 +369,8 @@ impl App {
             report: None,
             guides: Map::default(),
             user_menu: None,
+            menu_from: Default::default(),
+            user_dialog: None,
             guild_notifs: None,
             bar: None,
             toast: None,
@@ -1404,6 +1416,18 @@ impl App {
                 let id = crate::state::sid(&v["id"]);
                 self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::Quiet);
             }
+            Tag::CallDm => {
+                self.store.apply("CHANNEL_CREATE", &v);
+                let id = crate::state::sid(&v["id"]);
+                self.ui.guild = None;
+                self.open(id);
+                self.join_voice(id, true);
+            }
+            Tag::InviteTo(uid) => {
+                if let Some(code) = v["code"].as_str() {
+                    self.send_invite(uid, code);
+                }
+            }
             Tag::OpenDm(text) => {
                 self.store.apply("CHANNEL_CREATE", &v);
                 let id = crate::state::sid(&v["id"]);
@@ -1487,6 +1511,15 @@ impl App {
     }
 
     pub fn logout(&mut self) {
+        if self.store.me != 0 {
+            cache::forget_account(self.store.me);
+            self.accounts = cache::accounts();
+        }
+        self.reset_session();
+    }
+
+    /// Drops the signed-in session and its cached data, back to the login screen.
+    pub fn reset_session(&mut self) {
         self.voice.leave(&self.net);
         self.net.send(Cmd::Stop);
         cache::set_token(None);
@@ -1544,6 +1577,9 @@ impl App {
                         e.heard.push(json!({ "t": t, "d": d }));
                     }
                     self.voice_cues(&t, &d);
+                    if t == "VOICE_CHANNEL_EFFECT_SEND" {
+                        self.soundboard_effect(&d);
+                    }
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
@@ -1556,6 +1592,7 @@ impl App {
                         e.cost("ready_apply", took.elapsed());
                     }
                     if t == "READY" {
+                        self.remember_me();
                         // cached channel lists can be stale, refetch whatever is open
                         for m in self.store.msgs.values_mut() {
                             m.fresh = false;
@@ -1630,6 +1667,10 @@ impl App {
                     }
                     if self.voice.shared.no_audio.swap(false, std::sync::atomic::Ordering::Relaxed) {
                         self.toast("No audio detected from your mic. Check the input device in Voice & Video settings.");
+                    }
+                    if self.voice.video_call && self.voice.state == crate::voice::State::Connected {
+                        self.voice.video_call = false;
+                        self.voice.set_camera(&self.net, self.store.me, true);
                     }
                 }
             }
@@ -1751,7 +1792,8 @@ impl App {
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);
-        popups::user_menu(self, &ctx);
+        usermenu::user_menu(self, &ctx);
+        userdlg::show(self, &ctx);
         popups::show(self, &ctx);
         attach::dragging(self, &ctx);
         popups::viewer(self, &ctx);

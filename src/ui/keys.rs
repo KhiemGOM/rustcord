@@ -71,6 +71,7 @@ impl App {
             || self.gifs.is_some()
             || self.menu.is_some()
             || self.user_menu.is_some()
+            || self.user_dialog.is_some()
             || self.confirm.is_some()
             || self.forward.is_some()
             || self.invite.is_some()

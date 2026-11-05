@@ -173,6 +173,8 @@ pub struct VoiceUi {
     pub stream: Option<Live>,
     pub stage: stage::Stage,
     pub suppressed: bool,
+    /// a video call was asked for: the camera goes on once the call connects
+    pub video_call: bool,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
     /// set when a call connects, for the entrance sound
