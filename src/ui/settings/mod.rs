@@ -232,8 +232,8 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     let on = *p == page;
                     if on {
                         ui.painter().rect_filled(r, CornerRadius::same(8), faint(51));
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(8), faint(20));
+                    } else {
+                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), faint(20), 0.05);
                     }
                     let col = if on { pal().header_primary } else { pal().text_muted };
                     icons::draw(ui.painter(), *icon, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), col);

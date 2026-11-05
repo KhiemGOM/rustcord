@@ -2304,9 +2304,7 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     // menus have no app to report to; the e2e driver finds rows here by label
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
     let p = ui.painter();
-    if resp.hovered() {
-        p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });
-    }
+    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER }, 0.05);
     let top = if sub.is_some() { r.top() + 8.0 } else { r.center().y - text.size().y / 2.0 };
     if let Some(s) = sub {
         p.galley(pos2(r.left() + indent, r.top() + 28.0), s, pal().text_muted);

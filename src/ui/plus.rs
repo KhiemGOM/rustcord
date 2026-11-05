@@ -95,6 +95,7 @@ pub fn launcher(app: &mut App, ctx: &egui::Context) {
     let anchor = app.rects.get("composer").copied().unwrap_or(Rect::from_min_size(pos2(400.0, 600.0), vec2(600.0, 56.0)));
     let mut picked: Option<String> = None;
     let mut keep = true;
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Foreground, "launcher".into()), vec2(0.0, 1.0));
     let area = egui::Area::new("launcher".into())
         .order(egui::Order::Foreground)
         .pivot(Align2::RIGHT_BOTTOM)

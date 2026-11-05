@@ -164,9 +164,13 @@ pub fn dots(ctx: &Context, i: usize) -> (f32, f32) {
 /// Discord's popout entrance: the card starts 10px off towards `away` and slides home in
 /// 0.2s ease-out. egui fades it in on its own.
 pub fn popout(ctx: &Context, area: egui::Area, away: egui::Vec2) -> egui::Area {
-    let t = enter(ctx, area.layer().id, 0.2, EASE_OUT);
-    ctx.set_transform_layer(area.layer(), TSTransform::from_translation(away * 10.0 * (1.0 - t)));
+    slide(ctx, area.layer(), away);
     area
+}
+
+pub fn slide(ctx: &Context, layer: egui::LayerId, away: egui::Vec2) {
+    let t = enter(ctx, layer.id, 0.2, EASE_OUT);
+    ctx.set_transform_layer(layer, TSTransform::from_translation(away * 10.0 * (1.0 - t)));
 }
 
 /// Discord's full-screen layer (server and channel settings): scale 1.1 down to 1 about the
