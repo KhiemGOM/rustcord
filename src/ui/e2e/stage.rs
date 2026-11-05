@@ -287,7 +287,7 @@ impl Run {
             }
             _ => {
                 if idle(app) {
-                    self.step = 2100;
+                    self.step = 2099;
                     self.next(300);
                 }
             }
