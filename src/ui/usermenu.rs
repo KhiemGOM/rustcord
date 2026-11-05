@@ -129,7 +129,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     let perms = if gid == 0 { 0 } else { store.my_perms(gid) };
     let outranks = gid != 0 && !me && rank(store, gid, store.me) > rank(store, gid, uid);
     let (can_timeout, can_kick, can_ban) = (outranks && perms & MODERATE_MEMBERS != 0, outranks && perms & KICK_MEMBERS != 0, outranks && perms & BAN_MEMBERS != 0);
-    let can_nick = gid != 0 && if me { perms & CHANGE_NICKNAME != 0 } else { outranks && perms & MANAGE_NICKNAMES != 0 };
+    let can_nick = gid != 0 && !me && outranks && perms & MANAGE_NICKNAMES != 0;
     let can_roles = gid != 0 && perms & MANAGE_ROLES != 0 && (me || outranks);
     let can_mod = gid != 0 && perms & (KICK_MEMBERS | BAN_MEMBERS | MODERATE_MEMBERS | MANAGE_ROLES | MANAGE_GUILD) != 0;
     let in_voice = vch.is_some();
