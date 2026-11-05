@@ -83,7 +83,10 @@ fn sounds(app: &mut App, ui: &mut Ui) -> bool {
     let mut changed = false;
     let mut preview = None;
     let on = app.settings.sounds;
-    for (key, label) in [("message", "New Message"), ("selected", "New Message in the channel I’m currently reading"), ("ring", "Incoming Ring")] {
+    if crate::sound::halloween_season() {
+        changed |= toggle(ui, &mut app.settings.halloween_sounds, "Enable 🎃 Halloween Sound Pack", "");
+    }
+    for (key, label) in [("message", "New Message"), ("selected", "New Message in the channel I’m currently reading"), ("call_ringing", "Incoming Ring")] {
         super::lead(ui);
         let s = &mut app.settings;
         let mut enabled = if key == "selected" { s.notify_selected } else { !s.muted_sounds.iter().any(|m| m == key) };

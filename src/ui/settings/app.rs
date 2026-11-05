@@ -391,35 +391,3 @@ fn speech_rate(ui: &mut Ui, rate: &mut f32) -> bool {
     super::end(ui, 24.0);
     moved
 }
-
-pub const SOUNDS: [(&str, &str); 19] = [
-    ("message", "Message"),
-    ("deafen", "Deafen"),
-    ("undeafen", "Undeafen"),
-    ("mute", "Mute"),
-    ("unmute", "Unmute"),
-    ("camera_on", "Camera On"),
-    ("camera_off", "Camera Off"),
-    ("disconnect", "Voice Disconnected"),
-    ("ptt_start", "PTT Activate"),
-    ("ptt_stop", "PTT Deactivate"),
-    ("user_join", "User Join"),
-    ("user_leave", "User Leave"),
-    ("user_moved", "User Moved"),
-    ("call_calling", "Outgoing Ring"),
-    ("stream_started", "Stream Started"),
-    ("stream_ended", "Stream Stopped"),
-    ("stream_user_joined", "Viewer Join"),
-    ("stream_user_left", "Viewer Leave"),
-    ("call_ringing", "Incoming Ring"),
-];
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn every_sound_row_has_a_file() {
-        for (cue, _) in super::SOUNDS {
-            assert!(crate::sound::has_file(cue), "{cue}");
-        }
-    }
-}

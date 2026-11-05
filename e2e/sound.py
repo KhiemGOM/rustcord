@@ -24,7 +24,7 @@ def checks(runs, reqs, data, served):
     marks = {k: set(r.get("marks_ms", {})) for k, r in runs.items()}
     return {
         "sounds: the cold run fetched discord's sounds into the data dir": "sound_fetched" in marks["cold"]
-            and len(fetched) >= 23 and len(list((data / "sounds").glob("*.mp3"))) >= 23,
+            and len(fetched) >= 27 and len(list((data / "sounds").glob("*.mp3"))) >= 27,
         "sounds: both runs decoded a sound and queued it for playback": all({"sound_decoded", "sound_queued"} <= m for m in marks.values()),
         "sounds: the warm run played from the cache without fetching again": "sound_fetched" not in marks["warm"],
     }
