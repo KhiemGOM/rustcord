@@ -536,7 +536,7 @@ fn ready(last_general: u64) -> Value {
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
     guilds[1]["owner_id"] = json!(ME.to_string());
-    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING"]);
+    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
     guilds.extend(side_guilds());
     let mut folders = vec![json!({ "guild_ids": ["1000"] }), json!({ "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] }),
@@ -701,6 +701,65 @@ fn gg_stand_in(face: &str) -> Vec<u8> {
     let woff2 = ttf2woff2::encode(&ttf, 3.into()).unwrap_or_default();
     CACHE.lock().unwrap().push((face.to_string(), woff2.clone()));
     woff2
+}
+
+fn default_sounds() -> Value {
+    json!([
+        { "sound_id": "5001", "name": "airhorn", "emoji_name": "\u{1f4ef}", "emoji_id": null, "volume": 1.0, "user": user(101) },
+        { "sound_id": "5002", "name": "quack", "emoji_name": "\u{1f986}", "emoji_id": null, "volume": 1.0, "user": user(102) },
+    ])
+}
+
+/// A guild the way `GET /guilds/<id>` gives it: READY's, filled out, with what was saved over it.
+fn guild_full(w: &W, gid: &str) -> Option<Value> {
+    let mut g = ready(0)["guilds"].as_array()?.iter().find(|g| g["id"] == gid)?.clone();
+    for (k, v) in [("system_channel_id", Value::Null), ("system_channel_flags", json!(0)), ("default_message_notifications", json!(0)), ("afk_channel_id", Value::Null),
+                   ("afk_timeout", json!(300)), ("verification_level", json!(0)), ("explicit_content_filter", json!(0)), ("rules_channel_id", Value::Null),
+                   ("public_updates_channel_id", Value::Null), ("owner_configured_content_level", json!(0)), ("premium_progress_bar_enabled", json!(false)),
+                   ("premium_tier", json!(0)), ("features", json!([]))] {
+        if g.get(k).is_none() {
+            g[k] = v;
+        }
+    }
+    if let Some(e) = w.lock().unwrap().edits.get(&format!("g:{gid}")).and_then(|e| e.as_object()) {
+        for (k, v) in e {
+            g[k] = v.clone();
+        }
+    }
+    Some(g)
+}
+
+/// What a server's profile page gets: its name, icon and traits, with what was saved over it.
+fn profile_full(w: &W, gid: &str) -> Option<Value> {
+    let g = guild_full(w, gid)?;
+    let mut p = json!({ "id": gid, "name": g["name"], "description": "", "icon_hash": g["icon"], "brand_color_primary": null, "visibility": 1, "traits": [],
+                        "game_application_ids": ["7100"], "games": [{ "id": "7100", "name": "Mockcord Quest" }], "member_count": g["member_count"], "online_count": 3,
+                        "tag": "", "badge": 6, "badge_color_primary": "#816bee", "badge_color_secondary": "#b79cf8" });
+    if let Some(e) = w.lock().unwrap().edits.get(&format!("p:{gid}")).and_then(|e| e.as_object()) {
+        for (k, v) in e {
+            p[k] = v.clone();
+        }
+    }
+    Some(p)
+}
+
+/// Merge a PATCH body into what's kept under `key`.
+fn keep(w: &W, key: String, body: &[u8]) {
+    let b: Value = serde_json::from_slice(body).unwrap_or_default();
+    let mut w = w.lock().unwrap();
+    let e = w.edits.entry(key).or_insert_with(|| json!({}));
+    for (k, v) in b.as_object().into_iter().flatten() {
+        e[k] = v.clone();
+    }
+}
+
+/// GUILD_UPDATE for a guild after a save: its fields, without the lists READY sends.
+fn guild_update(w: &W, gid: &str) {
+    let mut up = guild_full(w, gid).unwrap();
+    for k in ["channels", "threads", "voice_states", "roles", "emojis"] {
+        up.as_object_mut().map(|o| o.remove(k));
+    }
+    let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_UPDATE", "d": up }));
 }
 
 async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
@@ -943,10 +1002,10 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id": "7101", "name": "Launcher Only", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": true }] },
         ])),
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
-        ("GET", ["api", "v9", "guilds", _, "soundboard-sounds"]) => ok(json!({ "items": [
-            { "sound_id": "5001", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0 },
-            { "sound_id": "5002", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0 },
-        ] })),
+        ("GET", ["api", "v9", "guilds", g, "soundboard-sounds"]) => {
+            let kept = w.lock().unwrap().edits.get(&format!("s:{g}")).cloned();
+            ok(json!({ "items": kept.unwrap_or_else(default_sounds) }))
+        }
         // the boosts page: discord's powerups catalogue, what Rust Lounge has on, and its boosters
         ("GET", ["api", "v9", "store", "published-listings", "skus"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
@@ -1076,6 +1135,86 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             w.gone.push(ch.to_string());
             let _ = w.events.send(json!({ "t": "CHANNEL_DELETE", "d": c.clone() }));
             ok(c)
+        }
+        ("GET", ["api", "v9", "guilds", g]) if guild_full(w, g).is_some() => ok(guild_full(w, g).unwrap()),
+        ("PATCH", ["api", "v9", "guilds", g]) if guild_full(w, g).is_some() => {
+            keep(w, format!("g:{g}"), body);
+            guild_update(w, g);
+            ok(guild_full(w, g).unwrap())
+        }
+        ("DELETE", ["api", "v9", "guilds", g]) => {
+            let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_DELETE", "d": { "id": g } }));
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "guilds", g, "profile"]) => ok(profile_full(w, g).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "guilds", g, "profile"]) => {
+            keep(w, format!("p:{g}"), body);
+            ok(profile_full(w, g).unwrap_or_default())
+        }
+        ("GET", ["api", "v9", "guilds", g, "widget"]) => ok(w.lock().unwrap().edits.get(&format!("w:{g}")).cloned().unwrap_or(json!({ "enabled": false, "channel_id": null }))),
+        ("PATCH", ["api", "v9", "guilds", g, "widget"]) => {
+            keep(w, format!("w:{g}"), body);
+            ok(w.lock().unwrap().edits.get(&format!("w:{g}")).cloned().unwrap_or_default())
+        }
+        ("GET", ["api", "v9", "guilds", g, "vanity-url"]) => ok(w.lock().unwrap().edits.get(&format!("v:{g}")).cloned().unwrap_or(json!({ "code": null, "uses": 0 }))),
+        ("PATCH", ["api", "v9", "guilds", g, "vanity-url"]) => {
+            keep(w, format!("v:{g}"), body);
+            ok(w.lock().unwrap().edits.get(&format!("v:{g}")).cloned().unwrap_or_default())
+        }
+        ("GET", ["api", "v9", "guilds", g, "member-verification"]) => ok(w.lock().unwrap().edits.get(&format!("m:{g}")).cloned().unwrap_or(json!({ "version": "1", "description": null, "form_fields": [] }))),
+        ("PATCH", ["api", "v9", "guilds", g, "member-verification"]) => {
+            keep(w, format!("m:{g}"), body);
+            let form = w.lock().unwrap().edits.get(&format!("m:{g}")).cloned().unwrap_or_default();
+            let apply = form["form_fields"].as_array().is_some_and(|f| f.iter().any(|x| x["field_type"] != "TERMS"));
+            let mut feats: Vec<Value> = guild_full(w, g).map(|f| f["features"].as_array().cloned().unwrap_or_default()).unwrap_or_default();
+            feats.retain(|f| f != "MEMBER_VERIFICATION_MANUAL_APPROVAL" && f != "MEMBER_VERIFICATION_GATE_ENABLED");
+            if form["enabled"] == json!(true) {
+                feats.push(json!(if apply { "MEMBER_VERIFICATION_MANUAL_APPROVAL" } else { "MEMBER_VERIFICATION_GATE_ENABLED" }));
+            }
+            keep(w, format!("g:{g}"), json!({ "features": feats }).to_string().as_bytes());
+            guild_update(w, g);
+            ok(form)
+        }
+        ("GET", ["api", "v9", "guilds", g, "templates"]) => ok(w.lock().unwrap().edits.get(&format!("t:{g}")).map(|t| json!([t])).unwrap_or(json!([]))),
+        ("POST", ["api", "v9", "guilds", g, "templates"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let t = json!({ "code": format!("mock{g}"), "name": b["name"], "description": b["description"], "usage_count": 0, "is_dirty": false });
+            w.lock().unwrap().edits.insert(format!("t:{g}"), t.clone());
+            ok(t)
+        }
+        ("PATCH", ["api", "v9", "guilds", g, "templates", _]) => {
+            keep(w, format!("t:{g}"), body);
+            ok(w.lock().unwrap().edits.get(&format!("t:{g}")).cloned().unwrap_or_default())
+        }
+        ("PUT", ["api", "v9", "guilds", g, "templates", _]) => ok(w.lock().unwrap().edits.get(&format!("t:{g}")).cloned().unwrap_or_default()),
+        ("DELETE", ["api", "v9", "guilds", g, "templates", _]) => {
+            w.lock().unwrap().edits.remove(&format!("t:{g}"));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "guilds", g, "soundboard-sounds"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let s = json!({ "sound_id": snow(now_ms()).to_string(), "name": b["name"], "volume": b["volume"], "emoji_name": b["emoji_name"], "emoji_id": b["emoji_id"], "user": user(ME) });
+            let mut w = w.lock().unwrap();
+            let list = w.edits.entry(format!("s:{g}")).or_insert_with(|| default_sounds());
+            list.as_array_mut().unwrap().push(s.clone());
+            ok(s)
+        }
+        ("PATCH", ["api", "v9", "guilds", g, "soundboard-sounds", id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut w = w.lock().unwrap();
+            let list = w.edits.entry(format!("s:{g}")).or_insert_with(|| default_sounds());
+            for s in list.as_array_mut().unwrap().iter_mut().filter(|s| s["sound_id"] == *id) {
+                for (k, v) in b.as_object().into_iter().flatten() {
+                    s[k] = v.clone();
+                }
+            }
+            ok(json!({}))
+        }
+        ("DELETE", ["api", "v9", "guilds", g, "soundboard-sounds", id]) => {
+            let mut w = w.lock().unwrap();
+            let list = w.edits.entry(format!("s:{g}")).or_insert_with(|| default_sounds());
+            list.as_array_mut().unwrap().retain(|s| s["sound_id"] != *id);
+            (204, "application/json", Vec::new())
         }
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),

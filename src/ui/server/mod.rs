@@ -1,6 +1,16 @@
-//! Server Settings, the full-window layer discord opens from the server menu: the profile, emoji,
-//! stickers, members, roles, invites, bans and audit log. Pages rustcord doesn't draw yet say so
-//! and offer discord.
+//! Server Settings, the full-window layer discord opens from the server menu: the profile, tag,
+//! engagement, perks, emoji, stickers, soundboard, members, roles, invites, access, bans, audit
+//! log, community and template.
+
+mod access;
+mod community;
+mod engage;
+mod form;
+mod perks;
+mod profile;
+mod sound;
+mod tag;
+mod template;
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
@@ -32,6 +42,7 @@ pub enum Page {
     Bans,
     AutoMod,
     Community,
+    Template,
 }
 
 const SIDE: &[(&str, &[(Page, &str)])] = &[
@@ -45,15 +56,25 @@ const SIDE: &[(&str, &[(Page, &str)])] = &[
 pub struct State {
     pub guild: Id,
     pub page: Page,
-    pub name: String,
     pub search: String,
     pub data: HashMap<&'static str, Value>,
+    pub draft: HashMap<&'static str, Value>,
+    pub dirty: bool,
+    pub saving: bool,
+    pub shake: f64,
+    pub sub: u8,
+    pub sound: Option<sound::Form>,
+}
+
+impl State {
+    fn sub_open(&self) -> bool {
+        self.sub != 0 || self.sound.is_some()
+    }
 }
 
 impl App {
     pub fn open_server_settings(&mut self, gid: Id) {
-        let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-        self.server = Some(State { guild: gid, page: Page::Profile, name, search: String::new(), data: HashMap::new() });
+        self.server = Some(State { guild: gid, page: Page::Profile, search: String::new(), data: HashMap::new(), draft: HashMap::new(), dirty: false, saving: false, shake: 0.0, sub: 0, sound: None });
     }
 
     /// A page's data, asked for the first time it's drawn.
@@ -68,9 +89,25 @@ impl App {
 }
 
 pub fn loaded(app: &mut App, key: &'static str, v: Value) {
-    if let Some(s) = &mut app.server {
-        s.data.insert(key, v);
+    let Some(s) = &mut app.server else { return };
+    match key {
+        "sounds_done" => return drop(s.data.remove("sounds")),
+        "template_made" => return drop(s.data.remove("template")),
+        _ => {}
     }
+    let failed = v.as_array().is_some_and(|a| a.is_empty());
+    s.saving = false;
+    if key == "guild" && s.sub == 5 {
+        s.sub = if !failed && v["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "COMMUNITY")) { 4 } else { 3 };
+    }
+    let mine = matches!(key, "profile" | "guild" | "widget" | "vanity" | "template" | "verification");
+    if failed && mine && s.data.get(key).is_some_and(|d| !d.is_null()) {
+        return;
+    }
+    if mine {
+        s.draft.clear();
+    }
+    s.data.insert(key, v);
 }
 
 fn faint(a: u8) -> Color32 {
@@ -81,14 +118,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(st) = app.server.as_ref() else { return };
     let gid = st.guild;
     let page = st.page;
-    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) && app.confirm.is_none() {
-        app.server = None;
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) && app.confirm.is_none() && !st.sub_open() {
+        if form::guard(app, ctx) {
+            app.server = None;
+        }
         return;
     }
     let screen = ctx.content_rect();
     let area = Rect::from_min_max(pos2(screen.left(), screen.top() + 32.0), screen.max);
     let mut goto = None;
     let mut close = false;
+    let mut delete = false;
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("server_area"), area));
     egui::Area::new("server_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
@@ -136,15 +177,49 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
             ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
             ui.add_space(8.0);
+            let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
             if page == Page::Community {
                 ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
             }
-            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Enable Community", medium(16.0), pal().header_secondary);
+            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, if community { "Community Overview" } else { "Enable Community" }, medium(16.0), if page == Page::Community || resp.hovered() { pal().header_primary } else { pal().header_secondary });
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
             if resp.clicked() {
                 goto = Some(Page::Community);
+            }
+            ui.add_space(8.0);
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
+            ui.add_space(8.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+            if page == Page::Template {
+                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+            } else if resp.hovered() {
+                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
+            }
+            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Server Template", medium(16.0), if page == Page::Template || resp.hovered() { pal().header_primary } else { pal().header_secondary });
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if resp.clicked() {
+                goto = Some(Page::Template);
+            }
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+            if resp.hovered() {
+                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
+            }
+            super::settings::mark(ui, "side:Delete Server", r);
+            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Delete Server", medium(16.0), RED);
+            icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(16.0, 16.0)), RED);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if resp.clicked() {
+                delete = true;
             }
             ui.add_space(60.0);
         });
@@ -159,7 +234,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let mut bc = ui.new_child(egui::UiBuilder::new().max_rect(body));
         egui::ScrollArea::vertical().id_salt(("server_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
             Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 80 }).show(ui, |ui| match page {
-                Page::Profile => profile(app, ui, gid),
+                Page::Profile => profile::show(app, ui, gid),
+                Page::Tag => tag::show(app, ui, gid),
+                Page::Engagement => engage::show(app, ui, gid),
+                Page::Perks => perks::show(app, ui, gid),
+                Page::Soundboard => sound::show(app, ui, gid),
+                Page::Access => access::show(app, ui, gid),
+                Page::Community => community::show(app, ui, gid),
+                Page::Template => template::show(app, ui, gid),
                 Page::Emoji => emoji(app, ui, gid),
                 Page::Stickers => stickers(app, ui, gid),
                 Page::Members => members(app, ui, gid),
@@ -167,30 +249,37 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Page::Invites => invites(app, ui, gid),
                 Page::Bans => bans(app, ui, gid),
                 Page::Audit => audit(app, ui, gid),
-                _ => elsewhere(ui, gid, page),
+                _ => {}
             });
         });
     });
-    if close {
+    sound::modal_form(app, ctx);
+    community::modal(app, ctx);
+    if delete {
+        let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
+        app.confirm = Some(super::Confirm::new(format!("Delete '{name}'"), format!("Are you sure you want to delete **{name}**? This action cannot be undone."), "Delete Server", move |app: &mut App| {
+            app.server = None;
+            app.rest("DELETE", format!("/guilds/{gid}"), None, Tag::Quiet);
+        }));
+    }
+    if close && form::guard(app, ctx) {
         app.server = None;
     }
     match goto {
-        Some(Page::Perks) => {
-            app.server = None;
-            app.ui.guild = Some(gid);
-            app.open_boosts(gid);
-        }
         Some(Page::Directory) => {
-            app.server = None;
-            app.open_directory();
+            if form::guard(app, ctx) {
+                app.server = None;
+                app.open_directory();
+            }
         }
-        Some(p) => {
+        Some(p) if form::guard(app, ctx) => {
             if let Some(s) = &mut app.server {
                 s.page = p;
                 s.search.clear();
+                s.sub = 0;
             }
         }
-        None => {}
+        _ => {}
     }
 }
 
@@ -219,100 +308,6 @@ fn row(ui: &mut Ui, h: f32, draw: impl FnOnce(&Ui, Rect, bool)) -> egui::Respons
     ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
     draw(ui, r, resp.hovered());
     resp
-}
-
-fn profile(app: &mut App, ui: &mut Ui, gid: Id) {
-    let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
-    title(ui, "Server Profile", "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages");
-    let mut save = None;
-    let mut pick = false;
-    let mut remove = false;
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 40.0;
-        let w = (ui.available_width() - 340.0).max(320.0);
-        ui.allocate_ui(vec2(w, 600.0), |ui| {
-            ui.set_width(w);
-            ui.vertical(|ui| {
-                super::settings::h5(ui, "Name");
-                let s = app.server.as_mut().unwrap();
-                super::settings::input(ui, &mut s.name, "", false);
-                if s.name.trim() != g.name && !s.name.trim().is_empty() {
-                    ui.add_space(12.0);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        if super::settings::primary(ui, "Save Changes").clicked() {
-                            save = Some(s.name.trim().to_string());
-                        }
-                        if super::settings::link(ui, "Reset").clicked() {
-                            s.name = g.name.clone();
-                        }
-                    });
-                }
-                rule(ui);
-                super::settings::h5(ui, "Icon");
-                ui.label(RichText::new("We recommend an image of at least 512x512.").font(reg(14.0)).color(pal().header_secondary));
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    pick = super::settings::primary(ui, "Change Server Icon").clicked();
-                    if g.icon.is_some() {
-                        remove = super::settings::danger(ui, "Remove Icon", false).clicked();
-                    }
-                });
-            });
-        });
-        // the invite card discord previews on the right
-        Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
-            ui.set_width(300.0);
-            let (top, _) = ui.allocate_exact_size(vec2(300.0, 120.0), Sense::hover());
-            let mut m = egui::Mesh::default();
-            m.colored_vertex(top.left_top(), Color32::from_rgb(0x1c, 0x1c, 0x1f));
-            m.colored_vertex(top.right_top(), Color32::from_rgb(0x1c, 0x1c, 0x1f));
-            m.colored_vertex(top.right_bottom(), Color32::from_rgb(0x48, 0x48, 0x4c));
-            m.colored_vertex(top.left_bottom(), Color32::from_rgb(0x48, 0x48, 0x4c));
-            m.add_triangle(0, 1, 2);
-            m.add_triangle(0, 2, 3);
-            ui.painter().add(m);
-            Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
-                let ir = Rect::from_min_size(pos2(ui.max_rect().left(), top.bottom() - 40.0), vec2(80.0, 80.0));
-                ui.painter().rect_filled(ir.expand(4.0), CornerRadius::same(24), pal().bg_secondary);
-                match g.icon_url() {
-                    Some(u) => {
-                        egui::Image::from_uri(u.replace("size=96", "size=160")).corner_radius(CornerRadius::same(20)).paint_at(ui, ir);
-                    }
-                    None => {
-                        ui.painter().rect_filled(ir, CornerRadius::same(20), pal().bg_accent);
-                    }
-                }
-                ui.add_space(48.0);
-                ui.label(RichText::new(&g.name).font(bold(20.0)).color(pal().header_primary));
-                ui.add_space(4.0);
-                let online = g.list.iter().filter(|i| matches!(i, crate::state::ListItem::Member(_))).count();
-                ui.label(RichText::new(format!("\u{25cf} {online} Online   \u{25cf} {} Members", g.member_count)).font(reg(14.0)).color(pal().header_secondary));
-                let est = chrono::DateTime::from_timestamp_millis(snowflake_ms(gid)).map(|t| t.format("Est. %b %Y").to_string()).unwrap_or_default();
-                ui.label(RichText::new(est).font(reg(14.0)).color(pal().header_secondary));
-            });
-        });
-    });
-    if let Some(n) = save {
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "name": n })), Tag::Quiet);
-    }
-    if remove {
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "icon": null })), Tag::Quiet);
-    }
-    if pick && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() {
-        if let Ok(bytes) = std::fs::read(&path) {
-            use base64::Engine;
-            let mime = match bytes.get(..4) {
-                Some([0x89, b'P', ..]) => "image/png",
-                Some([b'G', b'I', ..]) => "image/gif",
-                Some([b'R', b'I', ..]) => "image/webp",
-                _ => "image/jpeg",
-            };
-            let icon = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
-            app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "icon": icon })), Tag::Quiet);
-        }
-    }
 }
 
 fn emoji(app: &mut App, ui: &mut Ui, gid: Id) {
@@ -611,15 +606,5 @@ fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
             }
             p.text(pos2(r.left() + 48.0, r.center().y + 11.0), Align2::LEFT_CENTER, &when, reg(12.0), pal().header_secondary);
         });
-    }
-}
-
-fn elsewhere(ui: &mut Ui, gid: Id, page: Page) {
-    let name = SIDE.iter().flat_map(|(_, i)| i.iter()).find(|(p, _)| *p == page).map(|(_, n)| *n).unwrap_or("Enable Community");
-    title(ui, name, "");
-    ui.label(RichText::new("Rustcord doesn't have this page yet. Discord's own client can change it.").font(reg(16.0)).color(pal().text_normal));
-    ui.add_space(16.0);
-    if super::settings::secondary(ui, "Open in Discord").clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}")));
     }
 }
