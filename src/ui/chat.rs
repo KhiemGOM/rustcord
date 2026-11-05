@@ -2733,7 +2733,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         ui.set_min_width(204.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            for (i, e) in quick.iter().enumerate().filter(|_| sent) {
+            for (i, e) in quick.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::click());
                 tiles.push(r);
                 ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
@@ -2748,11 +2748,8 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
                 }
             }
         });
-        let mut started = sent;
-        if sent {
-            menu_sep(ui);
-            started = false;
-        }
+        menu_sep(ui);
+        let mut started = false;
         let mut group = |ui: &mut Ui, on: bool| {
             if on && started {
                 menu_sep(ui);
@@ -2760,7 +2757,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
             started |= on;
             on
         };
-        if group(ui, sent) {
+        if group(ui, true) {
             let add = menu_row(ui, Some(Icon::AddReaction), "Add Reaction", None, false, Trail::Caret);
             if add.clicked() {
                 pick = Some(MenuPick::React);
@@ -2783,14 +2780,14 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
                 pick = Some(MenuPick::ViewReactions);
             }
         }
-        if group(ui, sent && (own && editable || replyable || forwardable || threads)) {
-            if own && editable && menu_item(ui, Some(Icon::Pencil), "Edit Message", false) {
+        if group(ui, sent && (own && editable || replyable || forwardable) || threads) {
+            if sent && own && editable && menu_item(ui, Some(Icon::Pencil), "Edit Message", false) {
                 pick = Some(MenuPick::Edit);
             }
-            if replyable && menu_item(ui, Some(Icon::Reply), "Reply", false) {
+            if sent && replyable && menu_item(ui, Some(Icon::Reply), "Reply", false) {
                 pick = Some(MenuPick::Reply);
             }
-            if forwardable && menu_item(ui, Some(Icon::Forward), "Forward", false) {
+            if sent && forwardable && menu_item(ui, Some(Icon::Forward), "Forward", false) {
                 pick = Some(MenuPick::Forward);
             }
             if threads && menu_item(ui, Some(Icon::ThreadPlus), "Create Thread", false) {
@@ -2801,49 +2798,45 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if !content.is_empty() && menu_item(ui, Some(Icon::Copy), "Copy Text", false) {
             pick = Some(MenuPick::Copy);
         }
-        if sent {
-            if manage && pinnable && menu_item(ui, Some(Icon::Pin), if pinned { "Unpin Message" } else { "Pin Message" }, false) {
-                pick = Some(MenuPick::Pin);
-            }
-            let mark = if saved { (Icon::Bookmarked, "Remove Bookmark") } else { (Icon::Bookmark, "Bookmark Message") };
-            if menu_item(ui, Some(mark.0), mark.1, false) {
-                pick = Some(MenuPick::Bookmark);
-            }
-            let rem = menu_row(ui, Some(Icon::Clock), "Create Reminder", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &rem, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for (label, due) in App::reminder_times() {
-                    if menu_item(ui, None, &label, false) {
-                        pick = Some(MenuPick::Remind(due));
-                    }
-                }
-            });
-            let a = menu_row(ui, Some(Icon::Launched), "Apps", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &a, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                if apps.is_empty() {
-                    ui.add_enabled_ui(false, |ui| menu_item(ui, None, "No Apps", false));
-                }
-                for c in &apps {
-                    if menu_item(ui, None, c["name"].as_str().unwrap_or(""), false) {
-                        pick = Some(MenuPick::App(c.clone()));
-                    }
-                }
-            });
+        if sent && manage && pinnable && menu_item(ui, Some(Icon::Pin), if pinned { "Unpin Message" } else { "Pin Message" }, false) {
+            pick = Some(MenuPick::Pin);
         }
+        let mark = if saved { (Icon::Bookmarked, "Remove Bookmark") } else { (Icon::Bookmark, "Bookmark Message") };
+        if menu_item(ui, Some(mark.0), mark.1, false) {
+            pick = Some(MenuPick::Bookmark);
+        }
+        let rem = menu_row(ui, Some(Icon::Clock), "Create Reminder", None, false, Trail::Caret);
+        egui::containers::menu::SubMenu::new().show(ui, &rem, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (label, due) in App::reminder_times() {
+                if menu_item(ui, None, &label, false) {
+                    pick = Some(MenuPick::Remind(due));
+                }
+            }
+        });
+        let a = menu_row(ui, Some(Icon::Launched), "Apps", None, false, Trail::Caret);
+        egui::containers::menu::SubMenu::new().show(ui, &a, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            if apps.is_empty() {
+                ui.add_enabled_ui(false, |ui| menu_item(ui, None, "No Apps", false));
+            }
+            for c in &apps {
+                if menu_item(ui, None, c["name"].as_str().unwrap_or(""), false) {
+                    pick = Some(MenuPick::App(c.clone()));
+                }
+            }
+        });
         if failed && menu_item(ui, Some(Icon::Refresh), "Resend message", false) {
             pick = Some(MenuPick::Resend);
         }
-        if sent {
-            if menu_item(ui, Some(Icon::MarkUnread), "Mark Unread", false) {
-                pick = Some(MenuPick::Unread);
-            }
-            if configure && menu_item(ui, Some(Icon::CircleCheck), "Configure", false) {
-                pick = Some(MenuPick::Configure);
-            }
-            if menu_item(ui, Some(Icon::Link), "Copy Message Link", false) {
-                pick = Some(MenuPick::Link);
-            }
+        if menu_item(ui, Some(Icon::MarkUnread), "Mark Unread", false) {
+            pick = Some(MenuPick::Unread);
+        }
+        if sent && configure && menu_item(ui, Some(Icon::CircleCheck), "Configure", false) {
+            pick = Some(MenuPick::Configure);
+        }
+        if menu_item(ui, Some(Icon::Link), "Copy Message Link", false) {
+            pick = Some(MenuPick::Link);
         }
         if !content.is_empty() && menu_item(ui, Some(Icon::Bubble), "Speak Message", false) {
             pick = Some(MenuPick::Speak);

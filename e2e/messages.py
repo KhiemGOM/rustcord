@@ -64,7 +64,7 @@ def checks(runs, reqs, data):
         "messages: an app's reply has View Interaction Info": shows("menu:2", "View Interaction Info"),
         "messages: a voice message has Save File and no Copy Text": shows("menu:3", "Save File") and hides("menu:3", "Copy Text"),
         "messages: a pin notice can't be replied to or pinned": shows("menu:4", "Report Message", "Bookmark Message") and hides("menu:4", "Reply", "Pin Message", "Forward"),
-        "messages: a send that failed turns red and its menu offers Resend message": both("msg_failed") and all({"Resend message", "Delete Message"} <= set(rects(r).get("menu:failed", [])) and not {"Reply", "Add Reaction"} & set(rects(r).get("menu:failed", [])) for r in runs.values()),
+        "messages: a send that failed turns red and its menu offers Resend message": both("msg_failed") and all({"Add Reaction", "Resend message", "Delete Message"} <= set(rects(r).get("menu:failed", [])) and not {"Reply", "Forward", "Edit Message", "Pin Message", "Report Message"} & set(rects(r).get("menu:failed", [])) for r in runs.values()),
         "messages: Resend message goes out again under the same nonce": both("msg_resent") and len(nonces) == 2 and all(len(v) == 2 for v in nonces.values()),
         "messages: Report Message walks discord's menu and submits the path": both("msg_report_sent") and both("msg_report_closed") and len(sent("GET", "/reporting/menu/message")) == 2
         and len(reports) == 2 and all(b.get("breadcrumbs") == ["root", "spam"] and b.get("elements") == {"reasons": ["links"]} and b.get("name") == "message" for b in reports),
