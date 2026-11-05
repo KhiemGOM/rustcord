@@ -737,7 +737,6 @@ fn bill_state() -> Value {
     })
 }
 
-/// Discord's billing, boost and gift endpoints on one little shared state. Nothing here can buy.
 fn billing(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
     let mut g = BILL.lock().unwrap();
     if g.is_null() {
