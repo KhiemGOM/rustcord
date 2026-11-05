@@ -30,6 +30,7 @@ import look
 import polish
 import call
 import home
+import composer
 import qol
 import web
 
@@ -436,6 +437,7 @@ def main():
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
+        **composer.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),

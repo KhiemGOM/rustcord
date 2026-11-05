@@ -10,6 +10,8 @@ pub struct UiState {
     pub chan: Map<Id, Id>,
     pub collapsed: Set<Id>,
     pub recent: Vec<Id>,
+    // apps whose commands were used from the launcher, latest first
+    pub recent_apps: Vec<Id>,
     // the toolbar's one-click reactions, most recent first
     pub quick: Vec<crate::state::ReactEmoji>,
     pub hide_members: bool,

@@ -91,7 +91,7 @@ pub enum Cmd {
     Login { login: String, password: String },
     Mfa { ticket: String, code: String },
     Messages { channel: Id, page: Page },
-    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String)>, stickers: Vec<Id>, tts: bool },
+    Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
     Edit { channel: Id, id: Id, content: String },
@@ -177,7 +177,7 @@ struct Outgoing {
     content: String,
     nonce: String,
     reply: Option<(Id, bool)>,
-    files: Vec<(PathBuf, String)>,
+    files: Vec<(PathBuf, String, String)>,
     stickers: Vec<Id>,
     tts: bool,
 }

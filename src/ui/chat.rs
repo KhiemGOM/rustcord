@@ -357,12 +357,27 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
                 });
-                if let Some(topic) = &chan.topic {
+                if chan.kind == 5 && app.store.guild_order.iter().any(|g| app.store.my_perms(*g) & crate::state::MANAGE_WEBHOOKS != 0) {
+                    ui.add_space(8.0);
+                    let b = super::gate::button(ui, "Follow");
+                    app.rects.insert("header:follow".into(), b.rect);
+                    if b.clicked() {
+                        app.follow = Some(super::follow::Follow::new());
+                    }
+                }
+                if let Some(topic) = chan.topic.as_ref().filter(|t| !t.is_empty()) {
                     let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
                     ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
                     let w = (ui.available_width() - tools).max(0.0);
                     ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
-                        text::label(ui, &topic.replace('\n', " "), reg(14.0), pal().header_secondary, Sense::hover());
+                        let r = text::label(ui, &topic.replace('\n', " "), reg(14.0), pal().header_secondary, Sense::click());
+                        app.rects.insert("header:topic".into(), r.rect);
+                        if r.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if r.clicked() {
+                            app.topic = Some(chan.id);
+                        }
                     });
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -433,6 +448,13 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             app.search = None;
                         }
                     }
+                    if chan.guild == 0 {
+                        let add = icon_button(ui, Icon::PersonAdd, 32.0, "Add Friends to DM");
+                        app.rects.insert("dm:add".into(), add.rect);
+                        if add.clicked() {
+                            app.group_pick = Some(super::dmpick::Pick::new(Some(chan.id)));
+                        }
+                    }
                     if !chan.is_forum() {
                         let pins = super::toggle_button(ui, Icon::Pin, 32.0, "Pinned Messages", app.pins.is_some());
                         if app.store.pins_unread(chan.id) {
@@ -462,6 +484,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         super::popups::threads_menu(app, &t, chan.id);
                     }
                     if chan.guild == 0 {
+                        super::call::video_button(app, ui, chan.id);
                         super::call::call_button(app, ui, chan.id);
                     }
                 });

@@ -1125,7 +1125,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             let plus = ui.interact(pr.expand(4.0), ui.id().with("new_dm"), Sense::click());
             icons::draw(ui.painter(), Icon::Plus, pr, if plus.hovered() { pal().interactive_hover } else { pal().channel_default });
             if plus.on_hover_text("Create DM").clicked() {
-                app.switcher = Some(String::new());
+                app.group_pick = Some(super::dmpick::Pick::new(None));
             }
             ui.add_space(4.0);
             let store = &app.store;

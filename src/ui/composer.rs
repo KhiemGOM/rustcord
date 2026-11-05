@@ -15,6 +15,7 @@ pub struct Upload {
     pub path: PathBuf,
     pub name: String,
     pub spoiler: bool,
+    pub alt: String,
     // kept for the thumbnail; it gets read for the upload anyway
     thumb: Option<egui::load::Bytes>,
 }
@@ -22,11 +23,15 @@ pub struct Upload {
 impl Upload {
     pub fn new(path: PathBuf) -> Self {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-        let mut u = Upload { path, name, spoiler: false, thumb: None };
+        let mut u = Upload { path, name, spoiler: false, alt: String::new(), thumb: None };
         if u.is_image() && std::fs::metadata(&u.path).is_ok_and(|m| m.len() < 25 << 20) {
             u.thumb = std::fs::read(&u.path).ok().map(Into::into);
         }
         u
+    }
+
+    pub fn thumb_bytes(&self) -> Option<egui::load::Bytes> {
+        self.thumb.clone()
     }
 
     fn is_image(&self) -> bool {
@@ -232,6 +237,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let tid = egui::Id::new("composer");
     // the reply bar is part of the composer, so the typing line goes above it
     let stack_top = ui.cursor().top();
+    let gate = super::gate::check(app, chan);
+    if let super::gate::Gate::Bar(b) = &gate {
+        super::gate::bar(app, ui, b);
+        return;
+    }
+    let off = gate.off();
+    super::gate::banner(app, ui, chan);
+    super::gate::notice(app, ui, chan);
 
     if let Some(rid) = app.reply {
         let name = app.store.find_msg(ch, rid).map(|m| app.store.name_in(chan.guild, m.author)).unwrap_or_default();
@@ -274,7 +287,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // tab with nothing focused lands in the composer too, as in discord
     let modal = app.modal_open();
     let tabbed = nothing_focused && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
-    if app.editing.is_none() && !modal && (app.focus_composer || tabbed || (nothing_focused && typed)) {
+    if app.editing.is_none() && !modal && !off && (app.focus_composer || tabbed || (nothing_focused && typed)) {
         ui.memory_mut(|m| m.request_focus(tid));
         app.focus_composer = false;
         app.focus_msg = None;
@@ -305,13 +318,14 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     app.ac_sel = app.ac_sel.min(items.len().saturating_sub(1));
 
+    let slow = app.store.slow_left(chan);
     let mut send = false;
     let mut accept = None;
     let selection = egui::TextEdit::load_state(ui.ctx(), tid).and_then(|s| s.cursor.char_range()).filter(|r| !r.is_empty());
     // inside a ``` block left open, Enter is a new line and Tab a tab
     let in_code = draft_now.chars().take(cursor).collect::<String>().matches("```").count() % 2 == 1;
     let limit = if app.store.nitro() { 4000 } else { 2000 };
-    if (focused || (nothing_focused && typed)) && !modal {
+    if (focused || (nothing_focused && typed)) && !modal && !off {
         if open {
             // ctrl+n walks the list too; ctrl+p is pins, which never reaches it
             if ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::ArrowDown) || super::take_key(i, Modifiers::COMMAND, Key::N)) {
@@ -378,6 +392,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         2 | 13 => format!("Message {}", chan.name),
         _ => format!("Message #{}", chan.name),
     };
+    let hint = super::gate::placeholder(chan, &gate).map_or(hint, str::to_string);
     let top_r = if app.reply.is_some() { 0 } else { 8 };
     let mut attach = false;
     let mut tab = None;
@@ -386,6 +401,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut send_click = false;
     let mut gif_rect = None;
     let mut remove = None;
+    let mut plus = None;
+    let mut modify = None;
+    let mut card_focus = None;
     let mut new_cursor = None;
     let mut colon_at = None;
     // where a selection starts on screen, for the formatting toolbar over it
@@ -405,10 +423,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 24.0;
                             for (i, f) in app.files.iter_mut().enumerate() {
-                                match upload_card(ui, f) {
+                                let (act, focused) = upload_card(ui, f, i);
+                                match act {
                                     Some(CardAct::Remove) => remove = Some(i),
                                     Some(CardAct::Spoiler) => f.spoiler = !f.spoiler,
+                                    Some(CardAct::Modify) => modify = Some(i),
                                     None => {}
+                                }
+                                if focused {
+                                    card_focus = Some(i);
                                 }
                             }
                         });
@@ -424,19 +447,20 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
                     let col = if presp.hovered() { pal().interactive_hover } else { pal().header_secondary };
-                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), col);
-                    if presp.hovered() {
+                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), if off { col.gamma_multiply(0.4) } else { col });
+                    if presp.hovered() && !off {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
-                    if presp.on_hover_text("Upload a File").clicked() {
-                        attach = true;
+                    app.rects.insert("plus_button".into(), pr);
+                    if !off {
+                        plus = super::plus::menu(app, &presp, chan);
                     }
                     // discord's text starts 64 in: 16, the 24 button, then 24 more
                     ui.add_space(23.0);
                     let preview = app.settings.md_preview;
                     let draft = app.drafts.entry(ch).or_default();
                     // the text stops short of the buttons: five 40 wide, six with the send button
-                    let buttons = if app.settings.send_button { 240.0 } else { 200.0 };
+                    let buttons = if off { 0.0 } else if app.settings.send_button { 240.0 } else { 200.0 };
                     let w = (ui.available_width() - buttons - 8.0).max(60.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt("composer_scroll").show(ui, |ui| {
@@ -454,6 +478,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 .desired_rows(1)
                                 .margin(Margin::ZERO)
                                 .font(reg(16.0))
+                                .interactive(!off)
                                 .text_color(pal().text_normal)
                                 .desired_width(w)
                                 .lock_focus(true)
@@ -477,6 +502,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
                     // discord's row, right to left: apps, emoji, sticker, gif, gift; 20px icons 40 apart
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        if off {
+                            return;
+                        }
                         let slot = |ui: &mut Ui, icon: Icon, tip: &str| {
                             let (r, resp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
                             let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
@@ -494,7 +522,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 send_click = true;
                             }
                         }
-                        apps_click = slot(ui, Icon::Apps, "Apps").clicked();
+                        let ar = slot(ui, Icon::Apps, "Apps");
+                        app.rects.insert("apps_button".into(), ar.rect);
+                        apps_click = ar.clicked();
                         let er = slot(ui, Icon::Smile, "Select emoji");
                         app.rects.insert("emoji_button".into(), er.rect);
                         if er.clicked() {
@@ -565,6 +595,21 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if let Some(i) = remove {
         app.files.remove(i);
     }
+    match plus {
+        Some(super::plus::Plus::Upload) => attach = true,
+        Some(super::plus::Plus::Thread) => app.new_thread = Some(super::popups::NewThread::blank(ch)),
+        Some(super::plus::Plus::Poll) => app.poll = Some(super::poll::Draft::new(ch)),
+        Some(super::plus::Plus::Apps) => app.launcher = Some(super::plus::Launcher::new()),
+        None => {}
+    }
+    if let Some(i) = modify
+        && let Some(f) = app.files.get(i)
+    {
+        app.modify = Some(super::attach::Modify::new(i, f));
+    }
+    if let Some(i) = card_focus {
+        super::attach::card_keys(app, ui.ctx(), i);
+    }
     if attach && let Some(files) = rfd::FileDialog::new().pick_files() {
         app.files.extend(files.into_iter().map(Upload::new));
     }
@@ -572,13 +617,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if gift_click {
         crate::webwin::checkout("/store");
     }
-    // the apps button opens what rustcord has of the app launcher: the slash command list
     if apps_click {
-        let d = app.drafts.entry(ch).or_default();
-        if d.is_empty() {
-            d.push('/');
-        }
-        app.focus_composer = true;
+        app.launcher = if app.launcher.is_some() { None } else { Some(super::plus::Launcher::new()) };
     }
     if let Some(r) = gif_rect {
         app.rects.insert("gif_button".into(), r);
@@ -594,6 +634,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if app.drafts.get(&ch).is_some_and(|d| d.is_empty()) {
         app.ac_dismissed = None;
     }
+    let (send, send_click) = (send && !off && slow == 0, send_click && !off && slow == 0);
     if (send || send_click) && used > limit {
         app.confirm = Some(
             super::Confirm::new("Your message is too long...", "Your message is too long.", "Upload as File", move |app: &mut App| {
@@ -606,18 +647,27 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     } else if (send || send_click) && !app.quick_react(chan) && !app.substitute(chan) && !app.try_command(chan) && !app.built_in(chan) {
         app.send_message(ch);
     }
+    super::gate::cooldown(app, ui, chan, crect);
     typing_line(app, ui, chan, Rect::from_min_max(pos2(crect.left(), stack_top), crect.max));
 }
 
 enum CardAct {
     Remove,
     Spoiler,
+    Modify,
 }
 
-fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
-    let (r, _) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::hover());
+fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
+    let (r, card) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::click());
+    if card.clicked() {
+        card.request_focus();
+    }
+    super::settings::mark(ui, &format!("card:{i}"), r);
     let p = ui.painter();
     p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
+    if card.has_focus() {
+        p.rect_stroke(r, CornerRadius::same(4), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+    }
     let thumb = Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(200.0, 160.0));
     if let Some(bytes) = &f.thumb {
         let uri = format!("bytes://upload/{}", f.path.to_string_lossy());
@@ -632,25 +682,31 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
         }
     } else {
         icons::draw(p, Icon::File, Rect::from_center_size(thumb.center(), vec2(72.0, 72.0)), BLURPLE);
+        if f.spoiler {
+            p.text(thumb.center() + vec2(0.0, 52.0), Align2::CENTER_CENTER, "SPOILER", semi(12.0), pal().header_secondary);
+        }
     }
     text::paint(p, pos2(r.left() + 8.0, r.bottom() - 24.0), Align2::LEFT_CENTER, &f.name, reg(14.0), pal().text_normal, 200.0);
 
-    // the little action strip that floats over the top-right corner
-    let bar = Rect::from_min_size(pos2(r.right() - 76.0, r.top() - 12.0), vec2(80.0, 32.0));
+    let bar = Rect::from_min_size(pos2(r.right() - 108.0, r.top() - 12.0), vec2(104.0, 32.0));
     p.rect(bar, CornerRadius::same(4), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let mut act = None;
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink(2.0)).layout(Layout::left_to_right(Align::Center)));
     b.spacing_mut().item_spacing.x = 0.0;
-    if f.is_image() && icon_button(&mut b, Icon::Image, 28.0, "Spoiler Attachment").clicked() {
+    let eye = icon_button(&mut b, if f.spoiler { Icon::EyeOff } else { Icon::Eye }, 28.0, if f.spoiler { "Unmark as Spoiler" } else { "Mark as Spoiler" });
+    if eye.clicked() {
         act = Some(CardAct::Spoiler);
     }
+    if icon_button(&mut b, Icon::Pencil, 28.0, "Modify Attachment").clicked() {
+        act = Some(CardAct::Modify);
+    }
     let del = b.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    let col = if del.1.hovered() { RED } else { pal().header_secondary };
+    let col = if del.1.hovered() { RED } else { RED.gamma_multiply(0.8) };
     icons::draw(b.painter(), Icon::Trash, Rect::from_center_size(del.0.center(), vec2(20.0, 20.0)), col);
     if del.1.on_hover_text("Remove Attachment").clicked() {
         act = Some(CardAct::Remove);
     }
-    act
+    (act, card.has_focus())
 }
 
 fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], composer: Rect, kind: char) -> Option<usize> {
