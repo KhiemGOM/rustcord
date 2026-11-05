@@ -1393,6 +1393,7 @@ impl App {
             }
         }
         self.confirm_modal(&ctx);
+        settings::camera::frame(self, &ctx);
         if let Some(gid) = self.guild_notifs {
             let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
             let default = self.store.guilds.get(&gid).map(|g| g.default_notif).unwrap_or(0);

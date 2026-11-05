@@ -4,7 +4,9 @@
 pub mod audio;
 mod capture;
 mod conn;
+pub mod effects;
 mod hwenc;
+pub mod preview;
 mod rtp;
 mod video;
 

@@ -1,0 +1,3 @@
+selfie_segmentation.onnx is MediaPipe Selfie Segmentation (general model) as converted to ONNX by
+https://huggingface.co/onnx-community/mediapipe_selfie_segmentation, Apache License 2.0.
+Only the ir_version byte was changed, from 10 to 9, so the runtime inside Windows loads it.

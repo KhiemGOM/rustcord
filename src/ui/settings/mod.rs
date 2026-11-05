@@ -5,6 +5,7 @@
 mod activity;
 mod app;
 mod billing;
+pub mod camera;
 mod system;
 mod user;
 mod voice;

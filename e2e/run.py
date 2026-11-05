@@ -310,7 +310,11 @@ def main():
                               ("go live: the share button opens discord's picker and a screen from it goes live", "share_picker"),
                               ("rail: a server's tooltip shows who's in voice beside a speaker", "guild_tip_voice"),
                               ("do not disturb: a dm arriving raised no notification", "dnd_quiet"),
-                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout")]},
+                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout"),
+                              ("camera settings: Test Video shows the live camera in its box", "camera_test_video"),
+                              ("camera settings: Blur went behind the person in the preview", "camera_background"),
+                              ("camera settings: Always preview video switched on", "camera_always_preview"),
+                              ("camera: with it on, the camera button opens the preview and Turn On Camera starts it", "camera_preview_modal")]},
         "voice: channel info was asked for with op 43": any(r.get("gateway_op") == 43 for r in reqs),
         "invite: the link was made for 30 days and sent to the friend's new dm": any(
             r.get("method") == "POST" and r.get("path", "").endswith("/channels/2400/invites") and '"max_age":2592000' in r.get("body", "") for r in reqs)

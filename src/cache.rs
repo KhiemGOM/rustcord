@@ -70,6 +70,10 @@ pub struct Settings {
     // voice
     pub mic: Option<String>,
     pub speaker: Option<String>,
+    pub camera: Option<String>,
+    pub preview_video: bool,
+    pub video_bg: VideoBg,
+    pub custom_bg: Option<String>,
     pub vad_db: i32,
     pub auto_sensitivity: bool,
     pub ptt: bool,
@@ -108,6 +112,15 @@ pub struct Settings {
     pub fav_gifs: Vec<(String, String, f32, f32)>,
     // the hidden ディスコード sounds, from clicking home sixteen times
     pub discodo: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum VideoBg {
+    #[default]
+    None,
+    Blur,
+    Preset(u8),
+    Custom,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -158,6 +171,10 @@ impl Default for Settings {
             dev: false,
             mic: None,
             speaker: None,
+            camera: None,
+            preview_video: false,
+            video_bg: VideoBg::None,
+            custom_bg: None,
             vad_db: -50,
             auto_sensitivity: true,
             ptt: false,
