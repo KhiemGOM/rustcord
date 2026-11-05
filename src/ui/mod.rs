@@ -1950,6 +1950,7 @@ impl eframe::App for App {
             e.frame_time(started.elapsed());
             self.e2e = Some(e);
         }
+        motion::tooltips(&ctx);
         self.frames += 1;
         // fullscreen's size isn't the window's; keep the one to come back to
         if !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
@@ -2097,7 +2098,7 @@ pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
 
 pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
-    let fill = if resp.hovered() { fill.gamma_multiply(0.85) } else { fill };
+    let fill = motion::mix(fill, fill.gamma_multiply(0.85), motion::hot(ui.ctx(), &resp));
     ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, semi(14.0), Color32::WHITE);
     if resp.hovered() {
@@ -2115,17 +2116,12 @@ pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui
 /// An icon button that stays lit while what it opens is showing, like discord's member list toggle.
 pub fn toggle_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str, on: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    let col = if resp.hovered() {
-        pal().interactive_hover
-    } else if on {
-        pal().header_primary
-    } else {
-        pal().header_secondary
-    };
+    let k = motion::hot(ui.ctx(), &resp);
+    let col = motion::mix(if on { pal().header_primary } else { pal().header_secondary }, pal().interactive_hover, k);
+    if size >= 32.0 {
+        ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover.gamma_multiply(k));
+    }
     if resp.hovered() {
-        if size >= 32.0 {
-            ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover);
-        }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let s = if size >= 32.0 { 20.0 } else { (size * 0.86).min(24.0) };
@@ -2189,7 +2185,7 @@ impl Confirm {
 /// Discord's quieter button: a grey wash with a hairline, for Cancel and the like.
 pub fn grey_button(ui: &mut Ui, text: &str, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = motion::mix(pal().control, pal().control_hover, motion::hot(ui.ctx(), &resp));
     ui.painter().rect(rect, CornerRadius::same(8), fill, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), pal().header_primary);
     if resp.hovered() {

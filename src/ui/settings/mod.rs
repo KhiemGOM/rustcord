@@ -635,13 +635,8 @@ pub fn button(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
         Look::Secondary => (faint(31), pal().header_primary, faint(61)),
         Look::Danger => (faint(31), LOGOUT, faint(61)),
     };
-    let fill = if !resp.hovered() {
-        fill
-    } else if matches!(look, Look::Secondary | Look::Danger) {
-        faint(51)
-    } else {
-        fill.gamma_multiply(0.85)
-    };
+    let over = if matches!(look, Look::Secondary | Look::Danger) { faint(51) } else { fill.gamma_multiply(0.85) };
+    let fill = motion::mix(fill, over, motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(16.0), ink);
     if resp.hovered() {
