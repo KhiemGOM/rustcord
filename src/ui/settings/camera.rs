@@ -10,7 +10,7 @@ use crate::theme::*;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
 use crate::voice::effects::{self, Bg};
-use crate::voice::preview::Preview;
+use crate::voice::preview::{self, Preview};
 
 const PRESETS: [(&str, &str); 4] = [
     ("Cybercity", "e321ddf99270fad41d4c5b21de89a82984d8469c892a3f9a924f5996764d33b4"),
@@ -23,7 +23,7 @@ const BLUR_TILE: &str = "9b1bb92a5685e3f1d67378826197687bb24f8cf1319a4ab2375fbc8
 static TICKET: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
-    static APPLIED: RefCell<Option<(Option<String>, VideoBg, Option<String>)>> = const { RefCell::new(None) };
+    static APPLIED: RefCell<Option<(Option<String>, VideoBg, Option<String>, bool)>> = const { RefCell::new(None) };
 }
 
 fn asset(hash: &str) -> String {
@@ -71,11 +71,18 @@ pub fn toggle_camera(app: &mut App, ctx: &Context, on: bool) {
     }
 }
 
+/// A blur or no background and the device cost nothing to set. A picture is fetched and
+/// decoded only once a camera, a preview or the Voice & Video page could show it, and the
+/// frames in between get the blur.
 fn sync(app: &App, ctx: &Context) {
     let s = &app.settings;
-    if APPLIED.with_borrow(|a| a.as_ref().is_some_and(|a| a.0 == s.camera && a.1 == s.video_bg && a.2 == s.custom_bg)) {
+    let wanted = app.voice.camera || preview::RUNNING.load(Relaxed) > 0 || app.settings_page == Some(super::Page::Voice) || ctx.data(|d| d.get_temp::<bool>(Id::new("camera_modal")).unwrap_or(false));
+    let picture = matches!(s.video_bg, VideoBg::Preset(_) | VideoBg::Custom);
+    if APPLIED.with_borrow(|a| a.as_ref().is_some_and(|a| a.0 == s.camera && a.1 == s.video_bg && a.2 == s.custom_bg && (a.3 || !picture || !wanted))) {
         return;
     }
+    effects::set_device(s.camera.clone());
+    let mut loaded = false;
     let bytes = match s.video_bg {
         VideoBg::None => {
             effects::set_background(Bg::None);
@@ -85,17 +92,32 @@ fn sync(app: &App, ctx: &Context) {
             effects::set_background(Bg::Blur);
             None
         }
+        _ if !wanted => {
+            effects::set_background(Bg::Blur);
+            None
+        }
         VideoBg::Preset(n) => match ctx.try_load_bytes(&asset(PRESETS[n as usize % PRESETS.len()].1)) {
-            Ok(BytesPoll::Ready { bytes, .. }) => Some(AsRef::<[u8]>::as_ref(&bytes).to_vec()),
-            Ok(BytesPoll::Pending { .. }) => return,
+            Ok(BytesPoll::Ready { bytes, .. }) => {
+                loaded = true;
+                Some(AsRef::<[u8]>::as_ref(&bytes).to_vec())
+            }
+            Ok(BytesPoll::Pending { .. }) => {
+                effects::set_background(Bg::Blur);
+                return;
+            }
             Err(_) => {
+                loaded = true;
                 effects::set_background(Bg::Blur);
                 None
             }
         },
         VideoBg::Custom => match s.custom_bg.as_ref().and_then(|p| std::fs::read(p).ok()) {
-            Some(b) => Some(b),
+            Some(b) => {
+                loaded = true;
+                Some(b)
+            }
             None => {
+                loaded = true;
                 effects::set_background(Bg::None);
                 None
             }
@@ -113,8 +135,7 @@ fn sync(app: &App, ctx: &Context) {
     } else {
         TICKET.fetch_add(1, Relaxed);
     }
-    effects::set_device(s.camera.clone());
-    APPLIED.with_borrow_mut(|a| *a = Some((s.camera.clone(), s.video_bg, s.custom_bg.clone())));
+    APPLIED.with_borrow_mut(|a| *a = Some((s.camera.clone(), s.video_bg, s.custom_bg.clone(), loaded)));
 }
 
 pub fn shown(app: &App, cams: &[String]) -> String {

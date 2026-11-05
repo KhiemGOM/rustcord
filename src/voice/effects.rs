@@ -362,6 +362,41 @@ mod tests {
         format!("median {:.2} ms, min {:.2} ms", v[v.len() / 2], v[0])
     }
 
+    /// cargo test --release --bin rustcord real_camera -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_camera() {
+        use crate::voice::{capture::Grab, video::Source};
+        let names = crate::voice::cameras();
+        println!("cameras: {names:?}");
+        for name in names {
+            set_device(Some(name.clone()));
+            for (label, bg) in [("none", Bg::None), ("blur", Bg::Blur)] {
+                set_background(bg);
+                let Ok(mut grab) = Grab::open(Source::Camera) else {
+                    println!("{name}: no open");
+                    continue;
+                };
+                let (w, h) = (1280, 720);
+                let mut out = vec![0u8; w * h * 4];
+                let mut times = Vec::new();
+                let t0 = Instant::now();
+                while times.len() < 60 && t0.elapsed().as_secs() < 20 {
+                    let t = Instant::now();
+                    if grab.frame(&mut out, w, h) {
+                        times.push(t.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+                if times.is_empty() {
+                    println!("{name} {label}: no frames");
+                } else {
+                    let lit = out.chunks_exact(4).filter(|p| p[0] > 8 || p[1] > 8 || p[2] > 8).count();
+                    println!("{name} {label}: {} frames, {}, lit pixels {lit}/{}", times.len(), stats(times), w * h);
+                }
+            }
+        }
+    }
+
     /// cargo test --release --bin rustcord seg_bench -- --ignored --nocapture
     #[test]
     #[ignore]
