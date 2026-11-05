@@ -353,7 +353,12 @@ fn begin(ctx: &Context, key: &'static str, visit: (u32, u32)) -> (Arc<Preview>, 
 }
 
 fn stop(ctx: &Context, key: &str) {
-    let old = ctx.data_mut(|d| d.remove_temp::<(Arc<Preview>, (u32, u32))>(Id::new(("camera_preview", key))));
+    let id = Id::new(("camera_preview", key));
+    let old = ctx.data_mut(|d| {
+        let held = d.get_temp::<(Arc<Preview>, (u32, u32))>(id);
+        d.remove::<(Arc<Preview>, (u32, u32))>(id);
+        held
+    });
     drop(old);
 }
 
