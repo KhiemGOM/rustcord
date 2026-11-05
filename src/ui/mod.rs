@@ -1,4 +1,5 @@
 mod actions;
+mod attach;
 mod active;
 mod autoscroll;
 mod boosts;
@@ -7,9 +8,12 @@ mod chat;
 mod composer;
 mod create;
 mod directory;
+mod dmpick;
 mod e2e;
 mod events;
+mod follow;
 mod forum;
+mod gate;
 mod friends;
 pub mod icons;
 mod keys;
@@ -17,6 +21,8 @@ mod login;
 mod members;
 mod palette;
 mod picker;
+mod plus;
+mod poll;
 mod popups;
 mod rail;
 mod channel;
@@ -28,6 +34,7 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
+mod topic;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -49,6 +56,8 @@ pub enum Pick {
     React(Id, Id),
     // a slot of the quick reactions
     Quick(usize),
+    // the emoji of an answer in the poll being made
+    Poll(usize),
 }
 
 pub struct App {
@@ -159,6 +168,16 @@ pub struct App {
     // the notes you keep on people, by user, once fetched
     pub notes: Map<Id, String>,
     pub new_thread: Option<popups::NewThread>,
+    pub poll: Option<poll::Draft>,
+    pub launcher: Option<plus::Launcher>,
+    pub follow: Option<follow::Follow>,
+    pub modify: Option<attach::Modify>,
+    pub group_pick: Option<dmpick::Pick>,
+    pub topic: Option<Id>,
+    // a DM whose call was started with video: the camera goes on once it's connected
+    pub cam_on_join: Option<Id>,
+    // what Discord told us alone about a send it refused: the channel and the words
+    pub notice: Option<(Id, String)>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
     // a link waiting on "Leaving Discord", and whether to trust its site from now on
@@ -324,6 +343,14 @@ impl App {
             bookmarks: Set::default(),
             notes: Map::default(),
             new_thread: None,
+            poll: None,
+            launcher: None,
+            follow: None,
+            modify: None,
+            group_pick: None,
+            topic: None,
+            cam_on_join: None,
+            notice: None,
             emoji_pop: None,
             leaving: None,
             combos: None,
@@ -539,11 +566,11 @@ impl App {
             text = emoticons(&text);
         }
         self.aliases.remove(&ch);
-        let files: Vec<(PathBuf, String)> = std::mem::take(&mut self.files)
+        let files: Vec<(PathBuf, String, String)> = std::mem::take(&mut self.files)
             .into_iter()
             .map(|u| {
                 let name = if u.spoiler { format!("SPOILER_{}", u.name) } else { u.name };
-                (u.path, name)
+                (u.path, name, u.alt)
             })
             .collect();
         if text.is_empty() && files.is_empty() {
@@ -1304,7 +1331,19 @@ impl App {
                     // a retry going out stays red without saying so again
                     let first = self.store.msgs.get(&channel).is_some_and(|e| e.list.iter().any(|m| m.pending && m.nonce.as_deref() == Some(nonce.as_str())));
                     self.store.fail_pending(channel, &nonce);
-                    if first || !again {
+                    let low = err.to_lowercase();
+                    let why = if low.contains("cannot send messages to this user") {
+                        Some("You cannot message this user")
+                    } else if low.contains("slowmode") {
+                        Some("You are sending messages too quickly")
+                    } else if low.contains("missing permissions") || low.contains("missing access") {
+                        Some("You cannot send messages in this channel")
+                    } else {
+                        None
+                    };
+                    if let Some(why) = why {
+                        self.notice = Some((channel, why.into()));
+                    } else if first || !again {
                         self.toast(format!("Message failed to send: {err}"));
                     }
                 }
@@ -1436,6 +1475,7 @@ impl App {
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
+        attach::dragging(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);
@@ -1764,8 +1804,16 @@ impl eframe::App for App {
             }
         }
         // dropping files on the window attaches them to the next message
+        let dropped = !raw.dropped_files.is_empty();
         for f in raw.dropped_files.drain(..) {
             self.files.push(composer::Upload::new(f.path().to_path_buf()));
+        }
+        if dropped && key_down(0x10) && let Some(ch) = self.cur() {
+            let draft = self.drafts.remove(&ch);
+            self.post(ch, false);
+            if let Some(d) = draft {
+                self.drafts.insert(ch, d);
+            }
         }
         // egui-winit swallows ctrl+v when the clipboard holds no text, so watch the key ourselves;
         // not under e2e, where the real keyboard belongs to whoever's at the machine

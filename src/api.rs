@@ -161,7 +161,7 @@ impl Api {
         content: &str,
         nonce: &str,
         reply: Option<(Id, bool)>,
-        files: &[(PathBuf, String)],
+        files: &[(PathBuf, String, String)],
         stickers: &[Id],
         tts: bool,
     ) -> Result<Value, String> {
@@ -179,10 +179,14 @@ impl Api {
         }
         let mut atts = Vec::new();
         let mut form = multipart::Form::new();
-        for (i, (f, name)) in files.iter().enumerate() {
+        for (i, (f, name, alt)) in files.iter().enumerate() {
             let bytes = tokio::fs::read(f).await.map_err(|e| e.to_string())?;
             let name = name.clone();
-            atts.push(json!({ "id": i, "filename": name }));
+            let mut att = json!({ "id": i, "filename": name });
+            if !alt.is_empty() {
+                att["description"] = json!(alt);
+            }
+            atts.push(att);
             form = form.part(format!("files[{i}]"), multipart::Part::bytes(bytes).file_name(name));
         }
         body["attachments"] = Value::Array(atts);
