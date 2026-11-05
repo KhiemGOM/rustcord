@@ -168,7 +168,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
         guild_icon(app, ui, gid, rect, radius, hot, k)
     });
     if mentions > 0 {
-        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
+        super::badge_in(ui, egui::Id::new(("rail_badge", gid)), r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
     }
     if let Some((icon, mine)) = voice_badge(app, gid) {
         let at = upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)), icon, mine, hole);
