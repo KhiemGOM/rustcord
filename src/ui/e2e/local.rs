@@ -27,6 +27,7 @@ pub struct State {
     web: Arc<Shared>,
     exit: Arc<Mutex<Option<i32>>>,
     home: (Option<Id>, Id),
+    seen: Option<egui::Rect>,
     target: Id,
 }
 
@@ -322,9 +323,13 @@ impl Run {
                 if app.links.invite.as_ref().is_none_or(|i| i.info.is_none()) {
                     return;
                 }
+                if self.local.seen.replace(r) != Some(r) {
+                    return;
+                }
                 self.shot(ctx, "rpc_invite.png");
                 self.mark("rpc_invite_modal");
                 self.click(r.center());
+                self.local.seen = None;
                 self.next(600);
             }
             1606 => {
@@ -342,6 +347,9 @@ impl Run {
                 if app.links.template.as_ref().is_none_or(|t| t.info.is_none()) {
                     return;
                 }
+                if self.local.seen.replace(r) != Some(r) {
+                    return;
+                }
                 let o = read(&self.local.web);
                 if o["ws_ready"] == true && o["ws_other"] == 4002 && o["ws_template"] == true {
                     self.mark("rpc_web_socket");
@@ -349,6 +357,7 @@ impl Run {
                 self.shot(ctx, "rpc_template.png");
                 self.mark("rpc_template_modal");
                 self.click(r.center());
+                self.local.seen = None;
                 self.next(600);
             }
             1608 => {

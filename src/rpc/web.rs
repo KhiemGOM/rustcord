@@ -90,14 +90,16 @@ fn parse(head: &[u8]) -> Option<Req> {
     Some(Req { method, path: path.to_string(), query: query.to_string(), headers })
 }
 
+fn head_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
+}
+
 async fn peek_head(s: &TcpStream) -> Option<Vec<u8>> {
     let mut buf = vec![0u8; MAX_HEAD];
     loop {
         let n = s.peek(&mut buf).await.ok()?;
-        if let Some(i) = buf[..n].windows(4).position(|w| w == b"
-
-") {
-            buf.truncate(i + 4);
+        if let Some(end) = head_end(&buf[..n]) {
+            buf.truncate(end);
             return Some(buf);
         }
         if n == buf.len() || n == 0 {
@@ -280,6 +282,14 @@ mod tests {
         assert!(!allowed(Some("https://discord.com.evil.example")));
         assert!(!allowed(Some("https://evil.example")));
         assert!(!allowed(Some("null")));
+    }
+
+    #[test]
+    fn a_request_head_ends_at_the_blank_line() {
+        let req = b"POST /rpc HTTP/1.1\r\nHost: 127.0.0.1:6463\r\n\r\n{}";
+        assert_eq!(head_end(req), Some(req.len() - 2));
+        assert_eq!(head_end(b"GET / HTTP/1.1\n\nHost: x\n\n"), None);
+        assert_eq!(head_end(b"GET / HTTP/1.1\r\nHost: x\r\n"), None);
     }
 
     #[test]
