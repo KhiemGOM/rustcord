@@ -117,11 +117,11 @@ pub fn toggle(app: &mut App, tab: Tab) {
 pub fn shell(ctx: &egui::Context, at: Pos2, pivot: Align2, tab: Option<Tab>, body: impl FnOnce(&mut Ui)) -> (egui::Response, Option<Tab>) {
     let mut to = None;
     let h = if tab.is_some() { 486.0 } else { 396.0 };
-    let area = egui::Area::new(egui::Id::new("expression"))
+    let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("expression"))
         .order(egui::Order::Foreground)
         .pivot(pivot)
         .fixed_pos(at)
-        .constrain(true)
+        .constrain(true), vec2(0.0, -1.0))
         .show(ctx, |ui| {
             let shadow = ui.style().visuals.popup_shadow;
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
@@ -334,9 +334,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for (i, mark) in marks.iter().enumerate() {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r.expand(2.0), 8, MENU_HOVER);
-                    }
+                    super::motion::wash(ui, &resp, r.expand(2.0), 8, MENU_HOVER, 0.1);
                     let tip = match mark {
                         Mark::Star => {
                             super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary);
@@ -674,8 +672,10 @@ fn grid(
                 if base + i == 0 {
                     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "emoji0")), r));
                 }
-                if resp.hovered() || on {
+                if on {
                     ui.painter().rect_filled(r, CornerRadius::same(4), pal().control_hover);
+                } else {
+                    super::motion::wash(ui, &resp, r, 4, pal().control_hover, 0.15);
                 }
                 if on && kbd.moved {
                     ui.scroll_to_rect(r, None);

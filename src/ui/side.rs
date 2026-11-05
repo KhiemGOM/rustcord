@@ -848,11 +848,11 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
 fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click());
     let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
-    let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
+    let turn = (1.0 - super::motion::tween(ui.ctx(), resp.id.with("chev"), !collapsed, 0.2, super::motion::EASE_OUT)) * -std::f32::consts::FRAC_PI_2;
     let y = rect.top() + 12.0;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name
     let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 52.0, 1.0);
-    icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col);
+    icons::draw_turned(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col, turn);
     let mut add = false;
     if can_add {
         let pr = Rect::from_center_size(pos2(rect.right() - 24.0, y), vec2(16.0, 16.0));

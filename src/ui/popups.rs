@@ -200,7 +200,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                 // two 230x110 tiles a row: trending first, then discord's search terms
                 if home {
                     let Some(cats) = &g.cats else {
-                        ui.add(egui::Spinner::new().color(pal().text_muted));
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                         return;
                     };
                     let top = ui.cursor().min;
@@ -252,7 +252,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                 let shown = if g.favorites { Some(&favs) } else { g.results.as_ref() };
                 match shown {
                     None => {
-                        ui.add(egui::Spinner::new().color(pal().text_muted));
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                     }
                     Some(list) if list.is_empty() => {
                         ui.label(RichText::new("No GIFs found.").color(pal().header_secondary));
@@ -386,7 +386,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     let Some(text) = &mut app.invite else { return };
     let mut join = None;
     let mut close = false;
-    let modal = egui::Modal::new("invite".into())
+    let modal = crate::ui::motion::Modal::new("invite".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
         .show(ctx, |ui| {
             ui.set_width(440.0);
@@ -489,7 +489,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
     rows.extend(friends.into_iter().map(|u| Pick::Friend(u.id)));
 
     let (mut copy, mut close, mut send) = (false, false, None);
-    let modal = egui::Modal::new("made_invite".into())
+    let modal = crate::ui::motion::Modal::new("made_invite".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(480.0);
@@ -648,7 +648,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
 fn status_edit(app: &mut App, ctx: &egui::Context) {
     let Some((ch, text)) = &mut app.status_edit else { return };
     let (mut save, mut close) = (false, false);
-    let modal = egui::Modal::new("status_edit".into())
+    let modal = crate::ui::motion::Modal::new("status_edit".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(392.0);
@@ -769,7 +769,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     let mut pick = ctx.input(|i| i.key_pressed(Key::Enter)).then_some(sel);
 
     // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule
-    let modal = egui::Modal::new("switcher".into())
+    let modal = crate::ui::motion::Modal::new("switcher".into())
         .frame(
             Frame::new()
                 .fill(pal().bg_secondary)
@@ -927,10 +927,10 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let store = &app.store;
 
     // discord's 2025 popout: a 105 banner, round buttons on it, then everything at 16 in
-    let area = egui::Area::new(egui::Id::new("profile"))
+    let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("profile"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
-        .constrain(true)
+        .constrain(true), vec2(0.0, 1.0))
         .show(ctx, |ui| {
             let shadow = ui.style().visuals.popup_shadow;
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
@@ -1409,10 +1409,10 @@ fn pins(app: &mut App, ctx: &egui::Context) {
     let mut jump = None;
     let mut unpin = None;
     let manage = app.store.channels.get(&ch).is_some_and(|c| c.guild == 0 || app.store.perms(c) & crate::state::MANAGE_MESSAGES != 0);
-    let area = egui::Area::new(egui::Id::new("pins"))
+    let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("pins"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
-        .constrain(true)
+        .constrain(true), vec2(0.0, 1.0))
         .show(ctx, |ui| {
             // an area only offers last frame's size; without this the list never outgrows the spinner
             ui.set_max_height(tall + 57.0);
@@ -1432,7 +1432,7 @@ fn pins(app: &mut App, ctx: &egui::Context) {
                         ui.set_width(ui.available_width());
                         match list {
                             None => {
-                                ui.add(egui::Spinner::new().color(pal().text_muted));
+                                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                             }
                             Some(l) if l.is_empty() => {
                                 ui.add_space(24.0);
@@ -1522,7 +1522,7 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
             ui.set_width(ui.available_width());
             match &s.results {
                 None => {
-                    ui.add(egui::Spinner::new().color(pal().text_muted));
+                    crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                 }
                 Some(list) if list.is_empty() => {
                     ui.label(RichText::new("We searched far and wide. Unfortunately, no results were found.").color(pal().header_secondary));
@@ -1591,10 +1591,10 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
     let mut run = None;
     let mut add: Option<String> = None;
     let mut replace: Option<String> = None;
-    let area = egui::Area::new(id)
+    let area = super::motion::popout(ctx, egui::Area::new(id)
         .order(egui::Order::Foreground)
         .pivot(Align2::RIGHT_TOP)
-        .fixed_pos(field.rect.right_bottom() + vec2(-4.0, 8.0))
+        .fixed_pos(field.rect.right_bottom() + vec2(-4.0, 8.0)), vec2(0.0, 1.0))
         .show(ctx, |ui| {
             let shadow = ui.style().visuals.popup_shadow;
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
@@ -1856,16 +1856,19 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
     // pointer pans it; another click anywhere zooms back out
     let zid = egui::Id::new(("viewer_zoom", &img));
     let mut zoomed = ctx.data(|d| d.get_temp::<bool>(zid)).unwrap_or(false);
+    let pop = super::motion::enter(ctx, egui::Id::new("viewer"), 0.31, super::motion::ZOOM);
     egui::Area::new(egui::Id::new("viewer"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
+        .fade_in(false)
         .show(ctx, |ui| {
             let (bg, bg_resp) = ui.allocate_exact_size(screen.size(), Sense::click());
-            ui.painter().rect_filled(bg, CornerRadius::ZERO, egui::Color32::from_black_alpha(215));
+            ui.painter().rect_filled(bg, CornerRadius::ZERO, egui::Color32::from_black_alpha(215).gamma_multiply(pop.clamp(0.0, 1.0)));
+            ui.multiply_opacity(pop.clamp(0.0, 1.0));
             let (iw, ih) = (w.max(1) as f32, h.max(1) as f32);
             let s = (screen.width() * 0.8 / iw).min(screen.height() * 0.75 / ih).min(if w == 0 { 1.0 } else { 2.0 });
             let size = if w == 0 { vec2(screen.width() * 0.6, screen.height() * 0.6) } else { vec2(iw * s, ih * s) };
-            let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size);
+            let rect = Rect::from_center_size(screen.center() - vec2(0.0, 16.0), size * (0.9 + 0.1 * pop));
             let sized = |size: egui::Vec2| {
                 let sep = if img.contains('?') { '&' } else { '?' };
                 if w > 0 && !img.contains(".mp4") { format!("{img}{sep}width={}&height={}", (size.x * 1.5) as u32, (size.y * 1.5) as u32) } else { img.clone() }
@@ -2119,7 +2122,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
     let Some(t) = &mut app.timeout else { return };
     let name = app.store.name_in(t.guild, t.user);
     let (mut go, mut close) = (false, false);
-    let modal = egui::Modal::new("timeout".into())
+    let modal = crate::ui::motion::Modal::new("timeout".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);
@@ -2220,7 +2223,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
     let preview = store.find_msg(f.ch, f.msg).cloned();
     let (mut send, mut close) = (false, false);
     // measured from discord's: 478 wide, 24 in, 48 tall rows, the forwarded text quoted at the foot
-    let modal = egui::Modal::new("forward".into())
+    let modal = crate::ui::motion::Modal::new("forward".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(478.0);
@@ -2401,7 +2404,7 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
     let Some(t) = &mut app.new_thread else { return };
     let msg = t.msg.and_then(|m| app.store.find_msg(t.ch, m).cloned());
     let (mut make, mut close) = (false, false);
-    let modal = egui::Modal::new("new_thread".into())
+    let modal = crate::ui::motion::Modal::new("new_thread".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);
@@ -2517,7 +2520,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
     let Some((url, trust)) = &mut app.leaving else { return };
     let h = host(url);
     let (mut go, mut close) = (false, false);
-    let modal = egui::Modal::new("leaving".into())
+    let modal = crate::ui::motion::Modal::new("leaving".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);

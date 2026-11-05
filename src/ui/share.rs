@@ -61,7 +61,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut quality = None;
     let mut rects = Vec::new();
     // measured from discord's: 958 wide, 24 in, 438 by 246 tiles two to a row
-    let modal = egui::Modal::new("share_picker".into())
+    let modal = crate::ui::motion::Modal::new("share_picker".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(910.0);

@@ -33,6 +33,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     // the status opens discord's connection popout: ping graph, stats, and the privacy code
     let t = ui.painter().text(pos2(tile.right() + 8.0, y - 8.0), Align2::LEFT_CENTER, text, medium(16.0), col);
     let status = ui.interact(t, egui::Id::new("voice_status"), Sense::click());
+    if app.voice.state != State::Connected {
+        super::motion::ellipsis(ui, pos2(t.right() + 6.0, t.center().y), col);
+    }
     if status.hovered() {
         ui.painter().hline(t.x_range(), t.bottom() - 1.0, Stroke::new(1.0, col));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -361,13 +364,10 @@ const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 /// The left half of Discord's mic/headphone split button; washed red with a red icon while off.
 fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-    let bg = match (off, resp.hovered()) {
-        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
-        (false, true) => pal().control_hover,
-        (false, false) => Color32::TRANSPARENT,
-    };
+    let k = super::motion::hover(ui.ctx(), &resp, 0.2);
+    let bg = if off { DANGER.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
     ui.painter().rect_filled(r, CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 }, bg);
-    let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = if off { DANGER } else { super::motion::mix(pal().header_secondary, pal().interactive_hover, k) };
     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -859,11 +859,8 @@ pub fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
 /// The little chevron beside the panel's mic and headphones: a menu of devices to pick from.
 fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>, off: bool) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
-    let bg = match (off, resp.hovered()) {
-        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
-        (false, true) => pal().control_hover,
-        (false, false) => Color32::TRANSPARENT,
-    };
+    let k = super::motion::hover(ui.ctx(), &resp, 0.2);
+    let bg = if off { DANGER.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
     ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
     let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
