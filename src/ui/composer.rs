@@ -46,6 +46,8 @@ enum Item {
     User(Id, String, String),
     Role(Id, String, u32),
     Everyone(&'static str),
+    AtTime,
+    When(i64, char),
     Channel(Id, String),
     Emoji(Em),
     Command(usize),
@@ -98,6 +100,12 @@ fn token(draft: &str, cursor: usize) -> Option<(usize, char, String)> {
     let bytes: Vec<(usize, char)> = draft.char_indices().collect();
     let cur_b = bytes.get(cursor).map(|(b, _)| *b).unwrap_or(draft.len());
     let before = &draft[..cur_b];
+    if let Some(i) = before.rfind("@time ")
+        && before[..i].chars().next_back().is_none_or(char::is_whitespace)
+        && !before[i..].contains('\n')
+    {
+        return Some((i, 'T', before[i + 6..].to_string()));
+    }
     let start = before.rfind(|c: char| c.is_whitespace()).map(|i| i + 1).unwrap_or(0);
     let word = &before[start..];
     let first = word.chars().next()?;
@@ -140,6 +148,9 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     out.push((s as u16, Item::User(u, name, user.username.clone())));
                 }
             }
+            if "time".starts_with(&q) {
+                out.push((2, Item::AtTime));
+            }
             if chan.guild != 0 {
                 for e in ["everyone", "here"] {
                     if e.starts_with(&q) {
@@ -153,6 +164,11 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                         }
                     }
                 }
+            }
+        }
+        'T' => {
+            if let Some(t) = super::when::parse(&q, chrono::Local::now()) {
+                out.extend(super::when::STYLES.iter().map(|(st, _)| (0, Item::When(t.timestamp(), *st))));
             }
         }
         '#' => {
@@ -642,6 +658,7 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
         '@' => "Members".to_string(),
         '#' => "Text Channels".to_string(),
         ':' => "Emoji Matching".to_string(),
+        'T' => "Time".to_string(),
         _ => "Commands".to_string(),
     };
     let row_h = if kind == '/' { 52.0 } else { 34.0 };
@@ -700,6 +717,15 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), pal().header_primary);
             let note = if *e == "here" { "Notify everyone online in this channel." } else { "Notify everyone who has permission to view this channel." };
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
+        }
+        Item::AtTime => {
+            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@time", semi(15.0), pal().header_primary);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Refer to a time dynamically in the viewer's time zone", reg(13.0), pal().header_secondary);
+        }
+        Item::When(secs, st) => {
+            text::paint(p, pos2(x + 4.0, y), Align2::LEFT_CENTER, &crate::markdown::fmt_ts(*secs, *st), semi(15.0), pal().header_primary, r.width() * 0.7);
+            let name = super::when::STYLES.iter().find(|(c, _)| c == st).map_or("", |(_, n)| n);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, name, reg(13.0), pal().header_secondary);
         }
         Item::Channel(id, name) => {
             let ir = Rect::from_center_size(pos2(x + 10.0, y), vec2(18.0, 18.0));
@@ -842,6 +868,11 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         Item::User(u, name, _) => (format!("@{name}"), format!("<@{u}>")),
         Item::Role(id, name, _) => (format!("@{name}"), format!("<@&{id}>")),
         Item::Everyone(e) => (format!("@{e}"), format!("@{e}")),
+        Item::AtTime => ("@time".into(), "@time".into()),
+        Item::When(secs, st) => {
+            let raw = format!("<t:{secs}:{st}>");
+            (raw.clone(), raw)
+        }
         Item::Channel(id, name) => (format!("#{name}"), format!("<#{id}>")),
         Item::Emoji(e) if e.locked => (format!(":{}:", e.name), String::new()),
         Item::Emoji(e) if e.url.is_some() => (format!(":{}:", e.name), e.raw.clone()),

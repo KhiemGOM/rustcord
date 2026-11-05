@@ -868,21 +868,25 @@ fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>,
     let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
     let mut changed = false;
+    let mut rows = Vec::new();
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(220.0);
         ui.label(RichText::new(title).font(medium(14.0)).color(pal().header_secondary));
         ui.add_space(4.0);
         let (ins, outs) = devices(ui.ctx());
         let names = if output { outs } else { ins };
-        for name in std::iter::once(None).chain(names.iter().map(Some)) {
-            let on = cur.as_ref() == name;
-            let label = name.map(String::as_str).unwrap_or("Default");
-            if ui.selectable_label(on, label).clicked() {
-                *cur = name.cloned();
-                changed = true;
+        rows = super::rows_of(|| {
+            for name in std::iter::once(None).chain(names.iter().map(Some)) {
+                let on = cur.as_ref() == name;
+                let label = name.map(String::as_str).unwrap_or("Default");
+                if super::option(ui, on, label).clicked() {
+                    *cur = name.cloned();
+                    changed = true;
+                }
             }
-        }
+        });
     });
+    super::select_keys(ui.ctx(), &rows);
     changed
 }
 

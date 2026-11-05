@@ -294,6 +294,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
                     });
                 });
         });
+    submit |= !m.busy && crate::ui::enter_submits(ctx, true);
     if close || r.should_close() {
         app.sform.modal = None;
         return;
@@ -449,17 +450,12 @@ pub fn profiles(app: &mut App, ui: &mut Ui) -> bool {
     });
     if pick && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() {
         if let Ok(bytes) = std::fs::read(&path) {
-            use base64::Engine;
-            let mime = match bytes.get(..4) {
-                Some([0x89, b'P', ..]) => "image/png",
-                Some([b'G', b'I', ..]) => "image/gif",
-                Some([b'R', b'I', ..]) => "image/webp",
-                _ => "image/jpeg",
-            };
-            if let Some(d) = &mut app.sform.profile {
-                d.avatar = Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)));
-                d.remove_avatar = false;
-            }
+            crate::ui::crop::open(app, bytes, 1.0, |app: &mut App, uri: String| {
+                if let Some(d) = &mut app.sform.profile {
+                    d.avatar = Some(uri);
+                    d.remove_avatar = false;
+                }
+            });
         }
     }
     false
@@ -522,7 +518,7 @@ fn server_profile(app: &mut App, ui: &mut Ui) -> bool {
     let mut pick = cur;
     super::dropdown(ui, 320.0, None, &shown, |ui| {
         for (g, n) in &guilds {
-            if ui.selectable_label(pick == Some(*g), n).clicked() {
+            if crate::ui::option(ui, pick == Some(*g), n).clicked() {
                 pick = Some(*g);
             }
         }
