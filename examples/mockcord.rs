@@ -1821,6 +1821,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
         ("GET", ["store" | "shop"]) => (

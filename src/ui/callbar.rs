@@ -72,7 +72,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     }
     let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
     let mute = app.voice.mute || app.voice.deaf || app.voice.suppressed;
-    let (cam, me) = (app.voice.camera, app.store.me);
+    let cam = app.voice.camera;
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let cy = if room { bar.bottom() - 41.0 } else { bar.center().y };
     let cells = if guild != 0 { 3 } else { 2 };
@@ -99,8 +99,9 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let (v, vc) = unit(ui, "cam", s1.left() + 70.0, cy, true);
     glyph(ui, &v, if cam { Icon::Video } else { Icon::VideoSlash }, false, Color32::WHITE);
     app.rects.insert("voice:camera".into(), v.rect);
+    app.rects.insert("voice:camera_more".into(), vc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
     if v.on_hover_text(if cam { "Turn Off Camera" } else { "Turn On Camera" }).clicked() {
-        app.voice.set_camera(&app.net, me, !cam);
+        super::settings::camera::toggle_camera(app, ui.ctx(), !cam);
     }
     if let Some(c) = vc {
         let c = c.on_hover_text("More Camera Options");
@@ -287,12 +288,37 @@ pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> 
 }
 
 fn camera_popup(app: &mut App, at: &Response) {
-    let mut open = false;
+    let (mut open, mut background, mut picked) = (false, false, None);
+    let cams = super::settings::camera::cameras(app, &at.ctx);
+    let cur = super::settings::camera::shown(app, &cams);
     egui::Popup::menu(at).align(egui::RectAlign::TOP).gap(8.0).frame(frame()).show(|ui| {
         ui.set_min_width(222.0);
-        menu_body(ui, |ui| open = menu_item(ui, None, "Video Settings", false));
+        menu_body(ui, |ui| {
+            let row = menu_row(ui, None, "Camera", Some(&cur), false, Trail::Caret);
+            super::settings::mark(ui, "callcam:row", row.rect);
+            egui::containers::menu::SubMenu::new().show(ui, &row, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for name in &cams {
+                    let item = menu_row(ui, None, name, None, false, Trail::Radio(*name == cur));
+                    super::settings::mark(ui, &format!("callcam:dev:{name}"), item.rect);
+                    if item.clicked() {
+                        picked = Some(name.clone());
+                    }
+                }
+            });
+            background = menu_item(ui, None, "Change Video Background", false);
+            menu_sep(ui);
+            open = menu_item(ui, None, "Video Settings", false);
+        });
     });
-    if open {
+    if let Some(name) = picked {
+        super::settings::camera::choose(app, &at.ctx, &name);
+        app.save_settings(&at.ctx);
+    }
+    if background {
+        at.ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Video Background".to_string()));
+    }
+    if open || background {
         app.settings_page = Some(super::settings::Page::Voice);
     }
 }
