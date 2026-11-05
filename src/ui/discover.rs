@@ -161,6 +161,9 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
                 }
                 ui.add_space(GAP);
             }
+            if let Some(r) = app_rects.get(&format!("discover:card:{}", guilds[0]["id"].as_str().unwrap_or_default())).copied() {
+                app_rects.insert(format!("discover:feed:{feed}"), r);
+            }
             if loading || guilds.len() < total {
                 ui.add_space(8.0);
                 ui.add(egui::Spinner::new().color(pal().text_muted));

@@ -23,6 +23,7 @@ pub struct State {
     learned_hit: Option<String>,
     sel: Option<(usize, usize)>,
     at: usize,
+    pub first: Option<egui::Rect>,
 }
 
 enum Act {
@@ -66,6 +67,7 @@ pub fn composer(st: &mut State, s: &mut Settings, ui: &mut Ui, out: &TextEditOut
     let focused = out.response.has_focus();
     let cursor = out.cursor_range.map(|r| r.primary.index.0);
     let pos = |i: usize| out.galley.pos_from_cursor(CCursor::new(i));
+    st.first = None;
     for w in &st.words {
         if !st.is_bad(w, s) || (focused && cursor.is_some_and(|c| (w.0..=w.1).contains(&c))) {
             continue;
@@ -75,6 +77,7 @@ pub fn composer(st: &mut State, s: &mut Settings, ui: &mut Ui, out: &TextEditOut
             continue;
         }
         let (x0, x1, y) = (out.galley_pos.x + a.left(), out.galley_pos.x + b.left(), out.galley_pos.y + a.bottom() - 1.0);
+        st.first.get_or_insert(egui::Rect::from_min_max(pos2(x0, y - 14.0), pos2(x1, y + 1.0)));
         let mut pts: Vec<Pos2> = Vec::new();
         let mut x = x0;
         while x < x1 {

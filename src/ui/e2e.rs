@@ -26,6 +26,8 @@ const SIDEBAR: [&str; 18] = [
     "Developer", "Log Out",
 ];
 
+mod spell_discover;
+
 pub struct Run {
     dir: PathBuf,
     t0: Instant,
@@ -1213,6 +1215,8 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            1700..=1719 => self.spell_steps(app, ctx),
+            1720..=1739 => self.discover_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3963,7 +3967,7 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 1700;
                 }
             }
         }
