@@ -66,6 +66,8 @@ pub struct Run {
     dnd: Option<(usize, Id)>,
     // the toasts those would have been, and the message each opens
     pub pings: Vec<(String, (Id, Id))>,
+    // toasts so far and the title's count when the window was minimized for a ping
+    hidden: Option<(usize, i32)>,
     // what Speak Message would have read out
     pub said: Vec<String>,
     // stream dispatches and voice errors, for the live check
@@ -122,6 +124,7 @@ impl Run {
             opened: Vec::new(),
             pinged: Vec::new(),
             dnd: None,
+            hidden: None,
             rtc: 0,
             share_at: None,
             pings: Vec::new(),
@@ -152,6 +155,21 @@ impl Run {
             let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
             let _ = std::fs::write(self.dir.join("first_frame_epoch_ms"), epoch.as_millis().to_string());
         }
+    }
+
+    /// Called from App::logic while the window is minimized, when step() isn't.
+    pub fn hidden(&mut self, app: &App, ctx: &egui::Context) {
+        let Some((pings, title)) = self.hidden else { return };
+        let n = app.title_count.unwrap_or(0) as i32;
+        let left = Duration::from_secs(8).saturating_sub(self.step_at.elapsed());
+        if self.pings.len() > pings && n > title && crate::winsys::badge() == n {
+            self.mark("minimized_ping");
+        } else if !left.is_zero() {
+            ctx.request_repaint_after(left);
+            return;
+        }
+        self.hidden = None;
+        crate::winsys::show_quietly(false);
     }
 
     pub fn mark_once(&mut self, name: &str) {
@@ -1118,6 +1136,22 @@ impl Run {
                 if app.cur() == Some(3000) && app.store.msgs.get(&3000).is_some_and(|e| e.list.iter().any(|m| m.id as usize == self.loaded)) {
                     self.mark("toast_click");
                     self.loaded = 0;
+                    self.next(0);
+                }
+            }
+            // minimized, a dm still raises its toast and moves the taskbar badge and the title's
+            // count; step() doesn't run meanwhile, so hidden() watches and brings the window back
+            91 => {
+                // minimizing takes focus away, which the injected input otherwise always claims
+                self.blur = true;
+                self.hidden = Some((self.pings.len(), app.title_count.unwrap_or(0) as i32));
+                app.rest("POST", "/mock/dm".into(), Some(json!({ "channel": 3000, "from": 101, "text": "still there?", "after_ms": 1500 })), crate::net::Tag::Quiet);
+                crate::winsys::show_quietly(true);
+                self.next(0);
+            }
+            92 => {
+                if self.hidden.is_none() && !ctx.input(|i| i.viewport().minimized.unwrap_or(false)) {
+                    self.blur = false;
                     self.step = 100;
                 }
             }
