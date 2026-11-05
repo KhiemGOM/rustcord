@@ -336,7 +336,8 @@ pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     let mute = app.voice.mute || deaf;
     // laid out right to left: each chevron sits after its button, groups 8 apart
     ui.add_space(8.0);
-    let mut changed = device_menu(ui, "Output Device", true, &mut app.settings.speaker, deaf);
+    let (mut voice_settings, mut live) = (false, false);
+    let mut changed = super::iomenu::device_menu(ui, true, deaf, &mut app.settings, &mut voice_settings, &mut live);
     ui.add_space(1.0);
     let d = split(ui, if deaf { Icon::HeadphonesOff } else { Icon::Headphones }, deaf, if deaf { "Undeafen" } else { "Deafen" });
     app.rects.insert("voice:deafen".into(), d.rect);
@@ -344,19 +345,25 @@ pub fn user_buttons(app: &mut App, ui: &mut Ui) {
         app.voice.set_deaf(&app.net, !deaf);
     }
     ui.add_space(8.0);
-    changed |= device_menu(ui, "Input Device", false, &mut app.settings.mic, mute);
+    changed |= super::iomenu::device_menu(ui, false, mute, &mut app.settings, &mut voice_settings, &mut live);
     ui.add_space(1.0);
     let m = split(ui, if mute { Icon::MicOff } else { Icon::Mic }, mute, if mute { "Unmute" } else { "Mute" });
     app.rects.insert("voice:mute".into(), m.rect);
     if m.clicked() {
         app.voice.set_mute(&app.net, !mute);
     }
+    if live && !changed {
+        app.voice.configure(&app.settings);
+    }
+    if voice_settings {
+        app.settings_page = Some(super::settings::Page::Voice);
+    }
     if changed {
         app.save_settings(ui.ctx());
     }
 }
 
-const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
+pub const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 
 /// The left half of Discord's mic/headphone split button; washed red with a red icon while off.
 fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
@@ -875,36 +882,6 @@ pub fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
         }
     };
     devs.lock().ok().and_then(|d| d.clone()).unwrap_or_default()
-}
-
-/// The little chevron beside the panel's mic and headphones: a menu of devices to pick from.
-fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>, off: bool) -> bool {
-    let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
-    let bg = match (off, resp.hovered()) {
-        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
-        (false, true) => pal().control_hover,
-        (false, false) => Color32::TRANSPARENT,
-    };
-    ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
-    let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
-    icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
-    let mut changed = false;
-    egui::Popup::menu(&resp).show(|ui| {
-        ui.set_min_width(220.0);
-        ui.label(RichText::new(title).font(medium(14.0)).color(pal().header_secondary));
-        ui.add_space(4.0);
-        let (ins, outs) = devices(ui.ctx());
-        let names = if output { outs } else { ins };
-        for name in std::iter::once(None).chain(names.iter().map(Some)) {
-            let on = cur.as_ref() == name;
-            let label = name.map(String::as_str).unwrap_or("Default");
-            if ui.selectable_label(on, label).clicked() {
-                *cur = name.cloned();
-                changed = true;
-            }
-        }
-    });
-    changed
 }
 
 /// A call ringing for us: who it is, Incoming Call…, and the red and green buttons. Ctrl+Enter

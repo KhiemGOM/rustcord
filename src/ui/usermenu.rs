@@ -62,12 +62,15 @@ pub fn menu_heading(ui: &mut Ui, text: &str) {
 
 /// A row with a label over a slider, like discord's User Volume; `at` is the thumb's place from
 /// 0 to 1. Gives the new place while it's dragged or clicked, and whether the pointer let go.
-pub fn menu_slider(ui: &mut Ui, label: &str, at: f32) -> Option<(f32, bool)> {
+pub fn menu_slider(ui: &mut Ui, label: &str, at: f32, value: Option<&str>) -> Option<(f32, bool)> {
     let (r, resp) = ui.allocate_at_least(vec2(160.0, 58.0), Sense::click_and_drag());
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
     let track = Rect::from_min_size(pos2(r.left() + 8.0, r.top() + 40.0), vec2(r.width() - 16.0, 4.0));
     let p = ui.painter();
     p.text(pos2(r.left() + 8.0, r.top() + 17.0), egui::Align2::LEFT_CENTER, label, medium(14.0), pal().header_primary);
+    if let Some(v) = value {
+        p.text(pos2(r.right() - 8.0, r.top() + 17.0), egui::Align2::RIGHT_CENTER, v, reg(14.0), pal().text_muted);
+    }
     p.rect_filled(track, 2, pal().bg_mod_selected);
     let x = track.left() + track.width() * at.clamp(0.0, 1.0);
     p.rect_filled(Rect::from_min_max(track.min, pos2(x, track.bottom())), 2, BLURPLE);
@@ -259,7 +262,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if in_voice && !me {
             menu_sep(ui);
-            if let Some((t, done)) = menu_slider(ui, "User Volume", vol_pos(person.volume)) {
+            if let Some((t, done)) = menu_slider(ui, "User Volume", vol_pos(person.volume), None) {
                 slider = Some((vol_gain(t), done));
             }
             menu_sep(ui);
