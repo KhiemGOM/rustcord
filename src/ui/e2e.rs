@@ -2422,14 +2422,20 @@ impl Run {
                     return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
                 }
                 let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
-                let sections: &[&str] = if PAGES[self.loaded] == "Voice & Video" { &["Camera", "Streaming", "Sounds", "Soundboard", "Advanced"] } else { &[] };
+                let sections: &[&str] = if PAGES[self.loaded] == "Voice & Video" { &["@", "@", "@", "Camera", "Streaming", "Sounds", "Soundboard", "Advanced"] } else { &[] };
                 let part = if self.sub == 0 { String::new() } else { format!("_{}", self.sub) };
                 self.shot(ctx, &format!("settings_{:02}_{slug}{part}.png", self.loaded + 1));
                 if let Some(next) = sections.get(self.sub) {
                     for key in ["advanced", "sounds", "diagnostics"] {
                         ctx.data_mut(|d| d.insert_temp(egui::Id::new(("voice_open", key)), true));
                     }
-                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), next.to_string()));
+                    if *next == "@" {
+                        let at = egui::pos2(700.0, 450.0);
+                        self.queue.push_back(vec![Event::PointerMoved(at)]);
+                        self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -520.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    } else {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), next.to_string()));
+                    }
                     self.sub += 1;
                     self.wait = Instant::now() + Duration::from_millis(900);
                     return;
