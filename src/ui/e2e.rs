@@ -1354,10 +1354,10 @@ impl Run {
                 self.next(400);
             }
             113 => {
-                if !self.open_page(app, "Messages") {
-                    return;
+                let label = if app.rects.contains_key("settings:Visual Density") { "Visual Density" } else { "Accessibility" };
+                if self.open_page(app, label) && label == "Visual Density" {
+                    self.next(800);
                 }
-                self.next(800);
             }
             114 => {
                 let Some(r) = Self::at(ctx, "radio:Compact") else { return };
@@ -1389,10 +1389,10 @@ impl Run {
                 self.next(600);
             }
             118 => {
-                if !self.open_page(app, "Messages") {
-                    return;
+                let label = if app.rects.contains_key("settings:Visual Density") { "Visual Density" } else { "Accessibility" };
+                if self.open_page(app, label) && label == "Visual Density" {
+                    self.next(800);
                 }
-                self.next(800);
             }
             119 => {
                 let Some(r) = Self::at(ctx, "radio:Cozy") else { return };

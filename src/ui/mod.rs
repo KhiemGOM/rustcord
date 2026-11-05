@@ -14,6 +14,7 @@ mod friends;
 pub mod icons;
 mod keys;
 mod login;
+mod mdpreview;
 mod members;
 mod palette;
 mod picker;
@@ -202,6 +203,8 @@ pub struct App {
     // images drawn lately, so the rest can be let go now and then
     textures: std::sync::Arc<crate::imgcache::Textures>,
     sweep_at: Instant,
+    system: crate::winsys::Prefs,
+    system_at: f64,
 }
 
 impl App {
@@ -351,6 +354,8 @@ impl App {
             synced: None,
             textures,
             sweep_at: Instant::now(),
+            system: crate::winsys::preferences(),
+            system_at: 0.0,
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -780,7 +785,7 @@ impl App {
         // sync with computer is a local choice the account doesn't know about
         let theme = self.settings.theme;
         changed.apply(&mut self.settings);
-        if theme == crate::theme::Theme::Sync {
+        if theme == crate::theme::Theme::Sync || !self.settings.sync_theme {
             self.settings.theme = theme;
         }
         self.heights.clear();
@@ -793,18 +798,42 @@ impl App {
         ctx.set_zoom_factor(s.zoom);
         crate::tray::set_close_hides(s.minimize_to_tray);
         crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
-        crate::theme::set_reduced_motion(s.reduced_motion);
+        crate::theme::set_reduced_motion(self.reduced_motion());
         crate::theme::set_view(crate::theme::View {
             underline_links: s.underline_links,
             animate_emoji: s.animate_emoji,
             hide_invites: s.streamer && s.hide_invites,
+            name_styles: s.name_styles,
+            own_profiles: s.own_theme_on_profiles,
+            switch_icons: s.switch_icons,
+            density: s.density,
         });
-        crate::theme::set_theme(ctx, s.theme);
+        self.apply_look(ctx);
+        crate::speech::set_speed(s.tts_rate);
+        crate::toast::set_long(s.min_toast_secs > 5.0);
         crate::theme::style(ctx);
         crate::sound::configure(s.sounds && !(s.streamer && s.streamer_no_sounds), &s.muted_sounds);
         crate::hotkeys::set(&s.keybinds);
         crate::api::set_locale(&s.locale);
         self.voice.configure(s);
+    }
+
+    fn reduced_motion(&self) -> bool {
+        if self.settings.sync_motion { !self.system.animations } else { self.settings.reduced_motion }
+    }
+
+    fn apply_look(&self, ctx: &egui::Context) {
+        let s = &self.settings;
+        crate::theme::set_look(
+            ctx,
+            &crate::theme::Look {
+                theme: s.theme,
+                gradient: s.custom_theme,
+                saturation: s.saturation,
+                saturate_custom: s.saturate_custom,
+                contrast: s.high_contrast || (s.sync_contrast && self.system.high_contrast),
+            },
+        );
     }
 
     fn notify(&mut self, d: &serde_json::Value, ctx: &egui::Context) {
@@ -857,8 +886,17 @@ impl App {
     /// Settings that react to the outside world every frame: system theme,
     /// ctrl+wheel zoom, global keybinds, OBS starting, capture exclusion.
     fn os_settings(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let now = ctx.input(|i| i.time);
+        if now >= self.system_at {
+            self.system_at = now + 2.0;
+            let sys = crate::winsys::preferences();
+            if (sys.animations, sys.high_contrast) != (self.system.animations, self.system.high_contrast) {
+                self.system = sys;
+                self.apply_settings(ctx);
+            }
+        }
         if self.settings.theme == crate::theme::Theme::Sync {
-            crate::theme::set_theme(ctx, crate::theme::Theme::Sync);
+            self.apply_look(ctx);
         }
         let z = ctx.zoom_factor();
         if (z - self.settings.zoom).abs() > 0.001 {
@@ -1554,6 +1592,8 @@ impl eframe::App for App {
                 e.cost("cjk_fonts", took.elapsed());
             }
         }
+        crate::theme::set_me(self.store.me);
+        crate::theme::backdrop(&ctx);
         // rebuilt every frame by whatever gets drawn, so nothing points at last frame's layout
         self.rects.clear();
         if self.frames == 0
@@ -1777,7 +1817,7 @@ impl eframe::App for App {
     }
 
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
-        pal().bg_tertiary.to_normalized_gamma_f32()
+        crate::theme::clear().to_normalized_gamma_f32()
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

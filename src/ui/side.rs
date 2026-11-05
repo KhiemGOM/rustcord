@@ -908,9 +908,16 @@ fn elapsed(secs: i64) -> String {
 
 /// The bools are clicks on invite, edit, "Set a channel status" and a voice channel's Open Chat.
 #[allow(clippy::too_many_arguments)]
+/// A list row at its design height, centred in the height the density setting gives it. Gives the
+/// row, its response, and the rectangle a highlight should fill.
+pub(super) fn dense_row(ui: &mut Ui, h: f32) -> (Rect, egui::Response, Rect) {
+    let (slot, resp) = ui.allocate_exact_size(vec2(ui.available_width(), crate::theme::row(h)), Sense::click());
+    (Rect::from_center_size(slot.center(), vec2(slot.width(), h)), resp, slot.shrink2(vec2(8.0, 0.0)))
+}
+
 fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: bool, mentions: u32, muted: bool, new: usize, voice: Option<&VoiceRow>) -> (egui::Response, Option<Rect>, bool, bool, bool, bool) {
     let sub = voice.and_then(|v| v.sub.as_ref());
-    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if sub.is_some() { 48.0 } else { 32.0 }), Sense::click());
+    let (row, resp, hl) = dense_row(ui, if sub.is_some() { 48.0 } else { 32.0 });
     let inner = row.shrink2(vec2(8.0, 0.0));
     let y = row.top() + 16.0;
     let here = voice.is_some_and(|v| v.here);
@@ -918,9 +925,9 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     // button away mid-click and hand the click to the row
     let hovered = resp.contains_pointer();
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_hover);
     }
     let col = if selected || here || (unread && !muted) {
         pal().header_primary
@@ -1132,13 +1139,13 @@ fn dms(app: &mut App, ui: &mut Ui) {
 }
 
 fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) -> egui::Response {
-    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
+    let (row, resp, hl) = dense_row(ui, 42.0);
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_hover);
     }
     // discord greys a muted dm out: muted text, the avatar at .3, no count and no bold
     let muted = store.dm_muted(c.id);

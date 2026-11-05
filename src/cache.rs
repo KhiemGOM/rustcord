@@ -43,6 +43,9 @@ pub struct Settings {
     pub muted_sounds: Vec<String>,
     // appearance
     pub theme: crate::theme::Theme,
+    pub custom_theme: Option<u8>,
+    pub sync_theme: bool,
+    pub own_theme_on_profiles: bool,
     pub compact: bool,
     pub compact_avatars: bool,
     pub font_size: f32,
@@ -51,9 +54,24 @@ pub struct Settings {
     pub clock24: bool,
     // accessibility
     pub underline_links: bool,
+    pub name_styles: bool,
+    pub density: Density,
+    pub saturation: f32,
+    pub saturate_custom: bool,
+    pub high_contrast: bool,
+    pub sync_contrast: bool,
+    pub switch_icons: bool,
     pub role_colors: RoleColors,
     pub reduced_motion: bool,
+    pub sync_motion: bool,
+    pub min_toast_secs: f32,
+    pub stickers: Animate,
+    pub tts_rate: f32,
+    pub image_descriptions: bool,
     pub send_button: bool,
+    pub md_preview: bool,
+    pub sticker_suggestions: bool,
+    pub search_all_dms: bool,
     // chat
     pub embeds: bool,
     pub inline_links: bool,
@@ -119,6 +137,22 @@ pub enum RoleColors {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum Density {
+    Compact,
+    #[default]
+    Default,
+    Spacious,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum Animate {
+    #[default]
+    Always,
+    OnInteraction,
+    Never,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
 pub enum Spoilers {
     #[default]
     OnClick,
@@ -136,6 +170,9 @@ impl Default for Settings {
             sounds: true,
             muted_sounds: Vec::new(),
             theme: Default::default(),
+            custom_theme: None,
+            sync_theme: true,
+            own_theme_on_profiles: false,
             compact: false,
             compact_avatars: false,
             font_size: 16.0,
@@ -143,9 +180,24 @@ impl Default for Settings {
             zoom: 1.0,
             clock24: false,
             underline_links: false,
+            name_styles: true,
+            density: Density::Default,
+            saturation: 1.0,
+            saturate_custom: false,
+            high_contrast: false,
+            sync_contrast: true,
+            switch_icons: false,
             role_colors: RoleColors::InNames,
             reduced_motion: false,
+            sync_motion: true,
+            min_toast_secs: 5.0,
+            stickers: Animate::Always,
+            tts_rate: 1.0,
+            image_descriptions: false,
             send_button: false,
+            md_preview: true,
+            sticker_suggestions: false,
+            search_all_dms: false,
             embeds: true,
             inline_links: true,
             inline_uploads: true,
