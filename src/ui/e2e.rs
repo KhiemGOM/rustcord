@@ -55,6 +55,13 @@ pub struct Run {
     // RUSTCORD_BENCH: nothing scripted, the frame counts written down for e2e/bench.py
     bench: Option<Instant>,
     spin: bool,
+    scroll: bool,
+    wheel_at: Instant,
+    notches: u32,
+    costs: Vec<f32>,
+    chat_open: bool,
+    travel: f32,
+    last_off: f32,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -127,6 +134,13 @@ impl Run {
             tour,
             bench: bench.then(Instant::now),
             spin: false,
+            scroll: false,
+            wheel_at: Instant::now(),
+            notches: 0,
+            costs: Vec::new(),
+            chat_open: false,
+            travel: 0.0,
+            last_off: 0.0,
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -207,6 +221,9 @@ impl Run {
             let step = self.step;
             self.slow.push(json!({ "at_ms": at.round(), "ms": ms.round(), "step": step }));
         }
+        if self.scroll {
+            self.costs.push(ms);
+        }
         self.frames.push(ms);
     }
 
@@ -231,6 +248,17 @@ impl Run {
                     | Event::Zoom(_)
             )
         });
+        if self.bench.is_some() && self.scroll {
+            if let Some(r) = raw.screen_rect {
+                raw.events.push(Event::PointerMoved(r.center()));
+            }
+            if Instant::now() >= self.wheel_at {
+                self.wheel_at = Instant::now() + Duration::from_millis(90);
+                self.notches += 1;
+                let dy = if (self.notches / 12) % 2 == 0 { 1.0 } else { -1.0 };
+                raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+            }
+        }
         if self.bench.is_none() {
             raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
         }
@@ -338,11 +366,27 @@ impl Run {
             if self.spin {
                 ctx.request_repaint();
             }
+            if self.scroll
+                && !self.chat_open
+                && let Some(&g) = app.store.guild_order.first()
+                && let Some(ch) = side::first_channel(&app.store, g)
+            {
+                self.chat_open = true;
+                app.select_guild(Some(g));
+                app.open(ch);
+            }
+            if self.scroll
+                && let Some(off) = app.cur().and_then(|c| app.offsets.get(&c).copied())
+            {
+                self.travel += (off - self.last_off).abs();
+                self.last_off = off;
+            }
             if at.elapsed() > Duration::from_millis(100) {
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
+                self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
@@ -1236,6 +1280,7 @@ impl Run {
             800..=839 => self.messages_steps(app, ctx),
             1200..=1219 => self.people_steps(app, ctx),
             1300..=1399 => self.item_steps(app, ctx),
+            1400..=1419 => self.scroll_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -5164,9 +5209,54 @@ impl Run {
                 }
                 self.mark("quest_claim");
                 app.quests = None;
+                self.step = 1400;
+            }
+            _ => self.step = 1400,
+        }
+    }
+
+    /// The wheel and the paging keys move the chat as far as Chromium would.
+    fn scroll_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let general = self.target.1;
+        let offset = |app: &App| app.offsets.get(&general).copied().unwrap_or(0.0);
+        match self.step {
+            1400 => {
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(1200);
+            }
+            1401 => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                self.click(c.center());
+                self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, c.top() - 200.0))]);
+                self.next(500);
+            }
+            // up and back once first, so the rows it crosses are measured and no height fix shifts the second pass
+            1402 | 1403 | 1404 => {
+                let dy = if self.step == 1403 { -1.0 } else { 1.0 };
+                if self.step == 1404 {
+                    self.y0 = offset(app);
+                }
+                self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                self.next(700);
+            }
+            1405 => {
+                let want = super::wheel::notch(ctx.zoom_factor(), ctx.content_rect().height());
+                if (self.y0 - offset(app) - want).abs() < 2.0 {
+                    self.mark("feel_wheel_notch");
+                }
+                self.y0 = offset(app);
+                self.key(Key::PageUp);
+                self.next(700);
+            }
+            _ => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                let moved = self.y0 - offset(app);
+                if moved > c.top() * 0.5 && moved < c.top() {
+                    self.mark("feel_page_key");
+                }
                 self.step = 99;
             }
-            _ => self.step = 99,
         }
     }
 

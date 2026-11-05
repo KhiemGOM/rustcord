@@ -344,7 +344,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         (102, "brb, coffee ☕"),
         (106, "lurker here, first message in months 👋"),
     ];
-    let n = 160u64;
+    let n: u64 = std::env::var("MOCK_HISTORY").ok().and_then(|v| v.parse().ok()).unwrap_or(160);
     let start = now_ms() - n * 95_000;
     let mut out: Vec<Value> = Vec::new();
     for i in 0..n {
