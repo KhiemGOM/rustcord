@@ -649,20 +649,25 @@ const NAME_FONT_ASSETS: [&str; 11] = [
     "27b34a77ba5d693e", "45ef50dce38a931a", "4841dace333e9054", "c00df4f25667809b", "aa59ae54ce7e540a",
 ];
 
-fn gg_stand_in(weight: u16) -> Vec<u8> {
-    static CACHE: Mutex<Vec<(u16, Vec<u8>)>> = Mutex::new(Vec::new());
-    if let Some((_, b)) = CACHE.lock().unwrap().iter().find(|(w, _)| *w == weight) {
+fn gg_stand_in(face: &str) -> Vec<u8> {
+    static CACHE: Mutex<Vec<(String, Vec<u8>)>> = Mutex::new(Vec::new());
+    if let Some((_, b)) = CACHE.lock().unwrap().iter().find(|(f, _)| f == face) {
         return b.clone();
     }
-    let file = match weight {
-        600 => "seguisb.ttf",
-        700 => "segoeuib.ttf",
+    let file = match face {
+        "sans600normal" => "seguisb.ttf",
+        "sans700normal" => "segoeuib.ttf",
+        "sans600italic" => "seguisbi.ttf",
+        "sans700italic" => "segoeuiz.ttf",
+        f if f.starts_with("sans") && f.ends_with("italic") => "segoeuii.ttf",
+        "mono700normal" => "consolab.ttf",
+        f if f.starts_with("mono") => "consola.ttf",
         _ => "segoeui.ttf",
     };
     let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
     let ttf = std::fs::read(format!("{dir}\\Fonts\\{file}")).unwrap_or_default();
     let woff2 = ttf2woff2::encode(&ttf, 3.into()).unwrap_or_default();
-    CACHE.lock().unwrap().push((weight, woff2.clone()));
+    CACHE.lock().unwrap().push((face.to_string(), woff2.clone()));
     woff2
 }
 
@@ -1012,7 +1017,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["assets", "fonts.css"]) => {
             // same shape as discord's: upright and italic faces, plus a family we don't want
             let face = |fam: &str, style: &str, w: u16| {
-                format!("@font-face{{font-display:swap;font-family:{fam};font-style:{style};font-weight:{w};src:url(/assets/mock{w}{style}.woff2) format(\"woff2\")}}")
+                let file = fam.trim_start_matches("gg ");
+                format!("@font-face{{font-display:swap;font-family:{fam};font-style:{style};font-weight:{w};src:url(/assets/mock-{file}{w}{style}.woff2) format(\"woff2\")}}")
             };
             let mut css = String::new();
             for w in [400, 500, 600, 700] {
@@ -1020,14 +1026,13 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
                 css += &face("gg sans", "italic", w);
             }
             css += &face("gg mono", "normal", 400);
+            css += &face("gg mono", "normal", 700);
+            css += &face("Source Code Pro", "normal", 400);
             (200, "text/css", css.into_bytes())
         }
         // the nitro display name fonts, by their real asset names
-        ("GET", ["assets", f]) if NAME_FONT_ASSETS.iter().any(|h| f.strip_suffix(".woff2") == Some(*h)) => (200, "font/woff2", gg_stand_in(400)),
-        ("GET", ["assets", f]) if f.starts_with("mock") && f.ends_with("normal.woff2") => {
-            let w: u16 = f[4..7].parse().unwrap_or(400);
-            (200, "font/woff2", gg_stand_in(w))
-        }
+        ("GET", ["assets", f]) if NAME_FONT_ASSETS.iter().any(|h| f.strip_suffix(".woff2") == Some(*h)) => (200, "font/woff2", gg_stand_in("sans400normal")),
+        ("GET", ["assets", f]) if f.starts_with("mock-") && f.ends_with(".woff2") => (200, "font/woff2", gg_stand_in(&f[5..f.len() - 6])),
         ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {

@@ -17,7 +17,7 @@ SURFACES = {
     "Ash": dict(rail="2c2d32", side="323339", chat="323339", members="323339", header="323339", input="393a41"),
     "Light": dict(rail="f3f3f4", side="fbfbfb", chat="fbfbfb", members="fbfbfb", header="fbfbfb", input="ffffff"),
 }
-FONTS = ("400", "500", "600", "700")
+FONTS = ("ggsans-400", "ggsans-500", "ggsans-600", "ggsans-700", "ggsans-400i", "ggsans-600i", "ggsans-700i", "ggmono-400", "ggmono-700")
 # the nitro display name fonts' asset names (src/fonts.rs)
 NAME_FONTS = {
     "33d4f12a85e1f736", "e6f5f44abb520735", "c560709c3470bb66", "52b541f86401a5b6", "69c735ca5c604de7", "8f20cb550d739cea",
@@ -58,8 +58,8 @@ def checks(runs, reqs, data):
             hov = look.get(f"look:look_{theme}_hover:msg_hover", "#?")
             out[f"look: {tag}: {theme} hovered message is the 0.122 overlay"] = "?" not in hov and near(hov, "#%02x%02x%02x" % over(want["chat"]))
 
-        out[f"look: {tag}: gg sans is the proportional face (and its medium cut)"] = (
-            look.get("look:font") == "gg400" and look.get("look:font_medium") == "gg500")
+        out[f"look: {tag}: gg sans is the proportional face (and its medium cut), italics gg sans italic, code gg mono"] = (
+            [look.get(f"look:font{k}") for k in ("", "_medium", "_italic", "_mono")] == ["ggsans-400", "ggsans-500", "ggsans-700i", "ggmono-400"])
 
         c = lambda k: rgb(look[f"look:look_Ash:{k}"]) if f"look:look_Ash:{k}" in look else (0, 0, 0)
         # carol: two-tone role, tiled every 100px; eve: holographic role; frank: a nitro glow style,
@@ -90,16 +90,16 @@ def checks(runs, reqs, data):
         nm = box("name:105")
         out[f"look: {tag}: role icon is 20px, 4px after the name"] = icon[2] == 20 and abs(icon[0] - nm[0] - nm[2] - 4) <= 1
 
-    cached = [data / "fonts" / f"ggsans-{w}.ttf" for w in FONTS]
-    out["look: gg sans was decoded to ttf in the cache dir"] = all(sfnt(p) for p in cached)
+    cached = [data / "fonts" / f"{f}.ttf" for f in FONTS]
+    out["look: gg sans and gg mono were decoded to ttf in the cache dir"] = all(sfnt(p) for p in cached)
     paths = [r.get("path", "") for r in reqs]
     woff = [p for p in paths if p.endswith(".woff2")]
-    # the nitro display name fonts come by their real names; everything else is gg sans
+    # the nitro display name fonts come by their real names; everything else is gg sans or gg mono
     names = [p for p in woff if p.split("/")[-1][:-6] in NAME_FONTS]
     gg = [p for p in woff if p not in names]
     out["look: font download read the new names off /app after the built-in one 404ed, and the warm run reused the cache"] = (
         "/app" in paths and "/assets/fonts.css" in paths
-        and sum("/assets/mock" in p for p in gg) == 4 and len(gg) == 5)
+        and sum("/assets/mock" in p for p in gg) == len(FONTS) and len(gg) == len(FONTS) + 1)
     out["look: the eleven nitro name fonts were each fetched once, the warm run reused them"] = (
         len(names) == 11 and len(set(names)) == 11)
     return out

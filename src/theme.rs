@@ -451,6 +451,22 @@ pub fn mono(size: f32) -> FontId {
     FontId::monospace(size)
 }
 
+pub fn mono_bold(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("mono-bold".into()))
+}
+
+pub fn italic(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("italic".into()))
+}
+
+pub fn semi_italic(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("semi-italic".into()))
+}
+
+pub fn bold_italic(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("bold-italic".into()))
+}
+
 pub fn status_color(s: crate::state::Status) -> Color32 {
     use crate::state::Status::*;
     match s {
@@ -495,6 +511,15 @@ pub fn ramp(stops: &[Color32], t: f32) -> Color32 {
 /// off the UI thread after the first frame so startup doesn't pay for them.
 pub fn fonts(cjk: bool) -> FontDefinitions {
     let mut f = FontDefinitions::default();
+    // discord's own faces once they've been downloaded, see fonts.rs
+    let have: Vec<&str> = crate::fonts::FACES
+        .iter()
+        .filter_map(|(stem, ..)| {
+            f.font_data.insert(stem.to_string(), Arc::new(FontData::from_owned(crate::fonts::cached(stem)?)));
+            Some(*stem)
+        })
+        .collect();
+    let gg = |stem: &'static str, or: Option<&'static str>| if have.contains(&stem) { Some(stem) } else { or };
     let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()) + "\\Fonts\\";
     let mut add = |key: &str, file: &str| -> bool {
         match std::fs::read(format!("{dir}{file}")) {
@@ -508,6 +533,9 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     let ui = add("ui", "segoeui.ttf");
     let semi = add("semi", "seguisb.ttf");
     let bold = add("bold", "segoeuib.ttf");
+    let ui_i = gg("ggsans-400i", None).is_none() && add("ui-i", "segoeuii.ttf");
+    let semi_i = gg("ggsans-600i", None).is_none() && add("semi-i", "seguisbi.ttf");
+    let bold_i = gg("ggsans-700i", None).is_none() && add("bold-i", "segoeuiz.ttf");
     let sym = add("sym", "seguisym.ttf");
     let code = add("code", "consola.ttf");
     // last resort for pictographs the ui fonts lack; egui draws its monochrome outlines
@@ -515,13 +543,6 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     // channel names lean on things like "・" and "┃", and plenty of people write CJK
     let yahei = cjk && add("cjk", "msyh.ttc");
     let hangul = cjk && add("hangul", "malgun.ttf");
-    // discord's own face once it has been downloaded, see fonts.rs
-    let gg: Option<Vec<Vec<u8>>> = crate::fonts::WEIGHTS.iter().map(|w| crate::fonts::cached(*w)).collect();
-    if let Some(files) = &gg {
-        for (w, b) in crate::fonts::WEIGHTS.iter().zip(files) {
-            f.font_data.insert(format!("gg{w}"), Arc::new(FontData::from_owned(b.clone())));
-        }
-    }
 
     let defaults = f.families[&FontFamily::Proportional].clone();
     let chain = |first: Option<&str>| {
@@ -545,25 +566,36 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         v.dedup();
         v
     };
-    let gg = gg.is_some();
-    let prop = chain(gg.then_some("gg400"));
-    let m = chain(gg.then_some("gg500"));
-    let s = chain(if gg { Some("gg600") } else { semi.then_some("semi") });
-    let b = chain(if gg { Some("gg700") } else { bold.then_some("bold") });
-    f.families.insert(FontFamily::Proportional, prop);
-    f.families.insert(FontFamily::Name("medium".into()), m);
-    f.families.insert(FontFamily::Name("semi".into()), s);
-    f.families.insert(FontFamily::Name("bold".into()), b);
+    for (fam, first) in [
+        ("medium", gg("ggsans-500", None)),
+        ("semi", gg("ggsans-600", semi.then_some("semi"))),
+        ("bold", gg("ggsans-700", bold.then_some("bold"))),
+        ("italic", gg("ggsans-400i", ui_i.then_some("ui-i"))),
+        ("semi-italic", gg("ggsans-600i", semi_i.then_some("semi-i"))),
+        ("bold-italic", gg("ggsans-700i", bold_i.then_some("bold-i"))),
+    ] {
+        f.families.insert(FontFamily::Name(fam.into()), chain(first));
+    }
+    f.families.insert(FontFamily::Proportional, chain(gg("ggsans-400", None)));
     // every name font family exists from the start; until its file arrives it's just gg sans
     for (id, ..) in crate::fonts::NAME_FONTS {
         let key = format!("name{id}");
         let have = crate::fonts::cached_name(id).map(|b| f.font_data.insert(key.clone(), Arc::new(FontData::from_owned(b)))).is_some();
-        let fam = chain(if have { Some(key.as_str()) } else if gg { Some("gg500") } else { None });
+        let fam = chain(if have { Some(key.as_str()) } else { gg("ggsans-500", None) });
         f.families.insert(FontFamily::Name(key.into()), fam);
     }
+    let m = f.families.get_mut(&FontFamily::Monospace).unwrap();
     if code {
-        f.families.get_mut(&FontFamily::Monospace).unwrap().insert(0, "code".into());
+        m.insert(0, "code".into());
     }
+    if let Some(gm) = gg("ggmono-400", None) {
+        m.insert(0, gm.into());
+    }
+    let mut mb = m.clone();
+    if let Some(gm) = gg("ggmono-700", None) {
+        mb.insert(0, gm.into());
+    }
+    f.families.insert(FontFamily::Name("mono-bold".into()), mb);
     f
 }
 

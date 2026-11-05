@@ -1,6 +1,6 @@
 use chrono::{Local, TimeZone};
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Align, Color32, FontId, Stroke};
+use egui::{Align, Color32, Stroke};
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -79,12 +79,13 @@ struct B<'a, 'b> {
 
 impl B<'_, '_> {
     fn fmt(&self, st: St) -> TextFormat {
-        let family = if st.code {
-            FontId::monospace(st.size * 0.875)
-        } else if st.bold {
-            bold(st.size)
-        } else {
-            reg(st.size)
+        let family = match (st.code, st.bold, st.italic) {
+            (true, true, _) => mono_bold(st.size * 0.875),
+            (true, ..) => mono(st.size * 0.875),
+            (_, true, true) => bold_italic(st.size),
+            (_, true, _) => bold(st.size),
+            (_, _, true) => italic(st.size),
+            _ => reg(st.size),
         };
         let (color, bg) = if st.spoiler && !self.cx.revealed {
             (pal().spoiler, pal().spoiler)
@@ -98,7 +99,7 @@ impl B<'_, '_> {
             line_height: Some(self.cx.line(st.size)),
             color,
             background: if st.code { pal().bg_code } else { bg },
-            italics: st.italic,
+            italics: st.italic && st.code,
             underline: if st.under { Stroke::new(1.0, color) } else { Stroke::NONE },
             strikethrough: if st.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
             valign: Align::Center,
