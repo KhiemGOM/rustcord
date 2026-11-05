@@ -671,15 +671,27 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 pal().header_secondary,
             );
         }
+        if app.activity.runs_in(chan.id) {
+            let big = Rect::from_min_max(area.min, pos2(area.right(), (area.bottom() - super::activity::view::STRIP - 8.0).max(area.top() + 160.0)));
+            super::activity::view::stage(app, ui, big);
+            area.min.y = big.bottom() + 8.0;
+        }
         if let Some(f) = app.voice.stream.as_ref().filter(|_| app.voice.chan == Some(chan.id)).map(|l| l.frame.clone()) {
             let top = Rect::from_min_max(area.min, pos2(area.right(), area.top() + area.height() * 0.68));
             stage(app, ui, top, f);
             area.min.y = top.bottom() + 8.0;
         }
-        let tiles = match focus {
-            Some(f) => focused(area, &members, f),
-            None => grid(area, members.len()),
+        let idle: Vec<(Id, Vec<Id>)> = match app.activity.runs_in(chan.id) || focus.is_some() {
+            true => Vec::new(),
+            false => app.store.embedded.get(&chan.id).into_iter().flatten().map(|i| (i.app, i.users.clone())).collect(),
         };
+        let mut tiles = match focus {
+            Some(f) => focused(area, &members, f),
+            None => grid(area, members.len() + idle.len()),
+        };
+        for ((a, users), tile) in idle.iter().zip(tiles.drain(..idle.len().min(tiles.len()))) {
+            super::activity::view::join_tile(app, ui, chan.id, tile, *a, users);
+        }
         for (u, tile) in members.iter().zip(tiles) {
             let fill = tile_color(app, ui.ctx(), *u, chan.guild);
             ui.painter().rect_filled(tile, CornerRadius::same(8), fill);

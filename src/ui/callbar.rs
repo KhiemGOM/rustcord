@@ -75,7 +75,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let (cam, me) = (app.voice.camera, app.store.me);
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let cy = if room { bar.bottom() - 41.0 } else { bar.center().y };
-    let cells = if guild != 0 { 3 } else { 2 };
+    let cells = if guild != 0 { 4 } else { 3 };
     let w2 = cells as f32 * 48.0 + 2.0;
     let x0 = bar.center().x - (140.0 + 12.0 + w2 + 12.0 + 66.0) / 2.0;
     let sec = |x: f32, w: f32| Rect::from_min_size(pos2(x, cy - 25.0), vec2(w, 50.0));
@@ -118,6 +118,18 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         }
     }
     let mut at = s2.left() + 48.0;
+    let (ac, _) = unit(ui, "activity", at, cy, false);
+    let playing = app.activity.busy();
+    glyph(ui, &ac, Icon::Apps, playing || app.activity.shelf.is_some(), Color32::WHITE);
+    app.rects.insert("voice:activity".into(), ac.rect);
+    if ac.on_hover_text(if playing { "Leave Activity" } else { "Start An Activity" }).clicked() {
+        if playing {
+            super::activity::leave(app);
+        } else if app.activity.shelf.is_none() {
+            super::activity::open_shelf(app);
+        }
+    }
+    at += 48.0;
     let sb = Rect::from_center_size(pos2(at + 25.0, cy), vec2(40.0, 38.0));
     if guild != 0 {
         let open = app.soundboard.is_some();
@@ -184,12 +196,14 @@ pub fn popout(app: &mut App, ctx: &egui::Context) {
         return;
     };
     let Some(chan) = app.store.channels.get(&ch).cloned() else { return };
-    let builder = egui::ViewportBuilder::default().with_title(format!("{} — Rustcord", super::channel_title(&app.store, ch))).with_inner_size([960.0, 600.0]).with_min_inner_size([480.0, 320.0]);
+    let title = format!("{} — Rustcord", super::channel_title(&app.store, ch));
+    let builder = egui::ViewportBuilder::default().with_title(title.clone()).with_inner_size([960.0, 600.0]).with_min_inner_size([480.0, 320.0]);
     ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("call_popout"), builder, |ui, _| {
         if ui.ctx().input(|i| i.viewport().close_requested()) {
             app.call.pop = false;
             return;
         }
+        app.activity.surface = super::activity::view::popout_hwnd(&title);
         super::call::room(app, ui, &chan);
     });
 }

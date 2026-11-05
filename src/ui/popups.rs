@@ -2571,8 +2571,10 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             crate::cache::set_settings(&app.settings);
         }
         ctx.open_url(egui::OpenUrl::new_tab(url));
+        super::activity::link_done(app, true);
     } else if close || modal.should_close() {
         app.leaving = None;
+        super::activity::link_done(app, false);
     }
 }
 

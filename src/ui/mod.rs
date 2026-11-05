@@ -1,5 +1,6 @@
 mod actions;
 mod active;
+pub mod activity;
 mod autoscroll;
 mod boosts;
 mod call;
@@ -134,6 +135,7 @@ pub struct App {
     // a voice channel's chat open beside the call
     pub voice_chat: bool,
     pub call: callbar::CallUi,
+    pub activity: activity::Activity,
     pub events: Option<events::Events>,
     pub friends_tab: u8,
     pub add_friend: String,
@@ -307,6 +309,7 @@ impl App {
             home: None,
             voice_chat: false,
             call: Default::default(),
+            activity: Default::default(),
             events: None,
             friends_tab: 0,
             add_friend: String::new(),
@@ -1036,6 +1039,7 @@ impl App {
             Ok(v) => v,
             Err(e) => {
                 match tag {
+                    Tag::Activity(k) => return activity::failed(self, &k, e),
                     Tag::Pins(_) => self.pins = None,
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
@@ -1188,6 +1192,7 @@ impl App {
                 self.guides.entry(g).or_default().1 = done.filter_map(|(c, _)| c.parse().ok()).collect();
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
+            Tag::Activity(k) => activity::on_rest(self, &k, v),
             Tag::Quiet => {}
         }
     }
@@ -1444,6 +1449,7 @@ impl App {
         popups::show(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
+        activity::overlays(self, &ctx);
         keys::combos(self, &ctx);
         keys::breathe(self, &ctx);
         keys::demon(self, &ctx);
@@ -1527,6 +1533,7 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.pump(ctx);
+        activity::logic(self, ctx);
         self.os_settings(ctx, frame);
         if self.away(ctx) {
             self.update_title(ctx);

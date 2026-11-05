@@ -108,6 +108,8 @@ pub struct Settings {
     // the call's More Options: names on the tiles, and tiles for people without video
     pub hide_call_names: bool,
     pub hide_idle_tiles: bool,
+    // the activities launched last, newest first, for the shelf's Recents
+    pub recent_activities: Vec<Id>,
     // the first-visit modal on a stage channel
     pub stage_welcome: bool,
     // emoji and gifs starred in the pickers
@@ -205,6 +207,7 @@ impl Default for Settings {
             peers: Map::default(),
             hide_call_names: false,
             hide_idle_tiles: false,
+            recent_activities: Vec::new(),
             stage_welcome: false,
             fav_emoji: Vec::new(),
             fav_gifs: Vec::new(),

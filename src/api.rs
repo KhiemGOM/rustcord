@@ -143,6 +143,13 @@ impl Api {
         Err("rate limited".into())
     }
 
+    pub async fn bearer(&self, path: &str, token: &str) -> Result<Value, String> {
+        let res = self.http.get(format!("{}{}", base(), path)).header("Authorization", format!("Bearer {token}")).send().await.map_err(|e| e.to_string())?;
+        let status = res.status();
+        let v: Value = res.json().await.unwrap_or(Value::Null);
+        if status.is_success() { Ok(v) } else { Err(v["message"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string())) }
+    }
+
     pub async fn messages(&self, ch: Id, page: Page) -> Result<Value, String> {
         let mut p = format!("/channels/{ch}/messages?limit=50");
         match page {

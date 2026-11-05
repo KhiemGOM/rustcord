@@ -83,6 +83,8 @@ pub enum Tag {
     Quiet,
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
+    // the activity shelf, launching one and the oauth steps its page asks for, by step
+    Activity(String),
 }
 
 pub enum Cmd {
@@ -101,6 +103,8 @@ pub enum Cmd {
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
+    /// A GET with an app's own access token instead of ours.
+    Bearer { path: String, token: String, tag: Tag },
     Voice(voice::Cmd),
 }
 
@@ -282,6 +286,12 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                         (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
                         _ => tx.send(Ev::Rest { tag, res }),
                     }
+                });
+            }
+            Cmd::Bearer { path, token, tag } => {
+                tokio::spawn(async move {
+                    let res = a.bearer(&path, &token).await;
+                    tx.send(Ev::Rest { tag, res });
                 });
             }
             Cmd::Download { url, path } => {
