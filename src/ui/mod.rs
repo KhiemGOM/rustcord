@@ -34,14 +34,13 @@ mod vcnet;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
-use crate::state::{Id, Message, Page, ReactEmoji, Status, Store};
+use crate::state::{Id, Map, Message, Page, ReactEmoji, Set, Status, Store};
 use crate::theme::*;
 
 /// Discord's zoom levels, in percent: the accessibility slider's ticks, which ctrl+wheel and
@@ -63,26 +62,26 @@ pub struct App {
     pub token: Option<String>,
     pub conn: Conn,
     pub login: login::Form,
-    pub drafts: HashMap<Id, String>,
+    pub drafts: Map<Id, String>,
     pub files: Vec<composer::Upload>,
     pub ac_sel: usize,
     pub ac_open: bool,
     pub ac_dismissed: Option<String>,
-    pub aliases: HashMap<Id, Vec<(String, String)>>,
-    pub commands: HashMap<Id, composer::Commands>,
+    pub aliases: Map<Id, Vec<(String, String)>>,
+    pub commands: Map<Id, composer::Commands>,
     v_down: bool,
     fonts_rx: Option<Receiver<egui::FontDefinitions>>,
     cjk_loaded: bool,
     pub reply: Option<Id>,
     pub editing: Option<(Id, String)>,
     pub last_typing: Option<(Id, Instant)>,
-    pub heights: HashMap<(Id, bool), f32>,
+    pub heights: Map<(Id, bool), f32>,
     pub heights_w: f32,
-    pub offsets: HashMap<Id, f32>,
+    pub offsets: Map<Id, f32>,
     // channels whose message list sat at the bottom last frame
-    pub pinned: HashSet<Id>,
+    pub pinned: Set<Id>,
     pub scroll_fix: Option<(Id, f32)>,
-    pub revealed: HashSet<Id>,
+    pub revealed: Set<Id>,
     pub picker: Option<(Pick, Pos2)>,
     // the sticker picker, anchored where it opened
     pub stickers: Option<Pos2>,
@@ -92,7 +91,7 @@ pub struct App {
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
     // the server guide's new member actions, per server: (their channels, the ones done)
-    pub guides: HashMap<Id, (Vec<Id>, HashSet<Id>)>,
+    pub guides: Map<Id, (Vec<Id>, Set<Id>)>,
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
@@ -103,7 +102,7 @@ pub struct App {
     // ctrl+wheel travel not yet worth a zoom step
     zoom_acc: f32,
     pub focus_composer: bool,
-    pub rects: HashMap<String, Rect>,
+    pub rects: Map<String, Rect>,
     pub settings: Settings,
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
@@ -117,13 +116,13 @@ pub struct App {
     pub soundboard: Option<(Id, Option<Vec<crate::state::Sound>>)>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
-    pub profiles: HashMap<Id, serde_json::Value>,
+    pub profiles: Map<Id, serde_json::Value>,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
-    pub boost_info: HashMap<Id, boosts::Info>,
+    pub boost_info: Map<Id, boosts::Info>,
     // the server menu's modals and pages: create, active threads, the app directory, settings
     pub create: Option<create::Form>,
     pub active_threads: Option<Id>,
@@ -144,7 +143,7 @@ pub struct App {
     pub viewer: Option<(String, String, u32, u32)>,
     // the open message's pictures, which the viewer's arrows step through
     pub gallery: Vec<(String, String, u32, u32)>,
-    pub remote: HashMap<&'static str, Option<Result<serde_json::Value, String>>>,
+    pub remote: Map<&'static str, Option<Result<serde_json::Value, String>>>,
     hotkey_rx: Option<Receiver<(String, bool)>>,
     obs_seen: bool,
     capture_hidden: bool,
@@ -159,9 +158,9 @@ pub struct App {
     // put the composer's caret at the end of its text, after something was added to it
     pub caret_end: bool,
     // messages bookmarked for later, by id
-    pub bookmarks: HashSet<Id>,
+    pub bookmarks: Set<Id>,
     // the notes you keep on people, by user, once fetched
-    pub notes: HashMap<Id, String>,
+    pub notes: Map<Id, String>,
     pub new_thread: Option<popups::NewThread>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
@@ -196,7 +195,7 @@ pub struct App {
     // the game the gateway has from us; identify sends none
     shared: Option<Id>,
     // servers we've asked for their voice channels' statuses and start times this session
-    info_asked: std::collections::HashSet<Id>,
+    info_asked: Set<Id>,
     // the taskbar badge's count, and when unreads were last looked over for its dot
     badge: Option<i32>,
     badge_at: Option<Instant>,
@@ -243,31 +242,31 @@ impl App {
             token,
             conn: Conn::Connecting,
             login: Default::default(),
-            drafts: HashMap::new(),
+            drafts: Map::default(),
             files: Vec::new(),
             ac_sel: 0,
             ac_open: false,
             ac_dismissed: None,
-            aliases: HashMap::new(),
-            commands: HashMap::new(),
+            aliases: Map::default(),
+            commands: Map::default(),
             v_down: false,
             fonts_rx: None,
             cjk_loaded: false,
             reply: None,
             editing: None,
             last_typing: None,
-            heights: HashMap::new(),
+            heights: Map::default(),
             heights_w: 0.0,
-            offsets: HashMap::new(),
-            pinned: HashSet::new(),
+            offsets: Map::default(),
+            pinned: Set::default(),
             scroll_fix: None,
-            revealed: HashSet::new(),
+            revealed: Set::default(),
             picker: None,
             stickers: None,
             menu: None,
             confirm: None,
             forward: None,
-            guides: HashMap::new(),
+            guides: Map::default(),
             user_menu: None,
             guild_notifs: None,
             bar: None,
@@ -277,7 +276,7 @@ impl App {
             autoscroll: None,
             zoom_acc: 0.0,
             focus_composer: true,
-            rects: HashMap::new(),
+            rects: Map::default(),
             voice: Default::default(),
             e2e: e2e::Run::from_env(t0),
             win: None,
@@ -290,12 +289,12 @@ impl App {
             soundboard: None,
             switcher: None,
             profile: None,
-            profiles: HashMap::new(),
+            profiles: Map::default(),
             pins: None,
             search: None,
             friends: false,
             boosts: None,
-            boost_info: HashMap::new(),
+            boost_info: Map::default(),
             create: None,
             active_threads: None,
             directory: None,
@@ -312,7 +311,7 @@ impl App {
             flash: None,
             viewer: None,
             gallery: Vec::new(),
-            remote: HashMap::new(),
+            remote: Map::default(),
             hotkey_rx: None,
             obs_seen: false,
             capture_hidden: false,
@@ -322,8 +321,8 @@ impl App {
             focus_msg: None,
             focus_scroll: false,
             caret_end: false,
-            bookmarks: HashSet::new(),
-            notes: HashMap::new(),
+            bookmarks: Set::default(),
+            notes: Map::default(),
             new_thread: None,
             emoji_pop: None,
             leaving: None,

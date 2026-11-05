@@ -1,22 +1,21 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::state::{Id, Message, Msgs, Store};
+use crate::state::{Id, Map, Message, Msgs, Set, Store};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct UiState {
     pub guild: Option<Id>,
-    pub chan: HashMap<Id, Id>,
-    pub collapsed: HashSet<Id>,
+    pub chan: Map<Id, Id>,
+    pub collapsed: Set<Id>,
     pub recent: Vec<Id>,
     // the toolbar's one-click reactions, most recent first
     pub quick: Vec<crate::state::ReactEmoji>,
     pub hide_members: bool,
     // the profile card beside one-on-one dms
     pub hide_dm_profile: bool,
-    pub open_folders: HashSet<Id>,
+    pub open_folders: Set<Id>,
     // new keys: beta 2 saved its 240 defaults whether or not anyone dragged
     #[serde(rename = "channels_w")]
     pub side_w: f32,

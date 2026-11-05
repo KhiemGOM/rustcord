@@ -5,6 +5,10 @@ use std::time::Instant;
 
 use crate::api;
 
+/// std's map and set with foldhash: SipHash over snowflakes was a fifth of every frame.
+pub type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
+pub type Set<K> = HashSet<K, foldhash::fast::RandomState>;
+
 pub type Id = u64;
 
 pub fn sid(v: &Value) -> Id {
@@ -339,7 +343,7 @@ pub struct Guild {
     pub name: String,
     pub icon: Option<String>,
     pub owner: Id,
-    pub roles: HashMap<Id, Role>,
+    pub roles: Map<Id, Role>,
     pub emojis: Vec<Emoji>,
     #[serde(default)]
     pub stickers: Vec<(Id, String, u8)>,
@@ -372,7 +376,7 @@ pub struct Guild {
     #[serde(default)]
     pub joined: i64,
     #[serde(skip)]
-    pub voice: HashMap<Id, Id>,
+    pub voice: Map<Id, Id>,
     #[serde(skip)]
     pub list: Vec<ListItem>,
 }
@@ -912,31 +916,31 @@ pub const OUTGOING: u8 = 4;
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,
-    pub users: HashMap<Id, User>,
-    pub guilds: HashMap<Id, Guild>,
+    pub users: Map<Id, User>,
+    pub guilds: Map<Id, Guild>,
     pub guild_order: Vec<Id>,
-    pub channels: HashMap<Id, Channel>,
+    pub channels: Map<Id, Channel>,
     pub dms: Vec<Id>,
-    pub reads: HashMap<Id, ReadState>,
-    pub members: HashMap<Id, HashMap<Id, Member>>,
-    pub muted: HashSet<Id>,
+    pub reads: Map<Id, ReadState>,
+    pub members: Map<Id, Map<Id, Member>>,
+    pub muted: Set<Id>,
     // "unreads" overrides by guild or channel id: true for all messages, false for only @mentions
     #[serde(default)]
-    pub unreads: HashMap<Id, bool>,
+    pub unreads: Map<Id, bool>,
     // the account opted into discord's newer notification settings, which is what makes the above count
     #[serde(default)]
     pub new_notifs: bool,
     // message_notifications the user picked per server or channel (3 = inherit is left out)
     #[serde(default)]
-    pub levels: HashMap<Id, u8>,
+    pub levels: Map<Id, u8>,
     // servers where muted channels are left out of the list
     #[serde(default)]
-    pub hide_muted: HashSet<Id>,
+    pub hide_muted: Set<Id>,
     // servers that only list the channels picked in onboarding or browse channels, and the picks
     #[serde(default)]
-    pub opt_in: HashSet<Id>,
+    pub opt_in: Set<Id>,
     #[serde(default)]
-    pub opted: HashSet<Id>,
+    pub opted: Set<Id>,
     #[serde(default)]
     pub folders: Vec<Folder>,
     #[serde(skip)]
@@ -948,36 +952,36 @@ pub struct Store {
     pub hide_game: bool,
     // voice channels' statuses and when their calls started (unix seconds), from op 43
     #[serde(skip)]
-    pub voice_status: HashMap<Id, String>,
+    pub voice_status: Map<Id, String>,
     #[serde(skip)]
-    pub voice_start: HashMap<Id, i64>,
+    pub voice_start: Map<Id, i64>,
     #[serde(default)]
-    pub relationships: HashMap<Id, u8>,
+    pub relationships: Map<Id, u8>,
     #[serde(default)]
     pub email: Option<String>,
     // READY's user object as-is: phone, mfa, verified, premium type, flags
     #[serde(default)]
     pub me_raw: Value,
     #[serde(skip)]
-    pub forum_posts: HashMap<Id, Vec<Id>>,
+    pub forum_posts: Map<Id, Vec<Id>>,
     #[serde(skip)]
     pub session: String,
     #[serde(skip)]
-    pub msgs: HashMap<Id, Msgs>,
+    pub msgs: Map<Id, Msgs>,
     #[serde(skip)]
-    pub refs: HashMap<Id, Message>,
+    pub refs: Map<Id, Message>,
     #[serde(skip)]
-    pub presence: HashMap<Id, Status>,
+    pub presence: Map<Id, Status>,
     // what each user is doing, live from presences: (kind, name, state, emoji url)
     #[serde(skip)]
-    pub activities: HashMap<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
+    pub activities: Map<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
     #[serde(skip)]
-    pub typing: HashMap<Id, Vec<(Id, Instant)>>,
+    pub typing: Map<Id, Vec<(Id, Instant)>>,
     // the activity feed, best first, and application icons by id (None once looked up and missing)
     #[serde(skip)]
     pub feed: Vec<FeedEntry>,
     #[serde(skip)]
-    pub app_icons: HashMap<Id, Option<String>>,
+    pub app_icons: Map<Id, Option<String>>,
 }
 
 impl Store {
@@ -2192,7 +2196,7 @@ impl Store {
                 _ => {}
             }
         }
-        let counts: HashMap<String, u32> = d["groups"]
+        let counts: Map<String, u32> = d["groups"]
             .as_array()
             .into_iter()
             .flatten()
