@@ -609,6 +609,12 @@ pub fn rounded_gradient(preset: &Preset, r: egui::Rect, radius: f32) -> egui::Me
     mesh
 }
 
+/// `c` with the see-through taken out, for surfaces that must hide what's behind them.
+pub fn solid(c: Color32) -> Color32 {
+    let [r, g, b, _] = c.to_srgba_unmultiplied();
+    Color32::from_rgb(r, g, b)
+}
+
 /// The colour the window is cleared to before anything draws.
 pub fn clear() -> Color32 {
     if GRADIENT.load(std::sync::atomic::Ordering::Relaxed) == NONE { pal().bg_tertiary } else { Color32::BLACK }

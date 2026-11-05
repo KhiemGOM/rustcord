@@ -46,7 +46,8 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Color Themes").font(semi(16.0)).color(pal().text_normal));
         ui.add_space(4.0);
-        icons::draw(ui.painter(), Icon::Nitro, Rect::from_min_size(ui.cursor().min + vec2(0.0, 2.0), vec2(16.0, 16.0)), pal().header_primary);
+        let (badge, _) = ui.allocate_exact_size(vec2(16.0, 20.0), Sense::hover());
+        icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(badge.center(), vec2(16.0, 16.0)), pal().header_primary);
     });
     ui.add_space(4.0);
     ui.add(egui::Label::new(RichText::new("Make Discord yours. Only with Nitro.").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
