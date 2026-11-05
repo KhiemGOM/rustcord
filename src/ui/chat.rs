@@ -985,7 +985,7 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
         p.galley(pos2(r.left() + 12.0, r.center().y - note.size().y / 2.0), note, pal().header_primary);
         let jr = Rect::from_min_max(pos2(r.right() - 6.0 - label.size().x - 20.0, r.top() + 6.0), r.max - vec2(6.0, 6.0));
         let resp = ui.interact(jr, egui::Id::new("jump_present"), Sense::click());
-        p.rect_filled(jr, 8, if resp.hovered() { BLURPLE.gamma_multiply(0.85) } else { BLURPLE });
+        p.rect_filled(jr, 8, super::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)));
         p.galley(jr.center() - label.size() / 2.0, label, Color32::WHITE);
         app.rects.insert("jump_present".into(), jr);
         if resp.hovered() {
@@ -2552,9 +2552,7 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
                         ui.spacing_mut().item_spacing.x = 0.0;
                         for e in quick {
                             let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                            if resp.hovered() {
-                                ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
-                            }
+                            crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
                             let er = Rect::from_center_size(r.center(), vec2(20.0, 20.0));
                             Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&e), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
                             if resp.on_hover_text("Click to react").clicked() {
@@ -2602,9 +2600,7 @@ fn failed_bar(d: &mut D, m: &Message, row: Rect) {
                     d.acts.push(Act::Resend(m.id));
                 }
                 let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
-                }
+                crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
                 icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), RED);
                 d.rects.push(("bar_delete".into(), r));
                 if resp.on_hover_text("Delete Message").clicked() {
@@ -2669,9 +2665,7 @@ fn shift_bar(d: &mut D, m: &Message, row: Rect, own: bool) {
                         }
                         if delete {
                             let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                            if resp.hovered() {
-                                ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
-                            }
+                            crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
                             icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), RED);
                             d.rects.push(("bar_delete".into(), r));
                             if resp.on_hover_text("Delete").clicked() {
