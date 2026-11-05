@@ -102,7 +102,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 });
                 if r.on_hover_text(tip).clicked() {
                     if url.is_empty() {
-                        app.open_directory();
+                        app.open_servers();
                     } else {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                     }
