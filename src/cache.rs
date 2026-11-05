@@ -121,11 +121,31 @@ pub struct Settings {
     pub trusted: Vec<String>,
     // "Don't ask again" on switching voice channels
     pub voice_switch_ok: bool,
+    // what each person in a call is played at on this device
+    pub peers: Map<Id, Peer>,
+    // the call's More Options: names on the tiles, and tiles for people without video
+    pub hide_call_names: bool,
+    pub hide_idle_tiles: bool,
+    // the first-visit modal on a stage channel
+    pub stage_welcome: bool,
     // emoji and gifs starred in the pickers
     pub fav_emoji: Vec<crate::state::ReactEmoji>,
     pub fav_gifs: Vec<(String, String, f32, f32)>,
     // the hidden ディスコード sounds, from clicking home sixteen times
     pub discodo: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(default)]
+pub struct Peer {
+    pub volume: f32,
+    pub muted: bool,
+}
+
+impl Default for Peer {
+    fn default() -> Self {
+        Peer { volume: 100.0, muted: false }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -234,6 +254,10 @@ impl Default for Settings {
             stream_fps: 30,
             trusted: Vec::new(),
             voice_switch_ok: false,
+            peers: Map::default(),
+            hide_call_names: false,
+            hide_idle_tiles: false,
+            stage_welcome: false,
             fav_emoji: Vec::new(),
             fav_gifs: Vec::new(),
             discodo: false,

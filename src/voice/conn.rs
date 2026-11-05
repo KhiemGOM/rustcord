@@ -713,8 +713,12 @@ impl Sess {
             return;
         }
         self.shared.decoded.fetch_add(1, Relaxed);
-        push(&mut i.out, pcm);
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
+        let gain = self.shared.peers.lock().ok().and_then(|p| p.get(&i.user).copied()).unwrap_or(1.0);
+        if gain != 1.0 {
+            pcm.iter_mut().for_each(|x| *x *= gain);
+        }
+        push(&mut i.out, pcm);
         if rms > 0.001 {
             i.voice_at = Some(Instant::now());
             if !i.speaking && i.user != 0 && i.user != me {
