@@ -1,10 +1,10 @@
 """Perf numbers against the mock: startup, idle and busy CPU, frames drawn, memory.
 
-    python e2e/bench.py [--build] [--secs 15] [--rate 20] [--guilds 115] [--target target]
+    python e2e/bench.py [--build] [--secs 15] [--rate 20] [--guilds 115] [--history 800] [--target target]
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
 --rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
-nonstop for --secs to price a frame, and has its memory read. The mock adds --guilds servers of 115 channels each, about a real account's size
+nonstop for --secs to price a frame, scrolls a --history message chat with the wheel for --secs and counts the dropped frames, and has its memory read. The mock adds --guilds servers of 115 channels each, about a real account's size
 (0 for the plain mock). The window opens behind everything and ignores the real mouse and
 keyboard. Writes e2e/artifacts/bench.json.
 """
@@ -109,16 +109,34 @@ def window(h, out, secs):
             "repaints_asked_by": dict(sorted(((k, n) for k, n in causes.items() if n), key=lambda kv: -kv[1])[:8])}
 
 
+def scroll(h, out, secs):
+    """A notch every 90ms, twelve one way then twelve the other, with the pointer over the chat."""
+    (out / "scroll").touch()
+    time.sleep(1)
+    n = len((stats(out) or {}).get("gaps", []))
+    w = window(h, out, secs)
+    gaps = sorted((stats(out) or {}).get("gaps", [])[n:])
+    (out / "scroll").unlink()
+    if not gaps:
+        return w
+    med = gaps[len(gaps) // 2]
+    w.update({"frames": len(gaps), "ui_ms_per_frame": round(w["ui_ms_per_s"] / max(w["frames_per_s"], 0.1), 2), "gap_median_ms": round(med, 1),
+              "gap_p95_ms": round(gaps[int(len(gaps) * 0.95)], 1), "gap_p99_ms": round(gaps[int(len(gaps) * 0.99)], 1), "gap_max_ms": round(gaps[-1], 1),
+              "dropped": sum(g > med * 1.5 for g in gaps), "over_25ms": sum(g > 25 for g in gaps)})
+    return w
+
+
 def main():
     secs = float(sys.argv[sys.argv.index("--secs") + 1]) if "--secs" in sys.argv else 15
     rate = int(sys.argv[sys.argv.index("--rate") + 1]) if "--rate" in sys.argv else 20
     guilds = sys.argv[sys.argv.index("--guilds") + 1] if "--guilds" in sys.argv else "115"
+    history = sys.argv[sys.argv.index("--history") + 1] if "--history" in sys.argv else "800"
     if "--build" in sys.argv:
         subprocess.run(["cargo", "build", "--release", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
     http, ws = free_port(), free_port()
     tmp = Path(tempfile.mkdtemp(prefix="rcbench"))
     mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_port())],
-                            env=dict(os.environ, MOCK_GUILDS=guilds), stdout=subprocess.DEVNULL)
+                            env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.DEVNULL)
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
                RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}",
                RUSTCORD_GATEWAY=f"ws://127.0.0.1:{ws}", RUSTCORD_TOKEN="mock-token", RUSTCORD_DATA=str(tmp / "data"), RUSTCORD_SILENT="1")
@@ -146,6 +164,8 @@ def main():
         report["busy"] = window(h, tmp / "w", secs)
         report["busy"]["rate"] = rate
         time.sleep(3)
+        report["scroll"] = scroll(h, tmp / "w", secs)
+        time.sleep(1)
         (tmp / "w" / "spin").touch()
         time.sleep(1)
         spin = window(h, tmp / "w", secs)

@@ -28,6 +28,7 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
+mod wheel;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -96,6 +97,8 @@ pub struct App {
     // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
     pub marker_bar: bool,
     pub autoscroll: Option<autoscroll::Auto>,
+    pub wheel: wheel::Wheel,
+    pub paging: wheel::Axis,
     // ctrl+wheel travel not yet worth a zoom step
     zoom_acc: f32,
     pub focus_composer: bool,
@@ -274,6 +277,8 @@ impl App {
             marker: None,
             marker_bar: false,
             autoscroll: None,
+            wheel: wheel::Wheel::new(),
+            paging: Default::default(),
             zoom_acc: 0.0,
             focus_composer: true,
             rects: Map::default(),
@@ -1729,6 +1734,7 @@ impl eframe::App for App {
             e.inject(raw);
         }
         autoscroll::filter(&mut self.autoscroll, raw);
+        self.wheel.filter(ctx, raw);
         // ctrl+wheel: a zoom level a notch
         let mut notches = 0.0;
         raw.events.retain(|e| match e {
