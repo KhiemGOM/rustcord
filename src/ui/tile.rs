@@ -54,7 +54,7 @@ pub fn options(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect, sh
 
 fn body(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, at: egui::Pos2) {
     let me = app.store.me;
-    ui.set_min_width(220.0);
+    ui.set_width(220.0);
     ui.spacing_mut().item_spacing.y = 0.0;
     if menu_item(ui, None, "Profile", false) {
         app.open_profile(u, chan.guild, at);

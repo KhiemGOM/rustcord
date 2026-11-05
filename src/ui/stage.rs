@@ -99,6 +99,10 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         let mods = is_mod(app, chan);
         let me = app.store.me;
+        if app.call.started == Some(chan.id) && app.voice.stage.seats.get(&me).is_some_and(|s| s.audience) {
+            app.call.started = None;
+            app.set_speaker(chan, me, true);
+        }
         let mut y = r.top() + 16.0;
         let title = live.as_ref().map_or(chan.name.as_str(), |l| if l.topic.is_empty() { chan.name.as_str() } else { l.topic.as_str() }).to_string();
         let heading = ui.painter().text(pos2(r.left() + 24.0, y + 14.0), Align2::LEFT_CENTER, &title, semi(20.0), Color32::WHITE);
@@ -399,8 +403,16 @@ fn welcome(app: &mut App, ctx: &egui::Context) {
         ui.spacing_mut().item_spacing.y = 0.0;
         let top = ui.cursor().top() - 0.0;
         let panel = ui.max_rect();
-        let wash = Rect::from_min_max(pos2(panel.left() - 32.0, top), pos2(panel.right() + 32.0, top + 260.0));
-        ui.painter().rect_filled(wash, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, Color32::from_rgb(0x2a, 0x1c, 0x52));
+        let wash = Rect::from_min_max(pos2(panel.left() - 32.0, top), pos2(panel.right() + 32.0, top + 340.0));
+        let (top_c, bottom_c) = (Color32::from_rgb(0x2a, 0x1c, 0x52), Color32::from_rgb(0x1a, 0x1b, 0x2e));
+        let mut fade = egui::Mesh::default();
+        for (y, c) in [(wash.top(), top_c), (wash.bottom(), bottom_c)] {
+            fade.colored_vertex(pos2(wash.left(), y), c);
+            fade.colored_vertex(pos2(wash.right(), y), c);
+        }
+        fade.add_triangle(0, 1, 2);
+        fade.add_triangle(1, 2, 3);
+        ui.painter().add(fade);
         let close = Rect::from_center_size(pos2(panel.right() + 8.0, top + 32.0), vec2(24.0, 24.0));
         let x = ui.interact(close, egui::Id::new("stage_welcome_x"), Sense::click());
         icons::draw(ui.painter(), Icon::Close, close, if x.hovered() { Color32::WHITE } else { pal().header_secondary });
@@ -486,6 +498,7 @@ fn start(app: &mut App, ctx: &egui::Context) {
             app.rest("PATCH", format!("/stage-instances/{ch}"), Some(json!({ "topic": f.topic.trim() })), Tag::Quiet);
         } else {
             app.rest("POST", "/stage-instances".into(), Some(json!({ "channel_id": ch.to_string(), "topic": f.topic.trim(), "privacy_level": 2, "send_start_notification": f.notify })), Tag::Quiet);
+            app.call.started = Some(ch);
             app.join_voice(ch, true);
         }
     } else if close || m.should_close() {

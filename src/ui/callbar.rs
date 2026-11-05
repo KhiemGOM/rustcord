@@ -15,6 +15,7 @@ pub struct CallUi {
     pub mic_test: bool,
     pub start: Option<super::stage::Form>,
     pub asked: bool,
+    pub started: Option<Id>,
     pub audience_shut: bool,
 }
 
@@ -156,13 +157,14 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     if !room {
         return;
     }
-    if guild != 0 && corner(ui, "call_invite", bar.left() + 28.0, cy, Icon::PersonAdd, "Invite").clicked() {
+    if guild != 0 && corner(ui, "call_invite", bar.left() + 40.0, cy, Icon::PersonAdd, "Invite").clicked() {
         app.invite_people(ch);
     }
     let full = app.call.full;
     if corner(ui, "call_full", bar.right() - 16.0, cy, Icon::Fullscreen, if full { "Exit Full Screen" } else { "Full Screen" }).clicked() {
         app.call.full = !full;
     }
+    app.rects.insert("voice:invite".into(), Rect::from_center_size(pos2(bar.left() + 28.0, cy), vec2(24.0, 24.0)));
     app.rects.insert("voice:fullscreen".into(), Rect::from_center_size(pos2(bar.right() - 28.0, cy), vec2(24.0, 24.0)));
     if corner(ui, "call_pop", bar.right() - 60.0, cy, Icon::PopOut, "Pop Out").clicked() {
         app.call.pop = true;
@@ -226,7 +228,7 @@ fn audio_popup(app: &mut App, at: &Response, output: bool) {
 
 pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> (bool, bool) {
     let (mut changed, mut voice) = (false, false);
-    ui.set_min_width(222.0);
+    ui.set_width(222.0);
     menu_body(ui, |ui| {
         let (ins, outs) = super::call::devices(ui.ctx());
         let names = if output { outs } else { ins };
