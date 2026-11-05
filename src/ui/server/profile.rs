@@ -67,7 +67,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
     let Some(raw) = app.server_data("profile", format!("/guilds/{gid}/profile")).cloned() else {
         title(ui, "Server Profile", "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages");
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let orig = norm(&raw);

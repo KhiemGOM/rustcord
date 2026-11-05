@@ -197,7 +197,7 @@ pub fn integrations(app: &mut App, ui: &mut Ui, c: &Channel) {
     let sub = app.chan_settings.as_ref().map_or(Sub::Cards, |s| s.sub);
     let Some(all) = app.chan_data("webhooks", format!("/channels/{ch}/webhooks")).and_then(|v| v.as_array().cloned()) else {
         heading(ui, "Integrations", "");
-        ui.spinner();
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let (follow, hooks): (Vec<Value>, Vec<Value>) = all.into_iter().filter(|h| h["type"].as_u64() != Some(3)).partition(|h| h["type"].as_u64() == Some(2));

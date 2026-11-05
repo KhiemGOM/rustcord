@@ -90,7 +90,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     let unlocked = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "GUILD_TAGS"));
     let Some(raw) = app.server_data("profile", format!("/guilds/{gid}/profile")).cloned() else {
         title(ui, "Server Tag", "");
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let orig = norm(&raw);

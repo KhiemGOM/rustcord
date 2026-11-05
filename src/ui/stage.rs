@@ -398,7 +398,7 @@ fn welcome(app: &mut App, ctx: &egui::Context) {
     }
     let mut done = false;
     let frame = Frame::new().fill(Color32::from_rgb(0x1a, 0x1b, 0x2e)).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin::symmetric(32, 0));
-    let m = egui::Modal::new("stage_welcome".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("stage_welcome".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(416.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         let top = ui.cursor().top() - 0.0;
@@ -454,7 +454,7 @@ fn start(app: &mut App, ctx: &egui::Context) {
     let Some(form) = &mut app.call.start else { return };
     let (mut go, mut close) = (false, false);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(24);
-    let m = egui::Modal::new("stage_start".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("stage_start".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(440.0);
         ui.label(RichText::new(if form.edit { "Edit Stage" } else { "Start Stage" }).font(semi(24.0)).color(pal().header_primary));
         ui.add_space(16.0);

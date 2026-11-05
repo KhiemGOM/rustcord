@@ -306,14 +306,14 @@ fn picker(app: &mut App, ctx: &egui::Context, owned: Option<Result<Value, String
     });
     let mut chosen: Option<Option<Item>> = None;
     let mut close = false;
-    let r = egui::Modal::new("profile_picker".into()).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
+    let r = crate::ui::motion::Modal::new("profile_picker".into()).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
         ui.set_width(520.0);
         Frame::new().inner_margin(16).show(ui, |ui| {
             ui.set_width(488.0);
             ui.label(RichText::new(title).font(semi(24.0)).color(pal().header_primary));
             ui.add_space(12.0);
             if owned.is_none() {
-                ui.add(egui::Spinner::new().color(pal().text_muted));
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             }
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {

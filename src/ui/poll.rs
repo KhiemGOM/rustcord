@@ -90,7 +90,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut pick_emoji = None;
     let mut remove = None;
     let ready = d.ready();
-    let modal = egui::Modal::new("poll".into())
+    let modal = crate::ui::motion::Modal::new("poll".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);

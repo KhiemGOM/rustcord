@@ -118,7 +118,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let users = app.store.reactors.get(&(msg, cur.emoji.api_name(), burst)).and_then(|e| e.1.clone());
     let (mut close, mut pick, mut profile, mut remove) = (false, None, None, None);
     let store = &app.store;
-    let modal = egui::Modal::new("reactors".into())
+    let modal = crate::ui::motion::Modal::new("reactors".into())
         .frame(Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(440.0);
@@ -166,7 +166,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(list.width());
                 let Some(users) = &users else {
                     ui.add_space(24.0);
-                    ui.vertical_centered(|ui| ui.add(egui::Spinner::new()));
+                    ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
                     return;
                 };
                 for u in users {

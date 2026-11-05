@@ -34,7 +34,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.set_height(120.0);
-                ui.centered_and_justified(|ui| ui.spinner());
+                ui.centered_and_justified(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
             });
         });
         if popups::dismissed(ctx, &area.response) {

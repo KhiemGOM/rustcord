@@ -432,7 +432,7 @@ pub fn overview(app: &mut App, ui: &mut Ui, c: &Channel) {
     let Some(s) = app.chan_settings.as_mut() else { return };
     if s.draft.is_null() {
         ui.add_space(40.0);
-        ui.spinner();
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     }
     let State { draft: d, tag, .. } = s;

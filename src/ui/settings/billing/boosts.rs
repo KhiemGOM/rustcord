@@ -402,7 +402,7 @@ fn picker(app: &mut App, ui: &mut Ui, p: &Pick) -> (Option<Vec<Step>>, bool) {
     let head = if p.from.is_some() { "Transfer Server Boost?" } else { "Boost any server" };
     let sub = if p.from.is_some() { "Select a server to transfer to" } else { "Select a server to give this Boost to" };
     let go = if p.from.is_some() { "Transfer here" } else { "Boost" };
-    let r = egui::Modal::new(Id::new("billing_boost_pick")).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ui.ctx(), |ui| {
+    let r = crate::ui::motion::Modal::new(Id::new("billing_boost_pick")).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ui.ctx(), |ui| {
         ui.set_width(440.0);
         Frame::new().inner_margin(16).show(ui, |ui| {
             ui.set_width(408.0);
