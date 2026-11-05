@@ -39,7 +39,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     }
     app.rects.insert("voice:status".into(), t);
     rtc_popout(app, &status);
-    let sub = Rect::from_min_max(pos2(tile.right() + 8.0, y + 2.0), pos2(r.right() - 40.0, y + 18.0));
+    let sub = Rect::from_min_max(pos2(tile.right() + 8.0, y + 2.0), pos2(r.right() - 76.0, y + 18.0));
     let sub_r = ui.interact(sub, egui::Id::new("voice_place"), Sense::click());
     ui.painter().with_clip_rect(sub).text(
         pos2(sub.left(), sub.center().y),
@@ -59,6 +59,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     }
     hangup(ui, b.center(), if leave.hovered() { pal().header_primary } else { pal().header_secondary });
     app.rects.insert("voice:disconnect".into(), b);
+    super::callbar::krisp(app, ui, pos2(r.right() - 52.0, y));
     if leave.on_hover_text("Disconnect").clicked() {
         app.voice.leave(&app.net);
     }
@@ -322,10 +323,6 @@ fn camera(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
     icons::draw(ui.painter(), Icon::Video, Rect::from_center_size(c, vec2(20.0, 20.0) * k), col);
 }
 
-fn screen(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
-    icons::draw(ui.painter(), Icon::Screen, Rect::from_center_size(c, vec2(20.0, 20.0) * k), col);
-}
-
 fn hangup(ui: &Ui, c: egui::Pos2, col: Color32) {
     icons::draw(ui.painter(), Icon::HangUp, Rect::from_center_size(c, vec2(20.0, 20.0)), col);
 }
@@ -333,10 +330,10 @@ fn hangup(ui: &Ui, c: egui::Pos2, col: Color32) {
 /// Mute and deafen, drawn right to left inside the user panel.
 pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     let deaf = app.voice.deaf;
-    let mute = app.voice.mute || deaf;
+    let mute = app.voice.mute || deaf || app.voice.suppressed;
     // laid out right to left: each chevron sits after its button, groups 8 apart
     ui.add_space(8.0);
-    let mut changed = device_menu(ui, "Output Device", true, &mut app.settings.speaker, deaf);
+    device_menu(app, ui, true, deaf);
     ui.add_space(1.0);
     let d = split(ui, if deaf { Icon::HeadphonesOff } else { Icon::Headphones }, deaf, if deaf { "Undeafen" } else { "Deafen" });
     app.rects.insert("voice:deafen".into(), d.rect);
@@ -344,15 +341,12 @@ pub fn user_buttons(app: &mut App, ui: &mut Ui) {
         app.voice.set_deaf(&app.net, !deaf);
     }
     ui.add_space(8.0);
-    changed |= device_menu(ui, "Input Device", false, &mut app.settings.mic, mute);
+    device_menu(app, ui, false, mute);
     ui.add_space(1.0);
     let m = split(ui, if mute { Icon::MicOff } else { Icon::Mic }, mute, if mute { "Unmute" } else { "Mute" });
     app.rects.insert("voice:mute".into(), m.rect);
     if m.clicked() {
         app.voice.set_mute(&app.net, !mute);
-    }
-    if changed {
-        app.save_settings(ui.ctx());
     }
 }
 
@@ -509,7 +503,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     x += s.x + 24.0;
                 }
             }
-            controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 64.0), r.max), "Join Call");
+            super::callbar::controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 64.0), r.max), "Join Call");
         });
     if let Some(h) = app.dragged(&ctx, r.response.rect.height(), h) {
         app.ui.dm_call_h = h;
@@ -523,14 +517,18 @@ fn watch_click(app: &mut App, ui: &Ui, u: Id, r: Rect) {
     }
     let resp = ui.interact(r, egui::Id::new(("watch", u)), Sense::click());
     app.rects.insert(format!("voice:watch:{u}"), r);
+    watch_hint(ui, r, &resp);
+    if resp.clicked() {
+        app.voice.watch(&app.net, u);
+    }
+}
+
+pub fn watch_hint(ui: &Ui, r: Rect, resp: &egui::Response) {
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         let b = Rect::from_center_size(r.center(), vec2(120.0, 32.0));
         ui.painter().rect_filled(b, CornerRadius::same(16), Color32::from_black_alpha(180));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Watch Stream", semi(13.0), Color32::WHITE);
-    }
-    if resp.clicked() {
-        app.voice.watch(&app.net, u);
     }
 }
 
@@ -600,7 +598,7 @@ fn gradient(ui: &Ui, r: Rect, top: bool, k: f32) {
 
 /// A tile's colour, the way discord picks it: the banner colour on their profile, else the main
 /// colour of their avatar.
-fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color32 {
+pub fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color32 {
     match app.profiles.get(&u) {
         Some(p) => {
             if let Some(c) = p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()) {
@@ -619,39 +617,50 @@ fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color32 {
     app.store.user(u).and_then(|user| super::palette::avatar(ctx, &user.avatar_url())).unwrap_or(pal().bg_mod_selected)
 }
 
+pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, shown: f32, icon: Icon) {
+    ui.multiply_opacity(shown);
+    ui.horizontal_centered(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+        icons::draw(ui.painter(), icon, r, pal().channel_default);
+        ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(semi(16.0)).color(pal().header_primary)).selectable(false));
+        if !app.voice_chat {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                icons::draw(ui.painter(), Icon::Bubble, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                app.rects.insert("voice:show_chat".into(), r);
+                if resp.on_hover_text("Show Chat").clicked() {
+                    app.voice_chat = true;
+                }
+            });
+        }
+    });
+}
+
 /// Voice channel view: a tile per person, the stream on top when watching one, controls along the bottom.
 pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
+    if chan.kind == 13 {
+        return super::stage::room(app, ui, chan);
+    }
     let shown = awake(ui, ui.max_rect());
     egui::Panel::top("room_head")
         .exact_size(48.0)
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin::symmetric(16, 0)))
-        .show(ui, |ui| {
-            ui.multiply_opacity(shown);
-            ui.horizontal_centered(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-                icons::draw(ui.painter(), Icon::Speaker, r, pal().channel_default);
-                ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(semi(16.0)).color(pal().header_primary)).selectable(false));
-                // discord's chat button, while the chat isn't already open beside the call
-                if !app.voice_chat {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                        icons::draw(ui.painter(), Icon::Bubble, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
-                        app.rects.insert("voice:show_chat".into(), r);
-                        if resp.on_hover_text("Show Chat").clicked() {
-                            app.voice_chat = true;
-                        }
-                    });
-                }
-            });
-        });
+        .show(ui, |ui| head(app, ui, chan, shown, Icon::Speaker));
     egui::CentralPanel::default().frame(Frame::new().fill(Color32::BLACK)).show(ui, |ui| {
         let r = ui.max_rect();
         let mut members = app.voice.members(&app.store, chan.id);
         // in name order, like the list under the channel
         members.sort_by_cached_key(|u| app.store.name_in(chan.guild, *u).to_lowercase());
-        let mut area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 80.0));
+        let mut area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 64.0));
+        if app.settings.hide_idle_tiles && members.iter().any(|u| app.voice.video.contains_key(u) || app.voice.live.contains(u)) {
+            members.retain(|u| app.voice.video.contains_key(u) || app.voice.live.contains(u) || app.voice.cams.contains(u));
+        }
+        let focus = app.call.focus.filter(|f| members.contains(f));
+        if focus.is_none() {
+            app.call.focus = None;
+        }
         if members.is_empty() {
             ui.painter().text(area.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, &chan.name, semi(24.0), pal().header_primary);
             ui.painter().text(
@@ -667,7 +676,11 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             stage(app, ui, top, f);
             area.min.y = top.bottom() + 8.0;
         }
-        for (u, tile) in members.iter().zip(grid(area, members.len())) {
+        let tiles = match focus {
+            Some(f) => focused(area, &members, f),
+            None => grid(area, members.len()),
+        };
+        for (u, tile) in members.iter().zip(tiles) {
             let fill = tile_color(app, ui.ctx(), *u, chan.guild);
             ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
             app.rects.insert(format!("voice:tile:{u}"), tile);
@@ -682,7 +695,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 }
             }
             // discord's overlay title: 12 in from the corner, a black wash, gone while idle
-            if shown > 0.0 {
+            if shown > 0.0 && !app.settings.hide_call_names {
                 let name = app.store.name_in(chan.guild, *u);
                 let g = ui.painter().layout_no_wrap(name, medium(14.0), Color32::WHITE);
                 let size = vec2((g.size().x + 24.0).min(tile.width() - 32.0), 30.0);
@@ -692,11 +705,11 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             if app.voice.live.contains(u) {
                 live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
-                watch_click(app, ui, *u, tile);
             }
             if app.voice.is_speaking(*u) {
                 ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN), egui::StrokeKind::Inside);
             }
+            super::tile::options(app, ui, chan, *u, tile, shown);
         }
         if shown > 0.0 {
             gradient(ui, r, true, shown);
@@ -706,11 +719,30 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if app.voice.chan == Some(chan.id) {
             ui.multiply_opacity(shown);
         }
-        controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
+        super::callbar::controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
     });
 }
 
-fn grid(area: Rect, n: usize) -> Vec<Rect> {
+fn focused(area: Rect, members: &[Id], who: Id) -> Vec<Rect> {
+    let rest = members.len() - 1;
+    let strip = if rest == 0 { 0.0 } else { 120.0 };
+    let big = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - strip - if rest == 0 { 0.0 } else { 8.0 }));
+    let (w, h) = (192.0, 108.0);
+    let x0 = area.center().x - (rest as f32 * (w + 8.0) - 8.0) / 2.0;
+    let mut k = 0;
+    members
+        .iter()
+        .map(|u| {
+            if *u == who {
+                return big;
+            }
+            k += 1;
+            Rect::from_min_size(pos2(x0 + (k - 1) as f32 * (w + 8.0), area.bottom() - h - 6.0), vec2(w, h))
+        })
+        .collect()
+}
+
+pub fn grid(area: Rect, n: usize) -> Vec<Rect> {
     if n == 0 {
         return Vec::new();
     }
@@ -742,95 +774,6 @@ fn grid(area: Rect, n: usize) -> Vec<Rect> {
     out
 }
 
-fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
-    let inside = app.voice.chan == Some(ch);
-    let c = bar.center();
-    if !inside {
-        let b = Rect::from_center_size(c, vec2(140.0, 40.0));
-        let r = ui.interact(b, egui::Id::new(("join", ch)), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(20), if r.hovered() { GREEN.gamma_multiply(0.85) } else { GREEN });
-        ui.painter().text(b.center(), Align2::CENTER_CENTER, join_text, semi(14.0), Color32::WHITE);
-        app.rects.insert("voice:join".into(), b);
-        if r.clicked() {
-            app.join_voice(ch, true);
-        }
-        return;
-    }
-    let mute = app.voice.mute || app.voice.deaf;
-    let deaf = app.voice.deaf;
-    let cam = app.voice.camera;
-    let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
-    let me = app.store.me;
-    // discord's soundboard button, leftmost of the call controls
-    let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
-    let sb = Rect::from_center_size(c + vec2(-2.5 * 64.0, 0.0), vec2(52.0, 52.0));
-    if guild != 0 {
-        let open = app.soundboard.is_some();
-        let r = ui.interact(sb, egui::Id::new(("ctl", "sb")), Sense::click());
-        let fill = if open { Color32::WHITE } else { pal().bg_mod_selected };
-        ui.painter().circle_filled(sb.center(), 26.0, if r.hovered() { fill.gamma_multiply(0.85) } else { fill });
-        icons::draw(ui.painter(), Icon::Soundboard, Rect::from_center_size(sb.center(), vec2(22.0, 22.0)), if open { Color32::BLACK } else { Color32::WHITE });
-        app.rects.insert("voice:soundboard".into(), sb);
-        if r.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if r.on_hover_text("Soundboard").clicked() {
-            app.soundboard = if open {
-                None
-            } else {
-                app.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
-                Some((guild, None))
-            };
-        }
-    }
-    if app.soundboard.is_some() {
-        super::soundboard::popout(app, ui, sb);
-    }
-    for i in 0..5 {
-        let b = Rect::from_center_size(c + vec2((i as f32 - 1.5) * 64.0, 0.0), vec2(52.0, 52.0));
-        let r = ui.interact(b, egui::Id::new(("ctl", i)), Sense::click());
-        // muted and deafened get the slash; camera and screen just light up when on
-        let (on, slash, tip, key) = match i {
-            0 => (mute, true, if mute { "Unmute" } else { "Mute" }, "voice:mute_big"),
-            1 => (deaf, true, if deaf { "Undeafen" } else { "Deafen" }, "voice:deafen_big"),
-            2 => (cam, false, if cam { "Turn Off Camera" } else { "Turn On Camera" }, "voice:camera"),
-            3 => (sharing, false, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:screen"),
-            _ => (false, false, "Disconnect", "voice:leave_big"),
-        };
-        let fill = if i == 4 { RED } else if on { Color32::WHITE } else { pal().bg_mod_selected };
-        ui.painter().circle_filled(b.center(), 26.0, if r.hovered() { fill.gamma_multiply(0.85) } else { fill });
-        if i == 4 {
-            hangup(ui, b.center(), Color32::WHITE);
-        } else {
-            let fg = if on { Color32::BLACK } else { Color32::WHITE };
-            let icon = Rect::from_center_size(b.center(), vec2(22.0, 22.0));
-            match i {
-                0 => icons::draw(ui.painter(), Icon::Mic, icon, fg),
-                1 => icons::draw(ui.painter(), Icon::Headphones, icon, fg),
-                2 => camera(ui, b.center(), 1.2, fg),
-                _ => screen(ui, b.center(), 1.2, fg),
-            }
-            if on && slash {
-                ui.painter().line_segment([b.center() + vec2(-10.0, -10.0), b.center() + vec2(10.0, 10.0)], Stroke::new(2.5, RED));
-            }
-        }
-        app.rects.insert(key.into(), b);
-        if r.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if r.on_hover_text(tip).clicked() {
-            match i {
-                0 => app.voice.set_mute(&app.net, !mute),
-                1 => app.voice.set_deaf(&app.net, !deaf),
-                2 => app.voice.set_camera(&app.net, me, !cam),
-                3 if sharing => app.voice.end_stream(&app.net),
-                3 => app.share = Some(super::share::Picker::new(ui.ctx())),
-                _ => app.voice.leave(&app.net),
-            }
-        }
-    }
-}
-
 type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;
 
 /// Input and output device names. Enumerating WASAPI endpoints takes a while, so it happens
@@ -856,8 +799,8 @@ pub fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
     devs.lock().ok().and_then(|d| d.clone()).unwrap_or_default()
 }
 
-/// The little chevron beside the panel's mic and headphones: a menu of devices to pick from.
-fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>, off: bool) -> bool {
+/// The little chevron beside the panel's mic and headphones: the same menu as the call's.
+fn device_menu(app: &mut App, ui: &mut Ui, output: bool, off: bool) {
     let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
     let bg = match (off, resp.hovered()) {
         (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
@@ -867,23 +810,15 @@ fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>,
     ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
     let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
-    let mut changed = false;
-    egui::Popup::menu(&resp).show(|ui| {
-        ui.set_min_width(220.0);
-        ui.label(RichText::new(title).font(medium(14.0)).color(pal().header_secondary));
-        ui.add_space(4.0);
-        let (ins, outs) = devices(ui.ctx());
-        let names = if output { outs } else { ins };
-        for name in std::iter::once(None).chain(names.iter().map(Some)) {
-            let on = cur.as_ref() == name;
-            let label = name.map(String::as_str).unwrap_or("Default");
-            if ui.selectable_label(on, label).clicked() {
-                *cur = name.cloned();
-                changed = true;
-            }
-        }
-    });
-    changed
+    let resp = resp.on_hover_text(if output { "Output Options" } else { "Input Options" });
+    let mut res = (false, false);
+    egui::Popup::menu(&resp).show(|ui| res = super::callbar::audio_menu(ui, &mut app.settings, output));
+    if res.0 {
+        app.save_settings(ui.ctx());
+    }
+    if res.1 {
+        app.settings_page = Some(super::settings::Page::Voice);
+    }
 }
 
 /// A call ringing for us: who it is, Incoming Call…, and the red and green buttons. Ctrl+Enter

@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod stage;
+
 use super::{App, side};
 use crate::net::Conn;
 use crate::state::Id;
@@ -102,7 +104,7 @@ impl Run {
             dir,
             t0,
             marks: Vec::new(),
-            step: 0,
+            step: std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()).unwrap_or(0),
             step_at: Instant::now(),
             wait: Instant::now(),
             queue: VecDeque::new(),
@@ -1107,6 +1109,7 @@ impl Run {
             81 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("voice_left");
+                    self.step = 699;
                     self.next(200);
                 }
             }
@@ -1208,6 +1211,7 @@ impl Run {
                 }
             }
             100..=199 => self.settings_steps(app, ctx),
+            700..=759 => self.stage_steps(app, ctx),
             200..=219 => self.media_steps(app, ctx),
             220..=239 => self.side_steps(app, ctx),
             240..=259 => self.layout_steps(app, ctx),
