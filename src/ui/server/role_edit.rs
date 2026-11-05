@@ -759,8 +759,8 @@ pub fn probe(app: &mut App, gid: Id, tab: u8) -> bool {
         e.tab = tab;
     } else if tab == 0 && e.base.name != "Admins" && e.draft == e.base {
         e.draft.name = "Admins".into();
-        e.draft.hoist = true;
-        e.draft.perms |= 8;
+        e.draft.hoist = !e.base.hoist;
+        e.draft.perms ^= 1 << 4;
     } else if e.draft != e.base && !e.saving {
         save_role(app, gid, &mut e);
     } else {

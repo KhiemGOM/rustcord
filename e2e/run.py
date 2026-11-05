@@ -327,7 +327,7 @@ def main():
             any(k in r.get("path", "") for r in reqs) for k in ("/store/published-listings/skus", "/guilds/1000/powerups", "/guilds/1000/premium/subscriptions")),
         "server settings: the role editor's save sent only the changed name, hoist and permissions": any(
             r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1000/roles/1100") and '"name":"Admins"' in r.get("body", "")
-            and '"hoist":true' in r.get("body", "") and '"permissions"' in r.get("body", "") and '"mentionable"' not in r.get("body", "") for r in reqs),
+            and '"hoist"' in r.get("body", "") and '"permissions"' in r.get("body", "") and '"mentionable"' not in r.get("body", "") for r in reqs),
         "server settings: the pages fetched the role's members, emoji, stickers, invites, integrations, webhooks, bans, audit log and AutoMod rules": all(
             any(r.get("method") == "GET" and r.get("path", "").endswith(p) for r in reqs)
             for p in ("/roles/1100/member-ids", "/guilds/1000/emojis", "/guilds/1000/stickers", "/guilds/1000/invites", "/guilds/1000/webhooks",
