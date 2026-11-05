@@ -3204,6 +3204,120 @@ impl Run {
                 self.key(Key::Escape);
                 self.mark("profile_more");
                 self.next(500);
+                self.step = 5000;
+            }
+            // the profile family: Active Now's cards, the popout's Mod View, role add and remove,
+            // the full profile and its tabs, a server tag's popout and a role mention's
+            5000 => {
+                use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MANAGE_ROLES, MODERATE_MEMBERS};
+                if let Some(r) = app.store.guilds.get_mut(&self.target.0).and_then(|g| g.roles.get_mut(&1101)) {
+                    r.perms |= MANAGE_ROLES | KICK_MEMBERS | BAN_MEMBERS | MODERATE_MEMBERS;
+                }
+                let now = chrono::Utc::now().timestamp_millis();
+                app.store.apply("PRESENCE_UPDATE", &json!({ "user": { "id": "101" }, "status": "online", "activities": [
+                    { "type": 2, "name": "Spotify", "details": "Farewell", "state": "marQ", "sync_id": "abc", "timestamps": { "start": now - 99000, "end": now + 14000 }, "assets": { "large_image": "spotify:xyz" } },
+                    { "type": 0, "name": "Rust Simulator", "application_id": "900", "details": "In the lab", "state": "Solo", "timestamps": { "start": now - 1000000 } },
+                ] }));
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021" }));
+                app.select_guild(None);
+                app.friends = true;
+                self.next(900);
+            }
+            5001 => {
+                let Some((card, bodies)) = ctx.data(|d| d.get_temp::<(egui::Rect, usize)>(egui::Id::new(("e2e", "now_card", 101u64)))) else { return };
+                if bodies < 3 || card.height() < 68.0 + 3.0 * 68.0 {
+                    return self.fail(format!("alice's Active Now card had {bodies} rows over {}px", card.height()));
+                }
+                self.shot(ctx, "active_now.png");
+                self.mark("active_now_cards");
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
+                app.open_profile(101, self.target.0, pos2(300.0, 160.0));
+                self.next(900);
+            }
+            5002 => {
+                if app.profiles.get(&101).is_none_or(|p| p.is_null()) {
+                    return;
+                }
+                let Some(b) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "banner", "Open in Mod View")))) else { return };
+                self.shot(ctx, "profile_popout_extras.png");
+                self.click(b.center());
+                self.next(700);
+            }
+            5003 => {
+                if !app.mod_view.as_ref().is_some_and(|m| m.msgs.is_some()) {
+                    return;
+                }
+                let Some(b) = Self::at(ctx, "role_add") else { return };
+                self.shot(ctx, "modview.png");
+                self.mark("modview");
+                self.click(b.center());
+                self.next(500);
+            }
+            5004 => {
+                let Some(r) = Self::at(ctx, "role_pick") else { return };
+                self.shot(ctx, "role_picker.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            5005 => {
+                if !app.store.members.get(&self.target.0).and_then(|m| m.get(&101)).is_some_and(|m| m.roles.contains(&1102)) {
+                    return;
+                }
+                self.mark("role_added");
+                let Some(x) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "role_x", 1102u64)))) else { return };
+                self.click(x.center());
+                self.next(600);
+            }
+            5006 => {
+                if app.store.members.get(&self.target.0).and_then(|m| m.get(&101)).is_some_and(|m| m.roles.contains(&1102)) {
+                    return;
+                }
+                self.mark("role_removed");
+                self.key(Key::Escape);
+                app.open_full(101, self.target.0, super::profile::Tab::Activity);
+                self.next(900);
+            }
+            5007 => {
+                if app.profiles.get(&101).is_none_or(|p| p.is_null()) || app.outbox.get(&101).is_none_or(|o| o.is_empty()) || app.mod_view.is_some() {
+                    return;
+                }
+                let Some(t) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "fp_tab", super::profile::Tab::Friends as u8)))) else { return };
+                self.shot(ctx, "full_profile.png");
+                self.mark("full_profile");
+                self.click(t.center());
+                self.next(500);
+            }
+            5008 => {
+                if !app.full_profile.as_ref().is_some_and(|f| f.tab == super::profile::Tab::Friends) {
+                    return self.fail("the Mutual Friends tab didn't open".into());
+                }
+                self.shot(ctx, "full_profile_friends.png");
+                self.mark("full_profile_tabs");
+                self.key(Key::Escape);
+                app.tag_pop = Some((1001, pos2(400.0, 300.0)));
+                self.next(900);
+            }
+            5009 => {
+                if app.guild_profiles.get(&1001).is_none_or(|p| p.is_null()) {
+                    return;
+                }
+                self.shot(ctx, "tag_popout.png");
+                self.mark("tag_popout");
+                app.tag_pop = None;
+                app.role_pop = Some((self.target.0, 1100, pos2(400.0, 300.0)));
+                self.next(600);
+            }
+            5010 => {
+                self.shot(ctx, "role_popout.png");
+                self.mark("role_popout");
+                app.role_pop = None;
+                if let Some(r) = app.store.guilds.get_mut(&self.target.0).and_then(|g| g.roles.get_mut(&1101)) {
+                    r.perms = 0;
+                }
+                app.store.apply("PRESENCE_UPDATE", &json!({ "user": { "id": "101" }, "status": "online", "activities": [] }));
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": null }));
+                self.step = 420;
             }
             _ => self.step = 99,
         }

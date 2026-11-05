@@ -868,12 +868,13 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         ("GET", ["api", "v9", "guilds", _, "messages", "search"]) => {
             let q = path.split("content=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_lowercase();
+            let author = path.split("author_id=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_string();
             let w = w.lock().unwrap();
             let hits: Vec<Value> = w
                 .msgs
                 .iter()
                 .rev()
-                .filter(|m| !q.is_empty() && m["content"].as_str().unwrap_or("").to_lowercase().contains(&q))
+                .filter(|m| (!q.is_empty() && m["content"].as_str().unwrap_or("").to_lowercase().contains(&q)) || (!author.is_empty() && m["author"]["id"] == author.as_str()))
                 .take(25)
                 .map(|m| json!([m]))
                 .collect();
@@ -881,8 +882,24 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         ("GET", ["api", "v9", "users", id, "profile"]) => {
             let id: u64 = id.parse().unwrap_or(0);
-            ok(json!({ "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" } }))
+            ok(json!({
+                "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" },
+                "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" }],
+                "connected_accounts": [],
+                "mutual_friends": [user(102), user(103)], "mutual_friends_count": 2,
+                "mutual_guilds": [{ "id": "1000", "nick": null }, { "id": "1001", "nick": null }],
+                "guild_member": { "roles": member(id)["roles"], "joined_at": "2025-06-01T10:00:00+00:00", "premium_since": null },
+            }))
         }
+        ("GET", ["api", "v9", "content-inventory", "users", _, "outbox"]) => ok(json!({ "entries": [
+            { "content": { "id": "1100000000000000000", "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
+            { "content": { "id": "1100000000000000001", "content_type": 6, "author_id": "101", "extra": { "artist": { "name": "marQ" } } } },
+        ] })),
+        ("GET", ["api", "v9", "guild-profile", id]) => ok(json!({
+            "id": id, "name": "Rustaceans", "icon_hash": null, "description": "Crabs only.", "member_count": 4200, "online_count": 321,
+            "tag": "RUST", "badge_hash": "", "premium_tier": 2, "premium_subscription_count": 14, "game_application_ids": [], "brand_color_primary": "#e67e22",
+        })),
+        ("PUT" | "DELETE", ["api", "v9", "guilds", _, "members", _, "roles", _]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "users", "@me", "mentions"]) => {
             let w = w.lock().unwrap();
             let list: Vec<&Value> = w.msgs.iter().rev().filter(|m| m["mentions"].as_array().is_some_and(|u| !u.is_empty())).take(25).collect();
