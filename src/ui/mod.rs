@@ -32,6 +32,7 @@ mod palette;
 mod newserver;
 mod menus;
 mod picker;
+mod player;
 mod plus;
 mod poll;
 mod popups;
@@ -52,6 +53,7 @@ mod stage;
 mod tile;
 mod side;
 mod tagpop;
+mod textfile;
 mod thread;
 mod spelling;
 pub mod text;
@@ -197,6 +199,7 @@ pub struct App {
     pub scroll_tries: u8,
     pub flash: Option<(Id, Instant)>,
     pub viewer: Option<(String, String, u32, u32)>,
+    pub media_fs: Option<String>,
     // the open message's pictures, which the viewer's arrows step through
     pub gallery: Vec<(String, String, u32, u32)>,
     pub remote: Map<&'static str, Option<Result<serde_json::Value, String>>>,
@@ -402,6 +405,7 @@ impl App {
             scroll_tries: 0,
             flash: None,
             viewer: None,
+            media_fs: None,
             gallery: Vec::new(),
             remote: Map::default(),
             hotkey_rx: None,
@@ -926,6 +930,7 @@ impl App {
         let s = &self.settings;
         ctx.set_zoom_factor(s.zoom);
         crate::tray::set_close_hides(s.minimize_to_tray && std::env::var_os("RUSTCORD_BENCH").is_none());
+        crate::media::set_volume(s.media_volume, s.media_muted);
         crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
         crate::theme::set_reduced_motion(self.reduced_motion());
         crate::theme::set_view(crate::theme::View {
@@ -1654,6 +1659,8 @@ impl App {
         popups::show(self, &ctx);
         attach::dragging(self, &ctx);
         popups::viewer(self, &ctx);
+        player::overlay(self, &ctx);
+        crate::media::tick(ctx.cumulative_frame_nr());
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);
         keys::breathe(self, &ctx);

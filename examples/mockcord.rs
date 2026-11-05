@@ -434,6 +434,26 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
     let at = |i: u64| snow(t0 + i * 60_000);
     let mut out = Vec::new();
 
+    let early = |i: u64| snow(t0 - 6 * 60_000 + i * 60_000);
+    let file = |name: &str, size: u64, ctype: &str, w: u32, h: u32| {
+        let url = format!("{cdn}/media/{name}?ex=65f0a1b2&is=65ee2cb2&hm=abc");
+        let mut a = json!({ "id": "9", "filename": name, "size": size, "url": url, "proxy_url": url, "content_type": ctype });
+        if w > 0 {
+            a["width"] = json!(w);
+            a["height"] = json!(h);
+        }
+        a
+    };
+    let mut m = msg(early(0), MEDIA, 102, "a video with sound");
+    m["attachments"] = json!([file("clip.mp4", 19_785, "video/mp4", 320, 180)]);
+    out.push(m);
+    let mut m = msg(early(1), MEDIA, 101, "an mp3");
+    m["attachments"] = json!([file("tone.mp3", 12_347, "audio/mpeg", 0, 0)]);
+    out.push(m);
+    let mut m = msg(early(2), MEDIA, 102, "some code");
+    m["attachments"] = json!([file("hello.rs", include_bytes!("fixtures/hello.rs").len() as u64, "text/plain; charset=utf-8", 0, 0)]);
+    out.push(m);
+
     let mut m = msg(at(0), MEDIA, 101, "party time <a:party:5100> and a static <:ferris:5000> in one line <a:party:5100>");
     m["reactions"] = json!([
         { "emoji": { "id": "5100", "name": "party", "animated": true }, "count": 3, "me": false },
@@ -1818,6 +1838,10 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
+        ("GET", ["cdn", "media", "clip.mp4"]) if query(path, "width").is_some() => (200, "image/png", png(320, 180, 5, false)),
+        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
+        ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
+        ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),

@@ -90,6 +90,8 @@ pub struct Settings {
     pub inbox_everyone: bool,
     pub inbox_roles: bool,
     pub inbox_all: bool,
+    pub media_volume: f32,
+    pub media_muted: bool,
     // advanced
     pub dev: bool,
     // voice channels whose people show as avatars only
@@ -243,6 +245,8 @@ impl Default for Settings {
             inbox_everyone: true,
             inbox_roles: true,
             inbox_all: true,
+            media_volume: 1.0,
+            media_muted: false,
             dev: false,
             hide_names: Vec::new(),
             mic: None,
