@@ -86,7 +86,6 @@ pub enum Kind {
     Loss(f32),
     /// DAVE's privacy code for the call, while it's end-to-end encrypted
     Privacy(Option<String>),
-    /// someone's clip flags changed
     Clips,
 }
 

@@ -307,7 +307,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// One message in `ch` carrying the clips, each cut to its trim first.
 pub fn send_clips(app: &mut App, ch: Id, note: String, clips: &[Clip]) {
     let files: Vec<_> = clips
         .iter()

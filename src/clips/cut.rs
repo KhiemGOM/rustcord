@@ -9,10 +9,8 @@ use windows::core::{GUID, HSTRING, Interface};
 type Result<T> = windows::core::Result<T>;
 
 const TICKS_MS: u64 = 10_000;
-// the encoder holds back its last frames when the session ends, so the cut runs this far past the end asked for
 const DRAIN_MS: u64 = 450;
 
-/// The source's picture size and frame rate (as MF packs them), and whether it has sound.
 fn streams(source: &IMFMediaSource) -> Result<(u64, u64, bool)> {
     unsafe {
         let pd = source.CreatePresentationDescriptor()?;
@@ -110,7 +108,7 @@ pub fn cut(src: &Path, dst: &Path, from_ms: i64, to_ms: i64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::super::mux;
-    use super::super::ring::{RATE, TICKS};
+    use super::super::ring::RATE;
 
     #[test]
     fn a_cut_keeps_only_the_chosen_stretch() {
@@ -128,7 +126,6 @@ mod tests {
             let pics = crate::mp4::frames(&bytes, 1 << 28).unwrap();
             let want = (to - from) as usize * 30 / 1000;
             assert!(pics.len().abs_diff(want) <= 2, "{from}..{to}: {} frames, wanted {want}", pics.len());
-            // the picture's red channel drifts 4 a frame, so it says which frame the cut began on
             let red = pics[0].0.pixels[0].r() as i32;
             assert!((red - (first * 4 % 256) as i32).abs() <= 12, "{from}..{to} began on red {red}");
         }
