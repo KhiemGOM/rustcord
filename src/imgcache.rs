@@ -13,7 +13,71 @@ type Entry = Poll<Result<(Arc<[u8]>, String), String>>;
 // once decoded, egui caches the texture and never asks for the bytes again, so the raw bytes
 // we hold go cold. keep at most this much of them in memory; a cold-evicted image is re-read
 // from the disk cache if it's ever needed again.
-const MEM_CAP: usize = 128 << 20;
+const MEM_CAP: usize = 16 << 20;
+
+/// egui's texture loader, noting when each image was last drawn. egui keeps every texture it
+/// ever made, and the decoded pixels and bytes behind it, so a long session's memory only grew.
+#[derive(Default)]
+pub struct Textures {
+    inner: egui::load::DefaultTextureLoader,
+    used: Mutex<HashMap<String, std::time::Instant>>,
+}
+
+impl Textures {
+    /// What hasn't been drawn for `age`: those textures, and an animation's own uri once none
+    /// of its frames has been, so its decoded frames go too.
+    pub fn stale(&self, age: std::time::Duration) -> Vec<String> {
+        let used = self.used.lock();
+        let mut out: Vec<String> = used.iter().filter(|(_, t)| t.elapsed() >= age).map(|(u, _)| u.clone()).collect();
+        let mut anims: Vec<&str> = out.iter().filter_map(|u| u.split_once(crate::gif::SEP).map(|(b, _)| b)).collect();
+        anims.sort_unstable();
+        anims.dedup();
+        let anims: Vec<String> = anims
+            .into_iter()
+            .filter(|b| !used.iter().any(|(u, t)| u.split_once(crate::gif::SEP).is_some_and(|(x, _)| x == *b) && t.elapsed() < age))
+            .map(str::to_string)
+            .collect();
+        out.extend(anims);
+        out
+    }
+}
+
+impl egui::load::TextureLoader for Textures {
+    fn id(&self) -> &str {
+        egui::generate_loader_id!(Textures)
+    }
+
+    fn load(&self, ctx: &egui::Context, uri: &str, options: egui::TextureOptions, size: egui::SizeHint) -> egui::load::TextureLoadResult {
+        let now = std::time::Instant::now();
+        let mut used = self.used.lock();
+        match used.get_mut(uri) {
+            Some(t) => *t = now,
+            None => {
+                used.insert(uri.to_string(), now);
+            }
+        }
+        drop(used);
+        self.inner.load(ctx, uri, options, size)
+    }
+
+    fn forget(&self, uri: &str) {
+        self.used.lock().remove(uri);
+        self.inner.forget(uri);
+    }
+
+    fn forget_all(&self) {
+        self.used.lock().clear();
+        self.inner.forget_all();
+    }
+
+    fn end_pass(&self, pass_index: u64) {
+        self.inner.end_pass(pass_index);
+    }
+
+    fn byte_size(&self) -> usize {
+        self.inner.byte_size()
+    }
+}
 
 struct Slot {
     entry: Entry,
@@ -214,4 +278,26 @@ async fn fetch(http: &reqwest::Client, uri: &str) -> Result<Vec<u8>, String> {
         return Err(format!("{} {}", r.status(), uri));
     }
     r.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn an_animation_goes_once_none_of_its_frames_is_drawn() {
+        let t = super::Textures::default();
+        let (old, now, sep) = (Instant::now() - Duration::from_secs(300), Instant::now(), crate::gif::SEP);
+        t.used.lock().extend([
+            ("a".to_string(), old),
+            ("b".to_string(), now),
+            (format!("g{sep}0"), old),
+            (format!("g{sep}1"), old),
+            (format!("h{sep}0"), old),
+            (format!("h{sep}1"), now),
+        ]);
+        let mut stale = t.stale(Duration::from_secs(120));
+        stale.sort();
+        assert_eq!(stale, ["a".to_string(), "g".into(), format!("g{sep}0"), format!("g{sep}1"), format!("h{sep}0")]);
+    }
 }

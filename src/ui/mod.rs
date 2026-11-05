@@ -17,7 +17,6 @@ mod login;
 mod members;
 mod palette;
 mod picker;
-mod react;
 mod popups;
 mod rail;
 mod channel;
@@ -29,19 +28,16 @@ mod soundboard;
 mod side;
 pub mod text;
 mod titlebar;
-mod vencord;
-mod vcnet;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::cache::{self, Settings, UiState};
 use crate::net::{Cmd, Conn, Ev, Net, Tag};
-use crate::state::{Id, Message, Page, ReactEmoji, Status, Store};
+use crate::state::{Id, Map, Message, Page, ReactEmoji, Set, Status, Store, Tracked};
 use crate::theme::*;
 
 /// Discord's zoom levels, in percent: the accessibility slider's ticks, which ctrl+wheel and
@@ -58,31 +54,31 @@ pub enum Pick {
 pub struct App {
     pub net: Net,
     rx: Receiver<Ev>,
-    pub store: Store,
+    pub store: Tracked,
     pub ui: UiState,
     pub token: Option<String>,
     pub conn: Conn,
     pub login: login::Form,
-    pub drafts: HashMap<Id, String>,
+    pub drafts: Map<Id, String>,
     pub files: Vec<composer::Upload>,
     pub ac_sel: usize,
     pub ac_open: bool,
     pub ac_dismissed: Option<String>,
-    pub aliases: HashMap<Id, Vec<(String, String)>>,
-    pub commands: HashMap<Id, composer::Commands>,
+    pub aliases: Map<Id, Vec<(String, String)>>,
+    pub commands: Map<Id, composer::Commands>,
     v_down: bool,
     fonts_rx: Option<Receiver<egui::FontDefinitions>>,
     cjk_loaded: bool,
     pub reply: Option<Id>,
     pub editing: Option<(Id, String)>,
     pub last_typing: Option<(Id, Instant)>,
-    pub heights: HashMap<(Id, bool), f32>,
+    pub heights: Map<(Id, bool), f32>,
     pub heights_w: f32,
-    pub offsets: HashMap<Id, f32>,
+    pub offsets: Map<Id, f32>,
     // channels whose message list sat at the bottom last frame
-    pub pinned: HashSet<Id>,
+    pub pinned: Set<Id>,
     pub scroll_fix: Option<(Id, f32)>,
-    pub revealed: HashSet<Id>,
+    pub revealed: Set<Id>,
     pub picker: Option<(Pick, Pos2)>,
     // the sticker picker, anchored where it opened
     pub stickers: Option<Pos2>,
@@ -92,7 +88,7 @@ pub struct App {
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
     // the server guide's new member actions, per server: (their channels, the ones done)
-    pub guides: HashMap<Id, (Vec<Id>, HashSet<Id>)>,
+    pub guides: Map<Id, (Vec<Id>, Set<Id>)>,
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
@@ -103,7 +99,7 @@ pub struct App {
     // ctrl+wheel travel not yet worth a zoom step
     zoom_acc: f32,
     pub focus_composer: bool,
-    pub rects: HashMap<String, Rect>,
+    pub rects: Map<String, Rect>,
     pub settings: Settings,
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
@@ -117,13 +113,13 @@ pub struct App {
     pub soundboard: Option<(Id, Option<Vec<crate::state::Sound>>)>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
-    pub profiles: HashMap<Id, serde_json::Value>,
+    pub profiles: Map<Id, serde_json::Value>,
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
-    pub boost_info: HashMap<Id, boosts::Info>,
+    pub boost_info: Map<Id, boosts::Info>,
     // the server menu's modals and pages: create, active threads, the app directory, settings
     pub create: Option<create::Form>,
     pub active_threads: Option<Id>,
@@ -144,7 +140,7 @@ pub struct App {
     pub viewer: Option<(String, String, u32, u32)>,
     // the open message's pictures, which the viewer's arrows step through
     pub gallery: Vec<(String, String, u32, u32)>,
-    pub remote: HashMap<&'static str, Option<Result<serde_json::Value, String>>>,
+    pub remote: Map<&'static str, Option<Result<serde_json::Value, String>>>,
     hotkey_rx: Option<Receiver<(String, bool)>>,
     obs_seen: bool,
     capture_hidden: bool,
@@ -159,9 +155,9 @@ pub struct App {
     // put the composer's caret at the end of its text, after something was added to it
     pub caret_end: bool,
     // messages bookmarked for later, by id
-    pub bookmarks: HashSet<Id>,
+    pub bookmarks: Set<Id>,
     // the notes you keep on people, by user, once fetched
-    pub notes: HashMap<Id, String>,
+    pub notes: Map<Id, String>,
     pub new_thread: Option<popups::NewThread>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
@@ -196,15 +192,16 @@ pub struct App {
     // the game the gateway has from us; identify sends none
     shared: Option<Id>,
     // servers we've asked for their voice channels' statuses and start times this session
-    info_asked: std::collections::HashSet<Id>,
+    info_asked: Set<Id>,
     // the taskbar badge's count, and when unreads were last looked over for its dot
     badge: Option<i32>,
     badge_at: Option<Instant>,
     // when the activity feed is next fetched
     feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
-    pub vc: vencord::Vc,
-    pub vcnet: vcnet::VcNet,
+    // images drawn lately, so the rest can be let go now and then
+    textures: std::sync::Arc<crate::imgcache::Textures>,
+    sweep_at: Instant,
 }
 
 impl App {
@@ -218,6 +215,8 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
+        let textures = std::sync::Arc::new(crate::imgcache::Textures::default());
+        ctx.add_texture_loader(textures.clone());
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
         // added last so it's asked first: no other loader knows its scheme
         ctx.add_image_loader(std::sync::Arc::new(crate::emoji_font::Loader::default()));
@@ -238,36 +237,36 @@ impl App {
         let mut app = App {
             net,
             rx,
-            store,
+            store: store.into(),
             ui,
             token,
             conn: Conn::Connecting,
             login: Default::default(),
-            drafts: HashMap::new(),
+            drafts: Map::default(),
             files: Vec::new(),
             ac_sel: 0,
             ac_open: false,
             ac_dismissed: None,
-            aliases: HashMap::new(),
-            commands: HashMap::new(),
+            aliases: Map::default(),
+            commands: Map::default(),
             v_down: false,
             fonts_rx: None,
             cjk_loaded: false,
             reply: None,
             editing: None,
             last_typing: None,
-            heights: HashMap::new(),
+            heights: Map::default(),
             heights_w: 0.0,
-            offsets: HashMap::new(),
-            pinned: HashSet::new(),
+            offsets: Map::default(),
+            pinned: Set::default(),
             scroll_fix: None,
-            revealed: HashSet::new(),
+            revealed: Set::default(),
             picker: None,
             stickers: None,
             menu: None,
             confirm: None,
             forward: None,
-            guides: HashMap::new(),
+            guides: Map::default(),
             user_menu: None,
             guild_notifs: None,
             bar: None,
@@ -277,7 +276,7 @@ impl App {
             autoscroll: None,
             zoom_acc: 0.0,
             focus_composer: true,
-            rects: HashMap::new(),
+            rects: Map::default(),
             voice: Default::default(),
             e2e: e2e::Run::from_env(t0),
             win: None,
@@ -290,12 +289,12 @@ impl App {
             soundboard: None,
             switcher: None,
             profile: None,
-            profiles: HashMap::new(),
+            profiles: Map::default(),
             pins: None,
             search: None,
             friends: false,
             boosts: None,
-            boost_info: HashMap::new(),
+            boost_info: Map::default(),
             create: None,
             active_threads: None,
             directory: None,
@@ -312,7 +311,7 @@ impl App {
             flash: None,
             viewer: None,
             gallery: Vec::new(),
-            remote: HashMap::new(),
+            remote: Map::default(),
             hotkey_rx: None,
             obs_seen: false,
             capture_hidden: false,
@@ -322,8 +321,8 @@ impl App {
             focus_msg: None,
             focus_scroll: false,
             caret_end: false,
-            bookmarks: HashSet::new(),
-            notes: HashMap::new(),
+            bookmarks: Set::default(),
+            notes: Map::default(),
             new_thread: None,
             emoji_pop: None,
             leaving: None,
@@ -350,8 +349,8 @@ impl App {
             badge_at: None,
             feed_at: None,
             synced: None,
-            vc: Default::default(),
-            vcnet: Default::default(),
+            textures,
+            sweep_at: Instant::now(),
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -421,6 +420,7 @@ impl App {
         self.friends = false;
         self.nav.visit(titlebar::Loc::Chan(ch, None));
         self.ui.chan.insert(guild, ch);
+        crate::net::OPEN.store(ch, std::sync::atomic::Ordering::Relaxed);
         self.ui.recent.retain(|x| *x != ch);
         self.ui.recent.insert(0, ch);
         self.ui.recent.truncate(15);
@@ -549,8 +549,12 @@ impl App {
         if text.is_empty() && files.is_empty() {
             return;
         }
-        let reply = self.reply.take().map(|r| (r, self.reply_ping));
-        self.vc_send(vencord::Outgoing { ch, text, reply, files, tts });
+        let nonce = crate::state::make_nonce();
+        let reply = self.reply.take();
+        self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
+        self.jump_to_present(ch);
+        let reply = reply.map(|r| (r, self.reply_ping));
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
         self.hold_ack = None;
         self.last_typing = None;
     }
@@ -562,7 +566,10 @@ impl App {
         if self.settings.emoticons {
             text = emoticons(&text);
         }
-        self.vc_send(vencord::Outgoing { ch, text, reply: None, files: Vec::new(), tts: false });
+        let nonce = crate::state::make_nonce();
+        self.store.add_pending(ch, text.clone(), nonce.clone(), None);
+        self.jump_to_present(ch);
+        self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false });
     }
 
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
@@ -738,7 +745,8 @@ impl App {
     }
 
     pub fn set_status(&mut self, s: &str) {
-        self.store.presence.insert(self.store.me, Status::parse(s));
+        let me = self.store.me;
+        self.store.presence.insert(me, Status::parse(s));
         self.send_presence();
     }
 
@@ -938,16 +946,8 @@ impl App {
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
-        let mut n: u32 = self
-            .store
-            .reads
-            .iter()
-            .filter(|(ch, _)| {
-                self.store.channels.get(ch).is_some_and(|c| !self.store.muted.contains(&c.id) && !self.store.muted.contains(&c.guild))
-            })
-            .map(|(_, r)| r.mentions)
-            .sum();
-        n += self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
+        let n = self.store.mention_count()
+            + self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
         if self.title_count != Some(n) {
             self.title_count = Some(n);
             let t = if n > 0 { format!("({n}) Rustcord") } else { "Rustcord".into() };
@@ -1024,9 +1024,6 @@ impl App {
     }
 
     fn on_rest(&mut self, tag: Tag, res: Result<serde_json::Value, String>) {
-        if let Tag::Vencord(id) = tag {
-            return self.vc_rest_done(id, res);
-        }
         if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
             return settings::on_remote(self, k, Err(e.clone()));
         }
@@ -1065,7 +1062,6 @@ impl App {
             }
         };
         match tag {
-            Tag::Vencord(_) => {}
             Tag::Pins(ch) => {
                 let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
@@ -1222,7 +1218,7 @@ impl App {
         self.net.send(Cmd::Stop);
         cache::set_token(None);
         self.token = None;
-        self.store = Store::default();
+        self.store = Tracked::default();
         self.ui = UiState::default();
         self.nav = Default::default();
         self.inbox = None;
@@ -1268,7 +1264,6 @@ impl App {
                     }
                     self.voice_cues(&t, &d);
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
-                    self.vc_dispatch(&t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
@@ -1359,13 +1354,15 @@ impl App {
         }
         self.hold_ack = None;
         let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { return };
+        let (acked, mentions) = self.store.reads.get(&ch).map_or((0, 0), |r| (r.last_acked, r.mentions));
+        if last <= acked && mentions == 0 {
+            return;
+        }
         let r = self.store.reads.entry(ch).or_default();
-        if last > r.last_acked || r.mentions > 0 {
-            r.last_acked = last.max(r.last_acked);
-            r.mentions = 0;
-            if last != 0 {
-                self.net.send(Cmd::Ack { channel: ch, id: last });
-            }
+        r.last_acked = last.max(r.last_acked);
+        r.mentions = 0;
+        if last != 0 {
+            self.net.send(Cmd::Ack { channel: ch, id: last });
         }
     }
 
@@ -1439,9 +1436,6 @@ impl App {
         chat::context_menu(self, &ctx);
         popups::user_menu(self, &ctx);
         popups::show(self, &ctx);
-        self.vc_modals(&ctx);
-        self.vc_own_modals(&ctx);
-        self.vc_notes(&ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);
         keys::combos(self, &ctx);
@@ -1543,7 +1537,6 @@ impl eframe::App for App {
         if self.away(&ctx) {
             return;
         }
-        self.vc_tick(&ctx);
         let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
         if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {
             self.cjk_loaded = want_cjk;
@@ -1660,8 +1653,8 @@ impl eframe::App for App {
                 }
                 self.shortcuts(&ctx, layered);
             }
-            if self.store.prune_typing() {
-                ctx.request_repaint_after(Duration::from_millis(50));
+            if self.store.typing.values().flatten().any(|(_, t)| t.elapsed().as_secs() >= 10) {
+                self.store.prune_typing();
             }
             if let Some(e) = &mut self.e2e
                 && self.frames > 0
@@ -1683,9 +1676,15 @@ impl eframe::App for App {
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
             self.save_at = None;
             let took = Instant::now();
-            cache::save(&self.store, &self.ui);
+            cache::save(&self.store, &self.ui, false);
             if let Some(e) = &mut self.e2e {
                 e.cost("cache_save", took.elapsed());
+            }
+        }
+        if self.sweep_at.elapsed() >= Duration::from_secs(30) {
+            self.sweep_at = Instant::now();
+            for uri in self.textures.stale(Duration::from_secs(120)) {
+                ctx.forget_image(&uri);
             }
         }
         autoscroll::paint(&ctx, &self.autoscroll);
@@ -1723,6 +1722,9 @@ impl eframe::App for App {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // egui wakes a delayed repaint this much early, then spins a frame per vsync until it's
+        // due: five frames for every blink of the caret
+        raw.predicted_dt = 0.0;
         if let Some(e) = &mut self.e2e {
             e.inject(raw);
         }
@@ -1781,7 +1783,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         crate::tray::remove();
         if self.token.is_some() {
-            cache::save(&self.store, &self.ui);
+            cache::save(&self.store, &self.ui, true);
         }
         if let Some(w) = self.win {
             cache::set_window(w);

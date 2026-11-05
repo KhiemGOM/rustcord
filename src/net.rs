@@ -38,8 +38,6 @@ pub enum Ev {
 /// What a generic REST reply is for, so the UI knows where to put it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tag {
-    // a vencord plugin's RestAPI request, by its id
-    Vencord(u32),
     Pins(Id),
     Search(Id),
     Profile(Id),
@@ -110,6 +108,8 @@ pub enum Cmd {
 /// that other people could see: no messages, reactions, acks, typing, voice,
 /// presence, or non-GET REST calls. Used when touring a real account.
 pub static BLOCKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// The channel on screen, so the gateway can tell which events can wait for the next frame.
+pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn allowed(c: &Cmd) -> bool {
     match c {
@@ -132,6 +132,13 @@ impl Tx {
     pub fn send(&self, e: Ev) {
         let _ = self.tx.send(e);
         self.ctx.request_repaint();
+    }
+
+    /// For what's rarely on screen (presences, typing and messages elsewhere): taken in by the
+    /// next frame, which comes a quarter second later at most.
+    pub fn send_soon(&self, e: Ev) {
+        let _ = self.tx.send(e);
+        self.ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 }
 

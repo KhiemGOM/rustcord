@@ -1,22 +1,21 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::state::{Id, Message, Msgs, Store};
+use crate::state::{Id, Map, Message, Msgs, Set, Store};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct UiState {
     pub guild: Option<Id>,
-    pub chan: HashMap<Id, Id>,
-    pub collapsed: HashSet<Id>,
+    pub chan: Map<Id, Id>,
+    pub collapsed: Set<Id>,
     pub recent: Vec<Id>,
     // the toolbar's one-click reactions, most recent first
     pub quick: Vec<crate::state::ReactEmoji>,
     pub hide_members: bool,
     // the profile card beside one-on-one dms
     pub hide_dm_profile: bool,
-    pub open_folders: HashSet<Id>,
+    pub open_folders: Set<Id>,
     // new keys: beta 2 saved its 240 defaults whether or not anyone dragged
     #[serde(rename = "channels_w")]
     pub side_w: f32,
@@ -242,7 +241,11 @@ pub fn load() -> Option<(Store, UiState)> {
     Some((i.store, i.ui))
 }
 
-pub fn save(store: &Store, ui: &UiState) {
+/// Serialized here, written on a thread of its own: at a big account's size the snapshot is
+/// 12 MB, too much to put on disk from inside a frame. `wait` writes it before returning, for exit.
+pub fn save(store: &Store, ui: &UiState, wait: bool) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static WRITTEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
     let msgs = ui
         .recent
         .iter()
@@ -253,11 +256,25 @@ pub fn save(store: &Store, ui: &UiState) {
         })
         .collect();
     let Ok(bytes) = serde_json::to_vec(&Out { store, msgs, ui }) else { return };
-    let d = dir();
-    let _ = std::fs::create_dir_all(&d);
-    let tmp = d.join("state.json.part");
-    if std::fs::write(&tmp, bytes).is_ok() {
-        let _ = std::fs::rename(tmp, d.join("state.json"));
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let write = move || {
+        // a newer snapshot already made it to disk
+        let mut last = WRITTEN.lock().unwrap();
+        if *last > n {
+            return;
+        }
+        let d = dir();
+        let _ = std::fs::create_dir_all(&d);
+        let tmp = d.join("state.json.part");
+        if std::fs::write(&tmp, bytes).is_ok() {
+            let _ = std::fs::rename(tmp, d.join("state.json"));
+        }
+        *last = n;
+    };
+    if wait {
+        write();
+    } else {
+        std::thread::spawn(write);
     }
 }
 

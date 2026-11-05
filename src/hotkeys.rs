@@ -7,6 +7,8 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 static BINDS: Mutex<Vec<(String, Vec<u32>)>> = Mutex::new(Vec::new());
+// the polling thread, woken when binds arrive: with none set it sleeps instead of polling
+static POLLER: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
 
 /// Held while any push-to-talk bind is down. The mic thread reads it directly
 /// so talking doesn't wait for a UI frame.
@@ -20,17 +22,27 @@ pub fn set(binds: &[(String, Vec<u32>)]) {
     if let Ok(mut b) = BINDS.lock() {
         *b = binds.iter().filter(|(_, k)| !k.is_empty()).cloned().collect();
     }
+    if let Some(t) = POLLER.get() {
+        t.unpark();
+    }
 }
 
-/// Polls every 10ms and reports (action, pressed) edges.
+/// Polls every 10ms while any bind is set and reports (action, pressed) edges.
 pub fn start(ctx: egui::Context, tx: Sender<(String, bool)>) {
     std::thread::Builder::new()
         .name("hotkeys".into())
         .spawn(move || {
+            let _ = POLLER.set(std::thread::current());
             let mut held: Vec<bool> = Vec::new();
             loop {
+                if BINDS.lock().is_ok_and(|b| b.is_empty()) {
+                    PTT_HELD.store(false, Ordering::Relaxed);
+                    held.clear();
+                    std::thread::park();
+                    continue;
+                }
                 std::thread::sleep(Duration::from_millis(10));
-                let binds = BINDS.lock().map(|b| b.clone()).unwrap_or_default();
+                let Ok(binds) = BINDS.lock() else { continue };
                 held.resize(binds.len(), false);
                 let mut ptt = false;
                 for (i, (action, keys)) in binds.iter().enumerate() {

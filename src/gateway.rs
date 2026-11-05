@@ -140,7 +140,17 @@ async fn connect(
                             Value::Object(mut m) => m.remove("d").unwrap_or(Value::Null),
                             _ => Value::Null,
                         };
-                        tx.send(Ev::Dispatch(t, d));
+                        let open = crate::net::OPEN.load(std::sync::atomic::Ordering::Relaxed).to_string();
+                        let elsewhere = d["channel_id"].as_str().is_some_and(|c| c != open);
+                        let soon = match t.as_str() {
+                            "PRESENCE_UPDATE" => true,
+                            "TYPING_START" => elsewhere,
+                            "MESSAGE_CREATE" | "MESSAGE_UPDATE" | "MESSAGE_DELETE" | "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" => {
+                                elsewhere && d["guild_id"].is_string()
+                            }
+                            _ => false,
+                        };
+                        if soon { tx.send_soon(Ev::Dispatch(t, d)) } else { tx.send(Ev::Dispatch(t, d)) }
                     }
                     1 => next_beat = Instant::now(),
                     7 => return End::Retry,
