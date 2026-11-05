@@ -1121,7 +1121,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             for &id in &store.dms {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
+                let r = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends);
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 if r.clicked() {
                     open = Some(id);
@@ -1141,7 +1141,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
     }
 }
 
-fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) -> egui::Response {
+fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> egui::Response {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -1171,6 +1171,11 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             }
         }
     }
+    if voice.ringing == Some(c.id) {
+        let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
+        ui.painter().circle_stroke(av.center(), 18.0 + 4.0 * k, egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)));
+        ui.ctx().request_repaint();
+    }
     if muted {
         let under = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };
         ui.painter().circle_filled(av.center(), 17.0, under.gamma_multiply(0.7));
@@ -1185,7 +1190,8 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
         pal().channel_default
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
-    let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
+    let in_call = voice.calls.get(&c.id).is_some_and(|u| !u.is_empty()) || voice.chan == Some(c.id);
+    let right = if mentions > 0 || in_call { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if unread { semi(16.0) } else { medium(16.0) };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
@@ -1206,6 +1212,9 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
     }
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
+    } else if in_call {
+        let at = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
+        icons::draw(ui.painter(), Icon::Speaker, at, if voice.chan == Some(c.id) { GREEN } else { pal().channel_default });
     }
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

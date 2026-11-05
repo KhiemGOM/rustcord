@@ -26,15 +26,24 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     };
     let r = ui.max_rect();
     let y = r.top() + 16.0;
-    // discord's mark for the connection: a 32 tile washed in the state's colour, the signal in it
+    // discord's mark for the connection: a 32 tile washed in the state's colour, the signal in it,
+    // its bars lit and coloured by the last ping
+    let ping = app.voice.pings.back().map(|(_, ms)| *ms).filter(|_| app.voice.state == State::Connected);
+    let (lit, bars) = match ping {
+        Some(0..=100) => (3, GREEN),
+        Some(101..=250) => (2, YELLOW),
+        Some(_) => (1, RED),
+        None => (3, col),
+    };
     let tile = Rect::from_min_size(r.min, vec2(32.0, 32.0));
-    ui.painter().rect(tile, 8, col.gamma_multiply(0.12), Stroke::new(1.0, col.gamma_multiply(0.24)), egui::StrokeKind::Inside);
-    signal(ui, tile.center(), col);
-    // the status opens discord's connection popout: ping graph, stats, and the privacy code
-    let t = ui.painter().text(pos2(tile.right() + 8.0, y - 8.0), Align2::LEFT_CENTER, text, medium(16.0), col);
+    ui.painter().rect(tile, 8, bars.gamma_multiply(0.12), Stroke::new(1.0, bars.gamma_multiply(0.24)), egui::StrokeKind::Inside);
+    signal(ui, tile.center(), bars, lit);
+    // the status opens discord's connection popout: ping graph, stats, and the privacy code; on
+    // hover its words turn into Voice Details
+    let t = Rect::from_min_size(pos2(tile.right() + 8.0, y - 17.0), vec2(r.right() - 76.0 - tile.right() - 8.0, 19.0));
     let status = ui.interact(t, egui::Id::new("voice_status"), Sense::click());
+    ui.painter().text(t.left_center(), Align2::LEFT_CENTER, if status.hovered() { "Voice Details" } else { text }, medium(16.0), col);
     if status.hovered() {
-        ui.painter().hline(t.x_range(), t.bottom() - 1.0, Stroke::new(1.0, col));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     app.rects.insert("voice:status".into(), t);
@@ -293,30 +302,13 @@ fn privacy(ui: &mut Ui, code: Option<&str>) {
     }
 }
 
-// a dot in the corner and two rings out from it, like a broadcast mark
-fn signal(ui: &Ui, c: egui::Pos2, col: Color32) {
-    let o = c + vec2(-6.0, 6.0);
-    ui.painter().circle_filled(o + vec2(1.2, -1.2), 1.8, col);
-    for rad in [6.5, 11.5] {
-        let pts: Vec<egui::Pos2> = (0..=12)
-            .map(|i| {
-                let a = -std::f32::consts::FRAC_PI_2 + i as f32 / 12.0 * std::f32::consts::FRAC_PI_2;
-                o + vec2(a.cos(), a.sin()) * rad
-            })
-            .collect();
-        ui.painter().add(egui::Shape::line(pts, Stroke::new(2.2, col)));
+// three bars rising, `lit` of them in the colour and the rest faded
+fn signal(ui: &Ui, c: egui::Pos2, col: Color32, lit: usize) {
+    for i in 0..3 {
+        let h = 6.0 + 4.0 * i as f32;
+        let bar = Rect::from_min_max(pos2(c.x - 8.0 + i as f32 * 6.0, c.y + 7.0 - h), pos2(c.x - 4.0 + i as f32 * 6.0, c.y + 7.0));
+        ui.painter().rect_filled(bar, 1, if i < lit { col } else { col.gamma_multiply(0.3) });
     }
-}
-
-// an upright handset for "call"
-fn phone(ui: &Ui, c: egui::Pos2, col: Color32) {
-    let p = ui.painter();
-    p.add(egui::Shape::line(
-        vec![c + vec2(-6.0, -7.0), c + vec2(-7.0, -2.0), c + vec2(-3.0, 4.0), c + vec2(3.0, 7.5), c + vec2(7.0, 6.0)],
-        Stroke::new(3.0, col),
-    ));
-    p.circle_filled(c + vec2(-5.5, -7.0), 2.5, col);
-    p.circle_filled(c + vec2(6.5, 6.0), 2.5, col);
 }
 
 fn camera(ui: &Ui, c: egui::Pos2, k: f32, col: Color32) {
@@ -377,7 +369,7 @@ pub fn ring(ui: &Ui, av: Rect) {
 pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
     let inside = app.voice.chan == Some(ch);
     let (rect, r) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    phone(ui, rect.center(), if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
+    icons::draw(ui.painter(), Icon::Phone, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -858,7 +850,7 @@ pub fn incoming(app: &mut App, ctx: &egui::Context) {
                         let (r, resp) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::click());
                         ui.painter().circle_filled(r.center(), 28.0, if resp.hovered() { fill.gamma_multiply(0.85) } else { fill });
                         if yes {
-                            phone(ui, r.center(), Color32::WHITE);
+                            icons::draw(ui.painter(), Icon::Phone, Rect::from_center_size(r.center(), vec2(28.0, 28.0)), Color32::WHITE);
                         } else {
                             hangup(ui, r.center(), Color32::WHITE);
                         }

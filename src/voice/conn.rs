@@ -324,7 +324,7 @@ impl Sess {
     ) -> End {
         let udp = self.udp.clone();
         let mut buf = vec![0u8; 2048];
-        let mut next_beat = Instant::now() + beat;
+        let mut next_beat = Instant::now() + Duration::from_secs(1);
         let mut unacked = 0;
         let mut tick = interval(Duration::from_millis(100));
         loop {
