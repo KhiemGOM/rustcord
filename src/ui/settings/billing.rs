@@ -435,7 +435,9 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
             checkout("/settings/premium");
         }
     }
-    section(ui, if tier == 0 { "Pricing and Features" } else { "What You’ve Got" });
+    if tier != 0 {
+        section(ui, "What You’ve Got");
+    }
     features(ui, &monthly(&basic_plans), &monthly(&nitro_plans), tier == 0);
     false
 }
