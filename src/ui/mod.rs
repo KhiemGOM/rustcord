@@ -1784,7 +1784,7 @@ impl eframe::App for App {
         pal().bg_tertiary.to_normalized_gamma_f32()
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         crate::tray::remove();
         if self.token.is_some() {
             cache::save(&self.store, &self.ui, true);

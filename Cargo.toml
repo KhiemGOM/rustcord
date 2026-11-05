@@ -12,7 +12,8 @@ chrono = "0.4.45"
 cpal = "0.18.2"
 davey = "0.1.4"
 dirs = "7.0.0"
-eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts"] }
+# wgpu on vulkan: on an AMD card an empty window costs 58 MB there, 91 MB through OpenGL
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts"] }
 egui = "0.36.2"
 egui_extras = { version = "0.36.2", default-features = false, features = ["image", "gif", "webp", "file", "svg"] }
 emojis = "0.9.0"
