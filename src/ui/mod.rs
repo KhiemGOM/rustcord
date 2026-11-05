@@ -26,6 +26,7 @@ mod settings;
 mod share;
 mod soundboard;
 mod side;
+mod spelling;
 pub mod text;
 mod titlebar;
 
@@ -124,6 +125,7 @@ pub struct App {
     pub create: Option<create::Form>,
     pub active_threads: Option<Id>,
     pub directory: Option<directory::Dir>,
+    pub spell: spelling::State,
     pub server: Option<server::State>,
     pub chan_settings: Option<channel::State>,
     // Members or Channels & Roles, open in place of a channel
@@ -298,6 +300,7 @@ impl App {
             create: None,
             active_threads: None,
             directory: None,
+            spell: Default::default(),
             server: None,
             chan_settings: None,
             home: None,
