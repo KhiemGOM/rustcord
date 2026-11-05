@@ -87,9 +87,37 @@ impl App {
                 && self.voice.members(&self.store, c).len() < 2
         });
         looping("call_calling", calling && !dnd);
+        self.stage_fx();
+        self.activity_fx();
         let ch = ringing.unwrap_or(0);
         if TOASTED.swap(ch, Ordering::Relaxed) != ch && ch != 0 {
             self.ring_notice(ctx, ch, dnd);
+        }
+    }
+
+    fn stage_fx(&mut self) {
+        let seat = self.voice.stage.seats.get(&self.store.me);
+        let invited = self.voice.stage_room && seat.is_some_and(|s| s.audience && s.hand.is_some()) && !self.call.asked;
+        if std::mem::replace(&mut self.call.invited, invited) != invited && invited {
+            crate::sound::cue("reconnect");
+        }
+    }
+
+    fn activity_fx(&mut self) {
+        let chan = self.voice.chan;
+        let here = chan.and_then(|c| self.store.embedded.get(&c)).map_or(0, Vec::len);
+        let mine = self.activity.run.as_ref().and_then(|r| self.store.embedded.get(&r.channel)?.iter().find(|i| i.id == r.instance)).map(|i| i.users.len());
+        let (was_chan, was_here, was_mine) = std::mem::replace(&mut self.call.activities, (chan, here, mine));
+        let cue = match (was_mine, mine) {
+            (Some(_), None) => Some("activity_end"),
+            (None, Some(_)) => Some("activity_launch"),
+            (Some(a), Some(b)) if b > a => Some("activity_user_join"),
+            (Some(a), Some(b)) if b < a => Some("activity_user_left"),
+            _ if chan.is_some() && chan == was_chan && here > was_here && !self.activity.busy() => Some("activity_launch"),
+            _ => None,
+        };
+        if let Some(c) = cue {
+            crate::sound::cue(c);
         }
     }
 
