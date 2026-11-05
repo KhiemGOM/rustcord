@@ -64,11 +64,13 @@ fn pitch(app: &mut App, ui: &mut Ui, _gid: Snow) {
     ui.vertical_centered(|ui| {
         ui.label(RichText::new("Community Servers are larger spaces where people with shared interests can come together.").font(reg(14.0)).color(pal().text_normal));
         ui.add_space(8.0);
+        let (text, link) = ("Enabling Community does not make your server visible on Server Discovery.", "Learn more here.");
+        let w = ui.painter().layout_no_wrap(text.into(), reg(14.0), pal().text_normal).size().x + ui.painter().layout_no_wrap(link.into(), reg(14.0), pal().link).size().x + 4.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            ui.add_space(110.0);
-            ui.label(RichText::new("Enabling Community does not make your server visible on Server Discovery.").font(reg(14.0)).color(pal().text_normal));
-            if super::super::settings::link(ui, "Learn more here.").clicked() {
+            ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
+            ui.label(RichText::new(text).font(reg(14.0)).color(pal().text_normal));
+            if super::super::settings::link(ui, link).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/360047132851"));
             }
         });
@@ -301,6 +303,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
             }
         }
     });
+    form::raise(ctx, "community_setup");
     form::put(app, "community", d.clone());
     let sub = &mut app.server.as_mut().unwrap().sub;
     if close || m.should_close() {

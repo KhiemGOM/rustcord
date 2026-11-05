@@ -72,7 +72,7 @@ pub fn bar_with(app: &mut App, ctx: &egui::Context, key: &'static str, orig: &Va
     let size = vec2(700.0, 53.0);
     let at = pos2(area.center().x - 228.0 - 20.0 + off, area.bottom() - 20.0 - size.y);
     let (mut reset, mut save) = (false, false);
-    egui::Area::new(Id::new(("server_bar", key))).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
+    let shown = egui::Area::new(Id::new(("server_bar", key))).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         let (r, _) = ui.allocate_exact_size(size, Sense::hover());
         ui.painter().rect(r, CornerRadius::same(5), Color32::from_rgb(0x11, 0x12, 0x14), Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
         ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful \u{2014} you have unsaved changes!", medium(16.0), Color32::WHITE);
@@ -94,6 +94,7 @@ pub fn bar_with(app: &mut App, ctx: &egui::Context, key: &'static str, orig: &Va
         reset = rresp.clicked();
         save = br.clicked();
     });
+    ctx.move_to_top(shown.response.layer_id);
     if reset {
         s.draft.remove(key);
         s.dirty = false;
@@ -291,4 +292,9 @@ pub fn data_uri(path: &std::path::Path) -> Option<String> {
         _ => "image/jpeg",
     };
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// Keeps a modal over the settings layer, which comes back to the top whenever it's clicked.
+pub fn raise(ctx: &egui::Context, id: &'static str) {
+    ctx.move_to_top(egui::LayerId::new(egui::Order::Foreground, Id::new(id)));
 }
