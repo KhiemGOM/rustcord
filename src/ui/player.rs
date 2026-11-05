@@ -50,8 +50,6 @@ struct Bar<'a> {
     live: bool,
 }
 
-/// The controls bar of the player in `rect` (32 high): play, time, seek bar, volume and, on
-/// video, fullscreen. `live` is false while it's faded out, so it takes no clicks.
 fn controls(ui: &mut Ui, id: Id, rect: Rect, b: &Bar, out: &mut Vec<Do>) {
     let ctx = ui.ctx().clone();
     let (s, v) = (b.s, b.v);
@@ -119,7 +117,6 @@ fn controls(ui: &mut Ui, id: Id, rect: Rect, b: &Bar, out: &mut Vec<Do>) {
     }
 }
 
-/// The vertical slider above the volume button while the pointer is on either.
 fn volume_popup(ui: &mut Ui, id: Id, btn: Rect, live: bool, out: &mut Vec<Do>) {
     let ctx = ui.ctx().clone();
     let pid = id.with("volpop");
@@ -198,14 +195,11 @@ fn key_actions(ui: &mut Ui, s: &Session, v: &View, key: &str, out: &mut Vec<Do>)
     });
 }
 
-/// The widget with keyboard focus if it's the player `id` or one of its buttons: a click on the
-/// seek bar or the volume leaves the keys with the player, as in Discord.
 fn focused(ctx: &Context, id: Id) -> Option<Id> {
     let f = ctx.memory(|m| m.focused())?;
     [id, id.with("play"), id.with("seek"), id.with("vol"), id.with("fs")].contains(&f).then_some(f)
 }
 
-/// A press on the player gives it the keys, whichever of its buttons took the click.
 fn take_focus(ui: &Ui, id: Id, hovered: bool) {
     if hovered && ui.input(|i| i.pointer.any_pressed() || i.pointer.any_click()) {
         ui.memory_mut(|m| m.request_focus(id));
@@ -234,7 +228,6 @@ fn center_button(ui: &mut Ui, rect: Rect, hot: bool, spinner: bool) {
     }
 }
 
-/// A video attachment in `size`, with `poster` (Discord's still of its first frame) until it plays.
 pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &mut Vec<Do>) -> Rect {
     let ctx = ui.ctx().clone();
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
@@ -336,7 +329,6 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
     rect
 }
 
-/// Discord's audio card: the file's name and size over a controls bar.
 pub fn audio(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
     let ctx = ui.ctx().clone();
     let w = ui.available_width().min(432.0);
@@ -415,7 +407,6 @@ pub fn audio(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
     rect
 }
 
-/// The full-window video: letterboxed picture, the controls fading after a second.
 pub fn overlay(app: &mut App, ctx: &Context) {
     let Some(key) = app.media_fs.clone() else { return };
     let Some(s) = media::current(&key) else { return leave(app, ctx) };

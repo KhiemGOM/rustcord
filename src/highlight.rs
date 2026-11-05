@@ -84,7 +84,6 @@ struct Colors {
     attr: Color32,
 }
 
-/// `file` picks the language by extension unless `forced` names one.
 pub fn job(file: &str, forced: Option<&str>, text: &str, font: FontId, base: Color32, comment: Color32, wrap: f32) -> LayoutJob {
     let l = forced.and_then(|f| LANGS.iter().find(|l| l.name == f)).unwrap_or_else(|| lang(file));
     let c = Colors {
