@@ -136,7 +136,7 @@ fn decode(bytes: &[u8]) -> Option<(Vec<f32>, usize)> {
 }
 
 /// Linear resample + channel map from the decoded clip to the device's format.
-fn resample(src: &[f32], in_ch: usize, in_rate: usize, out_rate: usize, out_ch: usize) -> Vec<f32> {
+pub(crate) fn resample(src: &[f32], in_ch: usize, in_rate: usize, out_rate: usize, out_ch: usize) -> Vec<f32> {
     let frames = src.len() / in_ch;
     if frames == 0 {
         return Vec::new();

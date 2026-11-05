@@ -222,6 +222,7 @@ impl App {
         ctx.add_image_loader(std::sync::Arc::new(crate::emoji_font::Loader::default()));
         let (net, rx) = Net::new(ctx.clone());
         crate::fonts::fetch(&net.rt, ctx.clone());
+        crate::sound::fetch(&net.rt);
         ctx.add_bytes_loader(std::sync::Arc::new(crate::imgcache::DiskLoader::new(
             cache::dir().join("img"),
             net.rt.clone(),
@@ -705,32 +706,31 @@ impl App {
         self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
     }
 
-    // join/leave chimes for people entering or leaving the call you're in, and the ring
+    // join/leave chimes for people entering or leaving the call you're in
     fn voice_cues(&self, t: &str, d: &serde_json::Value) {
-        let me = self.store.me;
-        match t {
-            "VOICE_STATE_UPDATE" => {
-                let Some(mine) = self.voice.chan else { return };
-                let uid = crate::state::sid(&d["user_id"]);
-                if uid == me {
-                    return;
-                }
-                let gid = crate::state::sid(&d["guild_id"]);
-                let was = self.store.guilds.get(&gid).and_then(|g| g.voice.get(&uid).copied()).unwrap_or(0);
-                let now = crate::state::sid(&d["channel_id"]);
-                if now == mine && was != mine {
-                    crate::sound::cue("join");
-                } else if was == mine && now != mine {
-                    crate::sound::cue("leave");
-                }
-            }
-            "CALL_CREATE" | "CALL_UPDATE" => {
-                let ringing = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| crate::state::sid(u) == me));
-                if ringing && self.voice.chan.is_none() {
-                    crate::sound::cue("ring");
-                }
-            }
-            _ => {}
+        let Some(mine) = self.voice.chan.filter(|_| t == "VOICE_STATE_UPDATE") else { return };
+        let uid = crate::state::sid(&d["user_id"]);
+        if uid == self.store.me {
+            return;
+        }
+        let gid = crate::state::sid(&d["guild_id"]);
+        let was = self.store.guilds.get(&gid).and_then(|g| g.voice.get(&uid).copied()).unwrap_or(0);
+        let now = crate::state::sid(&d["channel_id"]);
+        if now == mine && was != mine {
+            crate::sound::cue("join");
+        } else if was == mine && now != mine {
+            crate::sound::cue("leave");
+        }
+    }
+
+    fn rings(&self) {
+        let v = &self.voice;
+        if v.ringing.is_some() && v.chan.is_none() {
+            crate::sound::hold("ring");
+        } else if v.calling() {
+            crate::sound::hold("calling");
+        } else {
+            crate::sound::release();
         }
     }
 
@@ -801,7 +801,7 @@ impl App {
         });
         crate::theme::set_theme(ctx, s.theme);
         crate::theme::style(ctx);
-        crate::sound::configure(s.sounds && !(s.streamer && s.streamer_no_sounds), &s.muted_sounds);
+        crate::sound::configure(s);
         crate::hotkeys::set(&s.keybinds);
         crate::api::set_locale(&s.locale);
         self.voice.configure(s);
@@ -867,6 +867,9 @@ impl App {
         }
         let events: Vec<(String, bool)> = self.hotkey_rx.as_ref().map(|rx| rx.try_iter().collect()).unwrap_or_default();
         for (action, pressed) in events {
+            if action == "ptt" && self.settings.ptt && self.voice.chan.is_some() && !self.voice.mute {
+                crate::sound::cue(if pressed { "ptt_start" } else { "ptt_stop" });
+            }
             if !pressed {
                 continue;
             }
@@ -1522,6 +1525,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.pump(ctx);
         self.os_settings(ctx, frame);
+        self.rings();
         if self.away(ctx) {
             self.update_title(ctx);
             if let Some(mut e) = self.e2e.take() {
