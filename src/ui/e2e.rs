@@ -1518,7 +1518,7 @@ impl Run {
                 self.next(300);
             }
             120 => {
-                let label = if app.rects.contains_key("settings:Streamer Mode") { "Streamer Mode" } else { "Appearance" };
+                let label = if app.settings_page == Some(crate::ui::settings::Page::Appearance) { "Streamer Mode" } else { "Appearance" };
                 if self.open_page(app, label) && label == "Streamer Mode" {
                     self.next(800);
                 }
