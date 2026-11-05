@@ -2425,9 +2425,28 @@ impl Run {
                 self.step = 327;
                 self.wait = Instant::now() + Duration::from_millis(200);
             }
+            // the server settings pages, against the mock only: the scripted run edits its role 1100
+            380 => {
+                if app.server.is_none() {
+                    app.open_server_settings(self.target.0);
+                }
+                match super::server::probe(app, self.sub) {
+                    super::server::Probe::Wait => {}
+                    super::server::Probe::Shot(name) => {
+                        self.shot(ctx, name);
+                        self.sub += 1;
+                        self.step_at = Instant::now();
+                    }
+                    super::server::Probe::Done => {
+                        self.mark("server_pages");
+                        app.server = None;
+                        self.step = 99;
+                    }
+                }
+            }
             329 => {
                 self.key(Key::Escape);
-                self.step = 99;
+                self.step = if std::env::var_os("RUSTCORD_TOUR_SERVER").is_some() { 380 } else { 99 };
             }
             _ => self.step = 99,
         }
