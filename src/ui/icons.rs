@@ -153,6 +153,12 @@ pub enum Icon {
     SideApps,
     SideDev,
     SideLogout,
+    Pause,
+    Volume,
+    VolumeOff,
+    Expand,
+    ExpandExit,
+    Code,
 }
 
 macro_rules! svg {
@@ -305,6 +311,12 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::SideApps => svg!("s_apps"),
         Icon::SideDev => svg!("s_dev"),
         Icon::SideLogout => svg!("s_logout"),
+        Icon::Pause => svg!("pause"),
+        Icon::Volume => svg!("volume"),
+        Icon::VolumeOff => svg!("volume_off"),
+        Icon::Expand => svg!("expand"),
+        Icon::ExpandExit => svg!("expand_exit"),
+        Icon::Code => svg!("code"),
         Icon::Minimize | Icon::Maximize | Icon::Restore => return None,
     })
 }

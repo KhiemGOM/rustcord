@@ -48,6 +48,7 @@ enum Act {
     Vote(Id, Vec<u8>),
     // play/pause an audio attachment (voice message, soundboard) by its url
     PlayAudio(String),
+    Player(super::player::Do),
     // a custom emoji clicked: its id, name, whether animated, and where
     Emoji(Id, String, bool, Pos2),
     EditChannel,
@@ -75,6 +76,22 @@ struct D<'a> {
     // the message keyboard focus is on, ringed and kept in view
     focus: Option<Id>,
     bookmarks: &'a Set<Id>,
+}
+
+impl D<'_> {
+    fn card(&mut self, name: &str, ui: &Ui, r: Rect) {
+        if ui.clip_rect().contains(r.center()) {
+            self.rects.push((format!("{name}:{}", self.ch), r.intersect(ui.clip_rect())));
+        }
+    }
+
+    fn player(&mut self, outs: Vec<super::player::Do>) {
+        use super::player::Do;
+        self.acts.extend(outs.into_iter().map(|o| match o {
+            Do::Save(u) => Act::Save(u),
+            o => Act::Player(o),
+        }));
+    }
 }
 
 fn normal(kind: u8) -> bool {
@@ -739,6 +756,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::ClearEmbeds(id) => app.clear_embeds(ch, id, !shift),
             Act::Vote(id, picks) => app.vote(ch, id, picks),
             Act::PlayAudio(url) => app.play_audio(url),
+            Act::Player(d) => super::player::apply(app, ui.ctx(), d),
             Act::EditChannel => app.open_chan_settings(ch),
             Act::Emoji(id, name, animated, at) => app.emoji_pop = Some((id, name, animated, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
@@ -1121,9 +1139,26 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 if r.clicked() {
                     d.acts.push(Act::View(a.proxy.clone(), a.url.clone(), a.w, a.h));
                 }
+            } else if a.is_video() {
+                let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
+                let sep = if a.proxy.contains('?') { '&' } else { '?' };
+                let poster = format!("{}{sep}format=webp&width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
+                let mut outs = Vec::new();
+                let r = super::player::video(&mut cui, a, vec2(w, h), &poster, &mut outs);
+                d.card("player_video", &cui, r);
+                d.player(outs);
+            } else if a.is_audio() && (m.flags & (1 << 13) != 0 || !a.waveform.is_empty()) {
+                audio_card(&mut cui, d, a);
             } else if a.is_audio() {
-                let voice = m.flags & (1 << 13) != 0 || !a.waveform.is_empty();
-                audio_card(&mut cui, d, a, voice);
+                let mut outs = Vec::new();
+                let r = super::player::audio(&mut cui, a, &mut outs);
+                d.card("player_audio", &cui, r);
+                d.player(outs);
+            } else if a.is_text() {
+                let mut outs = Vec::new();
+                let r = super::textfile::card(&mut cui, a, &mut outs);
+                d.card("player_text", &cui, r);
+                d.player(outs);
             } else if file_card(&mut cui, &a.filename, a.size).clicked() {
                 d.acts.push(Act::Url(a.url.clone()));
             }
@@ -1721,11 +1756,11 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
     resp
 }
 
-/// Discord's audio / voice-message player: a pill with a play-pause button, the amplitude
-/// waveform (or a flat track for plain audio) that fills as it plays, and the running time.
-fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment, voice: bool) {
-    let w = ui.available_width().min(if voice { 340.0 } else { 420.0 });
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
+/// Discord's voice-message player: a pill with a play-pause button, the amplitude waveform
+/// that fills as it plays, and the running time.
+fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment) {
+    let w = ui.available_width().min(340.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::same(8), Color32::from_rgba_unmultiplied(151, 151, 159, 31));
     // play / pause button
     let btn = Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(32.0, 32.0));
@@ -1743,7 +1778,7 @@ fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment, voice: bool)
     // the waveform / track
     let bar = Rect::from_min_max(pos2(btn.right() + 10.0, rect.top() + 14.0), pos2(rect.right() - 54.0, rect.bottom() - 14.0));
     let bars = decode_waveform(&a.waveform);
-    if voice && !bars.is_empty() {
+    if !bars.is_empty() {
         let n = bars.len();
         let step = bar.width() / n as f32;
         for (i, amp) in bars.iter().enumerate() {
@@ -1765,7 +1800,7 @@ fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment, voice: bool)
     if pr.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if pr.clicked() || (resp.clicked() && !voice) {
+    if pr.clicked() {
         // ogg/opus plays inline; anything else (an mp3 upload) opens in the browser
         d.acts.push(if a.playable() { Act::PlayAudio(a.url.clone()) } else { Act::Url(a.url.clone()) });
     }
@@ -1785,7 +1820,7 @@ fn decode_waveform(b64: &str) -> Vec<f32> {
         .unwrap_or_default()
 }
 
-fn human_size(n: u64) -> String {
+pub(super) fn human_size(n: u64) -> String {
     match n {
         0..1024 => format!("{n} bytes"),
         1024..1_048_576 => format!("{:.2} KB", n as f64 / 1024.0),
@@ -1825,11 +1860,26 @@ fn link_only(m: &Message) -> bool {
     m.embeds.iter().any(|e| matches!(e.kind.as_str(), "image" | "gifv") && e.url.as_deref() == Some(c))
 }
 
+fn is_video_file(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
+    [".mp4", ".m4v", ".mov", ".webm"].iter().any(|e| path.ends_with(e))
+}
+
 fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) -> Option<Rect> {
     let bare = e.title.is_none() && e.desc.is_none() && e.author.is_none() && e.fields.is_empty();
     let media_ok = d.s.inline_links;
     // gifv is always just the looping clip, whatever title the provider gave it
     let gifv = e.kind == "gifv";
+    if let Some(v) = e.video.as_ref().filter(|v| e.kind == "video" && bare && media_ok && is_video_file(&v.url)) {
+        let name = v.url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("video.mp4").to_string();
+        let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new() };
+        let (w, h) = fit(v.w, v.h, 400.0, 300.0, ui.available_width());
+        let poster = e.thumb.as_ref().map_or(v.url.as_str(), |t| t.url.as_str());
+        let mut outs = Vec::new();
+        let rect = super::player::video(ui, &a, vec2(w, h), poster, &mut outs);
+        d.player(outs);
+        return Some(rect);
+    }
     if gifv || (bare && e.kind == "image") {
         if !media_ok {
             return None;
