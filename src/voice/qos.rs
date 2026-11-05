@@ -21,10 +21,10 @@ impl Drop for Qos {
 pub fn mark(udp: &UdpSocket) -> Option<Qos> {
     unsafe {
         let mut h = HANDLE::default();
-        QOSCreateHandle(&QOS_VERSION { MajorVersion: 1, MinorVersion: 0 }, &mut h).ok()?;
+        QOSCreateHandle(&QOS_VERSION { MajorVersion: 1, MinorVersion: 0 }, &mut h).as_bool().then_some(())?;
         let q = Qos(h.0 as usize);
         let mut flow = 0u32;
-        QOSAddSocketToFlow(h, SOCKET(udp.as_raw_socket() as usize), None, QOSTrafficTypeVoice, Some(QOS_NON_ADAPTIVE_FLOW), &mut flow).ok()?;
+        QOSAddSocketToFlow(h, SOCKET(udp.as_raw_socket() as usize), None, QOSTrafficTypeVoice, Some(QOS_NON_ADAPTIVE_FLOW), &mut flow).as_bool().then_some(())?;
         Some(q)
     }
 }
