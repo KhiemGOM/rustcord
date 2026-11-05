@@ -2,6 +2,7 @@ use egui::{Align2, Color32, CornerRadius, Frame, Rect, Sense, Ui, pos2, vec2};
 
 use super::{App, avatar, badge, channel_title, icon_button, status_dot};
 use super::icons::{self, Icon};
+use super::menus::{ChanAct, GuildAct, Move, channel_menu, guild_menu};
 use super::text;
 use crate::state::{Channel, Id, Status, Store};
 use crate::theme::*;
@@ -119,11 +120,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     // anything else that's boosted gets discord's grey flower with the gem in it
     let boosted = app.store.guilds.get(&gid).filter(|g| badge.is_none() && (g.tier > 0 || g.boosts > 0)).map(|g| g.tier);
     let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.perms(c) & crate::state::CREATE_INVITE != 0);
-    let perms = app.store.my_perms(gid);
     let dev = app.settings.dev;
-    let owner = app.store.guilds.get(&gid).is_some_and(|g| g.owner == app.store.me);
-    let hide = app.store.hide_muted.contains(&gid);
-    let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
     let mut invite = false;
     let mut act = None;
     // a boosted server's banner sits behind the header and scrolls away with the list
@@ -187,7 +184,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         app.rects.insert("guildmenu".into(), btn);
         egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).close_behavior(super::menu_closing(ui.ctx())).show(|ui| {
-            super::menu_body(ui, |ui| act = guild_menu(ui, gid, perms, can_invite, owner, hide, dev, community));
+            super::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, can_invite, dev));
         });
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -207,6 +204,12 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         Some(GuildAct::Invite) => invite = true,
         Some(GuildAct::Notifs) => app.guild_notifs = Some(gid),
         Some(GuildAct::HideMuted) => toggle_hide_muted(app, gid),
+        Some(GuildAct::ShowAll) => show_all_channels(app, gid),
+        Some(GuildAct::Tag) => app.guild_modal = Some(super::guildmodal::Modal::Tag(gid)),
+        Some(GuildAct::Privacy) => app.guild_modal = Some(super::guildmodal::Modal::Privacy(gid)),
+        Some(GuildAct::Profile) => app.edit_server_profile(gid),
+        Some(GuildAct::Security) => app.guild_modal = Some(super::guildmodal::Modal::Security { gid, invites: false, dms: false }),
+        Some(GuildAct::Raid) => app.guild_modal = Some(super::guildmodal::Modal::Raid(gid)),
         Some(GuildAct::Leave) => leave(app, gid),
         Some(GuildAct::CopyId) => ui.ctx().copy_text(gid.to_string()),
         None => {}
@@ -300,7 +303,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         menu = Some((cat.id, ChanAct::Create));
                     }
                     let unread = kids.iter().any(|k| k.is_text() && store.unread(k));
-                    channel_menu(&r, store, cat, unread, collapsed, dev, &mut menu);
+                    channel_menu(&r, store, cat, unread, collapsed, dev, false, &mut menu);
                 }
                 for c in kids {
                     let selected = cur == Some(c.id);
@@ -355,7 +358,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     if r.clicked() {
                         open = Some(c.id);
                     }
-                    channel_menu(&r, store, c, unread, false, dev, &mut menu);
+                    channel_menu(&r, store, c, unread, false, dev, app.settings.hide_names.contains(&c.id), &mut menu);
                     let kids: Vec<&&Channel> = threads.iter().filter(|t| t.parent == c.id).collect();
                     let n = kids.len();
                     for (i, t) in kids.into_iter().enumerate() {
@@ -364,7 +367,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         if r.clicked() {
                             open = Some(t.id);
                         }
-                        channel_menu(&r, store, t, store.unread(t), false, dev, &mut menu);
+                        channel_menu(&r, store, t, store.unread(t), false, dev, false, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
                         voice_users(ui, store, &app.voice, gid, c.id);
@@ -399,8 +402,35 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             }
         }
         Some((c, ChanAct::Create)) => {
-            let parent = app.store.channels.get(&c).map(|x| if x.kind == 4 { x.id } else { x.parent }).filter(|p| *p != 0);
-            app.create = Some(super::create::Form::new(super::create::Kind::Channel, gid, parent));
+            let x = app.store.channels.get(&c);
+            let parent = x.map(|x| if x.kind == 4 { x.id } else { x.parent }).filter(|p| *p != 0);
+            let voice = x.is_some_and(|x| x.is_voice());
+            let mut f = super::create::Form::new(super::create::Kind::Channel, gid, parent);
+            if voice {
+                f.chan = 2;
+            }
+            app.create = Some(f);
+        }
+        Some((c, ChanAct::Pin)) => {
+            let on = app.store.chan_flags.get(&c).is_none_or(|f| f & super::PINNED == 0);
+            app.chan_flag(c, super::PINNED, on);
+        }
+        Some((c, ChanAct::HideNames)) => {
+            if let Some(i) = app.settings.hide_names.iter().position(|x| *x == c) {
+                app.settings.hide_names.remove(i);
+            } else {
+                app.settings.hide_names.push(c);
+            }
+            app.save_settings(ui.ctx());
+        }
+        Some((c, ChanAct::Chat)) => open_chat = Some(c),
+        Some((c, ChanAct::Move(m))) => {
+            let at = app.store.channels.get(&c).map(|x| x.parent).unwrap_or(0);
+            match m {
+                Move::Category(p) => super::reorder::move_to(app, c, p, None),
+                Move::First => super::reorder::move_to(app, c, at, Some(0)),
+                Move::Last => super::reorder::move_to(app, c, at, None),
+            }
         }
         Some((c, ChanAct::Collapse)) => toggle = Some(c),
         Some((_, ChanAct::CollapseAll)) => {
@@ -442,20 +472,20 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     }
 }
 
-enum ChanAct {
-    Read,
-    Mute(bool, Option<i64>),
-    Level(Option<u8>),
-    Invite,
-    Link,
-    CopyId,
-    Edit,
-    Delete,
-    Duplicate,
-    // a category's plus, or Create Text Channel on a channel: the create modal in that category
-    Create,
-    Collapse,
-    CollapseAll,
+/// Out of onboarding's pick-your-channels list, or back into it; the unread bits of the
+/// server's flags stay as they were.
+fn show_all_channels(app: &mut App, gid: Id) {
+    let opt_in = !app.store.opt_in.remove(&gid);
+    let unreads = match app.store.unreads.get(&gid) {
+        Some(true) => 2048,
+        Some(false) => 4096,
+        None => 0,
+    };
+    let flags = unreads | if opt_in { 1u64 << 14 } else { 0 };
+    if opt_in {
+        app.store.opt_in.insert(gid);
+    }
+    app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(serde_json::json!({ "flags": flags })), crate::net::Tag::Quiet);
 }
 
 pub fn toggle_hide_muted(app: &mut App, gid: Id) {
@@ -486,177 +516,6 @@ pub fn leave(app: &mut App, gid: Id) {
     app.confirm = Some(super::Confirm::new(format!("Leave '{name}'"), body, "Leave Server", move |app: &mut App| {
         app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": false })), crate::net::Tag::Quiet);
         app.select_guild(None);
-    }));
-}
-
-enum GuildAct {
-    Web(String),
-    Boosts,
-    Settings,
-    Create(super::create::Kind),
-    Threads,
-    Directory,
-    Invite,
-    Notifs,
-    HideMuted,
-    Leave,
-    CopyId,
-}
-
-/// The menu under the server name. What we don't do here ourselves opens discord in the browser.
-#[allow(clippy::too_many_arguments)]
-fn guild_menu(ui: &mut Ui, gid: Id, perms: u64, can_invite: bool, owner: bool, hide: bool, dev: bool, community: bool) -> Option<GuildAct> {
-    use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, VIEW_GUILD_INSIGHTS};
-    use super::{Trail, menu_item, menu_row, menu_sep};
-    let web = || Some(GuildAct::Web(format!("https://discord.com/channels/{gid}")));
-    let mut act = None;
-    if menu_item(ui, Some(Icon::Gem), "Server Boost", false) {
-        act = Some(GuildAct::Boosts);
-    }
-    menu_sep(ui);
-    if can_invite && menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
-        act = Some(GuildAct::Invite);
-    }
-    if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Gear), "Server Settings", false) {
-        act = Some(GuildAct::Settings);
-    }
-    // discord keeps insights to community servers
-    if community && perms & VIEW_GUILD_INSIGHTS != 0 && menu_item(ui, Some(Icon::Insights), "Server Insights", false) {
-        act = web();
-    }
-    if perms & MANAGE_CHANNELS != 0 {
-        if menu_item(ui, Some(Icon::CirclePlus), "Create Channel", false) {
-            act = Some(GuildAct::Create(super::create::Kind::Channel));
-        }
-        if menu_item(ui, Some(Icon::FolderPlus), "Create Category", false) {
-            act = Some(GuildAct::Create(super::create::Kind::Category));
-        }
-    }
-    if perms & MANAGE_EVENTS != 0 && menu_item(ui, Some(Icon::CalendarPlus), "Create Event", false) {
-        act = Some(GuildAct::Create(super::create::Kind::Event));
-    }
-    if menu_item(ui, Some(Icon::Bubble), "Active Threads", false) {
-        act = Some(GuildAct::Threads);
-    }
-    if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Apps), "App Directory", false) {
-        act = Some(GuildAct::Directory);
-    }
-    menu_sep(ui);
-    if menu_item(ui, Some(Icon::Bell), "Notification Settings", false) {
-        act = Some(GuildAct::Notifs);
-    }
-    if menu_item(ui, Some(Icon::Shield), "Privacy Settings", false) {
-        act = web();
-    }
-    menu_sep(ui);
-    if menu_item(ui, Some(Icon::Pencil), "Edit Per-server Profile", false) {
-        act = web();
-    }
-    if menu_row(ui, Some(Icon::EyeOff), "Hide Muted Channels", None, false, Trail::Check(hide)).clicked() {
-        act = Some(GuildAct::HideMuted);
-    }
-    if perms & MANAGE_GUILD != 0 || !owner {
-        menu_sep(ui);
-    }
-    if perms & MANAGE_GUILD != 0 {
-        if menu_item(ui, Some(Icon::Lock), "Security Actions", true) {
-            act = web();
-        }
-        if menu_item(ui, Some(Icon::Shield), "Report Raid", true) {
-            act = web();
-        }
-    }
-    if !owner {
-        if menu_item(ui, Some(Icon::Leave), "Leave Server", true) {
-            act = Some(GuildAct::Leave);
-        }
-    }
-    if dev {
-        menu_sep(ui);
-        if menu_item(ui, Some(Icon::Id), "Copy Server ID", false) {
-            act = Some(GuildAct::CopyId);
-        }
-    }
-    act
-}
-
-/// Discord's right-click menu for a channel, thread or category. Editing them is left to discord.
-fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, collapsed: bool, dev: bool, out: &mut Option<(Id, ChanAct)>) {
-    use super::{LEVELS, Trail, menu_item, menu_row, menu_sep};
-    let cat = c.kind == 4;
-    let what = if cat { "Category" } else if c.is_thread() { "Thread" } else { "Channel" };
-    let perms = store.perms(c);
-    egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
-        let mut act = None;
-        if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
-            act = Some(ChanAct::Read);
-        }
-        menu_sep(ui);
-        if cat {
-            if menu_row(ui, None, "Collapse Category", None, false, Trail::Check(collapsed)).clicked() {
-                act = Some(ChanAct::Collapse);
-            }
-            if menu_item(ui, None, "Collapse All Categories", false) {
-                act = Some(ChanAct::CollapseAll);
-            }
-        } else {
-            if !c.is_thread() && perms & crate::state::CREATE_INVITE != 0 && menu_item(ui, None, "Invite to Channel", false) {
-                act = Some(ChanAct::Invite);
-            }
-            if menu_item(ui, None, "Copy Link", false) {
-                act = Some(ChanAct::Link);
-            }
-        }
-        menu_sep(ui);
-        if store.muted.contains(&c.id) {
-            if menu_item(ui, None, &format!("Unmute {what}"), false) {
-                act = Some(ChanAct::Mute(false, None));
-            }
-        } else {
-            let m = menu_row(ui, None, &format!("Mute {what}"), None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
-                if let Some(secs) = super::mute_menu(ui) {
-                    act = Some(ChanAct::Mute(true, secs));
-                }
-            });
-        }
-        let level = store.levels.get(&c.id).copied();
-        let inherited = store.inherited_level(c);
-        let n = menu_row(ui, None, "Notification Settings", Some(LEVELS[level.unwrap_or(inherited).min(2) as usize]), false, Trail::Caret);
-        egui::containers::menu::SubMenu::new().show(ui, &n, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            let default = if c.parent != 0 && !c.is_thread() { "Use Category Default" } else { "Use Server Default" };
-            if let Some(l) = super::level_menu(ui, level, inherited, default) {
-                act = Some(ChanAct::Level(l));
-            }
-        });
-        if perms & crate::state::MANAGE_CHANNELS != 0 && !c.is_thread() {
-            menu_sep(ui);
-            let edits: &[(&str, bool)] = if cat {
-                &[("Edit Category", false), ("Delete Category", true)]
-            } else {
-                &[("Edit Channel", false), ("Duplicate Channel", false), ("Create Text Channel", false), ("Delete Channel", true)]
-            };
-            for (label, danger) in edits {
-                if menu_item(ui, None, label, *danger) {
-                    act = Some(match *label {
-                        "Create Text Channel" => ChanAct::Create,
-                        "Duplicate Channel" => ChanAct::Duplicate,
-                        "Delete Channel" | "Delete Category" => ChanAct::Delete,
-                        _ => ChanAct::Edit,
-                    });
-                }
-            }
-        }
-        if dev {
-            menu_sep(ui);
-            if menu_item(ui, Some(Icon::Id), &format!("Copy {what} ID"), false) {
-                act = Some(ChanAct::CopyId);
-            }
-        }
-        if let Some(a) = act {
-            *out = Some((c.id, a));
-        }
     }));
 }
 

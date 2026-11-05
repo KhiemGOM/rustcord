@@ -9,16 +9,21 @@ mod create;
 mod directory;
 mod e2e;
 mod events;
+mod folders;
 mod forum;
+mod guildmodal;
 mod friends;
 pub mod icons;
 mod keys;
 mod login;
 mod members;
 mod palette;
+mod newserver;
+mod menus;
 mod picker;
 mod popups;
 mod rail;
+mod reorder;
 mod channel;
 mod community;
 mod server;
@@ -42,6 +47,9 @@ use crate::theme::*;
 
 /// Discord's zoom levels, in percent: the accessibility slider's ticks, which ctrl+wheel and
 /// ctrl +/- step through.
+pub const OPTED: u64 = 4096;
+pub const PINNED: u64 = 2048;
+
 pub const ZOOMS: [f32; 11] = [50.0, 67.0, 75.0, 80.0, 90.0, 100.0, 110.0, 125.0, 150.0, 175.0, 200.0];
 
 pub enum Pick {
@@ -103,6 +111,9 @@ pub struct App {
     pub settings: Settings,
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
+    pub folders: folders::State,
+    pub wizard: Option<newserver::Wizard>,
+    pub guild_modal: Option<guildmodal::Modal>,
     // "invite people" from a channel row: the channel, and the code once discord made one
     pub made_invite: Option<popups::MadeInvite>,
     // a voice channel's status being written, from "Set a channel status"
@@ -283,6 +294,9 @@ impl App {
             settings: cache::settings(),
             settings_page: None,
             invite: None,
+            folders: Default::default(),
+            wizard: None,
+            guild_modal: None,
             made_invite: None,
             status_edit: None,
             share: None,
@@ -672,18 +686,39 @@ impl App {
         }
     }
 
-    /// Puts a channel on the list of a server that only lists picked channels, keeping its
-    /// unread setting, which shares the override's flags.
-    pub fn opt_in(&mut self, ch: Id) {
+    /// One bit of a channel override's flags, the rest kept: 4096 on the list of a server that
+    /// only lists picked channels, 2048 pinned to the top, 1024 and 512 the unread setting.
+    pub fn chan_flag(&mut self, ch: Id, bit: u64, on: bool) {
         let Some(g) = self.store.channels.get(&ch).map(|c| c.guild) else { return };
-        let unreads = match self.store.unreads.get(&ch) {
-            Some(true) => 1024,
-            Some(false) => 512,
-            None => 0,
-        };
-        self.store.opted.insert(ch);
-        let body = json!({ "channel_overrides": { ch.to_string(): { "flags": 4096 | unreads } } });
+        let flags = self.store.chan_flags.entry(ch).or_default();
+        if on {
+            *flags |= bit;
+        } else {
+            *flags &= !bit;
+        }
+        let flags = *flags;
+        if bit == OPTED {
+            if on {
+                self.store.opted.insert(ch);
+            } else {
+                self.store.opted.remove(&ch);
+            }
+        }
+        let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
         self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+    }
+
+    /// Edit Per-server Profile: Settings > Profiles on that server.
+    pub fn edit_server_profile(&mut self, gid: Id) {
+        self.sform.profile_tab = 1;
+        self.sform.nick_guild = Some(gid);
+        self.sform.nick_base.clear();
+        self.sform.nick.clear();
+        self.settings_page = Some(settings::Page::Profiles);
+    }
+
+    pub fn opt_in(&mut self, ch: Id) {
+        self.chan_flag(ch, OPTED, true);
     }
 
     /// A channel's notification level, as Discord's bell menu sets it; None goes back to the
@@ -1045,6 +1080,11 @@ impl App {
                             f.busy = false;
                         }
                     }
+                    Tag::NewServer => {
+                        if let Some(w) = &mut self.wizard {
+                            w.busy = false;
+                        }
+                    }
                     // an empty list rather than a spinner that never stops
                     Tag::Directory(k) => directory::loaded(self, k, serde_json::json!([])),
                     Tag::Server(k) => server::loaded(self, k, serde_json::json!([])),
@@ -1106,6 +1146,7 @@ impl App {
             Tag::Forum(f) => self.store.load_forum(f, &v),
             Tag::Boosts(g, k) => boosts::load(self, g, k, &v),
             Tag::Created => create::created(self, &v),
+            Tag::NewServer => newserver::created(self, &v),
             Tag::Directory(k) => directory::loaded(self, k, v),
             Tag::Server(k) => server::loaded(self, k, v),
             Tag::Chan(k) => channel::loaded(self, k, v),
@@ -1369,6 +1410,9 @@ impl App {
     fn overlays(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         create::show(self, &ctx);
+        folders::show(self, &ctx);
+        newserver::show(self, &ctx);
+        guildmodal::show(self, &ctx);
         active::show(self, &ctx);
         server::show(self, &ctx);
         channel::show(self, &ctx);
