@@ -211,14 +211,13 @@ pub(super) fn secondary(ui: &mut Ui, text: &str) -> egui::Response {
     resp
 }
 
-pub(super) fn muted_then_link(ui: &mut Ui, muted: &str, action: &str) -> bool {
-    let mut clicked = false;
+pub(super) fn muted_then_link(ui: &mut Ui, muted: &str, action: &str) -> egui::Response {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.label(RichText::new(muted).font(reg(14.0)).color(pal().text_muted));
-        clicked = link(ui, action).clicked();
-    });
-    clicked
+        link(ui, action)
+    })
+    .inner
 }
 
 pub(super) fn problem(ui: &mut Ui, text: &str) {
@@ -228,6 +227,7 @@ pub(super) fn problem(ui: &mut Ui, text: &str) {
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     backdrop(ui);
+    app.login.rects.clear();
     let wide = app.login.page == Page::Login && !app.login.use_token;
     let want_qr = wide;
     if want_qr != app.login.qr.on {
@@ -279,7 +279,9 @@ fn login_page(app: &mut App, ui: &mut Ui) {
                     enter = false;
                 }
                 ui.add_space(4.0);
-                if link(ui, "Forgot your password?").clicked() {
+                let r = link(ui, "Forgot your password?");
+                f.rects.insert("forgot", r.rect);
+                if r.clicked() {
                     f.go(Page::Forgot);
                     f.focus = Some("login");
                 }
@@ -298,7 +300,9 @@ fn login_page(app: &mut App, ui: &mut Ui) {
             }
             ui.add_space(8.0);
             if !f.use_token {
-                if muted_then_link(ui, "Need an account?", "Register") {
+                let r = muted_then_link(ui, "Need an account?", "Register");
+                f.rects.insert("register", r.rect);
+                if r.clicked() {
                     f.go(Page::Register);
                     f.focus = Some("email");
                 }

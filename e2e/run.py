@@ -26,6 +26,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import auth
 import look
 import polish
 import home
@@ -53,7 +54,7 @@ def free_both():
 
 
 # random ports so parallel runs (other worktrees, other agents) can't cross wires
-HTTP, WS, VOICE = free_port(), free_port(), free_both()
+HTTP, WS, VOICE, REMOTE = free_port(), free_port(), free_both(), free_port()
 BUDGET_MS = 1000
 
 
@@ -84,11 +85,13 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
         "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
+        "RUSTCORD_REMOTE_AUTH": f"ws://127.0.0.1:{REMOTE}",
         "RUSTCORD_TOKEN": "mock-token",
         "RUSTCORD_DATA": str(data_dir),
         "RUSTCORD_E2E": str(out),
     })
     env.update(extra or {})
+    env = {k: v for k, v in env.items() if v is not None}
     exe = ROOT / "target" / "release" / "rustcord.exe"
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
@@ -114,7 +117,7 @@ def main():
     log = ART / "mock_requests.jsonl"
 
     prime()
-    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE)])
+    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)])
     time.sleep(0.5)
     try:
         # real mic, speakers, desktop and webcam are all opt-in
@@ -124,6 +127,7 @@ def main():
         # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
         real_video = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_SILENT": "1", **cam}
         warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
+        signin = run_client("login", ART / "login_data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", **fake})
     finally:
         mock.kill()
 
@@ -390,13 +394,14 @@ def main():
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
+        **auth.checks(signin, reqs),
     }
-    report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
+    report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
 
     md = ["# rustcord e2e report", ""]
     md += [f"- [{'x' if ok else ' '}] {name}" for name, ok in checks.items()]
-    for name, r in (("cold", cold), ("warm", warm)):
+    for name, r in (("cold", cold), ("warm", warm), ("login", signin)):
         md += ["", f"## {name} start", "", f"- spawn -> first frame: {r.get('spawn_to_first_frame_ms')} ms"]
         md += [f"- {k}: {v} ms" for k, v in r.get("marks_ms", {}).items()]
         f = r.get("frame_cpu_ms", {})
