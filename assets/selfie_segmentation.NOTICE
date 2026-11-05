@@ -1,0 +1,7 @@
+selfie_segmentation.onnx is MediaPipe Selfie Segmentation (general model), Copyright 2019-2023 The
+MediaPipe Authors / Google LLC, converted to ONNX by
+https://huggingface.co/onnx-community/mediapipe_selfie_segmentation and licensed under the Apache
+License, Version 2.0 (selfie_segmentation.LICENSE, https://www.apache.org/licenses/LICENSE-2.0).
+
+Modified: the ir_version byte of the ONNX file was changed from 10 to 9 so the machine learning
+runtime built into Windows loads it. The weights and graph are otherwise as converted.

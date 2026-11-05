@@ -8,6 +8,7 @@ mod activity;
 mod app;
 mod apps;
 mod billing;
+pub mod camera;
 mod privacy;
 mod profiles;
 mod system;

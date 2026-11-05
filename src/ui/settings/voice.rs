@@ -112,8 +112,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Noise Suppression");
     changed |= toggle(ui, &mut app.settings.noise_suppression, "Krisp", "Removes background noise from your mic — keyboards, fans, barking dogs — before it goes out.");
 
-    section(ui, "Camera");
-    note(ui, "Rustcord uses your default camera. Turn it on from the call controls.");
+    changed |= super::camera::section(app, ui);
     section(ui, "Streaming");
     note(ui, "Go Live from the call controls to share your screen.");
     section(ui, "Sounds");
