@@ -53,24 +53,28 @@ impl Run {
                 self.next(600);
             }
             2709 => {
+                goto("Advanced");
+                self.next(900);
+            }
+            2710 => {
                 let Some(r) = Self::at(ctx, "toggle:Allow playback and usage of /tts command") else { return };
                 self.shot(ctx, "settings_notifications_advanced.png");
                 self.click(r.center());
                 self.next(500);
             }
-            2710 => {
+            2711 => {
                 if !self.open_page(app, "System") {
                     return;
                 }
                 self.next(900);
             }
-            2711 => {
+            2712 => {
                 let Some(r) = Self::at(ctx, "toggle:Enable Hardware Acceleration") else { return };
                 self.shot(ctx, "settings_system_general.png");
                 self.click(r.center());
                 self.next(400);
             }
-            2712 => {
+            2713 => {
                 if !app.settings.hw_accel {
                     self.mark("hw_accel_off");
                 }
@@ -79,23 +83,61 @@ impl Run {
                 }
                 self.next(900);
             }
-            2713 => {
+            2714 => {
                 let Some(r) = Self::at(ctx, "radio:24-hour") else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            2714 => {
+            2715 => {
                 if !self.open_page(app, "Developer") {
                     return;
                 }
                 self.next(900);
             }
-            2715 => {
+            2716 => {
                 let Some(r) = Self::at(ctx, "toggle:Developer Mode") else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            2716 => {
+            2717 => {
+                if !self.open_page(app, "System") {
+                    return;
+                }
+                self.next(900);
+            }
+            2718 => {
+                goto("Custom Keybinds");
+                self.next(700);
+            }
+            2719 => {
+                let Some(r) = Self::at(ctx, "keybind:add") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            2720 => {
+                self.shot(ctx, "settings_keybind_added.png");
+                if app.settings.keybinds.len() == 1 {
+                    self.mark("keybind_added");
+                }
+                app.settings.keybinds.clear();
+                app.sform.recording = None;
+                self.next(300);
+            }
+            2721 => {
+                if !self.open_page(app, "Notifications") {
+                    return;
+                }
+                self.next(900);
+            }
+            2722 => {
+                goto("Sounds");
+                self.next(900);
+            }
+            2723 => {
+                self.shot(ctx, "settings_notifications_sounds.png");
+                self.next(300);
+            }
+            2724 => {
                 self.mark("system_pages");
                 self.key(Key::Escape);
                 self.step = 349;
