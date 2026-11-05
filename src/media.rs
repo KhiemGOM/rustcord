@@ -727,6 +727,49 @@ mod tests {
         }
     }
 
+    fn cpu_secs() -> f64 {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+        let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut c, mut e, mut k, mut u) = (z, z, z, z);
+        unsafe { GetProcessTimes(GetCurrentProcess(), &mut c, &mut e, &mut k, &mut u) };
+        [k, u].iter().map(|t| ((t.dwHighDateTime as u64) << 32 | t.dwLowDateTime as u64) as f64 / 1e7).sum()
+    }
+
+    /// RUSTCORD_BENCH_CLIP=<mp4> cargo test --release --bin rustcord plays_a_clip -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn plays_a_clip_for_how_much_cpu() {
+        let Some(clip) = std::env::var_os("RUSTCORD_BENCH_CLIP") else { return };
+        unsafe { std::env::set_var("RUSTCORD_SILENT", "1") };
+        let s = Arc::new(Session::new("bench", "http://bench/clip.mp4", 0));
+        std::fs::create_dir_all(s.file.parent().unwrap()).unwrap();
+        std::fs::copy(clip, &s.file).unwrap();
+        let ctx = egui::Context::default();
+        let started = s.clone();
+        std::thread::spawn(move || start(started, true, 0.0));
+        let tick = |secs: f64| {
+            let (t, up, cpu) = (Instant::now(), uploads(), cpu_secs());
+            while t.elapsed().as_secs_f64() < secs {
+                s.frame(&ctx);
+                std::thread::sleep(Duration::from_millis(16));
+            }
+            let w = t.elapsed().as_secs_f64();
+            ((uploads() - up) as f64 / w, (cpu_secs() - cpu) / w * 100.0)
+        };
+        while !matches!(s.view().phase, Phase::Ready) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let info = s.view().info;
+        let (fps, cpu) = tick(6.0);
+        println!("{}x{} {:.0}fps source, playing: {fps:.1} frames/s shown, {cpu:.1}% of one core", info.w, info.h, info.fps);
+        s.pause();
+        std::thread::sleep(Duration::from_millis(300));
+        let (fps, cpu) = tick(3.0);
+        println!("paused: {fps:.1} frames/s shown, {cpu:.2}% of one core");
+        assert!(fps < 0.5);
+    }
+
     #[test]
     fn audio_decodes_to_float_at_the_asked_rate() {
         unsafe {
