@@ -47,6 +47,51 @@ struct World {
     gone: Vec<String>,
     speakers: std::collections::HashSet<u64>,
     hands: std::collections::HashMap<u64, String>,
+    // running activities: channel, application, launch id, who has it open
+    acts: Vec<(u64, u64, String, Vec<u64>)>,
+    // applications the account has authorized
+    authorized: std::collections::HashSet<u64>,
+}
+
+const ACTIVITY_APPS: [(u64, &str, &str); 2] = [(9100, "Mock Quiz", "A quiz for the whole call"), (9101, "Mock Draw", "Draw something together")];
+
+fn activity_guild(ch: u64) -> Option<u64> {
+    match ch {
+        2801 => Some(1008),
+        2310 => Some(1003),
+        _ => None,
+    }
+}
+
+/// Tells the client how an activity stands: who's in it, none when it has ended.
+fn activity_update(w: &mut World, ch: u64, app: u64) {
+    let Some((_, _, launch, users)) = w.acts.iter().find(|a| a.0 == ch && a.1 == app) else { return };
+    let participants: Vec<Value> = users.iter().map(|u| json!({ "user_id": u.to_string(), "session_id": "mock-session", "nonce": null })).collect();
+    let d = json!({
+        "application_id": app.to_string(),
+        "launch_id": launch,
+        "composite_instance_id": launch,
+        "location": { "id": ch.to_string(), "kind": "gc", "channel_id": ch.to_string(), "guild_id": activity_guild(ch).map(|g| g.to_string()) },
+        "guild_id": activity_guild(ch).map(|g| g.to_string()),
+        "participants": participants,
+    });
+    let _ = w.events.send(json!({ "t": "EMBEDDED_ACTIVITY_UPDATE_V2", "d": d }));
+}
+
+fn activity_join(w: &mut World, ch: u64, app: u64, user: u64) {
+    match w.acts.iter_mut().find(|a| a.0 == ch && a.1 == app) {
+        Some(a) => {
+            if !a.3.contains(&user) {
+                a.3.push(user);
+            }
+        }
+        None => w.acts.push((ch, app, format!("L{}", now_ms()), vec![user])),
+    }
+    activity_update(w, ch, app);
+}
+
+fn activity_page() -> Vec<u8> {
+    include_bytes!("fixtures/activity.html").to_vec()
 }
 
 fn stage_guild(ch: u64) -> Option<u64> {
@@ -943,6 +988,58 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = wl.events.send(json!({ "t": "VOICE_STATE_UPDATE", "d": vs }));
             (204, "application/json", Vec::new())
         }
+        ("GET", ["api", "v9", "activities", "shelf"]) => {
+            let apps: Vec<Value> = ACTIVITY_APPS.iter().map(|(id, name, desc)| json!({ "id": id.to_string(), "name": name, "description": desc, "icon": null, "flags": 0 })).collect();
+            let acts: Vec<Value> = ACTIVITY_APPS
+                .iter()
+                .enumerate()
+                .map(|(i, (id, ..))| json!({ "application_id": id.to_string(), "shelf_rank": i + 1, "client_platform_config": { "desktop": { "label_type": if i == 0 { 1 } else { 0 } } } }))
+                .collect();
+            ok(json!({ "activities": acts, "applications": apps, "assets": {} }))
+        }
+        ("POST", ["api", "v9", "activities", ch, app]) => {
+            let (ch, app): (u64, u64) = (ch.parse().unwrap_or(0), app.parse().unwrap_or(0));
+            activity_join(&mut w.lock().unwrap(), ch, app, ME);
+            (204, "application/json", Vec::new())
+        }
+        ("POST", ["api", "v9", "applications", app, "activities", ch, "instances", _, "leave"]) => {
+            let (ch, app): (u64, u64) = (ch.parse().unwrap_or(0), app.parse().unwrap_or(0));
+            let mut wl = w.lock().unwrap();
+            if let Some(a) = wl.acts.iter_mut().find(|a| a.0 == ch && a.1 == app) {
+                a.3.retain(|u| *u != ME);
+            }
+            activity_update(&mut wl, ch, app);
+            wl.acts.retain(|a| !a.3.is_empty());
+            (204, "application/json", Vec::new())
+        }
+        ("POST", ["api", "v9", "applications", _, "proxy-tickets"]) => ok(json!({ "ticket": "mock-ticket" })),
+        ("GET", ["api", "v9", "oauth2", "authorize"]) => {
+            let app: u64 = query(path, "client_id").unwrap_or(0);
+            let (name, _) = ACTIVITY_APPS.iter().find(|a| a.0 == app).map(|a| (a.1, a.2)).unwrap_or(("Unknown", ""));
+            let done = w.lock().unwrap().authorized.contains(&app);
+            ok(json!({ "application": { "id": app.to_string(), "name": name, "icon": null }, "authorized": done, "user": user(ME) }))
+        }
+        ("POST", ["api", "v9", "oauth2", "authorize"]) => {
+            let app: u64 = query(path, "client_id").unwrap_or(0);
+            let state = path.split(['?', '&']).find_map(|p| p.strip_prefix("state=")).unwrap_or("");
+            w.lock().unwrap().authorized.insert(app);
+            ok(json!({ "location": format!("https://127.0.0.1/activity-redirect?code=mock-code&state={state}") }))
+        }
+        ("GET", ["api", "v9", "oauth2", "@me"]) => {
+            ok(json!({ "application": { "id": "9100", "name": "Mock Quiz" }, "user": user(ME), "scopes": ["identify", "guilds"], "expires": iso(now_ms() + 3_600_000) }))
+        }
+        ("POST", ["api", "v9", "mock", "activity", "token"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["code"] == "mock-code" { ok(json!({ "access_token": "mock-access-token" })) } else { (400, "application/json", b"{}".to_vec()) }
+        }
+        ("POST", ["api", "v9", "mock", "activity", "join"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let n = |k: &str| b[k].as_u64().unwrap_or(0);
+            activity_join(&mut w.lock().unwrap(), n("channel"), n("app"), n("user"));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
+        ("GET", ["activity", _]) => (200, "text/html", activity_page()),
         ("POST", ["api", "v9", "stage-instances"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let ch: u64 = b["channel_id"].as_str().and_then(|c| c.parse().ok()).unwrap_or(0);
@@ -1029,6 +1126,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id": "9001", "name": "Factorio", "icon": "appicon9001" },
             { "id": "9002", "name": "Wordle", "icon": "appicon9002" },
             { "id": "9004", "name": "Genshin Impact", "icon": "appicon9004" },
+            { "id": "9100", "name": "Mock Quiz", "icon": null, "description": "A quiz for the whole call" },
+            { "id": "9101", "name": "Mock Draw", "icon": null, "description": "Draw something together" },
         ])),
         ("GET", ["api", "v9", "oauth2", "tokens"]) => ok(json!([
             { "id": "77", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } },
@@ -1206,7 +1305,7 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale, "auth": header("authorization") });
             let _ = writeln!(wl.log, "{line}");
         }
         let (code, ctype, out) = route(&w, &method, &path, &body).await;
@@ -1867,6 +1966,8 @@ async fn main() {
         gone: Vec::new(),
         speakers: Default::default(),
         hands: Default::default(),
+        acts: Vec::new(),
+        authorized: Default::default(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");

@@ -56,6 +56,15 @@ fn corner(ui: &mut Ui, id: &'static str, right: f32, cy: f32, icon: Icon, tip: &
     resp.on_hover_text(tip)
 }
 
+pub fn toggle_soundboard(app: &mut App, guild: Id) {
+    app.soundboard = if app.soundboard.is_some() {
+        None
+    } else {
+        app.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
+        Some((guild, None))
+    };
+}
+
 pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) {
     let inside = app.voice.chan == Some(ch);
     let room = join_text != "Join Call";
@@ -137,12 +146,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         glyph(ui, &b, Icon::Soundboard, open, Color32::WHITE);
         app.rects.insert("voice:soundboard".into(), b.rect);
         if b.on_hover_text("Open Soundboard").clicked() {
-            app.soundboard = if open {
-                None
-            } else {
-                app.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
-                Some((guild, None))
-            };
+            toggle_soundboard(app, guild);
         }
         at += 48.0;
     }

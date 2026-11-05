@@ -84,7 +84,7 @@ pub struct Socket {
     origin: String,
     open: bool,
     authing: bool,
-    pub authed: bool,
+    authed: bool,
     scopes: HashSet<String>,
     subs: Vec<(String, Value)>,
     sent: std::collections::HashMap<String, Value>,
@@ -318,6 +318,14 @@ impl Socket {
 
     pub fn answer(&self, cmd: &str, nonce: &str, data: Value) -> Value {
         frame(cmd, data, nonce)
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn is_authed(&self) -> bool {
+        self.authed
     }
 
     pub fn wants_view(&self) -> bool {

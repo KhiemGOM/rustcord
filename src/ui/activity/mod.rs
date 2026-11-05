@@ -76,6 +76,7 @@ pub struct Activity {
     link: Option<String>,
     pub surface: isize,
     pub placed: bool,
+    after_join: Option<(Id, Id)>,
 }
 
 fn origin_template() -> String {
@@ -117,6 +118,14 @@ pub fn user_json(app: &App, u: Id) -> Value {
 impl Activity {
     pub fn runs_in(&self, ch: Id) -> bool {
         self.run.as_ref().is_some_and(|r| r.channel == ch)
+    }
+
+    pub fn ready(&self) -> bool {
+        self.run.as_ref().is_some_and(|r| r.sock.is_open())
+    }
+
+    pub fn authed(&self) -> bool {
+        self.run.as_ref().is_some_and(|r| r.sock.is_authed())
     }
 
     pub fn busy(&self) -> bool {
@@ -188,6 +197,15 @@ pub fn launch(app: &mut App, id: Id) {
     app.activity.starting = Some(Start { app: id, channel: ch, at: Instant::now(), instance: None, ticket: None });
     fetch_apps(app, [id]);
     app.rest("POST", format!("/activities/{ch}/{id}"), Some(body), Tag::Activity("launch".into()));
+}
+
+/// Join from the channel list: straight in when we're in that call, else the call first.
+pub fn join_from_list(app: &mut App, ch: Id, id: Id) {
+    if app.voice.chan == Some(ch) {
+        return launch(app, id);
+    }
+    app.join_voice(ch, true);
+    app.activity.after_join = Some((ch, id));
 }
 
 pub fn leave(app: &mut App) {
@@ -482,6 +500,17 @@ pub fn logic(app: &mut App, ctx: &Context) {
         r.host.place(0, [0, 0, 0, 0], false);
     }
     app.activity.placed = false;
+    if !app.store.embedded.is_empty() {
+        let unknown: Vec<Id> = app.store.embedded.values().flatten().map(|i| i.app).filter(|a| !app.activity.apps.contains_key(a)).collect();
+        fetch_apps(app, unknown);
+    }
+    if let Some((ch, id)) = app.activity.after_join
+        && app.voice.chan == Some(ch)
+        && app.voice.state == crate::voice::State::Connected
+    {
+        app.activity.after_join = None;
+        launch(app, id);
+    }
     starting(app, ctx);
     let Some(run) = &app.activity.run else { return };
     let msgs = run.host.poll();

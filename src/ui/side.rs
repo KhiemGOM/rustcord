@@ -232,6 +232,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut boost_page = false;
     let mut events_page = false;
     let mut open_chat: Option<Id> = None;
+    let mut join_act: Option<(Id, Id)> = None;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
     let open_page = if app.boosts == Some(gid) {
@@ -366,8 +367,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         }
                         channel_menu(&r, store, t, store.unread(t), false, dev, &mut menu);
                     }
-                    if c.is_voice() && !collapsed {
-                        voice_users(ui, store, &app.voice, gid, c.id);
+                    if c.is_voice() && !collapsed
+                        && let Some(a) = voice_users(ui, store, &app.voice, &app.activity, gid, c.id)
+                    {
+                        join_act = Some((c.id, a));
                     }
                 }
             }
@@ -428,6 +431,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some(c) = make_invite {
         app.invite_people(c);
+    }
+    if let Some((c, a)) = join_act {
+        super::activity::join_from_list(app, c, a);
     }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
@@ -1014,8 +1020,8 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     (resp, emoji, invite, edit, set, chat)
 }
 
-fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
-    let Some(g) = store.guilds.get(&gid) else { return };
+fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, act: &super::activity::Activity, gid: Id, ch: Id) -> Option<Id> {
+    let g = store.guilds.get(&gid)?;
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
     // discord lists them by name, 32 to a row, in their own display name font and server tag
     users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
@@ -1050,6 +1056,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
         ui.painter().text(pos2(row.left() + 44.0, row.center().y), Align2::LEFT_CENTER, format!("{listeners} in audience"), reg(14.0), pal().channel_default);
     }
+    super::activity::view::list_rows(ui, store, act, ch)
 }
 
 fn dms(app: &mut App, ui: &mut Ui) {

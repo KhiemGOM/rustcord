@@ -154,3 +154,36 @@ pub fn consent(app: &mut App, ctx: &Context) {
         super::consent_answer(app, a);
     }
 }
+
+/// The activities running in a voice channel, listed under its people with a Join for each.
+pub fn list_rows(ui: &mut Ui, store: &crate::state::Store, act: &super::Activity, ch: Id) -> Option<Id> {
+    let mut joined = None;
+    for i in store.embedded.get(&ch).into_iter().flatten() {
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let info = act.info(i.app).cloned().unwrap_or_default();
+        let icon = Rect::from_center_size(pos2(row.left() + 56.0, row.center().y), vec2(20.0, 20.0));
+        ui.painter().rect_filled(icon, CornerRadius::same(5), pal().bg_mod_selected);
+        if let Some(u) = &info.icon {
+            egui::Image::from_uri(u.clone()).corner_radius(CornerRadius::same(5)).show_loading_spinner(false).paint_at(ui, icon);
+        }
+        let mine = act.runs_in(ch);
+        let b = Rect::from_center_size(pos2(row.right() - 40.0, row.center().y), vec2(52.0, 22.0));
+        let room = if mine { row.right() - icon.right() - 24.0 } else { b.left() - icon.right() - 16.0 };
+        let clip = ui.painter().with_clip_rect(Rect::from_min_max(pos2(icon.right(), row.top()), pos2(icon.right() + 8.0 + room, row.bottom())));
+        clip.text(pos2(icon.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &info.name, reg(14.0), pal().channel_default);
+        if mine {
+            continue;
+        }
+        let resp = ui.interact(b, egui::Id::new(("activity_join_row", i.app)), Sense::click());
+        ui.painter().rect_filled(b, CornerRadius::same(4), if resp.hovered() { GREEN.gamma_multiply(0.85) } else { GREEN });
+        ui.painter().text(b.center(), Align2::CENTER_CENTER, "Join", semi(12.0), Color32::WHITE);
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("activity_join_row_rect", i.app)), b));
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.on_hover_text("Join Activity").clicked() {
+            joined = Some(i.app);
+        }
+    }
+    joined
+}

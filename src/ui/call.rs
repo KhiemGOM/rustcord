@@ -67,12 +67,17 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let cam = app.voice.camera;
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let me = app.store.me;
-    let w = (r.width() - 8.0) / 2.0;
-    for i in 0..2 {
+    let guild = super::activity::guild_of(app);
+    let n = if guild != 0 { 4 } else { 3 };
+    let w = (r.width() - 8.0 * (n - 1) as f32) / n as f32;
+    for i in 0..n {
         let b = Rect::from_min_size(pos2(r.left() + i as f32 * (w + 8.0), r.bottom() - 32.0), vec2(w, 32.0));
+        let playing = app.activity.busy();
         let (on, tip, key) = match i {
             0 => (cam, if cam { "Turn Off Camera" } else { "Turn On Camera" }, "voice:panel_camera"),
-            _ => (sharing, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:panel_screen"),
+            1 => (sharing, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:panel_screen"),
+            2 => (playing, if playing { "Leave Activity" } else { "Start An Activity" }, "voice:panel_activity"),
+            _ => (app.soundboard.is_some(), "Open Soundboard", "voice:panel_soundboard"),
         };
         let resp = ui.interact(b, egui::Id::new(("voice_panel_btn", i)), Sense::click());
         let fill = match (on, resp.hovered()) {
@@ -87,7 +92,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         let icon = match (i, on) {
             (0, false) => Icon::VideoSlash,
             (0, true) => Icon::Video,
-            _ => Icon::ScreenArrow,
+            (1, _) => Icon::ScreenArrow,
+            (2, _) => Icon::Apps,
+            _ => Icon::Soundboard,
         };
         icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), fg);
         app.rects.insert(key.into(), b);
@@ -97,8 +104,11 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         if resp.on_hover_text(tip).clicked() {
             match i {
                 0 => app.voice.set_camera(&app.net, me, !cam),
-                _ if sharing => app.voice.end_stream(&app.net),
-                _ => app.share = Some(super::share::Picker::new(ui.ctx())),
+                1 if sharing => app.voice.end_stream(&app.net),
+                1 => app.share = Some(super::share::Picker::new(ui.ctx())),
+                2 if playing => super::activity::leave(app),
+                2 => super::activity::open_shelf(app),
+                _ => super::callbar::toggle_soundboard(app, guild),
             }
         }
     }
