@@ -1328,7 +1328,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                 {
                     let mut wl = w.lock().unwrap();
                     let mut line = json!({ "t": now_ms(), "gateway_op": v["op"] });
-                    if matches!(v["op"].as_u64(), Some(3 | 4 | 18..=22)) {
+                    if matches!(v["op"].as_u64(), Some(3 | 4 | 18..=22 | 37)) {
                         line["d"] = v["d"].clone();
                     }
                     let _ = writeln!(wl.log, "{line}");
