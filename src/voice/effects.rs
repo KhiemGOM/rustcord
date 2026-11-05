@@ -68,7 +68,7 @@ struct Seg {
 }
 
 impl Seg {
-    fn new() -> windows::core::Result<Seg> {
+    fn new(kind: LearningModelDeviceKind) -> windows::core::Result<Seg> {
         let stream = InMemoryRandomAccessStream::new()?;
         let w = DataWriter::CreateDataWriter(&stream)?;
         w.WriteBytes(MODEL)?;
@@ -76,7 +76,7 @@ impl Seg {
         w.DetachStream()?;
         stream.Seek(0)?;
         let model = LearningModel::LoadFromStream(&RandomAccessStreamReference::CreateFromStream(&stream)?)?;
-        let dev = LearningModelDevice::Create(LearningModelDeviceKind::Cpu)?;
+        let dev = LearningModelDevice::Create(kind)?;
         Ok(Seg { sess: LearningModelSession::CreateFromModelOnDevice(&model, &dev)?, input: vec![0.0; 3 * SIDE * SIDE] })
     }
 
@@ -104,6 +104,7 @@ impl Seg {
 struct Fx {
     seg: Option<Seg>,
     tried: bool,
+    gpu: bool,
     mask: Vec<f32>,
     reset: bool,
     small: Vec<u8>,
@@ -111,7 +112,7 @@ struct Fx {
 }
 
 thread_local! {
-    static FX: RefCell<Fx> = const { RefCell::new(Fx { seg: None, tried: false, mask: Vec::new(), reset: true, small: Vec::new(), back: (0, 0, 0, Vec::new()) }) };
+    static FX: RefCell<Fx> = const { RefCell::new(Fx { seg: None, tried: false, gpu: false, mask: Vec::new(), reset: true, small: Vec::new(), back: (0, 0, 0, Vec::new()) }) };
 }
 
 /// Puts the chosen background behind whoever is in `bgra` (w*h, packed). The model loads on
@@ -131,8 +132,8 @@ impl Fx {
     fn run(&mut self, bg: &Bg, rev: u64, bgra: &mut [u8], w: usize, h: usize) {
         if !self.tried {
             self.tried = true;
-            match Seg::new() {
-                Ok(s) => self.seg = Some(s),
+            match Seg::new(LearningModelDeviceKind::DirectXHighPerformance).map(|s| (s, true)).or_else(|_| Seg::new(LearningModelDeviceKind::Cpu).map(|s| (s, false))) {
+                Ok((s, gpu)) => (self.seg, self.gpu) = (Some(s), gpu),
                 Err(_) => BROKEN.store(true, Relaxed),
             }
             self.mask = vec![0.0; SIDE * SIDE];
@@ -140,7 +141,12 @@ impl Fx {
         let Some(seg) = &mut self.seg else { return };
         let mut now = vec![0.0; SIDE * SIDE];
         if seg.mask(bgra, w, h, &mut now).is_err() {
-            BROKEN.store(true, Relaxed);
+            if self.gpu {
+                self.gpu = false;
+                self.seg = Seg::new(LearningModelDeviceKind::Cpu).ok();
+            } else {
+                BROKEN.store(true, Relaxed);
+            }
             return;
         }
         BROKEN.store(false, Relaxed);
@@ -155,8 +161,7 @@ impl Fx {
                 if (self.back.0, self.back.1, self.back.2) != (w, h, rev) {
                     self.back = (w, h, rev, scaled(p, w, h));
                 }
-                let back = &self.back.3;
-                blend(bgra, &self.mask, w, h, |i| [back[i * 4], back[i * 4 + 1], back[i * 4 + 2]]);
+                blend(bgra, &self.mask, w, h, Back::Pic(&self.back.3));
             }
             _ => {
                 let (sw, sh) = (w / 8, h / 8);
@@ -164,8 +169,7 @@ impl Fx {
                 for _ in 0..3 {
                     box_blur(&mut self.small, sw, sh, 3);
                 }
-                let small = &self.small;
-                blend(bgra, &self.mask, w, h, |i| sample(small, sw, sh, (i % w) * sw / w, (i / w) * sh / h));
+                blend(bgra, &self.mask, w, h, Back::Small(&self.small, sw, sh));
             }
         }
     }
@@ -181,11 +185,6 @@ fn scaled(p: &Picture, w: usize, h: usize) -> Vec<u8> {
         }
     }
     out
-}
-
-fn sample(img: &[u8], w: usize, h: usize, x: usize, y: usize) -> [u8; 3] {
-    let o = (y.min(h - 1) * w + x.min(w - 1)) * 4;
-    [img[o], img[o + 1], img[o + 2]]
 }
 
 fn shrink(src: &[u8], w: usize, h: usize, sw: usize, sh: usize, out: &mut Vec<u8>) {
@@ -228,34 +227,115 @@ fn box_blur(img: &mut [u8], w: usize, h: usize, r: usize) {
     run(&tmp, img, h, w * 4, w, 4);
 }
 
+enum Back<'a> {
+    Pic(&'a [u8]),
+    Small(&'a [u8], usize, usize),
+}
+
 // the mask is bilinear up to the frame; its soft edge is tightened so hair and shoulders keep
 // their outline
-fn blend(bgra: &mut [u8], mask: &[f32], w: usize, h: usize, back: impl Fn(usize) -> [u8; 3]) {
-    let xs: Vec<(usize, usize, f32)> = (0..w)
-        .map(|x| {
-            let f = ((x as f32 + 0.5) * SIDE as f32 / w as f32 - 0.5).clamp(0.0, SIDE as f32 - 1.001);
-            (f as usize, f as usize + 1, f.fract())
+fn blend(bgra: &mut [u8], mask: &[f32], w: usize, h: usize, back: Back) {
+    let alpha: Vec<f32> = mask
+        .iter()
+        .map(|m| {
+            let a = ((m - 0.3) / 0.4).clamp(0.0, 1.0);
+            a * a * (3.0 - 2.0 * a)
         })
         .collect();
-    for y in 0..h {
-        let f = ((y as f32 + 0.5) * SIDE as f32 / h as f32 - 0.5).clamp(0.0, SIDE as f32 - 1.001);
-        let (y0, fy) = (f as usize, f.fract());
-        let (r0, r1) = (&mask[y0 * SIDE..(y0 + 1) * SIDE], &mask[(y0 + 1) * SIDE..(y0 + 2) * SIDE]);
-        for (x, &(x0, x1, fx)) in xs.iter().enumerate() {
-            let top = r0[x0] + (r0[x1] - r0[x0]) * fx;
-            let bot = r1[x0] + (r1[x1] - r1[x0]) * fx;
-            let m = top + (bot - top) * fy;
-            let a = ((m - 0.3) / 0.4).clamp(0.0, 1.0);
-            if a >= 1.0 {
+    let at = |n: usize, side: usize| {
+        let f = ((n as f32 + 0.5) * SIDE as f32 / side as f32 - 0.5).clamp(0.0, SIDE as f32 - 1.001);
+        (f as usize, f.fract())
+    };
+    let xs: Vec<(usize, f32)> = (0..w).map(|x| at(x, w)).collect();
+    let sx: Vec<usize> = match back {
+        Back::Small(_, sw, _) => (0..w).map(|x| x * sw / w).collect(),
+        Back::Pic(_) => Vec::new(),
+    };
+    let rows = h.div_ceil(std::thread::available_parallelism().map_or(1, |n| n.get().min(4)));
+    std::thread::scope(|sc| {
+        for (k, band) in bgra.chunks_mut(rows * w * 4).enumerate() {
+            let (alpha, xs, sx, back) = (&alpha, &xs, &sx, &back);
+            sc.spawn(move || {
+                for (ry, row) in band.chunks_exact_mut(w * 4).enumerate() {
+                    let y = k * rows + ry;
+                    let (y0, fy) = at(y, h);
+                    let (r0, r1) = (&alpha[y0 * SIDE..(y0 + 1) * SIDE], &alpha[(y0 + 1) * SIDE..(y0 + 2) * SIDE]);
+                    for (x, &(x0, fx)) in xs.iter().enumerate() {
+                        let top = r0[x0] + (r0[x0 + 1] - r0[x0]) * fx;
+                        let bot = r1[x0] + (r1[x0 + 1] - r1[x0]) * fx;
+                        let a = top + (bot - top) * fy;
+                        if a >= 0.996 {
+                            continue;
+                        }
+                        let b = match *back {
+                            Back::Pic(p) => &p[(y * w + x) * 4..],
+                            Back::Small(img, sw, sh) => &img[((y * sh / h) * sw + sx[x]) * 4..],
+                        };
+                        let px = &mut row[x * 4..x * 4 + 3];
+                        for c in 0..3 {
+                            px[c] = (px[c] as f32 * a + b[c] as f32 * (1.0 - a)) as u8;
+                        }
+                    }
+                }
+            });
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn frame(w: usize, h: usize) -> Vec<u8> {
+        let mut f = vec![255u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let o = (y * w + x) * 4;
+                let inside = (x as f32 - w as f32 / 2.0).powi(2) / (w as f32 / 6.0).powi(2) + (y as f32 - h as f32 / 2.0).powi(2) / (h as f32 / 3.0).powi(2) < 1.0;
+                let px = if inside { [90, 120, 200] } else { [(x * 255 / w) as u8, 140, (y * 255 / h) as u8] };
+                f[o..o + 3].copy_from_slice(&px);
+            }
+        }
+        f
+    }
+
+    fn lap(f: impl FnOnce()) -> f64 {
+        let t = Instant::now();
+        f();
+        t.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn stats(mut v: Vec<f64>) -> String {
+        v.sort_by(f64::total_cmp);
+        format!("median {:.2} ms, min {:.2} ms", v[v.len() / 2], v[0])
+    }
+
+    /// cargo test --release --bin rustcord seg_bench -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn seg_bench() {
+        for (name, kind) in [("cpu", LearningModelDeviceKind::Cpu), ("directx", LearningModelDeviceKind::DirectX), ("directx high perf", LearningModelDeviceKind::DirectXHighPerformance)] {
+            let t = Instant::now();
+            let Ok(mut seg) = Seg::new(kind) else {
+                println!("{name}: no session");
                 continue;
+            };
+            let load = t.elapsed();
+            let (w, h) = (1280, 720);
+            let img = frame(w, h);
+            let mut out = vec![0.0; SIDE * SIDE];
+            for _ in 0..5 {
+                seg.mask(&img, w, h, &mut out).unwrap();
             }
-            let a = a * a * (3.0 - 2.0 * a);
-            let i = y * w + x;
-            let b = back(i);
-            let px = &mut bgra[i * 4..i * 4 + 3];
-            for c in 0..3 {
-                px[c] = (px[c] as f32 * a + b[c] as f32 * (1.0 - a)) as u8;
-            }
+            let times = (0..100).map(|_| lap(|| seg.mask(&img, w, h, &mut out).unwrap())).collect();
+            println!("{name}: load {load:?}, mask {}", stats(times));
+        }
+        for (w, h) in [(640, 360), (1280, 720)] {
+            let src = frame(w, h);
+            let mut fx = Fx { seg: Seg::new(LearningModelDeviceKind::DirectXHighPerformance).ok(), tried: true, gpu: true, mask: vec![0.0; SIDE * SIDE], reset: true, small: Vec::new(), back: (0, 0, 0, Vec::new()) };
+            let times = (0..60).map(|_| lap(|| fx.run(&Bg::Blur, 1, &mut src.clone(), w, h))).collect();
+            println!("blur {w}x{h}: {}", stats(times));
         }
     }
 }
