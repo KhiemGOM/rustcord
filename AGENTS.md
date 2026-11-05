@@ -33,6 +33,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 - `App.store` is a `Tracked` wrapper: taking it mutably drops the sums worked out from the whole store (server badges, the mention count). Code that runs every frame reads first and takes `&mut` only when it changes something.
 - Every `request_repaint()` is two frames, and an idle window should draw only for the caret. Ask for repaints only for what's on screen; `bench.json`'s `repaints_asked_by` says who did.
 - A step that can't find its widget waits 20s, then fails the whole run: every later check in that run reads false.
+- An activity's web view is a native window over the call's stage, so egui can't draw above it: `ui/activity/view.rs` hides it whenever a modal, menu or popup is open. Its page and SDK bridge never see the account token; the bridge's rules are unit-tested in `bridge.rs`, the mock's activity page is `examples/fixtures/activity.html`. `RUSTCORD_E2E_FROM=2200 RUSTCORD_E2E_TO=1` runs just the activity steps.
 - Older commits carry `Co-Authored-By: Claude` trailers; the commit-msg hook rejects them now. Don't copy them.
 - Lines in `e2e/*.py` that look like tautologies are often the only guard for a mark set far away in `e2e.rs`; trace the mark before deleting.
 - Subjects are short lowercase phrases in the project's vocabulary ("go live", "dave", "the rail"); bodies state the root cause.

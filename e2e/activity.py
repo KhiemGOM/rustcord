@@ -21,17 +21,17 @@ def checks(runs, reqs, data):
     index = lambda pred: next((i for i, r in enumerate(reqs) if pred(r)), -1)
     count = lambda pred: sum(1 for r in reqs if pred(r))
     ends = lambda r, tail: path(r).endswith(tail)
-    first_get = index(lambda r: r["method"] == "GET" and ends(r, "/oauth2/authorize") and "client_id=9100" in r["path"])
-    first_grant = index(lambda r: r["method"] == "POST" and ends(r, "/oauth2/authorize") and "client_id=9100" in r["path"])
-    me = [r for r in reqs if r["method"] == "GET" and ends(r, "/oauth2/@me")]
+    first_get = index(lambda r: r.get("method") == "GET" and ends(r, "/oauth2/authorize") and "client_id=9100" in r.get("path", ""))
+    first_grant = index(lambda r: r.get("method") == "POST" and ends(r, "/oauth2/authorize") and "client_id=9100" in r.get("path", ""))
+    me = [r for r in reqs if r.get("method") == "GET" and ends(r, "/oauth2/@me")]
     probes = said("probe")
     ready = said("ready")
     participants = [len(d.get("participants", [])) for d in said("dispatch:ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE")]
-    launches = lambda app: count(lambda r: r["method"] == "POST" and ends(r, f"/activities/2801/{app}") and body(r).get("session_id"))
-    leaves = lambda app: count(lambda r: r["method"] == "POST" and path(r).startswith(f"/api/v9/applications/{app}/activities/2801/instances/") and path(r).endswith("/leave") and body(r).get("session_id"))
+    launches = lambda app: count(lambda r: r.get("method") == "POST" and ends(r, f"/activities/2801/{app}") and body(r).get("session_id"))
+    leaves = lambda app: count(lambda r: r.get("method") == "POST" and path(r).startswith(f"/api/v9/applications/{app}/activities/2801/instances/") and path(r).endswith("/leave") and body(r).get("session_id"))
     return {
         "activity: Start An Activity opened the shelf with the server's activities": both("activity_shelf")
-        and count(lambda r: r["method"] == "GET" and ends(r, "/activities/shelf") and "guild_id=1008" in r["path"]) >= n,
+        and count(lambda r: r.get("method") == "GET" and ends(r, "/activities/shelf") and "guild_id=1008" in r.get("path", "")) >= n,
         "activity: picking one launched it into the call's channel with our session": launches("9100") >= n,
         "activity: the frame got a proxy ticket for its own app": count(lambda r: ends(r, "/applications/9100/proxy-tickets")) >= n,
         "activity: the web view loaded the frame and it shook hands and got READY with the config": both("activity_ready")
@@ -54,7 +54,8 @@ def checks(runs, reqs, data):
         "activity: another person's running activity showed a tile and Join Activity joined it": both("activity_join_tile") and both("activity_joined") and launches("9101") >= n,
         "activity: refusing consent sent the frame an error and issued no code": both("activity_denied")
         and any(d.get("evt") == "ERROR" and d.get("data", {}).get("code") == 5000 for d in said("authorize", "9101"))
-        and count(lambda r: r["method"] == "POST" and ends(r, "/oauth2/authorize") and "client_id=9101" in r["path"]) == 0,
+        and count(lambda r: r.get("method") == "POST" and ends(r, "/oauth2/authorize") and "client_id=9101" in r.get("path", "")) == 0,
+        "activity: the web view followed the call into its own window": both("activity_popout"),
         "activity: leaving the call left the activity": both("activity_left_with_call") and leaves("9101") >= n,
         "activity: the channel list's Join entered the call and the activity": both("activity_list_row") and both("activity_list_join") and launches("9100") >= 2 * n,
     }

@@ -39,7 +39,7 @@ async function ready(data) {
   log('probe', { seen, cookie: document.cookie, name: window.name, href: location.href, referrer: document.referrer, origin: location.origin });
   const a = await send('AUTHORIZE', { client_id: app, response_type: 'code', state: 'st', prompt: 'none', scope: ['identify', 'guilds'] });
   log('authorize', a);
-  if (!a.data || !a.data.code) return say('denied');
+  if (a.evt === 'ERROR' || !a.data.code) return say('denied');
   const t = await fetch('/api/v9/mock/activity/token', { method: 'POST', body: JSON.stringify({ code: a.data.code }) }).then(r => r.json());
   const au = await send('AUTHENTICATE', { access_token: t.access_token });
   log('authenticate', au);

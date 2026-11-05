@@ -734,7 +734,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             super::tile::options(app, ui, chan, *u, tile, shown);
         }
         if shown > 0.0 {
-            gradient(ui, r, true, shown);
+            if !app.activity.runs_in(chan.id) {
+                gradient(ui, r, true, shown);
+            }
             gradient(ui, r, false, shown);
         }
         // the join button stays put; once in, the controls fade with the rest
