@@ -13,6 +13,7 @@ mod markdown;
 mod mp4;
 mod net;
 mod proto;
+mod rpc;
 mod sound;
 mod speech;
 mod state;
@@ -26,6 +27,9 @@ mod voice;
 mod winsys;
 
 fn main() -> eframe::Result {
+    if !rpc::link::first_instance() {
+        return Ok(());
+    }
     let t0 = std::time::Instant::now();
     let _ = rustls::crypto::ring::default_provider().install_default();
     if let Some(local) = dirs::data_local_dir()
