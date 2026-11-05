@@ -32,6 +32,7 @@ pub struct Run {
     marks: Vec<(String, f64)>,
     step: u32,
     step_at: Instant,
+    sub: u8,
     wait: Instant,
     queue: VecDeque<Vec<Event>>,
     frames: Vec<f32>,
@@ -104,6 +105,7 @@ impl Run {
             marks: Vec::new(),
             step: 0,
             step_at: Instant::now(),
+            sub: 0,
             wait: Instant::now(),
             queue: VecDeque::new(),
             frames: Vec::new(),
@@ -3084,8 +3086,21 @@ impl Run {
                 if app.server.as_ref().is_none_or(|s| s.data.get("role_counts").is_none_or(|v| v.is_null())) {
                     return;
                 }
-                self.shot(ctx, "server_roles.png");
-                self.mark("server_settings");
+                if self.sub == 0 {
+                    self.shot(ctx, "server_roles.png");
+                    self.mark("server_settings");
+                    self.sub = 1;
+                }
+                match super::server::probe(app, self.sub - 1) {
+                    super::server::Probe::Wait => return,
+                    super::server::Probe::Shot(name) => {
+                        self.shot(ctx, name);
+                        self.sub += 1;
+                        self.step_at = Instant::now();
+                        return;
+                    }
+                    super::server::Probe::Done => self.mark("server_pages"),
+                }
                 app.server = None;
                 app.open_events(1000);
                 self.next(800);

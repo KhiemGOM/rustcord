@@ -6,10 +6,22 @@ use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, 
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
+mod apps;
+mod automod;
+mod bar;
+mod expression;
+mod invites;
+mod members;
+mod moderation;
+mod perms;
+mod role_edit;
+mod roles;
+mod safety;
+
 use super::App;
 use super::icons::{self, Icon};
 use crate::net::Tag;
-use crate::state::{Id, sid, snowflake_ms};
+use crate::state::{Id, snowflake_ms};
 use crate::theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -48,12 +60,24 @@ pub struct State {
     pub name: String,
     pub search: String,
     pub data: HashMap<&'static str, Value>,
+    pub pages: Pages,
+}
+
+#[derive(Default)]
+pub struct Pages {
+    pub roles: roles::Roles,
+    pub members: super::community::Members,
+    pub emoji: expression::Expression,
+    pub apps: apps::Apps,
+    pub safety: safety::Safety,
+    pub automod: automod::AutoMod,
+    pub log: moderation::Log,
 }
 
 impl App {
     pub fn open_server_settings(&mut self, gid: Id) {
         let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-        self.server = Some(State { guild: gid, page: Page::Profile, name, search: String::new(), data: HashMap::new() });
+        self.server = Some(State { guild: gid, page: Page::Profile, name, search: String::new(), data: HashMap::new(), pages: Pages::default() });
     }
 
     /// A page's data, asked for the first time it's drawn.
@@ -68,8 +92,75 @@ impl App {
 }
 
 pub fn loaded(app: &mut App, key: &'static str, v: Value) {
+    match key {
+        "role_new" | "role_saved" => return roles::saved(app, key, v),
+        "members" => return members::loaded(app, v),
+        "audit_more" => return moderation::more(app, v),
+        "automod_saved" => return automod::saved(app, v),
+        "webhook_new" => return apps::created(app, v),
+        _ => {}
+    }
     if let Some(s) = &mut app.server {
         s.data.insert(key, v);
+    }
+}
+
+/// Files dropped on the window go to the Emoji page when it's the one open.
+pub fn dropped(app: &mut App, path: &std::path::Path) -> bool {
+    match &mut app.server {
+        Some(s) if s.page == Page::Emoji => {
+            s.pages.emoji.dropped.push(path.to_path_buf());
+            true
+        }
+        _ => false,
+    }
+}
+
+pub enum Probe {
+    Wait,
+    Shot(&'static str),
+    Done,
+}
+
+/// One step of the scripted run through the pages: the role editor, then each list page once its data is in.
+pub fn probe(app: &mut App, n: u8) -> Probe {
+    let Some(gid) = app.server.as_ref().map(|s| s.guild) else { return Probe::Done };
+    let tour: [(Page, &[&str], &str); 8] = [
+        (Page::Emoji, &["emojis"], "server_emoji.png"),
+        (Page::Stickers, &["stickers"], "server_stickers.png"),
+        (Page::Invites, &["invites"], "server_invites.png"),
+        (Page::Integrations, &["integrations", "webhooks"], "server_integrations.png"),
+        (Page::Safety, &["guild"], "server_safety.png"),
+        (Page::Audit, &["audit"], "server_audit.png"),
+        (Page::Bans, &["bans"], "server_bans.png"),
+        (Page::AutoMod, &["automod"], "server_automod.png"),
+    ];
+    match n {
+        0 | 1 => {
+            if app.server.as_ref().is_some_and(|s| s.page != Page::Roles) {
+                app.server.as_mut().unwrap().page = Page::Roles;
+                return Probe::Wait;
+            }
+            if role_edit::probe(app, gid, n) { Probe::Shot(if n == 0 { "server_role_display.png" } else { "server_role_permissions.png" }) } else { Probe::Wait }
+        }
+        2 => {
+            let s = app.server.as_mut().unwrap();
+            if s.page != Page::Members {
+                s.page = Page::Members;
+                return Probe::Wait;
+            }
+            if s.pages.members.list.is_some() { Probe::Shot("server_members.png") } else { Probe::Wait }
+        }
+        3..=10 => {
+            let (page, keys, shot) = tour[n as usize - 3];
+            let s = app.server.as_mut().unwrap();
+            if s.page != page {
+                s.page = page;
+                return Probe::Wait;
+            }
+            if keys.iter().all(|k| s.data.get(k).is_some_and(|v| !v.is_null())) { Probe::Shot(shot) } else { Probe::Wait }
+        }
+        _ => Probe::Done,
     }
 }
 
@@ -81,7 +172,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(st) = app.server.as_ref() else { return };
     let gid = st.guild;
     let page = st.page;
-    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) && app.confirm.is_none() {
+    let modal = st.pages.roles.edit.as_ref().is_some_and(|e| e.adding()) || st.pages.emoji.editing();
+    if !modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) && app.confirm.is_none() {
         app.server = None;
         return;
     }
@@ -160,13 +252,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         egui::ScrollArea::vertical().id_salt(("server_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
             Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 80 }).show(ui, |ui| match page {
                 Page::Profile => profile(app, ui, gid),
-                Page::Emoji => emoji(app, ui, gid),
-                Page::Stickers => stickers(app, ui, gid),
-                Page::Members => members(app, ui, gid),
-                Page::Roles => roles(app, ui, gid),
-                Page::Invites => invites(app, ui, gid),
-                Page::Bans => bans(app, ui, gid),
-                Page::Audit => audit(app, ui, gid),
+                Page::Emoji => expression::emoji(app, ui, gid),
+                Page::Stickers => expression::stickers(app, ui, gid),
+                Page::Members => members::page(app, ui, gid),
+                Page::Roles => roles::page(app, ui, gid),
+                Page::Invites => invites::page(app, ui, gid),
+                Page::Integrations => apps::page(app, ui, gid),
+                Page::Safety => safety::page(app, ui, gid),
+                Page::Bans => moderation::bans(app, ui, gid),
+                Page::Audit => moderation::audit(app, ui, gid),
+                Page::AutoMod => automod::page(app, ui, gid),
                 _ => elsewhere(ui, gid, page),
             });
         });
@@ -315,303 +410,11 @@ fn profile(app: &mut App, ui: &mut Ui, gid: Id) {
     }
 }
 
-fn emoji(app: &mut App, ui: &mut Ui, gid: Id) {
-    let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
-    let slots: usize = match g.tier {
-        1 => 100,
-        2 => 150,
-        3 => 250,
-        _ => 50,
-    };
-    title(ui, "Emoji", &format!("Add up to {slots} custom emoji that anyone can use in this server. Animated GIF emoji may be used by members with Discord Nitro."));
-    let upload = super::settings::primary(ui, "Upload Emoji").clicked();
-    rule(ui);
-    let (stat, anim): (Vec<_>, Vec<_>) = g.emojis.iter().partition(|e| !e.animated);
-    let mut delete = None;
-    for (head, list) in [("Emoji", stat), ("Animated Emoji", anim)] {
-        ui.label(RichText::new(format!("{head} \u{2014} {} slots available", slots.saturating_sub(list.len()))).font(bold(12.0)).color(pal().header_secondary));
-        ui.add_space(8.0);
-        for e in list {
-            let resp = row(ui, 48.0, |ui, r, hot| {
-                let ir = Rect::from_min_size(pos2(r.left() + 8.0, r.center().y - 16.0), vec2(32.0, 32.0));
-                egui::Image::from_uri(crate::markdown::emoji_url(e.id, e.animated)).show_loading_spinner(false).paint_at(ui, ir);
-                ui.painter().text(pos2(r.left() + 56.0, r.center().y), Align2::LEFT_CENTER, format!(":{}:", e.name), medium(16.0), pal().text_normal);
-                if hot {
-                    icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(16.0, 16.0)), RED);
-                }
-            });
-            if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| p.x > resp.rect.right() - 40.0) {
-                delete = Some((e.id, e.name.clone()));
-            }
-        }
-        ui.add_space(24.0);
-    }
-    if let Some((id, name)) = delete {
-        app.confirm = Some(super::Confirm::new("Delete Emoji", format!("Are you sure you want to delete :{name}:?"), "Delete", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/emojis/{id}"), None, Tag::Quiet)
-        }));
-    }
-    if upload && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() {
-        if let Ok(bytes) = std::fs::read(&path) {
-            use base64::Engine;
-            let mime = if bytes.starts_with(b"GIF") { "image/gif" } else if bytes.starts_with(&[0x89, b'P']) { "image/png" } else { "image/jpeg" };
-            // discord names a fresh emoji after its file, letters, digits and underscores only
-            let name: String = path.file_stem().map(|s| s.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()).unwrap_or_else(|| "emoji".into());
-            let image = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
-            app.rest("POST", format!("/guilds/{gid}/emojis"), Some(json!({ "name": name, "image": image })), Tag::Quiet);
-        }
-    }
-}
-
-fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
-    title(ui, "Stickers", "Stickers can be used by anyone in this server.");
-    let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
-    let w = ui.available_width();
-    let per = ((w + 16.0) / 136.0).floor().max(1.0) as usize;
-    for chunk in g.stickers.chunks(per) {
-        let (r, _) = ui.allocate_exact_size(vec2(w, 150.0), Sense::hover());
-        for (i, (id, name, fmt)) in chunk.iter().enumerate() {
-            let t = Rect::from_min_size(pos2(r.left() + i as f32 * 136.0, r.top()), vec2(120.0, 140.0));
-            ui.painter().rect_filled(t, CornerRadius::same(8), pal().bg_secondary);
-            if *fmt != 3 {
-                let ext = if *fmt == 4 { "gif" } else { "png" };
-                egui::Image::from_uri(format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160")).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(t.min + vec2(20.0, 12.0), vec2(80.0, 80.0)));
-            }
-            super::text::paint(ui.painter(), pos2(t.center().x, t.bottom() - 22.0), Align2::CENTER_CENTER, name, semi(14.0), pal().header_primary, 108.0);
-        }
-    }
-    if g.stickers.is_empty() {
-        ui.label(RichText::new("No stickers yet.").font(reg(14.0)).color(pal().header_secondary));
-    }
-}
-
 fn search(ui: &mut Ui, app: &mut App, hint: &str) -> String {
     let s = app.server.as_mut().unwrap();
     super::settings::input(ui, &mut s.search, hint, false);
     ui.add_space(16.0);
     s.search.trim().to_lowercase()
-}
-
-fn members(app: &mut App, ui: &mut Ui, gid: Id) {
-    title(ui, "Server Members", "");
-    let q = search(ui, app, "Search by username or ID");
-    let s = &app.store;
-    let mut list: Vec<Id> = s.members.get(&gid).map(|m| m.keys().copied().collect()).unwrap_or_default();
-    list.sort_by_key(|u| s.name_in(gid, *u).to_lowercase());
-    let g = s.guilds.get(&gid);
-    for uid in list.into_iter().filter(|u| q.is_empty() || s.name_in(gid, *u).to_lowercase().contains(&q) || u.to_string() == q).take(500) {
-        let name = s.name_in(gid, uid);
-        let user = s.user(uid).cloned();
-        let roles: Vec<(String, Color32)> = s
-            .members
-            .get(&gid)
-            .and_then(|m| m.get(&uid))
-            .map(|m| m.roles.iter().filter_map(|r| g.and_then(|g| g.roles.get(r))).map(|r| (r.name.clone(), if r.color != 0 { role_color(r.color) } else { pal().header_secondary })).collect())
-            .unwrap_or_default();
-        row(ui, 56.0, |ui, r, _| {
-            if let Some(u) = &user {
-                super::avatar(ui, Rect::from_min_size(pos2(r.left() + 8.0, r.center().y - 16.0), vec2(32.0, 32.0)), &u.avatar_url());
-            }
-            let n = super::text::paint_em(ui.painter(), pos2(r.left() + 52.0, r.center().y - 9.0), Align2::LEFT_CENTER, &name, semi(16.0), pal().header_primary, 260.0, 1.0);
-            if let Some(u) = &user {
-                ui.painter().text(pos2(r.left() + 52.0, r.center().y + 11.0), Align2::LEFT_CENTER, &u.username, reg(12.0), pal().header_secondary);
-            }
-            let mut x = n.right().max(r.left() + 320.0);
-            for (rn, c) in roles.iter().take(3) {
-                let g = ui.painter().layout_no_wrap(rn.clone(), medium(12.0), pal().text_normal);
-                let chip = Rect::from_min_size(pos2(x, r.center().y - 11.0), vec2(g.size().x + 26.0, 22.0));
-                if chip.right() > r.right() {
-                    break;
-                }
-                ui.painter().rect_filled(chip, CornerRadius::same(4), faint(31));
-                ui.painter().circle_filled(pos2(chip.left() + 10.0, chip.center().y), 5.0, *c);
-                ui.painter().galley(pos2(chip.left() + 20.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
-                x = chip.right() + 4.0;
-            }
-        });
-    }
-}
-
-fn roles(app: &mut App, ui: &mut Ui, gid: Id) {
-    title(ui, "Roles", "Use roles to group your server members and assign permissions.");
-    let counts: HashMap<String, u64> = app
-        .server_data("role_counts", format!("/guilds/{gid}/roles/member-counts"))
-        .and_then(|v| v.as_object())
-        .map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_u64().unwrap_or(0))).collect())
-        .unwrap_or_default();
-    let Some(g) = app.store.guilds.get(&gid) else { return };
-    let mut roles: Vec<&crate::state::Role> = g.roles.values().filter(|r| r.id != gid).collect();
-    roles.sort_by_key(|r| std::cmp::Reverse(r.position));
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-    ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, format!("ROLES \u{2014} {}", roles.len()), bold(12.0), pal().header_secondary);
-    ui.painter().text(pos2(r.right() - 120.0, r.center().y), Align2::LEFT_CENTER, "MEMBERS", bold(12.0), pal().header_secondary);
-    for role in roles {
-        let n = counts.get(&role.id.to_string()).copied().unwrap_or(0);
-        row(ui, 48.0, |ui, r, _| {
-            let c = if role.color != 0 { role_color(role.color) } else { pal().header_secondary };
-            let mut x = r.left() + 8.0;
-            if let Some(u) = role.icon_url(32) {
-                super::text::image(ui.painter(), &u, Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0)));
-            } else {
-                icons::draw(ui.painter(), Icon::Shield, Rect::from_min_size(pos2(x, r.center().y - 10.0), vec2(20.0, 20.0)), c);
-            }
-            x += 28.0;
-            super::text::paint_em(ui.painter(), pos2(x, r.center().y), Align2::LEFT_CENTER, &role.name, medium(16.0), c, r.width() - 200.0, 1.0);
-            ui.painter().text(pos2(r.right() - 120.0, r.center().y), Align2::LEFT_CENTER, n.to_string(), medium(16.0), pal().header_secondary);
-            icons::draw(ui.painter(), Icon::People, Rect::from_min_size(pos2(r.right() - 120.0 + 24.0, r.center().y - 8.0), vec2(16.0, 16.0)), pal().header_secondary);
-        });
-    }
-}
-
-fn invites(app: &mut App, ui: &mut Ui, gid: Id) {
-    title(ui, "Invites", "Here's a list of all active invite links. You can revoke any one or create one.");
-    let list: Vec<Value> = app.server_data("invites", format!("/guilds/{gid}/invites")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-    for (x, h) in [(8.0, "INVITER"), (0.45, "INVITE CODE"), (0.7, "USES"), (0.85, "EXPIRES")] {
-        let px = if x > 1.0 { r.left() + x } else { r.left() + r.width() * x };
-        ui.painter().text(pos2(px, r.center().y), Align2::LEFT_CENTER, h, bold(12.0), pal().header_secondary);
-    }
-    let mut revoke = None;
-    for inv in &list {
-        let code = inv["code"].as_str().unwrap_or_default().to_string();
-        let who = inv["inviter"]["global_name"].as_str().or(inv["inviter"]["username"].as_str()).unwrap_or("Unknown").to_string();
-        let avatar = inv["inviter"]["avatar"].as_str().map(|h| format!("{}/avatars/{}/{h}.png?size=64", crate::api::cdn(), inv["inviter"]["id"].as_str().unwrap_or_default()));
-        let uses = match inv["max_uses"].as_u64().unwrap_or(0) {
-            0 => inv["uses"].as_u64().unwrap_or(0).to_string(),
-            m => format!("{}/{m}", inv["uses"].as_u64().unwrap_or(0)),
-        };
-        let expires = inv["expires_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| {
-            let s = (t.timestamp() - chrono::Utc::now().timestamp()).max(0);
-            format!("{:02}:{:02}:{:02}:{:02}", s / 86400, s / 3600 % 24, s / 60 % 60, s % 60)
-        });
-        let resp = row(ui, 52.0, |ui, r, hot| {
-            if let Some(a) = &avatar {
-                super::avatar(ui, Rect::from_min_size(pos2(r.left() + 8.0, r.center().y - 12.0), vec2(24.0, 24.0)), a);
-            }
-            ui.painter().text(pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, &who, medium(16.0), pal().header_primary);
-            ui.painter().text(pos2(r.left() + r.width() * 0.45, r.center().y), Align2::LEFT_CENTER, &code, medium(16.0), pal().text_normal);
-            ui.painter().text(pos2(r.left() + r.width() * 0.7, r.center().y), Align2::LEFT_CENTER, &uses, medium(16.0), pal().text_normal);
-            ui.painter().text(pos2(r.left() + r.width() * 0.85, r.center().y), Align2::LEFT_CENTER, expires.clone().unwrap_or_else(|| "\u{221e}".into()), medium(16.0), pal().text_normal);
-            if hot {
-                let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(20.0, 20.0));
-                ui.painter().circle_filled(x.center(), 10.0, RED);
-                icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), Color32::WHITE);
-            }
-        });
-        if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| p.x > resp.rect.right() - 32.0) {
-            revoke = Some(code);
-        }
-    }
-    if list.is_empty() {
-        ui.add_space(12.0);
-        ui.label(RichText::new("No invites yet.").font(reg(14.0)).color(pal().header_secondary));
-    }
-    if let Some(c) = revoke {
-        app.rest("DELETE", format!("/invites/{c}"), None, Tag::Quiet);
-        if let Some(s) = &mut app.server {
-            s.data.remove("invites");
-        }
-    }
-}
-
-fn bans(app: &mut App, ui: &mut Ui, gid: Id) {
-    title(ui, "Bans", "Bans by default are by account and IP. A user can circumvent an IP ban by using a proxy.");
-    let q = search(ui, app, "Search Bans by User Id or Username");
-    let list: Vec<Value> = app.server_data("bans", format!("/guilds/{gid}/bans?limit=1000")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let mut pick = None;
-    for b in list.iter().filter(|b| q.is_empty() || b["user"]["username"].as_str().is_some_and(|n| n.to_lowercase().contains(&q)) || b["user"]["id"].as_str() == Some(q.as_str())) {
-        let u = &b["user"];
-        let id = sid(&u["id"]);
-        let name = u["global_name"].as_str().or(u["username"].as_str()).unwrap_or_default().to_string();
-        let avatar = u["avatar"].as_str().map(|h| format!("{}/avatars/{id}/{h}.png?size=64", crate::api::cdn()));
-        let resp = row(ui, 48.0, |ui, r, _| {
-            if let Some(a) = &avatar {
-                super::avatar(ui, Rect::from_min_size(pos2(r.left() + 8.0, r.center().y - 16.0), vec2(32.0, 32.0)), a);
-            }
-            ui.painter().text(pos2(r.left() + 52.0, r.center().y), Align2::LEFT_CENTER, &name, medium(16.0), pal().header_primary);
-        });
-        if resp.clicked() {
-            pick = Some((id, name, b["reason"].as_str().unwrap_or("No reason provided.").to_string()));
-        }
-    }
-    if list.is_empty() {
-        ui.label(RichText::new("No bans. Who's been good? You've been good.").font(reg(14.0)).color(pal().header_secondary));
-    }
-    if let Some((id, name, reason)) = pick {
-        app.confirm = Some(super::Confirm::new(format!("'{name}'"), format!("Ban reason: {reason}"), "Revoke Ban", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/bans/{id}"), None, Tag::Quiet);
-            if let Some(s) = &mut app.server {
-                s.data.remove("bans");
-            }
-        }));
-    }
-}
-
-// what discord's audit log says each action number did
-fn action(n: u64) -> &'static str {
-    match n {
-        1 => "updated the server",
-        10 => "created a channel",
-        11 => "updated a channel",
-        12 => "deleted a channel",
-        13..=15 => "changed channel permissions",
-        20 => "kicked",
-        21 => "pruned members",
-        22 => "banned",
-        23 => "unbanned",
-        24 => "updated",
-        25 => "updated roles for",
-        26 => "moved a member",
-        27 => "disconnected a member",
-        28 => "added a bot",
-        30 => "created a role",
-        31 => "updated a role",
-        32 => "deleted a role",
-        40 => "created an invite",
-        41 => "updated an invite",
-        42 => "deleted an invite",
-        50..=52 => "changed a webhook",
-        60 => "created an emoji",
-        61 => "updated an emoji",
-        62 => "deleted an emoji",
-        72 => "deleted a message",
-        73 => "deleted messages",
-        74 => "pinned a message",
-        75 => "unpinned a message",
-        80..=82 => "changed an integration",
-        90..=92 => "changed a sticker",
-        100..=102 => "changed an event",
-        110..=112 => "changed a thread",
-        140..=145 => "changed AutoMod",
-        _ => "made a change",
-    }
-}
-
-fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
-    title(ui, "Audit Log", "");
-    let log = app.server_data("audit", format!("/guilds/{gid}/audit-logs?limit=50")).cloned().unwrap_or(Value::Null);
-    let users: HashMap<String, String> = log["users"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|u| (u["id"].as_str().unwrap_or_default().to_string(), u["global_name"].as_str().or(u["username"].as_str()).unwrap_or_default().to_string()))
-        .collect();
-    for e in log["audit_log_entries"].as_array().into_iter().flatten() {
-        let who = users.get(e["user_id"].as_str().unwrap_or_default()).cloned().unwrap_or_else(|| "Someone".into());
-        let target = e["target_id"].as_str().and_then(|t| users.get(t)).cloned();
-        let what = action(e["action_type"].as_u64().unwrap_or(0));
-        let when = chrono::DateTime::from_timestamp_millis(snowflake_ms(sid(&e["id"]))).map(|t| t.with_timezone(&chrono::Local).format("%-m/%-d/%y, %-I:%M %p").to_string()).unwrap_or_default();
-        row(ui, 56.0, |ui, r, _| {
-            let p = ui.painter();
-            icons::draw(p, Icon::Pencil, Rect::from_min_size(pos2(r.left() + 12.0, r.center().y - 10.0), vec2(20.0, 20.0)), pal().header_secondary);
-            let t = p.text(pos2(r.left() + 48.0, r.center().y - 9.0), Align2::LEFT_CENTER, &who, semi(16.0), pal().header_primary);
-            let t = p.text(pos2(t.right() + 4.0, r.center().y - 9.0), Align2::LEFT_CENTER, what, reg(16.0), pal().text_normal);
-            if let Some(tg) = &target {
-                p.text(pos2(t.right() + 4.0, r.center().y - 9.0), Align2::LEFT_CENTER, tg, semi(16.0), pal().header_primary);
-            }
-            p.text(pos2(r.left() + 48.0, r.center().y + 11.0), Align2::LEFT_CENTER, &when, reg(12.0), pal().header_secondary);
-        });
-    }
 }
 
 fn elsewhere(ui: &mut Ui, gid: Id, page: Page) {
