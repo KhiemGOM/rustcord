@@ -395,6 +395,28 @@ pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
     }
 }
 
+pub fn video_button(app: &mut App, ui: &mut Ui, ch: Id) {
+    let inside = app.voice.chan == Some(ch);
+    let (rect, r) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+    let col = if r.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    camera(ui, rect.center(), 1.2, col);
+    if r.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let r = r.on_hover_text(if inside { "In Call" } else { "Start Video Call" });
+    app.rects.insert("dm:video".into(), r.rect);
+    if r.clicked() && !inside {
+        let ring = !ui.input(|i| i.modifiers.shift);
+        app.join_voice(ch, ring);
+        app.cam_on_join = Some(ch);
+    }
+    if app.cam_on_join == Some(ch) && inside && app.voice.state == crate::voice::State::Connected {
+        app.cam_on_join = None;
+        let me = app.store.me;
+        app.voice.set_camera(&app.net, me, true);
+    }
+}
+
 /// Uploads a frame to the GPU when it's a new image, and returns something paintable.
 fn texture(app: &mut App, ctx: &egui::Context, key: String, img: &Arc<ColorImage>) -> egui::TextureId {
     let ptr = Arc::as_ptr(img) as usize;

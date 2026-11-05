@@ -580,6 +580,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     app.react(ch, id, em, true);
                 }
             }
+            Pick::Poll(i) => {
+                let em = match c {
+                    Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },
+                    Chosen::Unicode(s) => ReactEmoji { id: 0, name: s.to_string(), animated: false },
+                };
+                let i = *i;
+                if let Some(a) = app.poll.as_mut().and_then(|p| p.answers.get_mut(i)) {
+                    a.1 = Some(em);
+                }
+            }
             Pick::Quick(slot) => {
                 let em = match c {
                     Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },

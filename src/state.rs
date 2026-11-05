@@ -62,6 +62,10 @@ pub const CONNECT: u64 = 1 << 20;
 pub const MANAGE_CHANNELS: u64 = 1 << 4;
 pub const SET_VOICE_CHANNEL_STATUS: u64 = 1 << 48;
 pub const MANAGE_GUILD: u64 = 1 << 5;
+pub const MANAGE_THREADS: u64 = 1 << 34;
+pub const MANAGE_WEBHOOKS: u64 = 1 << 29;
+pub const SEND_IN_THREADS: u64 = 1 << 38;
+pub const BYPASS_SLOWMODE: u64 = 1 << 52;
 pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
 pub const MANAGE_EVENTS: u64 = 1 << 33;
 pub const CREATE_EVENTS: u64 = 1 << 44;
@@ -202,6 +206,10 @@ pub struct Channel {
     // when something was last pinned, unix ms
     #[serde(default)]
     pub last_pin: i64,
+    #[serde(default)]
+    pub rate: u32,
+    #[serde(default)]
+    pub locked: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -252,6 +260,8 @@ impl Channel {
             last_pin: iso_ms(&v["last_pin_timestamp"]),
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
             layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
+            rate: v["rate_limit_per_user"].as_u64().unwrap_or(0) as u32,
+            locked: v["thread_metadata"]["locked"].as_bool().unwrap_or(false),
         }
     }
 
@@ -375,6 +385,8 @@ pub struct Guild {
     pub my_flags: u64,
     #[serde(default)]
     pub joined: i64,
+    #[serde(default)]
+    pub my_timeout: i64,
     #[serde(skip)]
     pub voice: Map<Id, Id>,
     #[serde(skip)]
@@ -1177,6 +1189,30 @@ impl Store {
         p
     }
 
+    /// Seconds left of our own timeout in a server, 0 when we aren't in one.
+    pub fn timeout_left(&self, gid: Id) -> i64 {
+        self.guilds.get(&gid).map_or(0, |g| (g.my_timeout - chrono::Utc::now().timestamp()).max(0))
+    }
+
+    /// Whether we may write here: a timeout takes the permission away, a thread asks for its own.
+    pub fn can_send(&self, c: &Channel) -> bool {
+        if c.guild == 0 {
+            return true;
+        }
+        let bit = if c.is_thread() { SEND_IN_THREADS } else { SEND_MESSAGES };
+        self.timeout_left(c.guild) == 0 && self.perms(c) & bit != 0
+    }
+
+    /// Milliseconds until slowmode lets us post again here.
+    pub fn slow_left(&self, c: &Channel) -> i64 {
+        if c.rate == 0 || self.perms(c) & BYPASS_SLOWMODE != 0 {
+            return 0;
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        let last = self.msgs.get(&c.id).and_then(|e| e.list.iter().rev().find(|m| m.author == self.me && !m.failed)).map_or(0, |m| if m.pending { now } else { m.ts() });
+        (last + c.rate as i64 * 1000 - now).max(0)
+    }
+
     /// Whether @everyone is kept out of the channel (or, for voice, kept from joining).
     pub fn locked(&self, c: &Channel) -> bool {
         let Some(g) = self.guilds.get(&c.guild) else { return false };
@@ -1439,6 +1475,7 @@ impl Store {
         {
             g.my_roles = m.roles.clone();
             g.my_flags = v["flags"].as_u64().unwrap_or(g.my_flags);
+            g.my_timeout = v["communication_disabled_until"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
             if let Some(t) = v["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
                 g.joined = t.timestamp();
             }
