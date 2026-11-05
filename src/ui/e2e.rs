@@ -30,6 +30,8 @@ const SIDEBAR: [&str; 18] = [
     "Developer", "Log Out",
 ];
 
+mod spell_discover;
+
 pub struct Run {
     dir: PathBuf,
     t0: Instant,
@@ -473,6 +475,7 @@ impl Run {
                     };
                     self.target = (g, ch);
                     self.next(100);
+
                 }
             }
             1 => {
@@ -1281,6 +1284,8 @@ impl Run {
             1200..=1219 => self.people_steps(app, ctx),
             1300..=1399 => self.item_steps(app, ctx),
             1400..=1419 => self.scroll_steps(app, ctx),
+            1700..=1719 => self.spell_steps(app, ctx),
+            1720..=1739 => self.discover_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -5255,7 +5260,7 @@ impl Run {
                 if moved > c.top() * 0.5 && moved < c.top() {
                     self.mark("feel_page_key");
                 }
-                self.step = 99;
+                self.step = 1700;
             }
         }
     }

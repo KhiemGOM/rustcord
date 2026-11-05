@@ -11,6 +11,7 @@ mod composer;
 mod create;
 mod directory;
 mod dmpick;
+mod discover;
 mod e2e;
 mod events;
 mod folders;
@@ -52,6 +53,7 @@ mod tile;
 mod side;
 mod tagpop;
 mod thread;
+mod spelling;
 pub mod text;
 mod titlebar;
 mod topic;
@@ -173,6 +175,7 @@ pub struct App {
     pub create: Option<create::Form>,
     pub active_threads: Option<Id>,
     pub directory: Option<directory::Dir>,
+    pub spell: spelling::State,
     pub server: Option<server::State>,
     pub chan_settings: Option<channel::State>,
     // Members or Channels & Roles, open in place of a channel
@@ -381,6 +384,7 @@ impl App {
             create: None,
             active_threads: None,
             directory: None,
+            spell: Default::default(),
             server: None,
             chan_settings: None,
             home: None,

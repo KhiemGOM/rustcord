@@ -13,7 +13,7 @@ mod tag;
 mod template;
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::HashMap;
 
 mod apps;
@@ -31,7 +31,7 @@ mod safety;
 use super::App;
 use super::icons::{self, Icon};
 use crate::net::Tag;
-use crate::state::{Id, snowflake_ms};
+use crate::state::Id;
 use crate::theme::*;
 
 #[derive(Clone, Copy, PartialEq)]

@@ -13,14 +13,19 @@ pub fn start(app: &mut App, gid: Id, ch: Id) {
     app.rest("PUT", format!("/guilds/{gid}/members/@me?lurker=true"), Some(serde_json::json!({})), Tag::Lurk(gid));
 }
 
-pub fn tick(app: &mut App) {
+pub fn tick
+(app: &mut App) {
     let Some((gid, ch)) = app.lurk_goto else { return };
-    if app.store.channels.contains_key(&ch) {
+    let ready = if ch == 0 { app.store.guilds.contains_key(&gid) } else { app.store.channels.contains_key(&ch) };
+    if ready {
         app.lurk_goto = None;
         app.select_guild(Some(gid));
-        app.open(ch);
+        if ch != 0 {
+            app.open(ch);
+        }
     }
 }
+
 
 pub fn bar(app: &mut App, ui: &mut Ui, chan: &Channel) {
     ui.add_space(8.0);

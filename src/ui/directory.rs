@@ -19,6 +19,8 @@ pub struct Dir {
     pub searched: String,
     pub data: HashMap<String, Value>,
     pub card: Option<Value>,
+    pub servers: bool,
+    pub sv: super::discover::Servers,
 }
 
 impl App {
@@ -42,27 +44,31 @@ impl App {
 
 pub fn loaded(app: &mut App, key: String, v: Value) {
     if let Some(d) = &mut app.directory {
-        d.data.insert(key, v);
+        if key.starts_with("sv:") {
+            super::discover::loaded(d, &key, v);
+        } else {
+            d.data.insert(key, v);
+        }
     }
 }
 
-fn faint(a: u8) -> Color32 {
+pub fn faint(a: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(151, 151, 159, a)
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let side_w = if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
-    let mut goto: Option<&'static str> = None;
-    let mut quests = false;
+    let servers = app.directory.as_ref().is_some_and(|d| d.servers);
+    let mut goto: Option<Option<bool>> = None;
     egui::Panel::left("discover_side").exact_size(side_w).resizable(false).show_separator_line(false).frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| {
         let r = ui.max_rect();
         ui.painter().text(pos2(r.left() + 20.0, r.top() + 29.0), Align2::LEFT_CENTER, "Discover", semi(20.0), pal().header_primary);
         ui.painter().hline(r.x_range(), r.top() + 57.5, Stroke::new(1.0, pal().border_subtle));
         ui.add_space(66.0);
-        for (icon, name, url) in [(Icon::Apps, "Apps", None), (Icon::Discover, "Servers", Some("https://discord.com/discovery/servers")), (Icon::Quests, "Quests", None::<&str>)] {
+        for (icon, name, page) in [(Icon::Apps, "Apps", Some(false)), (Icon::Discover, "Servers", Some(true)), (Icon::Quests, "Quests", None)] {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::click());
             let inner = row.shrink2(vec2(8.0, 2.0));
-            let on = name == "Apps";
+            let on = page == Some(servers);
             if on {
                 ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
             } else if resp.hovered() {
@@ -74,32 +80,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if resp.clicked() {
-                goto = url;
-                quests |= name == "Quests";
+            if resp.clicked() && !on {
+                goto = Some(page);
             }
         }
     });
-    if let Some(u) = goto {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(u));
+    match goto {
+        Some(Some(true)) => return app.open_servers(),
+        Some(Some(false)) => return app.open_directory(),
+        Some(None) => return app.open_quests(),
+        None => {}
     }
-    if quests {
-        return app.open_quests();
-    }
+
     let Some(d) = app.directory.as_mut() else { return };
-    let cats: Vec<(u64, String)> = d.data.get("categories").and_then(|v| v.as_array()).into_iter().flatten().map(|c| (c["id"].as_u64().unwrap_or(0), c["name"].as_str().unwrap_or_default().to_string())).collect();
+    let cats: Vec<(u64, String)> = if d.servers { d.sv.cats.clone() } else { d.data.get("categories").and_then(|v| v.as_array()).into_iter().flatten().map(|c| (c["id"].as_u64().unwrap_or(0), c["name"].as_str().unwrap_or_default().to_string())).collect() };
     let mut fetch: Option<(String, String)> = None;
     egui::Panel::top("discover_tabs").exact_size(49.0).resizable(false).show_separator_line(false).frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 20, right: 8, top: 0, bottom: 1 })).show(ui, |ui| {
         let r = ui.max_rect();
         ui.painter().hline(r.left() - 20.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
         ui.horizontal_centered(|ui| {
             let (ir, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-            icons::draw(ui.painter(), Icon::Apps, ir, pal().header_primary);
+            icons::draw(ui.painter(), if d.servers { Icon::Discover } else { Icon::Apps }, ir, pal().header_primary);
             ui.add_space(20.0);
-            let names: Vec<String> = std::iter::once("Featured".to_string()).chain(cats.iter().map(|c| c.1.clone())).collect();
+            let names: Vec<String> = std::iter::once(if d.servers { "Home" } else { "Featured" }.to_string()).chain(cats.iter().map(|c| c.1.clone())).collect();
             for (i, n) in names.iter().enumerate() {
                 let g = ui.painter().layout_no_wrap(n.clone(), medium(16.0), Color32::WHITE);
                 let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
+                app.rects.insert(format!("discover:tab:{i}"), tr);
                 let on = d.tab == i && d.searched.is_empty();
                 let col = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
                 ui.painter().galley(pos2(tr.left(), tr.center().y - g.size().y / 2.0), g, col);
@@ -133,12 +140,27 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         .inner
                     })
                     .inner;
+                app.rects.insert("discover:search".into(), r.rect);
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     d.searched = d.query.trim().to_string();
                 }
             });
         });
     });
+    if d.servers {
+        let mut out = None;
+        egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| out = Some(super::discover::main(d, ui, &mut app.rects)));
+        if let Some(o) = out {
+            if let Some((k, p)) = o.fetch {
+                app.rest("GET", p, None, Tag::Directory(k));
+            }
+            if let Some(id) = o.pick {
+                super::lurk::start(app, id, 0);
+
+            }
+        }
+        return;
+    }
     // what the main area shows: the featured collections, a category, or a search
     let key = if !d.searched.is_empty() {
         format!("search:{}", d.searched)

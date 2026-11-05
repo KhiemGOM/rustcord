@@ -118,7 +118,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
 
     sub(ui, "Threads");
     changed |= toggle(ui, &mut app.settings.thread_sidebar, "Open threads in split view", "");
-    let s = &mut app.settings;
+
 
     section(ui, "Chat Box");
     let s = &mut app.settings;

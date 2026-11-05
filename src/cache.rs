@@ -109,6 +109,9 @@ pub struct Settings {
     pub keybinds: Vec<(String, Vec<u32>)>,
     // language
     pub locale: String,
+    // the composer's red squiggles, and the words added from their menu (lowercase)
+    pub spellcheck: bool,
+    pub learned_words: Vec<String>,
     // windows
     pub open_on_startup: bool,
     pub start_minimized: bool,
@@ -253,6 +256,8 @@ impl Default for Settings {
             noise_suppression: true,
             keybinds: Vec::new(),
             locale: "en-US".into(),
+            spellcheck: true,
+            learned_words: Vec::new(),
             open_on_startup: false,
             start_minimized: false,
             minimize_to_tray: true,
