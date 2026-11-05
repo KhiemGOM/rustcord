@@ -230,6 +230,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut open: Option<Id> = None;
     let mut toggle: Option<Id> = None;
     let mut menu: Option<(Id, ChanAct)> = None;
+    let mut person: Option<(Id, Id, bool, egui::Pos2)> = None;
     let mut make_invite: Option<Id> = None;
     let mut set_status: Option<Id> = None;
     let mut boost_page = false;
@@ -402,7 +403,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         channel_menu(&r, store, t, store.unread(t), false, dev, false, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
-                        voice_users(ui, store, &app.voice, gid, c.id, app.settings.hide_names.contains(&c.id));
+                        if let Some((u, secondary, at)) = voice_users(ui, store, &app.voice, gid, c.id, app.settings.hide_names.contains(&c.id)) {
+                            person = Some((u, c.id, secondary, at));
+                        }
                     }
                 }
             }
@@ -411,6 +414,14 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.ctx().data_mut(|d| d.insert_temp(scroll_id, out.state.offset.y));
     });
     super::reorder::drag(app, ui.ctx());
+    if let Some((u, c, secondary, at)) = person {
+        if secondary {
+            app.user_menu = Some((u, gid, None, at));
+            app.menu_from = super::usermenu::Origin::Voice(c);
+        } else {
+            app.open_profile(u, gid, at);
+        }
+    }
     match menu {
         Some((c, ChanAct::Read)) => {
             let mut chans: Vec<Id> = app.store.channels.values().filter(|x| x.parent == c).map(|x| x.id).collect();
@@ -969,8 +980,9 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     (resp, emoji, invite, edit, set, chat)
 }
 
-fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id, hide_names: bool) {
-    let Some(g) = store.guilds.get(&gid) else { return };
+fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id, hide_names: bool) -> Option<(Id, bool, egui::Pos2)> {
+    let g = store.guilds.get(&gid)?;
+    let mut hit = None;
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
     // discord lists them by name, 32 to a row, in their own display name font and server tag
     users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
@@ -994,10 +1006,18 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
                 }
             }
         }
-        return;
+        return None;
     }
     for u in users {
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(4), pal().bg_mod_hover);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.clicked() || resp.secondary_clicked() {
+            hit = Some((u, resp.secondary_clicked(), resp.interact_pointer_pos().unwrap_or(row.center())));
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("voice_row", u)), row));
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
         if let Some(user) = store.user(u) {
             avatar(ui, av, &user.avatar_url());
@@ -1021,12 +1041,15 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
         ui.painter().text(pos2(row.left() + 44.0, row.center().y), Align2::LEFT_CENTER, format!("{listeners} in audience"), reg(14.0), pal().channel_default);
     }
+    hit
 }
 
 fn dms(app: &mut App, ui: &mut Ui) {
     // discord's is a button into the quick switcher, not a filter
     let mut find = false;
     let mut menu = None;
+    let mut cleanup = false;
+    let mut leave = None;
     header(ui, |ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
@@ -1095,14 +1118,30 @@ fn dms(app: &mut App, ui: &mut Ui) {
             if plus.on_hover_text("Create DM").clicked() {
                 app.group_pick = Some(super::dmpick::Pick::new(None));
             }
+            let mr = Rect::from_center_size(pos2(h.right() - 48.0, h.center().y), vec2(16.0, 16.0));
+            let more = ui.interact(mr.expand(4.0), ui.id().with("dm_more"), Sense::click());
+            let shown = ui.rect_contains_pointer(h) || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
+            if shown {
+                icons::draw(ui.painter(), Icon::More, mr, if more.hovered() { pal().interactive_hover } else { pal().channel_default });
+                ui.ctx().set_cursor_icon(if more.hovered() { egui::CursorIcon::PointingHand } else { egui::CursorIcon::Default });
+            }
+            egui::Popup::menu(&more.on_hover_text("More")).show(|ui| {
+                if super::menu_item(ui, None, "Clean up Group DMs…", false) {
+                    cleanup = true;
+                }
+            });
             ui.add_space(4.0);
             let store = &app.store;
-            for &id in &store.dms {
+            let mut ids = store.dms.clone();
+            ids.sort_by_key(|id| !store.pinned.contains(id));
+            for id in ids {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let r = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none());
+                let (r, x) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
-                if r.clicked() {
+                if x {
+                    leave = Some(id);
+                } else if r.clicked() {
                     open = Some(id);
                 }
                 if r.secondary_clicked() {
@@ -1118,9 +1157,15 @@ fn dms(app: &mut App, ui: &mut Ui) {
     if let Some(c) = open {
         app.open(c);
     }
+    if let Some(c) = leave {
+        super::popups::leave_dm(app, c);
+    }
+    if cleanup {
+        app.user_dialog = Some(super::userdlg::Dialog::cleanup());
+    }
 }
 
-fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> egui::Response {
+fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> (egui::Response, bool) {
     let (row, resp, hl) = dense_row(ui, 42.0);
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -1188,13 +1233,17 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
             super::tag_chip(&clip, u, pos2(r.right() + 4.0, row.center().y), 1.0);
         }
     }
-    if mentions > 0 {
+    let mut closed = false;
+    if hovered {
+        let xr = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
+        let hit = ui.interact(xr.expand(4.0), ui.id().with(("dm_close", c.id)), Sense::click());
+        icons::draw(ui.painter(), Icon::Close, xr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        closed = hit.on_hover_text("Close DM").clicked();
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    } else if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
     }
-    if hovered {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    resp
+    (resp, closed)
 }
 
 fn group_color(id: Id) -> Color32 {

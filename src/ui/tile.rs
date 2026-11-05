@@ -8,7 +8,7 @@ use crate::theme::*;
 
 impl App {
     pub fn set_peer(&mut self, user: Id, peer: Peer, save: bool) {
-        if peer.muted || peer.volume != 100.0 {
+        if peer.muted || peer.soundboard_muted || peer.volume != 100.0 {
             self.settings.peers.insert(user, peer);
         } else {
             self.settings.peers.remove(&user);

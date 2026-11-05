@@ -91,4 +91,15 @@ impl App {
             self.play_sound(sound, Some(source).filter(|s| *s != 0));
         }
     }
+
+    /// Someone's soundboard sound in the call we're in, unless we muted their soundboard or deafened.
+    pub fn soundboard_effect(&mut self, d: &serde_json::Value) {
+        let uid = crate::state::sid(&d["user_id"]);
+        let sound = crate::state::sid(&d["sound_id"]);
+        let here = self.voice.chan == Some(crate::state::sid(&d["channel_id"]));
+        if sound == 0 || uid == self.store.me || !here || self.voice.deaf || self.peer(uid).soundboard_muted {
+            return;
+        }
+        self.play_audio(format!("{}/soundboard-sounds/{sound}", crate::api::cdn()));
+    }
 }

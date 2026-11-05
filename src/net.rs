@@ -53,6 +53,10 @@ pub enum Tag {
     InviteDm(String),
     // a dm opened from someone's profile, with what was typed in its message box
     OpenDm(String),
+    // a dm made to ring someone in
+    CallDm,
+    // an invite made for this person, to go in their dm
+    InviteTo(Id),
     // a thread made from its dialog, with the first message to post in it
     Thread(String),
     // saved messages: 0 the bookmark ids and reminders, 1 the bookmarks themselves

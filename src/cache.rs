@@ -189,11 +189,12 @@ pub struct Settings {
 pub struct Peer {
     pub volume: f32,
     pub muted: bool,
+    pub soundboard_muted: bool,
 }
 
 impl Default for Peer {
     fn default() -> Self {
-        Peer { volume: 100.0, muted: false }
+        Peer { volume: 100.0, muted: false, soundboard_muted: false }
     }
 }
 
@@ -538,6 +539,51 @@ pub fn set_token(t: Option<&str>) {
             let _ = std::fs::remove_file(d.join("state.json"));
         }
     }
+}
+
+/// An account signed in on this machine besides the one in `token`: who it is, kept beside its
+/// token in the data folder the way the main token is.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SavedAccount {
+    pub id: Id,
+    pub name: String,
+    pub avatar: Option<String>,
+}
+
+fn accounts_dir() -> PathBuf {
+    dir().join("accounts")
+}
+
+pub fn accounts() -> Vec<SavedAccount> {
+    let Ok(list) = std::fs::read_dir(accounts_dir()) else { return Vec::new() };
+    let mut out: Vec<SavedAccount> = list
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
+        .collect();
+    out.sort_by_key(|a| a.id);
+    out
+}
+
+pub fn account_token(id: Id) -> Option<String> {
+    let t = std::fs::read_to_string(accounts_dir().join(format!("{id}.token"))).ok()?;
+    let t = t.trim().to_string();
+    (!t.is_empty()).then_some(t)
+}
+
+pub fn remember_account(a: &SavedAccount, token: &str) {
+    let d = accounts_dir();
+    let _ = std::fs::create_dir_all(&d);
+    let _ = std::fs::write(d.join(format!("{}.token", a.id)), token);
+    if let Ok(b) = serde_json::to_vec(a) {
+        let _ = std::fs::write(d.join(format!("{}.json", a.id)), b);
+    }
+}
+
+pub fn forget_account(id: Id) {
+    let d = accounts_dir();
+    let _ = std::fs::remove_file(d.join(format!("{id}.token")));
+    let _ = std::fs::remove_file(d.join(format!("{id}.json")));
 }
 
 pub fn window() -> Option<[f32; 2]> {

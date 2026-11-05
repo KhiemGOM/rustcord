@@ -1405,6 +1405,8 @@ enum AccountAct {
     Edit,
     Custom,
     CopyId,
+    Switch(Id),
+    Manage,
 }
 
 /// What opens from the account panel: your card, then discord's grouped rows.
@@ -1420,17 +1422,37 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     let status = app.store.presence.get(&me).copied().unwrap_or(Status::Online);
     let dev = app.settings.dev;
     let custom = app.store.custom_status.clone();
+    let app_accounts = app.accounts.clone();
     let mut act = None;
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
     let wash = ui.painter().add(egui::Shape::Noop);
     let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
-    if let Some(c) = &custom {
+    let hint = ui.painter().layout_no_wrap("Favorite collectible?".into(), italic(14.0), pal().header_primary.gamma_multiply(0.76));
+    let bubble = match &custom {
         // the speech bubble discord floats beside your avatar
-        let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
-        let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(179.0, (g.size().y + 22.0).max(40.0)));
-        ui.painter().rect(b, 16, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-        ui.painter().galley(pos2(b.left() + 12.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
+        Some(c) => {
+            let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
+            let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(179.0, (g.size().y + 22.0).max(40.0)));
+            ui.painter().rect(b, 16, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            ui.painter().galley(pos2(b.left() + 12.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
+            b
+        }
+        // and with nothing set, the prompt to add one
+        None => {
+            let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(hint.size().x + 48.0, 36.0));
+            ui.painter().rect(b, 18, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            super::icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(pos2(b.left() + 20.0, b.center().y), vec2(16.0, 16.0)), pal().header_primary.gamma_multiply(0.76));
+            ui.painter().galley(pos2(b.left() + 36.0, b.center().y - hint.size().y / 2.0), hint, pal().header_primary);
+            b
+        }
+    };
+    let bubble_hit = ui.interact(bubble, ui.id().with("custom_status"), Sense::click());
+    if bubble_hit.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if bubble_hit.clicked() {
+        act = Some(AccountAct::Custom);
     }
     let label = match status {
         Status::Online => "Online",
@@ -1477,13 +1499,31 @@ pub fn account(app: &mut App, ui: &mut Ui) {
                 }
             });
         });
-        if dev {
-            card(ui, &mut |ui| {
-                if account_row(ui, Some(Icon::Id), "Copy User ID", false, false).clicked() {
-                    act = Some(AccountAct::CopyId);
+        let others = app_accounts.clone();
+        card(ui, &mut |ui| {
+            let r = account_row(ui, Some(Icon::Person), "Switch Accounts", true, false);
+            egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for a in &others {
+                    let (resp, lead) = super::menu_row_at(ui, true, &a.name, None, false, super::Trail::Check(a.id == me));
+                    let url = match &a.avatar {
+                        Some(h) => format!("{}/avatars/{}/{h}.png?size=64", crate::api::cdn(), a.id),
+                        None => format!("{}/embed/avatars/{}.png", crate::api::cdn(), (a.id >> 22) % 6),
+                    };
+                    avatar(ui, lead.expand(2.0), &url);
+                    if resp.clicked() && a.id != me {
+                        act = Some(AccountAct::Switch(a.id));
+                    }
+                }
+                super::menu_sep(ui);
+                if super::menu_item(ui, None, "Manage Accounts", false) {
+                    act = Some(AccountAct::Manage);
                 }
             });
-        }
+            if dev && account_row(ui, Some(Icon::Id), "Copy User ID", false, true).clicked() {
+                act = Some(AccountAct::CopyId);
+            }
+        });
     });
     theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
     match act {
@@ -1491,6 +1531,8 @@ pub fn account(app: &mut App, ui: &mut Ui) {
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
         Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(app.store.custom_status.as_ref())),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),
+        Some(AccountAct::Switch(id)) => app.switch_account(id),
+        Some(AccountAct::Manage) => app.user_dialog = Some(super::userdlg::Dialog::Accounts),
         None => {}
     }
     if act.is_some() {
@@ -2074,175 +2116,6 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-enum UserAct {
-    Read,
-    Profile,
-    Mention,
-    Message,
-    Close,
-    AddFriend,
-    RemoveFriend,
-    Block,
-    Unblock,
-    Mute(bool, Option<i64>),
-    CopyUser,
-    CopyChannel,
-    Timeout,
-    Kick,
-    Ban,
-}
-
-/// Discord's menu for a person, from the member list, a message's author or a dm row.
-pub fn user_menu(app: &mut App, ctx: &egui::Context) {
-    use super::{Trail, menu_item, menu_row, menu_sep};
-    use crate::state::{BLOCKED, FRIEND, INCOMING, OUTGOING};
-    let Some((uid, gid, dm, at)) = app.user_menu else { return };
-    let me = uid == app.store.me;
-    let rel = app.store.relationships.get(&uid).copied();
-    let name = app.store.name_in(gid, uid);
-    let chan = dm.and_then(|c| app.store.channels.get(&c));
-    let group = chan.is_some_and(|c| c.kind == 3);
-    let unread = chan.is_some_and(|c| app.store.unread(c));
-    let muted = dm.is_some_and(|c| app.store.muted.contains(&c));
-    let composing = dm.is_none() && app.cur().is_some();
-    let dev = app.settings.dev;
-    // a server's moderators get timeout, kick and ban for members other than themselves
-    let perms = app.store.guilds.get(&gid).and_then(|g| g.channels.iter().find_map(|c| app.store.channels.get(c))).map_or(0, |c| app.store.perms(c));
-    let (can_timeout, can_kick, can_ban) = if gid == 0 || me {
-        (false, false, false)
-    } else {
-        use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
-        (perms & MODERATE_MEMBERS != 0, perms & KICK_MEMBERS != 0, perms & BAN_MEMBERS != 0)
-    };
-    let mut act = None;
-    let open = super::float_menu(ctx, "user_menu", at, |ui| {
-        if dm.is_some() {
-            if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
-                act = Some(UserAct::Read);
-            }
-            menu_sep(ui);
-        }
-        if !group {
-            if menu_item(ui, None, "Profile", false) {
-                act = Some(UserAct::Profile);
-            }
-            if composing && menu_item(ui, None, "Mention", false) {
-                act = Some(UserAct::Mention);
-            }
-            if !me && dm.is_none() && menu_item(ui, None, "Message", false) {
-                act = Some(UserAct::Message);
-            }
-        }
-        if dm.is_some() && menu_item(ui, None, if group { "Leave Group" } else { "Close DM" }, group) {
-            act = Some(UserAct::Close);
-        }
-        if !me && !group {
-            menu_sep(ui);
-            match rel {
-                Some(FRIEND) => {
-                    if menu_item(ui, None, "Remove Friend", false) {
-                        act = Some(UserAct::RemoveFriend);
-                    }
-                }
-                Some(BLOCKED) | Some(OUTGOING) => {}
-                Some(INCOMING) => {
-                    if menu_item(ui, None, "Accept Friend Request", false) {
-                        act = Some(UserAct::AddFriend);
-                    }
-                }
-                _ => {
-                    if menu_item(ui, None, "Add Friend", false) {
-                        act = Some(UserAct::AddFriend);
-                    }
-                }
-            }
-            if rel == Some(BLOCKED) {
-                if menu_item(ui, None, "Unblock", false) {
-                    act = Some(UserAct::Unblock);
-                }
-            } else if menu_item(ui, None, "Block", true) {
-                act = Some(UserAct::Block);
-            }
-        }
-        if can_timeout || can_kick || can_ban {
-            menu_sep(ui);
-            if can_timeout && menu_item(ui, None, &format!("Timeout {name}"), true) {
-                act = Some(UserAct::Timeout);
-            }
-            if can_kick && menu_item(ui, None, &format!("Kick {name}"), true) {
-                act = Some(UserAct::Kick);
-            }
-            if can_ban && menu_item(ui, None, &format!("Ban {name}"), true) {
-                act = Some(UserAct::Ban);
-            }
-        }
-        if dm.is_some() {
-            menu_sep(ui);
-            let what = if group { "Conversation".to_string() } else { format!("@{name}") };
-            if muted {
-                if menu_item(ui, None, &format!("Unmute {what}"), false) {
-                    act = Some(UserAct::Mute(false, None));
-                }
-            } else {
-                let m = menu_row(ui, None, &format!("Mute {what}"), None, false, Trail::Caret);
-                egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
-                    if let Some(secs) = super::mute_menu(ui) {
-                        act = Some(UserAct::Mute(true, secs));
-                    }
-                });
-            }
-        }
-        if dev {
-            menu_sep(ui);
-            if !group && menu_item(ui, Some(Icon::Id), "Copy User ID", false) {
-                act = Some(UserAct::CopyUser);
-            }
-            if dm.is_some() && menu_item(ui, Some(Icon::Id), "Copy Channel ID", false) {
-                act = Some(UserAct::CopyChannel);
-            }
-        }
-    });
-    if !open || act.is_some() {
-        app.user_menu = None;
-    }
-    let dm = dm.unwrap_or(0);
-    match act {
-        Some(UserAct::Read) => app.mark_read(&[dm]),
-        Some(UserAct::Profile) => app.open_profile(uid, gid, at),
-        Some(UserAct::Mention) => app.mention(uid, gid),
-        // ctrl+click times them out for a minute without asking how long
-        Some(UserAct::Timeout) if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
-        Some(UserAct::Timeout) => app.open_timeout(gid, uid),
-        Some(UserAct::Kick) => app.kick(gid, uid),
-        Some(UserAct::Ban) => app.ban(gid, uid),
-        Some(UserAct::Message) => app.open_dm(uid),
-        Some(UserAct::Close) if group => {
-            let title = channel_title(&app.store, dm);
-            let body = format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited.");
-            app.confirm = Some(super::Confirm::new(format!("Leave '{title}'"), body, "Leave Group", move |app: &mut App| close_dm(app, dm)));
-        }
-        Some(UserAct::Close) => close_dm(app, dm),
-        Some(UserAct::AddFriend) => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
-        Some(UserAct::RemoveFriend) => {
-            let body = format!("Are you sure you want to remove {name} from your friends?");
-            app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
-                app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Block) => {
-            let body = "They won't be able to message you, and you won't see their messages unless you choose to.";
-            app.confirm = Some(super::Confirm::new(format!("Block {name}?"), body, "Block", move |app: &mut App| {
-                app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Unblock) => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet),
-        Some(UserAct::Mute(m, secs)) => app.mute_for(dm, false, m, secs),
-        Some(UserAct::CopyUser) => ctx.copy_text(uid.to_string()),
-        Some(UserAct::CopyChannel) => ctx.copy_text(dm.to_string()),
-        None => {}
-    }
-}
-
 /// Timeout for a member: who, where, how long and why.
 pub struct Timeout {
     guild: Id,
@@ -2314,7 +2187,17 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-fn close_dm(app: &mut App, c: Id) {
+/// Closes a dm; a group asks first, since leaving it can't be undone.
+pub fn leave_dm(app: &mut App, c: Id) {
+    if app.store.channels.get(&c).is_none_or(|x| x.kind != 3) {
+        return close_dm(app, c);
+    }
+    let title = channel_title(&app.store, c);
+    let body = format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited.");
+    app.confirm = Some(super::Confirm::new(format!("Leave '{title}'"), body, "Leave Group", move |app: &mut App| close_dm(app, c)));
+}
+
+pub fn close_dm(app: &mut App, c: Id) {
     app.rest("DELETE", format!("/channels/{c}"), None, Tag::Quiet);
     app.store.dms.retain(|d| *d != c);
     if app.cur() == Some(c) {
