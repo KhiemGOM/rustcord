@@ -291,7 +291,7 @@ fn picker(app: &mut App, ctx: &egui::Context, owned: Option<Result<Value, String
         for p in v.as_array().into_iter().flatten() {
             for i in p["items"].as_array().into_iter().flatten().filter(|i| i["type"].as_u64() == Some(ty)) {
                 items.push(Item {
-                    sku: p["sku_id"].as_str().or(i["sku_id"].as_str()).or(i["id"].as_str()).unwrap_or("").to_string(),
+                    sku: i["sku_id"].as_str().or(p["sku_id"].as_str()).or(i["id"].as_str()).unwrap_or("").to_string(),
                     asset: i["asset"].as_str().unwrap_or("").to_string(),
                     label: i["label"].as_str().or(i["title"].as_str()).or(p["name"].as_str()).unwrap_or("").to_string(),
                     thumb: i["thumbnailPreviewSrc"].as_str().unwrap_or("").to_string(),
