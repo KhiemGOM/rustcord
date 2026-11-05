@@ -37,6 +37,7 @@ import messages
 import rail
 import people
 import players
+import voice_settings
 import qol
 import web
 import sound
@@ -489,6 +490,7 @@ def main():
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
         **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),
+        **voice_settings.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

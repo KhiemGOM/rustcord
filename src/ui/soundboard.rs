@@ -4,11 +4,14 @@
 use egui::{Align2, CornerRadius, Frame, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::App;
+use crate::net::Tag;
+use crate::state::Id;
+use serde_json::json;
 use super::icons::{self, Icon};
 use crate::theme::*;
 
 pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
-    let Some((_, slot)) = app.soundboard.clone() else { return };
+    let Some((guild, slot)) = app.soundboard.clone() else { return };
     let resp = egui::Area::new(egui::Id::new("soundboard_pop"))
         .order(egui::Order::Foreground)
         .fixed_pos(pos2(anchor.center().x - 180.0, anchor.top() - 236.0))
@@ -51,7 +54,7 @@ pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
                                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                         }
                                         if resp.clicked() {
-                                            app.play_audio(format!("{}/soundboard-sounds/{}", crate::api::cdn(), s.id));
+                                            app.play_sound(s.id, Some(guild));
                                         }
                                     }
                                 });
@@ -64,5 +67,28 @@ pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
     app.rects.insert("voice:soundboard_pop".into(), resp.rect);
     if super::popups::dismissed(ui.ctx(), &resp) {
         app.soundboard = None;
+    }
+}
+
+impl App {
+    /// Plays a soundboard sound for you, at your soundboard volume, and sends it to the call.
+    /// `source` is the server it belongs to, None for one of Discord's own.
+    pub fn play_sound(&mut self, sound: Id, source: Option<Id>) {
+        self.play_audio(format!("{}/soundboard-sounds/{}", crate::api::cdn(), sound));
+        let Some(ch) = self.voice.chan else { return };
+        let mut body = json!({ "sound_id": sound.to_string() });
+        if let Some(g) = source {
+            body["source_guild_id"] = json!(g.to_string());
+        }
+        self.rest("POST", format!("/channels/{ch}/send-soundboard-sound"), Some(body), Tag::Quiet);
+    }
+
+    /// Whatever sound is set to play when you join this server's calls, or any server's.
+    pub fn entrance_sound(&mut self) {
+        let g = self.voice.guild;
+        let pick = self.settings.entrance.iter().find(|e| e.0 == g).or_else(|| self.settings.entrance.iter().find(|e| e.0 == 0)).copied();
+        if let Some((_, sound, source)) = pick.filter(|_| g != 0) {
+            self.play_sound(sound, Some(source).filter(|s| *s != 0));
+        }
     }
 }

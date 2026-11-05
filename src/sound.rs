@@ -40,6 +40,27 @@ const HALLOWEEN_SWAPS: [&str; 10] = ["call_calling", "call_ringing", "message1",
 const HALLOWEEN_FROM: u64 = 1_791_388_800_000;
 const HALLOWEEN_TO: u64 = 1_793_638_800_000;
 
+/// The call sounds Voice & Video lets you switch off one by one, as (cue, Discord's label).
+pub const VOICE_EVENTS: [(&str, &str); 17] = [
+    ("deafen", "Deafen"),
+    ("undeafen", "Undeafen"),
+    ("mute", "Mute"),
+    ("unmute", "Unmute"),
+    ("camera_on", "Camera On"),
+    ("camera_off", "Camera Off"),
+    ("disconnect", "Voice Disconnected"),
+    ("ptt_start", "PTT Activate"),
+    ("ptt_stop", "PTT Deactivate"),
+    ("user_join", "User Join"),
+    ("user_leave", "User Leave"),
+    ("user_moved", "User Moved"),
+    ("call_calling", "Outgoing Ring"),
+    ("stream_started", "Stream Started"),
+    ("stream_ended", "Stream Stopped"),
+    ("stream_user_joined", "Viewer Join"),
+    ("stream_user_left", "Viewer Leave"),
+];
+
 /// Volume discord plays its sounds at before the speaker volume scales it.
 const LEVEL: f32 = 0.4;
 
@@ -417,8 +438,18 @@ fn notes(name: &str) -> &'static [(f32, f32)] {
         "disconnect" => &[(523.3, 0.08), (392.0, 0.08), (261.6, 0.14)],
         "user_join" => &[(523.3, 0.06), (659.3, 0.06), (784.0, 0.1)],
         "user_leave" => &[(784.0, 0.06), (659.3, 0.06), (523.3, 0.1)],
+        "camera_on" => &[(784.0, 0.05), (1046.5, 0.1)],
+        "camera_off" => &[(1046.5, 0.05), (784.0, 0.1)],
+        "ptt_start" => &[(1318.5, 0.04)],
+        "ptt_stop" => &[(987.8, 0.04)],
+        "user_moved" => &[(659.3, 0.05), (880.0, 0.05), (659.3, 0.08)],
+        "call_calling" => &[(587.3, 0.2), (0.0, 0.1), (587.3, 0.2), (0.0, 0.4), (587.3, 0.2), (0.0, 0.1), (587.3, 0.2)],
+        "stream_started" => &[(523.3, 0.05), (784.0, 0.05), (1046.5, 0.1)],
+        "stream_ended" => &[(1046.5, 0.05), (784.0, 0.05), (523.3, 0.1)],
+        "stream_user_joined" => &[(698.5, 0.05), (880.0, 0.1)],
+        "stream_user_left" => &[(880.0, 0.05), (698.5, 0.1)],
         "discodo" => &[(523.3, 0.07), (659.3, 0.07), (784.0, 0.07), (1046.5, 0.07), (784.0, 0.07), (1046.5, 0.18)],
-        "call_ringing" | "call_calling" => &[(659.3, 0.18), (0.0, 0.08), (784.0, 0.18), (0.0, 0.3), (659.3, 0.18), (0.0, 0.08), (784.0, 0.18)],
+        "call_ringing" => &[(659.3, 0.18), (0.0, 0.08), (784.0, 0.18), (0.0, 0.3), (659.3, 0.18), (0.0, 0.08), (784.0, 0.18)],
         _ => &[],
     }
 }
