@@ -630,11 +630,16 @@ impl Run {
                 if app.settings_page.is_some() {
                     self.mark("settings");
                     self.shot(ctx, "settings.png");
+                    let s = ctx.content_rect();
+                    self.click(pos2(s.left() + 36.0, s.bottom() - 36.0));
                     self.next(300);
                 }
             }
             26 => {
-                self.key(Key::Escape);
+                if app.settings_page.is_some() {
+                    return self.fail("clicking outside settings didn't close it".into());
+                }
+                self.mark("settings_backdrop");
                 let general = app.store.guilds.get(&self.target.0).and_then(|g| {
                     g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "general"))
                 });

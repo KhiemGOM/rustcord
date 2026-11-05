@@ -121,7 +121,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // sections register themselves as they draw; the sidebar reads last frame's list
     let seen: Vec<(String, f32)> = ctx.data_mut(|d| d.remove_temp(Id::new("settings_secs"))).unwrap_or_default();
     ctx.data_mut(|d| d.insert_temp(Id::new("settings_secs_seen"), seen));
-    egui::Modal::new("settings".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
+    let modal = egui::Modal::new("settings".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
         ui.set_min_size(size - vec2(2.0, 2.0));
         ui.set_max_size(size - vec2(2.0, 2.0));
         let area = ui.max_rect();
@@ -132,6 +132,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     user::modal(app, &ctx);
     if changed {
         app.save_settings(&ctx);
+    }
+    if modal.backdrop_response.clicked() && app.sform.modal.is_none() && !app.sform.recording() {
+        app.settings_page = None;
     }
     if logout {
         app.settings_page = None;
