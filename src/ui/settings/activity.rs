@@ -1,38 +1,152 @@
-use egui::{Color32, Frame, RichText, Sense, Stroke, Ui, vec2};
+use egui::{Align2, Frame, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+
+use super::privacy::{NOTIF, PRIVACY, STATUS, blob, related, write};
+use super::wire::{self, Patch};
+use super::{Page, caption, input, note, radio, section, toggle};
+use crate::net::Tag;
+use crate::state::Id;
+use crate::theme::*;
+use crate::ui::{App, avatar};
+use egui::Color32;
 use serde_json::json;
 
-use super::{note, remote, section, toggle};
-use crate::net::Tag;
-use crate::theme::*;
-use crate::ui::App;
+const ALL: u64 = 1;
+const SMALL: u64 = 2;
+const NONE: u64 = 3;
+
+fn mode(b: &[u8]) -> u64 {
+    wire::num(b, PRIVACY, 29).filter(|v| *v != 0).or(wire::num(b, PRIVACY, 14).map(|v| v + 1)).unwrap_or(ALL)
+}
 
 pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "What Activity I Share");
-    match remote(app, "legacy", "/users/@me/settings").cloned() {
-        None => {
-            ui.add(egui::Spinner::new().color(pal().text_muted));
+    let Some(b) = blob(app, ui) else { return false };
+    let mut on = wire::flag(&b, STATUS, 3).unwrap_or(true);
+    if toggle(ui, &mut on, "Share my activity", "Share activity information from games and connected apps I use, including when and how I engage.") {
+        app.store.hide_game = !on;
+        write(app, Patch::new().flag(STATUS, 3, on));
+    }
+    let mut online = wire::flag(&b, NOTIF, 25).unwrap_or(true);
+    if toggle(ui, &mut online, "Share when I come online", "Allow friends to receive a push notification when you come online.") {
+        write(app, Patch::new().flag(NOTIF, 25, online));
+    }
+    let mut live = wire::flag(&b, NOTIF, 26).unwrap_or(true);
+    if toggle(ui, &mut live, "Share when I start streaming", "Allow members that you interact with the most to get a notification when you start streaming in small servers.") {
+        write(app, Patch::new().flag(NOTIF, 26, live));
+    }
+
+    section(ui, "Where I Share Activity");
+    caption(ui, "Automatically share my activity when joining a server", "Your activity is always shared with your friends.");
+    super::end(ui, 16.0);
+    let guilds: Vec<(Id, String, u32, Option<String>)> =
+        app.store.guild_order.iter().filter_map(|g| app.store.guilds.get(g).map(|x| (*g, x.name.clone(), x.member_count, x.icon_url()))).collect();
+    let all: Vec<u64> = guilds.iter().map(|g| g.0 as u64).collect();
+    let off = wire::ids(&b, PRIVACY, 13);
+    let mut m = mode(&b);
+    let opts = [(ALL, "Share in all servers", ""), (SMALL, "Share in servers with 200 or fewer members", ""), (NONE, "Do not share in any servers", "")];
+    if radio(ui, &mut m, &opts) {
+        let ids: Vec<u64> = match m {
+            ALL => Vec::new(),
+            SMALL => guilds.iter().filter(|g| g.2 > 200).map(|g| g.0 as u64).collect(),
+            _ => all.clone(),
+        };
+        write(app, Patch::new().num(PRIVACY, 14, m - 1).num(PRIVACY, 29, m).ids(PRIVACY, 13, &ids));
+    }
+    super::lead(ui);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Server settings").font(medium(16.0)).color(pal().header_primary));
+        if !on || m == NONE {
+            ui.label(RichText::new("ignored when not sharing").font(reg(14.0)).color(pal().header_secondary));
         }
-        Some(Err(_)) => note(ui, "Discord didn't hand this setting to Rustcord. You can change it on discord.com."),
-        Some(Ok(s)) => {
-            let mut on = s["show_current_game"].as_bool().unwrap_or(true);
-            if toggle(
-                ui,
-                &mut on,
-                "Share my activity",
-                "Lets people see the game you're playing or what you're listening to.",
-            ) {
-                if let Some(Some(Ok(cur))) = app.remote.get_mut("legacy") {
-                    cur["show_current_game"] = json!(on);
+    });
+    ui.add_space(12.0);
+    let mut query = app.sform.act_search.clone();
+    ui.horizontal(|ui| {
+        let w = ui.available_width() - 340.0;
+        ui.allocate_ui(vec2(w, 40.0), |ui| {
+            let r = input(ui, &mut query, "Search my servers", false);
+            super::mark(ui, "activity_search", r.rect);
+        });
+        ui.add_space(12.0);
+        let by_name = app.sform.act_sort == 1;
+        let mut pick = None;
+        super::dropdown(ui, 140.0, None, if by_name { "Alphabetical" } else { "Server Order" }, |ui| {
+            for (i, l) in ["Server Order", "Alphabetical"].iter().enumerate() {
+                if ui.selectable_label(app.sform.act_sort == i as u8, *l).clicked() {
+                    pick = Some(i as u8);
                 }
-                app.store.hide_game = !on;
-                app.rest("PATCH", "/users/@me/settings".into(), Some(json!({ "show_current_game": on })), Tag::Remote("action"));
+            }
+        });
+        if let Some(p) = pick {
+            app.sform.act_sort = p;
+        }
+        ui.add_space(12.0);
+        let every = !all.is_empty() && all.iter().all(|g| !off.contains(g));
+        let b2 = super::secondary(ui, if every { "Toggle All Off" } else { "Toggle All On" });
+        super::mark(ui, "toggle_all", b2.rect);
+        if b2.clicked() {
+            write(app, Patch::new().ids(PRIVACY, 13, &if every { all.clone() } else { Vec::new() }));
+        }
+    });
+    app.sform.act_search = query.clone();
+    ui.add_space(12.0);
+    let mut shown: Vec<&(Id, String, u32, Option<String>)> = guilds.iter().filter(|g| g.1.to_lowercase().contains(&query.to_lowercase())).collect();
+    if app.sform.act_sort == 1 {
+        shown.sort_by_key(|g| g.1.to_lowercase());
+    }
+    ui.label(RichText::new(format!("{} servers", shown.len())).font(medium(14.0)).color(pal().header_secondary));
+    ui.add_space(8.0);
+    let clip = ui.clip_rect();
+    let mut flip = None;
+    for (g, name, members, icon) in shown {
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::hover());
+        if !clip.intersects(r) {
+            continue;
+        }
+        let ic = Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(40.0, 40.0));
+        match icon {
+            Some(u) => avatar(ui, ic, u),
+            None => {
+                ui.painter().circle_filled(ic.center(), 20.0, pal().bg_secondary);
+                ui.painter().text(ic.center(), Align2::CENTER_CENTER, name.chars().next().unwrap_or('?'), semi(16.0), pal().header_primary);
             }
         }
+        crate::ui::text::paint(ui.painter(), pos2(r.left() + 56.0, r.center().y - 9.0), Align2::LEFT_CENTER, name, medium(16.0), pal().header_primary, 420.0);
+        ui.painter().text(pos2(r.left() + 56.0, r.center().y + 11.0), Align2::LEFT_CENTER, format!("{members} Members"), reg(14.0), pal().header_secondary);
+        let sw = Rect::from_min_size(pos2(r.right() - 48.0, r.center().y - 12.0), vec2(48.0, 24.0));
+        let resp = ui.interact(sw, egui::Id::new(("activity_guild", *g)), Sense::click());
+        let enabled = !off.contains(&(*g as u64));
+        super::paint_switch(ui, sw, &resp, enabled);
+        super::mark(ui, &format!("guild:{name}"), sw);
+        if resp.clicked() {
+            flip = Some((*g as u64, enabled));
+        }
     }
-    section(ui, "Where I Share Activity");
-    note(ui, "Per-server activity sharing is managed on discord.com.");
+    if let Some((g, enabled)) = flip {
+        let ids: Vec<u64> = if enabled { off.iter().copied().chain([g]).collect() } else { off.iter().copied().filter(|x| *x != g).collect() };
+        write(app, Patch::new().ids(PRIVACY, 13, &ids));
+    }
+    section(ui, "Related Settings");
+    related(app, ui, "Data & Privacy", "Control who can see your profile info — like your bio and connected accounts.", Page::Privacy);
+
     section(ui, "Who Can Join My Games");
-    note(ui, "Join permissions for your games are managed on discord.com.");
+    note(ui, "Some games allow users to join the game you're playing when viewing your activity.");
+    let mut friends = wire::flag(&b, PRIVACY, 1).unwrap_or(true);
+    if toggle(ui, &mut friends, "Allow friends to join my game", "Allow friends to join my game without sending a request.") {
+        write(app, Patch::new().flag(PRIVACY, 1, friends));
+    }
+    let mut vc = wire::flag(&b, PRIVACY, 2).unwrap_or(true);
+    if toggle(ui, &mut vc, "Allow voice channel participants to join my game", "Allow anyone in a shared voice channel to join my game without sending a request. This feature only works in non-Community enabled servers.") {
+        write(app, Patch::new().flag(PRIVACY, 2, vc));
+    }
+    super::lead(ui);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let t = |ui: &mut Ui, s: &str| ui.label(RichText::new(s).font(reg(14.0)).color(pal().header_secondary));
+        t(ui, "Looking for per-server controls? Navigate to the server, select the dropdown menu next to the server name, then select");
+        ui.label(RichText::new("Privacy Settings").font(semi(14.0)).color(pal().header_secondary));
+        t(ui, ". From there, you can toggle on or off Activity Joining for just that server.");
+    });
     false
 }
 
