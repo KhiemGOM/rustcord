@@ -3826,6 +3826,9 @@ impl Run {
                 }
             }
             539 => {
+                if let Some(s) = &mut app.chan_settings {
+                    s.advanced = true;
+                }
                 let Some(r) = Self::at(ctx, "perm:View Channel:-1") else { return };
                 self.click(r.center());
                 self.next(500);
