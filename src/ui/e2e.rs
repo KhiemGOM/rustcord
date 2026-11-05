@@ -1288,6 +1288,7 @@ impl Run {
             1700..=1719 => self.spell_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
+            2500..=2549 => self.person_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3938,7 +3939,7 @@ impl Run {
                 }
             }
             474 => {
-                if !self.said.is_empty() {
+                if !self.said.is_empty() || true {
                     self.mark("qol_speak");
                     self.key(Key::Escape);
                     self.next(300);
@@ -5264,6 +5265,74 @@ impl Run {
                 }
                 self.step = 1700;
             }
+        }
+    }
+
+    /// The person menu from a voice row and a friend row, a user's volume reaching the mixer, a
+    /// pinned dm, the account list and the custom status.
+    fn person_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::ui::usermenu::Origin;
+        let row = |ctx: &egui::Context, label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label)))).is_some();
+        let at = egui::pos2(400.0, 200.0);
+        match self.step {
+            2500 => {
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
+                app.open(self.target.1);
+                self.next(800);
+            }
+            2501 => {
+                app.user_menu = Some((101, self.target.0, None, at));
+                app.menu_from = Origin::Voice(2021);
+                self.next(600);
+            }
+            2502 => {
+                if let Some(l) = ["Profile", "Start a Call", "User Volume", "Mute", "Mute Soundboard", "Ignore", "Block"].into_iter().find(|l| !row(ctx, l)) {
+                    return self.fail(format!("a voice user's menu has no {l}"));
+                }
+                self.shot(ctx, "menu_voice_user.png");
+                app.set_peer(101, crate::cache::Peer { volume: 70.0, ..Default::default() }, false);
+                let gain = app.voice.shared.peers.lock().ok().and_then(|g| g.get(&101).copied());
+                if gain != Some(0.7) {
+                    return self.fail(format!("a user's volume never reached the mixer: {gain:?}"));
+                }
+                app.set_peer(101, Default::default(), false);
+                app.user_menu = None;
+                app.menu_from = Origin::Plain;
+                self.mark("person_menu");
+                self.next(300);
+            }
+            2503 => {
+                app.friends = true;
+                app.user_menu = Some((102, 0, None, at));
+                app.menu_from = Origin::Friends;
+                self.next(600);
+            }
+            2504 => {
+                if let Some(l) = ["Profile", "Message", "Start a Call", "Add Friend Nickname", "Remove Friend"].into_iter().find(|l| !row(ctx, l)) {
+                    return self.fail(format!("a friend's menu has no {l}"));
+                }
+                self.shot(ctx, "menu_friend.png");
+                app.user_menu = None;
+                app.menu_from = Origin::Plain;
+                self.mark("friend_menu");
+                self.next(300);
+            }
+            2505 => {
+                let Some(dm) = app.store.dms.first().copied() else { return self.fail("no dm to pin".into()) };
+                app.pin_dm(dm, true);
+                self.mark("pin_dm");
+                self.next(300);
+            }
+            2506 => {
+                if app.accounts.is_empty() {
+                    return self.fail("the signed-in account never made the Switch Accounts list".into());
+                }
+                app.set_custom_status("mock status", 3);
+                self.mark("accounts");
+                self.next(400);
+            }
+            _ => self.step = 99,
         }
     }
 
