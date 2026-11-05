@@ -253,9 +253,7 @@ pub fn emoji_button(ui: &mut Ui, app: &App, gid: Snow, cur: &Pick) -> Option<Pic
                 ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
                 for it in &items {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                     paint_emoji(ui, r.shrink(4.0), it);
                     if resp.clicked() {
                         out = Some(it.clone());

@@ -336,9 +336,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
             }
             let uid = sid(&u["id"]);
             let (r, resp) = ui.allocate_exact_size(vec2(outer.width(), 60.0), Sense::click());
-            if resp.hovered() {
-                ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 8, faint(20));
-            }
+            crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, faint(20), 0.05);
             ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
             let y = r.center().y;
             let cb = Rect::from_min_size(pos2(table.left() + 16.0, y - 10.0), vec2(20.0, 20.0));
@@ -764,9 +762,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
             let n = chans.len();
             for (i, c) in chans.into_iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(w, 67.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, 8, faint(20));
-                }
+                crate::ui::motion::wash(ui, &resp, r, 8, faint(20), 0.05);
                 if i + 1 < n {
                     ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(41)));
                 }

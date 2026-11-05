@@ -264,9 +264,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         // discord's skin tone hand and its add emoji button, right of the search box
         let hand = Rect::from_min_size(pos2(ui.max_rect().right() - 16.0 - 108.0 - 8.0 - 40.0, row.y), vec2(40.0, 40.0));
         let hr = ui.interact(hand, ui.id().with("skin"), Sense::click());
-        if hr.hovered() {
-            ui.painter().rect_filled(hand, 8, MENU_HOVER);
-        }
+        crate::ui::motion::wash(ui, &hr, hand, 8, MENU_HOVER, 0.05);
         Image::from_uri(twemoji(tinted("👏", tone))).show_loading_spinner(false).paint_at(ui, hand.shrink(8.0));
         if hr.on_hover_text("Default Skin Tone").clicked() {
             tones_open = !tones_open;
@@ -764,9 +762,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for (i, (icon, name)) in marks.iter().enumerate() {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r.expand(2.0), 8, MENU_HOVER);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r.expand(2.0), 8, MENU_HOVER, 0.05);
                     match icon {
                         Some(url) => {
                             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);

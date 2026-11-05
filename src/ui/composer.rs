@@ -906,9 +906,7 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
                         ui.painter().vline(r.center().x, r.y_range().shrink(6.0), Stroke::new(1.0, pal().border_subtle));
                     }
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, 4, pal().control_hover);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r, 4, pal().control_hover, 0.05);
                     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
                     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "format", tip)), r));
                     if resp.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
