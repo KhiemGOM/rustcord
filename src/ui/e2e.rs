@@ -1241,6 +1241,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            1400..=1419 => self.scroll_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3991,8 +3992,49 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 1400;
                 }
+            }
+        }
+    }
+
+    /// The wheel and the paging keys move the chat as far as Chromium would.
+    fn scroll_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let general = self.target.1;
+        let offset = |app: &App| app.offsets.get(&general).copied().unwrap_or(0.0);
+        match self.step {
+            1400 => {
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(1200);
+            }
+            1401 => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                self.click(c.center());
+                self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, c.top() - 200.0))]);
+                self.next(500);
+            }
+            1402 => {
+                self.y0 = offset(app);
+                self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                self.next(700);
+            }
+            1403 => {
+                let want = super::wheel::notch(ctx.zoom_factor(), ctx.content_rect().height());
+                if (self.y0 - offset(app) - want).abs() < 1.5 {
+                    self.mark("feel_wheel_notch");
+                }
+                self.y0 = offset(app);
+                self.key(Key::PageUp);
+                self.next(700);
+            }
+            _ => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                let moved = self.y0 - offset(app);
+                if moved > c.top() * 0.5 && moved < c.top() {
+                    self.mark("feel_page_key");
+                }
+                self.step = 99;
             }
         }
     }

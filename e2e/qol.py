@@ -42,4 +42,6 @@ def checks(runs, reqs, data):
         "qol: alt+click starred an emoji in the picker": both("qol_fav_emoji"),
         "qol: ctrl+/ opened the sheet, its arrows lit, and H H right N K played the Raging Demon": both("qol_combos") and both("qol_demon"),
         "qol: Escape well back in the history jumped to the present": both("qol_esc_present"),
+        "feel: one wheel notch moved the chat by Windows' lines setting times 100/3": both("feel_wheel_notch"),
+        "feel: PageUp with the composer focused scrolled the chat most of a screen": both("feel_page_key"),
     }

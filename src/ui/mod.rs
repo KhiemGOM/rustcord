@@ -794,7 +794,7 @@ impl App {
     fn apply_settings(&self, ctx: &egui::Context) {
         let s = &self.settings;
         ctx.set_zoom_factor(s.zoom);
-        crate::tray::set_close_hides(s.minimize_to_tray);
+        crate::tray::set_close_hides(s.minimize_to_tray && std::env::var_os("RUSTCORD_BENCH").is_none());
         crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
         crate::theme::set_reduced_motion(s.reduced_motion);
         crate::theme::set_view(crate::theme::View {
