@@ -29,6 +29,7 @@ from pathlib import Path
 import look
 import polish
 import home
+import players
 import qol
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -391,6 +392,7 @@ def main():
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
+        **players.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
