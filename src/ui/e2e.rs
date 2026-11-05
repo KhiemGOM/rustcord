@@ -3996,7 +3996,7 @@ impl Run {
                 let Some(r) = Self::at(ctx, "field:server_name") else { return };
                 self.click(r.center());
                 self.type_end(" X");
-                self.next(400);
+                self.next(800);
             }
             602 => {
                 let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
@@ -4026,7 +4026,7 @@ impl Run {
             605 => {
                 let Some(r) = Self::at(ctx, "badge:sword") else { return };
                 self.click(r.center());
-                self.next(300);
+                self.next(700);
             }
             606 => {
                 let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
@@ -4048,7 +4048,7 @@ impl Run {
                 }
                 let Some(r) = Self::at(ctx, "toggle:Send helpful tips for server setup.") else { return };
                 self.click(r.center());
-                self.next(300);
+                self.next(700);
             }
             609 => {
                 let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
@@ -4122,7 +4122,7 @@ impl Run {
                 let Some(r) = Self::at(ctx, "question:0") else { return };
                 self.click(r.center());
                 self.type_end("Why do you want to join?");
-                self.next(300);
+                self.next(700);
             }
             620 => {
                 let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
@@ -4214,6 +4214,11 @@ impl Run {
                 }
                 self.mark("server_template");
                 let Some(r) = Self::at(ctx, "side:Delete Server") else { return };
+                if r.bottom() > ctx.content_rect().bottom() - 10.0 {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, 300.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    return;
+                }
                 self.click(r.center());
                 self.next(400);
             }
@@ -4223,6 +4228,9 @@ impl Run {
                 }
                 self.shot(ctx, "server_delete.png");
                 self.mark("server_delete");
+                self.next(500);
+            }
+            634 => {
                 app.confirm = None;
                 app.server = None;
                 self.step = 99;
