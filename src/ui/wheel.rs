@@ -164,6 +164,9 @@ impl Wheel {
         let mut out = Vec::with_capacity(raw.events.len() + 2);
         let mut direct = Vec2::ZERO;
         let chat = self.chat.take();
+        if chat.is_none() {
+            self.chat_delta = 0.0;
+        }
         let to_chat = chat.is_some_and(|r| ctx.memory(|m| m.has_focus(egui::Id::new("composer"))) || ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
         let nav = nav && !ctx.egui_wants_keyboard_input();
         for e in raw.events.drain(..) {
