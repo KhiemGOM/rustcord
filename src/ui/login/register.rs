@@ -1,5 +1,5 @@
 use chrono::{Datelike, NaiveDate};
-use egui::{RichText, Ui};
+use egui::{RichText, Ui, vec2};
 use std::time::{Duration, Instant};
 
 use super::{Page, Form, input, label, link, muted_then_link, primary, problem};
@@ -92,7 +92,23 @@ fn text_field(f: &mut Form, ui: &mut Ui, id: &'static str, text: &str, required:
 
 fn check(ui: &mut Ui, on: &mut bool, text: &str) -> egui::Response {
     ui.horizontal_top(|ui| {
-        let r = ui.checkbox(on, "");
+        let (rect, r) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::click());
+        let p = ui.painter();
+        if *on {
+            p.rect_filled(rect, 4.0, BLURPLE);
+            let c = rect.center();
+            let stroke = egui::Stroke::new(2.0, egui::Color32::WHITE);
+            p.line_segment([c + vec2(-4.5, 0.0), c + vec2(-1.5, 3.5)], stroke);
+            p.line_segment([c + vec2(-1.5, 3.5), c + vec2(5.0, -3.5)], stroke);
+        } else {
+            p.rect_stroke(rect, 4.0, egui::Stroke::new(2.0, pal().text_muted), egui::StrokeKind::Inside);
+        }
+        if r.clicked() {
+            *on = !*on;
+        }
+        if r.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
         ui.add(egui::Label::new(RichText::new(text).font(reg(14.0)).color(pal().text_muted)).wrap());
         r
     })
@@ -139,8 +155,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     text_field(f, ui, "password", "Password", true, true, "");
     ui.add_space(20.0);
     label(ui, "Date of Birth", true, f.error("date_of_birth"));
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
+        ui.spacing_mut().button_padding = vec2(10.0, 10.0);
+        let w = &mut ui.visuals_mut().widgets;
+        for v in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+            v.weak_bg_fill = pal().input_bg;
+            v.bg_fill = pal().input_bg;
+            v.corner_radius = 3.into();
+            v.bg_stroke = egui::Stroke::NONE;
+            v.fg_stroke.color = pal().text_normal;
+        }
         let s = &mut f.reg;
         let month = if s.month == 0 { "Month" } else { MONTHS[s.month as usize - 1] };
         egui::ComboBox::from_id_salt("dob_month").width(150.0).selected_text(month).show_ui(ui, |ui| {
