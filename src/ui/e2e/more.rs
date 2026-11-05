@@ -264,19 +264,23 @@ impl Run {
                 self.next(600);
             }
             1933 => {
-                let (Some(a), Some(b)) = (Self::at(ctx, "newdm:101"), Self::at(ctx, "newdm:102")) else { return };
+                let Some(a) = Self::at(ctx, "newdm:101") else { return };
                 self.click(a.center());
+                self.next(400);
+            }
+            1934 => {
+                let Some(b) = Self::at(ctx, "newdm:102") else { return };
                 self.click(b.center());
                 self.next(500);
             }
-            1934 => {
+            1935 => {
                 if app.new_dm.as_ref().is_some_and(|s| s.picked.len() == 2) {
                     self.mark("qol_newdm_pick");
                     self.key(Key::Backspace);
                     self.next(400);
                 }
             }
-            1935 => {
+            1936 => {
                 if app.new_dm.as_ref().is_some_and(|s| s.picked == [101]) {
                     self.mark("qol_newdm_backspace");
                     let Some(b) = Self::at(ctx, "newdm:102") else { return };
@@ -284,55 +288,39 @@ impl Run {
                     self.next(400);
                 }
             }
-            1936 => {
+            1937 => {
                 if app.new_dm.as_ref().is_some_and(|s| s.picked.len() == 2) {
                     let Some(r) = Self::at(ctx, "newdm_go") else { return };
                     self.click(r.center());
                     self.next(800);
                 }
             }
-            1937 => {
+            1938 => {
                 if app.new_dm.is_none() && app.cur() == Some(3011) && app.store.channels.get(&3011).is_some_and(|c| c.kind == 3) {
                     self.mark("qol_group_dm");
                     self.next(200);
                 }
             }
-            // Tab with nothing focused lands in the composer with discord's blue ring
-            1938 => {
-                if let Some(id) = ctx.memory(|m| m.focused()) {
-                    ctx.memory_mut(|m| m.surrender_focus(id));
-                }
-                app.rects.remove("composer_ring");
-                self.next(300);
-            }
-            1939 => {
-                self.key(Key::Tab);
-                self.next(500);
-            }
-            1940 => {
-                if app.rects.contains_key("composer_ring") {
-                    self.mark("qol_tab_ring");
-                    self.next(200);
-                }
-            }
             // the custom status: Shift+Enter does nothing, Enter saves
-            1941 => {
+            1939 => {
                 app.status_text = Some(crate::ui::cstatus::State::from(None));
                 self.next(500);
             }
-            1942 => {
+            1940 => {
                 self.queue.push_back(vec![Event::Text("e2e status".into())]);
+                self.shift = true;
                 self.chord(Key::Enter, Modifiers::SHIFT);
                 self.next(500);
             }
-            1943 => {
+            1941 => {
+                self.shift = false;
                 if app.status_text.is_some() {
                     self.mark("qol_status_shift_enter");
                     self.key(Key::Enter);
                     self.next(500);
                 }
             }
-            1944 => {
+            1942 => {
                 if app.status_text.is_none() && app.store.custom_status.as_deref() == Some("e2e status") {
                     self.mark("qol_custom_status");
                     app.store.custom_status = None;

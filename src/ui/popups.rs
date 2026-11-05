@@ -673,8 +673,8 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO),
             );
-            r.request_focus();
             save = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            r.request_focus();
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 save |= button(ui, "Set Status", BLURPLE, 104.0).clicked();

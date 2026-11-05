@@ -67,7 +67,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             .hint_text(RichText::new("Type the username of a friend").color(pal().text_muted))
                             .desired_width(ui.available_width().max(120.0)),
                     );
-                    r.request_focus();
+                    if ui.memory(|m| m.focused().is_none()) {
+                        r.request_focus();
+                    }
                     if s.query.is_empty() && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Backspace)) {
                         s.picked.pop();
                     }
