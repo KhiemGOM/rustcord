@@ -61,6 +61,7 @@ struct Auth {
     scopes: Vec<String>,
     state: Option<String>,
     quiet: bool,
+    token: Option<String>,
 }
 
 #[derive(Default)]
@@ -75,6 +76,7 @@ pub struct Activity {
     auth: Option<Auth>,
     link: Option<String>,
     pub surface: isize,
+    pub in_popout: bool,
     pub placed: bool,
     after_join: Option<(Id, Id)>,
 }
@@ -276,6 +278,8 @@ pub fn on_rest(app: &mut App, key: &str, v: Value) {
             let Some(run) = &mut app.activity.run else { return };
             let ok = sid(&v["application"]["id"]) == run.app && sid(&v["user"]["id"]) == app.store.me;
             let out = if ok {
+                let mut v = v;
+                v["access_token"] = json!(a.token);
                 run.sock.authenticated(&a.nonce, v)
             } else {
                 run.sock.refused("AUTHENTICATE", &a.nonce, bridge::INVALID_TOKEN, "Token does not match this activity and user")
@@ -459,13 +463,13 @@ fn act(app: &mut App, _ctx: &Context, a: bridge::Act) {
         }
         Authorize { nonce, scopes, state, quiet } => {
             let Some(run) = &app.activity.run else { return };
-            let a = Auth { cmd: "AUTHORIZE", nonce, scopes, state, quiet };
+            let a = Auth { cmd: "AUTHORIZE", nonce, scopes, state, quiet, token: None };
             let q = oauth_query(&a, run.app);
             app.activity.auth = Some(a);
             app.rest("GET", format!("/oauth2/authorize?{q}"), None, Tag::Activity("auth_info".into()));
         }
         Authenticate { nonce, token } => {
-            app.activity.auth = Some(Auth { cmd: "AUTHENTICATE", nonce, scopes: Vec::new(), state: None, quiet: false });
+            app.activity.auth = Some(Auth { cmd: "AUTHENTICATE", nonce, scopes: Vec::new(), state: None, quiet: false, token: Some(token.clone()) });
             app.net.send(crate::net::Cmd::Bearer { path: "/oauth2/@me".into(), token, tag: Tag::Activity("me".into()) });
         }
         Link { nonce, url } => {

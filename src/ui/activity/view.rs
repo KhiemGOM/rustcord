@@ -23,7 +23,7 @@ pub fn popout_hwnd(title: &str) -> isize {
     if w.is_null() || pid != std::process::id() { 0 } else { w as isize }
 }
 
-fn button(ui: &mut Ui, r: Rect, id: &'static str, text: &str, fill: Color32) -> egui::Response {
+fn button(ui: &mut Ui, r: Rect, id: impl std::hash::Hash + std::fmt::Debug, text: &str, fill: Color32) -> egui::Response {
     let resp = ui.interact(r, egui::Id::new(id), Sense::click());
     ui.painter().rect_filled(r, CornerRadius::same(4), if resp.hovered() { fill.gamma_multiply(0.85) } else { fill });
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, semi(13.0), Color32::WHITE);
@@ -77,6 +77,7 @@ pub fn stage(app: &mut App, ui: &mut Ui, area: Rect) {
         }
     }
     app.activity.placed = true;
+    app.activity.in_popout = app.activity.surface != 0;
 }
 
 /// The card standing for an activity that's running in the call while we're not in it.
@@ -97,7 +98,7 @@ pub fn join_tile(app: &mut App, ui: &mut Ui, ch: Id, r: Rect, app_id: Id, users:
     if app.activity.busy() || app.voice.chan != Some(ch) {
         return;
     }
-    if button(ui, b, "activity_join_tile", "Join Activity", GREEN).clicked() {
+    if button(ui, b, ("activity_join_tile", app_id), "Join Activity", GREEN).clicked() {
         super::launch(app, app_id);
     }
 }

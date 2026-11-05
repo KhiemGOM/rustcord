@@ -93,8 +93,8 @@ pub fn show(app: &mut App, ctx: &Context) {
                 for (i, a) in recents.iter().enumerate() {
                     let r = Rect::from_min_size(pos2(row.left() + i as f32 * 60.0, row.top()), vec2(48.0, 48.0));
                     let info = &app.activity.apps[a];
-                    icon(ui, r, info.icon.as_deref(), pal().bg_mod_selected, 12);
                     let resp = tile(ui, *a, r);
+                    icon(ui, r, info.icon.as_deref(), pal().bg_mod_selected, 12);
                     app.rects.insert(format!("activity:recent:{a}"), r);
                     if resp.on_hover_text(&info.name).clicked() {
                         pick = Some(*a);
@@ -115,6 +115,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 for (i, (a, tag)) in pair.iter().enumerate() {
                     let card = Rect::from_min_size(pos2(row.left() + i as f32 * 236.0, row.top()), CARD);
                     let info = app.activity.apps[a].clone();
+                    let resp = tile(ui, *a, card);
                     let banner = Rect::from_min_size(card.min, vec2(CARD.x, 126.0));
                     ui.painter().rect_filled(banner, CornerRadius { nw: 12, ne: 12, sw: 0, se: 0 }, pal().bg_mod_selected);
                     if let Some(b) = info.banner.as_deref().or(info.icon.as_deref()) {
@@ -128,7 +129,6 @@ pub fn show(app: &mut App, ctx: &Context) {
                     let clip = ui.painter().with_clip_rect(Rect::from_min_max(card.min + vec2(58.0, 130.0), card.max - vec2(8.0, 0.0)));
                     clip.text(card.min + vec2(58.0, 134.0), Align2::LEFT_TOP, &info.name, semi(16.0), pal().header_primary);
                     clip.text(card.min + vec2(58.0, 154.0), Align2::LEFT_TOP, &info.desc, reg(14.0), pal().text_muted);
-                    let resp = tile(ui, *a, card);
                     app.rects.insert(format!("activity:card:{a}"), card);
                     if resp.clicked() {
                         pick = Some(*a);
