@@ -3,9 +3,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Id, Layout, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::{LOGOUT, Look, card, danger, end, faint, input, lead, link, loading, mark, open_web, primary, refetch, remote, secondary, section};
+use super::{LOGOUT, Look, card, danger, end, faint, input, lead, link, loading, mark, primary, refetch, remote, secondary, section};
 use crate::net::Tag;
 use crate::theme::*;
+use crate::webwin::checkout;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
 
@@ -14,10 +15,6 @@ mod gifts;
 
 pub use boosts::boost;
 pub use gifts::gifts;
-
-fn checkout(path: &str) {
-    open_web(path)
-}
 
 type Step = (&'static str, String, Option<Value>);
 
@@ -260,6 +257,13 @@ fn plan_price(plan: &Value) -> String {
     format!("{}/{each}", money(plan["price"].as_i64().unwrap_or(0), plan["currency"].as_str().unwrap_or("usd")))
 }
 
+fn subscribe(plans: &[Value]) {
+    match plans.iter().find(|p| p["interval"] == 1 && p["interval_count"] == 1).and_then(|p| p["id"].as_str()) {
+        Some(id) => checkout(&format!("/billing/premium/subscribe?plan_id={id}")),
+        None => checkout("/settings/premium"),
+    }
+}
+
 fn monthly(plans: &[Value]) -> String {
     plans.iter().find(|p| p["interval"] == 1 && p["interval_count"] == 1).map_or("—".into(), plan_price)
 }
@@ -333,7 +337,8 @@ fn hero(ui: &mut Ui, name: &str, price: &str, perks: &[(Icon, &str)], buttons: &
     hit
 }
 
-fn features(ui: &mut Ui, basic: &str, nitro: &str, subscribe: bool) {
+fn features(ui: &mut Ui, basic_plans: &[Value], nitro_plans: &[Value], buy: bool) {
+    let (basic, nitro) = (monthly(basic_plans), monthly(nitro_plans));
     lead(ui);
     let w = ui.available_width();
     let cols = [w - 320.0, w - 160.0];
@@ -362,12 +367,12 @@ fn features(ui: &mut Ui, basic: &str, nitro: &str, subscribe: bool) {
         }
         line(ui, r.bottom());
     }
-    if subscribe {
+    if buy {
         let (r, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
-        for (x, label) in [(cols[0], "Nitro Basic"), (cols[1], "Nitro")] {
+        for (x, label, plans) in [(cols[0], "Nitro Basic", basic_plans), (cols[1], "Nitro", nitro_plans)] {
             let b = Rect::from_center_size(pos2(r.left() + x + 80.0, r.center().y), vec2(144.0, 40.0));
             if solid(ui, b, &format!("Subscribe to {label}"), BLURPLE, Color32::WHITE) {
-                checkout("/settings/premium");
+                subscribe(plans);
             }
         }
     }
@@ -388,7 +393,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
     if tier == 0 {
         let hit = hero(ui, "NITRO", &format!("{} / month", monthly(&nitro_plans).trim_end_matches("/month")), &NITRO_PERKS, &[("Subscribe", Color32::WHITE, Color32::from_rgb(0x2e, 0x33, 0x38))]);
         if hit == Some(0) {
-            checkout("/settings/premium");
+            subscribe(&nitro_plans);
         }
     } else {
         let name = ["", "NITRO CLASSIC", "NITRO", "NITRO BASIC"][tier.min(3) as usize];
@@ -438,7 +443,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
     if tier != 0 {
         section(ui, "What You’ve Got");
     }
-    features(ui, &monthly(&basic_plans), &monthly(&nitro_plans), tier == 0);
+    features(ui, &basic_plans, &nitro_plans, tier == 0);
     false
 }
 
@@ -501,11 +506,11 @@ pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 if ending {
                     if primary(ui, "Resubscribe").clicked() {
-                        checkout("/settings/premium");
+                        checkout("/billing/premium/manage");
                     }
                 } else {
                     if secondary(ui, "Change Payment Method").clicked() {
-                        checkout("/settings/billing");
+                        checkout("/billing/premium/manage");
                     }
                     if danger(ui, "Cancel Subscription", false).clicked() {
                         cancel = Some((id.to_string(), ends.clone()));
@@ -747,7 +752,7 @@ pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
     ui.add_space(24.0);
     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
         if primary(ui, "Add Payment Method").clicked() {
-            checkout("/settings/billing");
+            checkout("/billing/payment-sources/create");
         }
     });
     edit_source(app, ui, &sources);
