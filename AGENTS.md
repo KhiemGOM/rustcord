@@ -1,9 +1,9 @@
-# Fastcord
+# Rustcord
 
 Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel and behaviour parity with Discord's desktop app.
 
 ## Build and run
-- `cargo run --release` runs the client; `cargo build --locked --release --bin fastcord --example mockcord` is what CI builds.
+- `cargo run --release` runs the client; `cargo build --locked --release --bin rustcord --example mockcord` is what CI builds.
 - There are no `#[test]`s. The only verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
 
 ## E2E
@@ -11,10 +11,10 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 - Output: `e2e/artifacts/report.json` (`checks`: name -> bool, plus `cold`/`warm` results), `report.md`, screenshots, `mock_requests.jsonl`. The exit code is 1 if any check is false.
 - Checks are named strings in `e2e/run.py`, `look.py`, `polish.py`, `qol.py`, `home.py`. Most are `marks_ms` set by `e2e.rs` steps, or assertions on the mock's request log.
 - The run replaces the clipboard (the paste step) and picks random ports, so parallel runs are fine.
-- Mock alone: `target/release/examples/mockcord.exe <http> <ws> <log.jsonl> [voice]` (the voice port takes tcp and udp). Point the client at it with `FASTCORD_API=http://127.0.0.1:<http>/api/v9`, `FASTCORD_CDN`, `FASTCORD_EMOJI_CDN`, `FASTCORD_FONTS`, `FASTCORD_GATEWAY=ws://127.0.0.1:<ws>`, `FASTCORD_TOKEN`, `FASTCORD_DATA`, `FASTCORD_VENCORD`. `run_client` in `run.py` has the full list.
-- Real-account checks never run from `run.py`; they need an env var and the saved login (or `FASTCORD_TOKEN`):
-  - `FASTCORD_TOUR=<dir>` walks the main screens and settings pages and screenshots them into `<dir>`, results in `<dir>/results.json`. Add `FASTCORD_READONLY=1` so nothing that changes the account goes out. `FASTCORD_TOUR_CHANNEL` and `FASTCORD_TOUR_FORUM` take `guild/channel`.
-  - `FASTCORD_E2E=<dir> FASTCORD_LIVE=<voice channel id>` joins that channel and goes live for `FASTCORD_LIVE_SECS` (default 30). Never run it without the user's say-so: it is visible to others.
+- Mock alone: `target/release/examples/mockcord.exe <http> <ws> <log.jsonl> [voice]` (the voice port takes tcp and udp). Point the client at it with `RUSTCORD_API=http://127.0.0.1:<http>/api/v9`, `RUSTCORD_CDN`, `RUSTCORD_EMOJI_CDN`, `RUSTCORD_FONTS`, `RUSTCORD_GATEWAY=ws://127.0.0.1:<ws>`, `RUSTCORD_TOKEN`, `RUSTCORD_DATA`, `RUSTCORD_VENCORD`. `run_client` in `run.py` has the full list.
+- Real-account checks never run from `run.py`; they need an env var and the saved login (or `RUSTCORD_TOKEN`):
+  - `RUSTCORD_TOUR=<dir>` walks the main screens and settings pages and screenshots them into `<dir>`, results in `<dir>/results.json`. Add `RUSTCORD_READONLY=1` so nothing that changes the account goes out. `RUSTCORD_TOUR_CHANNEL` and `RUSTCORD_TOUR_FORUM` take `guild/channel`.
+  - `RUSTCORD_E2E=<dir> RUSTCORD_LIVE=<voice channel id>` joins that channel and goes live for `RUSTCORD_LIVE_SECS` (default 30). Never run it without the user's say-so: it is visible to others.
   - Both also run against the mock (use the env above), which is how to check them.
 
 ## Parity
@@ -25,7 +25,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 `ci.yml` builds on push and PR. The e2e is `workflow_dispatch` only: the runner renders in software (Mesa llvmpipe), so frame and startup timing checks are flaky there.
 
 ## Traps
-- `src/ui/e2e.rs` is compiled into every build, release included; it only activates when `FASTCORD_E2E` or `FASTCORD_TOUR` is set.
+- `src/ui/e2e.rs` is compiled into every build, release included; it only activates when `RUSTCORD_E2E` or `RUSTCORD_TOUR` is set.
 - A step that can't find its widget waits 20s, then fails the whole run: every later check in that run reads false.
 - Older commits carry `Co-Authored-By: Claude` trailers; the commit-msg hook rejects them now. Don't copy them.
 - Lines in `e2e/*.py` that look like tautologies are often the only guard for a mark set far away in `e2e.rs`; trace the mark before deleting.
