@@ -27,6 +27,21 @@ fn solve(url: &str, token: &str) -> Option<bool> {
     Some(page.contains(SITEKEY) && page.contains("mock-rqdata"))
 }
 
+fn scan() {
+    let base = crate::api::base().trim_start_matches("http://");
+    let (addr, path) = base.split_once('/').map(|(a, p)| (a, format!("/{p}"))).unwrap_or((base, String::new()));
+    if let Ok(mut s) = std::net::TcpStream::connect(addr) {
+        let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+        let _ = write!(s, "POST {path}/mock/scan HTTP/1.1
+Host: {addr}
+Content-Length: 0
+Connection: close
+
+");
+        let _ = s.read_to_string(&mut String::new());
+    }
+}
+
 impl Run {
     fn rect(app: &App, key: &str) -> Option<Rect> {
         app.login.rects.get(key).copied()
@@ -251,6 +266,7 @@ impl Run {
             1550 if matches!(app.login.qr.state, Qr::Ready(_)) && Self::rect(app, "qr").is_some() => {
                 self.mark("qr_shown");
                 self.shot(ctx, "qr.png");
+                scan();
                 self.next(200);
             }
             1551 if matches!(app.login.qr.state, Qr::Ticket { .. }) && Self::rect(app, "qr_user").is_some() => {
