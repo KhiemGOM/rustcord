@@ -17,6 +17,12 @@ pub struct Roles {
     drag: Option<Id>,
 }
 
+impl Roles {
+    pub fn deep(&self) -> bool {
+        self.edit.is_some()
+    }
+}
+
 pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
     if app.server.as_ref().is_some_and(|s| s.pages.roles.edit.is_some()) {
         return role_edit::page(app, ui, gid);
@@ -30,7 +36,13 @@ pub fn open(app: &mut App, gid: Id, id: Id, tab: u8) {
         s.data.remove("role_members");
         s.pages.roles.edit = Some(Edit::new(&role, tab));
     }
-    app.rest("GET", format!("/guilds/{gid}/roles/{id}/member-ids"), None, Tag::Server("role_members"));
+    if id == gid {
+        if let Some(s) = &mut app.server {
+            s.data.insert("role_members", json!([]));
+        }
+    } else {
+        app.rest("GET", format!("/guilds/{gid}/roles/{id}/member-ids"), None, Tag::Server("role_members"));
+    }
 }
 
 pub fn saved(app: &mut App, key: &'static str, v: Value) {

@@ -15,6 +15,12 @@ pub struct Safety {
     sub: u8,
 }
 
+impl Safety {
+    pub fn deep(&self) -> bool {
+        self.sub != 0
+    }
+}
+
 const LEVELS: [(u8, &str, &str); 5] = [
     (0, "None", "Unrestricted"),
     (1, "Low", "Must have a verified email on their Discord account."),
