@@ -235,6 +235,15 @@ def main():
             sum(1 for r in reqs if r.get("method") == m and p in r.get("path", "")) == 2
             for m, p in [("POST", "/users/@me/harvest"), ("GET", "/connections/github/authorize"), ("DELETE", "/oauth2/tokens/"), ("DELETE", "/users/@me/connections/github/1"), ("POST", "/integrations/7001/join")]),
         "settings: decoration sku sent with the profile": sum('"avatar_decoration_sku_id":"7001"' in r.get("body", "") for r in reqs) == 2,
+        **{f"billing: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("server boost page showed the boosts, perks and faq", "boost_page"), ("boost any server opened the server picker", "boost_picker"),
+                              ("gift code redeemed natively", "gift_redeemed"), ("payment method edit modal opened", "billing_edit"),
+                              ("payment method made default, or delete asked first", "billing_manage"), ("transactions paged", "billing_tx")]},
+        "billing: gift code redeem POSTed": sum(r.get("method") == "POST" and r.get("path", "").endswith("/entitlements/gift-codes/WUMP-AAAAA-BBBBB-CCCCC/redeem") for r in reqs) == 2,
+        "billing: default payment method PATCHed": any(r.get("method") == "PATCH" and "/billing/payment-sources/" in r.get("path", "") and '"default":true' in r.get("body", "") for r in reqs),
+        "billing: nothing was bought or deleted": not any(
+            (r.get("method") != "GET" and "/billing/" in r.get("path", "") and "/payment-sources/" not in r.get("path", "")) or (r.get("method") == "DELETE" and "/payment-sources/" in r.get("path", ""))
+            or any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe")) for r in reqs),
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("animated emoji, mp4 gifv, gif upload and ?query gif each cycled through 3+ distinct frames", "media_animates"),

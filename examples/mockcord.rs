@@ -532,6 +532,8 @@ fn ready(last_general: u64) -> Value {
     };
     let mut guilds = vec![g1, simple(1001, "Gamers United", None, &[(2100, "lobby"), (2101, "lfg")]),
                           simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])];
+    guilds[2]["premium_subscription_count"] = json!(6);
+    guilds[2]["premium_tier"] = json!(1);
     guilds[1]["emojis"] = json!([
         { "id": "5200", "name": "omgBruh", "animated": false },
         { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
@@ -765,10 +767,135 @@ fn guild_update(w: &W, gid: &str) {
     let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_UPDATE", "d": up }));
 }
 
+static BILL: Mutex<Value> = Mutex::new(Value::Null);
+
+fn bill_state() -> Value {
+    let now = now_ms();
+    let day = 86_400_000;
+    let addr = json!({ "name": "You", "line_1": "12 Nguyen Hue", "line_2": null, "city": "Ho Chi Minh City", "state": null, "postal_code": "700000", "country": "VN" });
+    let source = |id: &str, brand: &str, last4: &str, month: u64, year: u64, invalid: bool, default: bool| {
+        json!({ "id": id, "type": 1, "brand": brand, "last_4": last4, "expires_month": month, "expires_year": year, "invalid": invalid, "default": default, "country": "VN", "billing_address": addr })
+    };
+    let payments: Vec<Value> = (0..12u64)
+        .map(|i| {
+            let gift = i % 3 == 1;
+            json!({ "id": (9900 + i).to_string(), "amount": if gift { 227045 } else { 113000 }, "currency": "vnd", "description": "Nitro", "status": if i == 2 { 2 } else { 1 },
+                    "gift": gift, "created_at": iso(now - (i + 1) * 9 * day), "amount_refunded": 0, "tax": 0, "tax_inclusive": true,
+                    "payment_source": { "id": "9501", "brand": "visa", "last_4": "4487" } })
+        })
+        .collect();
+    let applied = |sub: &str, guild: &str| json!({ "id": sub, "guild_id": guild, "user_id": ME.to_string(), "ended": false });
+    json!({
+        "sources": [source("9501", "visa", "4487", 9, 2029, false, true), source("9502", "visa", "7790", 8, 2023, true, false), source("9503", "mastercard", "4683", 4, 2028, false, false)],
+        "subs": [{ "id": "9601", "type": 1, "status": 1, "payment_source_id": "9501", "current_period_end": iso(now + 20 * day), "canceled_at": null, "items": [{ "plan_id": "511651880837840896", "quantity": 1 }] }],
+        "slots": [
+            { "id": "9701", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": null, "premium_guild_subscription": applied("9801", "1002") },
+            { "id": "9702", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": null, "premium_guild_subscription": null },
+            { "id": "9703", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": iso(now + 5 * day), "premium_guild_subscription": applied("9803", "1001") },
+        ],
+        "payments": payments,
+        "gifts": [{ "id": "9950", "sku_id": "521842831262875670", "sku": { "id": "521842831262875670", "name": "Nitro" }, "subscription_plan_id": "511651880837840896", "gifter_id": null }],
+        "codes": [{ "code": "Zx81QpLmK3vT", "sku_id": "521842831262875670", "store_listing": { "sku": { "name": "Nitro" } }, "uses": 0, "max_uses": 1 }],
+    })
+}
+
+fn billing(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
+    let mut g = BILL.lock().unwrap();
+    if g.is_null() {
+        *g = bill_state();
+    }
+    let b: Value = serde_json::from_slice(body).unwrap_or_default();
+    let (now, day) = (now_ms(), 86_400_000);
+    let find = |list: &str, key: &str, id: &str, g: &Value| g[list].as_array().and_then(|l| l.iter().position(|x| x[key] == id));
+    let missing = || Some((404, json!({ "message": "Unknown", "code": 10000 })));
+    match (method, parts) {
+        ("GET", ["api", "v9", "users", "@me", "billing", "subscriptions"]) => Some((200, g["subs"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "billing", "payment-sources"]) => Some((200, g["sources"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "billing", "payments"]) => Some((200, g["payments"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "guilds", "premium", "subscription-slots"]) => Some((200, g["slots"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "guilds", "premium", "subscriptions", "cooldown"]) => Some((200, json!({ "ends_at": null }))),
+        ("GET", ["api", "v9", "users", "@me", "entitlements", "gifts"]) => Some((200, g["gifts"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "entitlements", "gift-codes"]) => Some((200, g["codes"].clone())),
+        ("GET", ["api", "v9", "users", "%40me" | "@me", "badges", "17"]) => Some((200, json!({ "badge_id": "17", "progress": { "current": 4 } }))),
+        ("GET", ["api", "v9", "store", "published-listings", "skus", sku, "subscription-plans"]) => {
+            let (month, year) = if *sku == "521842831262875670" { (113000, 1130000) } else { (42000, 420000) };
+            Some((200, json!([
+                { "id": "511651880837840896", "interval": 1, "interval_count": 1, "price": month, "currency": "vnd", "sku_id": sku },
+                { "id": "511651885459963904", "interval": 2, "interval_count": 1, "price": year, "currency": "vnd", "sku_id": sku },
+            ])))
+        }
+        ("DELETE", ["api", "v9", "users", "@me", "billing", "payment-sources", id]) => {
+            let i = find("sources", "id", id, &g)?;
+            g["sources"].as_array_mut()?.remove(i);
+            Some((204, Value::Null))
+        }
+        ("PATCH", ["api", "v9", "users", "@me", "billing", "payment-sources", id]) => {
+            let i = find("sources", "id", id, &g)?;
+            if b["default"] == true {
+                g["sources"].as_array_mut()?.iter_mut().for_each(|s| s["default"] = json!(false));
+                g["sources"][i]["default"] = json!(true);
+            }
+            Some((200, g["sources"][i].clone()))
+        }
+        ("DELETE", ["api", "v9", "users", "@me", "billing", "subscriptions", id]) => {
+            let i = find("subs", "id", id, &g)?;
+            g["subs"][i]["canceled_at"] = json!(iso(now));
+            Some((204, Value::Null))
+        }
+        ("DELETE", ["api", "v9", "guilds", _, "premium", "subscriptions", sub]) => {
+            let Some(slot) = g["slots"].as_array_mut()?.iter_mut().find(|s| s["premium_guild_subscription"]["id"] == *sub) else { return missing() };
+            if slot["cooldown_ends_at"].as_str().is_some() {
+                return Some((400, json!({ "message": "Boost is on cooldown", "code": 50122 })));
+            }
+            slot["premium_guild_subscription"] = Value::Null;
+            Some((204, Value::Null))
+        }
+        ("PUT", ["api", "v9", "guilds", guild, "premium", "subscriptions"]) => {
+            let ids = b["user_premium_guild_subscription_slot_ids"].as_array()?.clone();
+            let mut out = Vec::new();
+            for id in ids {
+                let Some(slot) = g["slots"].as_array_mut()?.iter_mut().find(|s| s["id"] == id) else { return missing() };
+                if !slot["premium_guild_subscription"].is_null() {
+                    return Some((400, json!({ "message": "Boost is already applied", "code": 50122 })));
+                }
+                let sub = json!({ "id": (now % 100_000).to_string(), "guild_id": guild, "user_id": ME.to_string(), "ended": false });
+                slot["premium_guild_subscription"] = sub.clone();
+                slot["cooldown_ends_at"] = json!(iso(now + 7 * day));
+                out.push(sub);
+            }
+            Some((200, json!(out)))
+        }
+        ("POST", ["api", "v9", "users", "@me", "entitlements", "gift-codes"]) => {
+            let sku = b["sku_id"].as_str().unwrap_or("");
+            let i = g["gifts"].as_array()?.iter().position(|x| x["sku_id"] == sku)?;
+            let gift = g["gifts"].as_array_mut()?.remove(i);
+            let code = json!({ "code": format!("Gen{}", now % 1_000_000_000), "sku_id": sku, "store_listing": { "sku": { "name": gift["sku"]["name"] } }, "uses": 0, "max_uses": 1 });
+            g["codes"].as_array_mut()?.push(code.clone());
+            Some((200, code))
+        }
+        ("DELETE", ["api", "v9", "users", "@me", "entitlements", "gift-codes", code]) => {
+            let i = find("codes", "code", code, &g)?;
+            g["codes"].as_array_mut()?.remove(i);
+            Some((204, Value::Null))
+        }
+        ("POST", ["api", "v9", "entitlements", "gift-codes", code, "redeem"]) => {
+            if *code == "WUMP-AAAAA-BBBBB-CCCCC" {
+                Some((200, json!({})))
+            } else {
+                Some((404, json!({ "message": "Unknown Gift Code", "code": 10038 })))
+            }
+        }
+        _ => None,
+    }
+}
+
 async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
     let ok = |v: Value| (200, "application/json", v.to_string().into_bytes());
     let clean = path.split('?').next().unwrap_or("");
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
+    if let Some((code, v)) = billing(method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
