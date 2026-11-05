@@ -757,7 +757,11 @@ impl Run {
                 self.next(600);
             }
             36 => {
-                let Some(r) = app.rects.get("reply").copied() else { return };
+                // the glide can carry it off again: go back and find it
+                let Some(r) = app.rects.get("reply").copied() else {
+                    self.step = 35;
+                    return;
+                };
                 // the start of the line: the hover toolbar covers the message's top right
                 self.click(r.left_center() + vec2(40.0_f32.min(r.width() / 2.0), 0.0));
                 self.next(0);
