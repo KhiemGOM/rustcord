@@ -2262,13 +2262,11 @@ impl Store {
         true
     }
 
-    pub fn prune_typing(&mut self) -> bool {
-        let mut any = false;
-        for v in self.typing.values_mut() {
+    pub fn prune_typing(&mut self) {
+        self.typing.retain(|_, v| {
             v.retain(|(_, t)| t.elapsed().as_secs() < 10);
-            any |= !v.is_empty();
-        }
-        any
+            !v.is_empty()
+        });
     }
 }
 

@@ -420,6 +420,7 @@ impl App {
         self.friends = false;
         self.nav.visit(titlebar::Loc::Chan(ch, None));
         self.ui.chan.insert(guild, ch);
+        crate::net::OPEN.store(ch, std::sync::atomic::Ordering::Relaxed);
         self.ui.recent.retain(|x| *x != ch);
         self.ui.recent.insert(0, ch);
         self.ui.recent.truncate(15);
@@ -1599,8 +1600,8 @@ impl eframe::App for App {
                 }
                 self.shortcuts(&ctx, layered);
             }
-            if self.store.prune_typing() {
-                ctx.request_repaint_after(Duration::from_millis(50));
+            if self.store.typing.values().flatten().any(|(_, t)| t.elapsed().as_secs() >= 10) {
+                self.store.prune_typing();
             }
             if let Some(e) = &mut self.e2e
                 && self.frames > 0
@@ -1662,6 +1663,9 @@ impl eframe::App for App {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // egui wakes a delayed repaint this much early, then spins a frame per vsync until it's
+        // due: five frames for every blink of the caret
+        raw.predicted_dt = 0.0;
         if let Some(e) = &mut self.e2e {
             e.inject(raw);
         }
