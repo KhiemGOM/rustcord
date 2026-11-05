@@ -1,6 +1,7 @@
 use egui::Ui;
 
-use super::sync::{self, Leaf};
+use super::privacy::write;
+use super::wire::Patch;
 use super::{Look, action, dropdown, note, radio, section, sub, toggle};
 use crate::ui::App;
 
@@ -84,7 +85,7 @@ pub fn language(app: &mut App, ui: &mut Ui) -> bool {
                 super::mark(ui, &format!("lang:{code}"), r.rect);
                 if r.clicked() {
                     app.settings.locale = code.to_string();
-                    sync::put(app, &[12, 1], Leaf::Text(code.to_string()));
+                    write(app, Patch::new().text(12, 1, code));
                     changed = true;
                 }
             }
@@ -96,7 +97,7 @@ pub fn language(app: &mut App, ui: &mut Ui) -> bool {
     let mut cycle = app.settings.hour_cycle;
     if radio(ui, &mut cycle, &[(0, "Auto", ""), (1, "12-hour", ""), (2, "24-hour", "")]) {
         app.settings.hour_cycle = cycle;
-        sync::put(app, &[13, 9], Leaf::Raw(cycle as u64));
+        write(app, Patch::new().num(13, 9, cycle as u64));
         changed = true;
     }
     changed
@@ -111,7 +112,7 @@ pub fn developer(app: &mut App, ui: &mut Ui) -> bool {
         "Developer Mode",
         "Developer Mode exposes context menu items helpful for people writing apps using the Discord API.",
     ) {
-        sync::put(app, &[13, 2], Leaf::Raw(app.settings.dev as u64));
+        write(app, Patch::new().num(13, 2, app.settings.dev as u64));
         changed = true;
     }
     section(ui, "Cache");

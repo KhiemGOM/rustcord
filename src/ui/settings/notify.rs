@@ -1,7 +1,8 @@
 use egui::{Align, Align2, Id, Layout, Sense, Ui, UiBuilder, pos2, vec2};
 use serde_json::json;
 
-use super::sync::{self, Leaf};
+use super::privacy::write;
+use super::wire::Patch;
 use super::{Look, action, dropdown, loading, remote, section, sub, switch, toggle};
 use crate::cache::Settings;
 use crate::net::Tag;
@@ -19,11 +20,11 @@ const EMAILS: [(&str, &str, &str); 5] = [
 
 const MARKETING: [&str; 3] = ["tips", "recommendations_and_events", "updates_and_announcements"];
 
-fn account_toggle(app: &mut App, ui: &mut Ui, label: &str, field: fn(&mut Settings) -> &mut bool, path: &[u64]) {
+fn account_toggle(app: &mut App, ui: &mut Ui, label: &str, field: fn(&mut Settings) -> &mut bool, g: u64, f: u64) {
     let mut on = *field(&mut app.settings);
     if toggle(ui, &mut on, label, "") {
         *field(&mut app.settings) = on;
-        sync::put(app, path, Leaf::Bool(on));
+        write(app, Patch::new().flag(g, f, on));
     }
 }
 
@@ -180,7 +181,7 @@ fn advanced(app: &mut App, ui: &mut Ui) -> bool {
                 let label = format!("{m} Minute{}", if m == 1 { "" } else { "s" });
                 if ui.selectable_label(delay == m * 60, label).clicked() {
                     app.settings.push_delay = m * 60;
-                    sync::put(app, &[5, 6], Leaf::Num(m as u64 * 60));
+                    write(app, Patch::new().sub(5, 6, &[(1, m as u64 * 60)]));
                 }
             }
         },
@@ -188,7 +189,7 @@ fn advanced(app: &mut App, ui: &mut Ui) -> bool {
     let mut on = app.settings.tts_command;
     if toggle(ui, &mut on, "Allow playback and usage of /tts command", "Change Text-to-Speech speed in Accessibility Settings.") {
         app.settings.tts_command = on;
-        sync::put(app, &[6, 16], Leaf::Bool(on));
+        write(app, Patch::new().flag(6, 16, on));
     }
     sub(ui, "Speak all messages out loud");
     let mut tts = app.settings.tts_notify;
@@ -210,18 +211,18 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     );
     changed |= toggle(ui, &mut app.settings.flash, "Enable Taskbar Flashing", "Flashes the app in your taskbar when you have new notifications.");
     sub(ui, "Notify me when...");
-    account_toggle(app, ui, "People I know start streaming in small servers", |s| &mut s.stream_notify, &[5, 7]);
-    account_toggle(app, ui, "A friend and I reach a friendship anniversary", |s| &mut s.friend_anniv, &[7, 14]);
-    account_toggle(app, ui, "Friends come online", |s| &mut s.friend_online, &[7, 12]);
-    account_toggle(app, ui, "A server has an upcoming event", |s| &mut s.server_events, &[7, 22]);
-    account_toggle(app, ui, "Friends update their profile", |s| &mut s.profile_updates, &[7, 16]);
+    account_toggle(app, ui, "People I know start streaming in small servers", |s| &mut s.stream_notify, 5, 7);
+    account_toggle(app, ui, "A friend and I reach a friendship anniversary", |s| &mut s.friend_anniv, 7, 14);
+    account_toggle(app, ui, "Friends come online", |s| &mut s.friend_online, 7, 12);
+    account_toggle(app, ui, "A server has an upcoming event", |s| &mut s.server_events, 7, 22);
+    account_toggle(app, ui, "Friends update their profile", |s| &mut s.profile_updates, 7, 16);
     let reactions = ["All Messages", "Only Direct Messages", "Never"];
     let cur = app.settings.reaction_notify as usize;
     pick(ui, "Someone reacts to my messages", "", reactions[cur.min(2)], |ui| {
         for (i, label) in reactions.iter().enumerate() {
             if ui.selectable_label(cur == i, *label).clicked() {
                 app.settings.reaction_notify = i as u8;
-                sync::put(app, &[7, 7], Leaf::Raw(i as u64));
+                write(app, Patch::new().num(7, 7, i as u64));
             }
         }
     });

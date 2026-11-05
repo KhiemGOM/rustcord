@@ -162,6 +162,13 @@ impl Patch {
         self.put(g, f, Node::Bytes(body))
     }
 
+    pub fn text(self, g: u64, f: u64, v: &str) -> Self {
+        let mut body = vec![0x0a];
+        put(&mut body, v.len() as u64);
+        body.extend_from_slice(v.as_bytes());
+        self.put(g, f, Node::Bytes(body))
+    }
+
     pub fn bytes(&self) -> Vec<u8> {
         encode(&self.0.iter().map(|(g, fs)| (*g, Node::Bytes(encode(fs)))).collect::<Vec<_>>())
     }
