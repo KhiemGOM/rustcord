@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod web;
+
 use super::{App, side};
 use crate::net::Conn;
 use crate::state::Id;
@@ -1206,9 +1208,10 @@ impl Run {
             }
             94 => {
                 if crate::winsys::shown() {
-                    self.step = 100;
+                    self.step = 900;
                 }
             }
+            900..=919 => self.web_steps(),
             100..=199 => self.settings_steps(app, ctx),
             200..=219 => self.media_steps(app, ctx),
             220..=239 => self.side_steps(app, ctx),
