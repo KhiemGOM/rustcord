@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 mod web;
 mod stage;
 mod composer;
+mod motion;
 mod login;
 
 use super::{App, side};
@@ -1288,6 +1289,7 @@ impl Run {
             1700..=1719 => self.spell_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
+            2600..=2619 => self.motion_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);

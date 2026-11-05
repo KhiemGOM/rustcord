@@ -31,6 +31,7 @@ import look
 import polish
 import call
 import discover
+import motion
 import home
 import composer
 import messages
@@ -481,6 +482,7 @@ def main():
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
+        **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}

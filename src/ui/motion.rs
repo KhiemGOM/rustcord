@@ -324,6 +324,7 @@ impl Modal {
 
     pub fn show<T>(self, ctx: &Context, add: impl FnOnce(&mut Ui) -> T) -> Shown {
         let t = enter(ctx, self.id, self.secs, self.curve);
+        ctx.data_mut(|d| d.insert_temp(self.id.with("t"), t));
         let screen = ctx.content_rect();
         let area = egui::Modal::default_area(self.id).fade_in(false);
         let layer = area.layer();
