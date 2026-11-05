@@ -55,6 +55,7 @@ mod thread;
 pub mod text;
 mod titlebar;
 mod topic;
+mod wheel;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -130,6 +131,7 @@ pub struct App {
     // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
     pub marker_bar: bool,
     pub autoscroll: Option<autoscroll::Auto>,
+    pub wheel: wheel::Wheel,
     // ctrl+wheel travel not yet worth a zoom step
     zoom_acc: f32,
     pub focus_composer: bool,
@@ -343,6 +345,7 @@ impl App {
             marker: None,
             marker_bar: false,
             autoscroll: None,
+            wheel: wheel::Wheel::new(),
             zoom_acc: 0.0,
             focus_composer: true,
             rects: Map::default(),
@@ -917,7 +920,7 @@ impl App {
     fn apply_settings(&self, ctx: &egui::Context) {
         let s = &self.settings;
         ctx.set_zoom_factor(s.zoom);
-        crate::tray::set_close_hides(s.minimize_to_tray);
+        crate::tray::set_close_hides(s.minimize_to_tray && std::env::var_os("RUSTCORD_BENCH").is_none());
         crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
         crate::theme::set_reduced_motion(self.reduced_motion());
         crate::theme::set_view(crate::theme::View {
@@ -1954,6 +1957,8 @@ impl eframe::App for App {
             e.inject(raw);
         }
         autoscroll::filter(&mut self.autoscroll, raw);
+        let nav = self.focus_msg.is_none() && !self.modal_open() && !self.layered(ctx);
+        self.wheel.filter(ctx, raw, nav);
         // ctrl+wheel: a zoom level a notch
         let mut notches = 0.0;
         raw.events.retain(|e| match e {
@@ -2012,7 +2017,9 @@ impl eframe::App for App {
     }
 
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
-        crate::theme::clear().to_normalized_gamma_f32()
+        let c = crate::theme::clear();
+        crate::winsys::set_backdrop([c.r(), c.g(), c.b()]);
+        c.to_normalized_gamma_f32()
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

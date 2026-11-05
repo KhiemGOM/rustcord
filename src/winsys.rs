@@ -111,6 +111,14 @@ pub static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsi
 // width of the invisible resize border, in points
 const EDGE: f32 = 6.0;
 
+static BACKDROP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The colour the window is wiped with before a frame lands, the one egui clears to, so the strip
+/// a drag uncovers is the app's background rather than the system's.
+pub fn set_backdrop(c: [u8; 3]) {
+    BACKDROP.store(u32::from(c[0]) | u32::from(c[1]) << 8 | u32::from(c[2]) << 16, Ordering::Relaxed);
+}
+
 /// winit leaves an undecorated window with no resize border at all, so answer
 /// WM_NCHITTEST ourselves; the system then does the cursor, the drag and Aero Snap.
 unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -124,6 +132,17 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     // a new taskbar button (shown again from the tray, or explorer restarted) has no badge yet
     if msg != 0 && msg == BUTTON_CREATED.load(Ordering::Relaxed) {
         crate::tray::send("badge");
+    }
+    if msg == WM_ERASEBKGND {
+        use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect};
+        let mut r: RECT = unsafe { std::mem::zeroed() };
+        unsafe {
+            GetClientRect(hwnd, &mut r);
+            let b = CreateSolidBrush(BACKDROP.load(Ordering::Relaxed));
+            FillRect(wp as _, &r, b);
+            DeleteObject(b as _);
+        }
+        return 1;
     }
     if msg == WM_NCHITTEST && unsafe { IsZoomed(hwnd) } == 0 {
         let (x, y) = (lp as i16 as i32, ((lp >> 16) as i16) as i32);

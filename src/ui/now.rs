@@ -42,7 +42,7 @@ fn body_lines(a: &Activity) -> Vec<String> {
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     egui::Panel::right("active_now")
-        .exact_size(360.0)
+        .exact_size((ui.available_width() * 0.3).clamp(360.0, 420.0))
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 0 }))

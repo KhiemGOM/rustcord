@@ -830,6 +830,28 @@ pub fn install(ctx: &egui::Context) {
     style(ctx);
 }
 
+/// --scrollbar-thin-thumb and --scrollbar-auto-thumb: light, ash, dark, onyx
+pub fn thumb(auto: bool) -> Color32 {
+    const THUMBS: [[u32; 2]; 4] = [[0x8c8c94, 0x8f8f96], [0x757880, 0x7d7d87], [0x5e616b, 0x666670], [0x595963, 0x595963]];
+    rgb(THUMBS[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize][auto as usize])
+}
+
+/// Shows `add` with the look of discord's `auto` scrollers (the chat, the friends list): an 8px thumb
+/// 4px in from the edge, where the thin ones have a 4px thumb 2px in.
+pub fn auto_scroll<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let prev = ui.style().clone();
+    let st = ui.style_mut();
+    st.spacing.scroll.bar_width = 8.0;
+    st.spacing.scroll.floating_width = 8.0;
+    st.spacing.scroll.bar_outer_margin = 4.0;
+    for w in [&mut st.visuals.widgets.inactive, &mut st.visuals.widgets.hovered, &mut st.visuals.widgets.active] {
+        w.bg_fill = thumb(true);
+    }
+    let out = add(ui);
+    ui.set_style(prev);
+    out
+}
+
 /// egui's own style, rebuilt from the current palette whenever the theme changes.
 pub fn style(ctx: &egui::Context) {
     let p = pal();
@@ -872,7 +894,8 @@ pub fn style(ctx: &egui::Context) {
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.scroll = egui::style::ScrollStyle {
-        bar_width: 8.0,
+        bar_width: 4.0,
+        bar_outer_margin: 2.0,
         floating: true,
         floating_allocated_width: 0.0,
         // thin() paints the track at full opacity even at rest; discord has no track and hides the thumb until hover or scroll
@@ -880,10 +903,16 @@ pub fn style(ctx: &egui::Context) {
         active_background_opacity: 0.0,
         interact_background_opacity: 0.0,
         dormant_handle_opacity: 0.0,
-        active_handle_opacity: 0.7,
+        active_handle_opacity: 1.0,
         interact_handle_opacity: 1.0,
+        floating_width: 4.0,
+        handle_min_length: 40.0,
         ..egui::style::ScrollStyle::thin()
     };
+    // egui paints a scroll handle in the widget's bg_fill; discord's is one flat colour whatever the pointer does
+    for w in [&mut style.visuals.widgets.inactive, &mut style.visuals.widgets.hovered, &mut style.visuals.widgets.active] {
+        w.bg_fill = thumb(false);
+    }
     style.text_styles.insert(egui::TextStyle::Body, reg(16.0));
     style.text_styles.insert(egui::TextStyle::Button, reg(14.0));
     style.text_styles.insert(egui::TextStyle::Small, reg(12.0));
