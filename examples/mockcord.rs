@@ -290,6 +290,9 @@ fn seed(cdn: &str) -> Vec<Value> {
         out.push(m);
     }
     out.extend(media_msgs(cdn));
+    for (i, (a, text)) in [(101, "anyone up for ranked?"), (103, "in 10")].iter().enumerate() {
+        out.push(msg(snow(now_ms() - 8 * 60_000 + i as u64 * 60_000), THREAD_B, *a, text));
+    }
     let t0 = now_ms() - 30 * 60_000;
     for (i, (a, text)) in [(101, "ok what's left for 1.3?"), (102, "voice + video, then polish"), (100, "I'll take the settings screen"), (103, "forums too 🙏")].iter().enumerate() {
         out.push(msg(snow(t0 + i as u64 * 60_000), THREAD, *a, text));
@@ -372,6 +375,96 @@ fn thread() -> Value {
             "last_message_id": snow(now_ms() - 27 * 60_000).to_string(), "member": { "user_id": ME.to_string() },
             // pinned to, with no read state yet, so its pin button carries the dot
             "last_pin_timestamp": iso(now_ms() - 3_600_000) })
+}
+
+// a thread in a server of ours, started by someone else and not joined: Join Thread, and every
+// moderation item in its menu
+const THREAD_B: u64 = 2160;
+
+fn thread_b() -> Value {
+    json!({ "id": THREAD_B.to_string(), "type": 11, "guild_id": "1001", "parent_id": "2100", "name": "lobby banter",
+            "owner_id": "101", "message_count": 2, "member_count": 2, "thread_metadata": { "archived": false, "locked": false },
+            "last_message_id": snow(now_ms() - 5 * 60_000).to_string() })
+}
+
+fn thread_members(thread: &str, guild: &str) -> Value {
+    let member = |u: u64| json!({ "user_id": u.to_string(), "thread_id": thread, "member": { "user": user(u), "roles": [] } });
+    json!({ "guild_id": guild, "thread_id": thread, "members": [member(101), member(103), member(102)],
+            "presences": [{ "user": { "id": "101" }, "status": "online", "activities": [] }, { "user": { "id": "103" }, "status": "idle", "activities": [] }] })
+}
+
+fn events_base(g: &str) -> Vec<Value> {
+    match g {
+        "1000" => vec![json!({
+            "id": "6100", "guild_id": "1000", "name": "Rust release party", "description": "Watching the release notes together, then a quiz.",
+            "channel_id": "2021", "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 26 * 3_600_000),
+            "scheduled_end_time": null, "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 4,
+        })],
+        "1001" => vec![
+            json!({ "id": "6200", "guild_id": "1001", "name": "Ranked night", "description": "Scrims in the hangout.", "channel_id": "2102",
+                    "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 5 * 3_600_000), "scheduled_end_time": null,
+                    "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 3 }),
+            json!({ "id": "6201", "guild_id": "1001", "name": "Map review", "description": "", "channel_id": null, "creator_id": ME.to_string(),
+                    "creator": user(ME), "scheduled_start_time": iso(now_ms() + 48 * 3_600_000), "scheduled_end_time": iso(now_ms() + 50 * 3_600_000),
+                    "status": 1, "entity_type": 3, "entity_metadata": { "location": "the community hall" }, "user_count": 0 }),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+// what the server has for a guild's events: the ones READY lists, then edits, cancels and new ones
+fn event_list(w: &W, g: &str) -> Vec<Value> {
+    let w = w.lock().unwrap();
+    let base = events_base(g);
+    let mut out: Vec<Value> = base
+        .iter()
+        .filter(|e| !w.gone.contains(&format!("event:{}", e["id"].as_str().unwrap_or_default())))
+        .map(|e| w.edits.get(&format!("event:{}", e["id"].as_str().unwrap_or_default())).cloned().unwrap_or_else(|| e.clone()))
+        .collect();
+    for (k, v) in &w.edits {
+        let id = v["id"].as_str().unwrap_or_default();
+        if k.starts_with("event:") && v["guild_id"] == g && !base.iter().any(|e| e["id"] == id) && !w.gone.contains(k) {
+            out.push(v.clone());
+        }
+    }
+    out.retain(|e| matches!(e["status"].as_u64(), Some(1 | 2)));
+    out
+}
+
+fn quests_base() -> Vec<Value> {
+    let quest = |id: &str, name: &str, task: Value, reward: Value, hue: &str| {
+        json!({ "id": id, "preview": false, "config": {
+            "id": id, "config_version": 2, "starts_at": iso(now_ms() - 86_400_000), "expires_at": iso(now_ms() + 6 * 86_400_000), "features": [],
+            "assets": { "hero": "hero.png", "quest_bar_hero": "hero.png", "game_tile": "tile.png", "logotype": "logo.png" },
+            "colors": { "primary": hue, "secondary": "#404a7b" },
+            "messages": { "quest_name": name, "game_title": "Mock Racers", "game_publisher": "Mock Games" },
+            "task_config_v2": { "tasks": task, "join_operator": "or" },
+            "rewards_config": { "assignment_method": 1, "rewards": [reward], "rewards_expire_at": null, "platforms": 0 },
+            "cta_config": { "link": "https://example.com", "button_label": "Play Free Now" } }, "user_status": null })
+    };
+    let orbs = |n: u64| json!({ "type": 4, "sku_id": "1", "name": format!("{n} Orbs"), "orb_quantity": n });
+    let mut done = quest("9003", "Mock Racers Finals Quest", json!({ "PLAY_ON_DESKTOP": { "type": "PLAY_ON_DESKTOP", "target": 900, "applications": [] } }), orbs(840), "#eb459e");
+    done["user_status"] = json!({ "user_id": ME.to_string(), "quest_id": "9003", "enrolled_at": iso(now_ms() - 3_600_000), "completed_at": iso(now_ms() - 60_000),
+                                  "claimed_at": null, "progress": { "PLAY_ON_DESKTOP": { "event_name": "PLAY_ON_DESKTOP", "value": 900 } } });
+    vec![
+        quest("9001", "Mock Racers Trailer Quest", json!({ "WATCH_VIDEO": { "type": "WATCH_VIDEO", "target": 27 } }), orbs(240), "#5865f2"),
+        quest("9002", "Mock Racers Play Quest", json!({ "PLAY_ON_DESKTOP": { "type": "PLAY_ON_DESKTOP", "target": 900, "applications": [] } }),
+              json!({ "type": 2, "sku_id": "2", "messages": { "name": "Turbo Kart avatar decoration", "name_with_article": "a Turbo Kart avatar decoration" } }), "#3ba55d"),
+        done,
+    ]
+}
+
+fn quest_list(w: &W) -> Vec<Value> {
+    let w = w.lock().unwrap();
+    quests_base()
+        .into_iter()
+        .map(|mut q| {
+            if let Some(s) = w.edits.get(&format!("quest:{}", q["id"].as_str().unwrap_or_default())) {
+                q["user_status"] = s.clone();
+            }
+            q
+        })
+        .collect()
 }
 
 fn bot_buttons() -> Value {
@@ -496,7 +589,7 @@ fn ready(last_general: u64) -> Value {
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
-        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "281474976713728", "hoist": false },
+        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "281749854620672", "hoist": false },
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },
@@ -538,6 +631,8 @@ fn ready(last_general: u64) -> Value {
     guilds[1]["owner_id"] = json!(ME.to_string());
     guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
+    guilds[1]["threads"] = json!([thread_b()]);
+    guilds[1]["guild_scheduled_events"] = json!(events_base("1001"));
     guilds.extend(side_guilds());
     let mut folders = vec![json!({ "guild_ids": ["1000"] }), json!({ "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] }),
                            json!({ "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }), json!({ "guild_ids": ["1007"] }), json!({ "guild_ids": ["1008"] })];
@@ -574,6 +669,7 @@ fn ready(last_general: u64) -> Value {
                 "last_pin_timestamp": iso(now_ms() - 2 * 86_400_000) }),
         json!({ "id": "2012", "last_message_id": "0", "mention_count": 2 }),
         json!({ "id": "3000", "last_message_id": "0", "mention_count": 0 }),
+        json!({ "id": "1001", "read_state_type": 1, "last_message_id": "0", "mention_count": 2 }),
     ];
     reads.extend(side_reads());
     reads.extend(extra_reads);
@@ -614,6 +710,12 @@ fn channel(w: &W, id: &str) -> Option<Value> {
     }
     if let Some(c) = w.edits.get(id) {
         return Some(c.clone());
+    }
+    if id == THREAD.to_string() {
+        return Some(thread());
+    }
+    if id == THREAD_B.to_string() {
+        return Some(thread_b());
     }
     let r = ready(0);
     let (g, c) = r["guilds"].as_array()?.iter().find_map(|g| g["channels"].as_array()?.iter().find(|c| c["id"] == id).map(|c| (g["id"].clone(), c.clone())))?;
@@ -931,11 +1033,50 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ok(json!([{ "id": "1", "title": "Promoted Games", "position": 1, "application_directory_collection_items": [app("9101", "Rusty Racers"), app("9102", "Crab Chess")] }]))
         }
         ("GET", ["api", "v9", "application-directory-static", "search"]) => ok(json!({ "results": [], "num_pages": 0, "result_count": 0 })),
-        ("GET", ["api", "v9", "guilds", "1000", "scheduled-events"]) => ok(json!([{
-            "id": "6100", "guild_id": "1000", "name": "Rust release party", "description": "Watching the release notes together, then a quiz.",
-            "channel_id": "2021", "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 26 * 3_600_000),
-            "scheduled_end_time": null, "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 4,
-        }])),
+        ("GET", ["api", "v9", "guilds", g, "scheduled-events"]) => ok(json!(event_list(w, g))),
+        ("POST", ["api", "v9", "guilds", g, "scheduled-events"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let id = snow(now_ms()).to_string();
+            let mut e = json!({ "id": id, "guild_id": g, "creator_id": ME.to_string(), "creator": user(ME), "status": 1, "user_count": 0,
+                                "entity_metadata": null, "scheduled_end_time": null });
+            for (k, v) in b.as_object().into_iter().flatten() {
+                e[k] = v.clone();
+            }
+            w.lock().unwrap().edits.insert(format!("event:{id}"), e.clone());
+            ok(e)
+        }
+        ("PATCH", ["api", "v9", "guilds", g, "scheduled-events", id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let Some(mut e) = event_list(w, g).into_iter().find(|e| e["id"] == *id) else { return (404, "text/plain", b"not found".to_vec()) };
+            for (k, v) in b.as_object().into_iter().flatten() {
+                e[k] = v.clone();
+            }
+            w.lock().unwrap().edits.insert(format!("event:{id}"), e.clone());
+            ok(e)
+        }
+        ("DELETE", ["api", "v9", "guilds", _, "scheduled-events", id]) => {
+            w.lock().unwrap().gone.push(format!("event:{id}"));
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "guilds", _, "scheduled-events", id, "users"]) => ok(json!([101, 103].map(|u| json!({ "guild_scheduled_event_id": id, "user": user(u), "member": { "nick": null } })))),
+        ("GET", ["api", "v9", "quests", "@me"]) => ok(json!({ "quests": quest_list(w).into_iter().filter(|q| q["user_status"]["claimed_at"].is_null()).collect::<Vec<_>>(), "excluded_quests": [], "quest_enrollment_blocked_until": null })),
+        ("GET", ["api", "v9", "quests", "@me", "claimed"]) => ok(json!({ "quests": quest_list(w).into_iter().filter(|q| q["user_status"]["claimed_at"].is_string()).collect::<Vec<_>>() })),
+        ("POST", ["api", "v9", "quests", id, "enroll"]) => {
+            let status = json!({ "user_id": ME.to_string(), "quest_id": id, "enrolled_at": iso(now_ms()), "completed_at": null, "claimed_at": null, "progress": {} });
+            w.lock().unwrap().edits.insert(format!("quest:{id}"), status.clone());
+            ok(status)
+        }
+        ("POST", ["api", "v9", "quests", id, "claim-reward"]) => {
+            let Some(q) = quest_list(w).into_iter().find(|q| q["id"] == *id) else { return (404, "text/plain", b"not found".to_vec()) };
+            let mut status = q["user_status"].clone();
+            status["claimed_at"] = json!(iso(now_ms()));
+            w.lock().unwrap().edits.insert(format!("quest:{id}"), status.clone());
+            ok(json!({ "claimed_at": status["claimed_at"], "entitlements": [], "errors": [] }))
+        }
+        ("GET", ["api", "v9", "users", "@me", "virtual-currency", "balance"]) => {
+            let claimed = quest_list(w).iter().filter(|q| q["user_status"]["claimed_at"].is_string() && q["id"] == "9003").count() as u64;
+            ok(json!({ "balance": 1500 + 840 * claimed }))
+        }
         ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
         // the mock itself is the running game the client should spot
         ("GET", ["api", "v9", "applications", "detectable"]) => ok(json!([
@@ -1062,19 +1203,24 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("PATCH", ["api", "v9", "channels", ch]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let Some(mut c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
+            let thread = c["type"] == 11;
             for (k, v) in b.as_object().into_iter().flatten() {
-                c[k] = v.clone();
+                if thread && (k == "archived" || k == "locked") {
+                    c["thread_metadata"][k] = v.clone();
+                } else {
+                    c[k] = v.clone();
+                }
             }
             let mut w = w.lock().unwrap();
             w.edits.insert(ch.to_string(), c.clone());
-            let _ = w.events.send(json!({ "t": "CHANNEL_UPDATE", "d": c.clone() }));
+            let _ = w.events.send(json!({ "t": if thread { "THREAD_UPDATE" } else { "CHANNEL_UPDATE" }, "d": c.clone() }));
             ok(c)
         }
         ("DELETE", ["api", "v9", "channels", ch]) => {
             let Some(c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
             let mut w = w.lock().unwrap();
             w.gone.push(ch.to_string());
-            let _ = w.events.send(json!({ "t": "CHANNEL_DELETE", "d": c.clone() }));
+            let _ = w.events.send(json!({ "t": if c["type"] == 11 { "THREAD_DELETE" } else { "CHANNEL_DELETE" }, "d": c.clone() }));
             ok(c)
         }
         (_, ["api", ..]) => ok(json!({})),
@@ -1212,7 +1358,15 @@ async fn ws_conn(s: TcpStream, w: W) {
                     Some(6) => vec![("RESUMED".into(), json!({}))],
                     Some(4) => voice_state(&w, &v["d"]),
                     Some(op @ 18..=22) => stream_op(&w, op, &v["d"]),
-                    Some(37) => vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())],
+                    Some(37) => {
+                        let mut out = vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())];
+                        for (g, s) in v["d"]["subscriptions"].as_object().into_iter().flatten() {
+                            for t in s["thread_member_lists"].as_array().into_iter().flatten() {
+                                out.push(("THREAD_MEMBER_LIST_UPDATE".into(), thread_members(t.as_str().unwrap_or_default(), g)));
+                            }
+                        }
+                        out
+                    }
                     // voice channel statuses and when their calls began, as discord answers op 43
                     Some(43) => vec![("CHANNEL_INFO".into(), json!({ "guild_id": v["d"]["guild_id"], "channels": [
                         { "id": "2021", "status": null, "voice_start_time": now_ms() / 1000 - 3725 },

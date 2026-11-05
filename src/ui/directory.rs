@@ -53,15 +53,16 @@ fn faint(a: u8) -> Color32 {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let side_w = if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
     let mut goto: Option<&'static str> = None;
+    let mut quests = false;
     egui::Panel::left("discover_side").exact_size(side_w).resizable(false).show_separator_line(false).frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| {
         let r = ui.max_rect();
         ui.painter().text(pos2(r.left() + 20.0, r.top() + 29.0), Align2::LEFT_CENTER, "Discover", semi(20.0), pal().header_primary);
         ui.painter().hline(r.x_range(), r.top() + 57.5, Stroke::new(1.0, pal().border_subtle));
         ui.add_space(66.0);
-        for (icon, name, url) in [(Icon::Apps, "Apps", None), (Icon::Discover, "Servers", Some("https://discord.com/discovery/servers")), (Icon::Quests, "Quests", Some("https://discord.com/discovery/quests"))] {
+        for (icon, name, url) in [(Icon::Apps, "Apps", None), (Icon::Discover, "Servers", Some("https://discord.com/discovery/servers")), (Icon::Quests, "Quests", None::<&str>)] {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::click());
             let inner = row.shrink2(vec2(8.0, 2.0));
-            let on = url.is_none();
+            let on = name == "Apps";
             if on {
                 ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
             } else if resp.hovered() {
@@ -75,11 +76,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             if resp.clicked() {
                 goto = url;
+                quests |= name == "Quests";
             }
         }
     });
     if let Some(u) = goto {
         ui.ctx().open_url(egui::OpenUrl::new_tab(u));
+    }
+    if quests {
+        return app.open_quests();
     }
     let Some(d) = app.directory.as_mut() else { return };
     let cats: Vec<(u64, String)> = d.data.get("categories").and_then(|v| v.as_array()).into_iter().flatten().map(|c| (c["id"].as_u64().unwrap_or(0), c["name"].as_str().unwrap_or_default().to_string())).collect();
