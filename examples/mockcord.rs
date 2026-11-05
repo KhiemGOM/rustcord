@@ -943,6 +943,72 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id": "7101", "name": "Launcher Only", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": true }] },
         ])),
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
+        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
+        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(json!([])),
+        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "guilds", "1000", "roles", _, "members"]) => (204, "application/json", Vec::new()),
+        ("POST", ["api", "v9", "guilds", "1000", "roles"]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!("1105");
+            b["color"] = json!(0);
+            b["position"] = json!(1);
+            b["permissions"] = json!("1071698660929");
+            ok(b)
+        }
+        ("PATCH", ["api", "v9", "guilds", "1000", "roles"]) => ok(json!([])),
+        ("PATCH", ["api", "v9", "guilds", "1000", "roles", id]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!(id);
+            b["name"] = b.get("name").cloned().unwrap_or(json!("Role"));
+            b["color"] = b.get("color").cloned().unwrap_or(json!(0));
+            b["position"] = json!(1);
+            b["permissions"] = b.get("permissions").cloned().unwrap_or(json!("0"));
+            ok(b)
+        }
+        ("DELETE", ["api", "v9", "guilds", "1000", "roles", _]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "guilds", "1000", "emojis"]) => ok(json!([
+            { "id": "5300", "name": "omgMods", "animated": false, "user": user(102) },
+        ])),
+        ("PATCH", ["api", "v9", "guilds", "1000", "emojis", _]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", "1000", "stickers"]) => ok(json!([
+            { "id": "5400", "name": "wave", "tags": "wave", "description": "", "format_type": 1, "user": user(102) },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000", "invites"]) => ok(json!([
+            { "code": "e2eInv1", "uses": 3, "max_uses": 0, "inviter": user(102), "channel": { "name": "general" }, "expires_at": iso(now_ms() + 86_400_000) },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000"]) => ok(json!({ "id": "1000", "verification_level": 1, "explicit_content_filter": 0, "mfa_level": 0, "owner_id": "102", "safety_alerts_channel_id": null })),
+        ("PATCH", ["api", "v9", "guilds", "1000"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("POST", ["api", "v9", "guilds", "1000", "mfa"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", "1000", "bans"]) => ok(json!([{ "user": user(104), "reason": "spamming links" }])),
+        ("DELETE", ["api", "v9", "guilds", "1000", "bans", _]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "guilds", "1000", "audit-logs"]) => ok(json!({
+            "users": [user(102), user(103)],
+            "audit_log_entries": [
+                { "id": "1500000000000000100", "user_id": "102", "target_id": "103", "action_type": 25, "changes": [{ "key": "$add", "new_value": [{ "id": "1101", "name": "Mods" }] }] },
+                { "id": "1500000000000000000", "user_id": "102", "target_id": "1100", "action_type": 31, "reason": "tidy up", "changes": [{ "key": "name", "old_value": "Old", "new_value": "Admins" }] },
+            ],
+        })),
+        ("GET", ["api", "v9", "guilds", "1000", "integrations"]) => ok(json!([
+            { "id": "7700", "name": "Dyno", "type": "discord", "user": user(102), "scopes": ["bot", "applications.commands"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot.", "bot": { "id": "104", "public_flags": 65536 } } },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000", "webhooks"]) => ok(json!([
+            { "id": "8800", "type": 1, "name": "Deploys", "avatar": null, "channel_id": "2001", "token": "tok" },
+        ])),
+        ("POST", ["api", "v9", "channels", _, "webhooks"]) => ok(json!({ "id": "8801", "type": 1, "name": "Spidey Bot", "avatar": null, "channel_id": "2001", "token": "tok2" })),
+        ("PATCH", ["api", "v9", "webhooks", _]) | ("DELETE", ["api", "v9", "webhooks", _]) => ok(json!({})),
+        ("GET", ["api", "v9", "guilds", "1000", "auto-moderation", "rules"]) => ok(json!([
+            { "id": "9100", "name": "Bad words", "enabled": true, "event_type": 1, "trigger_type": 1, "trigger_metadata": { "keyword_filter": ["heck", "darn"] }, "actions": [{ "type": 1 }], "exempt_roles": [], "exempt_channels": [] },
+        ])),
+        ("POST", ["api", "v9", "guilds", "1000", "auto-moderation", "rules"]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!("9101");
+            ok(b)
+        }
+        ("PATCH", ["api", "v9", "guilds", "1000", "auto-moderation", "rules", id]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!(id);
+            ok(b)
+        }
         ("GET", ["api", "v9", "guilds", _, "soundboard-sounds"]) => ok(json!({ "items": [
             { "sound_id": "5001", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0 },
             { "sound_id": "5002", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0 },

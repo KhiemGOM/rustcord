@@ -28,6 +28,12 @@ pub fn created(app: &mut App, v: Value) {
     s.pages.apps.hook = Some(Hook { id: sid(&v["id"]), name: v["name"].as_str().unwrap_or_default().into(), channel: sid(&v["channel_id"]), avatar: None });
 }
 
+impl Apps {
+    pub fn deep(&self) -> bool {
+        self.manage.is_some()
+    }
+}
+
 fn h2(ui: &mut Ui, s: &str) {
     ui.label(RichText::new(s).font(semi(20.0)).color(pal().header_primary));
 }

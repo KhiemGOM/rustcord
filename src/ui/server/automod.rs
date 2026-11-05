@@ -51,6 +51,12 @@ fn lines(s: &str) -> Vec<String> {
     s.split(['\n', ',']).map(|w| w.trim().to_string()).filter(|w| !w.is_empty()).collect()
 }
 
+impl AutoMod {
+    pub fn deep(&self) -> bool {
+        self.form.is_some()
+    }
+}
+
 impl Form {
     fn new(trigger: u8) -> Form {
         let name = KINDS.iter().find(|k| k.0 == trigger).map_or("", |k| k.3).to_string();

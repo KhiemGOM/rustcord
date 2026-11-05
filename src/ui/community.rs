@@ -24,6 +24,7 @@ pub struct Members {
     sent: Option<(String, u8)>,
     edited: f64,
     pub sort: u8,
+    pub signal: u8,
     pub list: Option<Vec<Value>>,
     pub total: u64,
     pub picked: HashSet<Id>,
@@ -308,6 +309,18 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
         let at = pos2(col(*f), hr.center().y - g.size().y / 2.0);
         cu.painter().galley(at, g, pal().text_normal);
     }
+    let sig = Rect::from_center_size(pos2(col(0.785) + 74.0, hr.center().y), vec2(24.0, 24.0));
+    let sr = cu.interact(sig, cu.id().with("signal_filter"), Sense::click());
+    icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { BLURPLE } else { pal().text_normal });
+    egui::Popup::menu(&sr.on_hover_text("Filter based on safety info, such as timed out or engaging in unusual DM activity.")).show(|ui| {
+        super::menu_body(ui, |ui| {
+            for (v, l) in [(0, "All members"), (1, "Timed out"), (2, "Unusual DM activity")] {
+                if super::menu_item(ui, (tb.signal == v).then_some(Icon::Check), l, false) {
+                    tb.signal = v;
+                }
+            }
+        });
+    });
     let rows_h = (outer.bottom() - hr.bottom() - 64.0).max(60.0);
     let mut picks: Vec<(Id, bool)> = Vec::new();
     egui::ScrollArea::vertical().id_salt(("members_table", gid)).max_height(rows_h).auto_shrink([false, true]).show(&mut cu, |ui| {
@@ -319,6 +332,11 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
         for m in &list {
             let mem = &m["member"];
             let u = &mem["user"];
+            let timed = mem["communication_disabled_until"].as_str().is_some_and(|t| chrono::DateTime::parse_from_rfc3339(t).is_ok_and(|t| t.timestamp() > chrono::Utc::now().timestamp()));
+            let unusual = mem["unusual_dm_activity_until"].is_string();
+            if (tb.signal == 1 && !timed) || (tb.signal == 2 && !unusual) {
+                continue;
+            }
             let uid = sid(&u["id"]);
             let (r, resp) = ui.allocate_exact_size(vec2(outer.width(), 60.0), Sense::click());
             if resp.hovered() {
@@ -428,6 +446,16 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
                         }
                     });
                 });
+            }
+            let mut sx = col(0.785);
+            for (on, label) in [(timed, "Timed out"), (unusual, "Unusual DMs")] {
+                if on {
+                    let g = ui.painter().layout_no_wrap(label.into(), medium(12.0), pal().text_normal);
+                    let chip = Rect::from_min_size(pos2(sx, y - 11.0), vec2(g.size().x + 16.0, 22.0));
+                    ui.painter().rect_filled(chip, 4, faint(31));
+                    ui.painter().galley(pos2(chip.left() + 8.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
+                    sx = chip.right() + 4.0;
+                }
             }
             // open mod view, more
             for (k, (icon, tip)) in [(Icon::People, "Open Mod View"), (Icon::More, "More Options")].into_iter().enumerate() {

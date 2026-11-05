@@ -172,6 +172,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(st) = app.server.as_ref() else { return };
     let gid = st.guild;
     let page = st.page;
+    let p = &st.pages;
+    let depth = p.roles.deep() || p.apps.deep() || p.automod.deep() || p.safety.deep();
     let modal = st.pages.roles.edit.as_ref().is_some_and(|e| e.adding()) || st.pages.emoji.editing();
     if !modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) && app.confirm.is_none() {
         app.server = None;
@@ -249,7 +251,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         close = er.clicked();
         let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 900.0).min(esc.left() - 40.0), area.bottom()));
         let mut bc = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        egui::ScrollArea::vertical().id_salt(("server_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
+        egui::ScrollArea::vertical().id_salt(("server_page", page as u8, depth)).auto_shrink([false, false]).show(&mut bc, |ui| {
             Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 80 }).show(ui, |ui| match page {
                 Page::Profile => profile(app, ui, gid),
                 Page::Emoji => expression::emoji(app, ui, gid),

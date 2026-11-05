@@ -366,7 +366,7 @@ fn display(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role) -> bo
             let mut d = e.draft.clone();
             match i {
                 0 => d.grad.clear(),
-                1 => d.grad = if style == 1 { d.grad.clone() } else { vec![d.color.max(0x3498db), 0xe91e63] },
+                1 => d.grad = if style == 1 { d.grad.clone() } else { vec![if d.color != 0 { d.color } else { 0x3498db }, 0xe91e63] },
                 _ => d.grad = HOLO.to_vec(),
             }
             let name = if e.draft.name.is_empty() { "role" } else { e.draft.name.as_str() };
@@ -757,15 +757,15 @@ pub fn probe(app: &mut App, gid: Id, tab: u8) -> bool {
     let mut ready = false;
     if e.tab != tab {
         e.tab = tab;
-        if tab == 0 {
-            e.draft.name = "Admins".into();
-            e.draft.hoist = true;
-            e.draft.perms |= 8;
-        }
+    } else if tab == 0 && e.base.name != "Admins" && e.draft == e.base {
+        e.draft.name = "Admins".into();
+        e.draft.hoist = true;
+        e.draft.perms |= 8;
     } else if e.draft != e.base && !e.saving {
         save_role(app, gid, &mut e);
     } else {
-        ready = e.draft == e.base && app.server.as_ref().is_some_and(|s| s.data.get("role_members").is_some_and(|v| !v.is_null()));
+        let members = app.server.as_ref().is_some_and(|s| s.data.get("role_members").is_some_and(|v| !v.is_null()));
+        ready = e.draft == e.base && !e.saving && (tab != 0 || e.base.name == "Admins") && members;
     }
     if let Some(s) = &mut app.server {
         s.pages.roles.edit = Some(e);

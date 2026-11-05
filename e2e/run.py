@@ -301,6 +301,7 @@ def main():
                               ("active threads: the modal lists the server's threads and a card opens one", "active_threads"),
                               ("app directory: discover opens in the app with the featured collections", "directory"),
                               ("server settings: the layer opens on Roles with discord's member counts", "server_settings"),
+                              ("server settings: the role editor, members, emoji, stickers, invites, integrations, safety, audit log, bans and AutoMod each drew with their data", "server_pages"),
                               ("events: the window lists the server's event and Interested marks it", "events"),
                               ("escape cancels a reply even with the composer unfocused", "reply_escape"),
                               ("game: the running mockcord.exe got discord's panel over the account card", "game_panel"),
@@ -324,6 +325,14 @@ def main():
             r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1000/channels") and '"e2e-room"' in r.get("body", "") for r in reqs),
         "boosts: the page fetched the powerups catalogue, what's applied and the server's boosts": all(
             any(k in r.get("path", "") for r in reqs) for k in ("/store/published-listings/skus", "/guilds/1000/powerups", "/guilds/1000/premium/subscriptions")),
+        "server settings: the role editor's save sent only the changed name, hoist and permissions": any(
+            r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1000/roles/1100") and '"name":"Admins"' in r.get("body", "")
+            and '"hoist":true' in r.get("body", "") and '"permissions"' in r.get("body", "") and '"mentionable"' not in r.get("body", "") for r in reqs),
+        "server settings: the pages fetched the role's members, emoji, stickers, invites, integrations, webhooks, bans, audit log and AutoMod rules": all(
+            any(r.get("method") == "GET" and r.get("path", "").endswith(p) for r in reqs)
+            for p in ("/roles/1100/member-ids", "/guilds/1000/emojis", "/guilds/1000/stickers", "/guilds/1000/invites", "/guilds/1000/webhooks",
+                      "/guilds/1000/bans?limit=1000", "/guilds/1000/auto-moderation/rules")) and any("/guilds/1000/audit-logs" in r.get("path", "") for r in reqs)
+            and any("/guilds/1000/integrations" in r.get("path", "") for r in reqs),
         "pins: opening them acked them": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2050/pins/ack") for r in reqs),
         "activity: the feed and its apps' icons were fetched": any("/content-inventory/users/@me" in r.get("path", "") for r in reqs)
             and any("/applications/public" in r.get("path", "") for r in reqs),
