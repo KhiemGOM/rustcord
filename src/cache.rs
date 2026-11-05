@@ -236,7 +236,11 @@ pub fn load() -> Option<(Store, UiState)> {
     Some((i.store, i.ui))
 }
 
-pub fn save(store: &Store, ui: &UiState) {
+/// Serialized here, written on a thread of its own: at a big account's size the snapshot is
+/// 12 MB, too much to put on disk from inside a frame. `wait` writes it before returning, for exit.
+pub fn save(store: &Store, ui: &UiState, wait: bool) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static WRITTEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
     let msgs = ui
         .recent
         .iter()
@@ -247,11 +251,25 @@ pub fn save(store: &Store, ui: &UiState) {
         })
         .collect();
     let Ok(bytes) = serde_json::to_vec(&Out { store, msgs, ui }) else { return };
-    let d = dir();
-    let _ = std::fs::create_dir_all(&d);
-    let tmp = d.join("state.json.part");
-    if std::fs::write(&tmp, bytes).is_ok() {
-        let _ = std::fs::rename(tmp, d.join("state.json"));
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let write = move || {
+        // a newer snapshot already made it to disk
+        let mut last = WRITTEN.lock().unwrap();
+        if *last > n {
+            return;
+        }
+        let d = dir();
+        let _ = std::fs::create_dir_all(&d);
+        let tmp = d.join("state.json.part");
+        if std::fs::write(&tmp, bytes).is_ok() {
+            let _ = std::fs::rename(tmp, d.join("state.json"));
+        }
+        *last = n;
+    };
+    if wait {
+        write();
+    } else {
+        std::thread::spawn(write);
     }
 }
 
