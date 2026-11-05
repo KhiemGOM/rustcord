@@ -28,6 +28,7 @@ from pathlib import Path
 
 import look
 import polish
+import call
 import home
 import qol
 import web
@@ -437,6 +438,7 @@ def main():
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
+        **call.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

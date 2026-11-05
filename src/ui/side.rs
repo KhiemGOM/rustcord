@@ -312,7 +312,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     }
                     let vr = c.is_voice().then(|| {
                         let here = app.voice.chan == Some(c.id);
-                        let status = store.voice_status.get(&c.id).cloned();
+                        let status = store.voice_status.get(&c.id).cloned().or_else(|| app.voice.stage.live.get(&c.id).map(|l| l.topic.clone()).filter(|t| !t.is_empty()));
                         let prompt = here && status.is_none() && store.perms(c) & crate::state::SET_VOICE_CHANNEL_STATUS != 0;
                         VoiceRow {
                             here,
@@ -1026,6 +1026,12 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
     // discord lists them by name, 32 to a row, in their own display name font and server tag
     users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
+    let live = voice.stage.live.contains_key(&ch);
+    let before = users.len();
+    if live {
+        users.retain(|u| voice.stage.seats.get(u).is_none_or(|s| !s.audience));
+    }
+    let listeners = before - users.len();
     for u in users {
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
@@ -1046,6 +1052,10 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             let clip = Rect::from_min_max(row.min, pos2(av.right() + 8.0 + room, row.bottom()));
             super::tag_chip(&ui.painter().with_clip_rect(clip), user, pos2(r.right() + 4.0, row.center().y), 1.0);
         }
+    }
+    if listeners > 0 {
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        ui.painter().text(pos2(row.left() + 44.0, row.center().y), Align2::LEFT_CENTER, format!("{listeners} in audience"), reg(14.0), pal().channel_default);
     }
 }
 

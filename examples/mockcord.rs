@@ -48,6 +48,16 @@ struct World {
     // channel settings saved over what READY says, and channels deleted since
     edits: serde_json::Map<String, Value>,
     gone: Vec<String>,
+    speakers: std::collections::HashSet<u64>,
+    hands: std::collections::HashMap<u64, String>,
+}
+
+fn stage_guild(ch: u64) -> Option<u64> {
+    match ch {
+        2311 => Some(1003),
+        2802 => Some(1008),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -438,7 +448,8 @@ fn side_guilds() -> Vec<Value> {
     emoji["rules_channel_id"] = json!("2301");
     emoji["roles"] = json!([everyone(1003), { "id": "1201", "name": "Trusted", "color": 0, "position": 1, "permissions": "0" }]);
 
-    let mut den = guild(1008, "Voice Den", vec![ch(2800, 0, "chat", 0, None), ch(2801, 2, "Hangout", 1, None)]);
+    let mut den = guild(1008, "Voice Den", vec![ch(2800, 0, "chat", 0, None), ch(2801, 2, "Hangout", 1, None), ch(2802, 13, "Panel", 2, None)]);
+    den["owner_id"] = json!("100");
     den["voice_states"] = json!([{ "user_id": "101", "channel_id": "2801" }]);
     vec![
         emoji,
@@ -1101,6 +1112,46 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["api", "v9", "content-inventory", "users", "@me"]) => ok(feed()),
         // Create Channel: the new channel, sent back and over the gateway as discord does
         ("POST", ["api", "v9", "channels", _, "invites"]) => ok(json!({ "code": "e2eInv1", "max_age": 2592000 })),
+        ("PATCH", ["api", "v9", "guilds", g, "voice-states", who]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let u: u64 = if *who == "@me" { ME } else { who.parse().unwrap_or(0) };
+            let mut wl = w.lock().unwrap();
+            if let Some(s) = b["suppress"].as_bool() {
+                if s { wl.speakers.remove(&u) } else { wl.speakers.insert(u) };
+            }
+            if b.get("request_to_speak_timestamp").is_some() {
+                match b["request_to_speak_timestamp"].as_str() {
+                    Some(t) => wl.hands.insert(u, t.to_string()),
+                    None => wl.hands.remove(&u),
+                };
+            }
+            let mut m = member(u);
+            m["user"] = user(u);
+            let vs = json!({ "guild_id": g, "channel_id": b["channel_id"], "user_id": u.to_string(), "session_id": "mock-voice-session", "mute": false, "deaf": false,
+                "self_mute": false, "self_deaf": false, "suppress": !wl.speakers.contains(&u), "request_to_speak_timestamp": wl.hands.get(&u), "member": m });
+            let _ = wl.events.send(json!({ "t": "VOICE_STATE_UPDATE", "d": vs }));
+            (204, "application/json", Vec::new())
+        }
+        ("POST", ["api", "v9", "stage-instances"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let ch: u64 = b["channel_id"].as_str().and_then(|c| c.parse().ok()).unwrap_or(0);
+            let inst = json!({ "id": snow(now_ms()).to_string(), "guild_id": stage_guild(ch).map(|g| g.to_string()), "channel_id": ch.to_string(), "topic": b["topic"], "privacy_level": 2 });
+            let mut wl = w.lock().unwrap();
+            wl.speakers.insert(ME);
+            let _ = wl.events.send(json!({ "t": "STAGE_INSTANCE_CREATE", "d": inst.clone() }));
+            ok(inst)
+        }
+        ("PATCH", ["api", "v9", "stage-instances", ch]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let inst = json!({ "id": "1", "guild_id": ch.parse::<u64>().ok().and_then(stage_guild).map(|g| g.to_string()), "channel_id": ch, "topic": b["topic"], "privacy_level": 2 });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "STAGE_INSTANCE_UPDATE", "d": inst.clone() }));
+            ok(inst)
+        }
+        ("DELETE", ["api", "v9", "stage-instances", ch]) => {
+            let inst = json!({ "id": "1", "guild_id": ch.parse::<u64>().ok().and_then(stage_guild).map(|g| g.to_string()), "channel_id": ch, "topic": "", "privacy_level": 2 });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "STAGE_INSTANCE_DELETE", "d": inst }));
+            (204, "application/json", Vec::new())
+        }
         ("POST", ["api", "v9", "users", "@me", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let to: u64 = b["recipients"][0].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -1602,12 +1653,18 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     let mut wl = w.lock().unwrap();
     let moved = chan.map(|c| (guild, c)) != wl.voice_chan;
     wl.voice_chan = chan.map(|c| (guild, c));
+    let stage = chan.and_then(stage_guild);
+    if moved {
+        wl.speakers.remove(&ME);
+        wl.hands.remove(&ME);
+    }
     let mut m = member(ME);
     m["user"] = user(ME);
     let me = json!({
         "guild_id": guild.map(|g| g.to_string()), "channel_id": chan.map(|c| c.to_string()), "user_id": ME.to_string(),
         "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": d["self_video"],
-        "mute": false, "deaf": false, "suppress": false, "member": m,
+        "mute": false, "deaf": false, "suppress": stage.is_some() && !wl.speakers.contains(&ME),
+        "request_to_speak_timestamp": wl.hands.get(&ME), "member": m,
     });
     let mut out = vec![("VOICE_STATE_UPDATE".to_string(), me)];
     let Some(ch) = chan else { return out };
@@ -1630,6 +1687,18 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
             out.push(("CALL_CREATE".into(), json!({ "channel_id": ch.to_string(), "message_id": "1", "region": "local",
                 "ringing": [], "voice_states": [{ "user_id": ME.to_string(), "channel_id": ch.to_string(), "session_id": "mock-voice-session" }] })));
             out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": null, "channel_id": ch.to_string(), "endpoint": endpoint })));
+        }
+    }
+    if stage.is_some() {
+        alice["self_video"] = json!(false);
+        alice["self_stream"] = json!(false);
+        alice["mute"] = json!(false);
+        alice["suppress"] = json!(false);
+        for (u, hand) in [(102u64, Some("2026-11-05T10:00:00.000Z")), (103, None)] {
+            let mut m = member(u);
+            m["user"] = user(u);
+            out.push(("VOICE_STATE_UPDATE".into(), json!({ "guild_id": guild.map(|g| g.to_string()), "channel_id": ch.to_string(), "user_id": u.to_string(),
+                "session_id": format!("other{u}"), "self_mute": false, "self_deaf": false, "mute": false, "deaf": false, "suppress": true, "request_to_speak_timestamp": hand, "member": m })));
         }
     }
     out.push(("VOICE_STATE_UPDATE".into(), alice));
@@ -2138,6 +2207,8 @@ async fn main() {
         saved: Vec::new(),
         edits: Default::default(),
         gone: Vec::new(),
+        speakers: Default::default(),
+        hands: Default::default(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");
