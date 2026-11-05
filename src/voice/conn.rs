@@ -658,6 +658,10 @@ impl Sess {
         if !self.inbound.contains_key(&ssrc) {
             let Ok(stereo) = opus_rs::OpusDecoder::new(48_000, 2) else { return };
             let out = self.slots.iter_mut().enumerate().find_map(|(n, s)| s.take().map(|p| (n, p)));
+            if let Some((n, _)) = &out {
+                let g = self.shared.user_gain.lock().ok().and_then(|g| g.get(&user).copied()).unwrap_or(1.0);
+                self.shared.slot_gain[*n].store(g.to_bits(), Relaxed);
+            }
             let i = Inbound { user, stereo, mono: None, next: None, out, voice_at: None, speaking: false };
             self.inbound.insert(ssrc, i);
         }
@@ -854,7 +858,12 @@ impl Sess {
 
     fn quiet(&mut self) {
         let mut off = Vec::new();
+        let gains = self.shared.user_gain.lock().map(|g| g.clone()).unwrap_or_default();
         for i in self.inbound.values_mut() {
+            if let Some((n, _)) = &i.out {
+                let g = gains.get(&i.user).copied().unwrap_or(1.0);
+                self.shared.slot_gain[*n].store(g.to_bits(), Relaxed);
+            }
             if i.speaking && i.voice_at.is_none_or(|t| t.elapsed() > Duration::from_millis(300)) {
                 i.speaking = false;
                 off.push(i.user);

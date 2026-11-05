@@ -27,7 +27,10 @@ mod share;
 mod soundboard;
 mod side;
 pub mod text;
+mod modview;
 mod titlebar;
+mod userdlg;
+mod usermenu;
 
 use egui::{Color32, CornerRadius, Frame, Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::json;
@@ -85,6 +88,12 @@ pub struct App {
     pub menu: Option<(Id, Id, Pos2)>,
     // a person's right-click menu: user, server, the dm it came from, where
     pub user_menu: Option<(Id, Id, Option<Id>, Pos2)>,
+    // where it opened: the call and friends lists add rows
+    pub menu_from: usermenu::Origin,
+    // the note, nickname or group dialog from that menu
+    pub user_dialog: Option<userdlg::Dialog>,
+    // the member card Open in Mod View puts down the right edge: server and person
+    pub mod_view: Option<(Id, Id)>,
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
     // the server guide's new member actions, per server: (their channels, the ones done)
@@ -268,6 +277,9 @@ impl App {
             forward: None,
             guides: Map::default(),
             user_menu: None,
+            menu_from: Default::default(),
+            user_dialog: None,
+            mod_view: None,
             guild_notifs: None,
             bar: None,
             toast: None,
@@ -1144,6 +1156,18 @@ impl App {
                 let id = crate::state::sid(&v["id"]);
                 self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::Quiet);
             }
+            Tag::CallDm => {
+                self.store.apply("CHANNEL_CREATE", &v);
+                let id = crate::state::sid(&v["id"]);
+                self.ui.guild = None;
+                self.open(id);
+                self.join_voice(id, true);
+            }
+            Tag::InviteTo(uid) => {
+                if let Some(code) = v["code"].as_str() {
+                    self.send_invite(uid, code);
+                }
+            }
             Tag::OpenDm(text) => {
                 self.store.apply("CHANNEL_CREATE", &v);
                 let id = crate::state::sid(&v["id"]);
@@ -1434,7 +1458,9 @@ impl App {
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);
-        popups::user_menu(self, &ctx);
+        usermenu::user_menu(self, &ctx);
+        userdlg::show(self, &ctx);
+        modview::show(self, &ctx);
         popups::show(self, &ctx);
         popups::viewer(self, &ctx);
         call::incoming(self, &ctx);

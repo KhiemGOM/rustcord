@@ -157,6 +157,8 @@ pub struct VoiceUi {
     /// muted, server muted, deafened, server deafened, for whoever is any of them
     pub muted: HashMap<Id, [bool; 4]>,
     pub stream: Option<Live>,
+    /// the person Focus This Person put big in the call view
+    pub focus: Option<Id>,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
     session: Option<String>,
@@ -578,6 +580,9 @@ impl VoiceUi {
         self.shared.out_gain.store(s.output_volume.to_bits(), Relaxed);
         if let Ok(mut d) = self.shared.devices.lock() {
             *d = (s.mic.clone(), s.speaker.clone());
+        }
+        if let Ok(mut g) = self.shared.user_gain.lock() {
+            *g = s.people.iter().map(|(u, p)| (*u, if p.muted { 0.0 } else { p.volume })).collect();
         }
     }
 
