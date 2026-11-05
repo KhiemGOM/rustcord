@@ -39,6 +39,7 @@ import people
 import players
 import qol
 import web
+import sound
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -93,6 +94,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
         "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_SOUNDS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
         "RUSTCORD_REMOTE_AUTH": f"ws://127.0.0.1:{REMOTE}",
         "RUSTCORD_TOKEN": "mock-token",
@@ -127,7 +129,9 @@ def main():
     log = ART / "mock_requests.jsonl"
 
     prime()
-    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)])
+    served = sound.make(ART / "sounds")
+    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)],
+                            env=dict(os.environ, MOCK_SOUNDS=str(served or "")))
     time.sleep(0.5)
     try:
         # real mic, speakers, desktop and webcam are all opt-in
@@ -484,6 +488,7 @@ def main():
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
+        **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

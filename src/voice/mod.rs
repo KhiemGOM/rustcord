@@ -126,6 +126,7 @@ pub struct Live {
     pub mine: bool,
     pub state: State,
     pub frame: Option<Arc<egui::ColorImage>>,
+    viewers: Option<usize>,
     server: Option<Id>,
     endpoint: Option<(String, String)>,
     tag: u64,
@@ -149,6 +150,8 @@ pub struct VoiceUi {
     pub calls: HashMap<Id, Vec<Id>>,
     /// a dm call ringing for us, while we're in no call
     pub ringing: Option<Id>,
+    /// the call we're in is ringing someone else
+    ringing_out: Option<Id>,
     pub camera: bool,
     /// latest camera frame per user, ours included
     pub video: HashMap<Id, Arc<egui::ColorImage>>,
@@ -214,7 +217,9 @@ impl VoiceUi {
         if self.chan.is_none() {
             return;
         }
-        crate::sound::cue("disconnect");
+        if self.guild != 0 {
+            crate::sound::cue("disconnect");
+        }
         self.chan = None;
         self.op4(net);
         self.reset(net);
@@ -250,11 +255,13 @@ impl VoiceUi {
     }
 
     pub fn set_mute(&mut self, net: &Net, on: bool) {
-        crate::sound::cue(if on { "mute" } else { "unmute" });
         self.mute = on;
-        // undeafening by unmuting matches the official client
+        // undeafening by unmuting matches the official client, which plays the undeafen sound
         if !on && self.deaf {
             self.deaf = false;
+            crate::sound::cue("undeafen");
+        } else {
+            crate::sound::cue(if on { "mute" } else { "unmute" });
         }
         self.sync(net);
     }
@@ -285,6 +292,9 @@ impl VoiceUi {
     }
 
     pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
+        if self.chan.is_some() {
+            crate::sound::cue(if on { "camera_on" } else { "camera_off" });
+        }
         self.camera = on;
         if !on {
             self.video.remove(&me);
@@ -307,7 +317,7 @@ impl VoiceUi {
         let key = self.stream_key(user)?;
         let tag = self.next_tag();
         let mine = share.is_some();
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share });
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, viewers: None, server: None, endpoint: None, tag, share });
         Some(key)
     }
 
@@ -413,6 +423,14 @@ impl VoiceUi {
                 } else {
                     false
                 };
+                if let Some(ids) = d["viewer_ids"].as_array() {
+                    let n = ids.iter().filter(|u| sid(u) != me).count();
+                    match l.viewers.replace(n) {
+                        Some(was) if n > was && n <= 25 => crate::sound::cue("stream_join"),
+                        Some(was) if n < was && n <= 25 => crate::sound::cue("stream_leave"),
+                        _ => {}
+                    }
+                }
                 if moved {
                     self.connect_stream(net, me);
                 }
@@ -424,10 +442,14 @@ impl VoiceUi {
                 }
             }
             "VOICE_STATE_UPDATE" => {
-                self.flags(d);
                 self.stage.seat(d);
                 let uid = sid(&d["user_id"]);
                 let ch = sid(&d["channel_id"]);
+                let was_live = self.live.contains(&uid);
+                self.flags(d);
+                if self.chan == Some(ch) && was_live != self.live.contains(&uid) {
+                    crate::sound::cue(if was_live { "stream_ended" } else { "stream_started" });
+                }
                 if sid(&d["guild_id"]) == 0 {
                     for users in self.calls.values_mut() {
                         users.retain(|u| *u != uid);
@@ -441,10 +463,14 @@ impl VoiceUi {
                 }
                 if ch == 0 {
                     // the server dropped us (kicked, or we joined from another device)
+                    if self.guild != 0 {
+                        crate::sound::cue("disconnect");
+                    }
                     self.reset(net);
                     return;
                 }
                 if Some(ch) != self.chan {
+                    crate::sound::cue("moved");
                     self.chan = Some(ch);
                 }
                 let audience = d["suppress"].as_bool() == Some(true);
@@ -474,6 +500,12 @@ impl VoiceUi {
                     self.calls.insert(ch, vs.iter().map(|v| sid(&v["user_id"])).collect());
                 }
                 let rung = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| sid(u) == me));
+                let rings = d["ringing"].as_array().is_some_and(|r| !r.is_empty());
+                if rings && !rung {
+                    self.ringing_out = Some(ch);
+                } else if self.ringing_out == Some(ch) {
+                    self.ringing_out = None;
+                }
                 if rung && self.chan != Some(ch) {
                     self.ringing = Some(ch);
                 } else if self.ringing == Some(ch) {
@@ -483,6 +515,9 @@ impl VoiceUi {
             "CALL_DELETE" => {
                 let ch = sid(&d["channel_id"]);
                 self.calls.remove(&ch);
+                if self.ringing_out == Some(ch) {
+                    self.ringing_out = None;
+                }
                 if self.ringing == Some(ch) {
                     self.ringing = None;
                 }
@@ -547,7 +582,12 @@ impl VoiceUi {
                 self.tex.remove(&format!("cam:{u}"));
             }
             Kind::Error(err) => return Some(err),
-            Kind::State(s) => self.state = s,
+            Kind::State(s) => {
+                if s == State::Connected && self.state != State::Connected && self.guild != 0 {
+                    crate::sound::cue("join");
+                }
+                self.state = s;
+            }
             Kind::Speaking(u, true) => {
                 self.speaking.insert(u);
             }
@@ -593,6 +633,11 @@ impl VoiceUi {
         if let Ok(mut d) = self.shared.devices.lock() {
             *d = (s.mic.clone(), s.speaker.clone());
         }
+    }
+
+    /// Ringing someone from a call nobody else has joined yet.
+    pub fn calling(&self) -> bool {
+        self.chan.is_some() && self.ringing_out == self.chan && self.calls.get(&self.chan.unwrap_or(0)).is_none_or(|u| u.len() < 2)
     }
 
     pub fn is_speaking(&self, u: Id) -> bool {
