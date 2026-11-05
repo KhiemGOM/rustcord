@@ -54,6 +54,9 @@ pub struct Shared {
     pub auto_vad: AtomicBool,
     /// krisp-style noise suppression (rnnoise) on the mic
     pub denoise: AtomicBool,
+    /// what each remote speaker's volume is set to, by user id; the mixer reads the slot's copy
+    pub user_gain: Mutex<std::collections::HashMap<u64, f32>>,
+    pub slot_gain: [AtomicU32; SLOTS],
 }
 
 impl Default for Shared {
@@ -81,6 +84,8 @@ impl Default for Shared {
             out_gain: AtomicU32::new(1.0f32.to_bits()),
             auto_vad: AtomicBool::new(true),
             denoise: AtomicBool::new(true),
+            user_gain: Mutex::new(Default::default()),
+            slot_gain: std::array::from_fn(|_| AtomicU32::new(1.0f32.to_bits())),
         }
     }
 }
@@ -412,7 +417,8 @@ impl Mix {
         let need = (self.lerp.needed(frames) * 2).min(self.buf.len());
         let mix = &mut self.buf[..need];
         mix.fill(0.0);
-        for (s, primed) in self.slots.iter_mut().zip(self.primed.iter_mut()) {
+        for (n, (s, primed)) in self.slots.iter_mut().zip(self.primed.iter_mut()).enumerate() {
+            let gain = f32::from_bits(self.shared.slot_gain[n].load(Relaxed));
             let avail = s.slots() & !1;
             if !*primed {
                 if avail < PREFILL {
@@ -432,7 +438,7 @@ impl Mix {
             if let Ok(c) = s.read_chunk(take) {
                 let (a, b) = c.as_slices();
                 for (m, x) in mix.iter_mut().zip(a.iter().chain(b)) {
-                    *m += x;
+                    *m += x * gain;
                 }
                 c.commit_all();
             }

@@ -430,7 +430,7 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(18.0, 18.0)), pal().header_secondary);
                 if br.on_hover_text(tip).clicked() {
-                    acts.push((if k == 0 { "profile" } else { "menu" }, uid, b.left_bottom()));
+                    acts.push((if k == 0 { "mod" } else { "menu" }, uid, b.left_bottom()));
                 }
             }
             app.rects.insert(format!("members:row:{uid}"), r);
@@ -458,6 +458,7 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
     for (what, uid, at) in acts {
         match what {
             "profile" => app.open_profile(uid, gid, at),
+            "mod" => app.open_mod_view(gid, uid),
             _ => app.user_menu = Some((uid, gid, None, at)),
         }
     }

@@ -62,6 +62,12 @@ pub const CONNECT: u64 = 1 << 20;
 pub const MANAGE_CHANNELS: u64 = 1 << 4;
 pub const SET_VOICE_CHANNEL_STATUS: u64 = 1 << 48;
 pub const MANAGE_GUILD: u64 = 1 << 5;
+pub const MUTE_MEMBERS: u64 = 1 << 22;
+pub const DEAFEN_MEMBERS: u64 = 1 << 23;
+pub const MOVE_MEMBERS: u64 = 1 << 24;
+pub const CHANGE_NICKNAME: u64 = 1 << 26;
+pub const MANAGE_NICKNAMES: u64 = 1 << 27;
+pub const MANAGE_ROLES: u64 = 1 << 28;
 pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
 pub const MANAGE_EVENTS: u64 = 1 << 33;
 pub const CREATE_EVENTS: u64 = 1 << 44;
@@ -287,6 +293,8 @@ pub struct Role {
     pub icon: Option<String>,
     #[serde(default)]
     pub emoji: Option<String>,
+    #[serde(default)]
+    pub managed: bool,
 }
 
 impl Role {
@@ -1014,6 +1022,14 @@ pub struct Store {
     pub voice_start: Map<Id, i64>,
     #[serde(default)]
     pub relationships: Map<Id, u8>,
+    // what you call a friend, and the people you ignore
+    #[serde(default)]
+    pub nicks: Map<Id, String>,
+    #[serde(default)]
+    pub ignored: Set<Id>,
+    // dms pinned to the top of the list
+    #[serde(default)]
+    pub pinned: Set<Id>,
     #[serde(default)]
     pub email: Option<String>,
     // READY's user object as-is: phone, mfa, verified, premium type, flags
@@ -1047,6 +1063,9 @@ impl Store {
     }
 
     pub fn name_in(&self, guild: Id, user: Id) -> String {
+        if guild == 0 && let Some(n) = self.nicks.get(&user) {
+            return n.clone();
+        }
         if let Some(n) = self.members.get(&guild).and_then(|m| m.get(&user)).and_then(|m| m.nick.clone()) {
             return n;
         }
@@ -1220,6 +1239,13 @@ impl Store {
     }
 
     /// A dm or group dm that's muted, or every dm when the direct messages entry itself is.
+    fn set_nick(&mut self, uid: Id, v: &Value) {
+        match v.as_str().filter(|n| !n.is_empty()) {
+            Some(n) => self.nicks.insert(uid, n.to_string()),
+            None => self.nicks.remove(&uid),
+        };
+    }
+
     pub fn dm_muted(&self, ch: Id) -> bool {
         self.muted.contains(&ch) || self.muted.contains(&0)
     }
@@ -1288,6 +1314,13 @@ impl Store {
                 self.opted.insert(cid);
             } else {
                 self.opted.remove(&cid);
+            }
+            if gid == 0 {
+                if o["flags"].as_u64().unwrap_or(0) & 2048 != 0 {
+                    self.pinned.insert(cid);
+                } else {
+                    self.pinned.remove(&cid);
+                }
             }
             if on(o) {
                 self.muted.insert(cid);
@@ -1605,6 +1638,7 @@ impl Store {
                 self.upsert_user(&r["user"]);
             }
             self.relationships.insert(uid, r["type"].as_u64().unwrap_or(0) as u8);
+            self.set_nick(uid, &r["nickname"]);
         }
 
         let mut folders: Vec<Folder> = Vec::new();
@@ -2101,9 +2135,12 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.relationships.insert(uid, d["type"].as_u64().unwrap_or(0) as u8);
+                self.set_nick(uid, &d["nickname"]);
             }
             "RELATIONSHIP_REMOVE" => {
-                self.relationships.remove(&sid(&d["id"]));
+                let uid = sid(&d["id"]);
+                self.relationships.remove(&uid);
+                self.nicks.remove(&uid);
             }
             "GUILD_MEMBERS_CHUNK" => {
                 let gid = sid(&d["guild_id"]);
@@ -2333,6 +2370,7 @@ fn parse_role(r: &Value) -> Role {
         grad: role_grad(&r["colors"]),
         icon: ost(&r["icon"]),
         emoji: ost(&r["unicode_emoji"]),
+        managed: r["managed"].as_bool().unwrap_or(false),
     }
 }
 

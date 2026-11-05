@@ -78,6 +78,8 @@ pub struct Settings {
     pub output_volume: f32,
     // krisp-style background noise suppression on the mic
     pub noise_suppression: bool,
+    // what you set from a person's right-click menu in a call: their volume, Mute, Mute Soundboard
+    pub people: std::collections::BTreeMap<Id, Person>,
     // keybinds: (action, windows virtual-key codes)
     pub keybinds: Vec<(String, Vec<u32>)>,
     // language
@@ -165,6 +167,7 @@ impl Default for Settings {
             input_volume: 1.0,
             output_volume: 1.0,
             noise_suppression: true,
+            people: Default::default(),
             keybinds: Vec::new(),
             locale: "en-US".into(),
             open_on_startup: false,
@@ -189,7 +192,35 @@ impl Default for Settings {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[serde(default)]
+pub struct Person {
+    pub volume: f32,
+    pub muted: bool,
+    pub soundboard_muted: bool,
+}
+
+impl Default for Person {
+    fn default() -> Self {
+        Person { volume: 1.0, muted: false, soundboard_muted: false }
+    }
+}
+
 impl Settings {
+    pub fn person(&self, id: Id) -> Person {
+        self.people.get(&id).copied().unwrap_or_default()
+    }
+
+    pub fn set_person(&mut self, id: Id, f: impl FnOnce(&mut Person)) {
+        let mut p = self.person(id);
+        f(&mut p);
+        if p == Person::default() {
+            self.people.remove(&id);
+        } else {
+            self.people.insert(id, p);
+        }
+    }
+
     pub fn hiding_personal(&self) -> bool {
         self.streamer && self.hide_personal
     }

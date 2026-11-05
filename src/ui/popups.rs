@@ -1925,193 +1925,18 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-enum UserAct {
-    Read,
-    Profile,
-    Mention,
-    Message,
-    Close,
-    AddFriend,
-    RemoveFriend,
-    Block,
-    Unblock,
-    Mute(bool, Option<i64>),
-    CopyUser,
-    CopyChannel,
-    Timeout,
-    Kick,
-    Ban,
-}
-
-/// Discord's menu for a person, from the member list, a message's author or a dm row.
-pub fn user_menu(app: &mut App, ctx: &egui::Context) {
-    use super::{Trail, menu_item, menu_row, menu_sep};
-    use crate::state::{BLOCKED, FRIEND, INCOMING, OUTGOING};
-    let Some((uid, gid, dm, at)) = app.user_menu else { return };
-    let me = uid == app.store.me;
-    let rel = app.store.relationships.get(&uid).copied();
-    let name = app.store.name_in(gid, uid);
-    let chan = dm.and_then(|c| app.store.channels.get(&c));
-    let group = chan.is_some_and(|c| c.kind == 3);
-    let unread = chan.is_some_and(|c| app.store.unread(c));
-    let muted = dm.is_some_and(|c| app.store.muted.contains(&c));
-    let composing = dm.is_none() && app.cur().is_some();
-    let dev = app.settings.dev;
-    // a server's moderators get timeout, kick and ban for members other than themselves
-    let perms = app.store.guilds.get(&gid).and_then(|g| g.channels.iter().find_map(|c| app.store.channels.get(c))).map_or(0, |c| app.store.perms(c));
-    let (can_timeout, can_kick, can_ban) = if gid == 0 || me {
-        (false, false, false)
-    } else {
-        use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
-        (perms & MODERATE_MEMBERS != 0, perms & KICK_MEMBERS != 0, perms & BAN_MEMBERS != 0)
-    };
-    let mut act = None;
-    let open = super::float_menu(ctx, "user_menu", at, |ui| {
-        if dm.is_some() {
-            if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
-                act = Some(UserAct::Read);
-            }
-            menu_sep(ui);
-        }
-        if !group {
-            if menu_item(ui, None, "Profile", false) {
-                act = Some(UserAct::Profile);
-            }
-            if composing && menu_item(ui, None, "Mention", false) {
-                act = Some(UserAct::Mention);
-            }
-            if !me && dm.is_none() && menu_item(ui, None, "Message", false) {
-                act = Some(UserAct::Message);
-            }
-        }
-        if dm.is_some() && menu_item(ui, None, if group { "Leave Group" } else { "Close DM" }, group) {
-            act = Some(UserAct::Close);
-        }
-        if !me && !group {
-            menu_sep(ui);
-            match rel {
-                Some(FRIEND) => {
-                    if menu_item(ui, None, "Remove Friend", false) {
-                        act = Some(UserAct::RemoveFriend);
-                    }
-                }
-                Some(BLOCKED) | Some(OUTGOING) => {}
-                Some(INCOMING) => {
-                    if menu_item(ui, None, "Accept Friend Request", false) {
-                        act = Some(UserAct::AddFriend);
-                    }
-                }
-                _ => {
-                    if menu_item(ui, None, "Add Friend", false) {
-                        act = Some(UserAct::AddFriend);
-                    }
-                }
-            }
-            if rel == Some(BLOCKED) {
-                if menu_item(ui, None, "Unblock", false) {
-                    act = Some(UserAct::Unblock);
-                }
-            } else if menu_item(ui, None, "Block", true) {
-                act = Some(UserAct::Block);
-            }
-        }
-        if can_timeout || can_kick || can_ban {
-            menu_sep(ui);
-            if can_timeout && menu_item(ui, None, &format!("Timeout {name}"), true) {
-                act = Some(UserAct::Timeout);
-            }
-            if can_kick && menu_item(ui, None, &format!("Kick {name}"), true) {
-                act = Some(UserAct::Kick);
-            }
-            if can_ban && menu_item(ui, None, &format!("Ban {name}"), true) {
-                act = Some(UserAct::Ban);
-            }
-        }
-        if dm.is_some() {
-            menu_sep(ui);
-            let what = if group { "Conversation".to_string() } else { format!("@{name}") };
-            if muted {
-                if menu_item(ui, None, &format!("Unmute {what}"), false) {
-                    act = Some(UserAct::Mute(false, None));
-                }
-            } else {
-                let m = menu_row(ui, None, &format!("Mute {what}"), None, false, Trail::Caret);
-                egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
-                    if let Some(secs) = super::mute_menu(ui) {
-                        act = Some(UserAct::Mute(true, secs));
-                    }
-                });
-            }
-        }
-        if dev {
-            menu_sep(ui);
-            if !group && menu_item(ui, Some(Icon::Id), "Copy User ID", false) {
-                act = Some(UserAct::CopyUser);
-            }
-            if dm.is_some() && menu_item(ui, Some(Icon::Id), "Copy Channel ID", false) {
-                act = Some(UserAct::CopyChannel);
-            }
-        }
-    });
-    if !open || act.is_some() {
-        app.user_menu = None;
-    }
-    let dm = dm.unwrap_or(0);
-    match act {
-        Some(UserAct::Read) => app.mark_read(&[dm]),
-        Some(UserAct::Profile) => app.open_profile(uid, gid, at),
-        Some(UserAct::Mention) => app.mention(uid, gid),
-        // ctrl+click times them out for a minute without asking how long
-        Some(UserAct::Timeout) if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
-        Some(UserAct::Timeout) => app.timeout = Some(Timeout { guild: gid, user: uid, secs: 60, reason: String::new() }),
-        Some(UserAct::Kick) => {
-            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
-            app.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
-                app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Ban) => {
-            let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let body = format!("Are you sure you want to ban @{name} from {server}?");
-            app.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
-                app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Message) => app.open_dm(uid),
-        Some(UserAct::Close) if group => {
-            let title = channel_title(&app.store, dm);
-            let body = format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited.");
-            app.confirm = Some(super::Confirm::new(format!("Leave '{title}'"), body, "Leave Group", move |app: &mut App| close_dm(app, dm)));
-        }
-        Some(UserAct::Close) => close_dm(app, dm),
-        Some(UserAct::AddFriend) => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
-        Some(UserAct::RemoveFriend) => {
-            let body = format!("Are you sure you want to remove {name} from your friends?");
-            app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
-                app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Block) => {
-            let body = "They won't be able to message you, and you won't see their messages unless you choose to.";
-            app.confirm = Some(super::Confirm::new(format!("Block {name}?"), body, "Block", move |app: &mut App| {
-                app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::Quiet)
-            }));
-        }
-        Some(UserAct::Unblock) => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet),
-        Some(UserAct::Mute(m, secs)) => app.mute_for(dm, false, m, secs),
-        Some(UserAct::CopyUser) => ctx.copy_text(uid.to_string()),
-        Some(UserAct::CopyChannel) => ctx.copy_text(dm.to_string()),
-        None => {}
-    }
-}
-
 /// Timeout for a member: who, where, how long and why.
 pub struct Timeout {
     guild: Id,
     user: Id,
     secs: i64,
     reason: String,
+}
+
+impl Timeout {
+    pub fn new(guild: Id, user: Id) -> Self {
+        Timeout { guild, user, secs: 60, reason: String::new() }
+    }
 }
 
 /// Discord's Timeout dialog: what timeout means, the six lengths, a reason for the audit log.
@@ -2176,7 +2001,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-fn close_dm(app: &mut App, c: Id) {
+pub fn close_dm(app: &mut App, c: Id) {
     app.rest("DELETE", format!("/channels/{c}"), None, Tag::Quiet);
     app.store.dms.retain(|d| *d != c);
     if app.cur() == Some(c) {
