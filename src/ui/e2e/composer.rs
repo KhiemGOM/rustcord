@@ -292,7 +292,7 @@ impl Run {
                 app.open(general);
                 self.next(300);
             }),
-            _ => self.step = 99,
+            _ => self.step = 800,
         }
     }
 }

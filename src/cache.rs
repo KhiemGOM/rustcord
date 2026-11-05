@@ -85,6 +85,10 @@ pub struct Settings {
     pub spoilers: Spoilers,
     pub animate_emoji: bool,
     pub gif_autoplay: bool,
+    // the inbox's filter: @here and @everyone, role mentions, and every server rather than the one open
+    pub inbox_everyone: bool,
+    pub inbox_roles: bool,
+    pub inbox_all: bool,
     // advanced
     pub dev: bool,
     // voice
@@ -229,6 +233,9 @@ impl Default for Settings {
             spoilers: Spoilers::OnClick,
             animate_emoji: true,
             gif_autoplay: true,
+            inbox_everyone: true,
+            inbox_roles: true,
+            inbox_all: true,
             dev: false,
             mic: None,
             speaker: None,

@@ -8,6 +8,9 @@ use crate::state::{Id, Message};
 use crate::theme::*;
 
 pub struct Search {
+    pub ch: Id,
+    // 0 newest, 1 oldest, 2 most relevant
+    pub sort: u8,
     pub scope: Id,
     pub guild: bool,
     pub query: String,
@@ -50,6 +53,8 @@ impl App {
         if !content.is_empty() {
             params.push(format!("content={}", enc(&content)));
         }
+        let sort = self.search.as_ref().map_or(0, |s| s.sort);
+        params.push(format!("sort_by={}&sort_order={}", if sort == 2 { "relevance" } else { "timestamp" }, if sort == 1 { "asc" } else { "desc" }));
         let q = params.join("&");
         let path = if guild {
             format!("/guilds/{scope}/messages/search?{q}")
@@ -59,7 +64,7 @@ impl App {
             format!("/channels/{scope}/messages/search?{q}")
         };
         self.rest("GET", path, None, Tag::Search(scope));
-        self.search = Some(Search { scope, guild, query, results: None, total: 0 });
+        self.search = Some(Search { ch, sort, scope, guild, query, results: None, total: 0 });
     }
 
     pub fn open_pins(&mut self, ch: Id) {
@@ -361,6 +366,8 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
 pub fn show(app: &mut App, ctx: &egui::Context) {
     gifs(app, ctx);
     forward(app, ctx);
+    super::reactions::show(app, ctx);
+    super::report::show(app, ctx);
     invite(app, ctx);
     made_invite(app, ctx);
     status_edit(app, ctx);
@@ -1510,14 +1517,25 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
     }
 }
 
+fn sort_button(ui: &mut Ui) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(78.0, 32.0), Sense::click());
+    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    ui.painter().rect(rect, 8, fill, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    super::icons::draw(ui.painter(), Icon::Sort, Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(16.0, 16.0)), pal().header_primary);
+    ui.painter().text(pos2(rect.left() + 32.0, rect.center().y), Align2::LEFT_CENTER, "Sort", medium(14.0), pal().header_primary);
+    resp
+}
+
 pub fn search_panel(app: &mut App, ui: &mut Ui) {
     let Some(s) = &app.search else { return };
     let mut close = false;
     let mut jump = None;
     let header = match &s.results {
         None => "Searching…".to_string(),
-        Some(_) => format!("{} Results for “{}”", s.total, s.query),
+        Some(_) if s.total == 1 => "1 Result".to_string(),
+        Some(_) => format!("{} Results", s.total),
     };
+    let mut sort = None;
     Frame::new().fill(pal().bg_secondary).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
@@ -1526,6 +1544,19 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
                 if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
                     close = true;
                 }
+                let label = ["Newest", "Oldest", "Most Relevant"][s.sort as usize % 3];
+                let b = sort_button(ui);
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "search_sort")), b.rect));
+                let frame = Frame::menu(&ui.ctx().global_style());
+                egui::Popup::menu(&b).align(egui::RectAlign::BOTTOM_END).gap(4.0).frame(frame).show(|ui| {
+                    ui.set_width(148.0);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (i, name) in ["Newest", "Oldest", "Most Relevant"].into_iter().enumerate() {
+                        if super::menu_row(ui, None, name, None, false, super::Trail::Radio(name == label)).clicked() {
+                            sort = Some(i as u8);
+                        }
+                    }
+                });
             });
         });
     });
@@ -1560,6 +1591,13 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
     });
     if close {
         app.search = None;
+    }
+    if let Some(n) = sort
+        && let Some(s) = &mut app.search
+    {
+        let (ch, q) = (s.ch, s.query.clone());
+        s.sort = n;
+        app.start_search(ch, q);
     }
     if let Some((c, id)) = jump {
         app.jump_to(c, id);

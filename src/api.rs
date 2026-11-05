@@ -82,7 +82,7 @@ pub fn http() -> reqwest::Client {
         .expect("http client")
 }
 
-fn esc(s: &str) -> String {
+pub fn esc(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || b"-_.~:".contains(&b) {

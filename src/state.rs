@@ -579,6 +579,24 @@ pub struct Reaction {
     pub emoji: ReactEmoji,
     pub count: u32,
     pub me: bool,
+    #[serde(default)]
+    pub burst: u32,
+    #[serde(default)]
+    pub me_burst: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct Call {
+    pub with: Vec<Id>,
+    pub ended: Option<i64>,
+}
+
+/// Who ran the command behind an app's reply, and who installed the app they ran it in.
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct Interaction {
+    pub user: Id,
+    pub owner: Id,
+    pub in_guild: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -610,6 +628,14 @@ pub struct Message {
     pub poll: Option<Poll>,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub call: Option<Call>,
+    #[serde(default)]
+    pub refer: Option<(Id, Id)>,
+    #[serde(default)]
+    pub interaction: Option<Interaction>,
+    #[serde(default)]
+    pub extra: Value,
     #[serde(skip)]
     pub pending: bool,
     #[serde(skip)]
@@ -655,6 +681,8 @@ impl Message {
                     emoji: ReactEmoji::parse(&r["emoji"]),
                     count: r["count"].as_u64().unwrap_or(1) as u32,
                     me: r["me"].as_bool().unwrap_or(false),
+                    burst: r["count_details"]["burst"].as_u64().unwrap_or(0) as u32,
+                    me_burst: r["me_burst"].as_bool().unwrap_or(false),
                 })
                 .collect();
         }
@@ -1046,6 +1074,9 @@ pub struct Store {
     pub msgs: Map<Id, Msgs>,
     #[serde(skip)]
     pub refs: Map<Id, Message>,
+    // who reacted, by message, emoji and whether super: the count it was asked at and the users once they arrive
+    #[serde(skip)]
+    pub reactors: Map<(Id, String, bool), (u32, Option<Vec<Id>>)>,
     #[serde(skip)]
     pub presence: Map<Id, Status>,
     // what each user is doing, live from presences: (kind, name, state, emoji url)
@@ -1751,6 +1782,33 @@ impl Store {
         if v["thread"].is_object() {
             self.put_channel(Channel::parse(&v["thread"], guild));
         }
+        if v["call"].is_object() {
+            m.call = Some(Call {
+                with: ids(&v["call"]["participants"]),
+                ended: v["call"]["ended_timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
+            });
+        }
+        if let Some(r) = v["message_reference"]["message_id"].as_str().and_then(|r| r.parse().ok()) {
+            m.refer = Some((sid(&v["message_reference"]["channel_id"]), r));
+        } else if v["message_reference"]["channel_id"].is_string() {
+            m.refer = Some((sid(&v["message_reference"]["channel_id"]), 0));
+        }
+        let im = if v["interaction_metadata"].is_object() { &v["interaction_metadata"] } else { &v["interaction"] };
+        if im["user"].is_object() {
+            let user = self.upsert_user(&im["user"]);
+            let owners = &im["authorizing_integration_owners"];
+            let (owner, in_guild) = match (owners["0"].as_str(), owners["1"].as_str()) {
+                (Some(g), _) => (sid(&owners["0"]), g != "0"),
+                (_, Some(_)) => (sid(&owners["1"]), false),
+                _ => (0, false),
+            };
+            m.interaction = Some(Interaction { user, owner, in_guild });
+        }
+        if matches!(m.kind, 25 | 44) {
+            m.extra = if v["role_subscription_data"].is_object() { v["role_subscription_data"].clone() } else { v["purchase_notification"].clone() };
+        } else if matches!(m.kind, 32..=34 | 49) {
+            m.extra = serde_json::json!({ "application": v["application"]["name"] });
+        }
         if v["referenced_message"].is_object() {
             let r = self.parse_message(&v["referenced_message"]);
             m.reply = Some(r.id);
@@ -2336,6 +2394,13 @@ impl Store {
         self.forum_posts.insert(forum, posts);
     }
 
+    pub fn set_reactors(&mut self, key: (Id, String, bool), v: &Value) {
+        let users: Vec<Id> = v.as_array().into_iter().flatten().map(|u| self.upsert_user(u)).collect();
+        if let Some(e) = self.reactors.get_mut(&key) {
+            e.1 = Some(users);
+        }
+    }
+
     pub fn react_local(&mut self, channel: Id, id: Id, em: ReactEmoji, add: bool) {
         if let Some(m) = self.msg_mut(channel, id) {
             react(m, em, add, true);
@@ -2417,7 +2482,7 @@ fn react(m: &mut Message, em: ReactEmoji, add: bool, me: bool) {
                 m.reactions.remove(i);
             }
         }
-        None if add => m.reactions.push(Reaction { emoji: em, count: 1, me }),
+        None if add => m.reactions.push(Reaction { emoji: em, count: 1, me, ..Default::default() }),
         None => {}
     }
 }

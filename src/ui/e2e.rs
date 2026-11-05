@@ -1233,6 +1233,7 @@ impl Run {
             600..=699 => self.server_steps(app, ctx),
             2000..=2059 => self.account_steps(app, ctx),
             560..=599 => self.composer_steps(app, ctx),
+            800..=839 => self.messages_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -4520,6 +4521,217 @@ impl Run {
                 self.step_at = Instant::now();
             }
             _ => {}
+        }
+    }
+
+    /// Messages: every kind discord draws specially, who reacted, each message menu, a failed send, Report
+    /// Message, the search sort menu and the inbox's filter and friend requests.
+    fn messages_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        const SYSTEM: Id = 2070;
+        const LABELS: [&str; 22] = [
+            "Add Reaction", "View Reactions", "Edit Message", "Reply", "Forward", "Create Thread", "Copy Text", "Pin Message", "Bookmark Message", "Create Reminder", "Apps",
+            "Resend message", "Mark Unread", "Configure", "Copy Message Link", "Speak Message", "View Interaction Info", "Remove Reactions", "Remove All Reactions",
+            "Delete Message", "Report Message", "Save File",
+        ];
+        let guild = self.target.0;
+        let list = |app: &App| app.store.msgs.get(&SYSTEM).map(|e| e.list.clone()).unwrap_or_default();
+        let row = |ctx: &egui::Context, label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let case = |app: &App, i: usize| -> Option<Id> {
+            let l = list(app);
+            let found = match i {
+                0 => l.iter().find(|m| !m.reactions.is_empty()),
+                1 => l.iter().find(|m| m.kind == 7 && m.author == 102),
+                2 => l.iter().find(|m| m.kind == 20),
+                3 => l.iter().find(|m| m.flags & 8192 != 0),
+                4 => l.iter().find(|m| m.kind == 6),
+                _ => None,
+            };
+            found.map(|m| m.id)
+        };
+        let open_menu = |me: &mut Self, app: &mut App, ctx: &egui::Context, id: Id| {
+            for l in LABELS {
+                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("menu_row", l))));
+            }
+            app.menu = Some((SYSTEM, id, egui::pos2(300.0, 100.0)));
+            me.next(400);
+        };
+        let labels = |ctx: &egui::Context| LABELS.iter().filter(|l| row(ctx, l).is_some()).collect::<Vec<_>>();
+        match self.step {
+            800 => {
+                app.select_guild(Some(guild));
+                app.open(SYSTEM);
+                self.next(1200);
+            }
+            801 => {
+                let ready = app.store.msgs.get(&SYSTEM).is_some_and(|e| e.list.len() >= 29 && e.fresh && !e.loading);
+                if app.cur() == Some(SYSTEM) && ready {
+                    let mut texts = serde_json::Map::new();
+                    for m in list(app).iter().filter(|m| !matches!(m.kind, 0 | 19 | 20 | 23)) {
+                        let t = super::system::describe(&app.store, guild, m).map(|s| s.plain()).unwrap_or_default();
+                        texts.insert(format!("{}:{}", m.kind, m.author), json!(t));
+                    }
+                    self.rects.insert("system_texts".into(), json!(texts));
+                    self.mark("msg_system_texts");
+                    self.shot(ctx, "msg_system.png");
+                    self.next(300);
+                }
+            }
+            802 => {
+                let Some(id) = case(app, 0) else { return };
+                let m = app.store.find_msg(SYSTEM, id).cloned().unwrap_or_default();
+                for r in &m.reactions {
+                    app.ask_reactors(SYSTEM, id, &r.emoji, false, r.count);
+                }
+                self.next(600);
+            }
+            803 => {
+                let Some(id) = case(app, 0) else { return };
+                let m = app.store.find_msg(SYSTEM, id).cloned().unwrap_or_default();
+                let loaded = m.reactions.iter().all(|r| app.store.reactors.get(&(id, r.emoji.api_name(), false)).is_some_and(|e| e.1.is_some()));
+                if loaded {
+                    let tips: Vec<String> = m.reactions.iter().map(|r| super::reactions::tooltip(&app.store, guild, &m, r, false)).collect();
+                    self.rects.insert("reaction_tooltips".into(), json!(tips));
+                    self.mark("msg_reaction_tooltip");
+                    app.reactors = Some(super::reactions::Reactors::new(SYSTEM, id));
+                    self.next(800);
+                }
+            }
+            804 => {
+                if app.reactors.is_some() {
+                    self.mark("msg_reactors_modal");
+                    self.shot(ctx, "msg_reactors.png");
+                    app.reactors = None;
+                    self.loaded = 0;
+                    self.next(300);
+                }
+            }
+            805 => {
+                let Some(id) = case(app, self.loaded) else {
+                    self.step = 808;
+                    return;
+                };
+                open_menu(self, app, ctx, id);
+            }
+            806 => {
+                self.rects.insert(format!("menu:{}", self.loaded), json!(labels(ctx)));
+                if self.loaded == 0 {
+                    self.shot(ctx, "msg_menu.png");
+                }
+                app.menu = None;
+                self.loaded += 1;
+                self.step = 805;
+                self.wait = Instant::now() + Duration::from_millis(250);
+            }
+            808 => {
+                app.send_text(SYSTEM, "e2e-fail-once".into());
+                self.next(900);
+            }
+            809 => {
+                let Some(m) = list(app).into_iter().find(|m| m.failed && m.content == "e2e-fail-once") else { return };
+                self.mark("msg_failed");
+                self.shot(ctx, "msg_failed.png");
+                open_menu(self, app, ctx, m.id);
+            }
+            810 => {
+                self.rects.insert("menu:failed".into(), json!(labels(ctx)));
+                app.menu = None;
+                let Some(m) = list(app).into_iter().find(|m| m.failed) else { return };
+                app.resend(SYSTEM, m.id);
+                self.next(900);
+            }
+            811 => {
+                let me = app.store.me;
+                if list(app).iter().any(|m| m.content == "e2e-fail-once" && m.author == me && !m.failed && !m.pending) {
+                    self.mark("msg_resent");
+                    self.next(200);
+                }
+            }
+            812 => {
+                let Some(id) = list(app).iter().find(|m| m.kind == 0 && m.author == 102).map(|m| m.id) else { return };
+                app.open_report(SYSTEM, id);
+                self.next(800);
+            }
+            813 | 814 | 815 | 817 => {
+                let key = ["report_child0", "report_check0", "report_button", "", "report_button"][(self.step - 813) as usize];
+                let Some(r) = Self::at(ctx, key) else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            816 => {
+                if app.report.as_ref().is_some_and(|r| r.done()) {
+                    self.mark("msg_report_sent");
+                    self.next(300);
+                }
+            }
+            818 => {
+                if app.report.is_none() {
+                    self.mark("msg_report_closed");
+                    self.next(200);
+                }
+            }
+            819 => {
+                app.start_search(SYSTEM, "release".into());
+                self.next(900);
+            }
+            820 => {
+                let Some(r) = Self::at(ctx, "search_sort") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            821 => {
+                let Some(r) = row(ctx, "Oldest") else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            822 => {
+                if app.search.as_ref().is_some_and(|s| s.sort == 1 && s.results.is_some()) {
+                    self.mark("msg_search_sort");
+                    self.shot(ctx, "msg_search_sort.png");
+                    app.search = None;
+                    self.next(200);
+                }
+            }
+            823 => {
+                app.toggle_inbox();
+                self.next(900);
+            }
+            824 => {
+                let Some(r) = app.rects.get("inbox:filter").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            825 => {
+                let Some(r) = row(ctx, "Show Role Mentions") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            826 => {
+                if app.settings.inbox_roles {
+                    return;
+                }
+                self.mark("msg_inbox_filter");
+                app.settings.inbox_roles = true;
+                let Some(r) = app.rects.get("inbox:friends").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            827 => {
+                if app.inbox.as_ref().is_some_and(|i| i.friends) {
+                    self.mark("msg_inbox_friends");
+                    self.shot(ctx, "msg_inbox_friends.png");
+                    app.inbox = None;
+                    self.next(200);
+                }
+            }
+            828 => {
+                app.configure_joins(guild);
+                if app.server.as_ref().is_some_and(|s| matches!(s.page, super::server::Page::Engagement)) {
+                    self.mark("msg_configure");
+                }
+                app.server = None;
+                self.step = 99;
+            }
+            _ => self.step = 99,
         }
     }
 

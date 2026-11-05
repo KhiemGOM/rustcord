@@ -216,6 +216,115 @@ fn msg(id: u64, ch: u64, author: u64, content: &str) -> Value {
     })
 }
 
+const SYSTEM: u64 = 2070;
+
+
+/// One message of every kind discord draws specially, in a channel of their own, with a few
+/// ordinary ones to hang reactions and menus on.
+fn system_msgs() -> Vec<Value> {
+    let t0 = now_ms() - 3 * 3_600_000;
+    let at = |i: u64| snow(t0 + i * 60_000);
+    let mut out = Vec::new();
+    let mut add = |kind: u64, author: u64, content: &str, f: &dyn Fn(&mut Value)| {
+        let mut m = msg(at(out.len() as u64), SYSTEM, author, content);
+        m["type"] = json!(kind);
+        f(&mut m);
+        out.push(m);
+    };
+    add(0, 102, "this one has reactions", &|m| {
+        m["reactions"] = json!([
+            { "emoji": { "id": null, "name": "🔥" }, "count": 3, "me": false },
+            { "emoji": { "id": null, "name": "👍" }, "count": 2, "me": false },
+        ]);
+    });
+    add(7, 102, "", &|_| {});
+    add(7, 104, "", &|_| {});
+    add(6, 103, "", &|m| m["message_reference"] = json!({ "channel_id": SYSTEM.to_string(), "message_id": at(0).to_string() }));
+    add(8, 102, "", &|_| {});
+    add(9, 103, "2", &|_| {});
+    add(18, 101, "release plan", &|m| m["message_reference"] = json!({ "channel_id": THREAD.to_string() }));
+    add(21, 101, "", &|m| {
+        m["referenced_message"] = msg(at(900), SYSTEM, 101, "the message a thread started from");
+        m["message_reference"] = json!({ "channel_id": SYSTEM.to_string(), "message_id": at(900).to_string() });
+    });
+    add(24, 103, "badword in a message", &|m| {
+        m["embeds"] = json!([{ "type": "auto_moderation_message", "fields": [
+            { "name": "rule_name", "value": "No spoilers" }, { "name": "keyword", "value": "badword" }, { "name": "channel_id", "value": GENERAL.to_string() } ] }]);
+    });
+    add(25, 105, "", &|m| m["role_subscription_data"] = json!({ "tier_name": "Gold", "total_months_subscribed": 3, "is_renewal": true }));
+    add(27, 101, "Rust talk", &|_| {});
+    add(28, 101, "Rust talk", &|_| {});
+    add(29, 102, "", &|_| {});
+    add(30, 103, "", &|_| {});
+    add(31, 101, "Q&A", &|_| {});
+    add(36, 101, &iso(now_ms() + 3_600_000), &|_| {});
+    add(37, 101, "", &|_| {});
+    add(38, 101, "", &|_| {});
+    add(39, 101, "", &|_| {});
+    add(44, 102, "", &|m| m["purchase_notification"] = json!({ "type": 1, "guild_product_purchase": { "listing_id": "1", "product_name": "Rust Mug" } }));
+    add(46, 103, "", &|m| {
+        m["message_reference"] = json!({ "channel_id": SYSTEM.to_string(), "message_id": at(0).to_string() });
+        m["embeds"] = json!([{ "type": "poll_result", "fields": [
+            { "name": "poll_question_text", "value": "Worse leg" }, { "name": "victor_answer_id", "value": "1" },
+            { "name": "victor_answer_text", "value": "fountain of fate" }, { "name": "victor_answer_votes", "value": "32" },
+            { "name": "total_votes", "value": "50" } ] }]);
+    });
+    add(14, 101, "", &|_| {});
+    add(15, 101, "", &|_| {});
+    add(16, 101, "", &|_| {});
+    add(17, 101, "", &|_| {});
+    add(3, 101, "", &|m| m["call"] = json!({ "participants": ["101"], "ended_timestamp": iso(now_ms() - 3 * 3_600_000 + 20 * 60_000 + 7 * 60_000) }));
+    add(4, 102, "new-name", &|_| {});
+    add(20, 104, "/stats ran", &|m| {
+        m["interaction_metadata"] = json!({ "id": "1", "type": 2, "user": user(101), "authorizing_integration_owners": { "0": "1000" } });
+    });
+    add(0, 101, "", &|m| {
+        m["flags"] = json!(8192);
+        m["attachments"] = json!([{ "id": "9", "filename": "voice-message.ogg", "size": 4096, "url": "http://127.0.0.1/voice.ogg", "proxy_url": "http://127.0.0.1/voice.ogg",
+            "content_type": "audio/ogg", "duration_secs": 3.0, "waveform": "AAAA" }]);
+    });
+    out
+}
+
+const REPORT_MENU: &str = r#"{
+ "version": "1.0", "variant": "1", "language": "en", "root_node_id": "root", "success_node_id": "done", "fail_node_id": "fail",
+ "nodes": {
+  "root": { "id": "root", "header": "Report Message", "subheader": "What's going on?", "key": "root",
+            "elements": [{ "name": "preview", "type": "message_preview", "data": {} }],
+            "children": [["It's spam", "spam"], ["Harassment", "harass"]], "button": null },
+  "spam": { "id": "spam", "header": "It's spam", "key": "spam", "report_type": "spam",
+            "elements": [{ "name": "reasons", "type": "checkbox", "should_submit_data": true,
+                           "data": [["links", "Spam links", null], ["flood", "Message flooding", "Many messages in a row"]] }],
+            "button": { "type": "submit" } },
+  "harass": { "id": "harass", "header": "Harassment", "key": "harass",
+              "elements": [{ "name": "details", "type": "text", "data": { "title": "Tell us more", "rows": 3, "placeholder": "Optional" } }],
+              "button": { "type": "submit" } },
+  "done": { "id": "done", "header": "Thanks for letting us know", "subheader": "We'll take a look.", "elements": [], "button": { "type": "done" } },
+  "fail": { "id": "fail", "header": "Something went wrong", "elements": [], "button": { "type": "cancel" } }
+ }
+}"#;
+
+fn unesc(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+            out.push(v);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn failed_once() -> &'static Mutex<std::collections::HashSet<String>> {
+    static S: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    S.get_or_init(Default::default)
+}
+
 fn seed(cdn: &str) -> Vec<Value> {
     let lines = [
         (101, "morning everyone ☀️"),
@@ -303,6 +412,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         out.push(m);
     }
     out.extend(media_msgs(cdn));
+    out.extend(system_msgs());
     let t0 = now_ms() - 30 * 60_000;
     for (i, (a, text)) in [(101, "ok what's left for 1.3?"), (102, "voice + video, then polish"), (100, "I'll take the settings screen"), (103, "forums too 🙏")].iter().enumerate() {
         out.push(msg(snow(t0 + i as u64 * 60_000), THREAD, *a, text));
@@ -541,7 +651,7 @@ fn ready(last_general: u64) -> Value {
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum, ch(MEDIA, 0, "media", 5, Some(2010)),
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)),
         ],
         "threads": [thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
@@ -984,9 +1094,25 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
                   "options": [{ "type": 3, "name": "question", "description": "What to ask", "required": true }] },
             ],
         })),
+        ("GET", ["api", "v9", "reporting", "menu", "message"]) => ok(serde_json::from_str(REPORT_MENU).unwrap()),
+        ("POST", ["api", "v9", "reporting", "message"]) => ok(json!({ "report_id": "1" })),
+        // the people behind a reaction: as many as it has, from a fixed cast
+        ("GET", ["api", "v9", "channels", ch, "messages", id, "reactions", emoji]) => {
+            let (ch, id) = (ch.to_string(), id.to_string());
+            let emoji = unesc(emoji);
+            let w = w.lock().unwrap();
+            let n = w.msgs.iter().find(|m| m["channel_id"] == ch && m["id"] == id).and_then(|m| {
+                m["reactions"].as_array()?.iter().find(|r| r["emoji"]["name"].as_str().is_some_and(|n| emoji.starts_with(n))).and_then(|r| r["count"].as_u64())
+            });
+            ok(json!([101, 102, 103, 105, 106].iter().take(n.unwrap_or(0) as usize).map(|u| user(*u)).collect::<Vec<_>>()))
+        }
         ("POST", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
             let b: Value = serde_json::from_slice(body).unwrap_or_else(|_| payload_json(body));
+            // a send that fails the first time its nonce arrives, and goes through when sent again
+            if b["content"] == "e2e-fail-once" && failed_once().lock().unwrap().insert(b["nonce"].to_string()) {
+                return (403, "application/json", json!({ "message": "Missing Permissions", "code": 50013 }).to_string().into_bytes());
+            }
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
