@@ -914,8 +914,9 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("POST", ["api", "v9", "channels", _, "invites"]) => ok(json!({ "code": "e2eInv1", "max_age": 2592000 })),
         ("POST", ["api", "v9", "users", "@me", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
-            let to: u64 = b["recipients"][0].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
-            ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to)] }))
+            let to: Vec<u64> = b["recipients"].as_array().into_iter().flatten().filter_map(|s| s.as_str()?.parse().ok()).collect();
+            let group = to.len() > 1;
+            ok(json!({ "id": if group { "3011" } else { "3010" }, "type": if group { 3 } else { 1 }, "last_message_id": null, "recipients": to.iter().map(|u| user(*u)).collect::<Vec<_>>() }))
         }
         ("POST", ["api", "v9", "guilds", "1000", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();

@@ -29,6 +29,7 @@ pub struct UiState {
     pub frequent: Vec<crate::state::ReactEmoji>,
     pub skin: u8,
     pub frequent_stickers: Vec<crate::state::Id>,
+    pub fav_stickers: Vec<crate::state::Id>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

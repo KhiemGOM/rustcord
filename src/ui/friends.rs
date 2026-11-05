@@ -63,7 +63,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if icon_button(ui, Icon::NewDm, 32.0, "New Group DM").clicked() {
-                        app.switcher = Some(String::new());
+                        app.new_dm = Some(Default::default());
                     }
                 });
             });

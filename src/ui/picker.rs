@@ -724,6 +724,9 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let jump_id = egui::Id::new("sticker_jump");
     let tops_id = egui::Id::new("sticker_tops");
     let shut_id = egui::Id::new("sticker_shut");
+    if let Some(first) = app.sticker_q.take() {
+        ctx.data_mut(|d| d.insert_temp(qid, first));
+    }
     let mut q: String = ctx.data(|d| d.get_temp(qid)).unwrap_or_default();
     let jump: Option<f32> = ctx.data_mut(|d| d.remove_temp(jump_id));
     let tops: Vec<f32> = ctx.data(|d| d.get_temp(tops_id)).unwrap_or_default();
@@ -732,6 +735,8 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let ql = q.to_lowercase();
     let find = |id: Id| groups.iter().find_map(|(name, icon, l, ok)| l.iter().find(|s| s.0 == id).map(|s| (s.clone(), name.clone(), icon.clone(), *ok)));
     let recent: Vec<_> = if ql.is_empty() { app.ui.frequent_stickers.iter().filter_map(|id| find(*id)).filter(|s| s.3).collect() } else { Vec::new() };
+    let favs: Vec<_> = if ql.is_empty() { app.ui.fav_stickers.iter().filter_map(|id| find(*id)).collect() } else { Vec::new() };
+    let mut fav_toggle = None;
     let mut chosen = None;
     let mut go = None;
     let mut hovered: Option<((Id, String, u8), String)> = None;
@@ -746,6 +751,9 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         ui.painter().rect_filled(rail, CornerRadius::ZERO, pal().bg_tertiary);
         // the left column: frequently used, then each server by its icon
         let mut marks: Vec<(Option<&str>, &str)> = Vec::new();
+        if !favs.is_empty() {
+            marks.push((None, "Favorites"));
+        }
         if !recent.is_empty() {
             marks.push((None, "Frequently Used"));
         }
@@ -762,7 +770,8 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                         Some(url) => {
                             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);
                         }
-                        None if i == 0 && !recent.is_empty() => super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary),
+                        None if *name == "Favorites" => super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary),
+                        None if *name == "Frequently Used" => super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary),
                         None => {
                             ui.painter().rect_filled(r, 8, pal().bg_accent);
                             let initial: String = name.chars().filter(|c| !c.is_whitespace()).take(2).collect();
@@ -788,6 +797,9 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                     ui.vertical_centered(|ui| ui.label(RichText::new("No stickers here yet.").color(pal().text_muted)));
                 }
                 let mut sections: Vec<(&str, Lead, Vec<((Id, String, u8), String, bool)>)> = Vec::new();
+                if !favs.is_empty() {
+                    sections.push(("Favorites", Lead::Icon(super::icons::Icon::Star), favs.iter().map(|(s, g, _, ok)| (s.clone(), g.clone(), *ok)).collect()));
+                }
                 if !recent.is_empty() {
                     sections.push(("Frequently Used", Lead::Icon(super::icons::Icon::Clock), recent.iter().map(|(s, g, _, ok)| (s.clone(), g.clone(), *ok)).collect()));
                 }
@@ -817,7 +829,15 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                                     Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), true)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                                 }
                                 let resp = resp.on_hover_text(if *ok { st.1.clone() } else { format!("{} needs Nitro here", st.1) });
-                                if resp.clicked() && *ok {
+                                let fav = app.ui.fav_stickers.contains(&st.0);
+                                resp.context_menu(|ui| {
+                                    if super::menu_item(ui, Some(super::icons::Icon::Star), if fav { "Unfavorite Sticker" } else { "Favorite Sticker" }, false) {
+                                        fav_toggle = Some(st.0);
+                                    }
+                                });
+                                if resp.clicked() && ui.input(|i| i.modifiers.alt) {
+                                    fav_toggle = Some(st.0);
+                                } else if resp.clicked() && *ok {
                                     chosen = Some(st.0);
                                 }
                             }
@@ -850,6 +870,14 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     });
     if let Some(t) = to {
         toggle(app, t);
+        return;
+    }
+    if let Some(id) = fav_toggle {
+        if app.ui.fav_stickers.contains(&id) {
+            app.ui.fav_stickers.retain(|s| *s != id);
+        } else {
+            app.ui.fav_stickers.insert(0, id);
+        }
         return;
     }
     if let Some(id) = chosen {

@@ -1,5 +1,6 @@
 mod actions;
 mod active;
+mod attach;
 mod autoscroll;
 mod boosts;
 mod call;
@@ -16,6 +17,7 @@ pub mod icons;
 mod keys;
 mod login;
 mod members;
+mod newdm;
 mod palette;
 mod picker;
 mod popups;
@@ -165,6 +167,12 @@ pub struct App {
     pub new_thread: Option<popups::NewThread>,
     // the Edit Image dialog over a picture about to be uploaded
     pub crop: Option<crop::Crop>,
+    // Modify Attachment over a file waiting in the composer
+    pub modify: Option<attach::Modify>,
+    // Select Friends, for a new dm or group dm
+    pub new_dm: Option<newdm::State>,
+    // what /sticker was given, for the sticker picker to start its search with
+    pub sticker_q: Option<String>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
     // a link waiting on "Leaving Discord", and whether to trust its site from now on
@@ -332,6 +340,9 @@ impl App {
             notes: Map::default(),
             new_thread: None,
             crop: None,
+            modify: None,
+            new_dm: None,
+            sticker_q: None,
             emoji_pop: None,
             leaving: None,
             combos: None,
@@ -547,11 +558,11 @@ impl App {
             text = emoticons(&text);
         }
         self.aliases.remove(&ch);
-        let files: Vec<(PathBuf, String)> = std::mem::take(&mut self.files)
+        let files: Vec<(PathBuf, String, String)> = std::mem::take(&mut self.files)
             .into_iter()
             .map(|u| {
                 let name = if u.spoiler { format!("SPOILER_{}", u.name) } else { u.name };
-                (u.path, name)
+                (u.path, name, u.description)
             })
             .collect();
         if text.is_empty() && files.is_empty() {
@@ -1404,6 +1415,7 @@ impl App {
                             .corner_radius(8)
                             .inner_margin(egui::Margin::symmetric(16, 10))
                             .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
+                        self.rects.insert("toast".into(), r.response.rect);
                         let r = ui.interact(r.response.rect, egui::Id::new("toast_click"), Sense::click());
                         if r.clicked() && ui.input(|i| i.modifiers.shift) {
                             show_detail = true;
@@ -1456,6 +1468,8 @@ impl App {
             }
         }
         crop::show(self, &ctx);
+        attach::show(self, &ctx);
+        newdm::show(self, &ctx);
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);
@@ -2036,7 +2050,7 @@ pub fn option(ui: &mut Ui, on: bool, label: &str) -> egui::Response {
 
 /// A select's keys, once its list is open: up and down move by one and wrap, page up and down
 /// by ten, and letters jump to the first row starting with what was typed in the last second.
-pub fn select_keys(ctx: &egui::Context, rows: &[(String, egui::Id)]) {
+pub fn select_keys(ctx: &egui::Context, rows: &[(String, egui::Id)], popup: egui::Id) {
     if rows.is_empty() {
         return;
     }
@@ -2070,6 +2084,11 @@ pub fn select_keys(ctx: &egui::Context, rows: &[(String, egui::Id)]) {
     }
     if let Some(i) = to {
         ctx.memory_mut(|m| m.request_focus(rows[i as usize].1));
+    }
+    // Enter on a row presses it, which a keyboard press doesn't close the list for
+    let pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Space));
+    if pressed && rows.iter().any(|(_, id)| ctx.memory(|m| m.has_focus(*id))) {
+        egui::Popup::close_id(ctx, popup);
     }
 }
 

@@ -15,6 +15,7 @@ pub struct Upload {
     pub path: PathBuf,
     pub name: String,
     pub spoiler: bool,
+    pub description: String,
     // kept for the thumbnail; it gets read for the upload anyway
     thumb: Option<egui::load::Bytes>,
 }
@@ -22,14 +23,14 @@ pub struct Upload {
 impl Upload {
     pub fn new(path: PathBuf) -> Self {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-        let mut u = Upload { path, name, spoiler: false, thumb: None };
+        let mut u = Upload { path, name, spoiler: false, description: String::new(), thumb: None };
         if u.is_image() && std::fs::metadata(&u.path).is_ok_and(|m| m.len() < 25 << 20) {
             u.thumb = std::fs::read(&u.path).ok().map(Into::into);
         }
         u
     }
 
-    fn is_image(&self) -> bool {
+    pub fn is_image(&self) -> bool {
         let n = self.name.to_ascii_lowercase();
         [".png", ".jpg", ".jpeg", ".gif", ".webp"].iter().any(|e| n.ends_with(e))
     }
@@ -55,13 +56,15 @@ enum Item {
 }
 
 /// Discord's own commands, listed after the apps' as "Built-In": name, options, description.
-const BUILT_IN: [(&str, &str, &str); 13] = [
+const BUILT_IN: [(&str, &str, &str); 15] = [
     ("shrug", "message", "Appends ¯\\_(ツ)_/¯ to your message."),
     ("tableflip", "message", "Appends (╯°□°)╯︵ ┻━┻ to your message."),
     ("unflip", "message", "Appends ┬─┬ ノ( ゜-゜ノ) to your message."),
     ("tts", "message", "Use text-to-speech to read the message to all members currently viewing the channel."),
     ("me", "message", "Displays text with emphasis."),
     ("spoiler", "message", "Marks your message as a spoiler."),
+    ("gif", "query", "Search for a GIF to send."),
+    ("sticker", "query", "Search for a sticker to send."),
     ("nick", "new_nick", "Change nickname on this server."),
     ("thread", "name message", "Start new thread"),
     ("kick", "user reason", "Kick user"),
@@ -76,7 +79,8 @@ fn built_in_here(app: &App, chan: &Channel, name: &str) -> bool {
     use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
     let perms = app.store.perms(chan);
     match name {
-        "tts" | "nick" => chan.guild != 0,
+        "tts" => chan.guild != 0 && perms & (1 << 12) != 0,
+        "nick" => chan.guild != 0,
         "thread" => chan.guild != 0 && matches!(chan.kind, 0 | 5),
         "kick" => chan.guild != 0 && perms & KICK_MEMBERS != 0,
         "ban" => chan.guild != 0 && perms & BAN_MEMBERS != 0,
@@ -279,7 +283,16 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // tab with nothing focused lands in the composer too, as in discord
     let modal = app.modal_open();
     let tabbed = nothing_focused && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
-    if app.editing.is_none() && !modal && (app.focus_composer || tabbed || (nothing_focused && typed)) {
+    // the push-to-talk key held in a call is for talking, not typing
+    let talking = app.settings.ptt && app.voice.chan.is_some() && crate::hotkeys::PTT_HELD.load(std::sync::atomic::Ordering::Relaxed);
+    // Tab (not the mouse) into the composer rings it in discord's keyboard blue
+    let ring_id = egui::Id::new("composer_ring");
+    if tabbed {
+        ui.data_mut(|d| d.insert_temp(ring_id, true));
+    } else if ui.input(|i| i.pointer.any_pressed()) {
+        ui.data_mut(|d| d.insert_temp(ring_id, false));
+    }
+    if app.editing.is_none() && !modal && (app.focus_composer || tabbed || (nothing_focused && typed && !talking)) {
         ui.memory_mut(|m| m.request_focus(tid));
         app.focus_composer = false;
         app.focus_msg = None;
@@ -391,6 +404,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let mut send_click = false;
     let mut gif_rect = None;
     let mut remove = None;
+    let mut clear = false;
+    let mut modify = None;
     let mut new_cursor = None;
     let mut colon_at = None;
     // where a selection starts on screen, for the formatting toolbar over it
@@ -410,9 +425,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 24.0;
                             for (i, f) in app.files.iter_mut().enumerate() {
-                                match upload_card(ui, f) {
+                                match upload_card(ui, f, i) {
                                     Some(CardAct::Remove) => remove = Some(i),
+                                    Some(CardAct::RemoveAll) => clear = true,
                                     Some(CardAct::Spoiler) => f.spoiler = !f.spoiler,
+                                    Some(CardAct::Modify) => modify = Some(i),
                                     None => {}
                                 }
                             }
@@ -517,6 +534,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let crect = r.response.rect;
     // discord's border sits on the box's own fill, not beside it
     ui.painter().rect_stroke(crect, radius, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    if ui.memory(|m| m.has_focus(tid)) && ui.data(|d| d.get_temp::<bool>(ring_id)).unwrap_or(false) {
+        ui.painter().rect_stroke(crect.expand(2.0), radius, Stroke::new(2.0, Color32::from_rgb(0x00, 0xa8, 0xfc)), egui::StrokeKind::Inside);
+        app.rects.insert("composer_ring".into(), crect);
+    }
     app.rects.insert("composer".into(), crect);
     if let (Some(at), Some(r)) = (sel_at, selection) {
         if let Some(m) = format_bar(ui.ctx(), at) {
@@ -564,6 +585,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if let Some(i) = remove {
         app.files.remove(i);
     }
+    if clear {
+        app.files.clear();
+    }
+    if let Some(i) = modify {
+        super::attach::open(app, i);
+    }
     if attach && let Some(files) = rfd::FileDialog::new().pick_files() {
         app.files.extend(files.into_iter().map(Upload::new));
     }
@@ -610,13 +637,19 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
 enum CardAct {
     Remove,
+    RemoveAll,
     Spoiler,
+    Modify,
 }
 
-fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
-    let (r, _) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::hover());
+fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> Option<CardAct> {
+    let (r, card) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::click());
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("upload_card:{i}"))), r));
     let p = ui.painter();
     p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
+    if card.has_focus() {
+        p.rect_stroke(r, CornerRadius::same(4), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
+    }
     let thumb = Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(200.0, 160.0));
     if let Some(bytes) = &f.thumb {
         let uri = format!("bytes://upload/{}", f.path.to_string_lossy());
@@ -635,13 +668,29 @@ fn upload_card(ui: &mut Ui, f: &Upload) -> Option<CardAct> {
     text::paint(p, pos2(r.left() + 8.0, r.bottom() - 24.0), Align2::LEFT_CENTER, &f.name, reg(14.0), pal().text_normal, 200.0);
 
     // the little action strip that floats over the top-right corner
-    let bar = Rect::from_min_size(pos2(r.right() - 76.0, r.top() - 12.0), vec2(80.0, 32.0));
+    let bar = Rect::from_min_size(pos2(r.right() - 108.0, r.top() - 12.0), vec2(112.0, 32.0));
     p.rect(bar, CornerRadius::same(4), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let mut act = None;
+    if card.has_focus() {
+        act = ui.input_mut(|i| {
+            if super::take_key(i, Modifiers::COMMAND, Key::Backspace) {
+                Some(CardAct::RemoveAll)
+            } else if super::take_key(i, Modifiers::NONE, Key::Backspace) || super::take_text(i, "d") || super::take_text(i, "D") {
+                Some(CardAct::Remove)
+            } else if super::take_text(i, "e") || super::take_text(i, "E") {
+                Some(CardAct::Modify)
+            } else {
+                None
+            }
+        });
+    }
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink(2.0)).layout(Layout::left_to_right(Align::Center)));
     b.spacing_mut().item_spacing.x = 0.0;
     if f.is_image() && icon_button(&mut b, Icon::Image, 28.0, "Spoiler Attachment").clicked() {
         act = Some(CardAct::Spoiler);
+    }
+    if icon_button(&mut b, Icon::Pencil, 28.0, "Modify Attachment").clicked() {
+        act = Some(CardAct::Modify);
     }
     let del = b.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
     let col = if del.1.hovered() { RED } else { pal().header_secondary };
@@ -1160,6 +1209,14 @@ impl App {
             let at = self.rects.get("gif_button").map_or(pos2(800.0, 600.0), |r| r.left_top());
             self.open_gifs(at);
             self.search_gifs(args.to_string());
+            return true;
+        }
+        if name == "sticker" {
+            self.drafts.remove(&ch);
+            self.sticker_q = Some(args.to_string());
+            self.gifs = None;
+            self.picker = None;
+            self.stickers = Some(super::picker::anchor(self));
             return true;
         }
         let Some(&(_, opts, _)) = BUILT_IN.iter().find(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };
