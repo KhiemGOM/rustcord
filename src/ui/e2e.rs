@@ -2298,6 +2298,7 @@ impl Run {
                 ];
                 self.probes.push(("polish_code.png".into(), probes));
                 save(self, app, "codeblock");
+                save(self, app, "codeblock_tinted");
                 self.shot(ctx, "polish_code.png");
                 self.mark("polish");
                 self.next(400);

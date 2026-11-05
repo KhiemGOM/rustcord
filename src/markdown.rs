@@ -31,7 +31,7 @@ pub struct Inline {
 
 pub enum Block {
     Text(Inline),
-    Code(String),
+    Code(String, String),
     Quote(Vec<Block>),
 }
 
@@ -687,6 +687,17 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
     }
 }
 
+/// What's between the fences: the language on its own first line when something follows it, as
+/// discord's own `^```(?:([a-z0-9_+\-.#]+?)\n)?\n*([^\n][^]*?)\n*``` ` splits it.
+fn fence(inside: &str) -> (&str, &str) {
+    let named = |c: char| c.is_ascii_alphanumeric() || "_+-.#".contains(c);
+    let (lang, code) = match inside.split_once('\n') {
+        Some((first, rest)) if !first.is_empty() && first.chars().all(named) && !rest.trim_matches('\n').is_empty() => (first, rest),
+        _ => ("", inside),
+    };
+    (lang, code.trim_matches('\n'))
+}
+
 pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
     crate::theme::note_text(src);
     let src = src.trim();
@@ -700,16 +711,8 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         if !before.is_empty() {
             text_lines(cx, before, false, &mut out);
         }
-        let mut code = &after[..end];
-        if let Some(nl) = code.find('\n') {
-            let first = &code[..nl];
-            if !first.is_empty() && !first.contains(char::is_whitespace) {
-                code = &code[nl + 1..];
-            } else if first.is_empty() {
-                code = &code[1..];
-            }
-        }
-        out.push(Block::Code(code.trim_end_matches('\n').to_string()));
+        let (lang, code) = fence(&after[..end]);
+        out.push(Block::Code(lang.to_string(), code.to_string()));
         rest = after[end + 3..].trim_start_matches('\n');
     }
     if !rest.is_empty() {
@@ -735,4 +738,19 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fence;
+
+    #[test]
+    fn a_fence_names_its_language_only_on_its_own_line() {
+        assert_eq!(fence("rust\nfn main() {}\n"), ("rust", "fn main() {}"));
+        assert_eq!(fence("c++\n\nint x;"), ("c++", "int x;"));
+        assert_eq!(fence("rust"), ("", "rust"));
+        assert_eq!(fence("rust\n"), ("", "rust"));
+        assert_eq!(fence("\nfn main() {}"), ("", "fn main() {}"));
+        assert_eq!(fence("two words\nx"), ("", "two words\nx"));
+    }
 }
