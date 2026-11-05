@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Mock Activity</title>
+<body style="margin:0;background:#1d2b3a;color:#fff;font:16px sans-serif"><p id="s" style="padding:24px">starting</p>
+<script>
+const q = new URLSearchParams(location.search);
+const app = location.pathname.split('/')[2];
+const frame = q.get('frame_id');
+const origin = new URL(document.referrer).origin;
+const say = t => { document.getElementById('s').textContent = t; };
+const log = (k, v) => fetch('/api/v9/mock/activity', { method: 'POST', body: JSON.stringify({ k, v, app }) });
+const pending = {};
+let n = 0;
+const send = (cmd, args, evt) => new Promise(res => {
+  const nonce = 'n' + ++n;
+  pending[nonce] = res;
+  parent.postMessage([1, { cmd, args, nonce, evt }], origin);
+});
+window.addEventListener('message', e => {
+  if (e.source !== parent) return;
+  const [op, d] = e.data;
+  if (op === 3) log('hello', d);
+  if (op === 2) log('close', d);
+  if (op !== 1) return;
+  if (d.cmd === 'DISPATCH') {
+    if (d.evt === 'READY') ready(d.data);
+    else log('dispatch:' + d.evt, d.data);
+  } else if (pending[d.nonce]) {
+    pending[d.nonce](d);
+    delete pending[d.nonce];
+  }
+});
+parent.postMessage([0, { v: 1, encoding: 'json', client_id: app, frame_id: frame }], origin);
+async function ready(data) {
+  say('ready');
+  log('ready', data);
+  let seen = {};
+  for (const k of ['token', 'authorization']) seen[k] = localStorage.getItem(k);
+  log('probe', { seen, cookie: document.cookie, name: window.name, href: location.href, referrer: document.referrer, origin: location.origin });
+  const a = await send('AUTHORIZE', { client_id: app, response_type: 'code', state: 'st', prompt: 'none', scope: ['identify', 'guilds'] });
+  log('authorize', a);
+  if (!a.data || !a.data.code) return say('denied');
+  const t = await fetch('/api/v9/mock/activity/token', { method: 'POST', body: JSON.stringify({ code: a.data.code }) }).then(r => r.json());
+  const au = await send('AUTHENTICATE', { access_token: t.access_token });
+  log('authenticate', au);
+  const ch = await send('GET_CHANNEL', { channel_id: q.get('channel_id') });
+  log('channel', ch);
+  await send('SET_ORIENTATION_LOCK_STATE', { lock_state: 1, picture_in_picture_lock_state: 1, grid_lock_state: 1 });
+  log('subscribe', await send('SUBSCRIBE', {}, 'ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE'));
+  say('authorized');
+  log('link', await send('OPEN_EXTERNAL_LINK', { url: 'https://example.com/docs' }));
+}
+</script>
