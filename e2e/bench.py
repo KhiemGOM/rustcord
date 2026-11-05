@@ -138,7 +138,7 @@ def main():
     mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_port())],
                             env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.DEVNULL)
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
-               RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}",
+               RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}", RUSTCORD_SOUNDS=f"http://127.0.0.1:{http}",
                RUSTCORD_GATEWAY=f"ws://127.0.0.1:{ws}", RUSTCORD_TOKEN="mock-token", RUSTCORD_DATA=str(tmp / "data"), RUSTCORD_SILENT="1")
     report: dict = {"exe_mb": round(EXE.stat().st_size / 2**20, 1), "guilds": int(guilds)}
     try:

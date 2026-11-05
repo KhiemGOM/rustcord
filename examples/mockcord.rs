@@ -1621,6 +1621,10 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let kept = w.lock().unwrap().edits.get(&format!("s:{g}")).cloned();
             ok(json!({ "items": kept.unwrap_or_else(default_sounds) }))
         }
+        ("GET", ["api", "v9", "soundboard-default-sounds"]) => ok(json!([
+            { "sound_id": "1", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0 },
+            { "sound_id": "2", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0 },
+        ])),
         // the boosts page: discord's powerups catalogue, what Rust Lounge has on, and its boosters
         ("GET", ["api", "v9", "store", "published-listings", "skus"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
@@ -1872,6 +1876,16 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         // the nitro display name fonts, by their real asset names
         ("GET", ["assets", f]) if NAME_FONT_ASSETS.iter().any(|h| f.strip_suffix(".woff2") == Some(*h)) => (200, "font/woff2", gg_stand_in("sans400normal")),
+        // discord's sounds: whichever of the mp3s in MOCK_SOUNDS the asset name lands on
+        ("GET", ["assets", f]) if f.ends_with(".mp3") => {
+            let mut files: Vec<_> = std::env::var_os("MOCK_SOUNDS").and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).collect();
+            files.sort();
+            let pick = f.bytes().fold(0usize, |a, b| a.wrapping_mul(31).wrapping_add(b as usize));
+            match files.get(pick % files.len().max(1)).and_then(|p| std::fs::read(p).ok()) {
+                Some(b) => (200, "audio/mpeg", b),
+                None => (404, "text/plain", Vec::new()),
+            }
+        }
         ("GET", ["assets", f]) if f.starts_with("mock-") && f.ends_with(".woff2") => (200, "font/woff2", gg_stand_in(&f[5..f.len() - 6])),
         ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),

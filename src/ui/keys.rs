@@ -386,6 +386,7 @@ impl App {
             self.home_clicks = (0, None);
             self.settings.discodo = !self.settings.discodo;
             crate::cache::set_settings(&self.settings);
+            crate::sound::configure(&self.settings);
             crate::sound::cue(if self.settings.discodo { "discodo" } else { "leave" });
             self.discodo_at = Some(now);
             // the font for the katakana comes in on demand
