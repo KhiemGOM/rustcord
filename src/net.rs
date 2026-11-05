@@ -43,6 +43,8 @@ pub enum Tag {
     Profile(Id),
     Forum(Id),
     Invite,
+    // an invite or template a website or link opened: its details, and the template once made
+    Link(&'static str),
     MadeInvite,
     // a friend's new dm, for the invite link that goes in it
     InviteDm(String),
