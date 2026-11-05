@@ -19,6 +19,7 @@ use egui::{Align, Align2, Color32, CornerRadius, Frame, Id, Key, Layout, Margin,
 use serde_json::Value;
 
 use super::App;
+use super::motion;
 use super::icons::{self, Icon};
 use crate::net::Tag;
 use crate::theme::*;
@@ -140,7 +141,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // sections register themselves as they draw; the sidebar reads last frame's list
     let seen: Vec<(String, f32)> = ctx.data_mut(|d| d.remove_temp(Id::new("settings_secs"))).unwrap_or_default();
     ctx.data_mut(|d| d.insert_temp(Id::new("settings_secs_seen"), seen));
-    let modal = egui::Modal::new("settings".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
+    let modal = crate::ui::motion::Modal::new("settings".into()).layer().backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
         ui.set_min_size(size - vec2(2.0, 2.0));
         ui.set_max_size(size - vec2(2.0, 2.0));
         let area = ui.max_rect();
@@ -483,12 +484,10 @@ pub fn switch(ui: &mut Ui, on: bool) -> egui::Response {
 }
 
 pub(super) fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
-    let t = ui.ctx().animate_bool_with_time(resp.id, on, 0.12);
-    if on {
-        ui.painter().rect_filled(r, CornerRadius::same(12), BLURPLE);
-    } else {
-        ui.painter().rect(r, CornerRadius::same(12), Color32::from_black_alpha(31), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
-    }
+    let t = motion::tween(ui.ctx(), resp.id, on, 0.25, motion::SWITCH);
+    let k = t.clamp(0.0, 1.0);
+    let edge = Stroke::new(1.0, faint(51).gamma_multiply(1.0 - k));
+    ui.painter().rect(r, CornerRadius::same(12), motion::mix(Color32::from_black_alpha(31), BLURPLE, k), edge, egui::StrokeKind::Inside);
     let x = egui::lerp(r.left() + 13.0..=r.right() - 13.0, t);
     ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
     if view().switch_icons {
@@ -532,11 +531,15 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         mark(ui, &format!("radio:{label}"), r);
         let c = pos2(r.left() + 11.0, r.top() + 10.5);
-        if on {
-            ui.painter().circle_filled(c, 11.0, BLURPLE);
-            ui.painter().circle_filled(c, 4.5, Color32::WHITE);
-        } else {
-            ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));
+        let u = motion::tween(ui.ctx(), resp.id, on, 0.333, motion::Curve::Bezier(0.26, 0.21, 0.67, 1.0));
+        if u > 0.0 {
+            let fill = motion::keys(&[(0.0, 0.0), (0.35, 0.33), (0.4, 1.15), (1.0, 1.0)], u);
+            let dot = motion::keys(&[(0.0, 0.0), (0.4, 1.2), (0.75, 1.0), (1.0, 1.0)], u);
+            ui.painter().circle_filled(c, 11.0 * fill, BLURPLE);
+            ui.painter().circle_filled(c, 4.5 * dot, Color32::WHITE);
+        }
+        if u < 1.0 {
+            ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary.gamma_multiply(1.0 - u)));
         }
         ui.painter().text(pos2(r.left() + 32.0, r.top()), Align2::LEFT_TOP, *label, reg(16.0), pal().text_normal);
         if !desc.is_empty() {
@@ -746,7 +749,7 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 pub fn loading(ui: &mut Ui, r: Option<&Result<Value, String>>) -> Option<Value> {
     match r {
         None => {
-            ui.add(egui::Spinner::new().color(pal().text_muted));
+            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             None
         }
         Some(Err(e)) => {
