@@ -4,6 +4,8 @@
 
 mod activity;
 mod app;
+mod billing;
+mod system;
 mod user;
 mod voice;
 
@@ -317,20 +319,20 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::Profiles => user::profiles(app, ui),
                 Page::Privacy => user::privacy(app, ui),
                 Page::Messaging => user::messaging(app, ui),
-                Page::Notifications => app::notifications(app, ui),
-                Page::Nitro => user::nitro(app, ui),
-                Page::Boost => user::boost(ui),
-                Page::Subscriptions => user::subscriptions(app, ui),
-                Page::Gifts => user::gifts(app, ui),
-                Page::Billing => user::billing(app, ui),
+                Page::Notifications => system::notifications(app, ui),
+                Page::Nitro => billing::nitro(app, ui),
+                Page::Boost => billing::boost(ui),
+                Page::Subscriptions => billing::subscriptions(app, ui),
+                Page::Gifts => billing::gifts(app, ui),
+                Page::Billing => billing::billing(app, ui),
                 Page::Voice => voice::page(app, ui),
                 Page::Appearance => app::appearance(app, ui),
                 Page::Accessibility => app::accessibility(app, ui),
-                Page::System => app::system(app, ui),
-                Page::Language => app::language(app, ui),
+                Page::System => system::system(app, ui),
+                Page::Language => system::language(app, ui),
                 Page::Activity => activity::privacy(app, ui),
                 Page::Apps => user::apps(app, ui),
-                Page::Developer => app::developer(app, ui),
+                Page::Developer => system::developer(app, ui),
             };
         });
         ui.add_space(96.0);

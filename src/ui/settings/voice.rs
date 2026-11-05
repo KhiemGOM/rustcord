@@ -62,7 +62,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         changed = true;
     }
     if s.ptt {
-        let keys = s.keybinds.iter().find(|(a, k)| a == "ptt" && !k.is_empty()).map(|(_, k)| super::app::combo(k));
+        let keys = s.keybinds.iter().find(|(a, k)| a == "ptt" && !k.is_empty()).map(|(_, k)| super::system::combo(k));
         caption(ui, "Shortcut", &keys.clone().unwrap_or_else(|| "No Keybind Set".into()));
         super::lead(ui);
         if link(ui, if keys.is_some() { "Edit Keybind" } else { "Add a Keybind" }).clicked() {
