@@ -390,7 +390,7 @@ pub fn note_box(ui: &mut Ui, rects: &mut crate::state::Map<String, Rect>, key: &
     if focus && !ui.memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {
         r.request_focus();
     }
-    if note.lines().count() > 6 {
+    if note.split('\n').count() > 6 {
         note = before;
     }
     rects.insert(key.into(), r.rect);

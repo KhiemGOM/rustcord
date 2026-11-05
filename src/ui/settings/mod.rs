@@ -722,7 +722,14 @@ pub fn dropdown(ui: &mut Ui, w: f32, icon: Option<Icon>, shown: &str, menu: impl
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    egui::Popup::menu(&resp).width(w).show(|ui| menu(ui));
+    let id = egui::Popup::default_response_id(&resp);
+    if resp.has_focus() && !egui::Popup::is_id_open(ui.ctx(), id) && ui.input_mut(|i| super::take_key(i, egui::Modifiers::ALT, Key::ArrowDown)) {
+        egui::Popup::open_id(ui.ctx(), id);
+    }
+    let mut rows = Vec::new();
+    egui::Popup::menu(&resp).width(w).show(|ui| rows = super::rows_of(|| menu(ui)));
+    super::select_keys(ui.ctx(), &rows, id);
+    mark(ui, &format!("dropdown:{shown}"), r);
     resp
 }
 

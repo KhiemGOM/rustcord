@@ -71,21 +71,11 @@ fn profile_from(v: &Value, me: &crate::state::User, guild: Option<Id>) -> Profil
     }
 }
 
-fn data_uri(path: &std::path::Path) -> Option<String> {
-    use base64::Engine;
-    let bytes = std::fs::read(path).ok()?;
-    let mime = match bytes.get(..4) {
-        Some([0x89, b'P', ..]) => "image/png",
-        Some([b'G', b'I', ..]) => "image/gif",
-        Some([b'R', b'I', ..]) => "image/webp",
-        _ => "image/jpeg",
-    };
-    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
-}
+const BANNER_ASPECT: f32 = 5.0 / 2.0;
 
-fn pick_image() -> Option<String> {
+fn pick_image() -> Option<Vec<u8>> {
     let p = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file()?;
-    data_uri(&p)
+    std::fs::read(p).ok()
 }
 
 fn tabs(app: &mut App, ui: &mut Ui) {
@@ -250,19 +240,23 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     });
     match act {
         Act::Avatar => {
-            if let Some(u) = pick_image()
-                && let Some(d) = &mut app.sform.profile
-            {
-                d.avatar = Some(u);
-                d.remove_avatar = false;
+            if let Some(b) = pick_image() {
+                crate::ui::crop::open(app, b, 1.0, |app: &mut App, u: String| {
+                    if let Some(d) = &mut app.sform.profile {
+                        d.avatar = Some(u);
+                        d.remove_avatar = false;
+                    }
+                });
             }
         }
         Act::Banner => {
-            if let Some(u) = pick_image()
-                && let Some(d) = &mut app.sform.profile
-            {
-                d.banner = Some(u);
-                d.remove_banner = false;
+            if let Some(b) = pick_image() {
+                crate::ui::crop::open(app, b, BANNER_ASPECT, |app: &mut App, u: String| {
+                    if let Some(d) = &mut app.sform.profile {
+                        d.banner = Some(u);
+                        d.remove_banner = false;
+                    }
+                });
             }
         }
         Act::Pick(k) => app.sform.picker = Some(k),

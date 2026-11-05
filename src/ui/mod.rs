@@ -10,6 +10,8 @@ mod callfx;
 mod chat;
 mod composer;
 mod create;
+mod cstatus;
+mod crop;
 mod directory;
 mod dmpick;
 mod discover;
@@ -57,6 +59,7 @@ mod tagpop;
 mod textfile;
 mod thread;
 mod spelling;
+mod when;
 pub mod text;
 mod titlebar;
 mod topic;
@@ -133,6 +136,8 @@ pub struct App {
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
+    // an error toast's full text, which shift+click opens
+    pub toast_detail: Option<String>,
     pub marker: Option<(Id, Id)>,
     // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
     pub marker_bar: bool,
@@ -234,6 +239,12 @@ pub struct App {
     pub cam_on_join: Option<Id>,
     // what Discord told us alone about a send it refused: the channel and the words
     pub notice: Option<(Id, String)>,
+    // the Edit Image dialog over a picture about to be uploaded
+    pub crop: Option<crop::Crop>,
+    // Set a custom status, over the account card
+    pub status_text: Option<cstatus::State>,
+    // what /sticker was given, for the sticker picker to start its search with
+    pub sticker_q: Option<String>,
     // a custom emoji's popout: id, name, animated, where
     pub emoji_pop: Option<(Id, String, bool, Pos2)>,
     // a link waiting on "Leaving Discord", and whether to trust its site from now on
@@ -351,6 +362,7 @@ impl App {
             guild_notifs: None,
             bar: None,
             toast: None,
+            toast_detail: None,
             marker: None,
             marker_bar: false,
             autoscroll: None,
@@ -432,6 +444,9 @@ impl App {
             topic: None,
             cam_on_join: None,
             notice: None,
+            crop: None,
+            status_text: None,
+            sticker_q: None,
             emoji_pop: None,
             leaving: None,
             combos: None,
@@ -1215,7 +1230,7 @@ impl App {
                     Tag::Follow => follow::done(self, false),
                     _ => {}
                 }
-                return self.toast(e);
+                return self.error_toast(e);
             }
         };
         match tag {
@@ -1399,6 +1414,12 @@ impl App {
 
     pub fn toast(&mut self, s: impl Into<String>) {
         self.toast = Some((s.into(), Instant::now()));
+        self.toast_detail = None;
+    }
+
+    pub fn error_toast(&mut self, e: String) {
+        self.toast("Something went wrong. Shift Click this notification to see error details.");
+        self.toast_detail = Some(e);
     }
 
     pub fn logout(&mut self) {
@@ -1517,7 +1538,7 @@ impl App {
                     if let Some(why) = why {
                         self.notice = Some((channel, why.into()));
                     } else if first || !again {
-                        self.toast(format!("Message failed to send: {err}"));
+                        self.error_toast(format!("Message failed to send: {err}"));
                     }
                 }
                 Ev::Conn(c) => self.conn = c,
@@ -1527,7 +1548,8 @@ impl App {
                 }
                 Ev::Auth(auth::Ev::Token(t)) => self.sign_in(t),
                 Ev::Auth(e) => self.login.event(e, &self.net),
-                Ev::Error(e) | Ev::Toast(e) => self.toast(e),
+                Ev::Error(e) => self.error_toast(e),
+                Ev::Toast(e) => self.toast(e),
                 Ev::Rest { tag, res } => self.on_rest(tag, res),
                 Ev::Voice(e) => {
                     if let Some(err) = self.voice.event(e) {
@@ -1584,6 +1606,7 @@ impl App {
         events::show(self, &ctx);
         stage::modals(self, &ctx);
         share::show(self, &ctx);
+        let mut show_detail = false;
         if let Some((text, at)) = &self.toast {
             if at.elapsed() > Duration::from_secs(4) {
                 self.toast = None;
@@ -1593,14 +1616,23 @@ impl App {
                     .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -90.0))
                     .order(egui::Order::Tooltip)
                     .show(&ctx, |ui| {
-                        Frame::new()
+                        let r = Frame::new()
                             .fill(pal().bg_floating)
                             .corner_radius(8)
                             .inner_margin(egui::Margin::symmetric(16, 10))
                             .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
+                        self.rects.insert("toast".into(), r.response.rect);
+                        let r = ui.interact(r.response.rect, egui::Id::new("toast_click"), Sense::click());
+                        if r.clicked() && ui.input(|i| i.modifiers.shift) {
+                            show_detail = true;
+                        }
                     });
                 ctx.request_repaint_after(Duration::from_millis(500));
             }
+        }
+        if show_detail && let Some(e) = self.toast_detail.take() {
+            self.toast = None;
+            self.confirm = Some(Confirm::new("Error Details", e, "Okay", |_: &mut App| {}).blurple());
         }
         self.confirm_modal(&ctx);
         if let Some(gid) = self.guild_notifs {
@@ -1641,6 +1673,8 @@ impl App {
                 self.guild_notifs = None;
             }
         }
+        crop::show(self, &ctx);
+        cstatus::show(self, &ctx);
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);
@@ -1718,7 +1752,7 @@ impl App {
                     });
                 });
             });
-        go |= c.shown && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        go |= c.shown && enter_submits(ctx, true);
         c.shown = true;
         if go && let Some(c) = self.confirm.take() {
             if let Some((true, then)) = c.check {
@@ -2225,6 +2259,72 @@ pub fn menu_body(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     });
 }
 
+thread_local! {
+    static ROWS: std::cell::RefCell<Option<Vec<(String, egui::Id)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `menu`, returning the label and id of each row it drew, top to bottom.
+pub fn rows_of(menu: impl FnOnce()) -> Vec<(String, egui::Id)> {
+    ROWS.with(|r| *r.borrow_mut() = Some(Vec::new()));
+    menu();
+    ROWS.with(|r| r.borrow_mut().take()).unwrap_or_default()
+}
+
+/// A select's option, listed with the menu's rows for `select_keys`.
+pub fn option(ui: &mut Ui, on: bool, label: &str) -> egui::Response {
+    let r = ui.selectable_label(on, label);
+    ROWS.with(|rows| {
+        if let Some(v) = rows.borrow_mut().as_mut() {
+            v.push((label.to_string(), r.id));
+        }
+    });
+    r
+}
+
+/// A select's keys, once its list is open: up and down move by one and wrap, page up and down
+/// by ten, and letters jump to the first row starting with what was typed in the last second.
+pub fn select_keys(ctx: &egui::Context, rows: &[(String, egui::Id)], popup: egui::Id) {
+    if rows.is_empty() {
+        return;
+    }
+    let n = rows.len() as i64;
+    let at = rows.iter().position(|(_, id)| ctx.memory(|m| m.has_focus(*id))).map_or(-1, |a| a as i64);
+    let mut to = None;
+    ctx.input_mut(|i| {
+        if take_key(i, egui::Modifiers::NONE, egui::Key::ArrowDown) {
+            to = Some(if at + 1 >= n { 0 } else { at + 1 });
+        }
+        if take_key(i, egui::Modifiers::NONE, egui::Key::ArrowUp) {
+            to = Some(if at <= 0 { n - 1 } else { at - 1 });
+        }
+        if take_key(i, egui::Modifiers::NONE, egui::Key::PageDown) {
+            to = Some((at.max(0) + 10).min(n - 1));
+        }
+        if take_key(i, egui::Modifiers::NONE, egui::Key::PageUp) {
+            to = Some((at.max(0) - 10).max(0));
+        }
+    });
+    let typed: String = ctx.input(|i| i.events.iter().filter_map(|e| if let egui::Event::Text(t) = e { Some(t.clone()) } else { None }).collect());
+    if !typed.is_empty() {
+        let key = egui::Id::new("select_typed");
+        let (mut prefix, at_t): (String, Option<Instant>) = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
+        if at_t.is_none_or(|t| t.elapsed() > Duration::from_secs(1)) {
+            prefix.clear();
+        }
+        prefix.push_str(&typed.to_lowercase());
+        to = rows.iter().position(|(l, _)| l.to_lowercase().starts_with(&prefix)).map(|i| i as i64).or(to);
+        ctx.data_mut(|d| d.insert_temp(key, (prefix, Some(Instant::now()))));
+    }
+    if let Some(i) = to {
+        ctx.memory_mut(|m| m.request_focus(rows[i as usize].1));
+    }
+    // Enter on a row presses it, which a keyboard press doesn't close the list for
+    let pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Space));
+    if pressed && rows.iter().any(|(_, id)| ctx.memory(|m| m.has_focus(*id))) {
+        egui::Popup::close_id(ctx, popup);
+    }
+}
+
 /// Discord's mute durations, in seconds; None is until turned back on.
 pub fn mute_menu(ui: &mut Ui) -> Option<Option<i64>> {
     let mut pick = None;
@@ -2289,10 +2389,15 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     let w = indent + text.size().x.max(sub.as_ref().map_or(0.0, |s| s.size().x)) + tail;
     let h = if sub.is_some() { 52.0 } else if lead || trail != Trail::None { 36.0 } else { 34.0 };
     let (r, resp) = ui.allocate_at_least(vec2(w, h), Sense::click());
+    ROWS.with(|rows| {
+        if let Some(v) = rows.borrow_mut().as_mut() {
+            v.push((label.to_string(), resp.id));
+        }
+    });
     // menus have no app to report to; the e2e driver finds rows here by label
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
     let p = ui.painter();
-    if resp.hovered() {
+    if resp.hovered() || resp.has_focus() {
         p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });
     }
     let top = if sub.is_some() { r.top() + 8.0 } else { r.center().y - text.size().y / 2.0 };
@@ -2392,6 +2497,19 @@ pub fn take_key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key)
         !m
     });
     hit
+}
+
+/// Enter in a dialog: it goes ahead with the main button, unless Tab has put the keyboard on
+/// some other widget, which then takes the key itself. A text field only lets it through when
+/// `text_ok`, which is not for ones that type new lines.
+pub fn enter_submits(ctx: &egui::Context, text_ok: bool) -> bool {
+    if !ctx.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift && !i.modifiers.command) {
+        return false;
+    }
+    match ctx.memory(|m| m.focused()) {
+        None => true,
+        Some(id) => text_ok && egui::TextEdit::load_state(ctx, id).is_some(),
+    }
 }
 
 /// Takes a typed character out of this frame's input, so nothing else types it.

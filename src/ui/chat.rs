@@ -22,6 +22,8 @@ enum Act {
     Picker(Id, Pos2),
     Menu(Id, Pos2),
     Url(String),
+    // a link opened in the browser as it is, as a middle click does
+    Browser(String),
     Channel(Id),
     Reveal(Id),
     SaveEdit(Id, String),
@@ -821,6 +823,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Menu(id, at) => app.menu = Some((ch, id, at)),
             Act::Url(u) => app.open_link(ui.ctx(), &u, false),
             Act::Masked(u) => app.open_link(ui.ctx(), &u, true),
+            Act::Browser(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
             Act::Channel(c) => app.open_thread(c, false, shift),
             Act::Reveal(id) => {
                 app.revealed.insert(id);
@@ -1814,6 +1817,16 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                                 ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
                             });
                         }
+                        if resp.middle_clicked() {
+                            match l {
+                                Link::Url(u) | Link::Masked(u) => d.acts.push(Act::Browser(u.clone())),
+                                Link::Channel(c) => {
+                                    let g = d.store.channels.get(c).map_or(0, |c| c.guild);
+                                    d.acts.push(Act::Browser(format!("https://discord.com/channels/{}/{c}", if g == 0 { "@me".into() } else { g.to_string() })));
+                                }
+                                _ => {}
+                            }
+                        }
                         if resp.clicked() {
                             match l {
                                 Link::Url(u) => d.acts.push(Act::Url(u.clone())),
@@ -2117,10 +2130,12 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) -> Option<Rect> {
                         if e.url.is_some() && r.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
-                        if r.clicked()
-                            && let Some(u) = &e.url
-                        {
-                            d.acts.push(Act::Url(u.clone()));
+                        if let Some(u) = &e.url {
+                            if r.clicked() {
+                                d.acts.push(Act::Url(u.clone()));
+                            } else if r.middle_clicked() {
+                                d.acts.push(Act::Browser(u.clone()));
+                            }
                         }
                     }
                     if let Some(blocks) = &desc {

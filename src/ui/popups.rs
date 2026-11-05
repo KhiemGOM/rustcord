@@ -714,8 +714,8 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO),
             );
-            r.request_focus();
             save = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            r.request_focus();
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 save |= button(ui, "Set Status", BLURPLE, 104.0).clicked();
@@ -1403,6 +1403,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
 enum AccountAct {
     Status(&'static str),
     Edit,
+    Custom,
     CopyId,
 }
 
@@ -1450,6 +1451,9 @@ pub fn account(app: &mut App, ui: &mut Ui) {
             if account_row(ui, Some(Icon::Pencil), "Edit Profile", false, false).clicked() {
                 act = Some(AccountAct::Edit);
             }
+            if account_row(ui, Some(Icon::Smile), if custom.is_some() { "Edit Custom Status" } else { "Set a custom status" }, false, true).clicked() {
+                act = Some(AccountAct::Custom);
+            }
             let r = account_row(ui, None, label, true, true);
             let c = pos2(r.rect.left() + 24.0, r.rect.center().y);
             super::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), status, PROFILE_CARD);
@@ -1485,6 +1489,7 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     match act {
         Some(AccountAct::Status(s)) => app.set_status(s),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
+        Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(app.store.custom_status.as_ref())),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),
         None => {}
     }
@@ -2301,6 +2306,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
                 go = button(ui, "Timeout", BLURPLE, 212.0).clicked();
             });
         });
+    go |= super::enter_submits(ctx, false);
     if go && let Some(t) = app.timeout.take() {
         app.time_out(t.guild, t.user, t.secs);
     } else if close || modal.should_close() {
@@ -2487,6 +2493,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
+    send |= !f.picked.is_empty() && super::enter_submits(ctx, true);
     if send {
         let f = app.forward.take().expect("checked above");
         let guild = app.store.channels.get(&f.ch).map_or(0, |c| c.guild);
@@ -2704,6 +2711,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
                 go = v.clicked();
             });
         });
+    go |= super::enter_submits(ctx, true);
     if go && let Some((url, trust)) = app.leaving.take() {
         if trust && !app.settings.trusted.contains(&h) {
             app.settings.trusted.push(h);

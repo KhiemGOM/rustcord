@@ -308,6 +308,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
     }
     let Some(f) = app.create.as_ref() else { return };
+    let ready = !f.name.trim().is_empty() && !f.busy;
+    send |= matches!(f.kind, Kind::Channel | Kind::Category) && ready && super::enter_submits(ctx, true);
     if send {
         let gid = f.guild;
         let (path, body) = match f.kind {
