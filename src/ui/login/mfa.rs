@@ -179,7 +179,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 _ => 6,
             };
             let ready = f.mfa.code.replace('-', "").len() >= need;
-            let r = primary(ui, "Confirm", f.mfa.busy || !ready);
+            let busy = f.mfa.busy;
+            let r = ui.add_enabled_ui(ready && !busy, |ui| primary(ui, "Confirm", busy)).inner;
             f.rects.insert("confirm", r.rect);
             confirm = (r.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter))) && ready && !f.mfa.busy;
             switcher(ui, f, methods.len());

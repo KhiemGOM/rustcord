@@ -191,10 +191,12 @@ pub(super) fn link(ui: &mut Ui, text: &str) -> egui::Response {
 
 pub(super) fn primary(ui: &mut Ui, text: &str, busy: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-    let fill = if busy { BLURPLE.gamma_multiply(0.6) } else if resp.hovered() { Color32::from_rgb(0x48, 0x54, 0xc4) } else { BLURPLE };
+    let on = ui.is_enabled() && !busy;
+    let fill = if !on { BLURPLE.gamma_multiply(0.6) } else if resp.hovered() { Color32::from_rgb(0x48, 0x54, 0xc4) } else { BLURPLE };
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, if busy { "…" } else { text }, medium(16.0), Color32::WHITE);
-    if resp.hovered() {
+    let shown = if busy { "…" } else { text };
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, shown, medium(16.0), if on { Color32::WHITE } else { Color32::from_white_alpha(170) });
+    if resp.hovered() && on {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
@@ -202,9 +204,9 @@ pub(super) fn primary(ui: &mut Ui, text: &str, busy: bool) -> egui::Response {
 
 pub(super) fn secondary(ui: &mut Ui, text: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-    let fill = if resp.hovered() { pal().bg_mod_selected } else { pal().bg_mod_hover };
+    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), pal().text_normal);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), Color32::WHITE);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
