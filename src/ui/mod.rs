@@ -15,6 +15,7 @@ mod guildmodal;
 mod friends;
 pub mod icons;
 mod keys;
+mod lurk;
 mod login;
 mod members;
 mod palette;
@@ -113,6 +114,7 @@ pub struct App {
     pub invite: Option<String>,
     pub folders: folders::State,
     pub wizard: Option<newserver::Wizard>,
+    pub lurk_goto: Option<(Id, Id)>,
     pub guild_modal: Option<guildmodal::Modal>,
     // "invite people" from a channel row: the channel, and the code once discord made one
     pub made_invite: Option<popups::MadeInvite>,
@@ -296,6 +298,7 @@ impl App {
             invite: None,
             folders: Default::default(),
             wizard: None,
+            lurk_goto: None,
             guild_modal: None,
             made_invite: None,
             status_edit: None,
@@ -1147,6 +1150,12 @@ impl App {
             Tag::Boosts(g, k) => boosts::load(self, g, k, &v),
             Tag::Created => create::created(self, &v),
             Tag::NewServer => newserver::created(self, &v),
+            Tag::Lurk(g) => {
+                self.store.lurking.insert(g);
+            }
+            Tag::Joined(g) => {
+                self.store.lurking.remove(&g);
+            }
             Tag::Directory(k) => directory::loaded(self, k, v),
             Tag::Server(k) => server::loaded(self, k, v),
             Tag::Chan(k) => channel::loaded(self, k, v),
@@ -1410,6 +1419,7 @@ impl App {
     fn overlays(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         create::show(self, &ctx);
+        lurk::tick(self);
         folders::show(self, &ctx);
         newserver::show(self, &ctx);
         guildmodal::show(self, &ctx);

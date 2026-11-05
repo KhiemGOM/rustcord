@@ -917,6 +917,12 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let to: u64 = b["recipients"][0].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
             ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to)] }))
         }
+        ("PUT", ["api", "v9", "guilds", "9000", "members", "@me"]) => {
+            let g = json!({ "id": "9000", "name": "Preview Land", "owner_id": "102", "member_count": 40, "emojis": [], "roles": [{ "id": "9000", "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" }],
+                            "channels": [{ "id": "9001", "type": 0, "guild_id": "9000", "name": "welcome", "position": 0, "permission_overwrites": [], "last_message_id": null }] });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_CREATE", "d": g }));
+            ok(json!({}))
+        }
         ("POST", ["api", "v9", "guilds", "1000", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let c = json!({ "id": snow(now_ms()).to_string(), "type": b["type"], "guild_id": "1000", "name": b["name"], "position": 99,
