@@ -3981,9 +3981,11 @@ impl Run {
                 // the download lands in the background on a cold start, so give it a moment
                 let first = |fam: egui::FontFamily| ctx.fonts(|f| f.definitions().families.get(&fam).and_then(|v| v.first().cloned()));
                 let prop = first(egui::FontFamily::Proportional);
-                if prop.as_deref() == Some("gg400") || self.step_at.elapsed() > Duration::from_secs(12) {
+                if prop.as_deref() == Some("ggsans-400") || self.step_at.elapsed() > Duration::from_secs(12) {
                     self.rects.insert("look:font".into(), json!(prop));
                     self.rects.insert("look:font_medium".into(), json!(first(egui::FontFamily::Name("medium".into()))));
+                    self.rects.insert("look:font_italic".into(), json!(first(egui::FontFamily::Name("bold-italic".into()))));
+                    self.rects.insert("look:font_mono".into(), json!(first(egui::FontFamily::Monospace)));
                     self.next(0);
                 }
             }

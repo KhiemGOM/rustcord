@@ -140,9 +140,15 @@ fn styled(n: &Value, sty: Sty) -> Sty {
 }
 
 fn rich(t: &str, s: Sty) -> RichText {
-    let font = if s.mono { egui::FontId::monospace(s.size) } else if s.bold { semi(s.size) } else { reg(s.size) };
+    let font = match (s.mono, s.bold, s.italic) {
+        (true, ..) => mono(s.size),
+        (_, true, true) => semi_italic(s.size),
+        (_, true, _) => semi(s.size),
+        (_, _, true) => italic(s.size),
+        _ => reg(s.size),
+    };
     let r = RichText::new(t).font(font).color(s.color);
-    if s.italic { r.italics() } else { r }
+    if s.italic && s.mono { r.italics() } else { r }
 }
 
 fn handler(n: &Value, name: &str) -> Option<String> {

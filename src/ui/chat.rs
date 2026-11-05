@@ -1564,7 +1564,7 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         icons::draw(p, Icon::Reply, Rect::from_center_size(pos2(r.left() + 6.0, y), vec2(12.0, 12.0)), pal().text_muted);
         let mut job = egui::text::LayoutJob::default();
         let lost = if d.popout { "Message could not be loaded" } else { "Original message was deleted" };
-        job.append(lost, 0.0, egui::TextFormat { font_id: reg(14.0), color: pal().text_muted, italics: true, ..Default::default() });
+        job.append(lost, 0.0, egui::TextFormat { font_id: italic(14.0), color: pal().text_muted, ..Default::default() });
         let g = ui.painter().layout_job(job);
         p.galley(pos2(r.left() + 16.0, y - g.size().y / 2.0), g, pal().text_muted);
         return;
