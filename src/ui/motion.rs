@@ -119,6 +119,11 @@ pub fn hover(ctx: &Context, resp: &Response, secs: f32) -> f32 {
     tween(ctx, resp.id.with("hover"), resp.hovered(), secs, EASE)
 }
 
+/// Discord's button hover: colours move over .05s ease-in.
+pub fn hot(ctx: &Context, resp: &Response) -> f32 {
+    tween(ctx, resp.id.with("hot"), resp.hovered(), 0.05, EASE_IN)
+}
+
 /// Seconds-long enter progress for something drawn every frame while it is open, restarting
 /// when it has been gone for a moment. Returns 1 once it has settled.
 pub fn enter(ctx: &Context, id: Id, secs: f32, curve: Curve) -> f32 {
@@ -179,6 +184,22 @@ pub fn layer(ctx: &Context, area: egui::Area, rect: egui::Rect) -> egui::Area {
     let k = 1.0 + 0.1 * (1.0 - enter(ctx, area.layer().id, 0.2, EASE_IN_OUT));
     ctx.set_transform_layer(area.layer(), TSTransform::new(rect.center().to_vec2() * (1.0 - k), k));
     area
+}
+
+/// Discord's tooltip: scale .95 to 1 on a {tension 2400, friction 52} spring, over egui's own
+/// fade. Only the tooltips egui raises for hovered widgets; the app's own cards have their ids.
+pub fn tooltips(ctx: &Context) {
+    const OWN: [&str; 7] = ["toast", "discodo", "role_picker", "tag_pop", "role_pop", "rail_ghost", "titlebar_over"];
+    let layers: Vec<egui::LayerId> =
+        ctx.memory(|m| m.layer_ids().filter(|l| l.order == egui::Order::Tooltip && m.areas().is_visible(l)).collect());
+    for l in layers {
+        if OWN.iter().any(|n| l.id == Id::new(*n)) {
+            continue;
+        }
+        let Some(r) = ctx.memory(|m| m.area_rect(l.id)) else { continue };
+        let s = 0.95 + 0.05 * enter(ctx, l.id.with("tip"), 0.2, TOOLTIP);
+        ctx.set_transform_layer(l, TSTransform::new(r.center().to_vec2() * (1.0 - s), s));
+    }
 }
 
 /// A hover wash that fades in and out instead of switching.
