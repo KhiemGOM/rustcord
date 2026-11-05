@@ -1542,6 +1542,15 @@ impl App {
                         }
                         self.toast(format!("Voice disconnected: {err}"));
                     }
+                    if let Some((key, img)) = self.voice.preview_job.take() {
+                        self.stream_preview(key, img);
+                    }
+                    if std::mem::take(&mut self.voice.entrance_due) {
+                        self.entrance_sound();
+                    }
+                    if self.voice.shared.no_audio.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                        self.toast("No audio detected from your mic. Check the input device in Voice & Video settings.");
+                    }
                 }
             }
         }

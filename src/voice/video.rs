@@ -151,6 +151,15 @@ pub fn packetize(frame: &[u8], mut emit: impl FnMut(Vec<u8>, bool)) {
     }
 }
 
+// the hardware encoders and openh264, as Voice & Video's switches have them
+static HW: AtomicBool = AtomicBool::new(true);
+static SOFT: AtomicBool = AtomicBool::new(true);
+
+pub fn set_codecs(hw: bool, openh264: bool) {
+    HW.store(hw, Relaxed);
+    SOFT.store(openh264, Relaxed);
+}
+
 /// Decodes on its own thread so a 1080p keyframe never stalls the media loop.
 pub struct Decode {
     tx: smpsc::Sender<(u32, Id, Vec<u8>)>,
@@ -165,9 +174,9 @@ impl Decode {
             while let Ok((ssrc, user, frame)) = rx.recv() {
                 let dec = match decs.get_mut(&ssrc) {
                     Some(d) => d,
-                    None => match Decoder::new() {
-                        Ok(d) => decs.entry(ssrc).or_insert(d),
-                        Err(_) => continue,
+                    None => match SOFT.load(Relaxed).then(Decoder::new) {
+                        Some(Ok(d)) => decs.entry(ssrc).or_insert(d),
+                        _ => continue,
                     },
                 };
                 match dec.decode(&frame) {
@@ -252,7 +261,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
     let th = std::thread::Builder::new()
         .name("video-encode".into())
         .spawn(move || {
-            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, true) {
+            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, HW.load(Relaxed)) {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = opened.send(Err(e));
@@ -427,6 +436,9 @@ fn bitrate(w: usize, h: usize, fps: u32) -> u32 {
 
 // for when no card's encoder works
 fn soft(fps: u32, bps: u32) -> Option<Encoder> {
+    if !SOFT.load(Relaxed) {
+        return None;
+    }
     // openh264's screen-content mode takes 40-70ms a frame at 720p, too slow for 30fps;
     // the real-time camera mode on low, split over a few threads, takes a few ms
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4)) as u16;
