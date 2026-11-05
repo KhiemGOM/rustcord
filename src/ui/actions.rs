@@ -7,8 +7,46 @@ use super::{App, Confirm};
 use crate::net::{Cmd, Tag};
 use crate::state::Id;
 
+/// What a send was made of, kept until it lands so a failed one can go out again as it was.
+#[derive(Clone)]
+pub struct Unsent {
+    pub content: String,
+    pub reply: Option<(Id, bool)>,
+    pub files: Vec<(std::path::PathBuf, String, String)>,
+    pub tts: bool,
+}
+
 impl App {
+    pub fn remember_send(&mut self, nonce: &str, u: Unsent) {
+        if self.unsent.len() > 20 {
+            let live: Vec<String> = self.store.msgs.values().flat_map(|e| e.list.iter()).filter(|m| m.pending || m.failed).filter_map(|m| m.nonce.clone()).collect();
+            self.unsent.retain(|n, _| live.contains(n));
+        }
+        self.unsent.insert(nonce.to_string(), u);
+    }
+
+    /// Resend message: the failed one goes out again under its own nonce, so discord can't post it twice.
+    pub fn resend(&mut self, ch: Id, id: Id) {
+        let Some(m) = self.store.find_msg(ch, id).filter(|m| m.failed) else { return };
+        let Some(nonce) = m.nonce.clone() else { return };
+        let u = self.unsent.get(&nonce).cloned().unwrap_or(Unsent { content: m.content.clone(), reply: m.reply.map(|r| (r, false)), files: Vec::new(), tts: false });
+        if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+            m.failed = false;
+            m.pending = true;
+        }
+        self.net.send(Cmd::Send { channel: ch, content: u.content, nonce, reply: u.reply, files: u.files, stickers: Vec::new(), tts: u.tts });
+    }
+
     pub fn delete_msg(&mut self, ch: Id, id: Id, ask: bool) {
+        if let Some(m) = self.store.find_msg(ch, id).filter(|m| m.failed) {
+            if let Some(n) = &m.nonce {
+                self.unsent.remove(n);
+            }
+            if let Some(e) = self.store.msgs.get_mut(&ch) {
+                e.list.retain(|m| m.id != id);
+            }
+            return;
+        }
         if !ask {
             self.net.send(Cmd::Delete { channel: ch, id });
             if let Some(m) = self.store.msgs.get_mut(&ch) {
@@ -178,5 +216,15 @@ impl App {
         self.aliases.entry(ch).or_default().push((shown, format!("<@{uid}>")));
         self.focus_composer = true;
         self.caret_end = true;
+    }
+}
+
+impl App {
+    /// Configure on a join message: the server's engagement settings, where its welcome messages live.
+    pub fn configure_joins(&mut self, guild: Id) {
+        self.open_server_settings(guild);
+        if let Some(s) = &mut self.server {
+            s.page = super::server::Page::Engagement;
+        }
     }
 }
