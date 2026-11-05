@@ -43,13 +43,13 @@ pub fn main(app: &mut App, ui: &mut Ui) -> bool {
         app.vc.log_open = true;
         app.vc_call("log", json!({}));
     }
-    if action(ui, "Edit QuickCSS", "Your own CSS. Fastcord applies its colour variables.", "Edit", Look::Secondary) {
+    if action(ui, "Edit QuickCSS", "Your own CSS. Rustcord applies its colour variables.", "Edit", Look::Secondary) {
         app.settings_page = Some(super::Page::VcThemes);
     }
-    if action(ui, "Relaunch Fastcord", "Starts Fastcord again, plugins and all.", "Relaunch", Look::Secondary) {
+    if action(ui, "Relaunch Rustcord", "Starts Rustcord again, plugins and all.", "Relaunch", Look::Secondary) {
         crate::ui::vencord::relaunch(ui.ctx());
     }
-    if action(ui, "Open Settings Folder", "Where Fastcord keeps Vencord's settings, QuickCSS and plugin data.", "Open", Look::Secondary) {
+    if action(ui, "Open Settings Folder", "Where Rustcord keeps Vencord's settings, QuickCSS and plugin data.", "Open", Look::Secondary) {
         let _ = open::that_detached(crate::cache::dir());
     }
     let remote = app.vc.host.as_ref().and_then(|h| h.version().1).unwrap_or_else(|| "Vendicated/Vencord".into());
@@ -76,7 +76,7 @@ pub fn main(app: &mut App, ui: &mut Ui) -> bool {
     super::end(ui, 24.0);
     for (key, title, desc) in [
         ("useQuickCss", "Enable Custom CSS", "Apply your configured QuickCSS"),
-        ("winCtrlQ", "Register Ctrl+Q as shortcut to close Fastcord (Alternative to Alt+F4)", ""),
+        ("winCtrlQ", "Register Ctrl+Q as shortcut to close Rustcord (Alternative to Alt+F4)", ""),
         ("disableMinSize", "Disable minimum window size", "Allows you to resize the window to any size, even smaller than Discord's minimum size. Takes effect next launch."),
     ] {
         let mut on = get(app, &[key]) == true;
@@ -110,7 +110,7 @@ pub fn notification_settings(app: &mut App, ui: &mut Ui) {
     ui.label(RichText::new("Some plugins may show you notifications. These come in two styles: Vencord Notifications, in the app, and Desktop Notifications, from Windows like when you get a ping.").font(reg(14.0)).color(pal().text_normal));
     ui.add_space(8.0);
     let style = n["useNative"].as_str().unwrap_or("not-focused").to_string();
-    const STYLES: [(&str, &str); 3] = [("not-focused", "Only use Desktop notifications when Fastcord is not focused"), ("always", "Always use Desktop notifications"), ("never", "Always use Vencord notifications")];
+    const STYLES: [(&str, &str); 3] = [("not-focused", "Only use Desktop notifications when Rustcord is not focused"), ("always", "Always use Desktop notifications"), ("never", "Always use Vencord notifications")];
     egui::ComboBox::from_id_salt("vc_notif_style").width(ui.available_width()).selected_text(STYLES.iter().find(|(v, _)| *v == style).map_or("", |(_, l)| *l)).show_ui(ui, |ui| {
         for (v, l) in STYLES {
             if ui.selectable_label(v == style, l).clicked() {
@@ -228,7 +228,7 @@ pub fn themes_page(app: &mut App, ui: &mut Ui) -> bool {
     });
     super::end(ui, 24.0);
     card(ui, |ui| {
-        ui.label(RichText::new("Fastcord applies the colour variables themes set (--background-primary and the rest); Discord's layout rules in them have nothing to style here.").font(reg(14.0)).color(pal().header_secondary));
+        ui.label(RichText::new("Rustcord applies the colour variables themes set (--background-primary and the rest); Discord's layout rules in them have nothing to style here.").font(reg(14.0)).color(pal().header_secondary));
     });
     if app.vc.themes_tab == 0 {
         sub(ui, "Find Themes:");
@@ -452,7 +452,7 @@ pub fn backup(app: &mut App, ui: &mut Ui) -> bool {
         ui.label(RichText::new("Importing a settings file will overwrite your current settings.").font(reg(14.0)).color(pal().text_normal));
     });
     super::end(ui, 16.0);
-    note(ui, "You can import and export your Vencord settings as a JSON file. This allows you to easily transfer your settings to another device, or recover your settings after reinstalling Vencord or Discord. Files from Vencord itself work here, and Fastcord's work in Vencord.");
+    note(ui, "You can import and export your Vencord settings as a JSON file. This allows you to easily transfer your settings to another device, or recover your settings after reinstalling Vencord or Discord. Files from Vencord itself work here, and Rustcord's work in Vencord.");
     sub(ui, "Settings Export contains:");
     note(ui, "— Custom QuickCSS\n— Theme Links\n— Plugin Settings");
     super::lead(ui);

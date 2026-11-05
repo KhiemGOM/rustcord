@@ -27,15 +27,21 @@ mod winsys;
 
 fn main() -> eframe::Result {
     let t0 = std::time::Instant::now();
+    if let Some(local) = dirs::data_local_dir()
+        && std::env::var_os("RUSTCORD_DATA").is_none()
+        && !cache::dir().exists()
+    {
+        let _ = std::fs::rename(local.join("Fastcord"), cache::dir());
+    }
     // parse the snapshot while the GL context spins up
     let snap = std::thread::spawn(cache::load);
     let size = cache::window().unwrap_or([1280.0, 800.0]);
     // discord's own logo on the window and taskbar, as on the exe
     let logo = image::load_from_memory(include_bytes!("../assets/discord.png")).map(|i| i.into_rgba8()).ok();
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Fastcord")
+        .with_title("Rustcord")
         .with_decorations(false)
-        .with_app_id("fastcord")
+        .with_app_id("rustcord")
         .with_inner_size(size);
     // Vencord's "Disable minimum window size"
     let vencord: Option<serde_json::Value> = std::fs::read(cache::dir().join("vencord.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
@@ -47,7 +53,7 @@ fn main() -> eframe::Result {
     }
     // the e2e run opens behind everything and never takes focus, so whoever's at the machine
     // isn't interrupted; its input is injected anyway
-    if std::env::var_os("FASTCORD_E2E").is_some() {
+    if std::env::var_os("RUSTCORD_E2E").is_some() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
     }
     let opts = eframe::NativeOptions {
@@ -56,7 +62,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "Fastcord",
+        "Rustcord",
         opts,
         Box::new(move |cc| Ok(Box::new(ui::App::new(cc, t0, snap)))),
     )

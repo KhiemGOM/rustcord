@@ -12,7 +12,7 @@ g.IS_DISCORD_DESKTOP = true;
 g.IS_VESKTOP = false;
 g.IS_DEV = false;
 g.IS_REPORTER = false;
-g.VERSION = "fastcord";
+g.VERSION = "rustcord";
 g.IS_STANDALONE = false;
 g.IS_USERSCRIPT = false;
 g.IS_EXTENSION = false;
@@ -240,7 +240,7 @@ g.localStorage = g.sessionStorage = {
 };
 
 g.navigator = {
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Fastcord",
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Rustcord",
     language: "en-US",
     languages: ["en-US"],
     platform: "Win32",
@@ -294,7 +294,7 @@ g.FileReader = class { readAsDataURL(b) { this.result = `data:${b.type};base64,`
 g.Worker = class { postMessage() {} terminate() {} addEventListener() {} };
 g.WebSocket = class { constructor() { this.readyState = 3; } send() {} close() {} addEventListener() {} };
 
-// anything Fastcord can't give: callable, every property another stub, falsy when called
+// anything Rustcord can't give: callable, every property another stub, falsy when called
 const stubs = new Map();
 const stub = name => {
     let s = stubs.get(name);
@@ -353,7 +353,7 @@ g.__star = (exp, m) => {
 
 // modules by canonical path; a missing one is a stub, a broken one too after it says why.
 // Vencord's own modules hand out stubs for any name they don't have, since a plugin may
-// import something from Discord that Fastcord never made.
+// import something from Discord that Rustcord never made.
 const modules = new Map();
 const load = id => {
     let m = modules.get(id);

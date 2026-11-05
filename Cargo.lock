@@ -1367,50 +1367,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastcord"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "arboard",
- "base64 0.23.1",
- "chacha20poly1305",
- "chrono",
- "cpal",
- "davey",
- "dirs",
- "eframe",
- "egui",
- "egui_extras",
- "emojis",
- "flate2",
- "futures-util",
- "image",
- "nnnoiseless",
- "ogg",
- "open",
- "openh264",
- "openmls",
- "openmls_basic_credential",
- "openmls_rust_crypto",
- "opus-rs",
- "oxc",
- "raw-window-handle",
- "reqwest",
- "rfd",
- "rquickjs",
- "rtrb",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite",
- "ttf2woff2",
- "windows",
- "windows-sys 0.61.2",
- "winresource",
- "wuff",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4892,6 +4848,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
  "semver",
+]
+
+[[package]]
+name = "rustcord"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "arboard",
+ "base64 0.23.1",
+ "chacha20poly1305",
+ "chrono",
+ "cpal",
+ "davey",
+ "dirs",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "emojis",
+ "flate2",
+ "futures-util",
+ "image",
+ "nnnoiseless",
+ "ogg",
+ "open",
+ "openh264",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_rust_crypto",
+ "opus-rs",
+ "oxc",
+ "raw-window-handle",
+ "reqwest",
+ "rfd",
+ "rquickjs",
+ "rtrb",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "ttf2woff2",
+ "windows",
+ "windows-sys 0.61.2",
+ "winresource",
+ "wuff",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-// @api/ContextMenu: plugins add items to a menu by its Discord nav id; Fastcord asks for them
+// @api/ContextMenu: plugins add items to a menu by its Discord nav id; Rustcord asks for them
 // when it opens that menu and draws them under its own.
 export const navPatches = new Map();
 export const globalPatches = new Set();

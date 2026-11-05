@@ -1,5 +1,5 @@
 //! Server Settings, the full-window layer discord opens from the server menu: the profile, emoji,
-//! stickers, members, roles, invites, bans and audit log. Pages fastcord doesn't draw yet say so
+//! stickers, members, roles, invites, bans and audit log. Pages rustcord doesn't draw yet say so
 //! and offer discord.
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
@@ -617,7 +617,7 @@ fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
 fn elsewhere(ui: &mut Ui, gid: Id, page: Page) {
     let name = SIDE.iter().flat_map(|(_, i)| i.iter()).find(|(p, _)| *p == page).map(|(_, n)| *n).unwrap_or("Enable Community");
     title(ui, name, "");
-    ui.label(RichText::new("Fastcord doesn't have this page yet. Discord's own client can change it.").font(reg(16.0)).color(pal().text_normal));
+    ui.label(RichText::new("Rustcord doesn't have this page yet. Discord's own client can change it.").font(reg(16.0)).color(pal().text_normal));
     ui.add_space(16.0);
     if super::settings::secondary(ui, "Open in Discord").clicked() {
         ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}")));

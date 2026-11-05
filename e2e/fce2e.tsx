@@ -1,5 +1,5 @@
 /*
- * A Vencord userplugin the e2e run installs, to check Fastcord's Vencord host end to end:
+ * A Vencord userplugin the e2e run installs, to check Rustcord's Vencord host end to end:
  * settings, a slash command, a send listener, menu items, a chat bar button, flux, and React UI
  * drawn natively (an accessory, a decoration, a member decorator, a badge, a modal, a setting).
  */
@@ -46,8 +46,8 @@ function Ask({ onClose }) {
 
 export default definePlugin({
     name: "FcE2e",
-    description: "Fastcord's end-to-end check of the Vencord host",
-    authors: [{ name: "fastcord", id: 0n }],
+    description: "Rustcord's end-to-end check of the Vencord host",
+    authors: [{ name: "rustcord", id: 0n }],
     settings,
     commands: [
         { name: "fce2e", description: "Answers in the channel", execute: () => ({ content: "command ran" }) },

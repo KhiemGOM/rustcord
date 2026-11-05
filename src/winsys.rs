@@ -14,7 +14,7 @@ const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 pub fn set_startup(on: bool) {
     use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW};
     let key = wide(RUN_KEY);
-    let name = wide("Fastcord");
+    let name = wide("Rustcord");
     unsafe {
         if on {
             let Ok(exe) = std::env::current_exe() else { return };
@@ -140,7 +140,7 @@ pub fn frameless(frame: &eframe::Frame) {
         let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
         OLD_PROC.store(old, Ordering::Relaxed);
         // e2e: maximise and fullscreen would otherwise activate the window over someone's game
-        if std::env::var_os("FASTCORD_E2E").is_some() {
+        if std::env::var_os("RUSTCORD_E2E").is_some() {
             use windows_sys::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_NOACTIVATE};
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE as isize);
         }

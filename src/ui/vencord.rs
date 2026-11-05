@@ -26,7 +26,7 @@ struct Note {
     dismiss: bool,
 }
 
-/// Fastcord's QuickCSS, started from Vencord's own the first time.
+/// Rustcord's QuickCSS, started from Vencord's own the first time.
 pub fn quick_css() -> String {
     let own = cache::dir().join("quickCss.css");
     std::fs::read_to_string(&own).or_else(|_| std::fs::read_to_string(crate::vencord::vencord_dir().join("settings").join("quickCss.css"))).unwrap_or_default()
@@ -36,7 +36,7 @@ pub fn set_quick_css(css: &str) {
     let _ = std::fs::write(cache::dir().join("quickCss.css"), css);
 }
 
-/// Vencord's Relaunch: a fresh Fastcord, and this one closed.
+/// Vencord's Relaunch: a fresh Rustcord, and this one closed.
 pub fn relaunch(ctx: &egui::Context) {
     if let Ok(exe) = std::env::current_exe() {
         let _ = std::process::Command::new(exe).args(std::env::args().skip(1)).spawn();
@@ -117,7 +117,7 @@ impl App {
     }
 
     /// Starts the host the first time there's an account to run plugins against. Settings come
-    /// from Fastcord's own copy, or Vencord's on the first run, so its plugins stay as they were.
+    /// from Rustcord's own copy, or Vencord's on the first run, so its plugins stay as they were.
     pub(super) fn vc_start(&mut self) {
         // a few frames in, so the app is on screen before every plugin loads
         if self.vc.tried || self.store.me == 0 || self.frames < 10 {
@@ -444,7 +444,7 @@ impl App {
     }
 }
 
-/// A plugin's svg icon, tinted like Fastcord's own.
+/// A plugin's svg icon, tinted like Rustcord's own.
 pub fn svg(ui: &egui::Ui, svg: &str, rect: egui::Rect, tint: egui::Color32) {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();

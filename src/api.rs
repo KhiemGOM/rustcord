@@ -27,22 +27,22 @@ fn locale() -> String {
 
 pub fn base() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| env_or("FASTCORD_API", "https://discord.com/api/v9"))
+    V.get_or_init(|| env_or("RUSTCORD_API", "https://discord.com/api/v9"))
 }
 
 pub fn cdn() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| env_or("FASTCORD_CDN", "https://cdn.discordapp.com"))
+    V.get_or_init(|| env_or("RUSTCORD_CDN", "https://cdn.discordapp.com"))
 }
 
 pub fn emoji_cdn() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| env_or("FASTCORD_EMOJI_CDN", "https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72"))
+    V.get_or_init(|| env_or("RUSTCORD_EMOJI_CDN", "https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72"))
 }
 
 pub fn gateway() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| env_or("FASTCORD_GATEWAY", "wss://gateway.discord.gg"))
+    V.get_or_init(|| env_or("RUSTCORD_GATEWAY", "wss://gateway.discord.gg"))
 }
 
 pub fn props() -> Value {

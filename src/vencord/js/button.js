@@ -1,4 +1,4 @@
-// @components/Button: Vencord's buttons, as Fastcord's.
+// @components/Button: Vencord's buttons, as Rustcord's.
 const el = VencordCreateElement;
 export const Button = ({ variant = "primary", size = "medium", onClick, disabled, children, style }) => el("fc-button", { variant, size, onClick, disabled, style, children });
 export const LinkButton = ({ variant = "link", size, href, children }) => el("fc-button", { variant, size, href, children });

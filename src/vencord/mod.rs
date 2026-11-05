@@ -1,5 +1,5 @@
 //! Vencord, hosted: its plugins' own code running in QuickJS against Vencord's APIs, which
-//! Fastcord provides natively. Everything crosses the boundary as JSON: the app calls into
+//! Rustcord provides natively. Everything crosses the boundary as JSON: the app calls into
 //! `__host` with what happened, plugins call `__fc` for what they want done, and those asks
 //! queue up for the app to carry out after the call.
 
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use sources::Sources;
 
-// the shims: Vencord's modules that reach into Discord's client, written against Fastcord
+// the shims: Vencord's modules that reach into Discord's client, written against Rustcord
 // instead, by the path a plugin's import resolves to
 const SHIMS: &[(&str, &str, &str)] = &[
     ("fc:host", "host.jsx", include_str!("js/host.jsx")),
@@ -91,7 +91,7 @@ fn compile(st: &RefCell<State>, id: &str) -> Result<String, String> {
 }
 
 impl Host {
-    /// `extra` is one more userplugins folder, Fastcord's own; `settings` is in Vencord's
+    /// `extra` is one more userplugins folder, Rustcord's own; `settings` is in Vencord's
     /// settings.json shape and `data` is the DataStore. `None` with no Vencord to host.
     pub fn new(extra: &std::path::Path, settings: &Value, data: &Value) -> Option<Host> {
         Self::new_with(extra, &sources::vencord_dir(), settings, data)
@@ -230,7 +230,7 @@ let seen = 0;
 export default definePlugin({
     name: "FcTest",
     description: "Exercises the host",
-    authors: [{ name: "fastcord", id: 0n }],
+    authors: [{ name: "rustcord", id: 0n }],
     settings,
     commands: [{ name: "fctest", description: "says hi", options: [], execute: (args, ctx) => ({ content: `hi from ${ctx.channel?.name ?? "nowhere"}` }) }],
     flux: { MESSAGE_CREATE({ message }) { seen++; if (message.content === "ping") setTimeout(() => __out({ op: "toast", text: `pong ${seen}` }), 0); } },

@@ -242,7 +242,7 @@ impl Drop for Sender {
 pub type Preview = Box<dyn Fn(Arc<ColorImage>) + Send>;
 
 pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview) -> Result<Sender, String> {
-    let fake = std::env::var_os("FASTCORD_FAKE_VIDEO").is_some() || (src == Source::Camera && std::env::var_os("FASTCORD_FAKE_CAM").is_some());
+    let fake = std::env::var_os("RUSTCORD_FAKE_VIDEO").is_some() || (src == Source::Camera && std::env::var_os("RUSTCORD_FAKE_CAM").is_some());
     let fps = q.fps;
     let stop = Arc::new(AtomicBool::new(false));
     let key = Arc::new(AtomicBool::new(true));

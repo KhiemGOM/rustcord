@@ -1,4 +1,4 @@
-// @webpack/common: the Discord modules plugins reach for most, backed by Fastcord. Stores read
+// @webpack/common: the Discord modules plugins reach for most, backed by Rustcord. Stores read
 // its store as Discord-shaped records; anything not here is a stub.
 import React, { mount, roots, unmount, useSyncExternalStore } from "react";
 
@@ -170,7 +170,7 @@ export const ReadStateStore = store("ReadStateStore", {
     lastMessageId: c => q("channel", c)?.last_message_id,
     getOldestUnreadMessageId: c => q("unread", c).lastAcked,
 });
-export const AuthenticationStore = store("AuthenticationStore", { getId: () => q("me")?.id, getSessionId: () => "fastcord", getToken: () => null });
+export const AuthenticationStore = store("AuthenticationStore", { getId: () => q("me")?.id, getSessionId: () => "rustcord", getToken: () => null });
 export const PermissionStore = store("PermissionStore", { can: () => true, canBasicChannel: () => true, getChannelPermissions: () => -1n, getGuildPermissions: () => -1n });
 export const TypingStore = store("TypingStore", { getTypingUsers: () => ({}), isTyping: () => false });
 export const EmojiStore = store("EmojiStore", { getCustomEmojiById: () => undefined, getUsableCustomEmojiById: () => undefined, getGuilds: () => ({}), getGuildEmoji: () => [] });
@@ -207,7 +207,7 @@ export const useStateFromStores = (_, get) => useSyncExternalStore(null, get);
 export const useStateFromStoresArray = useStateFromStores;
 export const useStateFromStoresObject = useStateFromStores;
 
-// REST: Fastcord's own client sends it, so it goes with the account's token
+// REST: Rustcord's own client sends it, so it goes with the account's token
 const rest = method => async opts => {
     const o = typeof opts === "string" ? { url: opts } : opts;
     let url = o.url;
@@ -284,7 +284,7 @@ export const zustandCreate = f => { let s; const set = p => { s = { ...s, ...(ty
 export const zustandPersist = f => f;
 export const MessageTypeSets = new Proxy({}, { get: () => new Set() });
 
-// UI, as elements Fastcord draws natively: menus become its menus, Discord's controls its own
+// UI, as elements Rustcord draws natively: menus become its menus, Discord's controls its own
 // fc-* controls, everything else plain html
 const el = VencordCreateElement;
 const tag = name => props => el(name, props);
@@ -357,7 +357,7 @@ export const TabBar = Object.assign(
 export const FocusLock = p => p.children;
 export const UserSummaryItem = ({ users = [], max = 10 }) => el("div", { style: { display: "flex", gap: "2px" }, children: users.slice(0, max).map(u => el("img", { src: u?.getAvatarURL?.(null, 32) ?? "", width: 20, height: 20, style: { borderRadius: "50%" } })) });
 
-// modals: each a root Fastcord draws as a window over the app
+// modals: each a root Rustcord draws as a window over the app
 let nextModal = 1;
 export const ModalRoot = ({ children, size }) => el("fc-modal", { size, children });
 export const ModalHeader = ({ children, separator }) => el("fc-modal-header", { children });

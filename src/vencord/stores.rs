@@ -1,4 +1,4 @@
-//! What Vencord's stores read: Fastcord's own store, shaped like Discord's API objects. The JS
+//! What Vencord's stores read: Rustcord's own store, shaped like Discord's API objects. The JS
 //! side wraps these in records with Discord's methods.
 
 use serde_json::{Value, json};

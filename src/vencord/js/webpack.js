@@ -1,5 +1,5 @@
-// @webpack: plugins finding Discord's modules by their shape. Fastcord has no webpack, so a
-// store asked for by name is Fastcord's when it has one, and anything else is a stub.
+// @webpack: plugins finding Discord's modules by their shape. Rustcord has no webpack, so a
+// store asked for by name is Rustcord's when it has one, and anything else is a stub.
 import * as common from "@webpack/common";
 
 const named = name => common[name] && !common[name].__fcStub ? common[name] : __stub(`webpack:${name}`);

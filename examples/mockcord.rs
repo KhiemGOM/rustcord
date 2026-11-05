@@ -214,7 +214,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         (105, "can someone help me with lifetimes? <#2012>"),
         (101, "sure, post it in help and ping me <@101>"),
         (103, "> borrow checker is my friend\n> borrow checker is my friend\nrepeat until true 😅"),
-        (102, "```rust\nfn main() {\n    println!(\"hello, fastcord\");\n}\n```"),
+        (102, "```rust\nfn main() {\n    println!(\"hello, rustcord\");\n}\n```"),
         (101, "||spoiler: it compiles first try||"),
         (100, "this is me testing ~~strikethrough~~ and __underline__"),
         (103, "check this out https://github.com/emilk/egui"),
@@ -240,7 +240,7 @@ fn seed(cdn: &str) -> Vec<Value> {
                 "description": "Faster startup, smoother scrolling and **less jank**.", "color": 0x5865F2,
                 "fields": [{ "name": "Cold start", "value": "0.4s", "inline": true }, { "name": "Idle CPU", "value": "0%", "inline": true },
                            { "name": "Memory", "value": "~90 MB", "inline": true }],
-                "footer": { "text": "fastcord releases" } }]);
+                "footer": { "text": "rustcord releases" } }]);
         }
         if i == n - 5 {
             m["reactions"] = json!([

@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use super::App;
 use crate::net::Tag;
 
-// what Vencord's updater replaces for Discord's install, and the maps Fastcord reads plugins from
+// what Vencord's updater replaces for Discord's install, and the maps Rustcord reads plugins from
 const FILES: [&str; 8] = ["patcher.js", "preload.js", "renderer.js", "renderer.css", "patcher.js.map", "preload.js.map", "renderer.js.map", "renderer.css.map"];
 
 #[derive(Default)]
@@ -68,7 +68,7 @@ impl App {
                 "updated" => match r {
                     Ok(_) => {
                         if !std::mem::take(&mut self.vcnet.auto_applied) || self.vc.settings["autoUpdateNotification"] == true {
-                            self.vc_note("Vencord Updater", "Updated! Fastcord's plugins reloaded; restart Discord to update Vencord there too.");
+                            self.vc_note("Vencord Updater", "Updated! Rustcord's plugins reloaded; restart Discord to update Vencord there too.");
                         }
                         self.vcnet.updates = None;
                         self.vc_restart();
@@ -180,7 +180,7 @@ impl App {
                 if status != 200 {
                     return Err(format!("{name}: GitHub returned {status}"));
                 }
-                let tmp = dist.join(format!("{name}.fastcord-new"));
+                let tmp = dist.join(format!("{name}.rustcord-new"));
                 std::fs::write(&tmp, &body).map_err(|e| e.to_string())?;
                 std::fs::rename(&tmp, dist.join(&name)).map_err(|e| e.to_string())?;
             }

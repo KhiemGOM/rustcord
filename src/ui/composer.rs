@@ -586,7 +586,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if gift_click {
         ui.ctx().open_url(egui::OpenUrl::new_tab("https://discord.com/nitro"));
     }
-    // the apps button opens what fastcord has of the app launcher: the slash command list
+    // the apps button opens what rustcord has of the app launcher: the slash command list
     if apps_click {
         let d = app.drafts.entry(ch).or_default();
         if d.is_empty() {
@@ -1255,7 +1255,7 @@ impl App {
 
     /// Text too long to send as a message goes up as message.txt, as discord does with a paste.
     pub fn attach_text(&mut self, text: &str) {
-        let dir = std::env::temp_dir().join("fastcord").join(chrono::Utc::now().timestamp_millis().to_string());
+        let dir = std::env::temp_dir().join("rustcord").join(chrono::Utc::now().timestamp_millis().to_string());
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("message.txt");
         if std::fs::write(&path, text).is_ok() {
