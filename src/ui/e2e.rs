@@ -70,6 +70,7 @@ pub struct Run {
     dnd: Option<(usize, Id)>,
     // the toasts those would have been, and the message each opens
     pub pings: Vec<(String, (Id, Id))>,
+    pub call_toasts: Vec<String>,
     // toasts so far and the title's count when the window was minimized for a ping
     hidden: Option<(usize, i32)>,
     // what Speak Message would have read out
@@ -136,6 +137,7 @@ impl Run {
             rtc: 0,
             share_at: None,
             pings: Vec::new(),
+            call_toasts: Vec::new(),
             said: Vec::new(),
             heard: Vec::new(),
             y0: 0.0,
