@@ -701,7 +701,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
         });
     });
-    app.rects.insert("full_close".into(), Rect::NOTHING);
     if note_rect != Rect::NOTHING {
         app.rects.insert("full_note".into(), note_rect);
     }
