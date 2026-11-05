@@ -12,6 +12,8 @@ use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
 
+mod more;
+
 
 // sidebar entries that sit low enough to need a scroll down to reach
 const PAGES_BELOW: [&str; 10] = [
@@ -444,6 +446,10 @@ impl Run {
                 }
             }
             4 => {
+                if let Some(n) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
+                    self.step = n;
+                    return;
+                }
                 self.shot(ctx, "channel.png");
                 self.next(400);
             }
@@ -1218,6 +1224,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            1900..=1999 => self.more_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3968,7 +3975,7 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 1900;
                 }
             }
         }

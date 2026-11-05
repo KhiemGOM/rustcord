@@ -886,7 +886,7 @@ fn device_menu(ui: &mut Ui, title: &str, output: bool, cur: &mut Option<String>,
             }
         });
     });
-    super::select_keys(ui.ctx(), &rows);
+    super::select_keys(ui.ctx(), &rows, egui::Popup::default_response_id(&resp));
     changed
 }
 

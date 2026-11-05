@@ -2063,7 +2063,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         Some(UserAct::Mention) => app.mention(uid, gid),
         // ctrl+click times them out for a minute without asking how long
         Some(UserAct::Timeout) if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
-        Some(UserAct::Timeout) => app.timeout = Some(Timeout { guild: gid, user: uid, secs: 60, reason: String::new() }),
+        Some(UserAct::Timeout) => app.timeout = Some(Timeout::new(gid, uid)),
         Some(UserAct::Kick) => {
             let server = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
             let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
@@ -2112,6 +2112,12 @@ pub struct Timeout {
     user: Id,
     secs: i64,
     reason: String,
+}
+
+impl Timeout {
+    pub fn new(guild: Id, user: Id) -> Self {
+        Timeout { guild, user, secs: 60, reason: String::new() }
+    }
 }
 
 /// Discord's Timeout dialog: what timeout means, the six lengths, a reason for the audit log.

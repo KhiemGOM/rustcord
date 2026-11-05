@@ -695,6 +695,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
     let q = h.browse.trim().to_lowercase();
     ui.add_space(16.0);
     let mut toggle: Vec<(Id, bool)> = Vec::new();
+    let mut open_chan = None;
     let mut groups: Vec<(Id, Vec<&Channel>)> = Vec::new();
     for c in listed.iter().filter(|c| q.is_empty() || c.name.to_lowercase().contains(&q)) {
         match groups.iter_mut().find(|(p, _)| *p == c.parent) {
@@ -742,10 +743,16 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 let cb = Rect::from_center_size(pos2(r.right() - 28.0, r.center().y), vec2(20.0, 20.0));
                 checkbox(ui, cb, on, resp.hovered());
                 app.rects.insert(format!("browse:chan:{}", c.id), cb);
-                if resp.clicked() && opt_in {
-                    toggle.push((c.id, !on));
+                if resp.clicked() {
+                    // the box, or shift anywhere on the row, toggles following; the rest opens the channel
+                    let on_box = resp.interact_pointer_pos().is_some_and(|p| cb.expand(10.0).contains(p));
+                    if opt_in && (on_box || ui.input(|i| i.modifiers.shift)) {
+                        toggle.push((c.id, !on));
+                    } else {
+                        open_chan = Some(c.id);
+                    }
                 }
-                if resp.hovered() && opt_in {
+                if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
             }
@@ -772,5 +779,8 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
     }
     if create {
         app.create = Some(super::create::Form::new(super::create::Kind::Channel, gid, None));
+    }
+    if let Some(c) = open_chan {
+        app.open(c);
     }
 }

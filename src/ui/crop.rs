@@ -194,7 +194,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= grey_button(ui, "Cancel", (VIEW_W - 8.0) / 2.0).clicked();
                 ui.add_enabled_ui(!busy, |ui| {
-                    apply |= button(ui, if busy { "Applying…" } else { "Apply" }, BLURPLE, (VIEW_W - 8.0) / 2.0).clicked();
+                    let b = button(ui, if busy { "Applying…" } else { "Apply" }, BLURPLE, (VIEW_W - 8.0) / 2.0);
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "crop_apply")), b.rect));
+                    apply |= b.clicked();
                 });
             });
         });
@@ -223,6 +225,7 @@ impl Crop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GenericImageView;
 
     fn picture(w: u32, h: u32) -> Vec<u8> {
         let mut out = Vec::new();

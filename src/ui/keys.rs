@@ -34,6 +34,8 @@ impl App {
             || self.switcher.is_some()
             || self.new_thread.is_some()
             || self.crop.is_some()
+            || self.modify.is_some()
+            || self.new_dm.is_some()
             || self.leaving.is_some()
             || self.timeout.is_some()
             || self.combos.is_some()
@@ -69,6 +71,8 @@ impl App {
             || self.guild_notifs.is_some()
             || self.new_thread.is_some()
             || self.crop.is_some()
+            || self.modify.is_some()
+            || self.new_dm.is_some()
             || self.leaving.is_some()
             || self.emoji_pop.is_some()
             || self.create.is_some()
@@ -187,9 +191,22 @@ impl App {
         {
             self.mark_read(&[c]);
         }
+        if k(ctrl_shift, Key::B)
+            && let Some(ch) = self.voice.chan
+        {
+            let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+            if self.soundboard.is_some() {
+                self.soundboard = None;
+            } else if guild != 0 {
+                self.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
+                self.soundboard = Some((guild, None));
+            }
+        }
         if k(Modifiers::COMMAND, Key::U) {
-            let dm = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| c.kind == 1);
-            if dm {
+            let (dm, voice) = self.cur().and_then(|c| self.store.channels.get(&c)).map_or((false, false), |c| (c.kind == 1, c.is_voice()));
+            if voice {
+                self.voice_chat = !self.voice_chat;
+            } else if dm {
                 self.ui.hide_dm_profile = !self.ui.hide_dm_profile;
             } else {
                 self.ui.hide_members = !self.ui.hide_members;
@@ -218,7 +235,7 @@ impl App {
         }
         if k(ctrl_shift, Key::T) {
             self.select_guild(None);
-            self.switcher = Some(String::new());
+            self.new_dm = Some(Default::default());
         }
         if k(all3, Key::N)
             && let Some(c) = self.cur().filter(|c| self.store.channels.get(c).is_some_and(|c| c.guild != 0 && matches!(c.kind, 0 | 5)))
@@ -274,6 +291,8 @@ impl App {
             self.mark_read(&[ch]);
             self.marker = None;
             self.hold_ack = None;
+        } else if self.voice_chat && self.store.channels.get(&ch).is_some_and(|c| c.is_voice()) {
+            self.voice_chat = false;
         } else {
             self.jump_to_present(ch);
         }

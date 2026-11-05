@@ -702,7 +702,8 @@ pub fn dropdown(ui: &mut Ui, w: f32, icon: Option<Icon>, shown: &str, menu: impl
     }
     let mut rows = Vec::new();
     egui::Popup::menu(&resp).width(w).show(|ui| rows = super::rows_of(|| menu(ui)));
-    super::select_keys(ui.ctx(), &rows);
+    super::select_keys(ui.ctx(), &rows, id);
+    mark(ui, &format!("dropdown:{shown}"), r);
     resp
 }
 
