@@ -336,7 +336,15 @@ impl Run {
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes });
+                let loaders = ctx.loaders();
+                let mut images = serde_json::Map::new();
+                for (id, n) in loaders.bytes.lock().iter().map(|l| (l.id().to_string(), l.byte_size()))
+                    .chain(loaders.image.lock().iter().map(|l| (l.id().to_string(), l.byte_size())))
+                    .chain(loaders.texture.lock().iter().map(|l| (l.id().to_string(), l.byte_size())))
+                {
+                    images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
+                }
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
