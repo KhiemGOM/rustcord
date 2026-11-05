@@ -551,7 +551,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let area = Rect::from_min_max(pos2(screen.left() + 440.0, screen.top() + super::titlebar::HEIGHT + 56.0), pos2(screen.right() - 160.0, screen.bottom() - 90.0));
     let mut close = false;
-    let modal = egui::Modal::new("combos".into())
+    let modal = crate::ui::motion::Modal::new("combos".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)))
         .show(ctx, |ui| {
             ui.set_width(area.width().clamp(560.0, 1100.0));
@@ -711,7 +711,7 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
         p.circle_filled(head, 5.0, Color32::from_rgb(0x5d, 0xd8, 0xe8));
     }
     let (mut close, mut pause) = (false, false);
-    let modal = egui::Modal::new("breathe".into())
+    let modal = crate::ui::motion::Modal::new("breathe".into())
         .backdrop_color(Color32::TRANSPARENT)
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {

@@ -224,7 +224,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut close = false;
     let mut delete = false;
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("server_area"), area));
-    egui::Area::new("server_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min).show(ctx, |ui| {
+    crate::ui::motion::layer(ctx, egui::Area::new("server_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min), area).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
         // discord's layer: the sidebar ends a little left of the middle, the page starts just after it

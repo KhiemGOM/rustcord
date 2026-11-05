@@ -196,7 +196,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(info) = app.boost_info.get(&gid) else { return };
     if info.loaded & 3 != 3 {
         ui.add_space(40.0);
-        ui.centered_and_justified(|ui| ui.spinner());
+        ui.centered_and_justified(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         return;
     }
     let mut rects = Vec::new();

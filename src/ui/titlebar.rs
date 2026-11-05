@@ -434,10 +434,10 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let mut read_all = None;
     let mut filter = None;
     let mut friends = None;
-    let area = egui::Area::new(egui::Id::new("inbox"))
+    let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("inbox"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
-        .constrain(true)
+        .constrain(true), vec2(0.0, 1.0))
         .show(ctx, |ui| {
             // an area only offers last frame's size; the scrolled list has to ask for its room
             ui.set_max_height(room + 120.0);
@@ -664,7 +664,7 @@ fn empty(ui: &mut Ui, what: &str) {
 fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.mentions.as_ref()) else {
         ui.add_space(24.0);
-        ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+        ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         ui.add_space(24.0);
         return None;
     };
@@ -774,7 +774,7 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
 fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.saved.as_ref()) else {
         ui.add_space(24.0);
-        ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+        ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         ui.add_space(24.0);
         return None;
     };

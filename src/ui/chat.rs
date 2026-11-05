@@ -652,7 +652,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         } else {
             let (r, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
             if loading || list.is_empty() {
-                egui::Spinner::new().size(20.0).color(pal().text_muted).paint_at(ui, Rect::from_center_size(r.center(), vec2(20.0, 20.0)));
+                crate::ui::motion::paint_spinner(ui, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().text_muted);
             }
         }
         let mut prev: Option<&Message> = None;
@@ -2537,10 +2537,11 @@ fn action_bar(d: &mut D, m: &Message, row: Rect) {
     let rect = Rect::from_min_size(pos, size);
     d.bar = Some((m.id, rect));
     // under popouts and menus, which would otherwise lose clicks to a toolbar left over them
-    egui::Area::new(egui::Id::new("msg_bar"))
-        .order(egui::Order::Middle)
-        .fixed_pos(pos)
-        .show(d.ctx, |ui| {
+    let bar_in = super::motion::enter(d.ctx, egui::Id::new(("msg_bar", m.id)), 0.15, super::motion::EASE);
+    let bar = egui::Area::new(egui::Id::new("msg_bar")).order(egui::Order::Middle).fixed_pos(pos).fade_in(false);
+    d.ctx.set_transform_layer(bar.layer(), egui::emath::TSTransform::from_translation(vec2(0.0, 2.0 * (1.0 - bar_in))));
+    bar.show(d.ctx, |ui| {
+            ui.multiply_opacity(bar_in);
             Frame::new()
                 .fill(pal().bg_secondary)
                 .stroke(Stroke::new(1.0, pal().border_subtle))
@@ -2644,10 +2645,11 @@ fn shift_bar(d: &mut D, m: &Message, row: Rect, own: bool) {
     let size = vec2(n * 32.0 + 2.0, 34.0);
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
     d.bar = Some((m.id, Rect::from_min_size(pos, size)));
-    egui::Area::new(egui::Id::new("msg_bar"))
-        .order(egui::Order::Middle)
-        .fixed_pos(pos)
-        .show(d.ctx, |ui| {
+    let bar_in = super::motion::enter(d.ctx, egui::Id::new(("msg_bar", m.id)), 0.15, super::motion::EASE);
+    let bar = egui::Area::new(egui::Id::new("msg_bar")).order(egui::Order::Middle).fixed_pos(pos).fade_in(false);
+    d.ctx.set_transform_layer(bar.layer(), egui::emath::TSTransform::from_translation(vec2(0.0, 2.0 * (1.0 - bar_in))));
+    bar.show(d.ctx, |ui| {
+            ui.multiply_opacity(bar_in);
             Frame::new()
                 .fill(pal().bg_secondary)
                 .stroke(Stroke::new(1.0, pal().border_subtle))

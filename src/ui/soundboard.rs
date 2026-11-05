@@ -9,9 +9,9 @@ use crate::theme::*;
 
 pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
     let Some((_, slot)) = app.soundboard.clone() else { return };
-    let resp = egui::Area::new(egui::Id::new("soundboard_pop"))
+    let resp = super::motion::popout(ui.ctx(), egui::Area::new(egui::Id::new("soundboard_pop"))
         .order(egui::Order::Foreground)
-        .fixed_pos(pos2(anchor.center().x - 180.0, anchor.top() - 236.0))
+        .fixed_pos(pos2(anchor.center().x - 180.0, anchor.top() - 236.0)), vec2(0.0, -1.0))
         .show(ui.ctx(), |ui| {
             Frame::new()
                 .fill(pal().bg_floating)

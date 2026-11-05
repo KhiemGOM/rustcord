@@ -43,7 +43,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let h = (screen.height() - 112.0).min(800.0);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = egui::Modal::new("active_threads".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("active_threads".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(480.0);
         ui.set_height(h);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);

@@ -87,7 +87,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             ui.add_space(20.0);
 
             let Some(posts) = app.store.forum_posts.get(&forum.id) else {
-                ui.add(egui::Spinner::new().color(pal().text_muted));
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                 return;
             };
             let q = v.query.trim().to_lowercase();
