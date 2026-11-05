@@ -154,12 +154,14 @@ pub fn cycle(ctx: &Context, period: f32) -> f32 {
 }
 
 /// Discord's three pulsing dots (the typing line, "loading"): opacity and scale of dot `i`.
-/// `steps(12)` runs inside each keyframe gap, so it moves in 25ms jumps and rests half the loop.
+/// `steps(12)` runs inside each keyframe gap, so it moves in 25ms jumps and rests half the loop;
+/// frames come every 50ms while it moves, since a step is under 6% of the opacity, and not at all
+/// while it rests.
 pub fn dots(ctx: &Context, i: usize) -> (f32, f32) {
     let period = if anim(1.0) == 0.0 { 2.4 } else { 1.2 };
     let t = ctx.input(|i| i.time) as f32;
     let p = (t - 0.15 * i as f32).rem_euclid(period) / period;
-    ctx.request_repaint_after(Duration::from_millis(25));
+    ctx.request_repaint_after_secs(if p < 0.5 { 0.05 } else { (period - p * period).max(0.001) });
     let (gap, local) = if p < 0.25 { (0.25, p) } else if p < 0.5 { (0.25, p - 0.25) } else { (0.5, 0.0) };
     let stepped = (local / gap * 12.0).floor() / 12.0;
     let q = if p < 0.5 { (p - local) + stepped * gap } else { p };
