@@ -1029,7 +1029,7 @@ impl Run {
             63 => {
                 let Some(r) = app.rects.get("voice:camera").copied() else { return };
                 self.click(r.center());
-                self.step = 2820;
+                self.step = 2819;
             }
             64 => {
                 if app.voice.camera && app.voice.video.contains_key(&me) && n(&sh.video_out) > 10 {

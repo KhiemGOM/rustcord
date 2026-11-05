@@ -1,6 +1,6 @@
 //! Voice & Video's Camera section (Test Video, the device list, video backgrounds) and the
 //! call's camera button with its preview modal and menu, in steps 2800 and up. 2800 is entered
-//! from step 60, 2820 from step 63; each ends by going back to the main chain.
+//! from step 60, 2820 from step 63 (as 2819); each ends by going back to the main chain.
 
 use super::*;
 use crate::voice::{effects, preview};
@@ -141,14 +141,18 @@ impl Run {
                     self.step = 61;
                 }
             }
-            2820 => {
-                let Some(r) = Self::at(ctx, "camera:modal:on") else { return };
+            2819 => {
+                let Some(_) = Self::at(ctx, "camera:modal:on") else { return };
                 if app.voice.camera {
                     return self.fail("the camera went on before the preview modal was answered".into());
                 }
                 self.mark("camera_preview_modal");
                 note(ctx);
                 effects::note_open(String::new());
+                self.next(700);
+            }
+            2820 => {
+                let Some(r) = Self::at(ctx, "camera:modal:on") else { return };
                 self.click(r.center());
                 self.next(0);
             }
