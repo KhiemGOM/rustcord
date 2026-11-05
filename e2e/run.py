@@ -31,6 +31,7 @@ import polish
 import call
 import home
 import qol
+import web
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -84,6 +85,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_CDN": f"http://127.0.0.1:{HTTP}/cdn",
         "RUSTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
         "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
         "RUSTCORD_TOKEN": "mock-token",
         "RUSTCORD_DATA": str(data_dir),
@@ -393,6 +395,7 @@ def main():
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
+        **web.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))

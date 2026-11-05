@@ -1134,6 +1134,12 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
+        ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
+        ("GET", ["store" | "shop"]) => (
+            200,
+            "text/html",
+            br#"<title>Discord</title><script>fetch("/api/v9/mock/webwin",{method:"POST",body:JSON.stringify({page:location.pathname,token:localStorage.getItem("token")})})</script>"#.to_vec(),
+        ),
         ("GET", ["app"]) => (200, "text/html", br#"<link href="/assets/other.css" rel="stylesheet"><link href="/assets/fonts.css" rel="stylesheet">"#.to_vec()),
         ("GET", ["assets", "other.css"]) => (200, "text/css", b"body{margin:0}".to_vec()),
         ("GET", ["assets", "fonts.css"]) => {

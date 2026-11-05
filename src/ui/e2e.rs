@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod stage;
+mod web;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -1207,9 +1208,10 @@ impl Run {
             }
             94 => {
                 if crate::winsys::shown() {
-                    self.step = 100;
+                    self.step = 900;
                 }
             }
+            900..=919 => self.web_steps(),
             100..=199 => self.settings_steps(app, ctx),
             700..=759 => self.stage_steps(app, ctx),
             200..=219 => self.media_steps(app, ctx),
