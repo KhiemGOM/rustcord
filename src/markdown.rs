@@ -347,6 +347,28 @@ fn url_len(s: &str) -> usize {
 }
 
 pub static CLOCK24: AtomicBool = AtomicBool::new(false);
+// 0 month first, 1 day first, 2 year first: how the account's language writes a numeric date
+static DATE_ORDER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn set_date_order(locale: &str) {
+    let order = match locale {
+        "en-US" => 0,
+        "ja" | "zh-CN" | "zh-TW" | "ko" | "hu" | "lt" | "sv-SE" => 2,
+        _ => 1,
+    };
+    DATE_ORDER.store(order, Ordering::Relaxed);
+}
+
+/// strftime for a numeric date, `year` being the pattern's year (`%y` or `%Y`) and `pad` whether
+/// day and month keep their leading zero
+pub fn short_date(year: &str, pad: bool) -> String {
+    let (m, d) = if pad { ("%m", "%d") } else { ("%-m", "%-d") };
+    match DATE_ORDER.load(Ordering::Relaxed) {
+        0 => format!("{m}/{d}/{year}"),
+        1 => format!("{d}/{m}/{year}"),
+        _ => format!("{year}/{m}/{d}"),
+    }
+}
 
 /// strftime for an hour:minute, honouring the 24h setting
 pub fn hm() -> &'static str {
@@ -357,10 +379,11 @@ pub fn fmt_ts(secs: i64, style: char) -> String {
     let Some(dt) = Local.timestamp_opt(secs, 0).single() else {
         return String::new();
     };
+    let numeric = short_date("%Y", true);
     let f = match style {
         't' => hm(),
         'T' => if CLOCK24.load(Ordering::Relaxed) { "%H:%M:%S" } else { "%-I:%M:%S %p" },
-        'd' => "%m/%d/%Y",
+        'd' => numeric.as_str(),
         'D' => "%B %-d, %Y",
         'F' => return format!("{} {}", dt.format("%A, %B %-d, %Y"), dt.format(hm())),
         'R' => {
