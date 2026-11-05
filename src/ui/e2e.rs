@@ -32,6 +32,7 @@ pub struct Run {
     marks: Vec<(String, f64)>,
     step: u32,
     step_at: Instant,
+    picking: bool,
     wait: Instant,
     queue: VecDeque<Vec<Event>>,
     frames: Vec<f32>,
@@ -104,6 +105,7 @@ impl Run {
             marks: Vec::new(),
             step: 0,
             step_at: Instant::now(),
+            picking: false,
             wait: Instant::now(),
             queue: VecDeque::new(),
             frames: Vec::new(),
@@ -1254,6 +1256,22 @@ impl Run {
         false
     }
 
+    /// Opens a dropdown and clicks one of its items; true once the item is clicked.
+    fn pick(&mut self, ctx: &egui::Context, head: &str, item: &str) -> bool {
+        if !self.picking {
+            let Some(r) = Self::at(ctx, head) else { return false };
+            ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", item))));
+            self.click(r.center());
+            self.picking = true;
+            self.wait = Instant::now() + Duration::from_millis(500);
+            return false;
+        }
+        let Some(r) = Self::at(ctx, item) else { return false };
+        self.click(r.center());
+        self.picking = false;
+        true
+    }
+
     fn at(ctx: &egui::Context, key: &str) -> Option<egui::Rect> {
         ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", key))))
     }
@@ -1436,8 +1454,9 @@ impl Run {
                 self.next(600);
             }
             126 => {
-                let Some(r) = Self::at(ctx, "lang:de") else { return };
-                self.click(r.center());
+                if !self.pick(ctx, "lang", "lang:de") {
+                    return;
+                }
                 self.next(400);
             }
             127 => {
@@ -1466,8 +1485,9 @@ impl Run {
                 self.next(600);
             }
             131 => {
-                let Some(r) = Self::at(ctx, "lang:en-US") else { return };
-                self.click(r.center());
+                if !self.pick(ctx, "lang", "lang:en-US") {
+                    return;
+                }
                 self.next(300);
             }
             132 => {
@@ -1521,6 +1541,89 @@ impl Run {
                 self.next(400);
             }
             141 => {
+                self.key(Key::Escape);
+                self.step = 610;
+            }
+            610 => {
+                let Some(r) = app.rects.get("gear").copied() else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            611 => {
+                if !self.open_page(app, "Notifications") {
+                    return;
+                }
+                self.next(900);
+            }
+            612 => {
+                let Some(r) = Self::at(ctx, "toggle:Friends come online") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            613 => {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Email".to_string()));
+                self.next(900);
+            }
+            614 => {
+                let Some(r) = Self::at(ctx, "toggle:Social Emails") else { return };
+                self.shot(ctx, "settings_notifications_email.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            615 => {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Advanced".to_string()));
+                self.next(900);
+            }
+            616 => {
+                let Some(r) = Self::at(ctx, "notify:advanced") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            617 => {
+                let Some(r) = Self::at(ctx, "toggle:Allow playback and usage of /tts command") else { return };
+                self.shot(ctx, "settings_notifications_advanced.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            618 => {
+                if !self.open_page(app, "System") {
+                    return;
+                }
+                self.next(900);
+            }
+            619 => {
+                let Some(r) = Self::at(ctx, "toggle:Enable Hardware Acceleration") else { return };
+                self.shot(ctx, "settings_system_general.png");
+                self.click(r.center());
+                self.next(400);
+            }
+            620 => {
+                if !app.settings.hw_accel {
+                    self.mark("hw_accel_off");
+                }
+                if !self.open_page(app, "Language & Time") {
+                    return;
+                }
+                self.next(900);
+            }
+            621 => {
+                let Some(r) = Self::at(ctx, "radio:24-hour") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            622 => {
+                if !self.open_page(app, "Developer") {
+                    return;
+                }
+                self.next(900);
+            }
+            623 => {
+                let Some(r) = Self::at(ctx, "toggle:Developer Mode") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            624 => {
+                self.mark("system_pages");
                 self.key(Key::Escape);
                 self.step = 350;
             }

@@ -393,7 +393,7 @@ fn ddr_arrow(p: &egui::Painter, r: Rect, turn: f32, col: Color32, lit: bool) {
 }
 
 /// A key as discord draws it in the sheet: a dark rounded cap with the name in caps.
-fn keycap(ui: &mut Ui, label: &str) {
+pub(super) fn keycap(ui: &mut Ui, label: &str) {
     let arrow = match label {
         "↑" => Some(Icon::ChevronUp),
         "↓" => Some(Icon::ChevronDown),
@@ -415,7 +415,7 @@ fn keycap(ui: &mut Ui, label: &str) {
 }
 
 /// Discord's sheet, section by section: a card for each combo, its keys under the name.
-const SHEET: [(&str, Option<&str>, &[(&str, &[&[&str]])]); 5] = [
+pub(super) const SHEET: [(&str, Option<&str>, &[(&str, &[&[&str]])]); 5] = [
     (
         "Messages",
         Some("These shortcuts work when focused on a message."),

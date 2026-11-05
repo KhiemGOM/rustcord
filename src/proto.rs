@@ -179,7 +179,7 @@ macro_rules! account {
 account! {
     theme: Theme,
     dev: bool,
-    clock24: bool,
+    hour_cycle: u8,
     compact: bool,
     compact_avatars: bool,
     inline_links: bool,
@@ -191,10 +191,25 @@ account! {
     gif_autoplay: bool,
     spoilers: Spoilers,
     locale: String,
+    reaction_notify: u8,
+    stream_notify: bool,
+    friend_anniv: bool,
+    friend_online: bool,
+    server_events: bool,
+    profile_updates: bool,
+    push_delay: u32,
+    tts_command: bool,
 }
 
 fn flag(w: &[u8]) -> bool {
     matches!(wrapped(w), Some(Val::Int(v)) if v != 0)
+}
+
+fn number(w: &[u8]) -> Option<u64> {
+    match wrapped(w) {
+        Some(Val::Int(n)) => Some(n),
+        _ => None,
+    }
 }
 
 fn text(w: &[u8]) -> Option<String> {
@@ -208,9 +223,42 @@ fn text(w: &[u8]) -> Option<String> {
 /// bool, never written when false) means off rather than "not mentioned".
 pub fn account(settings: &[u8], full: bool) -> Account {
     let mut a = Account::default();
+    if full {
+        a.reaction_notify = Some(0);
+        a.stream_notify = Some(true);
+        a.friend_anniv = Some(true);
+        a.friend_online = Some(true);
+        a.server_events = Some(true);
+        a.profile_updates = Some(true);
+        a.push_delay = Some(60);
+        a.tts_command = Some(true);
+        a.hour_cycle = Some(0);
+    }
     for (n, v) in fields(settings) {
         let Val::Bytes(b) = v else { continue };
         match n {
+            5 => {
+                for (n, v) in fields(b) {
+                    let Val::Bytes(w) = v else { continue };
+                    match n {
+                        6 => a.push_delay = number(w).map(|s| s as u32).or(full.then_some(0)),
+                        7 => a.stream_notify = Some(flag(w)),
+                        _ => {}
+                    }
+                }
+            }
+            7 => {
+                for (n, v) in fields(b) {
+                    match (n, v) {
+                        (7, Val::Int(i)) => a.reaction_notify = Some(i.min(2) as u8),
+                        (12, Val::Bytes(w)) => a.friend_online = Some(flag(w)),
+                        (14, Val::Bytes(w)) => a.friend_anniv = Some(flag(w)),
+                        (16, Val::Bytes(w)) => a.profile_updates = Some(flag(w)),
+                        (22, Val::Bytes(w)) => a.server_events = Some(flag(w)),
+                        _ => {}
+                    }
+                }
+            }
             6 => {
                 for (n, v) in fields(b) {
                     let Val::Bytes(w) = v else { continue };
@@ -229,6 +277,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                         12 => a.embeds = Some(flag(w)),
                         13 => a.reactions = Some(flag(w)),
                         14 => a.animate_emoji = Some(flag(w)),
+                        16 => a.tts_command = Some(flag(w)),
                         17 => a.compact = Some(flag(w)),
                         21 => a.emoticons = Some(flag(w)),
                         41 => a.compact_avatars = Some(flag(w)),
@@ -261,13 +310,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                             }
                         }
                         2 => a.dev = Some(i != 0),
-                        9 => {
-                            a.clock24 = match i {
-                                1 => Some(false),
-                                2 => Some(true),
-                                _ => None,
-                            }
-                        }
+                        9 => a.hour_cycle = Some(i.min(2) as u8),
                         _ => {}
                     }
                 }

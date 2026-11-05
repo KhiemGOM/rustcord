@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from base64 import b64decode
 from pathlib import Path
 
 import look
@@ -221,10 +222,16 @@ def main():
         **{f"settings: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("every page opened and was captured", "settings_tour"), ("profile edit saved via the unsaved-changes bar", "profile_saved"),
                               ("sidebar sub-section scrolled its section into view", "settings_scrolled_to"), ("light theme applied", "theme_light"), ("compact mode applied", "compact"), ("streamer mode toggled", "streamer"),
-                              ("display name changed through the modal", "display_name")]},
+                              ("display name changed through the modal", "display_name"), ("hardware acceleration switched off", "hw_accel_off"),
+                              ("notifications, system, language and developer pages were driven", "system_pages")]},
         "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
         "settings: content filter PATCHed to the legacy settings": sum('"explicit_content_filter":2' in r.get("body", "") for r in reqs if r.get("method") == "PATCH") == 2,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
+        **{f"settings: {name} PATCHed to the account's settings proto": sum(b64decode(json.loads(r["body"])["settings"]) == want for r in reqs
+                                                                            if r.get("method") == "PATCH" and "/settings-proto/" in r.get("path", "") and r.get("body")) == 2
+           for name, want in [("friends online off", bytes([0x3a, 2, 0x62, 0])), ("tts command off", bytes([0x32, 3, 0x82, 1, 0])),
+                              ("24-hour clock", bytes([0x6a, 2, 0x48, 2])), ("developer mode", bytes([0x6a, 2, 0x10, 1]))]},
+        "settings: email category PATCHed natively": sum('"social":false' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/email-settings") and r.get("method") == "PATCH") == 2,
         "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
