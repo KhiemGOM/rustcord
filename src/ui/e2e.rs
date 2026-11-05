@@ -953,8 +953,51 @@ impl Run {
                 self.next(1500);
             }
             60 => {
-                self.shot(ctx, "settings_voice.png");
-                self.next(300);
+                let id = egui::Id::new("e2e_camera");
+                let sub = ctx.data(|d| d.get_temp::<u8>(id)).unwrap_or(0);
+                let to = |ctx: &egui::Context, n: u8| ctx.data_mut(|d| d.insert_temp(id, n));
+                match sub {
+                    0 => {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Camera".to_string()));
+                        to(ctx, 1);
+                        self.wait = Instant::now() + Duration::from_millis(600);
+                    }
+                    1 => {
+                        let Some(r) = Self::at(ctx, "camera:test") else { return };
+                        self.click(r.center());
+                        to(ctx, 2);
+                    }
+                    2 => {
+                        if app.voice.tex.contains_key("settings") {
+                            self.mark("camera_test_video");
+                            self.shot(ctx, "settings_camera.png");
+                            to(ctx, 3);
+                        }
+                    }
+                    3 => {
+                        let Some(r) = Self::at(ctx, "camera:bg:blur") else { return };
+                        self.click(r.center());
+                        to(ctx, 4);
+                    }
+                    4 => {
+                        if app.settings.video_bg == crate::cache::VideoBg::Blur && crate::voice::effects::PLACED.load(std::sync::atomic::Ordering::Relaxed) > 5 {
+                            self.mark("camera_background");
+                            to(ctx, 5);
+                        }
+                    }
+                    5 => {
+                        let Some(r) = Self::at(ctx, "toggle:Always preview video") else { return };
+                        self.click(r.center());
+                        to(ctx, 6);
+                    }
+                    _ => {
+                        if app.settings.preview_video {
+                            self.mark("camera_always_preview");
+                            ctx.data_mut(|d| d.remove::<u8>(id));
+                            self.next(300);
+                        }
+                    }
+                }
             }
             61 => {
                 self.key(Key::Escape);
@@ -972,8 +1015,17 @@ impl Run {
                 self.next(0);
             }
             64 => {
+                // "always preview video" is on: the camera button opens the preview first
+                if !app.voice.camera
+                    && let Some(r) = Self::at(ctx, "camera:modal:on")
+                {
+                    self.mark("camera_preview_modal");
+                    self.click(r.center());
+                    return;
+                }
                 if app.voice.camera && app.voice.video.contains_key(&me) && n(&sh.video_out) > 10 {
                     self.mark("camera_on");
+                    app.settings.preview_video = false;
                     self.next(0);
                 }
             }
