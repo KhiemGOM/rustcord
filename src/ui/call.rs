@@ -904,3 +904,22 @@ pub fn incoming(app: &mut App, ctx: &egui::Context) {
         app.decline(ch);
     }
 }
+
+impl App {
+    /// Discord shows this picture to people deciding whether to watch; Show Stream Previews turns it off.
+    pub fn stream_preview(&mut self, key: String, img: Arc<ColorImage>) {
+        if !self.settings.stream_previews {
+            return;
+        }
+        let [w, h] = img.size;
+        let rgb: Vec<u8> = img.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
+        let mut jpeg = Vec::new();
+        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 70);
+        if image::ImageEncoder::write_image(enc, &rgb, w as u32, h as u32, image::ExtendedColorType::Rgb8).is_err() {
+            return;
+        }
+        use base64::Engine;
+        let thumbnail = format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg));
+        self.rest("POST", format!("/streams/{key}/preview"), Some(serde_json::json!({ "thumbnail": thumbnail })), crate::net::Tag::Quiet);
+    }
+}

@@ -2,6 +2,7 @@ use egui::{Align2, Color32, CornerRadius, Frame, Rect, Response, RichText, Sense
 
 use super::icons::{self, Icon};
 use super::{App, DANGER, Trail, menu_body, menu_item, menu_row, menu_sep};
+use crate::cache::InputProfile;
 use crate::state::Id;
 use crate::theme::*;
 
@@ -246,14 +247,18 @@ pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> 
             }
         });
         if !output {
-            let at = if s.noise_suppression && s.auto_sensitivity { 0 } else if !s.noise_suppression && !s.auto_sensitivity { 1 } else { 2 };
+            let at = match s.input_profile {
+                InputProfile::VoiceIsolation => 0,
+                InputProfile::Studio => 1,
+                InputProfile::Custom => 2,
+            };
             let names = ["Voice Isolation", "Studio", "Custom"];
             let row = menu_row(ui, None, "Input Profile", Some(names[at]), false, Trail::Caret);
             egui::containers::menu::SubMenu::new().show(ui, &row, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (i, n) in names.iter().enumerate() {
                     if menu_row(ui, None, n, None, false, Trail::Radio(at == i)).clicked() && at != i {
-                        (s.noise_suppression, s.auto_sensitivity) = [(true, true), (false, false), (true, false)][i];
+                        s.input_profile = [InputProfile::VoiceIsolation, InputProfile::Studio, InputProfile::Custom][i];
                         changed = true;
                     }
                 }
@@ -337,7 +342,7 @@ pub fn krisp(app: &mut App, ui: &mut Ui, center: egui::Pos2) {
         ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let on = app.settings.noise_suppression;
+    let on = app.settings.noise_on();
     icons::draw(ui.painter(), Icon::Waveform, Rect::from_center_size(center, vec2(20.0, 20.0)), if on || resp.hovered() { pal().header_primary } else { pal().header_secondary });
     app.rects.insert("voice:krisp".into(), r);
     let resp = resp.on_hover_text("Noise Suppression powered by Krisp");
@@ -354,8 +359,8 @@ pub fn krisp(app: &mut App, ui: &mut Ui, center: egui::Pos2) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Noise Suppression").font(medium(16.0)).color(pal().header_primary));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if switch(ui, app.settings.noise_suppression).clicked() {
-                        app.settings.noise_suppression = !app.settings.noise_suppression;
+                    if switch(ui, app.settings.noise_on()).clicked() {
+                        app.settings.set_noise(!app.settings.noise_on());
                         changed = true;
                     }
                 });

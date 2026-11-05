@@ -1278,6 +1278,13 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
             ok(json!({}))
         }
+        ("PATCH", ["api", "v9", "users", "@me", "settings-proto", _]) => ok(json!({})),
+        ("GET", ["api", "v9", "soundboard-default-sounds"]) => ok(json!([
+            { "sound_id": "1", "name": "quack", "emoji_name": "🦆", "volume": 1.0, "available": true },
+            { "sound_id": "2", "name": "airhorn", "emoji_name": "📯", "volume": 1.0, "available": true },
+        ])),
+        ("POST", ["api", "v9", "channels", _, "send-soundboard-sound"]) => (204, "application/json", Vec::new()),
+        ("POST", ["api", "v9", "streams", _, "preview"]) => (204, "application/json", Vec::new()),
         // e2e/bench.py: a busy account's background traffic for `secs`, `rate` events a second:
         // presences in the open server, typing and messages in another one
         ("POST", ["api", "v9", "mock", "busy"]) => {
