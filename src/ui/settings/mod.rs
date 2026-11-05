@@ -12,7 +12,6 @@ mod privacy;
 mod profiles;
 mod keybinds;
 mod notify;
-mod sync;
 mod system;
 mod user;
 mod voice;
