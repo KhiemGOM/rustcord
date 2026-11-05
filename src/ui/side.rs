@@ -234,6 +234,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut set_status: Option<Id> = None;
     let mut boost_page = false;
     let mut events_page = false;
+    let mut mute_events = false;
     let mut open_chat: Option<Id> = None;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
@@ -276,7 +277,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     let done = app.guides.get(&gid).map_or(0, |(_, d)| acts.iter().filter(|c| d.contains(c)).count());
                     get_started(ui, gid, acts.len(), done);
                 }
-                match home_rows(ui, g, store.my_perms(gid), open_page) {
+                match home_rows(ui, g, store.my_perms(gid), open_page, store.muted_events.contains(&gid), &mut mute_events) {
                     Some("Server Boosts") => boost_page = true,
                     Some("Events") => events_page = true,
                     Some("Members") => home_page = Some(super::community::Page::Members),
@@ -285,13 +286,31 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
             }
             let hide = store.hide_muted.contains(&gid);
-            for (cat, kids) in tree(store, gid, cur) {
+            let mut groups = tree(store, gid, cur);
+            let mut pinned: Vec<&Channel> = Vec::new();
+            for (_, kids) in &mut groups {
+                kids.retain(|c| {
+                    let on = store.chan_flags.get(&c.id).is_some_and(|f| f & super::PINNED != 0);
+                    if on {
+                        pinned.push(c);
+                    }
+                    !on
+                });
+            }
+            let sections = Some((true, None, pinned)).filter(|s| !s.2.is_empty()).into_iter().chain(groups.into_iter().map(|(c, k)| (false, c, k)));
+            for (pin_sec, cat, kids) in sections {
                 // hiding muted channels takes empty categories with them, but never the open channel
                 let kids: Vec<&Channel> = kids.into_iter().filter(|c| !hide || cur == Some(c.id) || !store.is_muted(c)).collect();
-                if hide && kids.is_empty() && cat.is_some() {
+                if hide && kids.is_empty() && (cat.is_some() || pin_sec) {
                     continue;
                 }
-                let collapsed = cat.is_some_and(|c| app.ui.collapsed.contains(&c.id));
+                let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.ui.collapsed.contains(&c.id)) };
+                if pin_sec {
+                    ui.add_space(15.0);
+                    if category(ui, "Pinned Channels", collapsed, false).0.clicked() {
+                        toggle = Some(gid);
+                    }
+                }
                 if let Some(cat) = cat {
                     // discord's category is 16 of padding over a 24 row, the first channel 1 under it
                     ui.add_space(15.0);
@@ -370,7 +389,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         channel_menu(&r, store, t, store.unread(t), false, dev, false, &mut menu);
                     }
                     if c.is_voice() && !collapsed {
-                        voice_users(ui, store, &app.voice, gid, c.id);
+                        voice_users(ui, store, &app.voice, gid, c.id, app.settings.hide_names.contains(&c.id));
                     }
                 }
             }
@@ -443,6 +462,13 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         && !app.ui.collapsed.remove(&c)
     {
         app.ui.collapsed.insert(c);
+    }
+    if mute_events {
+        let on = !app.store.muted_events.remove(&gid);
+        if on {
+            app.store.muted_events.insert(gid);
+        }
+        app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(serde_json::json!({ "mute_scheduled_events": on })), crate::net::Tag::Quiet);
     }
     if boost_page {
         app.open_boosts(gid);
@@ -639,7 +665,7 @@ fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
 /// The rows over the channels, in discord's order and on its conditions. Server Boosts, Members
 /// and Channels & Roles are pages in place of the chat, Events is a window, and what's left opens
 /// discord's own page in the browser. Hands back the row clicked and which page is open.
-fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>) -> Option<&'static str> {
+fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, muted_events: bool, mute_events: &mut bool) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
     let has = |f: &str| g.features.iter().any(|x| x == f);
     let id = g.id;
@@ -688,6 +714,17 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         let col = if selected { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
         icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
         text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col, inner.width() - 40.0);
+        if label == "Events" {
+            egui::Popup::context_menu(&resp).close_behavior(super::menu_closing(&resp.ctx)).show(|ui| {
+                super::menu_body(ui, |ui| {
+                    ui.add_enabled_ui(false, |ui| super::menu_item(ui, None, "Mark As Read", false));
+                    super::menu_sep(ui);
+                    if super::menu_row(ui, None, "Mute New Events", None, false, super::Trail::Check(muted_events)).clicked() {
+                        *mute_events = true;
+                    }
+                })
+            });
+        }
         if resp.clicked() {
             if url.is_empty() {
                 clicked = Some(label);
@@ -870,11 +907,27 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     (resp, emoji, invite, edit, set, chat)
 }
 
-fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id) {
+fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: Id, ch: Id, hide_names: bool) {
     let Some(g) = store.guilds.get(&gid) else { return };
     let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| **c == ch).map(|(u, _)| *u).collect();
     // discord lists them by name, 32 to a row, in their own display name font and server tag
     users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
+    if hide_names {
+        let per = (((ui.available_width() - 52.0) / 28.0) as usize).max(1);
+        for line in users.chunks(per) {
+            let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+            for (i, u) in line.iter().enumerate() {
+                let av = Rect::from_min_size(pos2(row.left() + 44.0 + i as f32 * 28.0, row.center().y - 12.0), vec2(24.0, 24.0));
+                if let Some(user) = store.user(*u) {
+                    avatar(ui, av, &user.avatar_url());
+                }
+                if voice.is_speaking(*u) {
+                    super::call::ring(ui, av);
+                }
+            }
+        }
+        return;
+    }
     for u in users {
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
