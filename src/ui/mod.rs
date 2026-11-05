@@ -212,7 +212,11 @@ impl App {
     ) -> Self {
         let ctx = cc.egui_ctx.clone();
         // egui's own ctrl +/- zoom goes by 10%; ours steps through discord's levels
-        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        ctx.options_mut(|o| {
+            o.zoom_with_keyboard = false;
+            // once an image is on the gpu, its decoded pixels and bytes are only a second copy
+            o.reduce_texture_memory = true;
+        });
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
         let textures = std::sync::Arc::new(crate::imgcache::Textures::default());

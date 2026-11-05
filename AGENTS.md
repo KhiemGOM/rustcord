@@ -4,7 +4,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 
 ## Build and run
 - `cargo run --release` runs the client; `cargo build --locked --release --bin rustcord --example mockcord` is what CI builds.
-- A few unit tests (`cargo test --release --bin rustcord`) cover the image cache. The main verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
+- A few unit tests (`cargo test --release --bin rustcord`) cover the image cache and the emoji in names. The main verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
 
 ## E2E
 - `python e2e/run.py` builds, then runs the client cold and warm against the mock. `--no-build` reuses `target/release`. It needs a real window and GPU.
@@ -18,7 +18,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
   - Both also run against the mock (use the env above), which is how to check them.
 
 ## Perf
-- `python e2e/bench.py` measures startup, idle and busy CPU, frames drawn and who asked for them, the cost of one frame, and memory, against the mock at a real account's size (`--guilds 115`: 120 servers, 14k channels). Output: `e2e/artifacts/bench.json`. Run it before and after anything that touches the frame loop, the store or repaints; single runs of idle CPU are noisy (the GPU driver spins on vsync), compare a few.
+- `python e2e/bench.py` measures startup, idle and busy CPU, frames drawn and who asked for them, the cost of one frame, and memory (with what each image loader holds), against the mock at a real account's size (`--guilds 115`: 120 servers, 14k channels). Output: `e2e/artifacts/bench.json`. Run it before and after anything that touches the frame loop, the store or repaints; single runs of idle CPU are noisy (the GPU driver spins on vsync), compare a few.
 
 ## Parity
 - Judged against Discord's own CSS tokens (surface colours, 0.122 hover overlay, metrics in `look.py` and `run.py`) and live captures of the real client, not by taste. Commit messages and comments cite "live captures".
