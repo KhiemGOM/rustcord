@@ -55,7 +55,7 @@ pub fn notifications(app: &mut App, ui: &mut Ui) -> bool {
     changed
 }
 
-pub const ACTIONS: [(&str, &str); 4] = [("ptt", "Push to Talk"), ("mute", "Toggle Mute"), ("deafen", "Toggle Deafen"), ("streamer", "Toggle Streamer Mode")];
+pub const ACTIONS: [(&str, &str); 5] = [("ptt", "Push to Talk"), ("mute", "Toggle Mute"), ("deafen", "Toggle Deafen"), ("streamer", "Toggle Streamer Mode"), ("save_clip", "Save Clip")];
 
 pub fn key_name(vk: u32) -> String {
     match vk {
@@ -243,7 +243,7 @@ pub fn system(app: &mut App, ui: &mut Ui) -> bool {
         super::end(ui, 12.0);
     }
     if changed {
-        crate::hotkeys::set(&app.settings.keybinds);
+        app.sync_hotkeys();
     }
     changed
 }

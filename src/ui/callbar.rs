@@ -78,6 +78,9 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let cells = if guild != 0 { 3 } else { 2 };
     let w2 = cells as f32 * 48.0 + 2.0;
     let x0 = bar.center().x - (140.0 + 12.0 + w2 + 12.0 + 66.0) / 2.0;
+    if bar.width() > 640.0 {
+        super::clips::badge(app, ui, pos2(bar.left() + 16.0, cy - 12.0));
+    }
     let sec = |x: f32, w: f32| Rect::from_min_size(pos2(x, cy - 25.0), vec2(w, 50.0));
     let (s1, s2) = (sec(x0, 140.0), sec(x0 + 152.0, w2));
     let p = ui.painter().clone();

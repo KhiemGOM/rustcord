@@ -146,6 +146,11 @@ fn track(moov: &[u8]) -> Result<Track, String> {
 /// Decodes the whole clip. Frames come back in display order with how long each stays up.
 /// Clips too big for `budget` bytes of pixels are thinned out rather than cut short.
 pub fn frames(data: &[u8], budget: usize) -> Result<Vec<(ColorImage, Duration)>, String> {
+    frames_within(data, budget, usize::MAX)
+}
+
+/// `frames`, with pictures wider than `max_w` shrunk by a whole factor as they come out of the decoder.
+pub fn frames_within(data: &[u8], budget: usize, max_w: usize) -> Result<Vec<(ColorImage, Duration)>, String> {
     let moov = child(data, b"moov").ok_or("no moov box (fragmented mp4?)")?;
     let t = track(moov)?;
     if t.samples.is_empty() {
@@ -163,13 +168,20 @@ pub fn frames(data: &[u8], budget: usize) -> Result<Vec<(ColorImage, Duration)>,
     let mut rgba = Vec::new();
     let mut keep = |yuv: openh264::decoder::DecodedYUV, pics: &mut Vec<ColorImage>, stride: &mut usize, seen: usize| {
         let (w, h) = yuv.dimensions();
+        let k = w.div_ceil(max_w.max(1)).max(1);
         if *stride == 1 {
-            *stride = (t.samples.len() * w * h * 4).div_ceil(budget.max(1)).max(1);
+            *stride = (t.samples.len() * (w / k) * (h / k) * 4).div_ceil(budget.max(1)).max(1);
         }
         if seen % *stride == 0 {
             rgba.resize(w * h * 4, 0);
             yuv.write_rgba8(&mut rgba);
-            pics.push(ColorImage::from_rgba_unmultiplied([w, h], &rgba));
+            if k == 1 {
+                pics.push(ColorImage::from_rgba_unmultiplied([w, h], &rgba));
+            } else {
+                let (sw, sh) = (w / k, h / k);
+                let small: Vec<u8> = (0..sh).flat_map(|y| (0..sw).flat_map(move |x| (y * k * w + x * k) * 4..(y * k * w + x * k) * 4 + 4)).map(|i| rgba[i]).collect();
+                pics.push(ColorImage::from_rgba_unmultiplied([sw, sh], &small));
+            }
         }
     };
 
