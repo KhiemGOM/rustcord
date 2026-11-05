@@ -6,6 +6,7 @@ mod capture;
 mod conn;
 mod hwenc;
 mod rtp;
+pub mod stage;
 mod video;
 
 pub use capture::cameras;
@@ -157,6 +158,8 @@ pub struct VoiceUi {
     /// muted, server muted, deafened, server deafened, for whoever is any of them
     pub muted: HashMap<Id, [bool; 4]>,
     pub stream: Option<Live>,
+    pub stage: stage::Stage,
+    pub suppressed: bool,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
     session: Option<String>,
@@ -242,6 +245,7 @@ impl VoiceUi {
         self.server = None;
         self.joined = None;
         self.speaking.clear();
+        self.suppressed = false;
         self.tag = self.next_tag();
     }
 
@@ -262,7 +266,7 @@ impl VoiceUi {
     }
 
     fn sync(&mut self, net: &Net) {
-        self.shared.mute.store(self.mute, Relaxed);
+        self.shared.mute.store(self.mute || self.suppressed, Relaxed);
         self.shared.deaf.store(self.deaf, Relaxed);
         if self.chan.is_some() {
             self.op4(net);
@@ -379,6 +383,7 @@ impl VoiceUi {
     }
 
     pub fn dispatch(&mut self, net: &Net, me: Id, t: &str, d: &Value) {
+        self.stage.dispatch(t, d);
         match t {
             "READY" | "READY_SUPPLEMENTAL" => {
                 for g in d["guilds"].as_array().into_iter().flatten() {
@@ -420,6 +425,7 @@ impl VoiceUi {
             }
             "VOICE_STATE_UPDATE" => {
                 self.flags(d);
+                self.stage.seat(d);
                 let uid = sid(&d["user_id"]);
                 let ch = sid(&d["channel_id"]);
                 if sid(&d["guild_id"]) == 0 {
@@ -440,6 +446,11 @@ impl VoiceUi {
                 }
                 if Some(ch) != self.chan {
                     self.chan = Some(ch);
+                }
+                let audience = d["suppress"].as_bool() == Some(true);
+                if audience != self.suppressed {
+                    self.suppressed = audience;
+                    self.sync(net);
                 }
                 self.session = d["session_id"].as_str().map(str::to_string);
                 self.connect(net, me);
@@ -576,6 +587,9 @@ impl VoiceUi {
         self.shared.ptt_delay_ms.store(s.ptt_delay_ms, Relaxed);
         self.shared.in_gain.store(s.input_volume.to_bits(), Relaxed);
         self.shared.out_gain.store(s.output_volume.to_bits(), Relaxed);
+        if let Ok(mut p) = self.shared.peers.lock() {
+            *p = s.peers.iter().filter(|(_, v)| v.muted || v.volume != 100.0).map(|(u, v)| (*u, if v.muted { 0.0 } else { v.volume / 100.0 })).collect();
+        }
         if let Ok(mut d) = self.shared.devices.lock() {
             *d = (s.mic.clone(), s.speaker.clone());
         }
