@@ -49,6 +49,10 @@ impl State {
         self.known = Some((name.to_string(), taken));
     }
 
+    pub fn taken(&self) -> Option<bool> {
+        self.known.as_ref().filter(|(n, _)| *n == self.username).map(|(_, t)| *t)
+    }
+
     fn birthday(&self) -> Option<NaiveDate> {
         NaiveDate::from_ymd_opt(self.year, self.month, self.day)
     }
@@ -175,7 +179,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let r = primary(ui, "Continue", f.busy);
     f.rects.insert("submit", r.rect);
     ui.add_space(8.0);
-    if muted_then_link(ui, "Already have an account?", "Log In") {
+    if muted_then_link(ui, "Already have an account?", "Log In").clicked() {
         f.go(Page::Login);
     }
     ui.add_space(4.0);

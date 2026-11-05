@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod login;
+
 use super::{App, side};
 use crate::net::Conn;
 use crate::state::Id;
@@ -102,7 +104,7 @@ impl Run {
             dir,
             t0,
             marks: Vec::new(),
-            step: 0,
+            step: if std::env::var_os("RUSTCORD_E2E_LOGIN").is_some() { 1500 } else { 0 },
             step_at: Instant::now(),
             wait: Instant::now(),
             queue: VecDeque::new(),
@@ -1213,6 +1215,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            1500..=1599 => self.login_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
