@@ -1287,6 +1287,9 @@ impl App {
                         e.heard.push(json!({ "t": t, "d": d }));
                     }
                     self.voice_cues(&t, &d);
+                    if t == "VOICE_CHANNEL_EFFECT_SEND" {
+                        self.soundboard_effect(&d);
+                    }
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
@@ -1359,6 +1362,10 @@ impl App {
                             e.heard.push(json!({ "t": "voice error", "d": err }));
                         }
                         self.toast(format!("Voice disconnected: {err}"));
+                    }
+                    if self.voice.video_call && self.voice.state == crate::voice::State::Connected {
+                        self.voice.video_call = false;
+                        self.voice.set_camera(&self.net, self.store.me, true);
                     }
                 }
             }

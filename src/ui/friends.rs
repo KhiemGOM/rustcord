@@ -148,6 +148,7 @@ fn list(app: &mut App, ui: &mut Ui) {
     ui.add_space(12.0);
 
     let mut act: Option<(Id, &'static str)> = None;
+    let mut menu = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (uid, kind) in people {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
@@ -190,9 +191,15 @@ fn list(app: &mut App, ui: &mut Ui) {
             );
             match kind {
                 FRIEND => {
-                    if icon_button(&mut br, Icon::MoreVertical, 36.0, "More").clicked() {
-                        act = Some((uid, "dm"));
-                    }
+                    let more = icon_button(&mut br, Icon::MoreVertical, 36.0, "More");
+                    egui::Popup::menu(&more).align(egui::RectAlign::BOTTOM_START).show(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        for (label, what, danger) in [("Start Video Call", "video", false), ("Start Voice Call", "voice", false), ("Remove Friend", "remove_friend", true)] {
+                            if super::menu_item(ui, None, label, danger) {
+                                act = Some((uid, what));
+                            }
+                        }
+                    });
                     br.add_space(10.0);
                     if icon_button(&mut br, Icon::Bubble, 36.0, "Message").clicked() {
                         act = Some((uid, "dm"));
@@ -215,10 +222,22 @@ fn list(app: &mut App, ui: &mut Ui) {
             if resp.clicked() && kind == FRIEND {
                 act = Some((uid, "dm"));
             }
+            if resp.secondary_clicked() && kind == FRIEND {
+                menu = Some((uid, resp.interact_pointer_pos().unwrap_or(row.center())));
+            }
         }
     });
     match act {
         Some((u, "dm")) => app.open_dm(u),
+        Some((u, "video")) => app.call_user(u, true),
+        Some((u, "voice")) => app.call_user(u, false),
+        Some((u, "remove_friend")) => {
+            let name = app.store.name_in(0, u);
+            let body = format!("Are you sure you want to remove {name} from your friends?");
+            app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
+                app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet)
+            }));
+        }
         Some((u, "accept")) => {
             app.store.relationships.insert(u, FRIEND);
             app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::Quiet);
@@ -228,6 +247,10 @@ fn list(app: &mut App, ui: &mut Ui) {
             app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet);
         }
         None => {}
+    }
+    if let Some((u, at)) = menu {
+        app.user_menu = Some((u, 0, None, at));
+        app.menu_from = super::usermenu::Origin::Friends;
     }
 }
 

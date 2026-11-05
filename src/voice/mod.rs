@@ -159,6 +159,8 @@ pub struct VoiceUi {
     pub stream: Option<Live>,
     /// the person Focus This Person put big in the call view
     pub focus: Option<Id>,
+    /// a video call was asked for: the camera goes on once the call connects
+    pub video_call: bool,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
     session: Option<String>,
@@ -236,6 +238,7 @@ impl VoiceUi {
             net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
         }
         self.camera = false;
+        self.focus = None;
         self.video.clear();
         self.tex.clear();
         self.chan = None;
