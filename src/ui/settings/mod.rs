@@ -115,7 +115,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let screen = ctx.content_rect();
     let size = vec2((screen.width() - 144.0).min(1400.0), screen.height() - 144.0);
-    let frame = Frame::new().fill(pal().bg_primary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
+    let frame = Frame::new().fill(solid(pal().bg_primary)).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
     let mut changed = false;
     let mut logout = false;
     // sections register themselves as they draw; the sidebar reads last frame's list
