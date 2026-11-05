@@ -98,7 +98,7 @@ def run_client(name, data_dir, extra=None):
     except subprocess.TimeoutExpired:
         p.kill()
         code = "timeout"
-    res = json.loads((out / "results.json").read_text()) if (out / "results.json").exists() else {"ok": False, "error": "no results.json"}
+    res = json.loads((out / "results.json").read_text(encoding="utf-8")) if (out / "results.json").exists() else {"ok": False, "error": "no results.json"}
     ff = out / "first_frame_epoch_ms"
     res["spawn_to_first_frame_ms"] = round(float(ff.read_text()) - spawned, 1) if ff.exists() else None
     res["exit_code"] = code

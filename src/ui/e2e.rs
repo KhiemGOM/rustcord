@@ -3992,7 +3992,8 @@ impl Run {
                 1 => l.iter().find(|m| m.kind == 7 && m.author == 102),
                 2 => l.iter().find(|m| m.kind == 20),
                 3 => l.iter().find(|m| m.flags & 8192 != 0),
-                _ => l.iter().find(|m| m.kind == 6),
+                4 => l.iter().find(|m| m.kind == 6),
+                _ => None,
             };
             found.map(|m| m.id)
         };
