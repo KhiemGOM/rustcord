@@ -125,7 +125,7 @@ pub fn hot(ctx: &Context, resp: &Response) -> f32 {
 }
 
 /// Seconds-long enter progress for something drawn every frame while it is open, restarting
-/// when it has been gone for a moment. Returns 1 once it has settled.
+/// when a frame went by without it. Returns 1 once it has settled.
 pub fn enter(ctx: &Context, id: Id, secs: f32, curve: Curve) -> f32 {
     let secs = anim(curve.duration(secs));
     if secs == 0.0 {
@@ -133,9 +133,10 @@ pub fn enter(ctx: &Context, id: Id, secs: f32, curve: Curve) -> f32 {
     }
     let now = ctx.input(|i| i.time);
     let key = id.with("enter");
-    let (start, last) = ctx.data(|d| d.get_temp::<(f64, f64)>(key)).unwrap_or((now, now));
-    let start = if now - last > 0.3 { now } else { start };
-    ctx.data_mut(|d| d.insert_temp(key, (start, now)));
+    let frame = ctx.cumulative_frame_nr();
+    let (start, last) = ctx.data(|d| d.get_temp::<(f64, u64)>(key)).unwrap_or((now, frame));
+    let start = if frame > last + 1 { now } else { start };
+    ctx.data_mut(|d| d.insert_temp(key, (start, frame)));
     let u = ((now - start) as f32 / secs).clamp(0.0, 1.0);
     if u < 1.0 {
         ctx.request_repaint();
@@ -412,6 +413,27 @@ mod tests {
         assert!(close(top, peak, 5e-3), "{top}");
         assert!(close(SWITCH.duration(0.0), 0.4426, 5e-3), "{}", SWITCH.duration(0.0));
         assert!(close(TOOLTIP.at(1.0), 1.0, 1e-6));
+    }
+
+    fn at(ctx: &Context, time: f64, draw: bool) -> f32 {
+        let mut out = 0.0;
+        let _ = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| {
+            if draw {
+                out = enter(ui.ctx(), Id::new("probe"), 0.2, EASE);
+            }
+        });
+        out
+    }
+
+    #[test]
+    fn enter_settles_across_idle_gaps_and_restarts_after_a_missed_frame() {
+        let ctx = Context::default();
+        assert!(at(&ctx, 0.0, true) < 0.01);
+        assert!(close(at(&ctx, 0.5, true), 1.0, 1e-6));
+        assert!(close(at(&ctx, 1.0, true), 1.0, 1e-6));
+        at(&ctx, 1.1, false);
+        at(&ctx, 1.2, false);
+        assert!(at(&ctx, 1.3, true) < 0.01);
     }
 
     #[test]
