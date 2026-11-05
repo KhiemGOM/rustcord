@@ -66,3 +66,16 @@ pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
         app.soundboard = None;
     }
 }
+
+impl App {
+    /// Someone's soundboard sound in the call we're in, unless we muted their soundboard or deafened.
+    pub fn soundboard_effect(&mut self, d: &serde_json::Value) {
+        let uid = crate::state::sid(&d["user_id"]);
+        let sound = crate::state::sid(&d["sound_id"]);
+        let here = self.voice.chan == Some(crate::state::sid(&d["channel_id"]));
+        if sound == 0 || uid == self.store.me || !here || self.voice.deaf || self.peer(uid).soundboard_muted {
+            return;
+        }
+        self.play_audio(format!("{}/soundboard-sounds/{sound}", crate::api::cdn()));
+    }
+}

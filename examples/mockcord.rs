@@ -1673,6 +1673,12 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ok(json!({ "bookmark_ids": ids, "reminders": reminders }))
         }
         ("PUT", ["api", "v9", "users", "@me", "notes", _]) => (204, "application/json", Vec::new()),
+        ("PATCH", ["api", "v9", "users", "@me", "relationships", _]) => (204, "application/json", Vec::new()),
+        ("PUT" | "DELETE", ["api", "v9", "users", "@me", "relationships", _, "ignore"]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "users", "@me", "application-command-index"]) => ok(json!({
+            "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
+            "application_commands": [{ "id": "9101", "application_id": "104", "version": "1", "type": 2, "name": "Warn User", "options": [] }],
+        })),
         // the members table: everyone, or the usernames asked for, newest first
         ("POST", ["api", "v9", "guilds", g, "members-search"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
