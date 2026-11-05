@@ -4,7 +4,7 @@
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
 --rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
-nonstop for --secs to price a frame, scrolls a --history message chat with the wheel for --secs and counts the dropped frames, and has its memory read. The mock adds --guilds servers of 115 channels each, about a real account's size
+nonstop for --secs to price a frame, scrolls a --history message chat with the wheel for --secs and prices its frames, and has its memory read. The mock adds --guilds servers of 115 channels each, about a real account's size
 (0 for the plain mock). The window opens behind everything and ignores the real mouse and
 keyboard. Writes e2e/artifacts/bench.json.
 """
@@ -110,19 +110,19 @@ def window(h, out, secs):
 
 
 def scroll(h, out, secs):
-    """A notch every 90ms, twelve one way then twelve the other, with the pointer over the chat."""
+    """A notch every 90ms, twelve one way then twelve the other, with the pointer over the chat. The window sits
+    behind everything, so nothing holds it to the display's rate: what counts is the cost of a frame, not their spacing."""
     (out / "scroll").touch()
     time.sleep(1)
-    n = len((stats(out) or {}).get("gaps", []))
+    n, t0 = len((stats(out) or {}).get("costs", [])), (stats(out) or {}).get("travel", 0)
     w = window(h, out, secs)
-    gaps = sorted((stats(out) or {}).get("gaps", [])[n:])
+    costs = sorted((stats(out) or {}).get("costs", [])[n:])
     (out / "scroll").unlink()
-    if not gaps:
+    if not costs:
         return w
-    med = gaps[len(gaps) // 2]
-    w.update({"frames": len(gaps), "ui_ms_per_frame": round(w["ui_ms_per_s"] / max(w["frames_per_s"], 0.1), 2), "gap_median_ms": round(med, 1),
-              "gap_p95_ms": round(gaps[int(len(gaps) * 0.95)], 1), "gap_p99_ms": round(gaps[int(len(gaps) * 0.99)], 1), "gap_max_ms": round(gaps[-1], 1),
-              "dropped": sum(g > med * 1.5 for g in gaps), "over_25ms": sum(g > 25 for g in gaps)})
+    at = lambda q: round(costs[min(int(len(costs) * q), len(costs) - 1)], 2)
+    w.update({"scrolled_px": round((stats(out) or {}).get("travel", 0) - t0), "frames": len(costs), "ui_ms_mean": round(sum(costs) / len(costs), 2), "ui_ms_p50": at(0.5), "ui_ms_p95": at(0.95),
+              "ui_ms_p99": at(0.99), "ui_ms_max": round(costs[-1], 2), "over_8ms": sum(c > 8.3 for c in costs), "over_16ms": sum(c > 16.7 for c in costs)})
     return w
 
 

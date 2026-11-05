@@ -53,8 +53,9 @@ pub struct Run {
     scroll: bool,
     wheel_at: Instant,
     notches: u32,
-    last_frame: Option<Instant>,
-    gaps: Vec<f32>,
+    costs: Vec<f32>,
+    travel: f32,
+    last_off: f32,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -129,8 +130,9 @@ impl Run {
             scroll: false,
             wheel_at: Instant::now(),
             notches: 0,
-            last_frame: None,
-            gaps: Vec::new(),
+            costs: Vec::new(),
+            travel: 0.0,
+            last_off: 0.0,
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -210,6 +212,9 @@ impl Run {
             let at = self.ms();
             let step = self.step;
             self.slow.push(json!({ "at_ms": at.round(), "ms": ms.round(), "step": step }));
+        }
+        if self.scroll {
+            self.costs.push(ms);
         }
         self.frames.push(ms);
     }
@@ -353,18 +358,18 @@ impl Run {
             if self.spin {
                 ctx.request_repaint();
             }
-            let now = Instant::now();
-            if let Some(l) = self.last_frame.replace(now)
-                && self.scroll
+            if self.scroll
+                && let Some(off) = app.cur().and_then(|c| app.offsets.get(&c).copied())
             {
-                self.gaps.push((now - l).as_secs_f32() * 1000.0);
+                self.travel += (off - self.last_off).abs();
+                self.last_off = off;
             }
             if at.elapsed() > Duration::from_millis(100) {
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
                 self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "gaps": self.gaps });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
@@ -4014,14 +4019,18 @@ impl Run {
                 self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, c.top() - 200.0))]);
                 self.next(500);
             }
-            1402 => {
-                self.y0 = offset(app);
-                self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+            // up and back once first, so the rows it crosses are measured and no height fix shifts the second pass
+            1402 | 1403 | 1404 => {
+                let dy = if self.step == 1403 { -1.0 } else { 1.0 };
+                if self.step == 1404 {
+                    self.y0 = offset(app);
+                }
+                self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
                 self.next(700);
             }
-            1403 => {
+            1405 => {
                 let want = super::wheel::notch(ctx.zoom_factor(), ctx.content_rect().height());
-                if (self.y0 - offset(app) - want).abs() < 1.5 {
+                if (self.y0 - offset(app) - want).abs() < 2.0 {
                     self.mark("feel_wheel_notch");
                 }
                 self.y0 = offset(app);
