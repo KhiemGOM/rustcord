@@ -157,6 +157,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin { left: 8, ..Default::default() }))
                 .show(ui, |ui| voice_chat(app, ui, &chan));
         }
+        if app.call.pop && app.voice.chan == Some(chan.id) {
+            return super::callbar::popped(app, ui, &chan);
+        }
         return super::call::room(app, ui, &chan);
     }
     header(app, ui, &chan);
