@@ -24,6 +24,7 @@ pub struct Members {
     sent: Option<(String, u8)>,
     edited: f64,
     pub sort: u8,
+    pub signal: u8,
     pub list: Option<Vec<Value>>,
     pub total: u64,
     pub picked: HashSet<Id>,
@@ -70,12 +71,7 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
     let Some(h) = &mut app.home else { return };
     match key {
         "members" => {
-            let mut users = Vec::new();
-            for m in v["members"].as_array().into_iter().flatten() {
-                users.push(m["member"]["user"].clone());
-            }
-            h.members.total = v["total_result_count"].as_u64().unwrap_or(0);
-            h.members.list = Some(v["members"].as_array().cloned().unwrap_or_default());
+            let users = fill(&mut h.members, &v);
             for u in users {
                 app.store.apply("USER_UPDATE", &u);
             }
@@ -91,6 +87,13 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
         }
         _ => {}
     }
+}
+
+/// Stores a members-search answer in the table, handing back the users in it.
+pub fn fill(m: &mut Members, v: &Value) -> Vec<Value> {
+    m.total = v["total_result_count"].as_u64().unwrap_or(0);
+    m.list = Some(v["members"].as_array().cloned().unwrap_or_default());
+    v["members"].as_array().into_iter().flatten().map(|m| m["member"]["user"].clone()).collect()
 }
 
 /// "5 days ago", "1 month ago": the member table's way of putting it.
@@ -183,14 +186,22 @@ fn checkbox(ui: &Ui, r: Rect, on: bool, hot: bool) {
 }
 
 fn members(app: &mut App, ui: &mut Ui, gid: Id) {
+    let Some(mut m) = app.home.as_mut().map(|h| std::mem::take(&mut h.members)) else { return };
+    table(app, ui, gid, &mut m, Tag::Home("members"));
+    if let Some(h) = &mut app.home {
+        h.members = m;
+    }
+}
+
+/// The member table, drawn from `m`; the search answer comes back under `tag`.
+pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
     // the search goes out once typing pauses, and again whenever the sort changes
     let now = ui.input(|i| i.time);
     let mut ask = None;
-    if let Some(h) = &mut app.home {
-        let m = &mut h.members;
-        let want = (m.query.trim().to_string(), m.sort);
-        if m.sent.as_ref() != Some(&want) && now - m.edited > 0.35 {
-            m.sent = Some(want.clone());
+    {
+        let want = (tb.query.trim().to_string(), tb.sort);
+        if tb.sent.as_ref() != Some(&want) && now - tb.edited > 0.35 {
+            tb.sent = Some(want.clone());
             let (words, ids): (Vec<&str>, Vec<&str>) = want.0.split_whitespace().partition(|w| w.parse::<u64>().is_err());
             let mut and = json!({});
             if want.0.len() > 1 {
@@ -203,16 +214,15 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
             }
             ask = Some(json!({ "or_query": {}, "and_query": and, "limit": 250, "sort": want.1 }));
         }
-        if m.sent.as_ref().is_some_and(|s| s.0 != m.query.trim()) {
+        if tb.sent.as_ref().is_some_and(|s| s.0 != tb.query.trim()) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
         }
     }
     if let Some(body) = ask {
-        app.rest("POST", format!("/guilds/{gid}/members-search"), Some(body), Tag::Home("members"));
+        app.rest("POST", format!("/guilds/{gid}/members-search"), Some(body), tag);
     }
-    let Some(h) = app.home.as_mut() else { return };
-    let list = h.members.list.clone().unwrap_or_default();
-    let total = h.members.total;
+    let list = tb.list.clone().unwrap_or_default();
+    let total = tb.total;
     let roles: Vec<(Id, String, u32, i32)> = app.store.guilds.get(&gid).map(|g| g.roles.values().map(|r| (r.id, r.name.clone(), r.color, r.position)).collect()).unwrap_or_default();
     let me = app.store.me;
     let mut acts: Vec<(&str, Id, egui::Pos2)> = Vec::new();
@@ -224,7 +234,7 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
     let card_top = outer.top();
     // the card's frame goes in under everything once its height is known
     let under = cu.painter().add(egui::Shape::Noop);
-    let picked = h.members.picked.len();
+    let picked = tb.picked.len();
     // the title row: Recent Members, or how many are picked and what to do with them
     let (head, _) = cu.allocate_exact_size(vec2(outer.width(), 48.0), Sense::hover());
     let p = cu.painter();
@@ -247,9 +257,9 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
         egui::Popup::menu(&sr).show(|ui| {
             super::menu_body(ui, |ui| {
                 for (v, l) in SORTS {
-                    let on = h.members.sort == v;
+                    let on = tb.sort == v;
                     if super::menu_item(ui, on.then_some(Icon::Check), l, false) {
-                        h.members.sort = v;
+                        tb.sort = v;
                     }
                 }
             });
@@ -259,10 +269,10 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
         row.painter().rect(b, 8, Color32::from_black_alpha(31), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
         icons::draw(row.painter(), Icon::Search, Rect::from_center_size(pos2(b.left() + 16.0, b.center().y), vec2(12.0, 12.0)), pal().text_normal);
         let field = Rect::from_min_max(pos2(b.left() + 30.0, b.top()), pos2(b.right() - 8.0, b.bottom()));
-        let before = h.members.query.clone();
+        let before = tb.query.clone();
         let r = row.put(
             field,
-            egui::TextEdit::singleline(&mut h.members.query)
+            egui::TextEdit::singleline(&mut tb.query)
                 .frame(Frame::NONE)
                 .font(reg(14.0))
                 .vertical_align(egui::Align::Center)
@@ -270,8 +280,8 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
                 .desired_width(field.width()),
         );
         app.rects.insert("members:search".into(), r.rect);
-        if h.members.query != before {
-            h.members.edited = now;
+        if tb.query != before {
+            tb.edited = now;
         }
     }
     // column starts, as discord spreads them over the table
@@ -280,15 +290,15 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
     let col = |f: f32| table.left() + tw * f;
     let (hr, _) = cu.allocate_exact_size(vec2(outer.width(), 57.0), Sense::hover());
     cu.painter().hline(hr.x_range(), hr.top() + 0.5, Stroke::new(1.0, pal().border_subtle));
-    let all = !list.is_empty() && list.iter().all(|m| h.members.picked.contains(&sid(&m["member"]["user"]["id"])));
+    let all = !list.is_empty() && list.iter().all(|m| tb.picked.contains(&sid(&m["member"]["user"]["id"])));
     let cb = Rect::from_min_size(pos2(table.left() + 16.0, hr.center().y - 10.0), vec2(20.0, 20.0));
     let cr = cu.interact(cb, cu.id().with("pick_all"), Sense::click());
     checkbox(&cu, cb, all, cr.hovered());
     if cr.clicked() {
         if all {
-            h.members.picked.clear();
+            tb.picked.clear();
         } else {
-            h.members.picked = list.iter().map(|m| sid(&m["member"]["user"]["id"])).filter(|u| *u != me).collect();
+            tb.picked = list.iter().map(|m| sid(&m["member"]["user"]["id"])).filter(|u| *u != me).collect();
         }
     }
     // each heading wraps inside its column, as "Joined Discord" does in a narrow window
@@ -299,17 +309,34 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
         let at = pos2(col(*f), hr.center().y - g.size().y / 2.0);
         cu.painter().galley(at, g, pal().text_normal);
     }
+    let sig = Rect::from_center_size(pos2(col(0.785) + 74.0, hr.center().y), vec2(24.0, 24.0));
+    let sr = cu.interact(sig, cu.id().with("signal_filter"), Sense::click());
+    icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { BLURPLE } else { pal().text_normal });
+    egui::Popup::menu(&sr.on_hover_text("Filter based on safety info, such as timed out or engaging in unusual DM activity.")).show(|ui| {
+        super::menu_body(ui, |ui| {
+            for (v, l) in [(0, "All members"), (1, "Timed out"), (2, "Unusual DM activity")] {
+                if super::menu_item(ui, (tb.signal == v).then_some(Icon::Check), l, false) {
+                    tb.signal = v;
+                }
+            }
+        });
+    });
     let rows_h = (outer.bottom() - hr.bottom() - 64.0).max(60.0);
     let mut picks: Vec<(Id, bool)> = Vec::new();
     egui::ScrollArea::vertical().id_salt(("members_table", gid)).max_height(rows_h).auto_shrink([false, true]).show(&mut cu, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
-        if h.members.list.is_none() {
+        if tb.list.is_none() {
             ui.add_space(24.0);
             ui.spinner();
         }
         for m in &list {
             let mem = &m["member"];
             let u = &mem["user"];
+            let timed = mem["communication_disabled_until"].as_str().is_some_and(|t| chrono::DateTime::parse_from_rfc3339(t).is_ok_and(|t| t.timestamp() > chrono::Utc::now().timestamp()));
+            let unusual = mem["unusual_dm_activity_until"].is_string();
+            if (tb.signal == 1 && !timed) || (tb.signal == 2 && !unusual) {
+                continue;
+            }
             let uid = sid(&u["id"]);
             let (r, resp) = ui.allocate_exact_size(vec2(outer.width(), 60.0), Sense::click());
             if resp.hovered() {
@@ -318,7 +345,7 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
             let y = r.center().y;
             let cb = Rect::from_min_size(pos2(table.left() + 16.0, y - 10.0), vec2(20.0, 20.0));
-            let on = h.members.picked.contains(&uid);
+            let on = tb.picked.contains(&uid);
             let c = ui.interact(cb, ui.id().with(("pick", uid)), Sense::click());
             if uid != me {
                 checkbox(ui, cb, on, c.hovered());
@@ -420,6 +447,16 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
                     });
                 });
             }
+            let mut sx = col(0.785);
+            for (on, label) in [(timed, "Timed out"), (unusual, "Unusual DMs")] {
+                if on {
+                    let g = ui.painter().layout_no_wrap(label.into(), medium(12.0), pal().text_normal);
+                    let chip = Rect::from_min_size(pos2(sx, y - 11.0), vec2(g.size().x + 16.0, 22.0));
+                    ui.painter().rect_filled(chip, 4, faint(31));
+                    ui.painter().galley(pos2(chip.left() + 8.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
+                    sx = chip.right() + 4.0;
+                }
+            }
             // open mod view, more
             for (k, (icon, tip)) in [(Icon::People, "Open Mod View"), (Icon::More, "More Options")].into_iter().enumerate() {
                 let b = Rect::from_center_size(pos2(table.right() - 82.0 + k as f32 * 36.0, y), vec2(28.0, 28.0));
@@ -449,12 +486,12 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
     cu.painter().set(under, egui::Shape::rect_stroke(card, CornerRadius::same(12), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside));
     for (u, on) in picks {
         if on {
-            h.members.picked.insert(u);
+            tb.picked.insert(u);
         } else {
-            h.members.picked.remove(&u);
+            tb.picked.remove(&u);
         }
     }
-    let chosen: Vec<Id> = h.members.picked.iter().copied().collect();
+    let chosen: Vec<Id> = tb.picked.iter().copied().collect();
     for (what, uid, at) in acts {
         match what {
             "profile" => app.open_profile(uid, gid, at),
@@ -485,8 +522,8 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
                     app.rest("DELETE", format!("/guilds/{gid}/members/{u}"), None, Tag::Quiet);
                 }
             }
-            if let Some(h) = &mut app.home {
-                h.members.picked.clear();
+            for t in tables(app) {
+                t.picked.clear();
             }
             refresh(app);
         }));
@@ -495,9 +532,13 @@ fn members(app: &mut App, ui: &mut Ui, gid: Id) {
 
 /// Asks the table again, after something in it changed.
 fn refresh(app: &mut App) {
-    if let Some(h) = &mut app.home {
-        h.members.sent = None;
+    for m in tables(app) {
+        m.sent = None;
     }
+}
+
+fn tables(app: &mut App) -> impl Iterator<Item = &mut Members> {
+    app.home.as_mut().map(|h| &mut h.members).into_iter().chain(app.server.as_mut().map(|s| &mut s.pages.members))
 }
 
 fn channels(app: &mut App, ui: &mut Ui, gid: Id, tab: u8) {

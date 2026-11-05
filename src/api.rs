@@ -198,6 +198,25 @@ impl Api {
         if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
     }
 
+    pub async fn sticker(&self, gid: Id, fields: [(&'static str, String); 3], file: PathBuf) -> Result<Value, String> {
+        let bytes = tokio::fs::read(&file).await.map_err(|e| e.to_string())?;
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let mime = match file.extension().and_then(|e| e.to_str()).map(str::to_lowercase).as_deref() {
+            Some("gif") => "image/gif",
+            Some("json") => "application/json",
+            _ => "image/png",
+        };
+        let mut form = multipart::Form::new();
+        for (k, v) in fields {
+            form = form.text(k, v);
+        }
+        form = form.part("file", multipart::Part::bytes(bytes).file_name(name).mime_str(mime).map_err(|e| e.to_string())?);
+        let res = self.build(Method::POST, &format!("/guilds/{gid}/stickers")).multipart(form).send().await.map_err(|e| e.to_string())?;
+        let ok = res.status().is_success();
+        let v: Value = res.json().await.unwrap_or_default();
+        if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
+    }
+
     // the official client posts interactions as multipart with a payload_json part
     pub async fn interact(&self, payload: Value) -> Result<Value, String> {
         let form = multipart::Form::new().text("payload_json", payload.to_string());

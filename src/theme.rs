@@ -306,6 +306,11 @@ pub fn anim(secs: f32) -> f32 {
     if REDUCED.load(std::sync::atomic::Ordering::Relaxed) { 0.0 } else { secs }
 }
 
+/// A palette by theme, whatever the current one is: 0 light, 1 ash, 2 dark, 3 onyx.
+pub fn palette(i: usize) -> &'static Palette {
+    &PALETTES[i]
+}
+
 pub fn pal() -> &'static Palette {
     &PALETTES[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize]
 }

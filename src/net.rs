@@ -101,6 +101,7 @@ pub enum Cmd {
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
+    Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Voice(voice::Cmd),
 }
 
@@ -116,6 +117,7 @@ fn allowed(c: &Cmd) -> bool {
         Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) => false,
         Cmd::Rest { method, .. } => *method == "GET",
+        Cmd::Sticker { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
@@ -281,6 +283,13 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
                         _ => tx.send(Ev::Rest { tag, res }),
+                    }
+                });
+            }
+            Cmd::Sticker { guild, name, tags, description, file } => {
+                tokio::spawn(async move {
+                    if let Err(e) = a.sticker(guild, [("name", name), ("tags", tags), ("description", description)], file).await {
+                        tx.send(Ev::Error(e));
                     }
                 });
             }
