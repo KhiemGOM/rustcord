@@ -380,7 +380,7 @@ impl Run {
                 self.spin = self.dir.join("spin").exists();
                 self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel, "dbg": json!({ "cur": app.cur(), "off": app.cur().and_then(|c| app.offsets.get(&c).copied()), "notches": self.notches, "msgs": app.cur().and_then(|c| app.store.msgs.get(&c)).map(|e| e.list.len()) }) });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;

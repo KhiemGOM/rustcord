@@ -118,7 +118,6 @@ def scroll(h, out, secs):
     w = window(h, out, secs)
     costs = sorted((stats(out) or {}).get("costs", [])[n:])
     (out / "scroll").unlink()
-    w["dbg"] = (stats(out) or {}).get("dbg")
     if not costs:
         return w
     at = lambda q: round(costs[min(int(len(costs) * q), len(costs) - 1)], 2)
