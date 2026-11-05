@@ -3939,7 +3939,7 @@ impl Run {
                 }
             }
             474 => {
-                if !self.said.is_empty() || true {
+                if !self.said.is_empty() {
                     self.mark("qol_speak");
                     self.key(Key::Escape);
                     self.next(300);
@@ -5268,12 +5268,17 @@ impl Run {
         }
     }
 
-    /// The person menu from a voice row and a friend row, a user's volume reaching the mixer, a
-    /// pinned dm, the account list and the custom status.
+    /// The person menu from a voice row, a friend row and a dm row, a user's volume reaching the
+    /// mixer, Pin through the menu, switching accounts and the custom status.
     fn person_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         use crate::ui::usermenu::Origin;
-        let row = |ctx: &egui::Context, label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label)))).is_some();
+        let key = |label: &str| egui::Id::new(("menu_row", label));
+        let row = |ctx: &egui::Context, label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(key(label)));
+        let clear = |ctx: &egui::Context, labels: &[&str]| labels.iter().for_each(|l| ctx.data_mut(|d| d.remove::<egui::Rect>(key(l))));
         let at = egui::pos2(400.0, 200.0);
+        const VOICE: [&str; 8] = ["Profile", "Start a Call", "User Volume", "Mute", "Mute Soundboard", "Invite to Server", "Ignore", "Block"];
+        const FRIEND: [&str; 5] = ["Profile", "Message", "Start a Call", "Add Friend Nickname", "Remove Friend"];
+        const DM: [&str; 6] = ["Mark As Read", "Pin", "Profile", "Close DM", "Ignore", "Block"];
         match self.step {
             2500 => {
                 app.friends = false;
@@ -5282,15 +5287,19 @@ impl Run {
                 self.next(800);
             }
             2501 => {
+                clear(ctx, &VOICE);
                 app.user_menu = Some((101, self.target.0, None, at));
                 app.menu_from = Origin::Voice(2021);
                 self.next(600);
             }
             2502 => {
-                if let Some(l) = ["Profile", "Start a Call", "User Volume", "Mute", "Mute Soundboard", "Ignore", "Block"].into_iter().find(|l| !row(ctx, l)) {
+                if let Some(l) = VOICE.into_iter().find(|l| row(ctx, l).is_none()) {
                     return self.fail(format!("a voice user's menu has no {l}"));
                 }
                 self.shot(ctx, "menu_voice_user.png");
+                self.next(300);
+            }
+            2503 => {
                 app.set_peer(101, crate::cache::Peer { volume: 70.0, ..Default::default() }, false);
                 let gain = app.voice.shared.peers.lock().ok().and_then(|g| g.get(&101).copied());
                 if gain != Some(0.7) {
@@ -5302,35 +5311,63 @@ impl Run {
                 self.mark("person_menu");
                 self.next(300);
             }
-            2503 => {
+            2504 => {
+                clear(ctx, &FRIEND);
+                app.select_guild(None);
                 app.friends = true;
                 app.user_menu = Some((102, 0, None, at));
                 app.menu_from = Origin::Friends;
                 self.next(600);
             }
-            2504 => {
-                if let Some(l) = ["Profile", "Message", "Start a Call", "Add Friend Nickname", "Remove Friend"].into_iter().find(|l| !row(ctx, l)) {
+            2505 => {
+                if let Some(l) = FRIEND.into_iter().find(|l| row(ctx, l).is_none()) {
                     return self.fail(format!("a friend's menu has no {l}"));
                 }
                 self.shot(ctx, "menu_friend.png");
-                app.user_menu = None;
-                app.menu_from = Origin::Plain;
-                self.mark("friend_menu");
-                self.next(300);
-            }
-            2505 => {
-                let Some(dm) = app.store.dms.first().copied() else { return self.fail("no dm to pin".into()) };
-                app.pin_dm(dm, true);
-                self.mark("pin_dm");
                 self.next(300);
             }
             2506 => {
-                if app.accounts.is_empty() {
-                    return self.fail("the signed-in account never made the Switch Accounts list".into());
+                app.user_menu = None;
+                app.menu_from = Origin::Plain;
+                self.mark("friend_menu");
+                let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else { return self.fail("no dm to open the menu on".into()) };
+                self.loaded = dm as usize;
+                clear(ctx, &DM);
+                app.friends = false;
+                let who = app.store.channels[&dm].recipients[0];
+                app.user_menu = Some((who, 0, Some(dm), at));
+                self.next(600);
+            }
+            2507 => {
+                if let Some(l) = DM.into_iter().find(|l| row(ctx, l).is_none()) {
+                    return self.fail(format!("a dm's menu has no {l}"));
                 }
-                app.set_custom_status("mock status", 3);
-                self.mark("accounts");
+                self.shot(ctx, "menu_dm.png");
+                let Some(r) = row(ctx, "Pin") else { return };
+                self.click(r.center());
                 self.next(400);
+            }
+            2508 => {
+                if !app.store.pinned.contains(&(self.loaded as Id)) {
+                    return;
+                }
+                self.mark("pin_dm");
+                app.set_custom_status("mock status", 3);
+                crate::cache::remember_account(&crate::cache::SavedAccount { id: 4242, name: "Second".into(), avatar: None }, "mock-token");
+                app.accounts = crate::cache::accounts();
+                app.switch_account(4242);
+                self.next(600);
+            }
+            2509 => {
+                if app.store.me == 0 || app.token.is_none() {
+                    return;
+                }
+                if app.accounts.len() < 2 {
+                    return self.fail("signing in didn't keep the account for Switch Accounts".into());
+                }
+                crate::cache::forget_account(4242);
+                self.mark("accounts");
+                self.next(300);
             }
             _ => self.step = 99,
         }
