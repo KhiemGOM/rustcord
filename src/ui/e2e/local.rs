@@ -353,9 +353,10 @@ impl Run {
                     return;
                 }
                 let o = read(&self.local.web);
-                if o["done"] != true {
+                if o["done"] != true || !app.invite_card.loaded() {
                     return;
                 }
+                self.mark("rpc_invite_preview");
                 self.shot(ctx, "rpc_invite.png");
                 self.mark("rpc_invite_modal");
                 self.key(Key::Enter);
