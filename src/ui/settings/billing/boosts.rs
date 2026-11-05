@@ -282,7 +282,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
                         Some(slot) => {
                             act(app, ui, vec![apply(slot, &gid.to_string())]);
                         }
-                        None => checkout("/settings/premium-guild-subscriptions"),
+                        None => checkout(&format!("/billing/guild-subscriptions/purchase?guild_id={gid}")),
                     }
                 }
             });
