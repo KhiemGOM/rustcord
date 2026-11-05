@@ -18,6 +18,9 @@ mod members;
 mod palette;
 mod picker;
 mod popups;
+mod reactions;
+mod report;
+mod system;
 mod rail;
 mod channel;
 mod community;
@@ -87,6 +90,8 @@ pub struct App {
     pub user_menu: Option<(Id, Id, Option<Id>, Pos2)>,
     pub confirm: Option<Confirm>,
     pub forward: Option<popups::Forward>,
+    pub reactors: Option<reactions::Reactors>,
+    pub report: Option<report::Report>,
     // the server guide's new member actions, per server: (their channels, the ones done)
     pub guides: Map<Id, (Vec<Id>, Set<Id>)>,
     pub guild_notifs: Option<Id>,
@@ -148,6 +153,8 @@ pub struct App {
     // a channel the user just marked unread shouldn't get re-acked on the next frame
     pub hold_ack: Option<Id>,
     pub reply_ping: bool,
+    pub open_threads: bool,
+    pub unsent: Map<String, actions::Unsent>,
     // the message keyboard focus sits on (shift+tab out of the composer), and whether it just
     // moved and wants scrolling into view
     pub focus_msg: Option<Id>,
@@ -266,6 +273,8 @@ impl App {
             menu: None,
             confirm: None,
             forward: None,
+            reactors: None,
+            report: None,
             guides: Map::default(),
             user_menu: None,
             guild_notifs: None,
@@ -318,6 +327,8 @@ impl App {
             sform: Default::default(),
             hold_ack: None,
             reply_ping: true,
+            open_threads: false,
+            unsent: Default::default(),
             focus_msg: None,
             focus_scroll: false,
             caret_end: false,
@@ -554,6 +565,7 @@ impl App {
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
         self.jump_to_present(ch);
         let reply = reply.map(|r| (r, self.reply_ping));
+        self.remember_send(&nonce, actions::Unsent { content: text.clone(), reply, files: files.clone(), tts });
         self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply, files, stickers: Vec::new(), tts });
         self.hold_ack = None;
         self.last_typing = None;
@@ -569,6 +581,7 @@ impl App {
         let nonce = crate::state::make_nonce();
         self.store.add_pending(ch, text.clone(), nonce.clone(), None);
         self.jump_to_present(ch);
+        self.remember_send(&nonce, actions::Unsent { content: text.clone(), reply: None, files: Vec::new(), tts: false });
         self.net.send(Cmd::Send { channel: ch, content: text, nonce, reply: None, files: Vec::new(), stickers: Vec::new(), tts: false });
     }
 
@@ -1032,6 +1045,7 @@ impl App {
             Err(e) => {
                 match tag {
                     Tag::Pins(_) => self.pins = None,
+                    Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
                     Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) => return,
@@ -1068,6 +1082,8 @@ impl App {
                     self.pins = Some((ch, Some(list)));
                 }
             }
+            Tag::Report(submit) => self.report_loaded(submit, v),
+            Tag::Reactors(_, msg, key, burst) => self.store.set_reactors((msg, key, burst), &v),
             Tag::Soundboard(g) => {
                 let list: Vec<crate::state::Sound> = v["items"].as_array().into_iter().flatten().map(crate::state::Sound::parse).collect();
                 if let Some((cg, slot)) = self.soundboard.as_mut().filter(|(cg, _)| *cg == g) {

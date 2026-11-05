@@ -67,6 +67,8 @@ pub struct Inbox {
     pub mentions: Option<Vec<Message>>,
     // what the bookmarks or reminders tab lists, once it's loaded
     pub saved: Option<Vec<Saved>>,
+    // the friend requests list instead of the tab's
+    pub friends: bool,
 }
 
 /// A message saved for later: where it is, the message itself when discord sent it, and when a
@@ -145,14 +147,27 @@ impl App {
         if self.inbox.take().is_some() {
             return;
         }
-        self.inbox = Some(Inbox { tab: 1, mentions: None, saved: None });
-        self.rest("GET", "/users/@me/mentions?limit=25&roles=true&everyone=true".into(), None, Tag::Inbox);
+        self.inbox = Some(Inbox { tab: 1, mentions: None, saved: None, friends: false });
+        self.fetch_mentions();
+    }
+
+    fn fetch_mentions(&mut self) {
+        let s = &self.settings;
+        let mut path = format!("/users/@me/mentions?limit=25&roles={}&everyone={}", s.inbox_roles, s.inbox_everyone);
+        if let Some(g) = self.ui.guild.filter(|_| !s.inbox_all) {
+            path.push_str(&format!("&guild_id={g}"));
+        }
+        if let Some(i) = &mut self.inbox {
+            i.mentions = None;
+        }
+        self.rest("GET", path, None, Tag::Inbox);
     }
 
     /// The unread channels the inbox lists, newest first: nothing muted, nothing hidden.
     pub fn inbox_unreads(&self) -> Vec<Id> {
         let s = &self.store;
-        let mut list: Vec<_> = s.channels.values().filter(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c)).collect();
+        let here = self.ui.guild.filter(|_| !self.settings.inbox_all);
+        let mut list: Vec<_> = s.channels.values().filter(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c) && here.is_none_or(|g| c.guild == g || c.guild == 0)).collect();
         list.sort_by_key(|c| std::cmp::Reverse(c.last_msg));
         list.into_iter().map(|c| c.id).collect()
     }
@@ -417,6 +432,8 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let mut open_ch = None;
     let mut switch = None;
     let mut read_all = None;
+    let mut filter = None;
+    let mut friends = None;
     let area = egui::Area::new(egui::Id::new("inbox"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
@@ -434,14 +451,41 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
                         icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
                         ui.label(RichText::new("Inbox").font(semi(20.0)).color(pal().header_primary));
-                        if tab == 0 {
+                        {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count();
+                                let r = head_button(ui, Icon::PersonAdd, "View Friend Requests", pending);
+                                app.rects.insert("inbox:friends".into(), r.rect);
+                                if r.clicked() {
+                                    friends = Some(!app.inbox.as_ref().is_some_and(|i| i.friends));
+                                }
+                                if tab < 2 {
+                                    let r = head_button(ui, Icon::Filter, "Filter", 0);
+                                    app.rects.insert("inbox:filter".into(), r.rect);
+                                    let frame = Frame::menu(&ui.ctx().global_style());
+                                    egui::Popup::menu(&r).align(egui::RectAlign::BOTTOM_END).gap(4.0).frame(frame).show(|ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        let s = &app.settings;
+                                        let rows: &[(&str, bool)] = if tab == 1 {
+                                            &[("@here and @everyone", s.inbox_everyone), ("Show Role Mentions", s.inbox_roles), ("Include all servers", s.inbox_all)]
+                                        } else {
+                                            &[("Include all servers", s.inbox_all)]
+                                        };
+                                        for (i, (label, on)) in rows.iter().enumerate() {
+                                            if super::menu_row(ui, None, label, None, false, super::Trail::Check(*on)).clicked() {
+                                                filter = Some(if tab == 1 { i } else { 2 });
+                                            }
+                                        }
+                                    });
+                                }
+                                if tab == 0 {
                                 let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
                                 ui.painter().rect(r, 8, if resp.hovered() { NAV_HOVER } else { HOVER }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                                 icons::draw(ui.painter(), Icon::CheckAll, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
                                 app.rects.insert("inbox:read_all".into(), r);
                                 if resp.on_hover_text("Mark All as Read").clicked() {
                                     read_all = Some(!ui.input(|i| i.modifiers.shift));
+                                }
                                 }
                             });
                         }
@@ -460,6 +504,10 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                 let mut list = |ui: &mut Ui| {
                     Frame::new().inner_margin(16).show(ui, |ui| {
                         ui.set_width(ui.available_width());
+                        if app.inbox.as_ref().is_some_and(|i| i.friends) {
+                            friend_requests(ui, app);
+                            return;
+                        }
                         match tab {
                             0 => open_ch = unread_list(ui, app),
                             1 => jump = mention_list(ui, app),
@@ -474,11 +522,28 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
+    if let Some(f) = friends
+        && let Some(i) = &mut app.inbox
+    {
+        i.friends = f;
+    }
+    if let Some(n) = filter {
+        let s = &mut app.settings;
+        match n {
+            0 => s.inbox_everyone = !s.inbox_everyone,
+            1 => s.inbox_roles = !s.inbox_roles,
+            _ => s.inbox_all = !s.inbox_all,
+        }
+        if tab == 1 {
+            app.fetch_mentions();
+        }
+    }
     if let Some(t) = switch
         && let Some(i) = &mut app.inbox
         && i.tab != t
     {
         i.tab = t;
+        i.friends = false;
         i.saved = None;
         match t {
             2 => app.rest("GET", "/users/@me/saved-messages/bookmarks?limit=25".into(), None, Tag::Saved(1)),
@@ -515,6 +580,9 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
 // so only scroll when the entries (by a rough height) would overflow
 fn body_height(app: &App) -> f32 {
     let Some(i) = &app.inbox else { return 0.0 };
+    if i.friends {
+        return 100.0 + 56.0 * app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as f32;
+    }
     if i.tab >= 2 {
         return match &i.saved {
             None => 90.0,
@@ -530,6 +598,60 @@ fn body_height(app: &App) -> f32 {
         None => 90.0,
         Some(l) if l.is_empty() => 100.0,
         Some(l) => l.iter().map(|m| 58.0 + 98.0 + 20.0 * (m.content.lines().count().max(1) - 1 + m.content.len() / 60) as f32 + 24.0 * m.attachments.len() as f32).sum(),
+    }
+}
+
+fn head_button(ui: &mut Ui, icon: Icon, tip: &str, count: usize) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+    ui.painter().rect(r, 8, if resp.hovered() { NAV_HOVER } else { HOVER }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
+    if count > 0 {
+        badge(ui, pos2(r.right() + 2.0, r.top() + 2.0), count as u32, None);
+    }
+    resp.on_hover_text(tip)
+}
+
+/// The people who've asked to be your friend, to take or turn down without leaving the inbox.
+fn friend_requests(ui: &mut Ui, app: &mut App) {
+    let mut asked: Vec<Id> = app.store.relationships.iter().filter(|(_, t)| **t == crate::state::INCOMING).map(|(u, _)| *u).collect();
+    asked.sort();
+    ui.label(RichText::new("Friend Requests").font(semi(16.0)).color(pal().header_primary));
+    ui.add_space(8.0);
+    if asked.is_empty() {
+        ui.add_space(8.0);
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new("No Incoming Friend Requests").font(semi(16.0)).color(pal().header_primary));
+            ui.add_space(4.0);
+            ui.label(RichText::new("Once you have incoming friend requests, you can access them here!").font(reg(14.0)).color(pal().header_secondary));
+        });
+        ui.add_space(16.0);
+        return;
+    }
+    let mut accept = None;
+    let mut ignore = None;
+    for u in asked {
+        let Some(user) = app.store.user(u) else { continue };
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
+        super::avatar(ui, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(32.0, 32.0)), &user.avatar_url());
+        text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y - 8.0), egui::Align2::LEFT_CENTER, user.display(), semi(16.0), pal().header_primary, 280.0);
+        text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y + 10.0), egui::Align2::LEFT_CENTER, "Incoming Friend Request", reg(12.0), pal().text_muted, 280.0);
+        for (i, (icon, tip)) in [(Icon::Close, "Ignore"), (Icon::Check, "Accept")].into_iter().enumerate() {
+            let b = Rect::from_center_size(pos2(r.right() - 20.0 - 40.0 * i as f32, r.center().y), vec2(32.0, 32.0));
+            let resp = ui.interact(b, ui.id().with(("friend_req", u, i)), Sense::click());
+            ui.painter().circle_filled(b.center(), 16.0, if resp.hovered() { pal().control_hover } else { pal().control });
+            icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if i == 1 { GREEN } else { pal().header_secondary });
+            if resp.on_hover_text(tip).clicked() {
+                if i == 1 { accept = Some(u) } else { ignore = Some(u) }
+            }
+        }
+    }
+    if let Some(u) = accept {
+        app.store.relationships.insert(u, crate::state::FRIEND);
+        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), Tag::Quiet);
+    }
+    if let Some(u) = ignore {
+        app.store.relationships.remove(&u);
+        app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet);
     }
 }
 

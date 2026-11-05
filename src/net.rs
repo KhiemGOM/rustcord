@@ -80,6 +80,10 @@ pub enum Tag {
     Events(Id, u8),
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
+    // the people who reacted to a message with an emoji: channel, message, emoji, whether super
+    Reactors(Id, Id, String, bool),
+    // report message: false the menu, true the submission
+    Report(bool),
     Quiet,
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),

@@ -153,6 +153,9 @@ pub enum Icon {
     SideApps,
     SideDev,
     SideLogout,
+    Phone,
+    Filter,
+    LinkExternal,
 }
 
 macro_rules! svg {
@@ -255,6 +258,9 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Streak => svg!("streak"),
         Icon::Fire => svg!("fire"),
         Icon::Retry => svg!("retry"),
+        Icon::Phone => svg!("phone"),
+        Icon::Filter => svg!("filter"),
+        Icon::LinkExternal => svg!("link_external"),
         Icon::Launched => svg!("launched"),
         Icon::Marathon => svg!("marathon"),
         Icon::NewRelease => svg!("new_release"),

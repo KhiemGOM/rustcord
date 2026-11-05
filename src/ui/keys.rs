@@ -27,6 +27,8 @@ impl App {
     pub fn modal_open(&self) -> bool {
         self.confirm.is_some()
             || self.forward.is_some()
+            || self.reactors.is_some()
+            || self.report.is_some()
             || self.invite.is_some()
             || self.made_invite.is_some()
             || self.status_edit.is_some()
