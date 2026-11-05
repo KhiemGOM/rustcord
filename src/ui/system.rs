@@ -228,11 +228,6 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
             sys(if m.kind == 14 { Icon::Flag } else { Icon::Help }, if m.kind == 14 { RED } else { YELLOW }, s)
         }
         15 => sys(Icon::Check, GREEN, vec![Text("This server is eligible for Server Discovery again and has been automatically relisted!".into())]),
-        13 => {
-            let streamed = m.call.as_ref().and_then(|c| c.ended).map(|e| humanize(e - m.ts()));
-            let tail = streamed.map(|d| format!(" streamed for {d}.")).unwrap_or_else(|| " started streaming.".into());
-            sys(Icon::Screen, GREEN, vec![u, Text(tail)])
-        }
         18 => {
             let name = if m.content.is_empty() { "a thread".to_string() } else { m.content.clone() };
             let t = m.refer.map(|(c, _)| c).filter(|c| *c != 0);
@@ -325,7 +320,10 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
             let card = winner.map_or(Card::None, |winner| Card::Poll { winner, poll: m.refer.filter(|r| r.1 != 0) });
             Some(Sys { icon: Icon::Rules, tint: muted, spans: s, button: None, card })
         }
-        49 => sys(Icon::Refresh, GREEN, vec![u, Text(" has linked this channel to an app. Messages are now syncing.".into())]),
+        49 => match m.extra["application"].as_str() {
+            Some(a) => sys(Icon::Refresh, GREEN, vec![u, Text(" has linked this channel to ".into()), Bold(a.to_string()), Text(". Messages are now syncing.".into())]),
+            None => None,
+        },
         52 => sys(Icon::ArrowRight, GREEN, vec![Text("This application was approved! Welcome!".into())]),
         53 => sys(Icon::ArrowLeft, RED, vec![Text("This application was rejected.".into())]),
         54 => sys(Icon::ArrowLeft, RED, vec![Text("This application has been withdrawn.".into())]),
