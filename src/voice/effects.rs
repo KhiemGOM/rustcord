@@ -326,6 +326,31 @@ mod tests {
         f
     }
 
+    #[test]
+    fn blend_keeps_the_person_and_replaces_the_rest() {
+        let (w, h) = (320, 288);
+        let src = frame(w, h);
+        let pic = vec![7u8; w * h * 4];
+        let mut gone = src.clone();
+        blend(&mut gone, &vec![0.0; SIDE * SIDE], w, h, Back::Pic(&pic));
+        assert!(gone.chunks_exact(4).all(|p| p[..3] == [7, 7, 7]));
+        let mut kept = src.clone();
+        blend(&mut kept, &vec![1.0; SIDE * SIDE], w, h, Back::Pic(&pic));
+        assert_eq!(kept, src);
+    }
+
+    #[test]
+    fn blend_follows_the_mask() {
+        let (w, h) = (256, 256);
+        let src = vec![200u8; w * h * 4];
+        let pic = vec![10u8; w * h * 4];
+        let mask: Vec<f32> = (0..SIDE * SIDE).map(|i| if i % SIDE < SIDE / 2 { 1.0 } else { 0.0 }).collect();
+        let mut out = src.clone();
+        blend(&mut out, &mask, w, h, Back::Pic(&pic));
+        assert_eq!(out[(10 * w + 10) * 4], 200);
+        assert_eq!(out[(10 * w + 250) * 4], 10);
+    }
+
     fn lap(f: impl FnOnce()) -> f64 {
         let t = Instant::now();
         f();
