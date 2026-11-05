@@ -4,6 +4,7 @@ mod api;
 mod audioplay;
 mod auth;
 mod cache;
+mod clips;
 mod emoji_font;
 mod fonts;
 mod gateway;
