@@ -8,7 +8,7 @@ use crate::theme::*;
 pub struct Modify {
     idx: usize,
     name: String,
-    alt: String,
+    pub alt: String,
     spoiler: bool,
     fresh: bool,
 }
@@ -78,7 +78,9 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                save = button(ui, "Save", BLURPLE, 212.0).clicked();
+                let b = button(ui, "Save", BLURPLE, 212.0);
+                super::settings::mark(ui, "modify:save", b.rect);
+                save = b.clicked();
             });
         });
     if save && let Some(m) = app.modify.take() {

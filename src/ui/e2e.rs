@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod composer;
+
 use super::{App, side};
 use crate::net::Conn;
 use crate::state::Id;
@@ -1213,6 +1215,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            560..=599 => self.composer_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3963,7 +3966,8 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 560;
+                    self.step_at = Instant::now();
                 }
             }
         }

@@ -412,7 +412,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 24.0;
                             for (i, f) in app.files.iter_mut().enumerate() {
-                                let (act, focused) = upload_card(ui, f);
+                                let (act, focused) = upload_card(ui, f, i);
                                 match act {
                                     Some(CardAct::Remove) => remove = Some(i),
                                     Some(CardAct::Spoiler) => f.spoiler = !f.spoiler,
@@ -640,8 +640,9 @@ enum CardAct {
     Modify,
 }
 
-fn upload_card(ui: &mut Ui, f: &Upload) -> (Option<CardAct>, bool) {
+fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     let (r, card) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::click());
+    super::settings::mark(ui, &format!("card:{i}"), r);
     let p = ui.painter();
     p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
     if card.has_focus() {

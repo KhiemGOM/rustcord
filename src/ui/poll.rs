@@ -11,7 +11,7 @@ const DURATIONS: [(u32, &str); 7] = [(1, "1 hour"), (4, "4 hours"), (8, "8 hours
 
 pub struct Draft {
     pub ch: Id,
-    question: String,
+    pub question: String,
     pub answers: Vec<(String, Option<ReactEmoji>)>,
     hours: u32,
     multi: bool,
@@ -152,6 +152,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.checkbox(&mut d.multi, RichText::new("Allow Multiple Answers").font(reg(16.0)).color(pal().header_primary));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let b = ui.add_enabled_ui(ready, |ui| button(ui, "Post", BLURPLE, 100.0)).inner;
+                    super::settings::mark(ui, "poll:post", b.rect);
                     post = b.clicked();
                 });
             });

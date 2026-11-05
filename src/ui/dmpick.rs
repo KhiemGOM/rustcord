@@ -12,7 +12,7 @@ const LIMIT: usize = 10;
 /// Discord's friend picker for a group DM: a new one, or more people for the one open.
 pub struct Pick {
     base: Option<Id>,
-    picked: Vec<Id>,
+    pub picked: Vec<Id>,
     q: String,
     fresh: bool,
 }
@@ -109,7 +109,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                    go = ui.add_enabled_ui(!p.picked.is_empty(), |ui| button(ui, button_text, BLURPLE, 212.0)).inner.clicked();
+                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| button(ui, button_text, BLURPLE, 212.0)).inner;
+                    super::settings::mark(ui, "pick:go", b.rect);
+                    go = b.clicked();
                 });
             });
         });
