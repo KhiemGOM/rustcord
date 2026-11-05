@@ -15,7 +15,7 @@ pub struct Sources {
 const EXTS: [&str; 9] = ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
 
 pub fn vencord_dir() -> PathBuf {
-    std::env::var_os("FASTCORD_VENCORD").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("Vencord"))
+    std::env::var_os("RUSTCORD_VENCORD").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("Vencord"))
 }
 
 impl Sources {

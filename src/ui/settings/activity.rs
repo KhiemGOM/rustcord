@@ -12,7 +12,7 @@ pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
         None => {
             ui.add(egui::Spinner::new().color(pal().text_muted));
         }
-        Some(Err(_)) => note(ui, "Discord didn't hand this setting to Fastcord. You can change it on discord.com."),
+        Some(Err(_)) => note(ui, "Discord didn't hand this setting to Rustcord. You can change it on discord.com."),
         Some(Ok(s)) => {
             let mut on = s["show_current_game"].as_bool().unwrap_or(true);
             if toggle(

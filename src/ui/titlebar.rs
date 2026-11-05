@@ -208,7 +208,7 @@ fn place(app: &App) -> (Mark, String) {
     if let Some(g) = app.ui.guild.and_then(|g| s.guilds.get(&g)) {
         return (Mark::Guild(g.id), g.name.clone());
     }
-    let Some(c) = app.cur().and_then(|c| s.channels.get(&c)) else { return (Mark::None, "Fastcord".into()) };
+    let Some(c) = app.cur().and_then(|c| s.channels.get(&c)) else { return (Mark::None, "Rustcord".into()) };
     let mark = match c.kind {
         1 => c.recipients.first().and_then(|u| s.user(*u)).map(|u| Mark::Avatar(u.avatar_url())).unwrap_or(Mark::None),
         _ => Mark::People,

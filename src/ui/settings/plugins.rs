@@ -1,5 +1,5 @@
 //! Vencord's Plugins page, filled from the plugins the host loaded: Vencord's own and the
-//! userplugins folders'. Each card says what of the plugin runs in Fastcord.
+//! userplugins folders'. Each card says what of the plugin runs in Rustcord.
 
 use egui::{Align2, Color32, Id, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
@@ -9,7 +9,7 @@ use crate::theme::*;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
 
-const SHOW: [&str; 4] = ["Show All", "Show Enabled", "Show Disabled", "Show Working in Fastcord"];
+const SHOW: [&str; 4] = ["Show All", "Show Enabled", "Show Disabled", "Show Working in Rustcord"];
 
 pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Plugins");
@@ -84,7 +84,7 @@ fn status(p: &Value) -> Option<(String, Color32)> {
         .collect();
     match (names.is_empty(), patches) {
         (true, 0) => None,
-        (true, n) => Some((format!("All {n} of its changes patch Discord's own client, so it does nothing in Fastcord."), pal().text_muted)),
+        (true, n) => Some((format!("All {n} of its changes patch Discord's own client, so it does nothing in Rustcord."), pal().text_muted)),
         (false, 0) => Some((format!("Runs here: {}.", names.join(", ")), pal().text_muted)),
         (false, n) => Some((format!("Runs here: {}. Its {n} patches to Discord's own client don't.", names.join(", ")), pal().text_muted)),
     }

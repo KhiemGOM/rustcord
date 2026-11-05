@@ -1,4 +1,4 @@
-// @api/Commands: plugin slash commands, offered in Fastcord's own slash menu.
+// @api/Commands: plugin slash commands, offered in Rustcord's own slash menu.
 export { ApplicationCommandInputType, ApplicationCommandOptionType, ApplicationCommandType } from "@vencord/discord-types/enums";
 
 export const commands = {};

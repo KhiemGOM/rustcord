@@ -1,6 +1,6 @@
 // The plugin manager, and what the app calls: plugins load, start and stop as in Vencord's
 // PluginManager, gateway events reach them as Discord's flux actions, and what they add to
-// menus and bars comes back as data for Fastcord to draw.
+// menus and bars comes back as data for Rustcord to draw.
 import { Settings, defs } from "@api/Settings";
 import { commands, registerCommand, unregisterCommand } from "@api/Commands";
 import * as events from "@api/MessageEvents";
@@ -255,7 +255,7 @@ const api = {
         root.startsWith("modal:") ? closeModal(root) : unmount(root);
         return null;
     },
-    // what plugins add that Fastcord draws: so it only asks for what someone is adding
+    // what plugins add that Rustcord draws: so it only asks for what someone is adding
     features: () => ({ accessories: accessories.size, decorations: decorationsFactories.size, members: decoratorsFactories.size }),
     settingUi({ plugin, key }) {
         const d = defs.get(plugin)?.[key];

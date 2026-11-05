@@ -70,7 +70,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         }
         super::end(ui, 24.0);
         let s = &mut app.settings;
-        caption(ui, "Push to Talk Release Delay", "Push to talk works anywhere, even when Fastcord isn't focused.");
+        caption(ui, "Push to Talk Release Delay", "Push to talk works anywhere, even when Rustcord isn't focused.");
         super::lead(ui);
         let mut ms = s.ptt_delay_ms as f32;
         let w = ui.available_width();
@@ -80,7 +80,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         }
         super::end(ui, 24.0);
     } else {
-        caption(ui, "Input Sensitivity", "Controls how much sound Fastcord transmits from you.");
+        caption(ui, "Input Sensitivity", "Controls how much sound Rustcord transmits from you.");
         changed |= toggle(ui, &mut s.auto_sensitivity, "Automatically determine input sensitivity", "");
         if !s.auto_sensitivity {
             super::lead(ui);
@@ -113,7 +113,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     changed |= toggle(ui, &mut app.settings.noise_suppression, "Krisp", "Removes background noise from your mic — keyboards, fans, barking dogs — before it goes out.");
 
     section(ui, "Camera");
-    note(ui, "Fastcord uses your default camera. Turn it on from the call controls.");
+    note(ui, "Rustcord uses your default camera. Turn it on from the call controls.");
     section(ui, "Streaming");
     note(ui, "Go Live from the call controls to share your screen.");
     section(ui, "Sounds");
@@ -121,6 +121,6 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Soundboard");
     note(ui, "Open the soundboard from the call controls to play a server's sounds.");
     section(ui, "Advanced");
-    note(ui, "Fastcord has no advanced voice options yet.");
+    note(ui, "Rustcord has no advanced voice options yet.");
     changed
 }

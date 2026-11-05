@@ -106,7 +106,7 @@ pub enum Cmd {
     Voice(voice::Cmd),
 }
 
-/// With FASTCORD_READONLY set, nothing goes out that would change the account or
+/// With RUSTCORD_READONLY set, nothing goes out that would change the account or
 /// that other people could see: no messages, reactions, acks, typing, voice,
 /// presence, or non-GET REST calls. Used when touring a real account.
 pub static BLOCKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -199,7 +199,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let (outbox, queue) = mpsc::unbounded_channel();
     tokio::spawn(sender(queue, tx.clone()));
 
-    let readonly = std::env::var_os("FASTCORD_READONLY").is_some();
+    let readonly = std::env::var_os("RUSTCORD_READONLY").is_some();
     while let Some(cmd) = rx.recv().await {
         if readonly && !allowed(&cmd) {
             BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

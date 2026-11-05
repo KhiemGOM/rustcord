@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked --release --bin fastcord --example mockcord
+      - run: cargo build --locked --release --bin rustcord --example mockcord
 
   e2e:
     if: github.event_name == 'workflow_dispatch'
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: cargo build --locked --release --bin fastcord --example mockcord
+      - run: cargo build --locked --release --bin rustcord --example mockcord
       - name: software opengl (mesa llvmpipe)
         shell: pwsh
         run: |

@@ -940,7 +940,7 @@ impl App {
         n += self.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
         if self.title_count != Some(n) {
             self.title_count = Some(n);
-            let t = if n > 0 { format!("({n}) Fastcord") } else { "Fastcord".into() };
+            let t = if n > 0 { format!("({n}) Rustcord") } else { "Rustcord".into() };
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(t));
         }
         // discord's taskbar badge: the count, or with nothing mentioning you and the unread badge
@@ -1154,7 +1154,7 @@ impl App {
         }
         let Ok(img) = cb.get_image() else { return };
         let Some(buf) = image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned()) else { return };
-        let dir = std::env::temp_dir().join("fastcord");
+        let dir = std::env::temp_dir().join("rustcord");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(format!("image-{}.png", chrono::Utc::now().timestamp_millis()));
         if buf.save(&path).is_ok() {

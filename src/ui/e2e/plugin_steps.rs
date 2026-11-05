@@ -1,6 +1,6 @@
 //! The Vencord host: the run's userplugin (e2e/fce2e.tsx) shows on the Plugins page, its switch
 //! starts it, and then its send listener, command, menu item, chat bar button and flux handler
-//! each do their part, and its React UI is drawn and used like Fastcord's own.
+//! each do their part, and its React UI is drawn and used like Rustcord's own.
 
 use egui::Key;
 use std::time::Instant;
@@ -220,7 +220,7 @@ impl Run {
                 self.next(300);
             }
             // Vencord's own section: its page, the notification the modal sent (a card, and in
-            // the log), and QuickCSS colouring Fastcord
+            // the log), and QuickCSS colouring Rustcord
             580 => {
                 if self.open_page(app, "Vencord") {
                     self.next(800);

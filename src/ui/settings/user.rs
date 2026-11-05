@@ -631,7 +631,7 @@ pub(super) fn legacy(app: &mut App, ui: &mut Ui) -> Option<Value> {
         }
         Some(Err(_)) => {
             card(ui, |ui| {
-                ui.label(RichText::new("Discord didn't hand these settings to Fastcord. You can still change them in the browser.").font(reg(14.0)).color(pal().header_secondary));
+                ui.label(RichText::new("Discord didn't hand these settings to Rustcord. You can still change them in the browser.").font(reg(14.0)).color(pal().header_secondary));
                 ui.add_space(8.0);
                 if primary(ui, "Open on discord.com").clicked() {
                     open_web("/settings");
