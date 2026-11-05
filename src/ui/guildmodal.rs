@@ -61,7 +61,7 @@ pub fn privacy_set(app: &mut App, gid: Id, field: u64, off: bool) {
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(m) = app.guild_modal.as_mut() else { return };
-    let mut close = false;
+    let close;
     let mut toggled = None;
     let mut act = false;
     match m {
