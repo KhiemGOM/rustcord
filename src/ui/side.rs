@@ -1190,8 +1190,7 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
         pal().channel_default
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
-    let in_call = voice.calls.get(&c.id).is_some_and(|u| !u.is_empty()) || voice.chan == Some(c.id);
-    let right = if mentions > 0 || in_call { inner.right() - 30.0 } else { inner.right() - 8.0 };
+    let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
     let font = if unread { semi(16.0) } else { medium(16.0) };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
@@ -1212,9 +1211,6 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
     }
     if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
-    } else if in_call {
-        let at = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
-        icons::draw(ui.painter(), Icon::Speaker, at, if voice.chan == Some(c.id) { GREEN } else { pal().channel_default });
     }
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
