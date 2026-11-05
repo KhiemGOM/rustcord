@@ -12,6 +12,7 @@ pub struct Forms {
     pub search: String,
     pub modal: Option<modals::Modal>,
     pub verify: Option<modals::Verify>,
+    pub web: Option<modals::Web>,
     pub sudo: Option<modals::Req>,
     pub sub: account::Sub,
     pub profile: Option<profiles::Profile>,

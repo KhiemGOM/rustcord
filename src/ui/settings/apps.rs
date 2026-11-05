@@ -1,7 +1,7 @@
 use egui::{Align, Align2, Color32, Layout, Rect, RichText, Sense, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::{card, input, loading, refetch, remote, section, toggle};
+use super::{card, input, link, loading, refetch, remote, section, toggle};
 use crate::net::Tag;
 use crate::state::sid;
 use crate::theme::*;
@@ -31,6 +31,8 @@ const PROVIDERS: [(&str, &str, u32); 21] = [
     ("twitch", "Twitch", 0x9146ff),
     ("youtube", "YouTube", 0xff0000),
 ];
+
+const ACTIVITY: [&str; 4] = ["spotify", "xbox", "playstation", "crunchyroll"];
 
 fn provider(kind: &str) -> (&'static str, Color32) {
     PROVIDERS.iter().find(|p| p.0 == kind).map_or(("Account", BLURPLE), |p| (p.1, role_color(p.2)))
@@ -110,6 +112,8 @@ fn connections(app: &mut App, ui: &mut Ui) {
     ui.add_space(16.0);
     let mut patch: Option<(String, Value)> = None;
     let mut remove = None;
+    let mut join = None;
+    let mut reconnect: Option<String> = None;
     for c in &list {
         let kind = c["type"].as_str().unwrap_or("").to_string();
         let id = c["id"].as_str().unwrap_or("").to_string();
@@ -136,13 +140,67 @@ fn connections(app: &mut App, ui: &mut Ui) {
             if toggle(ui, &mut vis, "Display on profile", "") {
                 patch = Some((format!("{kind}/{id}"), json!({ "visibility": vis as u8 })));
             }
-            if kind == "spotify" {
-                let mut act = c["show_activity"].as_bool().unwrap_or(true);
-                if toggle(ui, &mut act, "Display Spotify as your status", "") {
+            if ACTIVITY.contains(&kind.as_str()) {
+                let mut act = c["show_activity"].as_bool().unwrap_or(false);
+                if toggle(ui, &mut act, &format!("Display {label} as your status"), "") {
                     patch = Some((format!("{kind}/{id}"), json!({ "show_activity": act })));
                 }
             }
+            if c["revoked"].as_bool() == Some(true) {
+                ui.add_space(8.0);
+                if link(ui, "This connection has expired. Reconnect it to keep it working.").clicked() {
+                    reconnect = Some(kind.clone());
+                }
+            } else if let Some(list) = c["integrations"].as_array().filter(|l| !l.is_empty()) {
+                ui.add_space(8.0);
+                ui.label(RichText::new("Sub Enabled Servers").font(semi(14.0)).color(pal().header_secondary));
+                ui.add_space(8.0);
+                for i in list {
+                    let g = &i["guild"];
+                    let gid = g["id"].as_str().and_then(|x| x.parse::<crate::state::Id>().ok()).unwrap_or(0);
+                    let member = app.store.guilds.contains_key(&gid);
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                        match g["icon"].as_str() {
+                            Some(h) => avatar(ui, r, &format!("{}/icons/{}/{h}.png?size=64", crate::api::cdn(), sid(&g["id"]))),
+                            None => {
+                                ui.painter().circle_filled(r.center(), 16.0, pal().bg_secondary);
+                                ui.painter().text(r.center(), Align2::CENTER_CENTER, g["name"].as_str().and_then(|n| n.chars().next()).unwrap_or('?'), semi(14.0), pal().header_primary);
+                            }
+                        }
+                        ui.add_space(8.0);
+                        ui.vertical(|ui| {
+                            text::label(ui, g["name"].as_str().unwrap_or(""), semi(16.0), pal().header_primary, Sense::hover());
+                            let who = i["account"]["name"].as_str().unwrap_or("");
+                            let url = match kind.as_str() {
+                                "twitch" => format!("https://www.twitch.tv/{who}"),
+                                _ => format!("https://www.youtube.com/channel/{}", i["account"]["id"].as_str().unwrap_or("")),
+                            };
+                            if link(ui, who).clicked() {
+                                let _ = open::that_detached(url);
+                            }
+                        });
+                        if !member {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let b = super::primary(ui, "Join");
+                                super::mark(ui, &format!("join:{}", g["name"].as_str().unwrap_or("")), b.rect);
+                                if b.clicked() {
+                                    join = i["id"].as_str().map(str::to_string);
+                                }
+                            });
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
+            }
         });
+    }
+    if let Some(k) = reconnect {
+        app.rest("GET", format!("/connections/{k}/authorize"), None, Tag::Remote("conn_auth"));
+    }
+    if let Some(i) = join {
+        app.rest("POST", format!("/integrations/{i}/join"), None, Tag::Remote("action"));
+        refetch(app, "connections");
     }
     if let Some((p, body)) = patch {
         app.rest("PATCH", format!("/users/@me/connections/{p}"), Some(body), Tag::Remote("action"));

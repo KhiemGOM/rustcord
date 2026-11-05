@@ -290,18 +290,38 @@ fn mfa(app: &mut App, ui: &mut Ui) -> bool {
             want = Some(Edit::Totp);
         }
     }
-    if let Some(Ok(v)) = remote(app, "keys", "/users/@me/mfa/webauthn/credentials").cloned()
-        && let Some(list) = v.as_array().filter(|l| !l.is_empty())
-    {
-        super::sub(ui, "Security Keys and Passkeys");
+    if on {
+        super::sub(ui, "SMS Backup Authentication");
+        note(ui, "Receive auth code from SMS");
+        if app.store.me_raw["flags"].as_u64().unwrap_or(0) & modals::SMS_FLAG != 0 {
+            if action(ui, "SMS Authentication", "You will receive a text message with a verification code.", "Remove SMS Backup", Look::Danger) {
+                want = Some(Edit::SmsOff);
+            }
+        } else if app.store.me_raw["phone"].is_string() {
+            if action(ui, "SMS Authentication", "You will receive a text message with a verification code.", "Enable SMS Authentication", Look::Primary) {
+                send(app, Done::Sms, "POST", "/users/@me/mfa/sms/enable", None);
+            }
+        } else {
+            note(ui, "Add a phone number to your account to enable SMS authentication.");
+        }
+    }
+    super::sub(ui, "Security Keys and Passkeys");
+    note(ui, "Secure your account by adding a Passkey or another supported security key.");
+    if let Some(Ok(v)) = remote(app, "keys", "/users/@me/mfa/webauthn/credentials").cloned() {
         let mut rename = None;
         let mut remove = None;
-        for k in list {
+        for k in v.as_array().into_iter().flatten() {
             let id = k["id"].as_str().unwrap_or("").to_string();
             let name = k["name"].as_str().unwrap_or("Security key").to_string();
+            let used = k["last_used"].as_str().map(ago).filter(|s| !s.is_empty());
             card(ui, |ui| {
                 ui.horizontal(|ui| {
-                    text::label(ui, &name, medium(16.0), pal().header_primary, Sense::hover());
+                    ui.vertical(|ui| {
+                        text::label(ui, &name, medium(16.0), pal().header_primary, Sense::hover());
+                        if let Some(u) = &used {
+                            text::label(ui, &format!("Last used {u}"), reg(14.0), pal().header_secondary, Sense::hover());
+                        }
+                    });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if crate::ui::icon_button(ui, Icon::Trash, 24.0, "Remove").clicked() {
                             remove = Some(id.clone());
@@ -322,6 +342,9 @@ fn mfa(app: &mut App, ui: &mut Ui) -> bool {
         if let Some(id) = remove {
             send(app, Done::Refresh("keys"), "DELETE", &format!("/users/@me/mfa/webauthn/credentials/{id}"), None);
         }
+    }
+    if super::primary(ui, "Add a Passkey").clicked() {
+        want = Some(Edit::AddKey);
     }
     if let Some(k) = want {
         modals::open(app, k);
