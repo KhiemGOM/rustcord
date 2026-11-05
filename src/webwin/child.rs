@@ -30,7 +30,7 @@ struct Want {
 pub enum Status {
     Starting,
     Up,
-    Failed(String),
+    Failed,
 }
 
 struct Inner {
@@ -116,7 +116,7 @@ impl Host {
 
     pub fn status(&self) -> Status {
         match &*self.s.failed.borrow() {
-            Some(e) => Status::Failed(e.clone()),
+            Some(_) => Status::Failed,
             None if self.s.up.get() => Status::Up,
             None => Status::Starting,
         }
