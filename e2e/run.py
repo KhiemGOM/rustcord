@@ -329,6 +329,20 @@ def main():
                               ("server settings: the layer opens on Roles with discord's member counts", "server_settings"),
                               ("server settings: the role editor, members, emoji, stickers, invites, integrations, safety, audit log, bans and AutoMod each drew with their data", "server_pages"),
                               ("events: the window lists the server's event and Interested marks it", "events"),
+                              ("threads: Open in Split View's twin, Shift on the channel list, puts the thread beside its parent", "thread_split"),
+                              ("threads: the member list asks for the thread's members and shows them", "thread_members"),
+                              ("threads: Join Thread from the header's menu joined it", "thread_join"),
+                              ("threads: Close Thread archived it", "thread_close"),
+                              ("threads: Lock Thread locked it", "thread_lock"),
+                              ("events: a card opens Event Details with who is interested", "event_detail"),
+                              ("events: Start Event asks first and starts it", "event_start"),
+                              ("events: Cancel Event asks first and takes it off the list", "event_cancel"),
+                              ("events: Edit Event fills the wizard from the event", "event_edit"),
+                              ("events: Mute New Events from the Events row's menu", "events_mute"),
+                              ("announcements: Follow opens the dialog and sends the follow", "follow"),
+                              ("quests: the hub lists the quests with the Orbs balance", "quests"),
+                              ("quests: Accept Quest enrolled one", "quest_accept"),
+                              ("quests: Claim Reward claimed the finished one", "quest_claim"),
                               ("escape cancels a reply even with the composer unfocused", "reply_escape"),
                               ("game: the running mockcord.exe got discord's panel over the account card", "game_panel"),
                               ("game: with activity sharing off the panel says Not Sharing", "game_hidden"),
@@ -363,6 +377,19 @@ def main():
             and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1002") and '"COMMUNITY"' in r.get("body", "") and '"explicit_content_filter":2' in r.get("body", "") for r in reqs),
         "server settings: Server Template generated a template, and Delete Server asked first": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("server_template", "server_delete"))
             and any(r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1002/templates") and "Design fans" in r.get("body", "") for r in reqs),
+        "threads: Join Thread was sent": any(r.get("method") == "PUT" and r.get("path", "").endswith("/channels/2160/thread-members/@me") for r in reqs),
+        "threads: Close and Lock Thread were patched": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/channels/2160") and '"archived":true' in r.get("body", "") for r in reqs)
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/channels/2160") and '"locked":true' in r.get("body", "") for r in reqs),
+        "threads: the thread's members were asked for over the gateway": any(d.get("subscriptions", {}).get("1001", {}).get("thread_member_lists") == ["2160"] for d in gw(37)),
+        "events: opening the window read the event notifications": any(r.get("method") == "POST" and r.get("path", "").endswith("/read-states/ack-bulk") and '"read_state_type":1' in r.get("body", "") for r in reqs),
+        "events: the interested users were fetched": any("/guilds/1001/scheduled-events/6200/users" in r.get("path", "") for r in reqs),
+        "events: start and cancel went to discord": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/scheduled-events/6201") and '"status":2' in r.get("body", "") for r in reqs)
+            and any(r.get("method") == "DELETE" and r.get("path", "").endswith("/guilds/1001/scheduled-events/6200") for r in reqs),
+        "events: muting new events was saved to the server's settings": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/1001/settings") and '"mute_scheduled_events":true' in r.get("body", "") for r in reqs),
+        "announcements: the follow went to the channel's followers with the picked channel": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/followers") and '"webhook_channel_id":"2100"' in r.get("body", "") for r in reqs),
+        "announcements: Publish crossposted the message": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/messages/1/crosspost") for r in reqs),
+        "quests: accept and claim went to discord": any(r.get("method") == "POST" and r.get("path", "").endswith("/quests/9002/enroll") for r in reqs)
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/quests/9003/claim-reward") for r in reqs),
         "create channel: posted the lowercased name to the server": any(
             r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1000/channels") and '"e2e-room"' in r.get("body", "") for r in reqs),
         "boosts: the page fetched the powerups catalogue, what's applied and the server's boosts": all(

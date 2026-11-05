@@ -38,6 +38,7 @@ mod reactions;
 mod report;
 mod system;
 mod profile;
+mod quests;
 mod rail;
 mod reorder;
 mod channel;
@@ -50,6 +51,7 @@ mod stage;
 mod tile;
 mod side;
 mod tagpop;
+mod thread;
 pub mod text;
 mod titlebar;
 mod topic;
@@ -176,7 +178,12 @@ pub struct App {
     // a voice channel's chat open beside the call
     pub voice_chat: bool,
     pub call: callbar::CallUi,
+    // a thread open beside its parent channel
+    pub side_thread: Option<Id>,
+    // a thread whose first messages are being fetched for Jump To Top
+    pub jump_top: Option<Id>,
     pub events: Option<events::Events>,
+    pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
     pub add_friend: String,
     pub post: Option<(String, String)>,
@@ -376,7 +383,10 @@ impl App {
             home: None,
             voice_chat: false,
             call: Default::default(),
+            side_thread: None,
+            jump_top: None,
             events: None,
+            quests: None,
             friends_tab: 0,
             add_friend: String::new(),
             post: None,
@@ -489,6 +499,7 @@ impl App {
         self.home = None;
         let guild = c.guild;
         let forum = c.is_forum();
+        let is_thread = c.is_thread();
         // member list subscriptions are per parent channel, threads borrow it
         let sub = if c.is_thread() { c.parent } else { ch };
         // search results belong to one server (or one dm), don't carry them elsewhere
@@ -504,6 +515,10 @@ impl App {
             self.hold_ack = None;
         }
         self.friends = false;
+        self.quests = None;
+        if is_thread {
+            self.side_thread = None;
+        }
         self.nav.visit(titlebar::Loc::Chan(ch, None));
         self.ui.chan.insert(guild, ch);
         crate::net::OPEN.store(ch, std::sync::atomic::Ordering::Relaxed);
@@ -534,6 +549,9 @@ impl App {
                     "typing": true, "activities": true, "threads": true, "channels": chans
                 }}}
             })));
+            if is_thread {
+                self.subscribe_thread(guild, ch);
+            }
             if self.info_asked.insert(guild) {
                 self.net.send(Cmd::Gateway(json!({ "op": 43, "d": { "guild_id": guild.to_string(), "fields": ["status", "voice_start_time"] } })));
             }
@@ -1203,6 +1221,9 @@ impl App {
                     Tag::Chan(k) if k != "channel" => channel::loaded(self, k, serde_json::json!([])),
                     Tag::Home("members") => community::loaded(self, "members", serde_json::json!({ "members": [] })),
                     Tag::Events(g, k) => events::loaded(self, g, k, &serde_json::json!([])),
+                    Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
+                    Tag::Quests(k) => quests::loaded(self, k, &serde_json::json!({})),
+                    Tag::Follow => follow::done(self, false),
                     _ => {}
                 }
                 return self.toast(e);
@@ -1274,6 +1295,9 @@ impl App {
             Tag::Chan(k) => channel::loaded(self, k, v),
             Tag::Home(k) => community::loaded(self, k, v),
             Tag::Events(g, k) => events::loaded(self, g, k, &v),
+            Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &v),
+            Tag::Quests(k) => quests::loaded(self, k, &v),
+            Tag::Follow => follow::done(self, true),
             Tag::Feed => {
                 self.store.set_feed(&v);
                 let mut want: Vec<Id> = self.store.feed.iter().map(|e| e.app).filter(|a| *a != 0 && !self.store.app_icons.contains_key(a)).collect();
@@ -1451,6 +1475,10 @@ impl App {
                 Ev::Messages { channel, page, list } => {
                     let n = self.store.set_messages(channel, page, &list);
                     self.request_members(channel);
+                    if self.jump_top == Some(channel) {
+                        self.jump_top = None;
+                        self.scroll_fix = Some((channel, 0.0));
+                    }
                     if matches!(page, Page::Before(_)) && n > 0 {
                         let est: f32 = self.store.msgs[&channel].list[..n].iter().map(chat::estimate).sum();
                         let off = self.offsets.get(&channel).copied().unwrap_or(0.0);
@@ -1524,20 +1552,25 @@ impl App {
             return;
         }
         let Some(ch) = self.cur() else { return };
-        if self.hold_ack == Some(ch) {
-            return;
-        }
-        self.hold_ack = None;
-        let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { return };
-        let (acked, mentions) = self.store.reads.get(&ch).map_or((0, 0), |r| (r.last_acked, r.mentions));
-        if last <= acked && mentions == 0 {
-            return;
-        }
-        let r = self.store.reads.entry(ch).or_default();
-        r.last_acked = last.max(r.last_acked);
-        r.mentions = 0;
-        if last != 0 {
-            self.net.send(Cmd::Ack { channel: ch, id: last });
+        let side = self.side_thread.filter(|t| self.store.channels.get(t).is_some_and(|t| t.parent == ch));
+        for ch in std::iter::once(ch).chain(side) {
+            if Some(ch) == self.cur() {
+                if self.hold_ack == Some(ch) {
+                    continue;
+                }
+                self.hold_ack = None;
+            }
+            let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { continue };
+            let (acked, mentions) = self.store.reads.get(&ch).map_or((0, 0), |r| (r.last_acked, r.mentions));
+            if last <= acked && mentions == 0 {
+                continue;
+            }
+            let r = self.store.reads.entry(ch).or_default();
+            r.last_acked = last.max(r.last_acked);
+            r.mentions = 0;
+            if last != 0 {
+                self.net.send(Cmd::Ack { channel: ch, id: last });
+            }
         }
     }
 

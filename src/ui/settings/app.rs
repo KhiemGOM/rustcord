@@ -116,6 +116,10 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     }
     related(app, ui, Page::Accessibility, "Accessibility", "Adjust the visual density of chat messages and UI");
 
+    sub(ui, "Threads");
+    changed |= toggle(ui, &mut app.settings.thread_sidebar, "Open threads in split view", "");
+    let s = &mut app.settings;
+
     section(ui, "Chat Box");
     let s = &mut app.settings;
     chat |= toggle(ui, &mut s.md_preview, "Preview emoji, mentions, and markdown syntax as you type", "");

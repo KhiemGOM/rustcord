@@ -2,6 +2,7 @@
 //! category's plus.
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use chrono::Datelike;
 use serde_json::json;
 
 use super::App;
@@ -37,6 +38,14 @@ pub struct Form {
     pub end_time: String,
     pub about: String,
     pub busy: bool,
+    // an event being edited, and whether it has started (its start can't change then)
+    pub edit: Option<Id>,
+    pub started: bool,
+    // how it repeats: index into repeats()
+    pub repeat: u8,
+    // the cover picked: its file name and the data uri that goes to discord
+    pub cover: Option<(String, String)>,
+    pub stage: bool,
 }
 
 impl Form {
@@ -62,7 +71,43 @@ impl Form {
             time,
             about: String::new(),
             busy: false,
+            edit: None,
+            started: false,
+            repeat: 0,
+            cover: None,
+            stage: false,
         }
+    }
+
+    /// The event wizard filled in from an event as discord sent it.
+    pub fn editing(guild: Id, e: &serde_json::Value) -> Self {
+        let mut f = Form::new(Kind::Event, guild, None);
+        let local = |k: &str| e[k].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&chrono::Local));
+        f.edit = Some(crate::state::sid(&e["id"]));
+        f.started = e["status"].as_u64() == Some(2);
+        f.name = e["name"].as_str().unwrap_or_default().to_string();
+        f.about = e["description"].as_str().unwrap_or_default().to_string();
+        f.voice = e["entity_type"].as_u64() != Some(3);
+        f.place = Some(crate::state::sid(&e["channel_id"])).filter(|c| *c != 0);
+        f.location = e["entity_metadata"]["location"].as_str().unwrap_or_default().to_string();
+        if let Some(s) = local("scheduled_start_time") {
+            f.date = s.format("%Y-%m-%d").to_string();
+            f.time = s.format("%H:%M").to_string();
+        }
+        if let Some(t) = local("scheduled_end_time") {
+            f.end_date = t.format("%Y-%m-%d").to_string();
+            f.end_time = t.format("%H:%M").to_string();
+        }
+        let rule = &e["recurrence_rule"];
+        f.repeat = match (rule["frequency"].as_u64(), rule["interval"].as_u64()) {
+            (Some(2), Some(2)) => 2,
+            (Some(2), _) => 1,
+            (Some(1), _) => 3,
+            (Some(0), _) => 4,
+            (Some(3), _) => 5,
+            _ => 0,
+        };
+        f
     }
 }
 
@@ -257,6 +302,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if f.place.is_none() {
                 f.place = voices.first().map(|v| v.0);
             }
+            f.stage = f.place.and_then(|p| app.store.channels.get(&p)).is_some_and(|c| c.kind == 13);
             let f = app.create.as_mut().unwrap();
             close = modal(ctx, "create_event", None, |ui| cancel = event(ui, f, &voices, &mut send));
         }
@@ -265,7 +311,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if send {
         let gid = f.guild;
         let (path, body) = match f.kind {
-            Kind::Event => (format!("/guilds/{gid}/scheduled-events"), event_body(f)),
+            Kind::Event => (format!("/guilds/{gid}/scheduled-events{}", f.edit.map(|e| format!("/{e}")).unwrap_or_default()), event_body(f)),
             _ => {
                 let kind = if f.kind == Kind::Category { 4 } else { f.chan };
                 let mut b = json!({ "name": f.name.trim(), "type": kind });
@@ -281,7 +327,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         };
         if body.is_object() {
             app.create.as_mut().unwrap().busy = true;
-            app.rest("POST", path, Some(body), Tag::Created);
+            let method = if app.create.as_ref().is_some_and(|f| f.edit.is_some()) { "PATCH" } else { "POST" };
+            app.rest(method, path, Some(body), Tag::Created);
         }
     } else if close || cancel {
         app.create = None;
@@ -348,8 +395,21 @@ fn event(ui: &mut Ui, f: &mut Form, voices: &[(Id, String)], send: &mut bool) ->
                 pair(ui, "End Date", &mut f.end_date, "End Time", &mut f.end_time);
             }
             ui.add_space(20.0);
+            label(ui, "Frequency");
+            let opts = repeats(f);
+            super::settings::dropdown(ui, ui.available_width(), None, &opts[(f.repeat as usize).min(opts.len() - 1)], |ui| {
+                for (i, name) in opts.iter().enumerate() {
+                    if super::menu_item(ui, None, name, false) {
+                        f.repeat = i as u8;
+                    }
+                }
+            });
+            ui.add_space(20.0);
             label(ui, "Description");
             field(ui, &mut f.about, "Tell people a little more about your event. Markdown, new lines, and links are supported.", None, 3);
+            ui.add_space(20.0);
+            label(ui, "Cover Image");
+            cover(ui, f);
             let ready = !f.name.trim().is_empty() && start(f).is_some() && (f.voice || end(f).is_some());
             let (c, next, back) = steps(ui, true, "Next", ready);
             close = c;
@@ -383,7 +443,7 @@ fn event(ui: &mut Ui, f: &mut Form, voices: &[(Id, String)], send: &mut bool) ->
                     ui.label(RichText::new(place).font(medium(14.0)).color(pal().header_secondary));
                 });
             });
-            let (c, go, back) = steps(ui, true, "Create Event", !f.busy);
+            let (c, go, back) = steps(ui, true, if f.edit.is_some() { "Save Event" } else { "Create Event" }, !f.busy);
             close = c;
             *send = go;
             if back {
@@ -437,7 +497,53 @@ fn when(date: &str, time: &str) -> Option<chrono::DateTime<chrono::Local>> {
 }
 
 fn start(f: &Form) -> Option<chrono::DateTime<chrono::Local>> {
-    when(&f.date, &f.time).filter(|t| *t > chrono::Local::now())
+    when(&f.date, &f.time).filter(|t| f.started || *t > chrono::Local::now())
+}
+
+/// Discord's repeat choices, worded for the start date.
+fn repeats(f: &Form) -> Vec<String> {
+    let Some(s) = when(&f.date, &f.time) else { return vec!["Does not repeat".into()] };
+    let nth = ["first", "second", "third", "fourth", "fifth"][((s.day() - 1) / 7) as usize];
+    vec![
+        "Does not repeat".into(),
+        format!("Weekly on {}", s.format("%A")),
+        format!("Every other week on {}", s.format("%A")),
+        format!("Monthly on the {nth} {}", s.format("%A")),
+        format!("Annually on {}", s.format("%B %-d")),
+        "Every weekday (Monday to Friday)".into(),
+    ]
+}
+
+/// The cover image row: a button to pick one, or the one picked with a way to drop it.
+fn cover(ui: &mut Ui, f: &mut Form) {
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+    let name = f.cover.as_ref().map(|c| c.0.clone());
+    let w = 168.0;
+    if plate(ui, Rect::from_min_size(r.min, vec2(w, 40.0)), if name.is_some() { "Change Image" } else { "Upload Cover Image" }, false, true)
+        && let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file()
+        && let Ok(bytes) = std::fs::read(&path)
+    {
+        use base64::Engine;
+        let kind = match path.extension().and_then(|e| e.to_str()).map(str::to_lowercase).as_deref() {
+            Some("jpg" | "jpeg") => "jpeg",
+            Some("gif") => "gif",
+            Some("webp") => "webp",
+            _ => "png",
+        };
+        let uri = format!("data:image/{kind};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+        f.cover = Some((path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), uri));
+    }
+    if let Some(n) = name {
+        let g = ui.painter().layout_no_wrap(n, reg(14.0), pal().header_secondary);
+        let at = pos2(r.left() + w + 12.0, r.center().y - g.size().y / 2.0);
+        ui.painter().galley(at, g, pal().header_secondary);
+        let x = Rect::from_center_size(pos2(r.right() - 12.0, r.center().y), vec2(20.0, 20.0));
+        let resp = ui.interact(x.expand(4.0), ui.id().with("cover_drop"), Sense::click());
+        icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        if resp.clicked() {
+            f.cover = None;
+        }
+    }
 }
 
 fn end(f: &Form) -> Option<chrono::DateTime<chrono::Local>> {
@@ -447,9 +553,32 @@ fn end(f: &Form) -> Option<chrono::DateTime<chrono::Local>> {
 fn event_body(f: &Form) -> serde_json::Value {
     let iso = |t: chrono::DateTime<chrono::Local>| t.with_timezone(&chrono::Utc).to_rfc3339();
     let Some(s) = start(f) else { return serde_json::Value::Null };
-    let mut b = json!({ "name": f.name.trim(), "privacy_level": 2, "scheduled_start_time": iso(s), "description": f.about.trim() });
+    let mut b = json!({ "name": f.name.trim(), "privacy_level": 2, "description": f.about.trim() });
+    if !f.started {
+        b["scheduled_start_time"] = json!(iso(s));
+    }
+    if let Some((_, uri)) = &f.cover {
+        b["image"] = json!(uri);
+    }
+    let wd = s.weekday().num_days_from_monday();
+    let rule = match f.repeat {
+        1 => Some(json!({ "frequency": 2, "interval": 1, "by_weekday": [wd] })),
+        2 => Some(json!({ "frequency": 2, "interval": 2, "by_weekday": [wd] })),
+        3 => Some(json!({ "frequency": 1, "interval": 1, "by_n_weekday": [{ "n": (s.day() - 1) / 7 + 1, "day": wd }] })),
+        4 => Some(json!({ "frequency": 0, "interval": 1, "by_month": [s.month()], "by_month_day": [s.day()] })),
+        5 => Some(json!({ "frequency": 3, "interval": 1, "by_weekday": [0, 1, 2, 3, 4] })),
+        _ => None,
+    };
+    b["recurrence_rule"] = match rule {
+        Some(mut r) => {
+            r["start"] = json!(iso(s));
+            r["end"] = serde_json::Value::Null;
+            r
+        }
+        None => serde_json::Value::Null,
+    };
     if f.voice {
-        b["entity_type"] = json!(2);
+        b["entity_type"] = json!(if f.stage { 1 } else { 2 });
         b["channel_id"] = json!(f.place.map(|c| c.to_string()));
     } else {
         b["entity_type"] = json!(3);
@@ -462,6 +591,10 @@ fn event_body(f: &Form) -> serde_json::Value {
 /// What came back from a create: a channel opens like a fresh one in discord, an event just closes.
 pub fn created(app: &mut App, v: &serde_json::Value) {
     app.create = None;
+    if v["entity_type"].is_number() {
+        let gid = crate::state::sid(&v["guild_id"]);
+        app.open_events(gid);
+    }
     if v["type"].is_number() && v["guild_id"].is_string() && v["entity_type"].is_null() {
         app.store.apply("CHANNEL_CREATE", v);
         let id = crate::state::sid(&v["id"]);

@@ -90,7 +90,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
     if hit {
         match bar {
             Bar::Blocked(u) => app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet),
-            Bar::Follow => app.follow = Some(super::follow::Follow::new()),
+            Bar::Follow => app.follow = app.cur().map(super::follow::Follow::new),
         }
     }
 }
