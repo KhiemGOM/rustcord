@@ -56,6 +56,8 @@ pub struct Outgoing {
 #[derive(Default)]
 pub struct Vc {
     pub host: Option<Host>,
+    // the host while its plugins load, with those still to go
+    booting: Option<(Host, std::collections::VecDeque<String>)>,
     tried: bool,
     token: u32,
     sends: HashMap<u32, Outgoing>,
@@ -130,10 +132,28 @@ impl App {
             .unwrap_or_else(|| json!({ "plugins": {} }));
         let data = read(data_path()).unwrap_or_else(|| json!({}));
         let extra = cache::dir().join("userplugins");
-        self.vc.host = Host::new(&extra, &settings, &data);
-        let Some(h) = &self.vc.host else { return };
-        let paths = h.plugins();
-        self.vc_call("start", json!({ "paths": paths }));
+        if let Some(h) = Host::new(&extra, &settings, &data) {
+            let paths = h.plugins().into();
+            self.vc.booting = Some((h, paths));
+        }
+    }
+
+    /// Plugins load a few at a time, so no one frame stalls on all of them (a tenth of a
+    /// second for Vencord's 160); the host takes calls once they're all in.
+    fn vc_boot(&mut self, ctx: &egui::Context) {
+        let Some((h, mut paths)) = self.vc.booting.take() else { return };
+        let until = Instant::now() + Duration::from_millis(8);
+        while Instant::now() < until
+            && let Some(p) = paths.pop_front()
+        {
+            h.call(&self.view(), "start", json!({ "paths": [p] }));
+        }
+        if !paths.is_empty() {
+            self.vc.booting = Some((h, paths));
+            ctx.request_repaint();
+            return;
+        }
+        self.vc.host = Some(h);
         self.vc_features();
         self.vc.tick_at = Some(Instant::now());
         self.vc.settings = self.vc_call("settings", json!({}));
@@ -178,6 +198,7 @@ impl App {
     /// Every frame: timers due, a channel switch to tell plugins about, fetches that came back.
     pub(super) fn vc_tick(&mut self, ctx: &egui::Context) {
         self.vc_start();
+        self.vc_boot(ctx);
         if self.vc.host.is_none() {
             ctx.data_mut(|d| {
                 d.remove_temp::<Vec<String>>(egui::Id::new("vc_want"));
