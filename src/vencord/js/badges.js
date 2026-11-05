@@ -1,4 +1,4 @@
-// @api/Badges: profile badges plugins add, drawn in Fastcord's profile cards.
+// @api/Badges: profile badges plugins add, drawn in Rustcord's profile cards.
 export const BadgePosition = { START: 0, END: 1 };
 export const Badges = globalThis.__fcBadges ??= new Set();
 export const addProfileBadge = b => Badges.add(b);

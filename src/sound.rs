@@ -47,7 +47,7 @@ pub fn configure(on: bool, muted: &[String]) {
 /// Play a cue unless the user turned it (or all sounds) off.
 pub fn cue(name: &str) {
     let allowed = ON.lock().map(|s| s.0 && !s.1.iter().any(|m| m == name)).unwrap_or(true);
-    if allowed && std::env::var_os("FASTCORD_SILENT").is_none() {
+    if allowed && std::env::var_os("RUSTCORD_SILENT").is_none() {
         play(name);
     }
 }

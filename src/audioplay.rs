@@ -51,7 +51,7 @@ pub fn is_playing(key: &str) -> bool {
 
 fn spawn(key: String, bytes: Vec<u8>) {
     // stay quiet under the e2e harness, like the notification sounds do
-    if std::env::var_os("FASTCORD_SILENT").is_some() {
+    if std::env::var_os("RUSTCORD_SILENT").is_some() {
         return;
     }
     std::thread::spawn(move || {

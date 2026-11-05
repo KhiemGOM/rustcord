@@ -1,4 +1,4 @@
-// @api/Notifications: Vencord's notifications, drawn by Fastcord as Vencord draws them (or as a
+// @api/Notifications: Vencord's notifications, drawn by Rustcord as Vencord draws them (or as a
 // Windows notification, as its settings say), and kept in the notification log.
 import * as DataStore from "@api/DataStore";
 import { Settings } from "@api/Settings";

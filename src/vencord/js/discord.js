@@ -1,4 +1,4 @@
-// @utils/discord: Vencord's helpers for acting on Discord, done by Fastcord.
+// @utils/discord: Vencord's helpers for acting on Discord, done by Rustcord.
 import { ChannelStore, GuildStore, RestAPI, SelectedChannelStore, SelectedGuildStore, showToast } from "@webpack/common";
 
 const out = op => __out(op);

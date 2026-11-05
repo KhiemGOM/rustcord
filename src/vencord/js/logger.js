@@ -1,4 +1,4 @@
-// @utils/Logger, printing where Fastcord's log goes.
+// @utils/Logger, printing where Rustcord's log goes.
 export class Logger {
     static makeTitle = (color, title) => [`[${title}]`];
     constructor(name, color) { this.name = name; this.color = color; }

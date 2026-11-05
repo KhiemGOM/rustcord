@@ -1065,7 +1065,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(8.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-            // friends, then the store pages fastcord leaves to the browser
+            // friends, then the store pages rustcord leaves to the browser
             let rows = [
                 (Icon::Friends, "Friends", None),
                 (Icon::Nitro, "Nitro Home", Some("https://discord.com/store")),
@@ -1250,7 +1250,7 @@ fn game_panel(app: &mut App, ui: &mut Ui, area: Rect) {
     let tip = match (app.voice.chan.is_some(), live) {
         (_, true) => "Stop Streaming".to_string(),
         (true, false) => format!("Stream {}", g.name),
-        // discord offers its channel picker here; fastcord streams from a call
+        // discord offers its channel picker here; rustcord streams from a call
         (false, false) => "Join a voice channel to stream".to_string(),
     };
     if resp.on_hover_text(tip).clicked() && app.voice.chan.is_some() {

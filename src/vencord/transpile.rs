@@ -1,6 +1,6 @@
 //! Vencord's plugins are TypeScript with JSX; QuickJS wants JavaScript. Types go, JSX becomes
 //! calls to the same globals Vencord's own build uses, and imports and exports become CommonJS,
-//! so a Discord module Fastcord doesn't have can be a stub instead of a link error.
+//! so a Discord module Rustcord doesn't have can be a stub instead of a link error.
 
 use oxc::allocator::Allocator;
 use oxc::ast::AstKind;

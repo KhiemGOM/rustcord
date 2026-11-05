@@ -9,7 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::state::Id;
 
-const AUMID: &str = "Fastcord";
+const AUMID: &str = "Rustcord";
 
 pub struct Ping {
     pub title: String,
@@ -28,13 +28,13 @@ fn wide(s: &str) -> Vec<u16> {
 /// Puts the app's name and icon where Windows looks them up for toasts.
 fn register(dir: &Path) {
     use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegSetKeyValueW};
-    let icon = dir.join("fastcord.png");
+    let icon = dir.join("rustcord.png");
     let logo = include_bytes!("../assets/discord.png");
     if std::fs::read(&icon).ok().as_deref() != Some(logo.as_slice()) {
         let _ = std::fs::write(&icon, logo);
     }
     let key = wide(&format!("Software\\Classes\\AppUserModelId\\{AUMID}"));
-    for (name, value) in [("DisplayName", "Fastcord".to_string()), ("IconUri", icon.display().to_string())] {
+    for (name, value) in [("DisplayName", "Rustcord".to_string()), ("IconUri", icon.display().to_string())] {
         let (name, value) = (wide(name), wide(&value));
         unsafe {
             RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), REG_SZ, value.as_ptr().cast(), (value.len() * 2) as u32);

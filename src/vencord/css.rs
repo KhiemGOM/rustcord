@@ -1,5 +1,5 @@
-//! What a Vencord theme can do to Fastcord: its colour variables. Themes are Discord CSS; the
-//! custom properties they set (`--background-primary: #123`) map onto Fastcord's palette, and
+//! What a Vencord theme can do to Rustcord: its colour variables. Themes are Discord CSS; the
+//! custom properties they set (`--background-primary: #123`) map onto Rustcord's palette, and
 //! everything else in them is about Discord's own markup.
 
 use egui::Color32;
@@ -93,7 +93,7 @@ pub fn color(v: &str, vars: &HashMap<String, String>, depth: u8) -> Option<Color
     }
 }
 
-/// Discord's variables for each of Fastcord's palette colours, newest names first.
+/// Discord's variables for each of Rustcord's palette colours, newest names first.
 pub const MAP: &[(&str, &[&str])] = &[
     ("bg_tertiary", &["--background-base-lowest", "--background-tertiary", "--background-secondary"]),
     ("bg_secondary", &["--background-surface-high", "--background-secondary"]),

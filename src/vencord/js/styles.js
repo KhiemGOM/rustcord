@@ -1,4 +1,4 @@
-// @api/Styles: managed stylesheets. Fastcord draws its own UI, so there's nothing to style.
+// @api/Styles: managed stylesheets. Rustcord draws its own UI, so there's nothing to style.
 export const styleMap = window.VencordStyles ??= new Map();
 export const managedStyleRootNode = document.documentElement;
 export const requireStyle = name => ({ name, source: "", classNames: {}, dom: null });

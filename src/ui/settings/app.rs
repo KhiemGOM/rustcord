@@ -53,7 +53,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     }
 
     section(ui, "App Icon");
-    note(ui, "Fastcord ships with a single icon.");
+    note(ui, "Rustcord ships with a single icon.");
 
     section(ui, "Messages");
     caption(ui, "Message Display", "");
@@ -90,7 +90,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
         ui,
         &mut s.emoticons,
         "Automatically convert emoticons in your messages into emoji",
-        "For example, when you type :-) Fastcord will convert it to 🙂",
+        "For example, when you type :-) Rustcord will convert it to 🙂",
     );
     chat |= toggle(ui, &mut s.send_button, "Show send message button", "");
     if chat {
@@ -98,7 +98,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     }
 
     section(ui, "Search");
-    note(ui, "Search has no display options in Fastcord yet.");
+    note(ui, "Search has no display options in Rustcord yet.");
 
     section(ui, "Streamer Mode");
     note(ui, "If you're a streamer and don't want to show personal information on stream, Streamer Mode hides it for you.");
@@ -109,7 +109,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     streamer |= toggle(ui, &mut s.hide_invites, "Hide Invite Links", "Recommended if you don't want random people accessing your servers.");
     streamer |= toggle(ui, &mut s.streamer_no_sounds, "Disable Sounds", "All sound effects will be disabled.");
     streamer |= toggle(ui, &mut s.streamer_no_notifications, "Disable Notifications", "All desktop notifications will be disabled.");
-    streamer |= toggle(ui, &mut s.hide_window, "Hide Fastcord Window from Screen Capture", "Your stream or recording shows a blank area where Fastcord's window is.");
+    streamer |= toggle(ui, &mut s.hide_window, "Hide Rustcord Window from Screen Capture", "Your stream or recording shows a blank area where Rustcord's window is.");
     changed | chat | streamer
 }
 
@@ -205,9 +205,9 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
         ui,
         &mut s.reduced_motion,
         "Enable Reduced Motion",
-        "Reduces the amount and intensity of animations, hover effects and other moving effects across Fastcord.",
+        "Reduces the amount and intensity of animations, hover effects and other moving effects across Rustcord.",
     );
-    motion |= toggle(ui, &mut s.gif_autoplay, "Automatically play GIFs when Fastcord is focused", "");
+    motion |= toggle(ui, &mut s.gif_autoplay, "Automatically play GIFs when Rustcord is focused", "");
     motion |= toggle(ui, &mut s.animate_emoji, "Play animated emoji", "");
 
     section(ui, "Audio & Screen Reader");
@@ -365,7 +365,7 @@ const LOCALES: [(&str, &str, &str); 32] = [
 
 pub fn system(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Keybinds");
-    note(ui, "Global keybinds work even when Fastcord isn't focused.");
+    note(ui, "Global keybinds work even when Rustcord isn't focused.");
     let mut changed = false;
     super::lead(ui);
     if primary(ui, "Add a Keybind").clicked() {
@@ -464,12 +464,12 @@ pub fn system(app: &mut App, ui: &mut Ui) -> bool {
 
     section(ui, "Startup");
     let s = &mut app.settings;
-    if toggle(ui, &mut s.open_on_startup, "Open Fastcord", "Save yourself a few clicks and let Fastcord greet you on computer startup.") {
+    if toggle(ui, &mut s.open_on_startup, "Open Rustcord", "Save yourself a few clicks and let Rustcord greet you on computer startup.") {
         crate::winsys::set_startup(s.open_on_startup);
         changed = true;
     }
     if s.open_on_startup {
-        changed |= toggle(ui, &mut s.start_minimized, "Start Minimized", "Fastcord starts in the background and remains out of your way.");
+        changed |= toggle(ui, &mut s.start_minimized, "Start Minimized", "Rustcord starts in the background and remains out of your way.");
     }
     if changed {
         crate::hotkeys::set(&app.settings.keybinds);
@@ -479,7 +479,7 @@ pub fn system(app: &mut App, ui: &mut Ui) -> bool {
 
 pub fn language(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Language & Time");
-    note(ui, "Fastcord's own interface is English for now. This tells Discord which language to use for text it sends, like system messages and bot commands.");
+    note(ui, "Rustcord's own interface is English for now. This tells Discord which language to use for text it sends, like system messages and bot commands.");
     let mut changed = false;
     for (code, native, english) in LOCALES {
         super::lead(ui);

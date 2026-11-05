@@ -1,4 +1,4 @@
-//! Scripted run used by the end-to-end harness (FASTCORD_E2E=<artifact dir>).
+//! Scripted run used by the end-to-end harness (RUSTCORD_E2E=<artifact dir>).
 //! Everything goes through egui's normal input path, so a click here is a click.
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, ViewportCommand, pos2, vec2};
@@ -75,7 +75,7 @@ pub struct Run {
     // shift and alt held down, as the script would have them
     shift: bool,
     alt: bool,
-    // FASTCORD_LIVE: the real voice channel to go live in, when it began, and a sample a second
+    // RUSTCORD_LIVE: the real voice channel to go live in, when it began, and a sample a second
     live: Option<Id>,
     live_at: Option<Instant>,
     samples: Vec<serde_json::Value>,
@@ -89,8 +89,8 @@ enum Probe {
 
 impl Run {
     pub fn from_env(t0: Instant) -> Option<Run> {
-        let tour = std::env::var_os("FASTCORD_TOUR").is_some();
-        let dir = PathBuf::from(std::env::var_os("FASTCORD_E2E").or_else(|| std::env::var_os("FASTCORD_TOUR"))?);
+        let tour = std::env::var_os("RUSTCORD_TOUR").is_some();
+        let dir = PathBuf::from(std::env::var_os("RUSTCORD_E2E").or_else(|| std::env::var_os("RUSTCORD_TOUR"))?);
         let _ = std::fs::create_dir_all(&dir);
         crate::gif::trace();
         Some(Run {
@@ -130,7 +130,7 @@ impl Run {
             y0: 0.0,
             shift: false,
             alt: false,
-            live: std::env::var("FASTCORD_LIVE").ok().and_then(|v| v.parse().ok()),
+            live: std::env::var("RUSTCORD_LIVE").ok().and_then(|v| v.parse().ok()),
             live_at: None,
             samples: Vec::new(),
         })
@@ -354,7 +354,7 @@ impl Run {
         let sh = &app.voice.shared;
         let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
         let mic = sh.mic.load(std::sync::atomic::Ordering::Relaxed);
-        let fake_video = std::env::var_os("FASTCORD_FAKE_VIDEO").is_some();
+        let fake_video = std::env::var_os("RUSTCORD_FAKE_VIDEO").is_some();
         let mic_name = ["unknown", "none", "device", "fake"].get(mic as usize).copied().unwrap_or("?");
         self.voice = json!({
             "mic": mic_name,
@@ -977,8 +977,8 @@ impl Run {
                 }
                 if app.voice.stream.as_ref().is_some_and(|l| l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_out");
-                    // FASTCORD_E2E_HOLD_STREAM=ms keeps the stream up, to watch it over time
-                    let hold = std::env::var("FASTCORD_E2E_HOLD_STREAM").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
+                    // RUSTCORD_E2E_HOLD_STREAM=ms keeps the stream up, to watch it over time
+                    let hold = std::env::var("RUSTCORD_E2E_HOLD_STREAM").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
                     self.next(hold);
                 }
             }
@@ -1863,14 +1863,14 @@ impl Run {
         }
     }
 
-    /// Going live for real (FASTCORD_LIVE=<voice channel>, FASTCORD_TOUR=<artifacts>): into the
+    /// Going live for real (RUSTCORD_LIVE=<voice channel>, RUSTCORD_TOUR=<artifacts>): into the
     /// channel, the screen button, Entire Screen and its first screen, as a person would; held
-    /// for FASTCORD_LIVE_SECS while what went out, and what discord's server says it got, is
+    /// for RUSTCORD_LIVE_SECS while what went out, and what discord's server says it got, is
     /// written down each second; then the stream and the call are ended.
     fn live_steps(&mut self, app: &mut App, ctx: &egui::Context, ch: Id) {
         let sh = app.voice.shared.clone();
         let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
-        let secs: u64 = std::env::var("FASTCORD_LIVE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+        let secs: u64 = std::env::var("RUSTCORD_LIVE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
         if self.step == 0 {
             self.step = 600;
         }
@@ -1972,7 +1972,7 @@ impl Run {
         }
     }
 
-    /// Read-only walk through a real account (FASTCORD_TOUR + FASTCORD_READONLY):
+    /// Read-only walk through a real account (RUSTCORD_TOUR + RUSTCORD_READONLY):
     /// look at things, screenshot them, change nothing.
     fn tour_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         const PAGES: [&str; 18] = [
@@ -2036,7 +2036,7 @@ impl Run {
             354 => {
                 app.select_guild(Some(self.target.0));
                 self.step = 304;
-                if std::env::var_os("FASTCORD_TOUR_CHANNEL").is_some() {
+                if std::env::var_os("RUSTCORD_TOUR_CHANNEL").is_some() {
                     self.step = 360;
                     self.loaded = 0;
                 }
@@ -2044,16 +2044,16 @@ impl Run {
                 self.wait = Instant::now() + Duration::from_millis(800);
             }
             // side by side with captures of discord: a busy channel, its history, the switcher and
-            // pins there, a forum and a post in it, then home. FASTCORD_TOUR_CHANNEL and
-            // FASTCORD_TOUR_FORUM name them as guild/channel.
+            // pins there, a forum and a post in it, then home. RUSTCORD_TOUR_CHANNEL and
+            // RUSTCORD_TOUR_FORUM name them as guild/channel.
             360..=368 => {
                 let pick = |k: &str| {
                     let v = std::env::var(k).ok()?;
                     let (g, c) = v.split_once('/')?;
                     Some((g.parse::<Id>().ok()?, c.parse::<Id>().ok()?))
                 };
-                let chat = pick("FASTCORD_TOUR_CHANNEL");
-                let forum = pick("FASTCORD_TOUR_FORUM");
+                let chat = pick("RUSTCORD_TOUR_CHANNEL");
+                let forum = pick("RUSTCORD_TOUR_FORUM");
                 let middle = |app: &App| app.rects.get("composer").map(|c| egui::pos2(c.center().x, (c.top() + 90.0) / 2.0));
                 let i = self.step - 360;
                 if self.loaded == 0 {

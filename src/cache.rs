@@ -222,9 +222,9 @@ struct In {
 }
 
 pub fn dir() -> PathBuf {
-    match std::env::var_os("FASTCORD_DATA") {
+    match std::env::var_os("RUSTCORD_DATA") {
         Some(d) => PathBuf::from(d),
-        None => dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("Fastcord"),
+        None => dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("Rustcord"),
     }
 }
 
@@ -257,7 +257,7 @@ pub fn save(store: &Store, ui: &UiState) {
 }
 
 pub fn token() -> Option<String> {
-    if let Ok(t) = std::env::var("FASTCORD_TOKEN") {
+    if let Ok(t) = std::env::var("RUSTCORD_TOKEN") {
         return Some(t);
     }
     let t = std::fs::read_to_string(dir().join("token")).ok()?;

@@ -43,7 +43,7 @@ pub const NAME_FONTS: [(u8, &str, &str); 11] = [
 static FRESH: AtomicBool = AtomicBool::new(false);
 
 fn origin() -> String {
-    std::env::var("FASTCORD_FONTS").unwrap_or_else(|_| "https://discord.com".into())
+    std::env::var("RUSTCORD_FONTS").unwrap_or_else(|_| "https://discord.com".into())
 }
 
 fn path(stem: &str) -> PathBuf {

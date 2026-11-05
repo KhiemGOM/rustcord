@@ -1,4 +1,4 @@
-//! Just enough protobuf to pull guild folders and the settings Fastcord has a
+//! Just enough protobuf to pull guild folders and the settings Rustcord has a
 //! twin for out of the READY settings blob (PreloadedUserSettings: 6 = text and
 //! images, 12 = localization, 13 = appearance, 14 = guild folders). Field numbers
 //! are from dolfies/discord-protos.

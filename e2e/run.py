@@ -1,4 +1,4 @@
-"""End-to-end run: real fastcord binary against the mock Discord in examples/mockcord.rs.
+"""End-to-end run: real rustcord binary against the mock Discord in examples/mockcord.rs.
 
 Does a cold start (empty data dir) and a warm start (cache from the cold run),
 drives the UI (click guild, click channel, type + send, scroll history, open DMs,
@@ -58,15 +58,15 @@ BUDGET_MS = 1000
 
 
 def build():
-    subprocess.run(["cargo", "build", "--release", "--bin", "fastcord", "--example", "mockcord"], cwd=ROOT, check=True)
+    subprocess.run(["cargo", "build", "--release", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
 
 
 def prime():
     """First launch of a freshly linked exe spends ~450ms in the OS (Defender scan, cold
     pages) before main runs. Pay that here so the timed cold start measures our code."""
     with tempfile.TemporaryDirectory() as tmp:
-        env = dict(os.environ, FASTCORD_DATA=tmp + "/data", FASTCORD_E2E=tmp, FASTCORD_FAKE_MIC="1", FASTCORD_FAKE_CAM="1", FASTCORD_SILENT="1")
-        p = subprocess.Popen([str(ROOT / "target" / "release" / "fastcord.exe")], env=env)
+        env = dict(os.environ, RUSTCORD_DATA=tmp + "/data", RUSTCORD_E2E=tmp, RUSTCORD_FAKE_MIC="1", RUSTCORD_FAKE_CAM="1", RUSTCORD_SILENT="1")
+        p = subprocess.Popen([str(ROOT / "target" / "release" / "rustcord.exe")], env=env)
         end = time.time() + 30
         while not (Path(tmp) / "first_frame_epoch_ms").exists() and time.time() < end:
             time.sleep(0.01)
@@ -79,22 +79,22 @@ def run_client(name, data_dir, extra=None):
     out.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env.update({
-        "FASTCORD_API": f"http://127.0.0.1:{HTTP}/api/v9",
-        "FASTCORD_CDN": f"http://127.0.0.1:{HTTP}/cdn",
-        "FASTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
-        "FASTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
-        "FASTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
-        "FASTCORD_TOKEN": "mock-token",
-        "FASTCORD_DATA": str(data_dir),
-        "FASTCORD_E2E": str(out),
+        "RUSTCORD_API": f"http://127.0.0.1:{HTTP}/api/v9",
+        "RUSTCORD_CDN": f"http://127.0.0.1:{HTTP}/cdn",
+        "RUSTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
+        "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
+        "RUSTCORD_TOKEN": "mock-token",
+        "RUSTCORD_DATA": str(data_dir),
+        "RUSTCORD_E2E": str(out),
         # no Vencord install: just the run's own userplugin
-        "FASTCORD_VENCORD": str(Path(data_dir) / "no-vencord"),
+        "RUSTCORD_VENCORD": str(Path(data_dir) / "no-vencord"),
     })
     plugin = Path(data_dir) / "userplugins" / "fcE2e"
     plugin.mkdir(parents=True, exist_ok=True)
     shutil.copy(ROOT / "e2e" / "fce2e.tsx", plugin / "index.tsx")
     env.update(extra or {})
-    exe = ROOT / "target" / "release" / "fastcord.exe"
+    exe = ROOT / "target" / "release" / "rustcord.exe"
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     try:
@@ -123,11 +123,11 @@ def main():
     time.sleep(0.5)
     try:
         # real mic, speakers, desktop and webcam are all opt-in
-        fake = {"FASTCORD_FAKE_MIC": "1", "FASTCORD_FAKE_VIDEO": "1", "FASTCORD_SILENT": "1"}
-        cam = {} if "--real-camera" in sys.argv else {"FASTCORD_FAKE_CAM": "1"}
+        fake = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1"}
+        cam = {} if "--real-camera" in sys.argv else {"RUSTCORD_FAKE_CAM": "1"}
         cold = run_client("cold", data, {**fake, **cam})
         # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
-        real_video = {"FASTCORD_FAKE_MIC": "1", "FASTCORD_SILENT": "1", **cam}
+        real_video = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_SILENT": "1", **cam}
         warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
     finally:
         mock.kill()
@@ -287,7 +287,7 @@ def main():
         "vencord: its message menu item and chat bar button worked": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_menu", "vc_chatbar")),
         "vencord: its React drawn natively and used: accessory button, name decoration, modal, badge, member decorator, channel menu, setting component": all(
             m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_accessory", "vc_modal", "vc_badge", "vc_member", "vc_channel_menu", "vc_setting")),
-        "vencord: its own section: the notification a plugin sent reached the log, and QuickCSS colours reached Fastcord's palette": all(
+        "vencord: its own section: the notification a plugin sent reached the log, and QuickCSS colours reached Rustcord's palette": all(
             m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_notify_log", "vc_quickcss")),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
@@ -404,7 +404,7 @@ def main():
     report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
 
-    md = ["# fastcord e2e report", ""]
+    md = ["# rustcord e2e report", ""]
     md += [f"- [{'x' if ok else ' '}] {name}" for name, ok in checks.items()]
     for name, r in (("cold", cold), ("warm", warm)):
         md += ["", f"## {name} start", "", f"- spawn -> first frame: {r.get('spawn_to_first_frame_ms')} ms"]

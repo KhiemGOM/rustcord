@@ -1,4 +1,4 @@
-// @api/DataStore: Vencord's IndexedDB key-value store, kept by Fastcord in a file.
+// @api/DataStore: Vencord's IndexedDB key-value store, kept by Rustcord in a file.
 const data = globalThis.__fcData ??= {};
 const stores = {};
 const persist = () => __out({ op: "data", value: data });
