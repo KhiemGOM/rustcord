@@ -60,6 +60,7 @@ pub const MANAGE_MESSAGES: u64 = 1 << 13;
 pub const SEND_MESSAGES: u64 = 1 << 11;
 pub const CONNECT: u64 = 1 << 20;
 pub const MANAGE_CHANNELS: u64 = 1 << 4;
+pub const MANAGE_ROLES: u64 = 1 << 28;
 pub const SET_VOICE_CHANNEL_STATUS: u64 = 1 << 48;
 pub const MANAGE_GUILD: u64 = 1 << 5;
 pub const MANAGE_THREADS: u64 = 1 << 34;
@@ -900,6 +901,47 @@ pub struct ReadState {
     pub last_pin: i64,
 }
 
+/// One entry of a presence's activities: a game, a stream, Spotify, a custom status.
+#[derive(Clone, Default)]
+pub struct Activity {
+    pub kind: u8,
+    pub name: String,
+    pub details: Option<String>,
+    pub state: Option<String>,
+    pub emoji: Option<String>,
+    pub app: Id,
+    // unix ms, 0 when absent
+    pub start: i64,
+    pub end: i64,
+    pub large: Option<String>,
+    pub small: Option<String>,
+    pub party: Option<(u32, u32)>,
+    pub sync_id: Option<String>,
+}
+
+impl Activity {
+    pub fn spotify(&self) -> bool {
+        self.kind == 2 && self.sync_id.is_some()
+    }
+
+    /// An asset key ("spotify:…", "mp:external/…", "twitch:…", or an application asset id) as an image url.
+    pub fn art(&self, key: &str) -> Option<String> {
+        if let Some(id) = key.strip_prefix("spotify:") {
+            Some(format!("https://i.scdn.co/image/{id}"))
+        } else if let Some(p) = key.strip_prefix("mp:external/") {
+            Some(format!("https://media.discordapp.net/external/{p}"))
+        } else if let Some(n) = key.strip_prefix("twitch:") {
+            Some(format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{n}-440x248.jpg"))
+        } else if let Some(v) = key.strip_prefix("youtube:") {
+            Some(format!("https://i.ytimg.com/vi/{v}/hqdefault_live.jpg"))
+        } else if key.starts_with("mp:") || key.contains(':') || self.app == 0 {
+            None
+        } else {
+            Some(format!("{}/app-assets/{}/{key}.png?size=128", api::cdn(), self.app))
+        }
+    }
+}
+
 /// One card of discord's activity feed (the content inventory): a game played, an activity
 /// launched, a week's top artist or game.
 #[derive(Clone, Default)]
@@ -1090,9 +1132,9 @@ pub struct Store {
     pub reactors: Map<(Id, String, bool), (u32, Option<Vec<Id>>)>,
     #[serde(skip)]
     pub presence: Map<Id, Status>,
-    // what each user is doing, live from presences: (kind, name, state, emoji url)
+    // what each user is doing, live from presences
     #[serde(skip)]
-    pub activities: Map<Id, Vec<(u8, String, Option<String>, Option<String>)>>,
+    pub activities: Map<Id, Vec<Activity>>,
     #[serde(skip)]
     pub typing: Map<Id, Vec<(Id, Instant)>>,
     // the activity feed, best first, and application icons by id (None once looked up and missing)
@@ -1462,7 +1504,22 @@ impl Store {
                     (None, Some(n)) => Some(crate::markdown::twemoji(n)),
                     _ => None,
                 };
-                (a["type"].as_u64().unwrap_or(0) as u8, st(&a["name"]), ost(&a["state"]), emoji)
+                let t = &a["timestamps"];
+                let party = a["party"]["size"].as_array().filter(|p| p.len() == 2).map(|p| (p[0].as_u64().unwrap_or(0) as u32, p[1].as_u64().unwrap_or(0) as u32));
+                Activity {
+                    kind: a["type"].as_u64().unwrap_or(0) as u8,
+                    name: st(&a["name"]),
+                    details: ost(&a["details"]),
+                    state: ost(&a["state"]),
+                    emoji,
+                    app: sid(&a["application_id"]),
+                    start: t["start"].as_i64().unwrap_or(0),
+                    end: t["end"].as_i64().unwrap_or(0),
+                    large: ost(&a["assets"]["large_image"]),
+                    small: ost(&a["assets"]["small_image"]),
+                    party,
+                    sync_id: ost(&a["sync_id"]),
+                }
             })
             .collect();
         if list.is_empty() {
@@ -1476,20 +1533,20 @@ impl Store {
     /// doing ("Playing", bold name). (emoji url, prefix, bold part)
     pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String)> {
         let list = self.activities.get(&uid)?;
-        if let Some((_, _, state, emoji)) = list.iter().find(|a| a.0 == 4)
-            && (state.is_some() || emoji.is_some())
+        if let Some(a) = list.iter().find(|a| a.kind == 4)
+            && (a.state.is_some() || a.emoji.is_some())
         {
-            return Some((emoji.clone(), state.clone().unwrap_or_default(), String::new()));
+            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new()));
         }
-        let (kind, name, _, _) = list.iter().find(|a| a.0 != 4)?;
-        let verb = match kind {
+        let a = list.iter().find(|a| a.kind != 4)?;
+        let verb = match a.kind {
             1 => "Streaming ",
             2 => "Listening to ",
             3 => "Watching ",
             5 => "Competing in ",
             _ => "Playing ",
         };
-        Some((None, verb.to_string(), name.clone()))
+        Some((None, verb.to_string(), a.name.clone()))
     }
 
     fn upsert_user(&mut self, v: &Value) -> Id {
@@ -2496,7 +2553,7 @@ fn parse_role(r: &Value) -> Role {
 }
 
 /// An ISO timestamp as unix ms, 0 when there isn't one.
-fn iso_ms(v: &Value) -> i64 {
+pub fn iso_ms(v: &Value) -> i64 {
     v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp_millis())
 }
 

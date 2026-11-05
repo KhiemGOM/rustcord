@@ -33,6 +33,7 @@ import home
 import composer
 import messages
 import rail
+import people
 import qol
 import web
 
@@ -440,6 +441,7 @@ def main():
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
         **composer.checks({"cold": cold, "warm": warm}, reqs, data),
+        **people.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),

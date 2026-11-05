@@ -70,7 +70,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         });
 
     if app.friends_tab != 4 && ui.available_width() > 1000.0 {
-        active_now(app, ui);
+        super::now::show(app, ui);
     }
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         Frame::new().inner_margin(Margin { left: 24, right: 20, top: 16, bottom: 0 }).show(ui, |ui| {
@@ -229,63 +229,4 @@ fn list(app: &mut App, ui: &mut Ui) {
         }
         None => {}
     }
-}
-
-/// The friends page's right column: what friends are up to right now.
-fn active_now(app: &mut App, ui: &mut Ui) {
-    egui::Panel::right("active_now")
-        .exact_size(360.0)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 0 }))
-        .show(ui, |ui| {
-            let r = ui.max_rect();
-            ui.painter().vline(r.left() - 16.0, r.y_range().expand(16.0), Stroke::new(1.0, pal().border_subtle));
-            ui.label(RichText::new("Active Now").font(semi(20.0)).color(pal().header_primary));
-            ui.add_space(16.0);
-            let mut busy: Vec<Id> = app
-                .store
-                .relationships
-                .iter()
-                .filter(|(u, t)| **t == FRIEND && app.store.activities.get(u).is_some_and(|a| a.iter().any(|x| x.0 != 4)))
-                .map(|(u, _)| *u)
-                .collect();
-            busy.sort_by_key(|u| app.store.name_in(0, *u).to_lowercase());
-            if busy.is_empty() {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("It's quiet for now...").font(semi(16.0)).color(pal().header_primary));
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new("When a friend starts an activity\u{2014}like playing a game or hanging out on voice\u{2014}we'll show it here!")
-                            .font(reg(14.0))
-                            .color(pal().header_secondary),
-                    );
-                });
-            }
-            let mut open = None;
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                for u in busy {
-                    let Some(user) = app.store.user(u) else { continue };
-                    let (card, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
-                    let fill = if resp.hovered() { pal().bg_mod_hover } else { egui::Color32::TRANSPARENT };
-                    ui.painter().rect(card, CornerRadius::same(8), fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-                    let av = Rect::from_min_size(pos2(card.left() + 16.0, card.center().y - 20.0), vec2(40.0, 40.0));
-                    avatar(ui, av, &user.avatar_url());
-                    status_dot(ui, av, app.store.status(u), pal().bg_primary);
-                    let name = app.store.name_in(0, u);
-                    super::text::paint(ui.painter(), pos2(av.right() + 12.0, card.center().y - 10.0), Align2::LEFT_CENTER, &name, semi(16.0), pal().header_primary, card.width() - 90.0);
-                    if let Some((_, plain, bold)) = app.store.activity_line(u) {
-                        ui.painter().text(pos2(av.right() + 12.0, card.center().y + 10.0), Align2::LEFT_CENTER, format!("{plain}{bold}"), reg(14.0), pal().header_secondary);
-                    }
-                    if resp.clicked() {
-                        open = Some(u);
-                    }
-                    ui.add_space(8.0);
-                }
-            });
-            if let Some(u) = open {
-                app.open_dm(u);
-            }
-        });
 }

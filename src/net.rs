@@ -41,6 +41,12 @@ pub enum Tag {
     Pins(Id),
     Search(Id),
     Profile(Id),
+    // the recent activity on someone's full profile
+    Outbox(Id),
+    // a server's tag popout data
+    GuildProfile(Id),
+    // a member's messages for Mod View, and their moderation info
+    ModView(Id),
     Forum(Id),
     Invite,
     MadeInvite,
