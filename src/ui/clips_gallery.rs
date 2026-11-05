@@ -59,7 +59,7 @@ fn card(ui: &mut Ui, c: &Clip, on: bool, acts: &mut Vec<Act>, sel: &mut Vec<Stri
     let hot = resp.hovered();
     ui.painter().rect_filled(thumb, CornerRadius::same(8), Color32::BLACK);
     if c.has_thumb {
-        let uri = format!("file://{}", c.thumb().display().to_string().replace('\\', "/"));
+        let uri = format!("file:///{}", c.thumb().display().to_string().replace('\\', "/"));
         egui::Image::new(uri).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, thumb);
     } else {
         icons::draw(ui.painter(), Icon::Clips, Rect::from_center_size(thumb.center(), vec2(32.0, 32.0)), pal().channel_muted);

@@ -50,10 +50,10 @@ impl Run {
                     self.mark("clips_default_keybind");
                 }
                 self.shot(ctx, "clips_settings.png");
-                app.settings_page = None;
                 self.next(300);
             }
             2902 => {
+                app.settings_page = None;
                 app.select_guild(Some(DEN));
                 app.open(HANGOUT);
                 app.join_voice(HANGOUT, false);

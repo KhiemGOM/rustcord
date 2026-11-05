@@ -1894,7 +1894,8 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale });
+            let text: String = String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect();
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");

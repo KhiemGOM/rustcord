@@ -111,6 +111,7 @@ impl Audio {
         }
     }
 
+    #[cfg(test)]
     pub fn head(&self) -> i64 {
         self.head
     }
