@@ -287,6 +287,10 @@ pub struct Role {
     pub icon: Option<String>,
     #[serde(default)]
     pub emoji: Option<String>,
+    #[serde(default)]
+    pub mentionable: bool,
+    #[serde(default)]
+    pub managed: bool,
 }
 
 impl Role {
@@ -2333,6 +2337,8 @@ fn parse_role(r: &Value) -> Role {
         grad: role_grad(&r["colors"]),
         icon: ost(&r["icon"]),
         emoji: ost(&r["unicode_emoji"]),
+        mentionable: r["mentionable"].as_bool().unwrap_or(false),
+        managed: r["managed"].as_bool().unwrap_or(false),
     }
 }
 

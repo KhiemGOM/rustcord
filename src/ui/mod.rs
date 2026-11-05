@@ -1765,7 +1765,9 @@ impl eframe::App for App {
         }
         // dropping files on the window attaches them to the next message
         for f in raw.dropped_files.drain(..) {
-            self.files.push(composer::Upload::new(f.path().to_path_buf()));
+            if !server::dropped(self, f.path()) {
+                self.files.push(composer::Upload::new(f.path().to_path_buf()));
+            }
         }
         // egui-winit swallows ctrl+v when the clipboard holds no text, so watch the key ourselves;
         // not under e2e, where the real keyboard belongs to whoever's at the machine

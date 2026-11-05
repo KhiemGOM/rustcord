@@ -32,6 +32,7 @@ pub struct Run {
     marks: Vec<(String, f64)>,
     step: u32,
     step_at: Instant,
+    sub: u8,
     wait: Instant,
     queue: VecDeque<Vec<Event>>,
     frames: Vec<f32>,
@@ -104,6 +105,7 @@ impl Run {
             marks: Vec::new(),
             step: 0,
             step_at: Instant::now(),
+            sub: 0,
             wait: Instant::now(),
             queue: VecDeque::new(),
             frames: Vec::new(),
@@ -2429,9 +2431,28 @@ impl Run {
                 self.step = 327;
                 self.wait = Instant::now() + Duration::from_millis(200);
             }
+            // the server settings pages, against the mock only: the scripted run edits its role 1100
+            380 => {
+                if app.server.is_none() {
+                    app.open_server_settings(self.target.0);
+                }
+                match super::server::probe(app, self.sub) {
+                    super::server::Probe::Wait => {}
+                    super::server::Probe::Shot(name) => {
+                        self.shot(ctx, name);
+                        self.sub += 1;
+                        self.step_at = Instant::now();
+                    }
+                    super::server::Probe::Done => {
+                        self.mark("server_pages");
+                        app.server = None;
+                        self.step = 99;
+                    }
+                }
+            }
             329 => {
                 self.key(Key::Escape);
-                self.step = 99;
+                self.step = if std::env::var_os("RUSTCORD_TOUR_SERVER").is_some() { 380 } else { 99 };
             }
             _ => self.step = 99,
         }
@@ -3090,8 +3111,21 @@ impl Run {
                 if app.server.as_ref().is_none_or(|s| s.data.get("role_counts").is_none_or(|v| v.is_null())) {
                     return;
                 }
-                self.shot(ctx, "server_roles.png");
-                self.mark("server_settings");
+                if self.sub == 0 {
+                    self.shot(ctx, "server_roles.png");
+                    self.mark("server_settings");
+                    self.sub = 1;
+                }
+                match super::server::probe(app, self.sub - 1) {
+                    super::server::Probe::Wait => return,
+                    super::server::Probe::Shot(name) => {
+                        self.shot(ctx, name);
+                        self.sub += 1;
+                        self.step_at = Instant::now();
+                        return;
+                    }
+                    super::server::Probe::Done => self.mark("server_pages"),
+                }
                 app.server = None;
                 app.open_events(1000);
                 self.next(800);
