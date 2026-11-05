@@ -4,7 +4,6 @@ use egui::{
     Align, Align2, Color32, CornerRadius, Frame, Image, Key, Label, Layout, Margin, Modifiers, Pos2, Rect, RichText,
     Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
-use std::collections::HashSet;
 
 use super::{App, Pick, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
@@ -12,7 +11,7 @@ use super::{side, text};
 use crate::gif;
 use crate::markdown::{self, Block, Cx, Link};
 use crate::net::Cmd;
-use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Store};
+use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Set, Store};
 use crate::theme::*;
 
 enum Act {
@@ -63,7 +62,7 @@ struct D<'a> {
     ctx: &'a egui::Context,
     guild: Id,
     ch: Id,
-    revealed: &'a HashSet<Id>,
+    revealed: &'a Set<Id>,
     editing: &'a mut Option<(Id, String)>,
     marker: Option<Id>,
     hover_lock: Option<Id>,
@@ -79,7 +78,7 @@ struct D<'a> {
     popout: bool,
     // the message keyboard focus is on, ringed and kept in view
     focus: Option<Id>,
-    bookmarks: &'a HashSet<Id>,
+    bookmarks: &'a Set<Id>,
     // the hovered message's buttons from plugins: (message, [{label, icon, click}])
     plugin_bar: (Id, serde_json::Value),
     // how many plugins add accessories, decorations and member decorators
@@ -2796,10 +2795,10 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
 pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
     let ctx = ui.ctx().clone();
     let guild = store.channels.get(&m.channel).map(|c| c.guild).unwrap_or(0);
-    let revealed = HashSet::new();
+    let revealed = Set::default();
     let mut editing = None;
     let settings = crate::cache::Settings::default();
-    let none = HashSet::new();
+    let none = Set::default();
     let mut d = D {
         store,
         ctx: &ctx,

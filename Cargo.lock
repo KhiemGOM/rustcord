@@ -4867,6 +4867,7 @@ dependencies = [
  "egui_extras",
  "emojis",
  "flate2",
+ "foldhash",
  "futures-util",
  "image",
  "nnnoiseless",
