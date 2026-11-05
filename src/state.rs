@@ -913,6 +913,63 @@ pub const BLOCKED: u8 = 2;
 pub const INCOMING: u8 = 3;
 pub const OUTGOING: u8 = 4;
 
+/// The store, plus what's worked out from all of it (server badges, the mention count) once and
+/// kept until something takes the store mutably: a walk over every channel is too much per frame.
+#[derive(Default)]
+pub struct Tracked {
+    store: Store,
+    sums: std::cell::OnceCell<Sums>,
+}
+
+struct Sums {
+    badges: Map<Id, (bool, u32)>,
+    mentions: u32,
+}
+
+impl std::ops::Deref for Tracked {
+    type Target = Store;
+    fn deref(&self) -> &Store {
+        &self.store
+    }
+}
+
+impl std::ops::DerefMut for Tracked {
+    fn deref_mut(&mut self) -> &mut Store {
+        self.sums.take();
+        &mut self.store
+    }
+}
+
+impl From<Store> for Tracked {
+    fn from(store: Store) -> Self {
+        Tracked { store, sums: Default::default() }
+    }
+}
+
+impl Tracked {
+    fn sums(&self) -> &Sums {
+        self.sums.get_or_init(|| {
+            let s = &self.store;
+            let mentions = s
+                .reads
+                .iter()
+                .filter(|(ch, _)| s.channels.get(ch).is_some_and(|c| !s.muted.contains(&c.id) && !s.muted.contains(&c.guild)))
+                .map(|(_, r)| r.mentions)
+                .sum();
+            Sums { badges: s.guilds.keys().map(|g| (*g, s.guild_badge(*g))).collect(), mentions }
+        })
+    }
+
+    pub fn guild_badge(&self, gid: Id) -> (bool, u32) {
+        self.sums().badges.get(&gid).copied().unwrap_or_default()
+    }
+
+    /// Mentions over every channel that isn't muted, as the inbox and the title count them.
+    pub fn mention_count(&self) -> u32 {
+        self.sums().mentions
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,

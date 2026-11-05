@@ -690,25 +690,19 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         ui.ctx().request_discard("scroll anchor");
     }
 
-    if offset < 800.0
+    // read first: taking the store mutably every frame would throw away its cached sums
+    let page = app.store.msgs.get(&ch).filter(|e| !e.loading).and_then(|e| {
+        if offset < 800.0 && !e.at_start && e.fresh {
+            return e.list.iter().find(|m| !m.pending).map(|m| Page::Before(m.id));
+        }
+        let near_end = offset + out.inner_rect.height() > out.content_size.y - 800.0;
+        if near_end && e.detached { e.list.iter().rev().find(|m| !m.pending).map(|m| Page::After(m.id)) } else { None }
+    });
+    if let Some(page) = page
         && let Some(e) = app.store.msgs.get_mut(&ch)
-        && !e.at_start
-        && !e.loading
-        && e.fresh
-        && let Some(oldest) = e.list.iter().find(|m| !m.pending).map(|m| m.id)
     {
         e.loading = true;
-        app.net.send(Cmd::Messages { channel: ch, page: Page::Before(oldest) });
-    }
-    let near_end = offset + out.inner_rect.height() > out.content_size.y - 800.0;
-    if near_end
-        && let Some(e) = app.store.msgs.get_mut(&ch)
-        && e.detached
-        && !e.loading
-        && let Some(newest) = e.list.iter().rev().find(|m| !m.pending).map(|m| m.id)
-    {
-        e.loading = true;
-        app.net.send(Cmd::Messages { channel: ch, page: Page::After(newest) });
+        app.net.send(Cmd::Messages { channel: ch, page });
     }
 
     if let Some((_, id)) = app.scroll_to.filter(|(c, _)| *c == ch)
