@@ -112,18 +112,18 @@ impl Run {
             2719 => {
                 let Some(r) = Self::at(ctx, "keybind:add") else { return };
                 self.click(r.center());
-                self.next(500);
+                self.next(900);
             }
             2720 => {
                 self.shot(ctx, "settings_keybind_added.png");
                 if app.settings.keybinds.len() == 1 {
                     self.mark("keybind_added");
                 }
-                app.settings.keybinds.clear();
-                app.sform.recording = None;
-                self.next(300);
+                self.next(700);
             }
             2721 => {
+                app.settings.keybinds.clear();
+                app.sform.recording = None;
                 if !self.open_page(app, "Notifications") {
                     return;
                 }
