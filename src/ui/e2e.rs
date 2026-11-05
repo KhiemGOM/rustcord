@@ -1213,6 +1213,7 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            560..=579 => self.voice_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -3963,9 +3964,118 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 560;
                 }
             }
+        }
+    }
+
+    /// Voice & Video: the mic test, input profiles, settings reaching the engine, a switch and
+    /// a sound toggle clicked, and what goes to the account.
+    fn voice_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::cache::{InputProfile, Noise};
+        use crate::ui::settings::Page;
+        use std::sync::atomic::Ordering::Relaxed;
+        let sh = app.voice.shared.clone();
+        let late = self.step_at.elapsed() > Duration::from_secs(3);
+        let goto = |ctx: &egui::Context, name: &str| ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), name.to_string()));
+        match self.step {
+            560 => {
+                app.settings_page = Some(Page::Voice);
+                self.next(900);
+            }
+            561 => {
+                let Some(r) = Self::at(ctx, "mic_test") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            562 => {
+                if crate::voice::probe::testing() {
+                    self.mark("voice_test_on");
+                }
+                let Some(r) = Self::at(ctx, "mic_test") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            563 => {
+                if !crate::voice::probe::testing() {
+                    self.mark("voice_test_off");
+                }
+                if let Some(r) = Self::at(ctx, "radio:Studio") {
+                    self.click(r.center());
+                }
+                self.next(600);
+            }
+            564 => {
+                if app.settings.input_profile == InputProfile::Studio && sh.open_mic.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 0 {
+                    self.mark("voice_studio");
+                }
+                if let Some(r) = Self::at(ctx, "radio:Custom") {
+                    self.click(r.center());
+                }
+                self.next(600);
+            }
+            565 => {
+                if app.settings.input_profile == InputProfile::Custom && !sh.open_mic.load(Relaxed) && sh.echo.load(Relaxed) {
+                    self.mark("voice_custom");
+                }
+                let gen_before = sh.dev_gen.load(Relaxed);
+                app.settings.attenuation = 40;
+                app.settings.atten_self = true;
+                app.settings.agc = false;
+                app.settings.echo_cancel = false;
+                app.settings.noise = Noise::Standard;
+                app.settings.mic = Some("e2e microphone".into());
+                app.save_settings(ctx);
+                let applied = sh.atten.load(Relaxed) == 40 && sh.atten_self.load(Relaxed) && !sh.agc.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 2;
+                if applied {
+                    self.mark("voice_engine_flags");
+                }
+                if sh.dev_gen.load(Relaxed) != gen_before {
+                    self.mark("voice_device_live");
+                }
+                app.settings.reset_voice();
+                app.save_settings(ctx);
+                if app.settings.mic.is_none() && sh.atten.load(Relaxed) == 0 && sh.agc.load(Relaxed) && sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 1 {
+                    self.mark("voice_reset");
+                }
+                goto(ctx, "Streaming");
+                self.next(800);
+            }
+            566 => {
+                match Self::at(ctx, "toggle:Show Stream Previews") {
+                    Some(r) => self.click(r.center()),
+                    None if !late => return,
+                    None => {}
+                }
+                self.next(800);
+            }
+            567 => {
+                if !app.settings.stream_previews {
+                    self.mark("voice_previews_off");
+                }
+                goto(ctx, "Sounds");
+                self.next(800);
+            }
+            568 => {
+                match Self::at(ctx, "sound:mute") {
+                    Some(r) => self.click(r.center()),
+                    None if !late => return,
+                    None => {}
+                }
+                self.next(500);
+            }
+            569 => {
+                if app.settings.muted_sounds.iter().any(|m| m == "mute") {
+                    self.mark("voice_sound_off");
+                }
+                app.settings.stream_previews = true;
+                app.settings.muted_sounds.clear();
+                app.save_settings(ctx);
+                app.settings_page = None;
+                self.step = 99;
+            }
+            _ => self.step = 99,
         }
     }
 
