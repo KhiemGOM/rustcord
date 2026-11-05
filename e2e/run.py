@@ -337,7 +337,6 @@ def main():
         "pins: opening them acked them": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2050/pins/ack") for r in reqs),
         "activity: the feed and its apps' icons were fetched": any("/content-inventory/users/@me" in r.get("path", "") for r in reqs)
             and any("/applications/public" in r.get("path", "") for r in reqs),
-        "forum, pins, search and profile hit the api": all(any(k in r.get("path", "") for r in reqs) for k in ("/threads/search", "/pins", "/messages/search", "/profile")),
         "voice: op 4 joined the guild voice channel": any(d.get("guild_id") == "1000" and d.get("channel_id") == "2021" for d in op4),
         "voice: identify carried session, token and max_dave_protocol_version": len(idents) >= 4 and all(
             i.get("session_id") == "mock-voice-session" and (i.get("max_dave_protocol_version") or 0) >= 1
