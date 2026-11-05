@@ -364,9 +364,20 @@ const LOCALES: [(&str, &str, &str); 32] = [
 ];
 
 pub fn system(app: &mut App, ui: &mut Ui) -> bool {
+    section(ui, "General");
+    let mut changed = false;
+    let s = &mut app.settings;
+    if toggle(ui, &mut s.open_on_startup, "Automatically open Rustcord when your computer starts up", "") {
+        crate::winsys::set_startup(s.open_on_startup);
+        changed = true;
+    }
+    if s.open_on_startup {
+        changed |= toggle(ui, &mut s.start_minimized, "Start Rustcord minimized", "Start Rustcord in the background, out of your way.");
+    }
+    changed |= toggle(ui, &mut s.minimize_to_tray, "Minimize Rustcord to System Tray", "Clicking X minimizes Rustcord instead of closing it completely.");
+
     section(ui, "Keybinds");
     note(ui, "Global keybinds work even when Rustcord isn't focused.");
-    let mut changed = false;
     super::lead(ui);
     if primary(ui, "Add a Keybind").clicked() {
         app.settings.keybinds.push(("ptt".into(), Vec::new()));
@@ -460,16 +471,6 @@ pub fn system(app: &mut App, ui: &mut Ui) -> bool {
         ui.painter().rect(chip, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61)), egui::StrokeKind::Inside);
         ui.painter().galley(chip.min + vec2(8.0, 6.0), g, pal().header_secondary);
         super::end(ui, 12.0);
-    }
-
-    section(ui, "Startup");
-    let s = &mut app.settings;
-    if toggle(ui, &mut s.open_on_startup, "Open Rustcord", "Save yourself a few clicks and let Rustcord greet you on computer startup.") {
-        crate::winsys::set_startup(s.open_on_startup);
-        changed = true;
-    }
-    if s.open_on_startup {
-        changed |= toggle(ui, &mut s.start_minimized, "Start Minimized", "Rustcord starts in the background and remains out of your way.");
     }
     if changed {
         crate::hotkeys::set(&app.settings.keybinds);

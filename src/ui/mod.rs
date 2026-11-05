@@ -354,6 +354,7 @@ impl App {
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
+        crate::tray::start(ctx.clone(), htx.clone());
         crate::hotkeys::start(ctx.clone(), htx);
         app.hotkey_rx = Some(hrx);
         crate::winsys::watch_streaming(ctx.clone());
@@ -363,7 +364,7 @@ impl App {
         app.games = Some(crate::games::start(ctx.clone()));
         app.obs_seen = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
         if app.settings.start_minimized && std::env::args().any(|a| a == "--startup") {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
         if let Some(ch) = app.cur() {
             app.open(ch);
@@ -790,6 +791,7 @@ impl App {
     fn apply_settings(&self, ctx: &egui::Context) {
         let s = &self.settings;
         ctx.set_zoom_factor(s.zoom);
+        crate::tray::set_close_hides(s.minimize_to_tray);
         crate::markdown::CLOCK24.store(s.clock24, std::sync::atomic::Ordering::Relaxed);
         crate::theme::set_reduced_motion(s.reduced_motion);
         crate::theme::set_view(crate::theme::View {
@@ -822,7 +824,7 @@ impl App {
         if !(self.store.mentions_me(&m) || (dm && self.settings.notify_all_dms)) {
             return;
         }
-        let focused = ctx.input(|i| i.focused);
+        let focused = ctx.input(|i| i.raw.focused);
         if focused && self.cur() == Some(c.id) {
             return;
         }
@@ -848,7 +850,7 @@ impl App {
             crate::toast::send(ping);
         }
         if !focused && self.settings.flash && self.e2e.is_none() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+            crate::winsys::flash();
         }
     }
 
@@ -881,6 +883,14 @@ impl App {
                     self.settings.streamer = !self.settings.streamer;
                     self.save_settings(ctx);
                 }
+                "open" => self.show_window(ctx),
+                "badge" => self.badge = None,
+                "hide" => self.hide_to_tray(ctx),
+                "voice_settings" => {
+                    self.show_window(ctx);
+                    self.settings_page = Some(settings::Page::Voice);
+                }
+                "quit" => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                 _ => {}
             }
         }
@@ -947,9 +957,12 @@ impl App {
         // on, a dot while anything's unread. Unreads take a walk over every channel, so once a second.
         let mut badge = n.min(i32::MAX as u32) as i32;
         if badge == 0 && self.settings.badge {
-            let stale = self.badge_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(1));
-            badge = match (stale, self.badge) {
-                (false, Some(b)) => b.min(0),
+            let wait = self.badge_at.map_or(Duration::ZERO, |t| Duration::from_secs(1).saturating_sub(t.elapsed()));
+            badge = match (wait.is_zero(), self.badge) {
+                (false, Some(b)) => {
+                    ctx.request_repaint_after(wait);
+                    b.min(0)
+                }
                 _ => {
                     self.badge_at = Some(Instant::now());
                     let s = &self.store;
@@ -964,12 +977,47 @@ impl App {
                 self.badge = Some(badge);
             }
         }
+        let v = &self.voice;
+        let me = self.store.me;
+        let m = v.muted.get(&me).copied().unwrap_or_default();
+        crate::tray::set(crate::tray::State {
+            unread: self.settings.badge && badge != 0,
+            connected: v.state == crate::voice::State::Connected,
+            speaking: v.speaking.contains(&me),
+            mute: v.mute || v.deaf,
+            server_mute: m[1],
+            deaf: v.deaf,
+            server_deaf: m[3],
+        });
+    }
+
+    /// Minimized or put away in the tray: eframe stops calling ui() for the first and we skip
+    /// drawing for the second, so logic() keeps the badge and the tray icon up to date.
+    fn away(&self, ctx: &egui::Context) -> bool {
+        self.frames > 0 && (ctx.input(|i| i.viewport().visible() == Some(false)) || !crate::winsys::shown())
+    }
+
+    fn show_window(&self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        // winit focuses by faking an alt press, which the e2e mustn't do to whoever's at the machine
+        if self.e2e.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
+    pub(crate) fn hide_to_tray(&mut self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        if !self.settings.tray_hint && self.e2e.is_none() {
+            crate::tray::hint();
+            self.settings.tray_hint = true;
+            cache::set_settings(&self.settings);
+        }
     }
 
     /// A clicked toast: the window back up and the message on screen.
     pub(crate) fn open_ping(&mut self, ctx: &egui::Context, ch: Id, msg: Id) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.show_window(ctx);
         if self.store.channels.contains_key(&ch) {
             self.jump_to(ch, msg);
         }
@@ -1471,11 +1519,24 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.pump(ctx);
+        self.os_settings(ctx, frame);
+        if self.away(ctx) {
+            self.update_title(ctx);
+            if let Some(mut e) = self.e2e.take() {
+                e.hidden(self, ctx);
+                self.e2e = Some(e);
+            }
+        }
+    }
+
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
-        self.pump(&ctx);
-        self.os_settings(&ctx, frame);
+        if self.away(&ctx) {
+            return;
+        }
         let want_cjk = crate::theme::CJK_WANTED.load(std::sync::atomic::Ordering::Relaxed);
         if (want_cjk && !self.cjk_loaded) || crate::fonts::take_fresh() {
             self.cjk_loaded = want_cjk;
@@ -1720,6 +1781,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        crate::tray::remove();
         if self.token.is_some() {
             cache::save(&self.store, &self.ui, true);
         }
