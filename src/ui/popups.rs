@@ -1,7 +1,7 @@
 use egui::{Align, Align2, CornerRadius, Frame, Key, Layout, Margin, Pos2, Rect, RichText, Sense, Ui, pos2, vec2};
 use serde_json::json;
 
-use super::{App, activity, avatar, button, channel_title, chat, icon_button, profile, status_dot, text};
+use super::{App, avatar, button, channel_title, chat, icon_button, presence, profile, status_dot, text};
 use super::icons::Icon;
 use crate::net::Tag;
 use crate::state::{Id, Message};
@@ -957,7 +957,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let me = app.store.me;
     let rel = app.store.relationships.get(&uid).copied();
     let stranger = !user.bot && uid != me && rel.is_none();
-    let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| activity::shown(l).cloned().collect()).unwrap_or_default();
+    let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| presence::shown(l).cloned().collect()).unwrap_or_default();
     let spotify = app.profiles.get(&me).is_some_and(|m| m["connected_accounts"].as_array().is_some_and(|a| a.iter().any(|c| c["type"] == "spotify")));
     let app_icons = app.store.app_icons.clone();
     let saved = app.notes.get(&uid).cloned().unwrap_or_default();
@@ -1038,9 +1038,9 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     for a in &live {
                         ui.add_space(12.0);
                         let icon = app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
-                        match activity::card(ui, a, 268.0, &icon, spotify) {
-                            Some(activity::Act::Play(u)) => open_url = Some(u),
-                            Some(activity::Act::Connect) => open_url = Some("https://discord.com/settings/connections".into()),
+                        match presence::card(ui, a, 268.0, &icon, spotify) {
+                            Some(presence::Act::Play(u)) => open_url = Some(u),
+                            Some(presence::Act::Connect) => open_url = Some("https://discord.com/settings/connections".into()),
                             None => {}
                         }
                     }
@@ -2601,8 +2601,10 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             crate::cache::set_settings(&app.settings);
         }
         ctx.open_url(egui::OpenUrl::new_tab(url));
+        super::activity::link_done(app, true);
     } else if close || modal.should_close() {
         app.leaving = None;
+        super::activity::link_done(app, false);
     }
 }
 

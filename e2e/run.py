@@ -43,6 +43,7 @@ import rpc
 import qol
 import web
 import sound
+import activity
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -98,6 +99,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_SOUNDS": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_ACTIVITY": f"http://127.0.0.1:{HTTP}/activity/{{app}}",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
         "RUSTCORD_REMOTE_AUTH": f"ws://127.0.0.1:{REMOTE}",
         "RUSTCORD_TOKEN": "mock-token",
@@ -505,6 +507,7 @@ def main():
         **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),
         **voice_settings.checks({"cold": cold, "warm": warm}, reqs, data),
         **rpc.checks({"cold": cold, "warm": warm}, reqs, data),
+        **activity.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
