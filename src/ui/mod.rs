@@ -7,6 +7,7 @@ mod chat;
 mod composer;
 mod create;
 mod directory;
+mod discover;
 mod e2e;
 mod events;
 mod forum;
