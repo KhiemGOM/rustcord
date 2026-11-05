@@ -15,6 +15,10 @@ mod gifts;
 pub use boosts::boost;
 pub use gifts::gifts;
 
+fn checkout(path: &str) {
+    open_web(path)
+}
+
 type Step = (&'static str, String, Option<Value>);
 
 const KEYS: [&str; 9] = ["subs", "sources", "payments", "slots", "cooldown", "credits", "gifts", "gift_codes", "badge"];
@@ -363,7 +367,7 @@ fn features(ui: &mut Ui, basic: &str, nitro: &str, subscribe: bool) {
         for (x, label) in [(cols[0], "Nitro Basic"), (cols[1], "Nitro")] {
             let b = Rect::from_center_size(pos2(r.left() + x + 80.0, r.center().y), vec2(144.0, 40.0));
             if solid(ui, b, &format!("Subscribe to {label}"), BLURPLE, Color32::WHITE) {
-                open_web("/settings/premium");
+                checkout("/settings/premium");
             }
         }
     }
@@ -384,7 +388,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
     if tier == 0 {
         let hit = hero(ui, "NITRO", &format!("{} / month", monthly(&nitro_plans).trim_end_matches("/month")), &NITRO_PERKS, &[("Subscribe", Color32::WHITE, Color32::from_rgb(0x2e, 0x33, 0x38))]);
         if hit == Some(0) {
-            open_web("/settings/premium");
+            checkout("/settings/premium");
         }
     } else {
         let name = ["", "NITRO CLASSIC", "NITRO", "NITRO BASIC"][tier.min(3) as usize];
@@ -428,7 +432,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
         });
         end(ui, 16.0);
         if primary(ui, "Select Friends").clicked() {
-            open_web("/settings/premium");
+            checkout("/settings/premium");
         }
     }
     section(ui, if tier == 0 { "Pricing and Features" } else { "What You’ve Got" });
@@ -495,11 +499,11 @@ pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 if ending {
                     if primary(ui, "Resubscribe").clicked() {
-                        open_web("/settings/premium");
+                        checkout("/settings/premium");
                     }
                 } else {
                     if secondary(ui, "Change Payment Method").clicked() {
-                        open_web("/settings/billing");
+                        checkout("/settings/billing");
                     }
                     if danger(ui, "Cancel Subscription", false).clicked() {
                         cancel = Some((id.to_string(), ends.clone()));
@@ -741,7 +745,7 @@ pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
     ui.add_space(24.0);
     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
         if primary(ui, "Add Payment Method").clicked() {
-            open_web("/settings/billing");
+            checkout("/settings/billing");
         }
     });
     edit_source(app, ui, &sources);
