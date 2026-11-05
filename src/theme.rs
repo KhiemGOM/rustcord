@@ -307,77 +307,7 @@ pub fn anim(secs: f32) -> f32 {
 }
 
 pub fn pal() -> &'static Palette {
-    let t = THEMED.load(std::sync::atomic::Ordering::Relaxed);
-    if !t.is_null() {
-        // SAFETY: themed palettes are leaked, so every pointer stored here lives forever
-        return unsafe { &*t };
-    }
     &PALETTES[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize]
-}
-
-static THEMED: std::sync::atomic::AtomicPtr<Palette> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
-static THEMED_KEY: std::sync::Mutex<Option<(Vec<(&'static str, Color32)>, u8)>> = std::sync::Mutex::new(None);
-
-/// Colours a Vencord theme sets over the current theme's, by palette field; empty for none.
-/// Returns whether the palette changed, so the caller can restyle.
-pub fn set_themed(colors: Vec<(&'static str, Color32)>) -> bool {
-    let theme = THEME.load(std::sync::atomic::Ordering::Relaxed);
-    let key = (!colors.is_empty()).then(|| (colors.clone(), theme));
-    let mut last = THEMED_KEY.lock().unwrap_or_else(|e| e.into_inner());
-    if *last == key {
-        return false;
-    }
-    *last = key;
-    if colors.is_empty() {
-        THEMED.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Relaxed);
-        return true;
-    }
-    let mut t = PALETTES[theme as usize];
-    for (field, c) in &colors {
-        match *field {
-            "bg_tertiary" => t.bg_tertiary = *c,
-            "bg_secondary" => t.bg_secondary = *c,
-            "bg_secondary_alt" => t.bg_secondary_alt = *c,
-            "bg_primary" => t.bg_primary = *c,
-            "bg_floating" => t.bg_floating = *c,
-            "bg_input" => t.bg_input = *c,
-            "bg_msg_hover" => t.bg_msg_hover = *c,
-            "bg_mod_hover" => t.bg_mod_hover = *c,
-            "bg_mod_selected" => t.bg_mod_selected = *c,
-            "bg_accent" => t.bg_accent = *c,
-            "border_muted" => t.border_muted = *c,
-            "border_normal" => t.border_normal = *c,
-            "border_subtle" => t.border_subtle = *c,
-            "frame_bg" => t.frame_bg = *c,
-            "frame_border" => t.frame_border = *c,
-            "input_bg" => t.input_bg = *c,
-            "control" => t.control = *c,
-            "control_hover" => t.control_hover = *c,
-            "spine" => t.spine = *c,
-            "critical" => t.critical = *c,
-            "positive" => t.positive = *c,
-            "bg_code" => t.bg_code = *c,
-            "spoiler" => t.spoiler = *c,
-            "spoiler_revealed" => t.spoiler_revealed = *c,
-            "text_normal" => t.text_normal = *c,
-            "text_muted" => t.text_muted = *c,
-            "chat_muted" => t.chat_muted = *c,
-            "header_primary" => t.header_primary = *c,
-            "header_secondary" => t.header_secondary = *c,
-            "channel_default" => t.channel_default = *c,
-            "channel_muted" => t.channel_muted = *c,
-            "interactive_hover" => t.interactive_hover = *c,
-            "link" => t.link = *c,
-            "mention_bg" => t.mention_bg = *c,
-            "mention_fg" => t.mention_fg = *c,
-            "highlight_bg" => t.highlight_bg = *c,
-            "highlight_hover" => t.highlight_hover = *c,
-            "mention_bar" => t.mention_bar = *c,
-            _ => {}
-        }
-    }
-    THEMED.store(Box::into_raw(Box::new(t)), std::sync::atomic::Ordering::Relaxed);
-    true
 }
 
 /// Onyx draws a few hairlines the other themes leave out.
@@ -457,10 +387,6 @@ pub fn mono_bold(size: f32) -> FontId {
 
 pub fn italic(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("italic".into()))
-}
-
-pub fn semi_italic(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name("semi-italic".into()))
 }
 
 pub fn bold_italic(size: f32) -> FontId {

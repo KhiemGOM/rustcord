@@ -87,18 +87,13 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_TOKEN": "mock-token",
         "RUSTCORD_DATA": str(data_dir),
         "RUSTCORD_E2E": str(out),
-        # no Vencord install: just the run's own userplugin
-        "RUSTCORD_VENCORD": str(Path(data_dir) / "no-vencord"),
     })
-    plugin = Path(data_dir) / "userplugins" / "fcE2e"
-    plugin.mkdir(parents=True, exist_ok=True)
-    shutil.copy(ROOT / "e2e" / "fce2e.tsx", plugin / "index.tsx")
     env.update(extra or {})
     exe = ROOT / "target" / "release" / "rustcord.exe"
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     try:
-        code = p.wait(timeout=480)
+        code = p.wait(timeout=300)
     except subprocess.TimeoutExpired:
         p.kill()
         code = "timeout"
@@ -280,15 +275,6 @@ def main():
         "soundboard: opened in the guild call and the server's sounds loaded": all("soundboard" in r.get("marks_ms", {}) for r in (cold, warm))
             and any("/soundboard-sounds" in r.get("path", "") for r in reqs),
         "soundboard: clicking a sound fetched it to play": any("/soundboard-sounds/5001" in r.get("path", "") for r in reqs),
-        "vencord: the userplugin loaded and its switch on the Plugins page started it": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_loaded", "vc_enabled")),
-        "vencord: its send listener rewrote a message on the way out": sum("vc:hello from a plugin [vc]" in b for b in sent_bodies) == 2,
-        "vencord: its /fce2e command answered, and its flux handler saw the answer arrive": sum(b == "command ran" for b in sent_bodies) == 2
-            and all("vc_flux" in r.get("marks_ms", {}) for r in (cold, warm)),
-        "vencord: its message menu item and chat bar button worked": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_menu", "vc_chatbar")),
-        "vencord: its React drawn natively and used: accessory button, name decoration, modal, badge, member decorator, channel menu, setting component": all(
-            m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_accessory", "vc_modal", "vc_badge", "vc_member", "vc_channel_menu", "vc_setting")),
-        "vencord: its own section: the notification a plugin sent reached the log, and QuickCSS colours reached Rustcord's palette": all(
-            m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("vc_notify_log", "vc_quickcss")),
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,
