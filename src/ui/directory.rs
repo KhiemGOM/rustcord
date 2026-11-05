@@ -162,7 +162,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             Frame::new().inner_margin(Margin { left: 52, right: 52, top: 32, bottom: 48 }).show(ui, |ui| {
                 match data {
                     None | Some(Value::Null) => {
-                        ui.add(egui::Spinner::new().color(pal().text_muted));
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                     }
                     Some(v) if key == "collections" => {
                         let mut cols: Vec<&Value> = v.as_array().into_iter().flatten().collect();
@@ -200,7 +200,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let mut close = false;
         let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-        let m = egui::Modal::new("app_card".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
+        let m = crate::ui::motion::Modal::new("app_card".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
             ui.set_width(560.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             let id = c["id"].as_str().unwrap_or_default();

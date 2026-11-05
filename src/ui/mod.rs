@@ -15,6 +15,7 @@ pub mod icons;
 mod keys;
 mod login;
 mod members;
+mod motion;
 mod palette;
 mod picker;
 mod popups;
@@ -1375,21 +1376,28 @@ impl App {
         events::show(self, &ctx);
         share::show(self, &ctx);
         if let Some((text, at)) = &self.toast {
-            if at.elapsed() > Duration::from_secs(4) {
+            let e = at.elapsed().as_secs_f32();
+            if e > 4.0 {
                 self.toast = None;
             } else {
                 let text = text.clone();
-                egui::Area::new("toast".into())
-                    .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -90.0))
-                    .order(egui::Order::Tooltip)
-                    .show(&ctx, |ui| {
-                        Frame::new()
-                            .fill(pal().bg_floating)
-                            .corner_radius(8)
-                            .inner_margin(egui::Margin::symmetric(16, 10))
-                            .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
-                    });
-                ctx.request_repaint_after(Duration::from_millis(500));
+                let k = motion::EASE_OUT.at(e / 0.3) - motion::EASE_IN.at((e - 3.7) / 0.3);
+                let slide = if crate::theme::anim(1.0) > 0.0 { 24.0 * (1.0 - k) } else { 0.0 };
+                let area = egui::Area::new("toast".into()).anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -90.0)).order(egui::Order::Tooltip).fade_in(false);
+                ctx.set_transform_layer(area.layer(), egui::emath::TSTransform::from_translation(vec2(0.0, slide)));
+                area.show(&ctx, |ui| {
+                    ui.multiply_opacity(k);
+                    Frame::new()
+                        .fill(pal().bg_floating)
+                        .corner_radius(8)
+                        .inner_margin(egui::Margin::symmetric(16, 10))
+                        .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
+                });
+                if e < 0.3 || e >= 3.7 {
+                    ctx.request_repaint();
+                } else {
+                    ctx.request_repaint_after(Duration::from_secs_f32(3.7 - e));
+                }
             }
         }
         self.confirm_modal(&ctx);
@@ -1399,7 +1407,7 @@ impl App {
             let level = self.store.levels.get(&gid).copied().unwrap_or(default);
             let muted = self.store.muted.contains(&gid);
             let (mut pick, mut mute) = (None, None);
-            let modal = egui::Modal::new("guild_notifs".into())
+            let modal = crate::ui::motion::Modal::new("guild_notifs".into())
                 .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
                 .show(&ctx, |ui| {
                     ui.set_width(440.0);
@@ -1453,7 +1461,7 @@ impl App {
         let pinned = |ch: Id, id: Id| self.pins.as_ref().filter(|(c, _)| *c == ch).and_then(|(_, l)| l.as_ref()?.iter().find(|m| m.id == id).cloned());
         let msg = c.msg.and_then(|(ch, id)| self.store.find_msg(ch, id).cloned().or_else(|| pinned(ch, id)));
         let store = &self.store;
-        let modal = egui::Modal::new("confirm".into())
+        let modal = crate::ui::motion::Modal::new("confirm".into())
             .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
             .show(ctx, |ui| {
                 ui.set_width(432.0);

@@ -10,7 +10,7 @@ pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "What Activity I Share");
     match remote(app, "legacy", "/users/@me/settings").cloned() {
         None => {
-            ui.add(egui::Spinner::new().color(pal().text_muted));
+            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         }
         Some(Err(_)) => note(ui, "Discord didn't hand this setting to Rustcord. You can change it on discord.com."),
         Some(Ok(s)) => {

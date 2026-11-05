@@ -34,8 +34,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0 + extra, 32.0), Sense::click());
                     if sel {
                         ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_selected);
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_hover);
+                    } else {
+                        super::motion::wash(ui, &resp, r, 8, pal().bg_mod_hover, 0.3);
                     }
                     let col = if sel || resp.hovered() { pal().header_primary } else { pal().header_secondary };
                     ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, *t, medium(16.0), col);
@@ -51,10 +51,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::click());
                 let fill = if add {
                     BLURPLE.gamma_multiply(0.24)
-                } else if resp.hovered() {
-                    egui::Color32::from_rgb(0x44, 0x52, 0xbb)
                 } else {
-                    BLURPLE
+                    super::motion::mix(BLURPLE, egui::Color32::from_rgb(0x44, 0x52, 0xbb), super::motion::hover(ui.ctx(), &resp, 0.3))
                 };
                 ui.painter().rect_filled(r, CornerRadius::same(8), fill);
                 ui.painter().galley(r.center() - g.size() / 2.0, g, if add { pal().link } else { egui::Color32::WHITE });
@@ -152,9 +150,7 @@ fn list(app: &mut App, ui: &mut Ui) {
         for (uid, kind) in people {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
             ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
-            if resp.hovered() {
-                ui.painter().rect_filled(row.shrink2(vec2(-10.0, 1.0)), CornerRadius::same(8), pal().bg_mod_hover);
-            }
+            super::motion::wash(ui, &resp, row.shrink2(vec2(-10.0, 1.0)), 8, pal().bg_mod_hover, 0.2);
             let av = Rect::from_min_size(pos2(row.left(), row.center().y - 16.0), vec2(32.0, 32.0));
             let Some(u) = app.store.user(uid) else { continue };
             avatar(ui, av, &u.avatar_url());
@@ -268,7 +264,7 @@ fn active_now(app: &mut App, ui: &mut Ui) {
                 for u in busy {
                     let Some(user) = app.store.user(u) else { continue };
                     let (card, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
-                    let fill = if resp.hovered() { pal().bg_mod_hover } else { egui::Color32::TRANSPARENT };
+                    let fill = pal().bg_mod_hover.gamma_multiply(super::motion::hover(ui.ctx(), &resp, 0.2));
                     ui.painter().rect(card, CornerRadius::same(8), fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     let av = Rect::from_min_size(pos2(card.left() + 16.0, card.center().y - 20.0), vec2(40.0, 40.0));
                     avatar(ui, av, &user.avatar_url());

@@ -209,7 +209,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
     };
     let mut submit = false;
     let mut close = false;
-    let r = egui::Modal::new("settings_modal".into())
+    let r = crate::ui::motion::Modal::new("settings_modal".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8))
         .show(ctx, |ui| {
             ui.set_width(440.0);
@@ -623,7 +623,7 @@ pub(super) fn legacy(app: &mut App, ui: &mut Ui) -> Option<Value> {
         Some(Ok(v)) => Some(v),
         None => {
             super::lead(ui);
-            ui.add(egui::Spinner::new().color(pal().text_muted));
+            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             None
         }
         Some(Err(_)) => {
