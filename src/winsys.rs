@@ -26,6 +26,29 @@ pub fn set_startup(on: bool) {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct Prefs {
+    pub animations: bool,
+    pub high_contrast: bool,
+}
+
+/// What Windows' own ease-of-access settings say: animations in the client area, and a contrast theme.
+pub fn preferences() -> Prefs {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SystemParametersInfoW;
+    let mut anim = 1i32;
+    let mut flags = [0u16; 16];
+    let mut len = std::mem::size_of_val(&flags) as u32;
+    let (key, name) = (wide("Control Panel\\Accessibility\\HighContrast"), wide("Flags"));
+    unsafe {
+        SystemParametersInfoW(0x1042, 0, (&mut anim as *mut i32).cast(), 0);
+        RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), flags.as_mut_ptr().cast(), &mut len);
+    }
+    let text = String::from_utf16_lossy(&flags);
+    let flags: u32 = text.trim_matches('\0').trim().parse().unwrap_or(0);
+    Prefs { animations: anim != 0, high_contrast: flags & 1 != 0 }
+}
+
 pub fn exclude_from_capture(frame: &eframe::Frame, on: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};

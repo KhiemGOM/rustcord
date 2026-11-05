@@ -50,6 +50,7 @@ enum Item {
     Emoji(Em),
     Command(usize),
     BuiltIn(usize),
+    Sticker(Id, String, u8, String),
 }
 
 /// Discord's own commands, listed after the apps' as "Built-In": name, options, description.
@@ -178,6 +179,16 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                 if let Some(k) = rank(&e.name, g.id == chan.guild, !ok, false) {
                     let raw = format!("<{}:{}:{}>", if e.animated { "a" } else { "" }, e.name, e.id);
                     out.push((k, Item::Emoji(Em { name: e.name.clone(), raw, url: Some(e.url()), server: Some(g.name.clone()), locked: !ok })));
+                }
+            }
+            if app.settings.sticker_suggestions && q.chars().count() >= 2 {
+                let (here, nitro) = (chan.guild, store.nitro());
+                for g in store.guild_order.iter().filter_map(|g| store.guilds.get(g)).filter(|g| nitro || g.id == here) {
+                    for (id, name, fmt) in g.stickers.iter().filter(|s| s.2 != 3) {
+                        if let Some(s) = score(name, &q) {
+                            out.push((s as u16 * 10, Item::Sticker(*id, name.clone(), *fmt, g.name.clone())));
+                        }
+                    }
                 }
             }
             let mut seen = std::collections::HashSet::new();
@@ -422,6 +433,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     // discord's text starts 64 in: 16, the 24 button, then 24 more
                     ui.add_space(23.0);
+                    let preview = app.settings.md_preview;
                     let draft = app.drafts.entry(ch).or_default();
                     // the text stops short of the buttons: five 40 wide, six with the send button
                     let buttons = if app.settings.send_button { 240.0 } else { 200.0 };
@@ -431,7 +443,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         // the row is horizontal; padding above and below the text has to be vertical
                         ui.vertical(|ui| {
                             ui.add_space(17.0);
-                            let out = egui::TextEdit::multiline(draft)
+                            let mut styled = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| super::mdpreview::layout(ui, text.as_str(), wrap);
+                            let mut edit = egui::TextEdit::multiline(draft);
+                            if preview {
+                                edit = edit.layouter(&mut styled);
+                            }
+                            let out = edit
                                 .id(tid)
                                 .frame(Frame::NONE)
                                 .desired_rows(1)
@@ -729,6 +746,12 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
                 text::paint(p, pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, srv, semi(12.0), pal().header_secondary.gamma_multiply(fade), r.width() * 0.4);
             }
         }
+        Item::Sticker(id, name, fmt, server) => {
+            let ext = if *fmt == 4 { "gif" } else { "png" };
+            text::image(p, &format!("https://media.discordapp.net/stickers/{id}.{ext}?size=64"), Rect::from_center_size(pos2(x + 12.0, y), vec2(26.0, 26.0)));
+            p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary);
+            text::paint(p, pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, server, semi(12.0), pal().header_secondary, r.width() * 0.4);
+        }
         Item::Command(i) => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
             let Some(c) = app.commands.get(&scope).and_then(|c| c.list.get(*i)) else { return };
@@ -852,6 +875,15 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
             (format!("/{name}"), String::new())
         }
         Item::BuiltIn(i) => (format!("/{}", BUILT_IN[*i].0), String::new()),
+        Item::Sticker(id, ..) => {
+            draft.replace_range(start..cur_b, "");
+            let new_cursor = draft[..start].chars().count();
+            let nonce = crate::state::make_nonce();
+            app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![*id], tts: false });
+            app.jump_to_present(ch);
+            app.ac_sel = 0;
+            return Some(new_cursor);
+        }
     };
     let insert = format!("{shown} ");
     draft.replace_range(start..cur_b, &insert);

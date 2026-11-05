@@ -443,6 +443,8 @@ pub struct Attachment {
     pub duration: f32,
     #[serde(default)]
     pub waveform: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 impl Attachment {
@@ -623,6 +625,7 @@ impl Message {
                     ctype: st(&a["content_type"]),
                     duration: a["duration_secs"].as_f64().unwrap_or(0.0) as f32,
                     waveform: st(&a["waveform"]),
+                    description: st(&a["description"]),
                 })
                 .collect();
         }

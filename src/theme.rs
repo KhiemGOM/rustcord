@@ -79,6 +79,52 @@ pub struct Palette {
     pub dark: bool,
 }
 
+impl Palette {
+    fn map(self, f: impl Fn(Color32) -> Color32) -> Palette {
+        Palette {
+            bg_tertiary: f(self.bg_tertiary),
+            bg_secondary: f(self.bg_secondary),
+            bg_secondary_alt: f(self.bg_secondary_alt),
+            bg_primary: f(self.bg_primary),
+            bg_floating: f(self.bg_floating),
+            bg_input: f(self.bg_input),
+            bg_msg_hover: f(self.bg_msg_hover),
+            bg_mod_hover: f(self.bg_mod_hover),
+            bg_mod_selected: f(self.bg_mod_selected),
+            bg_accent: f(self.bg_accent),
+            border_muted: f(self.border_muted),
+            border_normal: f(self.border_normal),
+            border_subtle: f(self.border_subtle),
+            frame_bg: f(self.frame_bg),
+            frame_border: f(self.frame_border),
+            input_bg: f(self.input_bg),
+            control: f(self.control),
+            control_hover: f(self.control_hover),
+            spine: f(self.spine),
+            critical: f(self.critical),
+            positive: f(self.positive),
+            bg_code: f(self.bg_code),
+            spoiler: f(self.spoiler),
+            spoiler_revealed: f(self.spoiler_revealed),
+            text_normal: f(self.text_normal),
+            text_muted: f(self.text_muted),
+            chat_muted: f(self.chat_muted),
+            header_primary: f(self.header_primary),
+            header_secondary: f(self.header_secondary),
+            channel_default: f(self.channel_default),
+            channel_muted: f(self.channel_muted),
+            interactive_hover: f(self.interactive_hover),
+            link: f(self.link),
+            mention_bg: f(self.mention_bg),
+            mention_fg: f(self.mention_fg),
+            highlight_bg: f(self.highlight_bg),
+            highlight_hover: f(self.highlight_hover),
+            mention_bar: f(self.mention_bar),
+            dark: self.dark,
+        }
+    }
+}
+
 const fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
@@ -271,7 +317,47 @@ pub enum Theme {
 }
 
 static THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
-const PALETTES: [Palette; 4] = [LIGHT, ASH, DARK, ONYX];
+static PALETTES: [Palette; 4] = [LIGHT, ASH, DARK, ONYX];
+static CURRENT: std::sync::atomic::AtomicPtr<Palette> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static GRADIENT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(NONE);
+static LOOK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+static BUILT: std::sync::Mutex<Vec<(u64, &'static Palette)>> = std::sync::Mutex::new(Vec::new());
+static SATURATION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(100);
+static SATURATE_CUSTOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const NONE: u8 = 255;
+
+/// One Nitro colour theme: the stops of its background gradient (percent along the line, at the css angle).
+pub struct Preset {
+    pub name: &'static str,
+    pub light: bool,
+    pub angle: f32,
+    pub stops: &'static [(u32, f32)],
+}
+
+pub static PRESETS: [Preset; 22] = [
+    Preset { name: "Mint Apple", light: true, angle: 180.0, stops: &[(0x56b69f, 6.15), (0x63bc61, 48.7), (0x9eca67, 93.07)] },
+    Preset { name: "Citrus Sherbert", light: true, angle: 180.0, stops: &[(0xf3b336, 31.1), (0xee8558, 67.09)] },
+    Preset { name: "Retro Raincloud", light: true, angle: 148.71, stops: &[(0x3a7ca1, 5.64), (0x7f7eb9, 26.38), (0x7f7eb9, 49.92), (0x3a7ca1, 73.12)] },
+    Preset { name: "Hanami", light: true, angle: 38.08, stops: &[(0xefaab3, 3.56), (0xefd696, 35.49), (0xa6daa2, 68.78)] },
+    Preset { name: "Sunrise", light: true, angle: 154.19, stops: &[(0x9f4175, 8.62), (0xc49064, 48.07), (0xa6953d, 76.04)] },
+    Preset { name: "Cotton Candy", light: true, angle: 180.14, stops: &[(0xf4abb8, 8.5), (0xb1c2fc, 94.28)] },
+    Preset { name: "LoFi Vibes", light: true, angle: 179.52, stops: &[(0xa4c0f7, 7.08), (0xa9e4e8, 34.94), (0xb0e2b8, 65.12), (0xcfdfa2, 96.23)] },
+    Preset { name: "Desert Khaki", light: true, angle: 38.99, stops: &[(0xe7dbd0, 12.92), (0xdfd0b2, 32.92), (0xe0d6a3, 52.11)] },
+    Preset { name: "Sunset", light: false, angle: 141.68, stops: &[(0x48288c, 27.57), (0xdb7f4b, 71.25)] },
+    Preset { name: "Chroma Glow", light: false, angle: 128.92, stops: &[(0x0eb5bf, 3.94), (0x4c0ce0, 26.1), (0xa308a7, 39.82), (0x9a53ff, 56.89), (0x218be0, 76.45)] },
+    Preset { name: "Forest", light: false, angle: 162.27, stops: &[(0x142215, 11.2), (0x2d4d39, 29.93), (0x454c32, 48.64), (0x5a7c58, 67.85), (0xa98e4b, 83.54)] },
+    Preset { name: "Crimson Moon", light: false, angle: 64.92, stops: &[(0x950909, 16.17), (0x000000, 72.0)] },
+    Preset { name: "Midnight Blurple", light: false, angle: 48.17, stops: &[(0x5348ca, 11.21), (0x140730, 61.92)] },
+    Preset { name: "Mars", light: false, angle: 170.82, stops: &[(0x895240, 14.61), (0x8f4343, 74.62)] },
+    Preset { name: "Dusk", light: false, angle: 180.0, stops: &[(0x665069, 12.84), (0x91a3d1, 85.99)] },
+    Preset { name: "Under the Sea", light: false, angle: 179.14, stops: &[(0x647962, 1.91), (0x588575, 48.99), (0x6a8482, 96.35)] },
+    Preset { name: "Retro Storm", light: false, angle: 148.71, stops: &[(0x3a7ca1, 5.64), (0x58579a, 26.38), (0x58579a, 49.92), (0x3a7ca1, 73.12)] },
+    Preset { name: "Neon Nights", light: false, angle: 180.0, stops: &[(0x01a89e, 0.0), (0x7d60ba, 50.0), (0xb43898, 100.0)] },
+    Preset { name: "Strawberry Lemonade", light: false, angle: 161.03, stops: &[(0xaf1a6c, 18.79), (0xc26b20, 49.76), (0xe7a525, 80.72)] },
+    Preset { name: "Aurora", light: false, angle: 239.16, stops: &[(0x062053, 10.39), (0x191fbb, 26.87), (0x13929a, 48.31), (0x218573, 64.98), (0x051a81, 92.5)] },
+    Preset { name: "Sepia", light: false, angle: 69.98, stops: &[(0x857664, 14.14), (0x5b4421, 60.35)] },
+    Preset { name: "Blurple Twilight", light: false, angle: 47.61, stops: &[(0x2c3fe7, 11.18), (0x261d83, 64.54)] },
+];
 
 /// Display options the renderers read without an `App` in reach (markdown,
 /// emoji urls). Set from settings in `App::apply_settings`.
@@ -280,9 +366,30 @@ pub struct View {
     pub underline_links: bool,
     pub animate_emoji: bool,
     pub hide_invites: bool,
+    pub name_styles: bool,
+    pub own_profiles: bool,
+    pub switch_icons: bool,
+    pub density: crate::cache::Density,
 }
 
-const VIEW_DEFAULT: View = View { underline_links: false, animate_emoji: true, hide_invites: false };
+const VIEW_DEFAULT: View = View {
+    underline_links: false,
+    animate_emoji: true,
+    hide_invites: false,
+    name_styles: true,
+    own_profiles: false,
+    switch_icons: false,
+    density: crate::cache::Density::Default,
+};
+
+/// A list row's height after the density setting: 4px tighter when compact, 4 roomier when spacious.
+pub fn row(h: f32) -> f32 {
+    match view().density {
+        crate::cache::Density::Compact => h - 4.0,
+        crate::cache::Density::Default => h,
+        crate::cache::Density::Spacious => h + 4.0,
+    }
+}
 static VIEW: std::sync::RwLock<View> = std::sync::RwLock::new(VIEW_DEFAULT);
 
 pub fn view() -> View {
@@ -293,6 +400,16 @@ pub fn set_view(v: View) {
     if let Ok(mut cur) = VIEW.write() {
         *cur = v;
     }
+}
+
+static ME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn set_me(id: u64) {
+    ME.store(id, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn me() -> u64 {
+    ME.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 static REDUCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -307,12 +424,13 @@ pub fn anim(secs: f32) -> f32 {
 }
 
 pub fn pal() -> &'static Palette {
-    &PALETTES[THEME.load(std::sync::atomic::Ordering::Relaxed) as usize]
+    let p = CURRENT.load(std::sync::atomic::Ordering::Relaxed);
+    if p.is_null() { &PALETTES[1] } else { unsafe { &*p } }
 }
 
 /// Onyx draws a few hairlines the other themes leave out.
 pub fn onyx() -> bool {
-    THEME.load(std::sync::atomic::Ordering::Relaxed) == 3
+    THEME.load(std::sync::atomic::Ordering::Relaxed) == 3 && GRADIENT.load(std::sync::atomic::Ordering::Relaxed) == NONE
 }
 
 /// The wash and outline discord gives every text field.
@@ -320,24 +438,181 @@ pub fn input_frame() -> egui::Frame {
     egui::Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal))
 }
 
-/// Switch the live palette. `Sync` follows the system's light/dark setting.
-pub fn set_theme(ctx: &egui::Context, t: Theme) {
-    let idx = match t {
-        Theme::Light => 0,
-        Theme::Ash => 1,
-        Theme::Dark => 2,
-        Theme::Onyx => 3,
-        Theme::Sync => match ctx.system_theme() {
+/// What the palette is built from: the base theme, a gradient preset over it, how far colours are
+/// pulled toward grey, and whether contrast is raised.
+pub struct Look {
+    pub theme: Theme,
+    pub gradient: Option<u8>,
+    pub saturation: f32,
+    pub saturate_custom: bool,
+    pub contrast: bool,
+}
+
+/// Switch the live palette to `look` (`Sync` follows the system's light/dark setting).
+pub fn set_look(ctx: &egui::Context, look: &Look) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let gradient = look.gradient.filter(|g| (*g as usize) < PRESETS.len());
+    let idx = match (gradient, look.theme) {
+        (Some(g), _) => {
+            if PRESETS[g as usize].light {
+                0
+            } else {
+                2
+            }
+        }
+        (None, Theme::Light) => 0,
+        (None, Theme::Ash) => 1,
+        (None, Theme::Dark) => 2,
+        (None, Theme::Onyx) => 3,
+        (None, Theme::Sync) => match ctx.system_theme() {
             Some(egui::Theme::Light) => 0,
             _ => 1,
         },
     };
-    if THEME.swap(idx, std::sync::atomic::Ordering::Relaxed) != idx {
-        style(ctx);
+    let sat = (look.saturation.clamp(0.0, 1.0) * 100.0).round() as u8;
+    let key = idx as u64 | (gradient.unwrap_or(NONE) as u64) << 8 | (sat as u64) << 16 | (look.contrast as u64) << 24 | (look.saturate_custom as u64) << 25;
+    if LOOK.swap(key, Relaxed) == key {
+        return;
     }
+    THEME.store(idx, Relaxed);
+    GRADIENT.store(gradient.unwrap_or(NONE), Relaxed);
+    SATURATION.store(sat, Relaxed);
+    SATURATE_CUSTOM.store(look.saturate_custom, Relaxed);
+    let palette = {
+        let mut built = BUILT.lock().unwrap();
+        match built.iter().find(|(k, _)| *k == key) {
+            Some((_, p)) => *p,
+            None => {
+                let p: &'static Palette = Box::leak(Box::new(build(idx as usize, gradient, sat, look.contrast)));
+                built.push((key, p));
+                p
+            }
+        }
+    };
+    CURRENT.store(palette as *const Palette as *mut Palette, Relaxed);
+    style(ctx);
 }
 
+fn build(base: usize, gradient: Option<u8>, sat: u8, contrast: bool) -> Palette {
+    let mut p = PALETTES[base];
+    if gradient.is_some() {
+        let (floor, rail, chat) = if p.dark { (0.84, 0.72, 0.62) } else { (0.78, 0.66, 0.56) };
+        p.bg_tertiary = veil(p.bg_tertiary, floor);
+        p.frame_bg = veil(p.frame_bg, floor);
+        p.bg_secondary_alt = veil(p.bg_secondary_alt, rail);
+        p.bg_primary = veil(p.bg_primary, chat);
+    }
+    if contrast {
+        let (ink, soft) = if p.dark { (0xffffff, 0xe6e6ea) } else { (0x000000, 0x1a1a1e) };
+        p.text_normal = rgb(ink);
+        p.header_primary = rgb(ink);
+        p.header_secondary = rgb(soft);
+        p.interactive_hover = rgb(ink);
+        p.text_muted = rgb(soft);
+        p.chat_muted = rgb(soft);
+        p.channel_default = rgb(soft);
+        p.channel_muted = if p.dark { rgb(0x96979e) } else { rgb(0x595a63) };
+        p.link = if p.dark { rgb(0x8cc2ff) } else { rgb(0x0047a8) };
+        p.border_muted = tint(OVERLAY, 500);
+        p.border_normal = tint(OVERLAY, 800);
+        p.border_subtle = tint(OVERLAY, 650);
+        p.frame_border = tint(OVERLAY, 650);
+        p.bg_accent = mix(OVERLAY, 500, if p.dark { 0x1a1a1e } else { 0xfbfbfb });
+        p.control = tint(OVERLAY, 200);
+        p.control_hover = tint(OVERLAY, 300);
+    }
+    if sat < 100 {
+        let k = sat as f32 / 100.0;
+        p = p.map(|c| desaturate(c, k));
+    }
+    p
+}
 
+/// `c` made see-through so the gradient behind the window shows, `a` of it staying.
+fn veil(c: Color32, a: f32) -> Color32 {
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * 255.0) as u8)
+}
+
+fn desaturate(c: Color32, k: f32) -> Color32 {
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    let mut h = egui::ecolor::Hsva::from_srgba_unmultiplied([r, g, b, 255]);
+    h.s *= k;
+    let [r, g, b, _] = h.to_srgba_unmultiplied();
+    Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+/// The colour `t` (0 to 1) along a preset's gradient.
+pub fn gradient_at(preset: &Preset, t: f32) -> Color32 {
+    let k = SATURATION.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0;
+    let stops = preset.stops;
+    let t = t.clamp(0.0, 1.0) * 100.0;
+    let col = |c: u32| desaturate(rgb(c), k);
+    let i = stops.iter().position(|(_, s)| *s >= t).unwrap_or(stops.len() - 1);
+    if i == 0 {
+        return col(stops[0].0);
+    }
+    let (a, b) = (stops[i - 1], stops[i]);
+    col(a.0).lerp_to_gamma(col(b.0), ((t - a.1) / (b.1 - a.1).max(0.0001)).clamp(0.0, 1.0))
+}
+
+/// The gradient behind the window, drawn before anything else; nothing on a plain theme.
+pub fn backdrop(ctx: &egui::Context) {
+    let Some(preset) = PRESETS.get(GRADIENT.load(std::sync::atomic::Ordering::Relaxed) as usize) else { return };
+    let screen = ctx.content_rect();
+    ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::mesh(gradient_mesh(preset, screen)));
+}
+
+pub fn gradient_mesh(preset: &Preset, r: egui::Rect) -> egui::Mesh {
+    let rad = preset.angle.to_radians();
+    let dir = egui::vec2(rad.sin(), -rad.cos());
+    let half = (r.width() * dir.x.abs() + r.height() * dir.y.abs()) / 2.0;
+    let (cols, rows) = (24u32, 14u32);
+    let mut mesh = egui::Mesh::default();
+    for j in 0..=rows {
+        for i in 0..=cols {
+            let pos = egui::pos2(r.left() + r.width() * i as f32 / cols as f32, r.top() + r.height() * j as f32 / rows as f32);
+            let t = (pos - r.center()).dot(dir) / half.max(1.0) / 2.0 + 0.5;
+            mesh.colored_vertex(pos, gradient_at(preset, t));
+        }
+    }
+    for j in 0..rows {
+        for i in 0..cols {
+            let a = j * (cols + 1) + i;
+            mesh.add_triangle(a, a + 1, a + cols + 1);
+            mesh.add_triangle(a + 1, a + cols + 2, a + cols + 1);
+        }
+    }
+    mesh
+}
+
+/// A theme swatch: the gradient inside a rounded rectangle, as a fan from the middle.
+pub fn rounded_gradient(preset: &Preset, r: egui::Rect, radius: f32) -> egui::Mesh {
+    let rad = preset.angle.to_radians();
+    let dir = egui::vec2(rad.sin(), -rad.cos());
+    let half = (r.width() * dir.x.abs() + r.height() * dir.y.abs()) / 2.0;
+    let colour = |p: egui::Pos2| gradient_at(preset, (p - r.center()).dot(dir) / half.max(1.0) / 2.0 + 0.5);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(r.center(), colour(r.center()));
+    let corners = [(r.right_top(), -1.0, 1.0, 270.0), (r.right_bottom(), -1.0, -1.0, 0.0), (r.left_bottom(), 1.0, -1.0, 90.0), (r.left_top(), 1.0, 1.0, 180.0)];
+    for (corner, sx, sy, start) in corners {
+        let centre = corner + egui::vec2(sx * radius, sy * radius);
+        for k in 0..=6 {
+            let a = (start + 15.0 * k as f32).to_radians();
+            let p = centre + egui::vec2(a.cos(), a.sin()) * radius;
+            mesh.colored_vertex(p, colour(p));
+        }
+    }
+    let n = mesh.vertices.len() as u32 - 1;
+    for i in 1..=n {
+        mesh.add_triangle(0, i, if i == n { 1 } else { i + 1 });
+    }
+    mesh
+}
+
+/// The colour the window is cleared to before anything draws.
+pub fn clear() -> Color32 {
+    if GRADIENT.load(std::sync::atomic::Ordering::Relaxed) == NONE { pal().bg_tertiary } else { Color32::BLACK }
+}
 
 pub const BLURPLE: Color32 = Color32::from_rgb(0x58, 0x65, 0xf2);
 pub const RED: Color32 = Color32::from_rgb(0xf2, 0x3f, 0x43);
@@ -404,7 +679,12 @@ pub fn status_color(s: crate::state::Status) -> Color32 {
 }
 
 pub fn role_color(c: u32) -> Color32 {
-    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
+    use std::sync::atomic::Ordering::Relaxed;
+    let c = Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+    match SATURATION.load(Relaxed) {
+        k if k < 100 && SATURATE_CUSTOM.load(Relaxed) => desaturate(c, k as f32 / 100.0),
+        _ => c,
+    }
 }
 
 /// Pull `c` toward black or white until it reaches `ratio` against `bg`; discord does this
@@ -527,7 +807,7 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
 
 /// A nitro display name in its font, or gg sans medium when it has none.
 pub fn name_font(font: u8, size: f32) -> FontId {
-    if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == font) {
+    if view().name_styles && crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == font) {
         FontId::new(size, FontFamily::Name(format!("name{font}").into()))
     } else {
         medium(size)
@@ -602,4 +882,37 @@ pub fn style(ctx: &egui::Context) {
     // egui keeps one style per egui theme; we pin egui to one and swap its style
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_style_of(egui::Theme::Dark, style);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_saturation_is_grey() {
+        let p = build(1, None, 0, false);
+        for c in [p.link, p.positive, p.mention_fg, p.critical] {
+            assert!(c.r().abs_diff(c.g()) <= 1 && c.g().abs_diff(c.b()) <= 1, "{c:?}");
+        }
+    }
+
+    #[test]
+    fn gradient_lets_the_backdrop_through() {
+        let p = build(2, Some(8), 100, false);
+        assert!(p.bg_primary.a() < 255 && p.bg_tertiary.a() < 255);
+        assert_eq!(p.bg_floating.a(), 255);
+    }
+
+    #[test]
+    fn contrast_goes_to_the_extremes() {
+        assert_eq!(build(1, None, 100, true).text_normal, Color32::WHITE);
+        assert_eq!(build(0, None, 100, true).text_normal, Color32::BLACK);
+    }
+
+    #[test]
+    fn gradients_run_stop_to_stop() {
+        let p = &PRESETS[11];
+        assert_eq!(gradient_at(p, 0.0), rgb(0x950909));
+        assert_eq!(gradient_at(p, 1.0), rgb(0x000000));
+    }
 }
