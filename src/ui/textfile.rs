@@ -66,13 +66,6 @@ struct View {
 }
 
 fn galley(ctx: &Context, a: &Attachment, v: &View, text: &str, lines: usize, width: f32) -> Arc<egui::Galley> {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    (&a.url, v.open, v.wrap, v.lang, width as i32, lines, ctx.pixels_per_point().to_bits(), pal().dark).hash(&mut h);
-    let key = Id::new(h.finish());
-    if let Some(g) = ctx.data(|d| d.get_temp::<Arc<egui::Galley>>(key)) {
-        return g;
-    }
     let left = a.size.saturating_sub(CAP as u64);
     let cut = if v.open { text.len() } else { text.split_inclusive('\n').take(lines).map(str::len).sum() };
     let mut shown = text[..cut].trim_end_matches('\n').to_string();
@@ -81,9 +74,7 @@ fn galley(ctx: &Context, a: &Attachment, v: &View, text: &str, lines: usize, wid
     }
     let wrap = if v.wrap { width } else { f32::INFINITY };
     let job = crate::highlight::job(&a.filename, v.lang, &shown, mono(14.0), pal().text_normal, pal().text_muted, wrap);
-    let g = ctx.layer_painter(egui::LayerId::background()).layout_job(job);
-    ctx.data_mut(|d| d.insert_temp(key, g.clone()));
-    g
+    ctx.layer_painter(egui::LayerId::background()).layout_job(job)
 }
 
 fn button(ui: &mut Ui, id: Id, rect: Rect, icon: Icon, tip: &str) -> egui::Response {
@@ -146,6 +137,9 @@ pub fn card(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
             }
             clip.galley(at, g, pal().text_normal);
         }
+    }
+    if resp.hovered() && ctx.input(|i| i.pointer.any_pressed() || i.pointer.any_click()) {
+        ctx.memory_mut(|m| m.request_focus(resp.id));
     }
     if resp.has_focus() {
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A)) {
