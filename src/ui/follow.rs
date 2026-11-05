@@ -8,8 +8,8 @@ use crate::state::{Channel, Id, MANAGE_WEBHOOKS};
 use crate::theme::*;
 
 pub struct Follow {
-    guild: Id,
-    chan: Id,
+    pub guild: Id,
+    pub chan: Id,
 }
 
 impl Follow {
@@ -73,7 +73,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.label(RichText::new("Only servers and channels you have webhook permissions in are shown.").font(reg(14.0)).color(pal().header_secondary));
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                go = chan != 0 && button(ui, "Follow", BLURPLE, 100.0).clicked();
+                let b = button(ui, "Follow", BLURPLE, 100.0);
+                super::settings::mark(ui, "follow:go", b.rect);
+                go = chan != 0 && b.clicked();
                 ui.add_space(8.0);
                 close |= super::grey_button(ui, "Cancel", 100.0).clicked();
             });
