@@ -74,7 +74,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                 ListItem::Member(uid) => {
                     // with an activity the row is 44, the name rides up and the line sits under it
                     let line = if offline { None } else { store.activity_line(*uid) };
-                    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if line.is_some() { 44.0 } else { 42.0 }), Sense::click());
+                    let (row, resp, hl) = super::side::dense_row(ui, if line.is_some() { 44.0 } else { 42.0 });
                     rects.push((*uid, row));
                     if resp.clicked() && ui.input(|i| i.modifiers.shift) {
                         mention = Some(*uid);
@@ -90,7 +90,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
                     let inner = row.shrink2(vec2(8.0, 0.0));
                     let hovered = resp.hovered();
                     if hovered {
-                        ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
+                        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
                     }
                     // a nameplate sits behind the row, flush right at the row's height
                     if let Some(url) = store.user(*uid).and_then(|u| u.nameplate_url()) {

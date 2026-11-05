@@ -53,6 +53,8 @@ impl App {
         let q = params.join("&");
         let path = if guild {
             format!("/guilds/{scope}/messages/search?{q}")
+        } else if self.settings.search_all_dms {
+            format!("/users/@me/messages/search?{q}")
         } else {
             format!("/channels/{scope}/messages/search?{q}")
         };
@@ -1193,6 +1195,10 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
 /// A profile's nitro theme as discord shows it: primary and accent, dimmed in dark themes.
 fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)> {
     let c = p.and_then(|p| p["user_profile"]["theme_colors"].as_array()).filter(|c| c.len() == 2)?;
+    let mine = p.and_then(|p| p["user"]["id"].as_str()).and_then(|id| id.parse::<u64>().ok()) == Some(crate::theme::me());
+    if crate::theme::view().own_profiles && !mine {
+        return None;
+    }
     let k = if pal().dark { 0.4 } else { 1.0 };
     let col = |v: &serde_json::Value| {
         let c = v.as_u64().unwrap_or(0) as u32;

@@ -115,7 +115,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let screen = ctx.content_rect();
     let size = vec2((screen.width() - 144.0).min(1400.0), screen.height() - 144.0);
-    let frame = Frame::new().fill(pal().bg_primary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
+    let frame = Frame::new().fill(solid(pal().bg_primary)).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
     let mut changed = false;
     let mut logout = false;
     // sections register themselves as they draw; the sidebar reads last frame's list
@@ -469,6 +469,10 @@ fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
     }
     let x = egui::lerp(r.left() + 13.0..=r.right() - 13.0, t);
     ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
+    if view().switch_icons {
+        let glyph = Rect::from_center_size(pos2(x, r.center().y), vec2(12.0, 12.0));
+        icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Close }, glyph, if on { BLURPLE } else { GREY });
+    }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
