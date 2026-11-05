@@ -197,10 +197,7 @@ impl Wheel {
                 out.push(e);
                 continue;
             }
-            let notch = match lines() {
-                u32::MAX => raw.screen_rect.map_or(600.0, |r| r.height() * 0.875),
-                n => n as f32 * 100.0 / 3.0 / ctx.zoom_factor(),
-            };
+            let notch = notch(ctx.zoom_factor(), raw.screen_rect.map_or(600.0, |r| r.height()));
             let mut d = delta * notch;
             if modifiers.shift {
                 d = vec2(d.x + d.y, 0.0);
@@ -238,6 +235,15 @@ impl Wheel {
             }
         }
         raw.events = out;
+    }
+}
+
+/// One wheel notch in points: 100px a third of the lines Windows is set to scroll, or most of a
+/// screen when it's set to scroll by the page.
+pub fn notch(zoom: f32, screen_h: f32) -> f32 {
+    match lines() {
+        u32::MAX => screen_h * 0.875,
+        n => n as f32 * 100.0 / 3.0 / zoom,
     }
 }
 
