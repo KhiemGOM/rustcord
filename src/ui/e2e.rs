@@ -50,6 +50,11 @@ pub struct Run {
     // RUSTCORD_BENCH: nothing scripted, the frame counts written down for e2e/bench.py
     bench: Option<Instant>,
     spin: bool,
+    scroll: bool,
+    wheel_at: Instant,
+    notches: u32,
+    last_frame: Option<Instant>,
+    gaps: Vec<f32>,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -121,6 +126,11 @@ impl Run {
             tour,
             bench: bench.then(Instant::now),
             spin: false,
+            scroll: false,
+            wheel_at: Instant::now(),
+            notches: 0,
+            last_frame: None,
+            gaps: Vec::new(),
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -225,6 +235,17 @@ impl Run {
                     | Event::Zoom(_)
             )
         });
+        if self.bench.is_some() && self.scroll {
+            if let Some(r) = raw.screen_rect {
+                raw.events.push(Event::PointerMoved(r.center()));
+            }
+            if Instant::now() >= self.wheel_at {
+                self.wheel_at = Instant::now() + Duration::from_millis(90);
+                self.notches += 1;
+                let dy = if (self.notches / 12) % 2 == 0 { 1.0 } else { -1.0 };
+                raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+            }
+        }
         if self.bench.is_none() {
             raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
         }
@@ -332,11 +353,18 @@ impl Run {
             if self.spin {
                 ctx.request_repaint();
             }
+            let now = Instant::now();
+            if let Some(l) = self.last_frame.replace(now)
+                && self.scroll
+            {
+                self.gaps.push((now - l).as_secs_f32() * 1000.0);
+            }
             if at.elapsed() > Duration::from_millis(100) {
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
+                self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "gaps": self.gaps });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;

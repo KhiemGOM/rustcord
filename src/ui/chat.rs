@@ -543,7 +543,12 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
     });
     if page != 0.0 {
-        nudge += page * (ui.available_height() - 80.0).max(100.0);
+        let ppp = ui.ctx().pixels_per_point();
+        app.paging.push(page * (ui.available_height() - 80.0).max(100.0), app.wheel.now(), super::wheel::Kind::Key, ppp);
+    }
+    nudge += app.paging.step(app.wheel.now());
+    if app.paging.animating() {
+        ui.ctx().request_repaint();
     }
     let hover_lock = app.bar.and_then(|(id, r)| pointer.filter(|p| r.contains(*p)).map(|_| id));
     // the hover toolbar floats on its own layer; a wheel over it still scrolls the chat, like discord
@@ -593,6 +598,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // last frame's height says how much room to leave above it
     let fill_id = egui::Id::new(("chat_fill", ch));
     let natural: f32 = ctx.data(|d| d.get_temp(fill_id)).unwrap_or(f32::MAX);
+    let skin = crate::theme::auto_scroller(ui);
     let out = sa.show_viewport(ui, |ui, vp| {
         if nudge != 0.0 {
             ui.scroll_with_delta_animation(vec2(0.0, nudge), egui::style::ScrollAnimation::none());
@@ -649,6 +655,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
     });
 
+    ui.set_style(skin);
     let D { acts, bar, rects, .. } = d;
     app.bar = bar;
     app.rects.extend(rects);
