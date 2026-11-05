@@ -45,9 +45,9 @@ windows = { version = "0.62.2", features = [
     "Graphics", "Graphics_Capture", "Graphics_DirectX", "Graphics_DirectX_Direct3D11", "Win32_Graphics_Gdi",
     "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
 ] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_HiDpi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_LibraryLoader"] }
-qrcode = "0.14.1"
-num-bigint = "0.4.8"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_HiDpi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_Security_Cryptography"] }
+qrcode = { version = "0.14.1", default-features = false }
+sha2 = "0.10.9"
 
 [build-dependencies]
 # the exe's icon: discord's own
@@ -56,6 +56,8 @@ winresource = "0.1"
 [dev-dependencies]
 # the mock serves a system font as woff2 so the client's gg sans download path runs for real
 ttf2woff2 = { version = "0.13.3", default-features = false }
+# the mock remote-auth gateway encrypts to the client's rsa key
+num-bigint = "0.4.8"
 # the mock voice server plays Discord's part in DAVE: MLS external sender plus a second member
 openmls = "0.8.2"
 openmls_basic_credential = "0.5.0"
