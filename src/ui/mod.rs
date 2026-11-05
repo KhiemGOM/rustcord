@@ -7,6 +7,7 @@ mod call;
 mod chat;
 mod composer;
 mod create;
+mod cstatus;
 mod crop;
 mod directory;
 mod e2e;
@@ -171,6 +172,8 @@ pub struct App {
     pub modify: Option<attach::Modify>,
     // Select Friends, for a new dm or group dm
     pub new_dm: Option<newdm::State>,
+    // Set a custom status, over the account card
+    pub status_text: Option<cstatus::State>,
     // what /sticker was given, for the sticker picker to start its search with
     pub sticker_q: Option<String>,
     // a custom emoji's popout: id, name, animated, where
@@ -342,6 +345,7 @@ impl App {
             crop: None,
             modify: None,
             new_dm: None,
+            status_text: None,
             sticker_q: None,
             emoji_pop: None,
             leaving: None,
@@ -1470,6 +1474,7 @@ impl App {
         crop::show(self, &ctx);
         attach::show(self, &ctx);
         newdm::show(self, &ctx);
+        cstatus::show(self, &ctx);
         picker::show(self, &ctx);
         picker::stickers(self, &ctx);
         chat::context_menu(self, &ctx);

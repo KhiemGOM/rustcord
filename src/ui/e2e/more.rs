@@ -315,6 +315,30 @@ impl Run {
                     self.next(200);
                 }
             }
+            // the custom status: Shift+Enter does nothing, Enter saves
+            1941 => {
+                app.status_text = Some(crate::ui::cstatus::State::from(None));
+                self.next(500);
+            }
+            1942 => {
+                self.queue.push_back(vec![Event::Text("e2e status".into())]);
+                self.chord(Key::Enter, Modifiers::SHIFT);
+                self.next(500);
+            }
+            1943 => {
+                if app.status_text.is_some() {
+                    self.mark("qol_status_shift_enter");
+                    self.key(Key::Enter);
+                    self.next(500);
+                }
+            }
+            1944 => {
+                if app.status_text.is_none() && app.store.custom_status.as_deref() == Some("e2e status") {
+                    self.mark("qol_custom_status");
+                    app.store.custom_status = None;
+                    self.next(200);
+                }
+            }
             _ => self.step = 99,
         }
     }

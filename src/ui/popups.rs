@@ -1291,6 +1291,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
 enum AccountAct {
     Status(&'static str),
     Edit,
+    Custom,
     CopyId,
 }
 
@@ -1338,6 +1339,9 @@ pub fn account(app: &mut App, ui: &mut Ui) {
             if account_row(ui, Some(Icon::Pencil), "Edit Profile", false, false).clicked() {
                 act = Some(AccountAct::Edit);
             }
+            if account_row(ui, Some(Icon::Smile), if custom.is_some() { "Edit Custom Status" } else { "Set a custom status" }, false, true).clicked() {
+                act = Some(AccountAct::Custom);
+            }
             let r = account_row(ui, None, label, true, true);
             let c = pos2(r.rect.left() + 24.0, r.rect.center().y);
             super::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), status, PROFILE_CARD);
@@ -1373,6 +1377,7 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     match act {
         Some(AccountAct::Status(s)) => app.set_status(s),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
+        Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(app.store.custom_status.as_ref())),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),
         None => {}
     }
