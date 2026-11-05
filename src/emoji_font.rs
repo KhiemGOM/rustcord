@@ -24,9 +24,9 @@ type Cache = Arc<Mutex<HashMap<String, Poll<Option<Arc<ColorImage>>>>>>;
 #[derive(Default)]
 pub struct Loader {
     cache: Cache,
-    // drawing happens on one thread that keeps its Direct2D and DirectWrite objects: made per
-    // emoji on the ui thread, each one cost a fresh D3D device, and a server list full of
-    // emoji names froze startup for seconds
+    // one thread draws them: made per emoji on the ui thread, Direct2D cost a fresh D3D device
+    // each and froze startup for seconds. Each is kept as a png after, so a later start doesn't
+    // load Direct2D at all, and the pen goes once there's nothing left to draw: it holds 10 MB.
     jobs: std::sync::OnceLock<Sender<(String, String, egui::Context)>>,
 }
 
@@ -50,11 +50,34 @@ impl ImageLoader for Loader {
         let jobs = self.jobs.get_or_init(|| {
             let (tx, rx) = channel::<(String, String, egui::Context)>();
             let cache = self.cache.clone();
+            let dir = crate::cache::dir().join("emoji");
+            let _ = std::fs::create_dir_all(&dir);
             let _ = std::thread::Builder::new().name("emoji".into()).spawn(move || {
-                let mut pen = Pen::new();
-                for (uri, text, ctx) in rx {
-                    let img = pen.as_mut().and_then(|p| p.draw(&text)).map(Arc::new);
-                    cache.lock().insert(uri, Poll::Ready(img));
+                let mut pen: Option<Pen> = None;
+                loop {
+                    let (uri, text, ctx) = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                        Ok(job) => job,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            pen = None;
+                            continue;
+                        }
+                        Err(_) => return,
+                    };
+                    let file = dir.join(format!("{}.png", uri.trim_start_matches(SCHEME)));
+                    let saved = image::open(&file).ok().map(|i| {
+                        let i = i.to_rgba8();
+                        ColorImage::from_rgba_unmultiplied([i.width() as usize, i.height() as usize], i.as_raw())
+                    });
+                    let img = saved.or_else(|| {
+                        if pen.is_none() {
+                            pen = Pen::new();
+                        }
+                        let img = pen.as_mut()?.draw(&text)?;
+                        let px: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
+                        let _ = image::save_buffer(&file, &px, PX, PX, image::ColorType::Rgba8);
+                        Some(img)
+                    });
+                    cache.lock().insert(uri, Poll::Ready(img.map(Arc::new)));
                     ctx.request_repaint();
                 }
             });
