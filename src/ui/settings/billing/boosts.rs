@@ -1,7 +1,7 @@
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::{Look, Step, act, card, confirm, epoch, faint, fetch, get, gradient, link, long, mark, now, open_web, put, remote, settle, small, solid, SUPPORT};
+use super::{Look, Step, act, checkout, card, confirm, epoch, faint, fetch, get, gradient, link, long, mark, now, put, remote, settle, small, solid, SUPPORT};
 use crate::state::{Guild, Id as Gid};
 use crate::theme::*;
 use crate::ui::App;
@@ -154,7 +154,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
     if solid(ui, btn, label, BLURPLE, Color32::WHITE) {
         match (ready.as_ref(), free.is_empty()) {
             (Some(slot), _) => pick = Some(Pick { slot: slot.clone(), from: None }),
-            (None, true) => open_web("/settings/premium-guild-subscriptions"),
+            (None, true) => checkout("/settings/premium-guild-subscriptions"),
             _ => {}
         }
     }
@@ -282,7 +282,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
                         Some(slot) => {
                             act(app, ui, vec![apply(slot, &gid.to_string())]);
                         }
-                        None => open_web("/settings/premium-guild-subscriptions"),
+                        None => checkout("/settings/premium-guild-subscriptions"),
                     }
                 }
             });
