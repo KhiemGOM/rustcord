@@ -38,6 +38,15 @@ pub fn write(app: &mut App, patch: Patch) {
     app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": b64(&bytes) })), Tag::Remote("proto_set"));
 }
 
+/// The settings blob as the page last saw it, for the e2e to read back.
+pub fn current(app: &App) -> Vec<u8> {
+    use base64::Engine;
+    match app.remote.get("proto") {
+        Some(Some(Ok(v))) => base64::engine::general_purpose::STANDARD.decode(v["settings"].as_str().unwrap_or("")).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 pub fn proto_done(app: &mut App, res: Result<Value, String>) {
     match res {
         Ok(v) if v["settings"].is_string() => {

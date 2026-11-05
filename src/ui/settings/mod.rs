@@ -25,6 +25,19 @@ use crate::theme::*;
 
 pub use user::Forms;
 
+/// Read back what a settings page wrote, for the e2e.
+pub fn proto_flag(app: &App, g: u64, f: u64) -> Option<bool> {
+    wire::flag(&privacy::current(app), g, f)
+}
+
+pub fn proto_num(app: &App, g: u64, f: u64) -> Option<u64> {
+    wire::num(&privacy::current(app), g, f)
+}
+
+pub fn proto_ids(app: &App, g: u64, f: u64) -> usize {
+    wire::ids(&privacy::current(app), g, f).len()
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Page {
     Account,

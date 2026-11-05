@@ -151,7 +151,9 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
             if primary(ui, "Change Avatar").clicked() {
                 act = Act::Avatar;
             }
-            if secondary(ui, "Change Decoration").clicked() {
+            let b = secondary(ui, "Change Decoration");
+            super::mark(ui, "pick:decoration", b.rect);
+            if b.clicked() {
                 act = Act::Pick(Kind::Decoration);
             }
             if link(ui, "Remove Avatar").clicked() {

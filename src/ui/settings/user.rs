@@ -41,6 +41,14 @@ impl Forms {
     pub fn recording(&self) -> bool {
         self.recording.is_some()
     }
+
+    pub fn modal_open(&self) -> bool {
+        self.modal.is_some()
+    }
+
+    pub fn modal_closed(&self) -> bool {
+        self.modal.is_none()
+    }
 }
 
 /// The classic JSON settings object. Its fields have names, so writing one can

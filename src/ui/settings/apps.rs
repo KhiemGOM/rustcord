@@ -157,10 +157,10 @@ fn connections(app: &mut App, ui: &mut Ui) {
 pub fn authorize_done(app: &mut App, res: Result<Value, String>) {
     match res {
         Ok(v) => match v["url"].as_str() {
-            Some(u) => {
+            Some(u) if u.starts_with("https://") => {
                 let _ = open::that_detached(u);
             }
-            None => app.toast("Discord didn't give a sign-in address for that service."),
+            _ => app.toast("Discord didn't give a sign-in address for that service."),
         },
         Err(e) => app.toast(e),
     }

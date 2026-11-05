@@ -219,6 +219,7 @@ enum Act {
 #[allow(clippy::too_many_arguments)]
 fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str, fill: Color32, alt: Option<(&str, Color32)>, body: impl FnOnce(&mut Ui)) -> Act {
     let mut act = Act::None;
+    let at = if id == "settings_modal" { "modal" } else { "verify" };
     let r = egui::Modal::new(id.into()).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
         ui.set_width(440.0);
         Frame::new().inner_margin(16).show(ui, |ui| {
@@ -239,7 +240,7 @@ fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str
                 if !go.is_empty() {
                     let w = ui.painter().layout_no_wrap(go.into(), semi(14.0), Color32::WHITE).size().x + 32.0;
                     let b = crate::ui::button(ui, go, fill, w);
-                    super::mark(ui, "modal_done", b.rect);
+                    super::mark(ui, &format!("{at}_done"), b.rect);
                     if b.clicked() {
                         act = Act::Go;
                     }
@@ -248,14 +249,14 @@ fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str
                 if let Some((l, c)) = alt {
                     let w = ui.painter().layout_no_wrap(l.into(), semi(14.0), Color32::WHITE).size().x + 32.0;
                     let b = crate::ui::button(ui, l, c, w);
-                    super::mark(ui, "modal_alt", b.rect);
+                    super::mark(ui, &format!("{at}_alt"), b.rect);
                     if b.clicked() {
                         act = Act::Alt;
                     }
                     ui.add_space(8.0);
                 }
-                let c = ui.add(egui::Label::new(RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click()));
-                super::mark(ui, "modal_cancel", c.rect);
+                let c = ui.add(egui::Label::new(RichText::new(if go.is_empty() { "Done" } else { "Cancel" }).color(pal().header_primary)).sense(Sense::click()));
+                super::mark(ui, &format!("{at}_cancel"), c.rect);
                 if c.clicked() {
                     act = Act::Close;
                 }
@@ -365,7 +366,8 @@ fn modal(app: &mut App, ctx: &egui::Context) {
                 para(ui, "Please only use numbers, letters, underscores _ , or periods.");
                 ui.add_space(8.0);
                 label(ui, "Current Password");
-                input(ui, &mut m.f[1], "", true);
+                let r = input(ui, &mut m.f[1], "", true);
+                super::mark(ui, "modal_password", r.rect);
             }
             (Edit::Email, 0) => {
                 para(ui, &format!("We’ll need to verify your old email address, {email}, in order to change it."));
@@ -630,7 +632,7 @@ pub fn modal_done(app: &mut App, res: Result<Value, String>) {
 
 /// A password or second-factor change hands back a fresh token; the old one stops working.
 fn adopt_token(app: &mut App, v: &Value) {
-    if let Some(t) = v["token"].as_str() {
+    if let Some(t) = v["token"].as_str().filter(|t| app.token.as_deref() != Some(*t)) {
         crate::cache::set_token(Some(t));
         app.net.send(Cmd::Start(t.to_string()));
         app.token = Some(t.to_string());
