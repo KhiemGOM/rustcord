@@ -1845,8 +1845,9 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     }
                 }
             }
-            Block::Code(code) => {
+            Block::Code(lang, code) => {
                 ui.add_space(6.0);
+                let job = ui.ctx().memory_mut(|m| m.caches.cache::<CodeJobs>().get((msg, lang.as_str(), code.as_str(), pal().text_normal, pal().text_muted)).clone());
                 let r = Frame::new()
                     .fill(pal().bg_code)
                     .stroke(Stroke::new(1.0, pal().border_normal))
@@ -1854,10 +1855,13 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     .inner_margin(7)
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.add(Label::new(RichText::new(code).font(mono(14.0)).color(pal().text_normal)).wrap());
+                        ui.add(Label::new(job.clone()).wrap());
                     });
                 if ui.clip_rect().contains_rect(r.response.rect) {
                     d.rects.push(("codeblock".into(), r.response.rect));
+                    if job.sections.len() > 1 {
+                        d.rects.push(("codeblock_tinted".into(), r.response.rect));
+                    }
                 }
                 ui.add_space(4.0);
             }
@@ -1878,6 +1882,17 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                 );
             }
         }
+    }
+}
+
+#[derive(Default)]
+struct CodeJob;
+
+type CodeJobs = egui::cache::FrameCache<std::sync::Arc<egui::text::LayoutJob>, CodeJob>;
+
+impl egui::cache::ComputerMut<(Id, &str, &str, Color32, Color32), std::sync::Arc<egui::text::LayoutJob>> for CodeJob {
+    fn compute(&mut self, (_, lang, code, base, comment): (Id, &str, &str, Color32, Color32)) -> std::sync::Arc<egui::text::LayoutJob> {
+        std::sync::Arc::new(crate::highlight::fence(lang, code, mono(14.0), base, comment))
     }
 }
 

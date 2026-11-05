@@ -38,4 +38,5 @@ def checks(runs, reqs, data):
         out[f"polish: {tag}: code block is --background-code over the chat with a --border-normal outline"] = (
             code[2] > 100 and near(chat, "#323339", 2) and near(fill, over("5865f2", 0.078, "323339"), 4)
             and near(edge, over("97979f", 0.2, over("5865f2", 0.078, "323339")), 14))
+        out[f"polish: {tag}: the ```rust block is coloured by its language"] = g("codeblock_tinted")[2] > 0
     return out
