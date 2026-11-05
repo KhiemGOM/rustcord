@@ -431,6 +431,20 @@ mod tests {
     }
 
     #[test]
+    fn an_mp3_decodes_to_pcm() {
+        let out = std::env::temp_dir().join("rustcord-sound-test.mp3");
+        let made = std::process::Command::new("ffmpeg")
+            .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=880:duration=0.25", "-b:a", "32k"])
+            .arg(&out)
+            .status();
+        if !made.is_ok_and(|s| s.success()) {
+            return;
+        }
+        let clip = decode(&std::fs::read(&out).unwrap()).unwrap();
+        assert!(clip.ch >= 1 && clip.rate >= 8000 && clip.pcm.len() >= clip.rate / 4 * clip.ch);
+    }
+
+    #[test]
     fn asset_names_come_out_of_the_bundle() {
         let js = r#"x},696354(e,t,n){var i={"./activity_end.mp3":"440261","./user_join.mp3":"902775"};function r(){}},440261(e,t,n){"use strict";e.exports=n.p+"878f7e7f2b3bf972.mp3"},902775(e,t,n){"use strict";e.exports=n.p+"a71f183dc4de32a3.mp3"}"#;
         let t = assets(js);
