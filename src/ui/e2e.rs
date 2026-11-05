@@ -424,6 +424,10 @@ impl Run {
                         return self.fail("first guild has no text channel".into());
                     };
                     self.target = (g, ch);
+                    if let Some(from) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
+                        self.step = from;
+                        return;
+                    }
                     self.next(100);
                 }
             }

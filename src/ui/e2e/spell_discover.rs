@@ -54,6 +54,7 @@ impl Run {
                     return;
                 }
                 self.mark("spell_learn");
+                self.key(Key::End);
                 self.queue.push_back(vec![Event::Text("qwzx ".into())]);
                 self.next(700);
             }
