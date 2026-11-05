@@ -1115,6 +1115,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
                 let url = format!("{}{sep}width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
                 let r = media(&mut cui, d, &url, &a.url, w, h, None);
+                if d.s.image_descriptions && !a.description.is_empty() {
+                    alt_badge(&cui, &r, &a.description);
+                }
                 if cui.clip_rect().contains(r.rect.center()) {
                     d.rects.push(("image".into(), r.rect.intersect(cui.clip_rect())));
                 }
@@ -1357,6 +1360,7 @@ fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     // discord paints a nitro style's colours only outside servers; in one, roles colour the name
     // and the style lends just its font
     if d.guild == 0
+        && d.s.name_styles
         && let Some((fx, cols)) = d.store.user(who).and_then(|u| u.style.clone())
     {
         let min = if matches!(fx, 2 | 6 | 7) { 2.5 } else { 3.0 };
@@ -1690,6 +1694,14 @@ fn fit(w: u32, h: u32, max_w: f32, max_h: f32, avail: f32) -> (f32, f32) {
     ((w * s).round(), (h * s).round())
 }
 
+/// The ALT tag on an image that has a description; hovering it reads the description out.
+fn alt_badge(ui: &Ui, image: &egui::Response, text: &str) {
+    let tag = Rect::from_min_size(image.rect.left_bottom() + vec2(8.0, -28.0), vec2(36.0, 20.0));
+    ui.painter().rect_filled(tag, CornerRadius::same(4), Color32::from_black_alpha(160));
+    ui.painter().text(tag.center(), Align2::CENTER_CENTER, "ALT", bold(11.0), Color32::WHITE);
+    ui.interact(tag, ui.id().with(("alt", image.id)), Sense::hover()).on_hover_text(text);
+}
+
 /// `poster` is a still drawn underneath while the animation downloads and decodes.
 fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: Option<&str>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
@@ -1710,7 +1722,17 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
     if let Some(p) = poster {
         Image::from_uri(p.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, rect);
     }
-    let play = (d.s.gif_autoplay || resp.hovered()) && ui.is_rect_visible(rect);
+    let (auto, on_hover) = if url.contains("/stickers/") {
+        use crate::cache::Animate::*;
+        match d.s.stickers {
+            Always => (true, true),
+            OnInteraction => (false, true),
+            Never => (false, false),
+        }
+    } else {
+        (d.s.gif_autoplay, true)
+    };
+    let play = (auto || (on_hover && resp.hovered())) && ui.is_rect_visible(rect);
     Image::from_uri(gif::uri(ui.ctx(), url, play))
         .corner_radius(CornerRadius::same(8))
         .show_loading_spinner(false)

@@ -925,7 +925,7 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let list: Vec<&Value> = w.msgs.iter().filter(|m| m["channel_id"] == *ch && m["pinned"] == json!(true)).rev().collect();
             ok(json!(list))
         }
-        ("GET", ["api", "v9", "guilds", _, "messages", "search"]) => {
+        ("GET", ["api", "v9", "guilds", _, "messages", "search"]) | ("GET", ["api", "v9", "users", "@me", "messages", "search"]) => {
             let q = path.split("content=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_lowercase();
             let w = w.lock().unwrap();
             let hits: Vec<Value> = w

@@ -98,6 +98,13 @@ fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
+static LONG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Windows toasts last either its short time or 25 seconds, so a longer minimum asks for the latter.
+pub fn set_long(on: bool) {
+    LONG.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Electron's toast, which is what discord sends: title, body, the avatar as the square app
 /// logo override, and silent.
 pub fn xml(p: &Ping, pic: Option<&Path>) -> String {
@@ -105,9 +112,10 @@ pub fn xml(p: &Ping, pic: Option<&Path>) -> String {
         .map(|f| format!(r#"<image placement="appLogoOverride" hint-crop="none" src="file:///{}"/>"#, escape(&f.display().to_string().replace('\\', "/"))))
         .unwrap_or_default();
     format!(
-        r#"<toast><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text>{image}</binding></visual><audio silent="true"/></toast>"#,
+        r#"<toast{long}><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text>{image}</binding></visual><audio silent="true"/></toast>"#,
         escape(&p.title),
-        escape(&p.body)
+        escape(&p.body),
+        long = if LONG.load(std::sync::atomic::Ordering::Relaxed) { r#" duration="long""# } else { "" }
     )
 }
 
