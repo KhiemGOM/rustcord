@@ -159,11 +159,21 @@ impl Run {
 
     /// Called from App::logic while the window is minimized, when step() isn't.
     pub fn hidden(&mut self, app: &App, ctx: &egui::Context) {
+        if self.step == 94 && !crate::winsys::shown() {
+            if !self.marks.iter().any(|(n, _)| n == "tray_close") {
+                self.mark("tray_close");
+                crate::tray::send("open");
+            }
+            return;
+        }
         let Some((pings, title)) = self.hidden else { return };
         let n = app.title_count.unwrap_or(0) as i32;
         let left = Duration::from_secs(8).saturating_sub(self.step_at.elapsed());
         if self.pings.len() > pings && n > title && crate::winsys::badge() == n {
             self.mark("minimized_ping");
+            if crate::tray::current().unread {
+                self.mark("tray_unread");
+            }
         } else if !left.is_zero() {
             ctx.request_repaint_after(left);
             return;
@@ -1094,6 +1104,9 @@ impl Run {
             85 => {
                 if app.voice.state == State::Connected && app.voice.chan == Some(self.call) && heard {
                     self.mark("dm_call");
+                    if crate::tray::current().connected {
+                        self.mark("tray_voice");
+                    }
                     self.next(500);
                 }
             }
@@ -1152,6 +1165,16 @@ impl Run {
             92 => {
                 if self.hidden.is_none() && !ctx.input(|i| i.viewport().minimized.unwrap_or(false)) {
                     self.blur = false;
+                    self.next(300);
+                }
+            }
+            // closing the window the way Alt+F4 does, with Minimize to Tray on, puts it away instead
+            93 => {
+                crate::winsys::send_close();
+                self.next(800);
+            }
+            94 => {
+                if crate::winsys::shown() {
                     self.step = 100;
                 }
             }

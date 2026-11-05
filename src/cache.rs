@@ -86,6 +86,9 @@ pub struct Settings {
     // windows
     pub open_on_startup: bool,
     pub start_minimized: bool,
+    pub minimize_to_tray: bool,
+    // the tray's "runs in the background" balloon, shown once
+    pub tray_hint: bool,
     // streamer mode
     pub streamer: bool,
     pub streamer_auto: bool,
@@ -167,6 +170,8 @@ impl Default for Settings {
             locale: "en-US".into(),
             open_on_startup: false,
             start_minimized: false,
+            minimize_to_tray: true,
+            tray_hint: false,
             streamer: false,
             streamer_auto: false,
             hide_personal: true,
