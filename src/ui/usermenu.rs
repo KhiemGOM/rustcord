@@ -1,7 +1,7 @@
 use egui::{Pos2, Rect, Sense, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::{App, Trail, channel_title, menu_row, menu_sep};
+use super::{App, Trail, menu_row, menu_sep};
 use super::icons::Icon;
 use crate::net::Tag;
 use crate::state::{Id, Store};
@@ -509,12 +509,7 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
             }
         }
         Act::EditProfile => app.settings_page = Some(super::settings::Page::Profiles),
-        Act::Close => super::popups::close_dm(app, chan),
-        Act::Leave => {
-            let title = channel_title(&app.store, chan);
-            let body = format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited.");
-            app.confirm = Some(super::Confirm::new(format!("Leave '{title}'"), body, "Leave Group", move |app: &mut App| super::popups::close_dm(app, chan)));
-        }
+        Act::Close | Act::Leave => super::popups::leave_dm(app, chan),
         Act::AddFriend => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
         Act::RemoveFriend => {
             let body = format!("Are you sure you want to remove {name} from your friends?");

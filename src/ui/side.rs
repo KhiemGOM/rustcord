@@ -1064,6 +1064,8 @@ fn dms(app: &mut App, ui: &mut Ui) {
     // discord's is a button into the quick switcher, not a filter
     let mut find = false;
     let mut menu = None;
+    let mut cleanup = false;
+    let mut leave = None;
     header(ui, |ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
@@ -1127,14 +1129,30 @@ fn dms(app: &mut App, ui: &mut Ui) {
             if plus.on_hover_text("Create DM").clicked() {
                 app.switcher = Some(String::new());
             }
+            let mr = Rect::from_center_size(pos2(h.right() - 48.0, h.center().y), vec2(16.0, 16.0));
+            let more = ui.interact(mr.expand(4.0), ui.id().with("dm_more"), Sense::click());
+            let shown = ui.rect_contains_pointer(h) || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
+            if shown {
+                icons::draw(ui.painter(), Icon::More, mr, if more.hovered() { pal().interactive_hover } else { pal().channel_default });
+                ui.ctx().set_cursor_icon(if more.hovered() { egui::CursorIcon::PointingHand } else { egui::CursorIcon::Default });
+            }
+            egui::Popup::menu(&more.on_hover_text("More")).show(|ui| {
+                if super::menu_item(ui, None, "Clean up Group DMs…", false) {
+                    cleanup = true;
+                }
+            });
             ui.add_space(4.0);
             let store = &app.store;
-            for &id in &store.dms {
+            let mut ids = store.dms.clone();
+            ids.sort_by_key(|id| !store.pinned.contains(id));
+            for id in ids {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let r = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
+                let (r, x) = dm_row(ui, store, c, &title, cur == Some(id) && !app.friends);
                 app.rects.insert(format!("chan:{id}"), r.rect);
-                if r.clicked() {
+                if x {
+                    leave = Some(id);
+                } else if r.clicked() {
                     open = Some(id);
                 }
                 if r.secondary_clicked() {
@@ -1150,9 +1168,15 @@ fn dms(app: &mut App, ui: &mut Ui) {
     if let Some(c) = open {
         app.open(c);
     }
+    if let Some(c) = leave {
+        super::popups::leave_dm(app, c);
+    }
+    if cleanup {
+        app.user_dialog = Some(super::userdlg::Dialog::cleanup());
+    }
 }
 
-fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) -> egui::Response {
+fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) -> (egui::Response, bool) {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.hovered();
@@ -1215,13 +1239,17 @@ fn dm_row(ui: &mut Ui, store: &Store, c: &Channel, title: &str, selected: bool) 
             super::tag_chip(&clip, u, pos2(r.right() + 4.0, row.center().y), 1.0);
         }
     }
-    if mentions > 0 {
+    let mut closed = false;
+    if hovered {
+        let xr = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
+        let hit = ui.interact(xr.expand(4.0), ui.id().with(("dm_close", c.id)), Sense::click());
+        icons::draw(ui.painter(), Icon::Close, xr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        closed = hit.on_hover_text("Close DM").clicked();
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    } else if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
     }
-    if hovered {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    resp
+    (resp, closed)
 }
 
 fn group_color(id: Id) -> Color32 {

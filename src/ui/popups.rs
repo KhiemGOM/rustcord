@@ -2001,6 +2001,16 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+/// Closes a dm; a group asks first, since leaving it can't be undone.
+pub fn leave_dm(app: &mut App, c: Id) {
+    if app.store.channels.get(&c).is_none_or(|x| x.kind != 3) {
+        return close_dm(app, c);
+    }
+    let title = channel_title(&app.store, c);
+    let body = format!("Are you sure you want to leave {title}? You won't be able to rejoin this group unless you are re-invited.");
+    app.confirm = Some(super::Confirm::new(format!("Leave '{title}'"), body, "Leave Group", move |app: &mut App| close_dm(app, c)));
+}
+
 pub fn close_dm(app: &mut App, c: Id) {
     app.rest("DELETE", format!("/channels/{c}"), None, Tag::Quiet);
     app.store.dms.retain(|d| *d != c);
