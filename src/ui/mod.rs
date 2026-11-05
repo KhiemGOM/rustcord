@@ -1,8 +1,8 @@
 mod accounts;
 mod actions;
 mod attach;
-mod activity;
 mod active;
+pub mod activity;
 mod autoscroll;
 mod boosts;
 mod call;
@@ -41,6 +41,7 @@ mod player;
 mod plus;
 mod poll;
 mod popups;
+mod presence;
 mod reactions;
 mod report;
 mod system;
@@ -206,6 +207,7 @@ pub struct App {
     pub side_thread: Option<Id>,
     // a thread whose first messages are being fetched for Jump To Top
     pub jump_top: Option<Id>,
+    pub activity: activity::Activity,
     pub events: Option<events::Events>,
     pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
@@ -426,6 +428,7 @@ impl App {
             call: Default::default(),
             side_thread: None,
             jump_top: None,
+            activity: Default::default(),
             events: None,
             quests: None,
             friends_tab: 0,
@@ -1277,6 +1280,7 @@ impl App {
             Ok(v) => v,
             Err(e) => {
                 match tag {
+                    Tag::Activity(k) => return activity::failed(self, &k, e),
                     Tag::Pins(_) => self.pins = None,
                     Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
@@ -1475,6 +1479,7 @@ impl App {
                 self.guides.entry(g).or_default().1 = done.filter_map(|(c, _)| c.parse().ok()).collect();
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
+            Tag::Activity(k) => activity::on_rest(self, &k, v),
             Tag::Quiet => {}
         }
     }
@@ -1818,6 +1823,7 @@ impl App {
         player::overlay(self, &ctx);
         crate::media::tick(ctx.cumulative_frame_nr());
         call::incoming(self, &ctx);
+        activity::overlays(self, &ctx);
         keys::combos(self, &ctx);
         keys::breathe(self, &ctx);
         keys::demon(self, &ctx);
@@ -1901,6 +1907,7 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.pump(ctx);
+        activity::logic(self, ctx);
         self.os_settings(ctx, frame);
         if self.away(ctx) {
             self.update_title(ctx);

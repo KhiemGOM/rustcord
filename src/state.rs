@@ -839,6 +839,14 @@ fn media_src(v: &Value) -> String {
     ost(&v["proxy_url"]).or_else(|| ost(&v["url"])).unwrap_or_default()
 }
 
+/// A running activity in a call: who has it open, by the id the server gave the launch.
+#[derive(Clone, Default, PartialEq)]
+pub struct Instance {
+    pub app: Id,
+    pub id: String,
+    pub users: Vec<Id>,
+}
+
 #[derive(Clone)]
 pub struct Sound {
     pub id: Id,
@@ -1162,6 +1170,8 @@ pub struct Store {
     pub forum_posts: Map<Id, Vec<Id>>,
     #[serde(skip)]
     pub session: String,
+    #[serde(skip)]
+    pub embedded: Map<Id, Vec<Instance>>,
     #[serde(skip)]
     pub msgs: Map<Id, Msgs>,
     #[serde(skip)]
@@ -2250,7 +2260,22 @@ impl Store {
                 }
                 self.put_channel(c);
             }
+            "EMBEDDED_ACTIVITY_UPDATE_V2" => {
+                let ch = sid(&d["location"]["channel_id"]);
+                let launch = d["launch_id"].as_str().unwrap_or_default();
+                let id = d["composite_instance_id"].as_str().unwrap_or(launch).to_string();
+                let users: Vec<Id> = d["participants"].as_array().into_iter().flatten().map(|p| sid(&p["user_id"])).collect();
+                let list = self.embedded.entry(ch).or_default();
+                list.retain(|i| i.id != id);
+                if !users.is_empty() {
+                    list.push(Instance { app: sid(&d["application_id"]), id, users });
+                }
+                if list.is_empty() {
+                    self.embedded.remove(&ch);
+                }
+            }
             "CHANNEL_DELETE" => {
+                self.embedded.remove(&sid(&d["id"]));
                 let id = sid(&d["id"]);
                 if let Some(c) = self.channels.remove(&id)
                     && let Some(g) = self.guilds.get_mut(&c.guild)

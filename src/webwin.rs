@@ -3,6 +3,8 @@
 //! time, on its own thread; it keeps no profile on disk and only reaches Discord and the payment
 //! providers Discord uses, anything else goes to the system browser.
 
+pub mod child;
+
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -14,8 +16,8 @@ use std::time::Duration;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
-    ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    PermissionRequestedEventHandler, WindowCloseRequestedEventHandler, take_pwstr,
+    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler, WindowCloseRequestedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::{E_POINTER, HWND as Hwnd, RECT as WinRect};
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
@@ -42,6 +44,7 @@ static BUSY: AtomicBool = AtomicBool::new(false);
 static NEXT: Mutex<Option<String>> = Mutex::new(None);
 static SHOWN: Mutex<Option<String>> = Mutex::new(None);
 static COUNT: AtomicU32 = AtomicU32::new(0);
+static LIVE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 thread_local! {
     static VIEW: RefCell<Option<Rc<View>>> = const { RefCell::new(None) };
@@ -229,44 +232,57 @@ fn create_window(parent: isize) -> HWND {
     }
 }
 
+type Done = Rc<RefCell<Option<Box<dyn FnOnce(windows::core::Result<ICoreWebView2Controller>)>>>>;
+
+fn fire(done: &Done, r: windows::core::Result<ICoreWebView2Controller>) {
+    if let Some(f) = done.borrow_mut().take() {
+        f(r);
+    }
+}
+
+/// Starts a WebView2 under `parent` with a private profile in `data`; `done` gets the controller
+/// from the thread's message loop, nothing here blocks.
+pub(crate) fn create(parent: HWND, data: &Path, done: impl FnOnce(windows::core::Result<ICoreWebView2Controller>) + 'static) {
+    let folder = HSTRING::from(data.as_os_str());
+    let parent = Hwnd(parent);
+    let done: Done = Rc::new(RefCell::new(Some(Box::new(done))));
+    let on_env = {
+        let done = done.clone();
+        CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |hr, env| {
+            let started = hr.and_then(|_| env.ok_or_else(|| windows::core::Error::from(E_POINTER))).and_then(|env| {
+                let done = done.clone();
+                let h = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |hr, ctl| {
+                    fire(&done, hr.and_then(|_| ctl.ok_or_else(|| windows::core::Error::from(E_POINTER))));
+                    Ok(())
+                }));
+                unsafe {
+                    match env.cast::<ICoreWebView2Environment10>() {
+                        Ok(e) => e.CreateCoreWebView2ControllerOptions().and_then(|o| {
+                            o.SetIsInPrivateModeEnabled(true)?;
+                            e.CreateCoreWebView2ControllerWithOptions(parent, &o, &h)
+                        }),
+                        Err(_) => env.CreateCoreWebView2Controller(parent, &h),
+                    }
+                }
+            });
+            if let Err(e) = started {
+                fire(&done, Err(e));
+            }
+            Ok(())
+        }))
+    };
+    let started = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &folder, None::<&ICoreWebView2EnvironmentOptions>, &on_env) };
+    if let Err(e) = started {
+        fire(&done, Err(e));
+    }
+}
+
 fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows::core::Result<()> {
     let (tx, rx) = mpsc::channel();
-    let folder = HSTRING::from(data.as_os_str());
-    CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
-        Box::new(move |h| unsafe {
-            CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &folder, None::<&ICoreWebView2EnvironmentOptions>, &h)
-                .map_err(webview2_com::Error::WindowsError)
-        }),
-        Box::new(move |hr, env| {
-            hr?;
-            let _ = tx.send(env.ok_or_else(|| windows::core::Error::from(E_POINTER)));
-            Ok(())
-        }),
-    )
-    .map_err(|_| windows::core::Error::from(E_POINTER))?;
-    let env = rx.recv().map_err(|_| windows::core::Error::from(E_POINTER))??;
-
-    let (tx, rx) = mpsc::channel();
-    let parent = Hwnd(hwnd);
-    CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
-        Box::new(move |h| unsafe {
-            let started = match env.cast::<ICoreWebView2Environment10>() {
-                Ok(e) => e.CreateCoreWebView2ControllerOptions().and_then(|o| {
-                    o.SetIsInPrivateModeEnabled(true)?;
-                    e.CreateCoreWebView2ControllerWithOptions(parent, &o, &h)
-                }),
-                Err(_) => env.CreateCoreWebView2Controller(parent, &h),
-            };
-            started.map_err(webview2_com::Error::WindowsError)
-        }),
-        Box::new(move |hr, ctl| {
-            hr?;
-            let _ = tx.send(ctl.ok_or_else(|| windows::core::Error::from(E_POINTER)));
-            Ok(())
-        }),
-    )
-    .map_err(|_| windows::core::Error::from(E_POINTER))?;
-    let ctl = rx.recv().map_err(|_| windows::core::Error::from(E_POINTER))??;
+    create(hwnd, data, move |r| {
+        let _ = tx.send(r);
+    });
+    let ctl = webview2_com::wait_with_pump(rx).map_err(|_| windows::core::Error::from(E_POINTER))??;
 
     let wv = unsafe { ctl.CoreWebView2()? };
     unsafe {
@@ -385,6 +401,9 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
 fn sweep(root: &Path) {
     let mine = format!("{}-", std::process::id());
     for e in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        if LIVE.lock().unwrap().contains(&e.path()) {
+            continue;
+        }
         let stale = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|a| a > Duration::from_secs(86400));
         if stale || e.file_name().to_string_lossy().starts_with(&mine) {
             let _ = std::fs::remove_dir_all(e.path());
@@ -397,6 +416,7 @@ fn run(parent: isize, token: Option<String>) {
     let root = crate::cache::dir().join("webview2");
     sweep(&root);
     let data: PathBuf = root.join(format!("{}-{}", std::process::id(), COUNT.fetch_add(1, Relaxed)));
+    LIVE.lock().unwrap().push(data.clone());
     let hwnd = create_window(parent);
     let up = !hwnd.is_null() && setup(hwnd, &base(), token, &data).is_ok();
     if up {
@@ -430,6 +450,7 @@ fn run(parent: isize, token: Option<String>) {
         }
         std::thread::sleep(Duration::from_millis(300));
     }
+    LIVE.lock().unwrap().retain(|p| *p != data);
     unsafe { CoUninitialize() };
 }
 

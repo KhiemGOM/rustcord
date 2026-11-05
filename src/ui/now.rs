@@ -4,7 +4,7 @@
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 
-use super::activity::{self, SPOTIFY};
+use super::presence::{self, SPOTIFY};
 use super::icons::{self, Icon};
 use super::{App, avatar, status_dot, text};
 use crate::net::Tag;
@@ -22,7 +22,7 @@ fn header_line(a: &Activity) -> String {
         1 => format!("Streaming {}", a.name),
         3 => format!("Watching {}", a.name),
         5 => format!("Competing in {}", a.name),
-        _ if a.start > 0 => format!("{} \u{2013} {}", a.name, activity::short(a.start)),
+        _ if a.start > 0 => format!("{} \u{2013} {}", a.name, presence::short(a.start)),
         _ => a.name.clone(),
     }
 }
@@ -35,7 +35,7 @@ fn body_lines(a: &Activity) -> Vec<String> {
         None => s.replace(';', ","),
     }));
     if !a.spotify() && a.kind == 0 && a.start > 0 {
-        v.push(format!("{} elapsed", activity::clock((chrono::Utc::now().timestamp_millis() - a.start) / 1000)));
+        v.push(format!("{} elapsed", presence::clock((chrono::Utc::now().timestamp_millis() - a.start) / 1000)));
     }
     v
 }
@@ -63,7 +63,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let mut busy: Vec<Id> = store
                 .relationships
                 .iter()
-                .filter(|(u, t)| **t == FRIEND && (in_voice.contains_key(u) || store.activities.get(u).is_some_and(|a| activity::shown(a).next().is_some())))
+                .filter(|(u, t)| **t == FRIEND && (in_voice.contains_key(u) || store.activities.get(u).is_some_and(|a| presence::shown(a).next().is_some())))
                 .map(|(u, _)| *u)
                 .collect();
             busy.sort_by_key(|u| store.name_in(0, *u).to_lowercase());
@@ -92,7 +92,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for u in &busy {
                     let Some(user) = store.user(*u) else { continue };
-                    let acts: Vec<&Activity> = store.activities.get(u).map(|a| activity::shown(a).collect()).unwrap_or_default();
+                    let acts: Vec<&Activity> = store.activities.get(u).map(|a| presence::shown(a).collect()).unwrap_or_default();
                     let mut bodies: Vec<Body> = acts.iter().filter(|a| a.kind != 4 && (a.spotify() || !body_lines(a).is_empty())).take(2).map(|a| Body::Playing(a)).collect();
                     if let Some((g, c)) = in_voice.get(u) {
                         bodies.push(Body::Voice(*g, *c));
@@ -126,7 +126,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             icons::draw(p, Icon::Soundboard, Rect::from_center_size(badge.center(), vec2(18.0, 18.0)), Color32::BLACK);
                         }
                         Some(a) if a.kind == 1 => {
-                            p.circle_filled(badge.center(), 16.0, activity::TWITCH);
+                            p.circle_filled(badge.center(), 16.0, presence::TWITCH);
                             icons::draw(p, Icon::Screen, Rect::from_center_size(badge.center(), vec2(18.0, 18.0)), Color32::WHITE);
                         }
                         Some(a) => {
@@ -146,7 +146,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         match b {
                             Body::Playing(a) => {
                                 let icon = store.app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
-                                activity::paint_art(ui, a, &icon, art, 4);
+                                presence::paint_art(ui, a, &icon, art, 4);
                                 let lines = body_lines(a);
                                 let mut ly = row.top() + 12.0 + (44.0 - lines.len().min(3) as f32 * 16.0) / 2.0;
                                 for (i, l) in lines.iter().take(3).enumerate() {

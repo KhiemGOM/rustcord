@@ -107,6 +107,8 @@ pub enum Tag {
     Quiet,
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
+    // the activity shelf, launching one and the oauth steps its page asks for, by step
+    Activity(String),
 }
 
 pub enum Cmd {
@@ -127,6 +129,8 @@ pub enum Cmd {
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
+    /// A GET with an app's own access token instead of ours.
+    Bearer { path: String, token: String, tag: Tag },
     Voice(voice::Cmd),
 }
 
@@ -328,6 +332,12 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.call_mfa(m, &path, body, mfa.as_deref()).await;
+                    tx.send(Ev::Rest { tag, res });
+                });
+            }
+            Cmd::Bearer { path, token, tag } => {
+                tokio::spawn(async move {
+                    let res = a.bearer(&path, &token).await;
                     tx.send(Ev::Rest { tag, res });
                 });
             }

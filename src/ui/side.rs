@@ -237,6 +237,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut events_page = false;
     let mut events_act: Option<EventsAct> = None;
     let mut open_chat: Option<Id> = None;
+    let mut join_act: Option<(Id, Id)> = None;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
     let open_page = if app.boosts == Some(gid) {
@@ -406,6 +407,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         if let Some((u, secondary, at)) = voice_users(ui, store, &app.voice, gid, c.id, app.settings.hide_names.contains(&c.id)) {
                             person = Some((u, c.id, secondary, at));
                         }
+                        if let Some(a) = super::activity::view::list_rows(ui, store, &app.activity, c.id) {
+                            join_act = Some((c.id, a));
+                        }
                     }
                 }
             }
@@ -514,6 +518,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some(c) = make_invite {
         app.invite_people(c);
+    }
+    if let Some((c, a)) = join_act {
+        super::activity::join_from_list(app, c, a);
     }
     if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {

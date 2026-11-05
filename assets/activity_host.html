@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src __ORIGIN__">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style>
+<body>
+<script id="cfg" type="application/json">__CFG__</script>
+<script>
+const cfg = JSON.parse(document.getElementById('cfg').textContent);
+const bridge = window.chrome.webview;
+const f = document.createElement('iframe');
+f.allow = 'autoplay; encrypted-media';
+f.referrerPolicy = 'origin';
+f.setAttribute('sandbox', 'allow-pointer-lock allow-scripts allow-same-origin allow-forms');
+f.addEventListener('load', () => {
+  f.contentWindow.postMessage([3, cfg.hello], cfg.origin);
+  bridge.postMessage({ t: 'load' });
+});
+window.addEventListener('message', e => {
+  if (e.source === f.contentWindow) bridge.postMessage({ t: 'msg', origin: e.origin, data: e.data });
+});
+bridge.addEventListener('message', e => {
+  if (e.data.t === 'post') f.contentWindow.postMessage(e.data.data, cfg.origin);
+});
+f.src = cfg.src;
+document.body.append(f);
+</script>

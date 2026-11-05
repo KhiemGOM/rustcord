@@ -4,7 +4,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Key, Pos2, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::activity::{self, Act};
+use super::presence::{self, Act};
 use super::icons::{self, Icon};
 use super::{App, avatar, popups, status_dot, text};
 use crate::net::Tag;
@@ -460,7 +460,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let servers: Vec<Id> = p.and_then(|p| p["mutual_guilds"].as_array()).into_iter().flatten().map(|g| sid(&g["id"])).collect();
     let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
     let recent = app.outbox.get(&uid);
-    let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| activity::shown(l).cloned().collect()).unwrap_or_default();
+    let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| presence::shown(l).cloned().collect()).unwrap_or_default();
     let spotify = app.profiles.get(&me).is_some_and(|m| m["connected_accounts"].as_array().is_some_and(|a| a.iter().any(|c| c["type"] == "spotify")));
     let icons_by_app = app.store.app_icons.clone();
     let screen = ctx.content_rect();
@@ -639,7 +639,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     for a in &live {
                         let icon = icons_by_app.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
-                        match activity::card(ui, a, 432.0, &icon, spotify) {
+                        match presence::card(ui, a, 432.0, &icon, spotify) {
                             Some(Act::Play(u)) => act = Some(Do::Play(u)),
                             Some(Act::Connect) => act = Some(Do::Play("https://discord.com/settings/connections".into())),
                             _ => {}
@@ -649,7 +649,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     match recent {
                         Some(r) if !r.is_empty() => {
                             for e in r {
-                                activity::recent(ui, 432.0, e);
+                                presence::recent(ui, 432.0, e);
                             }
                         }
                         _ if live.is_empty() => {

@@ -76,12 +76,17 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let cam = app.voice.camera;
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let me = app.store.me;
-    let w = (r.width() - 8.0) / 2.0;
-    for i in 0..2 {
+    let guild = super::activity::guild_of(app);
+    let n = if guild != 0 { 4 } else { 3 };
+    let w = (r.width() - 8.0 * (n - 1) as f32) / n as f32;
+    for i in 0..n {
         let b = Rect::from_min_size(pos2(r.left() + i as f32 * (w + 8.0), r.bottom() - 32.0), vec2(w, 32.0));
+        let playing = app.activity.busy();
         let (on, tip, key) = match i {
             0 => (cam, if cam { "Turn Off Camera" } else { "Turn On Camera" }, "voice:panel_camera"),
-            _ => (sharing, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:panel_screen"),
+            1 => (sharing, if sharing { "Stop Streaming" } else { "Share Your Screen" }, "voice:panel_screen"),
+            2 => (playing, if playing { "Leave Activity" } else { "Start An Activity" }, "voice:panel_activity"),
+            _ => (app.soundboard.is_some(), "Open Soundboard", "voice:panel_soundboard"),
         };
         let resp = ui.interact(b, egui::Id::new(("voice_panel_btn", i)), Sense::click());
         let fill = match (on, resp.hovered()) {
@@ -96,7 +101,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         let icon = match (i, on) {
             (0, false) => Icon::VideoSlash,
             (0, true) => Icon::Video,
-            _ => Icon::ScreenArrow,
+            (1, _) => Icon::ScreenArrow,
+            (2, _) => Icon::Apps,
+            _ => Icon::Soundboard,
         };
         icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), fg);
         app.rects.insert(key.into(), b);
@@ -106,8 +113,11 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         if resp.on_hover_text(tip).clicked() {
             match i {
                 0 => app.voice.set_camera(&app.net, me, !cam),
-                _ if sharing => app.voice.end_stream(&app.net),
-                _ => app.share = Some(super::share::Picker::new(ui.ctx())),
+                1 if sharing => app.voice.end_stream(&app.net),
+                1 => app.share = Some(super::share::Picker::new(ui.ctx())),
+                2 if playing => super::activity::leave(app),
+                2 => super::activity::open_shelf(app),
+                _ => super::callbar::toggle_soundboard(app, guild),
             }
         }
     }
@@ -685,15 +695,27 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 pal().header_secondary,
             );
         }
+        if app.activity.runs_in(chan.id) {
+            let big = Rect::from_min_max(area.min, pos2(area.right(), (area.bottom() - super::activity::view::STRIP - 8.0).max(area.top() + 160.0)));
+            super::activity::view::stage(app, ui, big);
+            area.min.y = big.bottom() + 8.0;
+        }
         if let Some(f) = app.voice.stream.as_ref().filter(|_| app.voice.chan == Some(chan.id)).map(|l| l.frame.clone()) {
             let top = Rect::from_min_max(area.min, pos2(area.right(), area.top() + area.height() * 0.68));
             stage(app, ui, top, f);
             area.min.y = top.bottom() + 8.0;
         }
-        let tiles = match focus {
-            Some(f) => focused(area, &members, f),
-            None => grid(area, members.len()),
+        let idle: Vec<(Id, Vec<Id>)> = match app.activity.runs_in(chan.id) || focus.is_some() {
+            true => Vec::new(),
+            false => app.store.embedded.get(&chan.id).into_iter().flatten().map(|i| (i.app, i.users.clone())).collect(),
         };
+        let mut tiles = match focus {
+            Some(f) => focused(area, &members, f),
+            None => grid(area, members.len() + idle.len()),
+        };
+        for ((a, users), tile) in idle.iter().zip(tiles.drain(..idle.len().min(tiles.len()))) {
+            super::activity::view::join_tile(app, ui, chan.id, tile, *a, users);
+        }
         for (u, tile) in members.iter().zip(tiles) {
             let fill = tile_color(app, ui.ctx(), *u, chan.guild);
             ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
@@ -739,7 +761,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             super::tile::options(app, ui, chan, *u, tile, shown);
         }
         if shown > 0.0 {
-            gradient(ui, r, true, shown);
+            if !app.activity.runs_in(chan.id) {
+                gradient(ui, r, true, shown);
+            }
             gradient(ui, r, false, shown);
         }
         // the join button stays put; once in, the controls fade with the rest
