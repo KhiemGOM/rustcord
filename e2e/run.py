@@ -320,6 +320,22 @@ def main():
             and op3[played[0]]["activities"][0].get("type") == 0
             and any(not d.get("activities") for d in op3[played[0] + 1:]),
         "events: Interested was sent to discord": any(r.get("method") == "PUT" and r.get("path", "").endswith("/guilds/1000/scheduled-events/6100/users/@me") for r in reqs),
+        "server settings: editing the profile raised the unsaved bar, and Save sent the name to the profile": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("server_bar", "server_profile_saved"))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and ' X"' in r.get("body", "") for r in reqs),
+        "server settings: Server Tag saved the tag and badge to the profile": all("server_tag" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and '"tag":"RUST"' in r.get("body", "") and '"badge":0' in r.get("body", "") for r in reqs),
+        "server settings: Engagement saved the system message flags": all("server_engagement" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001") and '"system_channel_flags":4' in r.get("body", "") for r in reqs),
+        "server settings: Boost Perks toggled the progress bar": all("server_perks" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001") and "premium_progress_bar_enabled" in r.get("body", "") for r in reqs),
+        "server settings: Soundboard renamed a sound through its edit modal": all("server_soundboard" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/soundboard-sounds/5001") and "airhorn2" in r.get("body", "") for r in reqs),
+        "server settings: Access sent the join questions to the membership screening form": all("server_access" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/member-verification") and "Why do you want to join?" in r.get("body", "") and '"enabled":true' in r.get("body", "") for r in reqs),
+        "server settings: Enable Community walked its three steps and sent the community features": all("server_community" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1002") and '"COMMUNITY"' in r.get("body", "") and '"explicit_content_filter":2' in r.get("body", "") for r in reqs),
+        "server settings: Server Template generated a template, and Delete Server asked first": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("server_template", "server_delete"))
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1002/templates") and "Design fans" in r.get("body", "") for r in reqs),
         "create channel: posted the lowercased name to the server": any(
             r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1000/channels") and '"e2e-room"' in r.get("body", "") for r in reqs),
         "boosts: the page fetched the powerups catalogue, what's applied and the server's boosts": all(
