@@ -4,7 +4,7 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 
 ## Build and run
 - `cargo run --release` runs the client; `cargo build --locked --release --bin rustcord --example mockcord` is what CI builds.
-- There are no `#[test]`s. The only verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
+- A few unit tests (`cargo test --release --bin rustcord`) cover the Vencord host and the image cache. The main verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
 
 ## E2E
 - `python e2e/run.py` builds, then runs the client cold and warm against the mock. `--no-build` reuses `target/release`. It needs a real window and GPU.
@@ -17,6 +17,9 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
   - `RUSTCORD_E2E=<dir> RUSTCORD_LIVE=<voice channel id>` joins that channel and goes live for `RUSTCORD_LIVE_SECS` (default 30). Never run it without the user's say-so: it is visible to others.
   - Both also run against the mock (use the env above), which is how to check them.
 
+## Perf
+- `python e2e/bench.py` measures startup, idle and busy CPU, frames drawn and who asked for them, the cost of one frame, and memory, against the mock at a real account's size (`--guilds 115`: 120 servers, 14k channels) with the installed Vencord's plugins (`--no-vencord` to skip). Output: `e2e/artifacts/bench.json`. Run it before and after anything that touches the frame loop, the store or repaints; single runs of idle CPU are noisy (the GPU driver spins on vsync), compare a few.
+
 ## Parity
 - Judged against Discord's own CSS tokens (surface colours, 0.122 hover overlay, metrics in `look.py` and `run.py`) and live captures of the real client, not by taste. Commit messages and comments cite "live captures".
 - `ref/` (captures, `QOL.md`) is gitignored and not in a fresh clone.
@@ -25,7 +28,9 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 `ci.yml` builds on push and PR. The e2e is `workflow_dispatch` only: the runner renders in software (Mesa llvmpipe), so frame and startup timing checks are flaky there.
 
 ## Traps
-- `src/ui/e2e.rs` is compiled into every build, release included; it only activates when `RUSTCORD_E2E` or `RUSTCORD_TOUR` is set.
+- `src/ui/e2e.rs` is compiled into every build, release included; it only activates when `RUSTCORD_E2E`, `RUSTCORD_TOUR` or `RUSTCORD_BENCH` is set.
+- `App.store` is a `Tracked` wrapper: taking it mutably drops the sums worked out from the whole store (server badges, the mention count). Code that runs every frame reads first and takes `&mut` only when it changes something.
+- Every `request_repaint()` is two frames, and an idle window should draw only for the caret. Ask for repaints only for what's on screen; `bench.json`'s `repaints_asked_by` says who did.
 - A step that can't find its widget waits 20s, then fails the whole run: every later check in that run reads false.
 - Older commits carry `Co-Authored-By: Claude` trailers; the commit-msg hook rejects them now. Don't copy them.
 - Lines in `e2e/*.py` that look like tautologies are often the only guard for a mark set far away in `e2e.rs`; trace the mark before deleting.
