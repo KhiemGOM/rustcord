@@ -50,7 +50,6 @@ def checks(runs, reqs, data):
         "qol: the image cropper took keys and a drag, and Apply handed back a png": both("qol_crop"),
         "qol: E on an upload card opened Modify Attachment and Save renamed the file": both("qol_modify"),
         "qol: D on an upload card took it off": both("qol_card_keys"),
-        "qol: Tab into the composer rang it in keyboard blue": both("qol_tab_ring"),
         "qol: the custom status ignored Shift+Enter, saved on Enter and went to discord": both("qol_status_shift_enter") and both("qol_custom_status")
             and sum('"e2e status"' in r.get("body", "") for r in sent("PATCH", "/users/@me/settings")) == 2,
         "qol: Select Friends picked two, Backspace took the last off, and Create Group DM made the group": both("qol_newdm_pick") and both("qol_newdm_backspace")

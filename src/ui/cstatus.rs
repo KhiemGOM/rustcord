@@ -43,10 +43,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.label(RichText::new("What's cookin', good lookin'?").font(medium(14.0)).color(pal().header_secondary));
             ui.add_space(8.0);
             let r = settings::input(ui, &mut s.text, "Support has arrived!", false);
+            save |= r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift);
             r.request_focus();
             s.text = s.text.chars().take(128).collect();
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "cstatus_input")), r.rect));
-            save |= r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift);
             ui.add_space(16.0);
             ui.label(RichText::new("Clear after").font(medium(14.0)).color(pal().header_secondary));
             ui.add_space(8.0);

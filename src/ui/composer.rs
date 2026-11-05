@@ -282,17 +282,27 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let typed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Paste(_))));
     // tab with nothing focused lands in the composer too, as in discord
     let modal = app.modal_open();
-    let tabbed = nothing_focused && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
+    // egui has already moved the focus on by the time this runs, so it's last frame's that counts
+    let idle_id = egui::Id::new("composer_idle");
+    let was_idle = ui.data(|d| d.get_temp::<bool>(idle_id)).unwrap_or(true);
+    ui.data_mut(|d| d.insert_temp(idle_id, nothing_focused));
+    let tabbed = was_idle && !modal && app.focus_msg.is_none() && !egui::Popup::is_any_open(ui.ctx()) && ui.input_mut(|i| super::take_key(i, Modifiers::NONE, Key::Tab));
     // the push-to-talk key held in a call is for talking, not typing
     let talking = app.settings.ptt && app.voice.chan.is_some() && crate::hotkeys::PTT_HELD.load(std::sync::atomic::Ordering::Relaxed);
     // Tab (not the mouse) into the composer rings it in discord's keyboard blue
     let ring_id = egui::Id::new("composer_ring");
+    // asked again next frame too, in case egui's own Tab move won this one
+    let retry_id = egui::Id::new("composer_tab_retry");
+    let retry = ui.data_mut(|d| d.remove_temp::<bool>(retry_id)).unwrap_or(false);
     if tabbed {
+        ui.data_mut(|d| d.insert_temp(retry_id, true));
+    }
+    if tabbed || (!modal && ui.input(|i| i.key_pressed(Key::Tab))) {
         ui.data_mut(|d| d.insert_temp(ring_id, true));
     } else if ui.input(|i| i.pointer.any_pressed()) {
         ui.data_mut(|d| d.insert_temp(ring_id, false));
     }
-    if app.editing.is_none() && !modal && (app.focus_composer || tabbed || (nothing_focused && typed && !talking)) {
+    if app.editing.is_none() && !modal && (app.focus_composer || tabbed || retry || (nothing_focused && typed && !talking)) {
         ui.memory_mut(|m| m.request_focus(tid));
         app.focus_composer = false;
         app.focus_msg = None;
@@ -645,6 +655,9 @@ enum CardAct {
 fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> Option<CardAct> {
     let (r, card) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::click());
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("upload_card:{i}"))), r));
+    if card.clicked() {
+        card.request_focus();
+    }
     let p = ui.painter();
     p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
     if card.has_focus() {
