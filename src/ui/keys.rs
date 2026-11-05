@@ -46,6 +46,9 @@ impl App {
             || self.breathe.is_some()
             || self.demon.is_some()
             || self.create.is_some()
+            || self.folders.edit.is_some()
+            || self.wizard.is_some()
+            || self.guild_modal.is_some()
             || self.active_threads.is_some()
             || self.server.is_some()
             || self.chan_settings.is_some()
@@ -57,6 +60,9 @@ impl App {
     /// Whatever's open over the app that takes Escape (and most shortcuts) for itself.
     pub fn layered(&self, ctx: &egui::Context) -> bool {
         self.viewer.is_some()
+            || self.folders.edit.is_some()
+            || self.wizard.is_some()
+            || self.guild_modal.is_some()
             || self.profile.is_some()
             || self.picker.is_some()
             || self.stickers.is_some()
@@ -102,6 +108,9 @@ impl App {
         let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
         let ctrl_alt = Modifiers::COMMAND | Modifiers::ALT;
         let all3 = Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT;
+        if !layered {
+            super::folders::keys(self, ctx);
+        }
 
         // a call ringing comes before anything: Ctrl+Enter answers, Escape declines
         if let Some(ch) = self.voice.ringing {

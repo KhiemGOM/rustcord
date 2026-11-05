@@ -233,6 +233,9 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
+    if app.store.lurking.contains(&chan.guild) {
+        return super::lurk::bar(app, ui, chan);
+    }
     let ch = chan.id;
     let tid = egui::Id::new("composer");
     // the reply bar is part of the composer, so the typing line goes above it
