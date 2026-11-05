@@ -1540,12 +1540,8 @@ impl Run {
                 if !self.open_page(app, "Messaging Permissions") {
                     return;
                 }
+                self.step = 124;
                 self.next(900);
-            }
-            124 => {
-                let Some(r) = Self::at(ctx, "radio:Filter all spam") else { return };
-                self.click(r.center());
-                self.next(500);
             }
             125 => {
                 if !self.open_page(app, "Language & Time") {
@@ -1757,8 +1753,21 @@ impl Run {
     /// the blob back.
     fn account_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let mfa_on = app.store.me_raw["mfa_enabled"].as_bool() == Some(true);
+        // marks are kept for rows scrolled out of the settings window, where a click would miss
+        let window = ctx.content_rect().shrink2(egui::vec2(0.0, 80.0));
         let click_at = |this: &mut Self, key: &str, pause: u64| {
             let Some(r) = Self::at(ctx, key) else { return };
+            if !window.contains_rect(r) {
+                this.queue.push_back(vec![Event::PointerMoved(window.center())]);
+                this.queue.push_back(vec![Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, if r.top() > window.top() { -200.0 } else { 200.0 }),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Modifiers::NONE,
+                }]);
+                this.wait = Instant::now() + Duration::from_millis(250);
+                return;
+            }
             this.click(r.center());
             this.next(pause);
         };
@@ -1788,10 +1797,7 @@ impl Run {
                 }
             }
             2018 => click_at(self, "modal_cancel", 500),
-            2019 => {
-                ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Password & Security".to_string()));
-                click_at(self, "crumb", 800);
-            }
+            2019 => click_at(self, "crumb", 500),
             2020 => click_at(self, "nav:Logged-in Devices", 900),
             2021 => click_at(self, "logout:bbb", 800),
             2022 => typed(self, "verify_input", "123456"),
@@ -1810,6 +1816,10 @@ impl Run {
                 if self.open_page(app, "Messaging Permissions") {
                     self.next(900);
                 }
+            }
+            2026 if crate::ui::settings::proto_num(app, 6, 27) != Some(3) => {
+                click_at(self, "radio:Filter all spam", 600);
+                self.step = 2026;
             }
             2026 => click_at(self, "toggle:Message requests", 600),
             2027 => {
