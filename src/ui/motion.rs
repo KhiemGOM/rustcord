@@ -289,11 +289,15 @@ pub struct Modal {
 
 pub struct Shown {
     pub response: Response,
-    pub backdrop_response: Response,
+    backdrop_clicked: bool,
     closing: bool,
 }
 
 impl Shown {
+    pub fn backdrop_clicked(&self) -> bool {
+        self.backdrop_clicked
+    }
+
     pub fn should_close(&self) -> bool {
         self.closing
     }
@@ -336,14 +340,13 @@ impl Modal {
         let s = self.from + (1.0 - self.from) * t;
         let c = screen.center();
         ctx.set_transform_layer(layer, TSTransform::new((c.to_vec2()) * (1.0 - s), s));
-        let backdrop = egui::Area::new(self.id.with("dim"))
+        egui::Area::new(self.id.with("dim"))
             .order(egui::Order::Foreground)
+            .interactable(false)
             .fixed_pos(screen.min)
             .fade_in(false)
             .show(ctx, |ui| {
-                let r = ui.allocate_response(screen.size(), egui::Sense::click());
                 ui.painter().rect_filled(screen, 0.0, self.dim.gamma_multiply(t.clamp(0.0, 1.0)));
-                r
             });
         let frame = self.frame;
         let out = area.show(ctx, |ui| {
@@ -361,8 +364,9 @@ impl Modal {
             began && ctx.input(|i| outside(i.pointer.interact_pos()))
         };
         let esc = top && !popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-        let closing = pressed_out && top && !popup_open || esc || out.response.should_close();
-        Shown { response: out.response, backdrop_response: backdrop.inner, closing }
+        let backdrop_clicked = pressed_out && top && !popup_open;
+        let closing = backdrop_clicked || esc || out.response.should_close();
+        Shown { response: out.response, backdrop_clicked, closing }
     }
 }
 
