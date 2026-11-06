@@ -30,11 +30,12 @@ fn tag(app: &mut App, ctx: &egui::Context) {
         app.rest("GET", format!("/guild-profile/{gid}"), None, Tag::GuildProfile(gid));
     }
     let Some(p) = app.guild_profiles.get(&gid).filter(|p| !p.is_null()).cloned() else {
+        super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
         let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.set_height(120.0);
-                ui.centered_and_justified(|ui| ui.spinner());
+                ui.centered_and_justified(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
             });
         });
         if popups::dismissed(ctx, &area.response) {
@@ -63,6 +64,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
     let gated = p["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "MEMBER_VERIFICATION_GATE_ENABLED"));
     let icons_by_app = app.store.app_icons.clone();
     let mut go = false;
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tag_pop")), vec2(0.0, 1.0));
     let area = egui::Area::new(egui::Id::new("tag_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
         Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
@@ -130,7 +132,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(16.0);
                 let (b, resp) = ui.allocate_exact_size(vec2(268.0, 32.0), Sense::click());
                 let label = if member { "Go to Server" } else if gated { "Apply to Join" } else { "Join Server" };
-                ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+                ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)));
                 ui.painter().text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), Color32::WHITE);
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -178,6 +180,7 @@ fn role(app: &mut App, ctx: &egui::Context) {
     let total = if rid == gid { g.member_count as usize } else { people.len() };
     let (name, color) = (role.name.clone(), role.color);
     let mut open = None;
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("role_pop")), vec2(0.0, 1.0));
     let area = egui::Area::new(egui::Id::new("role_pop")).order(egui::Order::Tooltip).fixed_pos(at).constrain(true).show(ctx, |ui| {
         let shadow = ui.style().visuals.popup_shadow;
         Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(8).show(ui, |ui| {

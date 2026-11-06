@@ -44,6 +44,7 @@ struct World {
     events: broadcast::Sender<Value>,
     voice_port: u16,
     voice_chan: Option<(Option<u64>, u64)>,
+    clip_flags: u64,
     voices: Vec<Voice>,
     // messages saved for later: bookmarks, and reminders with a due time
     saved: Vec<Value>,
@@ -2007,6 +2008,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
         ("GET", ["store" | "shop"]) => (
@@ -2090,7 +2092,8 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale, "auth": header("authorization") });
+            let text: String = String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect();
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
@@ -2210,6 +2213,7 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     let mut wl = w.lock().unwrap();
     let moved = chan.map(|c| (guild, c)) != wl.voice_chan;
     wl.voice_chan = chan.map(|c| (guild, c));
+    wl.clip_flags = d["flags"].as_u64().unwrap_or(0);
     let stage = chan.and_then(stage_guild);
     if moved {
         wl.speakers.remove(&ME);
@@ -2410,6 +2414,7 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
     let live = Arc::new(AtomicBool::new(true));
     let gw = Gw::new();
     let (mut channel, mut dm, mut kind, mut cssrc) = (0u64, false, Kind::Voice, CLIENT_SSRC);
+    let mut told_clips = false;
     let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 1000.0 } }).to_string())).await;
     while let Some(Ok(m)) = rx.next().await {
         let mut out: Vec<Reply> = Vec::new();
@@ -2489,6 +2494,11 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                         line["seq_ack"] = d["seq_ack"].clone();
                         tokio::time::sleep(Duration::from_millis(40)).await;
                         let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
+                        // once the client's voice state says it's clipping, the other speaker says so too
+                        if kind == Kind::Voice && !told_clips && w.lock().unwrap().clip_flags & 1 != 0 {
+                            told_clips = true;
+                            out.push(Reply::Json(json!({ "op": 18, "d": { "user_id": SPEAKER.to_string(), "flags": 3 } })));
+                        }
                     }
                     Some(5) => line["speaking"] = d["speaking"].clone(),
                     Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
@@ -2764,6 +2774,7 @@ async fn main() {
         events,
         voice_port,
         voice_chan: None,
+        clip_flags: 0,
         voices: Vec::new(),
         saved: Vec::new(),
         edits: Default::default(),

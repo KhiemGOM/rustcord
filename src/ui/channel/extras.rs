@@ -87,9 +87,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
         });
         let granted = inv["roles"].as_array().into_iter().flatten().filter_map(|r| roles.iter().find(|x| x.0 == sid(&r["id"])).map(|x| x.1.clone())).collect::<Vec<_>>().join(", ");
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
-        if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-        }
+        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
         ui.painter().hline(r.x_range(), r.bottom() - 0.5, egui::Stroke::new(1.0, faint(31)));
         let cells = [(&who, pal().header_primary, 0.3), (&code, pal().text_normal, 0.22), (&uses, pal().text_normal, 0.12), (&expires, pal().text_normal, 0.18), (&granted, pal().text_normal, 0.18)];
         for ((text, col, w), (x, _)) in cells.into_iter().zip(COLS) {
@@ -197,7 +195,7 @@ pub fn integrations(app: &mut App, ui: &mut Ui, c: &Channel) {
     let sub = app.chan_settings.as_ref().map_or(Sub::Cards, |s| s.sub);
     let Some(all) = app.chan_data("webhooks", format!("/channels/{ch}/webhooks")).and_then(|v| v.as_array().cloned()) else {
         heading(ui, "Integrations", "");
-        ui.spinner();
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let (follow, hooks): (Vec<Value>, Vec<Value>) = all.into_iter().filter(|h| h["type"].as_u64() != Some(3)).partition(|h| h["type"].as_u64() == Some(2));
@@ -317,7 +315,7 @@ fn webhooks(app: &mut App, ui: &mut Ui, c: &Channel, hooks: &[Value]) {
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-                    icons::draw(ui.painter(), if editing { Icon::ChevronDown } else { Icon::ChevronRight }, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
+                    crate::ui::motion::chevron(ui, ui.id().with(("hook_chev", id)), editing, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
                 });
             });
             let head = ui.interact(top.response.rect, ui.id().with(("hook", id)), Sense::click());

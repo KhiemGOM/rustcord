@@ -33,7 +33,7 @@ pub fn header_button(app: &mut App, ui: &mut Ui, chan: &Channel) {
     ui.add_space(12.0);
     let (r, resp) = ui.allocate_exact_size(vec2(62.0, 32.0), Sense::click());
     app.rects.insert("follow".into(), r);
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, "Follow", medium(14.0), pal().header_primary);
     if resp.hovered() {
@@ -93,7 +93,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut cancel = false;
     let mut go = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = egui::Modal::new("follow".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("follow".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(520.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (band, _) = ui.allocate_exact_size(vec2(520.0, 80.0), Sense::hover());

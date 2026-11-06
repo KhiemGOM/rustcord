@@ -36,7 +36,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     let max = slots(g.tier);
     title(ui, "Soundboard", &format!("Upload up to {max} custom sound reactions that anyone in this server can use. Nitro members will be able to access these sounds in any server on Discord."));
     let Some(list) = app.server_data("sounds", format!("/guilds/{gid}/soundboard-sounds")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let items: Vec<Value> = list["items"].as_array().or(list.as_array()).cloned().unwrap_or_default();

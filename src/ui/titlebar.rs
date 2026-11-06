@@ -407,7 +407,7 @@ fn keys(app: &mut App, ctx: &egui::Context) {
 /// Discord's inbox tabs each take a quarter of the width, the open one underlined in brand.
 fn tab(ui: &mut Ui, app: &mut App, name: &str, label: &str, on: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(vec2(INBOX_W / 4.0, 40.0), Sense::click());
-    let col = if on { BLURPLE } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = if on { BLURPLE } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     let galley = ui.painter().layout_no_wrap(label.into(), medium(14.0), col);
     app.rects.insert(format!("inbox:{name}"), rect);
     if on {
@@ -434,10 +434,10 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let mut read_all = None;
     let mut filter = None;
     let mut friends = None;
-    let area = egui::Area::new(egui::Id::new("inbox"))
+    let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("inbox"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)
-        .constrain(true)
+        .constrain(true), vec2(0.0, 1.0))
         .show(ctx, |ui| {
             // an area only offers last frame's size; the scrolled list has to ask for its room
             ui.set_max_height(room + 120.0);
@@ -638,7 +638,7 @@ fn friend_requests(ui: &mut Ui, app: &mut App) {
         for (i, (icon, tip)) in [(Icon::Close, "Ignore"), (Icon::Check, "Accept")].into_iter().enumerate() {
             let b = Rect::from_center_size(pos2(r.right() - 20.0 - 40.0 * i as f32, r.center().y), vec2(32.0, 32.0));
             let resp = ui.interact(b, ui.id().with(("friend_req", u, i)), Sense::click());
-            ui.painter().circle_filled(b.center(), 16.0, if resp.hovered() { pal().control_hover } else { pal().control });
+            ui.painter().circle_filled(b.center(), 16.0, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if i == 1 { GREEN } else { pal().header_secondary });
             if resp.on_hover_text(tip).clicked() {
                 if i == 1 { accept = Some(u) } else { ignore = Some(u) }
@@ -664,7 +664,7 @@ fn empty(ui: &mut Ui, what: &str) {
 fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.mentions.as_ref()) else {
         ui.add_space(24.0);
-        ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+        ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         ui.add_space(24.0);
         return None;
     };
@@ -774,7 +774,7 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
 fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.saved.as_ref()) else {
         ui.add_space(24.0);
-        ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+        ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         ui.add_space(24.0);
         return None;
     };

@@ -198,7 +198,7 @@ fn consent(app: &mut App, ctx: &egui::Context) {
     let Some(c) = &app.links.consent else { return };
     let mut answer = None;
     let mut rect = None;
-    let modal = egui::Modal::new("link_consent".into()).frame(modal_frame()).show(ctx, |ui| {
+    let modal = crate::ui::motion::Modal::new("link_consent".into()).frame(modal_frame()).show(ctx, |ui| {
         ui.set_width(440.0);
         ui.vertical_centered(|ui| {
             if let Some(icon) = &c.icon {
@@ -247,7 +247,7 @@ fn template(app: &mut App, ctx: &egui::Context) {
     let Some(t) = &mut app.links.template else { return };
     let (mut make, mut close) = (None, false);
     let mut rect = None;
-    let modal = egui::Modal::new("link_template".into()).frame(modal_frame()).show(ctx, |ui| {
+    let modal = crate::ui::motion::Modal::new("link_template".into()).frame(modal_frame()).show(ctx, |ui| {
         ui.set_width(440.0);
         match (&t.info, t.failed) {
             (Some(v), _) => {

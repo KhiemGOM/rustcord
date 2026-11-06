@@ -287,6 +287,7 @@ account! {
     profile_updates: bool,
     push_delay: u32,
     tts_command: bool,
+    clips_voice: bool,
 }
 
 fn flag(w: &[u8]) -> bool {
@@ -406,6 +407,13 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                         21 => a.emoticons = Some(flag(w)),
                         41 => a.compact_avatars = Some(flag(w)),
                         _ => {}
+                    }
+                }
+            }
+            19 => {
+                for (n, v) in fields(b) {
+                    if let (1, Val::Bytes(w)) = (n, v) {
+                        a.clips_voice = Some(flag(w));
                     }
                 }
             }

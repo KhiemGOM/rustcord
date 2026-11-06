@@ -119,6 +119,7 @@ pub fn data(app: &mut App, ui: &mut Ui) -> bool {
     }
     let mut clips = flag(&b, CLIPS, 1, true);
     if toggle(ui, &mut clips, "Allow my voice to be recorded in Clips", "Allows your voice to be included when someone in the same voice channel uses Clips.") {
+        app.settings.clips_voice = clips;
         write(app, Patch::new().flag(CLIPS, 1, clips));
     }
 

@@ -37,7 +37,7 @@ impl Wizard {
 
 fn row(ui: &mut Ui, icon: Icon, text: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
-    let fill = if resp.hovered() { faint(31) } else { Color32::from_black_alpha(31) };
+    let fill = crate::ui::motion::mix(Color32::from_black_alpha(31), faint(31), crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, 8, fill, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
     icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(r.left() + 32.0, r.center().y), vec2(24.0, 24.0)), pal().header_primary);
     ui.painter().text(pos2(r.left() + 62.0, r.center().y), Align2::LEFT_CENTER, text, medium(16.0), pal().header_primary);

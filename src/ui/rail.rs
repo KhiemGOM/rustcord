@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Image, Rect, Sense, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, avatar, badge, text};
+use super::{App, avatar, badge, motion, text};
 use super::folders::{self, Drop, Src};
 use crate::state::{Folder, Id};
 use crate::theme::*;
@@ -21,10 +21,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
-            let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, hot| {
-                let fill = if hot { BLURPLE } else { subtle() };
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
-                icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
+            let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, _, k| {
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), BLURPLE, k));
+                icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             if incoming > 0 {
                 badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(pal().bg_tertiary));
@@ -54,7 +53,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     _ => ch.icon.as_ref().map(|i| format!("{}/channel-icons/{c}/{i}.png?size=96", crate::api::cdn())),
                 };
                 let title = super::channel_title(&app.store, c);
-                let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _| {
+                let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _, _| {
                     ui.painter().rect_filled(rect, CornerRadius::same(radius), BLURPLE);
                     if let Some(u) = &url {
                         Image::from_uri(u.clone()).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
@@ -100,9 +99,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             drag(app, ui, &folders);
 
             separator(ui);
-            let r = item(ui, egui::Id::new("add_server"), false, false, |ui, rect, radius, hot| {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
-                icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
+            let r = button(ui, egui::Id::new("add_server"), false, |ui, rect, radius, _, k| {
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, GREEN, k));
+                icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             let r = r.on_hover_text("Add a Server");
             if r.clicked() {
@@ -127,9 +126,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             // discord's last two rail buttons: discover opens in the app, the downloads page in the browser
             for (key, icon, tip, url) in [("discover", Icon::Discover, "Discover", ""), ("download", Icon::Download, "Download Apps", "https://discord.com/download")] {
                 let on = key == "discover" && app.directory.is_some();
-                let r = item(ui, egui::Id::new(key), on, false, |ui, rect, radius, hot| {
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot || on { GREEN } else { pal().bg_primary });
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot || on { Color32::WHITE } else { pal().interactive_hover });
+                let r = button(ui, egui::Id::new(key), on, |ui, rect, radius, _, k| {
+                    let k = if on { 1.0 } else { k };
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, GREEN, k));
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
                 });
                 if r.on_hover_text(tip).clicked() {
                     if url.is_empty() {
@@ -148,7 +148,7 @@ fn separator(ui: &mut Ui) {
     ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 1.0)), CornerRadius::same(1), pal().frame_border);
 }
 
-fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool) {
+fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool, k: f32) {
     let Some(g) = app.store.guilds.get(&gid) else { return };
     let radius = radius.into();
     match g.icon_url() {
@@ -156,7 +156,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
             crate::gif::paint_still(ui, &url, rect, radius, hot);
         }
         None => {
-            ui.painter().rect_filled(rect, radius, if hot { BLURPLE } else { pal().bg_mod_selected });
+            ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, BLURPLE, k));
             let acr = g.acronym();
             let size = match acr.chars().count() {
                 0..=2 => 17.0,
@@ -165,7 +165,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
                 _ => 11.0,
             } * rect.width()
                 / ICON;
-            let col = if hot { Color32::WHITE } else { pal().text_normal };
+            let col = motion::mix(pal().text_normal, Color32::WHITE, k);
             text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
         }
     }
@@ -176,11 +176,11 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
     let Some(name) = app.store.guilds.get(&gid).map(|g| g.name.clone()) else { return };
     let (unread, mentions) = app.store.guild_badge(gid);
     let selected = app.ui.guild == Some(gid);
-    let r = item(ui, egui::Id::new(("guild", gid)), selected, unread, |ui, rect, radius, hot| {
-        guild_icon(app, ui, gid, rect, radius, hot)
+    let r = item(ui, egui::Id::new(("guild", gid)), selected, unread, |ui, rect, radius, hot, k| {
+        guild_icon(app, ui, gid, rect, radius, hot, k)
     });
     if mentions > 0 {
-        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
+        super::badge_in(ui, egui::Id::new(("rail_badge", gid)), r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
     }
     if let Some((icon, mine)) = voice_badge(app, gid) {
         let at = upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)), icon, mine, hole);
@@ -361,7 +361,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     if open {
         ui.spacing_mut().item_spacing.y = 4.0;
     }
-    let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
+    let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, 0.1, |ui, rect, radius, hot, _| {
         if open {
             let rect = rect.shrink(4.0);
             if hot {
@@ -385,7 +385,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
                 2 => cr.sw = 10,
                 _ => cr.se = 10,
             }
-            guild_icon(app, ui, *g, cell, cr, false);
+            guild_icon(app, ui, *g, cell, cr, false, 0.0);
         }
     });
     ui.spacing_mut().item_spacing.y = 8.0;
@@ -459,8 +459,12 @@ fn subtle() -> Color32 {
     Color32::from_rgba_unmultiplied(0x97, 0x97, 0x9f, 31)
 }
 
-fn item(ui: &mut Ui, id: egui::Id, selected: bool, unread: bool, paint: impl FnOnce(&Ui, Rect, u8, bool)) -> egui::Response {
-    item_sized(ui, id, ICON, selected, unread, paint)
+fn item(ui: &mut Ui, id: egui::Id, selected: bool, unread: bool, paint: impl FnOnce(&Ui, Rect, u8, bool, f32)) -> egui::Response {
+    item_sized(ui, id, ICON, selected, unread, 0.1, paint)
+}
+
+fn button(ui: &mut Ui, id: egui::Id, selected: bool, paint: impl FnOnce(&Ui, Rect, u8, bool, f32)) -> egui::Response {
+    item_sized(ui, id, ICON, selected, false, 0.15, paint)
 }
 
 fn item_sized(
@@ -469,7 +473,8 @@ fn item_sized(
     size: f32,
     selected: bool,
     unread: bool,
-    paint: impl FnOnce(&Ui, Rect, u8, bool),
+    fade: f32,
+    paint: impl FnOnce(&Ui, Rect, u8, bool, f32),
 ) -> egui::Response {
     let (row, resp) = ui.allocate_exact_size(vec2(72.0, size), Sense::click_and_drag());
     let rect = Rect::from_center_size(row.center(), vec2(size, size));
@@ -480,24 +485,21 @@ fn item_sized(
         40.0
     } else if hovered {
         20.0
-    } else if unread {
-        8.0
     } else {
-        0.0
+        8.0
     };
-    let pill = ui.ctx().animate_value_with_time(id.with("p"), pill_target, anim(0.15));
-    if pill > 0.5 {
-        let p = Rect::from_min_size(pos2(row.left(), row.center().y - pill / 2.0), vec2(4.0, pill));
-        ui.painter().rect_filled(
-            p,
-            CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 },
-            pal().header_primary,
-        );
+    let ctx = ui.ctx();
+    let pill = motion::follow(ctx, id.with("p"), pill_target, 0.2, motion::EASE_OUT);
+    let seen = motion::tween(ctx, id.with("seen"), hot || unread, 0.2, motion::EASE_OUT);
+    if seen > 0.0 {
+        let p = Rect::from_min_size(pos2(row.left() - 4.0 * (1.0 - seen), row.center().y - pill / 2.0), vec2(4.0, pill));
+        ui.painter().rect_filled(p, CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().header_primary.gamma_multiply(seen));
     }
+    let k = motion::tween(ctx, id.with("hot"), hot, fade, motion::EASE_OUT);
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    paint(ui, rect, radius, hot);
+    paint(ui, rect, radius, hot, k);
     resp
 }
 
@@ -631,7 +633,7 @@ fn drag(app: &mut App, ui: &mut Ui, folders: &[Folder]) {
         egui::Area::new(egui::Id::new("rail_ghost")).order(egui::Order::Tooltip).fixed_pos(p - vec2(20.0, 20.0)).interactable(false).show(&ctx, |ui| {
             let (r, _) = ui.allocate_exact_size(vec2(ICON, ICON), Sense::hover());
             match held {
-                Held::Guild(g) => guild_icon(app, ui, g, r, RADIUS, true),
+                Held::Guild(g) => guild_icon(app, ui, g, r, RADIUS, true, 1.0),
                 Held::Folder(_) => {
                     ui.painter().rect_filled(r, CornerRadius::same(16), subtle());
                     icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(r.center(), vec2(18.0, 18.0)), BLURPLE);

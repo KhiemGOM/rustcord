@@ -160,7 +160,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
 /// A theme swatch's ring, tick and click; true when it was clicked and isn't the one on.
 fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
     let resp = ui.interact(r, egui::Id::new(("theme", name)), Sense::click());
-    let ring = if on { BLURPLE } else if resp.hovered() { pal().bg_accent } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
+    let ring = if on { BLURPLE } else { crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 61), pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
     if on {
         let tick = pos2(r.right() - 3.0, r.top() + 3.0);
