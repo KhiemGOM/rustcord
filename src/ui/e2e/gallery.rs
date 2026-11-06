@@ -10,6 +10,8 @@ use crate::proto::frecency::{self, Gif, Item};
 use crate::state::ReactEmoji;
 
 const GALLERY: Id = 2080;
+const NOTES: Id = 2081;
+const OWNED: Id = 1001;
 const GIF: &str = "https://tenor.com/view/e2e-favourite";
 
 // message text, and how many tiles its mosaic has
@@ -50,6 +52,14 @@ fn patch(cdn: &str) -> Vec<u8> {
     emoji_use.insert("fire".to_string(), hot(3));
     out.extend(frecency::emoji_use_field(&emoji_use));
     out
+}
+
+
+/// Every picture the channel's embeds carry is decoded, so a screenshot shows them and not their placeholders.
+fn settled(run: &Run, app: &App, ctx: &egui::Context) -> bool {
+    let urls = app.store.msgs.get(&GALLERY).into_iter().flat_map(|e| e.list.iter()).flat_map(|m| m.embeds.iter()).flat_map(|e| [e.thumb.as_ref(), e.image.as_ref()]).flatten();
+    let all = urls.map(|m| ctx.try_load_texture(&m.url, egui::TextureOptions::default(), egui::load::SizeHint::default())).all(|t| matches!(t, Ok(egui::load::TexturePoll::Ready { .. })));
+    run.step_at.elapsed() >= Duration::from_millis(1800) && (all || run.step_at.elapsed() > Duration::from_secs(10))
 }
 
 impl Run {
@@ -110,6 +120,9 @@ impl Run {
                 self.next(900);
             }
             4011 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
                 self.shot(ctx, "forward.png");
                 let stickers = app.store.msgs.get(&GALLERY).map(|e| e.list.iter().filter(|m| !m.stickers.is_empty()).count()).unwrap_or(0);
                 if stickers == 4 {
@@ -120,39 +133,81 @@ impl Run {
                 self.next(900);
             }
             4012 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
                 self.shot(ctx, "stickers.png");
                 let Some(id) = find(app, "Pick a deploy target") else { return };
                 app.jump_to(GALLERY, id);
                 self.next(900);
             }
             4013 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
                 self.shot(ctx, "components.png");
                 let Some(id) = app.store.msgs.get(&GALLERY).and_then(|e| e.list.iter().find(|m| m.flags & (1 << 15) != 0)).map(|m| m.id) else { return };
                 app.jump_to(GALLERY, id);
                 self.next(900);
             }
             4014 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
                 self.shot(ctx, "components_v2.png");
                 let Some(id) = find(app, "https://www.youtube.com/watch?v=dQw4w9WgXcQ") else { return };
                 app.jump_to(GALLERY, id);
                 self.next(900);
             }
             4015 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
                 self.shot(ctx, "embeds.png");
                 let Some(id) = find(app, "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT") else { return };
                 app.jump_to(GALLERY, id);
                 self.next(900);
             }
             4016 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
                 self.shot(ctx, "embeds_2.png");
                 let Some(id) = find(app, "starting a thread on this one") else { return };
                 app.jump_to(GALLERY, id);
                 self.next(900);
             }
             4017 => {
+                if !settled(self, app, ctx) {
+                    return;
+                }
+                let urls: Vec<String> = app.store.msgs.get(&GALLERY).into_iter().flat_map(|e| e.list.iter()).flat_map(|m| m.embeds.iter()).flat_map(|e| [e.thumb.as_ref(), e.image.as_ref()]).flatten().map(|m| m.url.clone()).collect();
+                let state: Vec<String> = urls
+                    .iter()
+                    .map(|u| match ctx.try_load_texture(u, egui::TextureOptions::default(), egui::load::SizeHint::default()) {
+                        Ok(egui::load::TexturePoll::Ready { .. }) => format!("ready {u}"),
+                        Ok(_) => format!("pending {u}"),
+                        Err(e) => format!("{e} {u}"),
+                    })
+                    .collect();
+                self.rects.insert("embed_images".into(), json!(state));
                 self.shot(ctx, "thread_and_polls.png");
+                app.open(NOTES);
+                self.next(1500);
+            }
+            4018 => {
+                self.shot(ctx, "thread_starter.png");
+                let Some(m) = app.store.msgs.get(&NOTES).and_then(|e| e.list.first()) else { return };
+                if m.kind == 21 && m.reply.is_some() {
+                    self.mark("thread_starter_parsed");
+                }
+                self.next(800);
+            }
+            4019 => {
+                app.open(GALLERY);
                 app.jump_to_present(GALLERY);
-                self.next(900);
+                self.step = 4020;
+                self.wait = Instant::now() + Duration::from_millis(500);
             }
             // another client of the account stars things: they arrive without a restart
             4020 => {
@@ -182,6 +237,30 @@ impl Run {
                     }
                     self.next(0);
                 }
+            }
+            // a server the mock user owns: a member list of its own, and the owner's menu
+            4024 => {
+                app.select_guild(Some(OWNED));
+                let Some(c) = app.store.guilds.get(&OWNED).and_then(|g| g.channels.first().copied()) else { return };
+                app.open(c);
+                self.next(1000);
+            }
+            4025 => {
+                let people = app.store.guilds.get(&OWNED).map_or(0, |g| g.list.iter().filter(|i| matches!(i, crate::state::ListItem::Member(_))).count());
+                if people < 3 {
+                    return;
+                }
+                self.rects.insert("owned_members".into(), json!(people));
+                self.mark("members_filled");
+                self.shot(ctx, "owned_members.png");
+                let Some(r) = app.rects.get("guildmenu").copied() else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            4026 => {
+                self.shot(ctx, "owned_menu.png");
+                self.key(Key::Escape);
+                self.next(400);
             }
             _ => self.step = 99,
         }
