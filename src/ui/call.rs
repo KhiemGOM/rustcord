@@ -75,7 +75,6 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
 
     let cam = app.voice.camera;
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
-    let me = app.store.me;
     let guild = super::activity::guild_of(app);
     let n = if guild != 0 { 4 } else { 3 };
     let w = (r.width() - 8.0 * (n - 1) as f32) / n as f32;
@@ -112,7 +111,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         }
         if resp.on_hover_text(tip).clicked() {
             match i {
-                0 => app.voice.set_camera(&app.net, me, !cam),
+                0 => super::settings::camera::toggle_camera(app, ui.ctx(), !cam),
                 1 if sharing => app.voice.end_stream(&app.net),
                 1 => app.share = Some(super::share::Picker::new(ui.ctx())),
                 2 if playing => super::activity::leave(app),

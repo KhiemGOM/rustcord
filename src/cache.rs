@@ -116,6 +116,10 @@ pub struct Settings {
     // voice
     pub mic: Option<String>,
     pub speaker: Option<String>,
+    pub camera: Option<String>,
+    pub preview_video: bool,
+    pub video_bg: VideoBg,
+    pub custom_bg: Option<String>,
     pub vad_db: i32,
     pub auto_sensitivity: bool,
     pub ptt: bool,
@@ -198,6 +202,15 @@ impl Default for Peer {
     fn default() -> Self {
         Peer { volume: 100.0, muted: false, soundboard_muted: false }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum VideoBg {
+    #[default]
+    None,
+    Blur,
+    Preset(u8),
+    Custom,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -315,6 +328,10 @@ impl Default for Settings {
             hide_names: Vec::new(),
             mic: None,
             speaker: None,
+            camera: None,
+            preview_video: false,
+            video_bg: VideoBg::None,
+            custom_bg: None,
             vad_db: -50,
             auto_sensitivity: true,
             ptt: false,
