@@ -14,6 +14,8 @@ mod stage;
 mod clips;
 mod composer;
 mod motion;
+mod tour;
+pub use tour::scrolled;
 mod login;
 mod camera;
 
@@ -61,8 +63,6 @@ pub struct Run {
     call: Id,
     cues: usize,
     loaded: usize,
-    // which section of the settings page being toured is up, for pages longer than a screen
-    section: usize,
     text: String,
     error: Option<String>,
     done: bool,
@@ -114,6 +114,7 @@ pub struct Run {
     live_at: Option<Instant>,
     samples: Vec<serde_json::Value>,
     local: local::State,
+    sweep: tour::State,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -147,7 +148,6 @@ impl Run {
             call: 0,
             cues: 0,
             loaded: 0,
-            section: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
             done: false,
@@ -186,6 +186,7 @@ impl Run {
             live_at: None,
             samples: Vec::new(),
             local: Default::default(),
+            sweep: Default::default(),
         })
     }
 
@@ -2468,11 +2469,6 @@ impl Run {
     /// Read-only walk through a real account (RUSTCORD_TOUR + RUSTCORD_READONLY):
     /// look at things, screenshot them, change nothing.
     fn tour_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        const PAGES: [&str; 18] = [
-            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions",
-            "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time",
-            "Activity Privacy", "Connected Apps", "Developer",
-        ];
         if self.cache_guilds.is_none() {
             // the snapshot written by the previous build, before READY replaces it
             self.cache_guilds = Some(app.store.guilds.len());
@@ -2481,6 +2477,7 @@ impl Run {
         let cur_msgs = |app: &App| app.cur().and_then(|c| app.store.msgs.get(&c)).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
         let skip_after = |s: &Self, secs: u64| s.step_at.elapsed() > Duration::from_secs(secs);
         if self.step == 0 {
+            self.tour_setup(app, ctx);
             self.step = 300;
         }
         match self.step {
@@ -2813,70 +2810,10 @@ impl Run {
                 self.shot(ctx, "10_friends.png");
                 let Some(r) = app.rects.get("gear").copied() else { return };
                 self.click(r.center());
-                self.loaded = 0;
-                self.next(800);
+                self.step = 3100;
+                self.wait = Instant::now() + Duration::from_millis(800);
             }
-            327 => {
-                let Some(label) = PAGES.get(self.loaded) else {
-                    self.mark("settings_tour");
-                    self.step = 329;
-                    return;
-                };
-                if self.open_page(app, label) {
-                    self.next(2500);
-                }
-            }
-            328 => {
-                if app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded]) {
-                    return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
-                }
-                let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
-                let sections: &[&str] = if PAGES[self.loaded] == "Voice & Video" { &["@", "@", "@", "Camera", "Streaming", "Sounds", "Soundboard", "Advanced"] } else { &[] };
-                let part = if self.section == 0 { String::new() } else { format!("_{}", self.section) };
-                self.shot(ctx, &format!("settings_{:02}_{slug}{part}.png", self.loaded + 1));
-                if let Some(next) = sections.get(self.section) {
-                    for key in ["advanced", "sounds", "diagnostics"] {
-                        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("voice_open", key)), true));
-                    }
-                    if *next == "@" {
-                        let at = egui::pos2(700.0, 450.0);
-                        self.queue.push_back(vec![Event::PointerMoved(at)]);
-                        self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -520.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
-                    } else {
-                        ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), next.to_string()));
-                    }
-                    self.section += 1;
-                    self.wait = Instant::now() + Duration::from_millis(900);
-                    return;
-                }
-                self.section = 0;
-                self.loaded += 1;
-                self.step = 327;
-                self.wait = Instant::now() + Duration::from_millis(200);
-            }
-            // the server settings pages, against the mock only: the scripted run edits its role 1100
-            380 => {
-                if app.server.is_none() {
-                    app.open_server_settings(self.target.0);
-                }
-                match super::server::probe(app, self.sub) {
-                    super::server::Probe::Wait => {}
-                    super::server::Probe::Shot(name) => {
-                        self.shot(ctx, name);
-                        self.sub += 1;
-                        self.step_at = Instant::now();
-                    }
-                    super::server::Probe::Done => {
-                        self.mark("server_pages");
-                        app.server = None;
-                        self.step = 99;
-                    }
-                }
-            }
-            329 => {
-                self.key(Key::Escape);
-                self.step = if std::env::var_os("RUSTCORD_TOUR_SERVER").is_some() { 380 } else { 99 };
-            }
+            3100..=3199 => self.sweep_steps(app, ctx),
             _ => self.step = 99,
         }
     }

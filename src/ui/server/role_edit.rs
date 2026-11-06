@@ -743,6 +743,10 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
     }
 }
 
+fn members_in(app: &App) -> bool {
+    app.server.as_ref().is_some_and(|s| s.data.get("role_members").is_some_and(|v| !v.is_null()))
+}
+
 /// The scripted run's way through the editor: true once `tab` is showing and, on Display, the edit it made was saved.
 pub fn probe(app: &mut App, gid: Id, tab: u8) -> bool {
     let open = app.server.as_ref().and_then(|s| s.pages.roles.edit.as_ref()).map(|e| e.id);
@@ -754,6 +758,8 @@ pub fn probe(app: &mut App, gid: Id, tab: u8) -> bool {
     let mut ready = false;
     if e.tab != tab {
         e.tab = tab;
+    } else if std::env::var_os("RUSTCORD_READONLY").is_some() {
+        ready = e.draft == e.base && members_in(app);
     } else if tab == 0 && e.base.name != "Admins" && e.draft == e.base {
         e.draft.name = "Admins".into();
         e.draft.hoist = !e.base.hoist;
@@ -761,8 +767,7 @@ pub fn probe(app: &mut App, gid: Id, tab: u8) -> bool {
     } else if e.draft != e.base && !e.saving {
         save_role(app, gid, &mut e);
     } else {
-        let members = app.server.as_ref().is_some_and(|s| s.data.get("role_members").is_some_and(|v| !v.is_null()));
-        ready = e.draft == e.base && !e.saving && (tab != 0 || e.base.name == "Admins") && members;
+        ready = e.draft == e.base && !e.saving && (tab != 0 || e.base.name == "Admins") && members_in(app);
     }
     if let Some(s) = &mut app.server {
         s.pages.roles.edit = Some(e);
