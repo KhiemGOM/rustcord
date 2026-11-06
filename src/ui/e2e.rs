@@ -1432,7 +1432,7 @@ impl Run {
                 self.next(0);
             }
             106 => {
-                let saved = app.sform.profile_base.as_ref().is_some_and(|_| app.sform.profile == app.sform.profile_base) && !app.sform.saving;
+                let saved = app.profed.as_ref().is_some_and(|e| e.ready && !super::profed::dirty(e) && !e.saving);
                 if saved {
                     self.mark("profile_saved");
                     self.next(300);

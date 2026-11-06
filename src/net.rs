@@ -102,6 +102,10 @@ pub enum Tag {
     Follow,
     /// settings pages park their data under a key, see `App::remote`
     Remote(&'static str),
+    // a shop product, by sku, for the cosmetic someone wears
+    Product(String),
+    // a read parked under a key, see `App::keyed`
+    Keyed(String),
     // the people who reacted to a message with an emoji: channel, message, emoji, whether super
     Reactors(Id, Id, String, bool),
     // report message: false the menu, true the submission

@@ -943,7 +943,17 @@ fn switch_row(ui: &mut Ui, store: &crate::state::Store, hit: &Hit, sel: bool) ->
 }
 
 fn profile(app: &mut App, ctx: &egui::Context) {
-    let Some((uid, gid, at)) = app.profile else { return };
+    let key = egui::Id::new("popout_fx_uid");
+    let Some((uid, gid, at)) = app.profile else {
+        if let Some(old) = ctx.data_mut(|d| d.remove_temp::<Id>(key)) {
+            super::cosmo::forget(ctx, ("popout", old));
+        }
+        return;
+    };
+    ctx.data_mut(|d| d.insert_temp(key, uid));
+    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let layers = super::cosmo::layers_of(app, worn.as_ref());
+    let since = super::cosmo::since(ctx, ("popout", uid));
     let Some(user) = app.store.user(uid).cloned() else {
         app.profile = None;
         return;
@@ -1095,6 +1105,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     }
                 });
                 theme_wash(ui, wash, p, ui.min_rect());
+                super::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
             });
         });
     app.rects.insert("profile_head".into(), head);
@@ -1246,6 +1257,9 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let mut save_note = None;
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
+    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let layers = super::cosmo::layers_of(app, worn.as_ref());
+    let since = super::cosmo::since(ui.ctx(), ("side", uid));
     let (mut banner, mut full, mut tab) = (BannerAct::default(), false, None);
     let height = ui.available_height();
     let store = &app.store;
@@ -1278,6 +1292,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
         full = resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
+        super::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
     });
     if let Some(at) = banner.more.or(banner.friend) {
         app.user_menu = Some((uid, 0, None, at));
