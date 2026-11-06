@@ -24,7 +24,7 @@ pub enum Ev {
     Conn(Conn),
     AuthFailed,
     Messages { channel: Id, page: Page, list: Vec<Value> },
-    MessagesFailed { channel: Id },
+    MessagesFailed { channel: Id, page: Page, err: String },
     // `again` when it'll be retried by itself
     SendFailed { channel: Id, nonce: String, err: String, again: bool },
     Auth(auth::Ev),
@@ -106,9 +106,7 @@ pub enum Tag {
     Reactors(Id, Id, String, bool),
     // report message: false the menu, true the submission
     Report(bool),
-    // nothing is said of this one, whether it works or not: acks, previews, settings synced behind the scenes
     Quiet,
-    // something the user did that can fail: what to say, and how to undo what the click showed
     Act(crate::ui::failed::Act),
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
@@ -279,7 +277,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     match a.messages(channel, page).await {
                         Ok(Value::Array(list)) => tx.send(Ev::Messages { channel, page, list }),
-                        _ => tx.send(Ev::MessagesFailed { channel }),
+                        Err(err) if err == api::UNAUTHORIZED => tx.send(Ev::AuthFailed),
+                        Err(err) => tx.send(Ev::MessagesFailed { channel, page, err }),
+                        Ok(_) => tx.send(Ev::MessagesFailed { channel, page, err: String::new() }),
                     }
                 });
             }
@@ -295,6 +295,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.call(m, &path, body).await;
+                    if res.as_ref().is_err_and(|e| e == api::UNAUTHORIZED) {
+                        return tx.send(Ev::AuthFailed);
+                    }
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(_)) => {}

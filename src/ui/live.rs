@@ -9,6 +9,9 @@ use crate::state::{Id, Sound, Status, sid};
 
 impl App {
     pub fn live(&mut self, t: &str, d: &Value) {
+        if matches!(t, "PRESENCE_UPDATE" | "TYPING_START" | "MESSAGE_CREATE" | "MESSAGE_UPDATE" | "MESSAGE_ACK" | "VOICE_STATE_UPDATE" | "GUILD_MEMBER_LIST_UPDATE") {
+            return;
+        }
         let gid = sid(&d["guild_id"]);
         match t {
             "GUILD_BAN_ADD" | "GUILD_BAN_REMOVE" => {
@@ -45,7 +48,7 @@ impl App {
             }
             "GUILD_SOUNDBOARD_SOUND_CREATE" | "GUILD_SOUNDBOARD_SOUND_UPDATE" => {
                 let id = sid(&d["sound_id"]);
-                if let Some(items) = self.server_page(gid, "sounds").and_then(|v| v["items"].as_array_mut()) {
+                if let Some(items) = self.server_page(gid, "sounds").and_then(|v| v.get_mut("items")).and_then(Value::as_array_mut) {
                     items.retain(|s| sid(&s["sound_id"]) != id);
                     items.insert(0, d.clone());
                 }
@@ -60,7 +63,7 @@ impl App {
             }
             "GUILD_SOUNDBOARD_SOUND_DELETE" => {
                 let id = sid(&d["sound_id"]);
-                if let Some(items) = self.server_page(gid, "sounds").and_then(|v| v["items"].as_array_mut()) {
+                if let Some(items) = self.server_page(gid, "sounds").and_then(|v| v.get_mut("items")).and_then(Value::as_array_mut) {
                     items.retain(|s| sid(&s["sound_id"]) != id);
                 }
                 if let Some((g, Some(list))) = &mut self.soundboard
@@ -158,9 +161,16 @@ impl App {
                 self.rest("GET", "/users/@me/virtual-currency/balance".into(), None, Tag::Quests(2));
             }
             "ENTITLEMENT_CREATE" | "ENTITLEMENT_UPDATE" | "ENTITLEMENT_DELETE" => {
-                for k in ["gifts", "gift_codes", "credits"] {
-                    super::settings::refetch(self, k);
-                }
+                self.reload_remote("gifts", "/users/@me/entitlements/gifts");
+                self.reload_remote("gift_codes", "/users/@me/entitlements/gift-codes");
+                self.reload_remote("credits", "/users/@me/entitlements?with_sku=false&with_application=false&entitlement_type=11&exclude_ended=true");
+            }
+            "USER_PAYMENT_SOURCES_UPDATE" => self.reload_remote("sources", "/users/@me/billing/payment-sources"),
+            "USER_SUBSCRIPTIONS_UPDATE" => self.reload_remote("subs", "/users/@me/billing/subscriptions?sync_level=1"),
+            "PAYMENT_UPDATE" => self.reload_remote("payments", "/users/@me/billing/payments?limit=30"),
+            "USER_PREMIUM_GUILD_SUBSCRIPTION_SLOT_CREATE" | "USER_PREMIUM_GUILD_SUBSCRIPTION_SLOT_UPDATE" => {
+                self.reload_remote("slots", "/users/@me/guilds/premium/subscription-slots");
+                self.reload_remote("cooldown", "/users/@me/guilds/premium/subscriptions/cooldown");
             }
             "GIFT_CODE_UPDATE" => {
                 let code = d["code"].as_str().unwrap_or_default();

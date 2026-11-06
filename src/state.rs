@@ -1010,6 +1010,8 @@ pub struct Msgs {
     pub loading: bool,
     #[serde(skip)]
     pub fresh: bool,
+    #[serde(skip)]
+    pub failed: Option<(Page, String)>,
     // after a jump into old history the list no longer reaches the newest message
     #[serde(skip)]
     pub detached: bool,

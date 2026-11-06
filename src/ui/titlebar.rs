@@ -647,7 +647,7 @@ fn friend_requests(ui: &mut Ui, app: &mut App) {
     }
     if let Some(u) = accept {
         app.store.relationships.insert(u, crate::state::FRIEND);
-        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), Tag::rollback(move |app: &mut App| drop(app.store.relationships.remove(&u))));
+        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), Tag::rollback(move |app: &mut App| { app.store.relationships.remove(&u); }));
     }
     if let Some(u) = ignore {
         let was = app.store.relationships.remove(&u);

@@ -236,7 +236,7 @@ fn list(app: &mut App, ui: &mut Ui) {
         }
         Some((u, "accept")) => {
             app.store.relationships.insert(u, FRIEND);
-            app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::rollback(move |app: &mut App| drop(app.store.relationships.remove(&u))));
+            app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::rollback(move |app: &mut App| { app.store.relationships.remove(&u); }));
         }
         Some((u, _)) => {
             let was = app.store.relationships.remove(&u);

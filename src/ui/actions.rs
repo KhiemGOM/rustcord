@@ -37,7 +37,6 @@ impl App {
         self.net.send(Cmd::Send { channel: ch, content: u.content, nonce, reply: u.reply, files: u.files, stickers: Vec::new(), tts: u.tts });
     }
 
-    /// Shows the new text and sends it; a refusal puts the old text back.
     pub fn edit_msg(&mut self, ch: Id, id: Id, text: String) {
         let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) else { return };
         let (was, edited) = (std::mem::replace(&mut m.content, text.clone()), std::mem::replace(&mut m.edited, true));

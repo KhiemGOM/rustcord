@@ -600,7 +600,8 @@ impl App {
         } else {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
             let e = self.store.msgs.entry(ch).or_default();
-            if !e.fresh && !e.loading && !jumping {
+            if (!e.fresh || e.failed.is_some()) && !e.loading && !jumping {
+                e.failed = None;
                 e.loading = true;
                 self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
             }
@@ -683,6 +684,13 @@ impl App {
             e.loading = true;
             self.net.send(Cmd::Messages { channel: ch, page: Page::Around(id) });
         }
+    }
+
+    pub fn retry_messages(&mut self, ch: Id) {
+        let Some(e) = self.store.msgs.get_mut(&ch) else { return };
+        let page = e.failed.take().map_or(Page::Latest, |f| f.0);
+        e.loading = true;
+        self.net.send(Cmd::Messages { channel: ch, page });
     }
 
     pub fn jump_to_present(&mut self, ch: Id) {
@@ -1571,6 +1579,9 @@ impl App {
     }
 
     pub fn error_toast(&mut self, e: String) {
+        if e == crate::api::RATE_LIMITED || e.starts_with("Oh no, it looks like the Discord servers") {
+            return self.toast(e);
+        }
         self.toast("Something went wrong. Shift Click this notification to see error details.");
         self.toast_detail = Some(e);
     }
@@ -1691,10 +1702,11 @@ impl App {
                         self.scroll_fix = Some((channel, off + est));
                     }
                 }
-                Ev::MessagesFailed { channel } => {
+                Ev::MessagesFailed { channel, page, err } => {
                     if let Some(m) = self.store.msgs.get_mut(&channel) {
                         m.loading = false;
                         m.fresh = true;
+                        m.failed = Some((page, err));
                     }
                 }
                 Ev::SendFailed { channel, nonce, err, again } => {
