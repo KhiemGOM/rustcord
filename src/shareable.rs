@@ -50,10 +50,15 @@ pub fn start(ctx: egui::Context) -> Shareable {
         .spawn(move || {
             let mut icons = HashMap::new();
             let cams = crate::voice::cameras();
+            let devices = || cams.iter().enumerate().map(|(i, n)| Item { kind: Kind::Device(i), title: n.clone(), icon: None, thumb: None });
+            // screens take no time, a picture of every window can take seconds
+            let first: Vec<Item> = unsafe { screens() }.into_iter().chain(devices()).collect();
+            *out.lock().unwrap_or_else(|e| e.into_inner()) = first;
+            ctx.request_repaint();
             while !quit.load(Relaxed) {
                 let mut v = unsafe { windows(&mut icons) };
                 v.extend(unsafe { screens() });
-                v.extend(cams.iter().enumerate().map(|(i, n)| Item { kind: Kind::Device(i), title: n.clone(), icon: None, thumb: None }));
+                v.extend(devices());
                 *out.lock().unwrap_or_else(|e| e.into_inner()) = v;
                 ctx.request_repaint();
                 // discord refreshes its thumbnails every couple of seconds

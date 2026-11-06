@@ -491,7 +491,9 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
         a
     };
     let mut m = msg(early(0), MEDIA, 102, "a video with sound");
-    m["attachments"] = json!([file("clip.mp4", 19_785, "video/mp4", 320, 180)]);
+    // MOCK_CLIP_HD: a real video's file, in place of the tiny one, to measure the player with
+    let hd = std::env::var("MOCK_CLIP_HD").is_ok();
+    m["attachments"] = json!([file("clip.mp4", 19_785, "video/mp4", if hd { 1920 } else { 320 }, if hd { 1080 } else { 180 })]);
     out.push(m);
     let mut m = msg(early(1), MEDIA, 101, "an mp3");
     m["attachments"] = json!([file("tone.mp3", 12_347, "audio/mpeg", 0, 0)]);
@@ -1500,6 +1502,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
             let mut m = member(u);
             m["user"] = user(u);
+            if u == ME && *g == "1003" {
+                m["roles"] = json!(["1201"]);
+            }
             let vs = json!({ "guild_id": g, "channel_id": b["channel_id"], "user_id": u.to_string(), "session_id": "mock-voice-session", "mute": false, "deaf": false,
                 "self_mute": false, "self_deaf": false, "suppress": !wl.speakers.contains(&u), "request_to_speak_timestamp": wl.hands.get(&u), "member": m });
             let _ = wl.events.send(json!({ "t": "VOICE_STATE_UPDATE", "d": vs }));
@@ -1565,6 +1570,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let n = |k: &str| b[k].as_u64().unwrap_or(0);
             activity_join(&mut w.lock().unwrap(), n("channel"), n("app"), n("user"));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "activity", "forget"]) => {
+            w.lock().unwrap().authorized.clear();
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
@@ -2002,7 +2011,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
         ("GET", ["cdn", "media", "clip.mp4"]) if query(path, "width").is_some() => (200, "image/png", png(320, 180, 5, false)),
-        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
+        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", std::env::var("MOCK_CLIP_HD").ok().and_then(|f| std::fs::read(f).ok()).unwrap_or_else(|| include_bytes!("fixtures/clip.mp4").to_vec())),
         ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
@@ -2221,6 +2230,9 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     }
     let mut m = member(ME);
     m["user"] = user(ME);
+    if guild == Some(1003) {
+        m["roles"] = json!(["1201"]);
+    }
     let me = json!({
         "guild_id": guild.map(|g| g.to_string()), "channel_id": chan.map(|c| c.to_string()), "user_id": ME.to_string(),
         "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": d["self_video"],
@@ -2683,7 +2695,8 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>, cssrc: u32) {
         let Some(to) = to else { continue };
         let (assrc, vssrc) = if kind == Kind::Voice { (SPEAKER_SSRC, SPEAKER_SSRC + 1) } else { (SPEAKER_SSRC + 100, SPEAKER_SSRC + 101) };
         if i % 3 == 0 {
-            let (wd, ht) = (320usize, 180usize);
+            // MOCK_STREAM_HD: a Go Live the size of a real one, to measure watching it
+            let (wd, ht) = if kind != Kind::Voice && std::env::var_os("MOCK_STREAM_HD").is_some() { (1920usize, 1080usize) } else { (320, 180) };
             let shift = (i / 3) as usize * 4;
             let rgb: Vec<u8> = (0..wd * ht)
                 .flat_map(|p| {

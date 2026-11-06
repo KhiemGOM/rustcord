@@ -60,6 +60,14 @@ pub fn system_24h() -> bool {
     ok == 0 && buf[0] == b'1' as u16
 }
 
+/// Hands back every page nothing is touching, as Windows itself used to for a minimized window:
+/// hidden, a client only needs what the gateway and the tray use. The rest comes back as needed.
+pub fn trim() {
+    use windows_sys::Win32::System::Memory::SetProcessWorkingSetSizeEx;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    unsafe { SetProcessWorkingSetSizeEx(GetCurrentProcess(), usize::MAX, usize::MAX, 0) };
+}
+
 pub fn exclude_from_capture(frame: &eframe::Frame, on: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};

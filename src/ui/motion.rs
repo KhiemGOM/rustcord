@@ -70,13 +70,12 @@ impl Curve {
 
     /// Progress for `u` in 0..=1 of the curve's length.
     pub fn at(self, u: f32) -> f32 {
-        let u = u.clamp(0.0, 1.0);
+        if u <= 0.0 || u >= 1.0 {
+            return u.clamp(0.0, 1.0);
+        }
         match self {
             Curve::Bezier(a, b, c, d) => bezier(a, b, c, d, u),
             Curve::Spring { k, c, m, clamp } => {
-                if u >= 1.0 {
-                    return 1.0;
-                }
                 let x = spring(k, c, m, u * self.duration(0.0));
                 if clamp { x.min(1.0) } else { x }
             }
@@ -150,7 +149,7 @@ pub fn cycle(ctx: &Context, period: f32) -> f32 {
     if anim(1.0) == 0.0 {
         return 0.0;
     }
-    ctx.request_repaint();
+    ctx.request_repaint_after_secs(1.0 / 60.0);
     (ctx.input(|i| i.time) as f32 % period) / period
 }
 
@@ -371,6 +370,21 @@ impl Modal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pressing_with_a_modal_open_does_not_hang() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let ctx = Context::default();
+            let press = egui::Event::PointerButton { pos: egui::pos2(1.0, 1.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
+            let raw = egui::RawInput { events: vec![press], ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                Modal::new(Id::new("m")).show(ui.ctx(), |_| {});
+            });
+            let _ = tx.send(());
+        });
+        assert!(rx.recv_timeout(Duration::from_secs(30)).is_ok());
+    }
 
     fn close(a: f32, b: f32, tol: f32) -> bool {
         (a - b).abs() < tol

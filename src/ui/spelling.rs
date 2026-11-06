@@ -26,6 +26,13 @@ pub struct State {
     pub first: Option<egui::Rect>,
 }
 
+impl State {
+    pub fn release(&mut self) {
+        self.speller = None;
+        self.text.clear();
+    }
+}
+
 enum Act {
     Replace(String),
     Learn(String),
@@ -52,7 +59,7 @@ impl State {
 /// right-click menu. True when a setting changed and wants saving.
 pub fn composer(st: &mut State, s: &mut Settings, ui: &mut Ui, out: &TextEditOutput, draft: &mut String, tid: egui::Id) -> bool {
     let ctx = ui.ctx().clone();
-    if s.spellcheck && st.speller.as_ref().is_none_or(|sp| sp.tag != s.locale) {
+    if s.spellcheck && !draft.is_empty() && st.speller.as_ref().is_none_or(|sp| sp.tag != s.locale) {
         st.speller = Some(Speller::new(&s.locale, &ctx));
         st.text.clear();
     }

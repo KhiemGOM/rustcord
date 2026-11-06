@@ -79,6 +79,8 @@ pub struct Run {
     chat_open: bool,
     travel: f32,
     last_off: f32,
+    // the channels a "browse" file has us open one after another, the next one, and when
+    browse: Option<(Vec<Id>, usize, Instant)>,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -163,6 +165,7 @@ impl Run {
             chat_open: false,
             travel: 0.0,
             last_off: 0.0,
+            browse: None,
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -283,7 +286,8 @@ impl Run {
                 raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
             }
         }
-        if self.bench.is_none() {
+        // an event every frame is a frame drawn every vsync, which a measurement mustn't have
+        if self.bench.is_none() && std::env::var_os("RUSTCORD_E2E_HOLD").is_none() {
             raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
         }
         if let Some(batch) = self.queue.pop_front() {
@@ -405,12 +409,37 @@ impl Run {
                 self.travel += (off - self.last_off).abs();
                 self.last_off = off;
             }
+            if let Some((list, i, when)) = &mut self.browse
+                && when.elapsed() > Duration::from_secs(3)
+            {
+                if let Some(ch) = list.get(*i).copied() {
+                    let g = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+                    app.ui.guild = (g != 0).then_some(g);
+                    app.open(ch);
+                }
+                *i += 1;
+                *when = Instant::now();
+            }
+            if self.browse.is_some() {
+                ctx.request_repaint_after(Duration::from_secs(1));
+            }
             if at.elapsed() > Duration::from_millis(100) {
+                if self.browse.is_none() && self.dir.join("browse").exists() {
+                    self.browse = Some((app.ui.recent.clone(), 0, Instant::now() - Duration::from_secs(3)));
+                }
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
                 self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel });
+                let loaders = ctx.loaders();
+                let mut images = serde_json::Map::new();
+                for (id, n) in loaders.bytes.lock().iter().map(|l| (l.id().to_string(), l.byte_size()))
+                    .chain(loaders.image.lock().iter().map(|l| (l.id().to_string(), l.byte_size())))
+                    .chain(loaders.texture.lock().iter().map(|l| (l.id().to_string(), l.byte_size())))
+                {
+                    images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
+                }
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
@@ -422,7 +451,20 @@ impl Run {
             self.finish(ctx);
             return;
         }
-        ctx.request_repaint();
+        // holding still to be measured, only what the app itself asks for gets drawn, and who asked is written down
+        if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() {
+            for c in ctx.repaint_causes() {
+                *self.causes.entry(format!("{}:{}", c.file.rsplit(['/', '\\']).next().unwrap_or(c.file), c.line)).or_default() += 1;
+            }
+            let mut top: Vec<_> = self.causes.iter().collect();
+            top.sort_by_key(|c| std::cmp::Reverse(*c.1));
+            top.truncate(14);
+            let _ = std::fs::write(self.dir.join("hold"), format!("{} {:?}", self.frames.len(), top));
+        }
+        match self.wait.checked_duration_since(Instant::now()).filter(|_| std::env::var_os("RUSTCORD_E2E_HOLD").is_some()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => ctx.request_repaint(),
+        }
         // layout snapshot for alignment checks against discord's metrics
         for k in ["composer", "composer_text", "gear", "search", "friends"] {
             if let Some(r) = app.rects.get(k) {
@@ -629,7 +671,7 @@ impl Run {
             16 => {
                 self.shot(ctx, "forum.png");
                 let g = self.target.0;
-                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined).map(|c| c.id);
+                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.name == "release planning").map(|c| c.id);
                 let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
                     return self.fail("no joined thread in the sidebar".into());
                 };
@@ -812,7 +854,11 @@ impl Run {
                 self.next(600);
             }
             36 => {
-                let Some(r) = app.rects.get("reply").copied() else { return };
+                // the glide can carry it off again: go back and find it
+                let Some(r) = app.rects.get("reply").copied() else {
+                    self.step = 35;
+                    return;
+                };
                 // the start of the line: the hover toolbar covers the message's top right
                 self.click(r.left_center() + vec2(40.0_f32.min(r.width() / 2.0), 0.0));
                 self.next(0);
@@ -1047,6 +1093,11 @@ impl Run {
                 }
             }
             63 => {
+                // measuring a stream on its own: no camera going out beside it
+                if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() {
+                    self.step = 65;
+                    return;
+                }
                 let Some(r) = app.rects.get("voice:camera").copied() else { return };
                 self.click(r.center());
                 self.step = 2819;
@@ -1066,7 +1117,7 @@ impl Run {
             66 => {
                 if app.voice.stream.as_ref().is_some_and(|l| !l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_in");
-                    self.next(500);
+                    self.next(std::env::var("RUSTCORD_E2E_HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(500));
                 }
             }
             67 => {
@@ -1327,6 +1378,25 @@ impl Run {
     }
 
     /// Click a settings sidebar entry, scrolling the sidebar first if it's below the fold.
+    /// Marks are kept for rows scrolled out of the settings window, where a click would miss.
+    fn click_mark(&mut self, ctx: &egui::Context, key: &str, pause: u64) {
+        let window = ctx.content_rect().shrink2(egui::vec2(0.0, 80.0));
+        let Some(r) = Self::at(ctx, key) else { return };
+        if !window.contains_rect(r) {
+            self.queue.push_back(vec![Event::PointerMoved(window.center())]);
+            self.queue.push_back(vec![Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, if r.top() > window.top() { -200.0 } else { 200.0 }),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            }]);
+            self.wait = Instant::now() + Duration::from_millis(250);
+            return;
+        }
+        self.click(r.center());
+        self.next(pause);
+    }
+
     fn open_page(&mut self, app: &App, label: &str) -> bool {
         let key = if label == "Profiles" { "Edit Profiles" } else { label };
         if let Some(r) = app.rects.get(&format!("settings:{key}")).copied() {
@@ -1571,10 +1641,8 @@ impl Run {
                 self.next(800);
             }
             129 => {
-                let Some(r) = Self::at(ctx, "house:Bravery") else { return };
                 self.shot(ctx, "settings_account_family.png");
-                self.click(r.center());
-                self.next(600);
+                self.click_mark(ctx, "house:Bravery", 600);
             }
             130 => {
                 self.mark("hypesquad");
@@ -1756,24 +1824,7 @@ impl Run {
     /// the blob back.
     fn account_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let mfa_on = app.store.me_raw["mfa_enabled"].as_bool() == Some(true);
-        // marks are kept for rows scrolled out of the settings window, where a click would miss
-        let window = ctx.content_rect().shrink2(egui::vec2(0.0, 80.0));
-        let click_at = |this: &mut Self, key: &str, pause: u64| {
-            let Some(r) = Self::at(ctx, key) else { return };
-            if !window.contains_rect(r) {
-                this.queue.push_back(vec![Event::PointerMoved(window.center())]);
-                this.queue.push_back(vec![Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(0.0, if r.top() > window.top() { -200.0 } else { 200.0 }),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: Modifiers::NONE,
-                }]);
-                this.wait = Instant::now() + Duration::from_millis(250);
-                return;
-            }
-            this.click(r.center());
-            this.next(pause);
-        };
+        let click_at = |this: &mut Self, key: &str, pause: u64| this.click_mark(ctx, key, pause);
         let typed = |this: &mut Self, key: &str, text: &str| {
             let Some(r) = Self::at(ctx, key) else { return };
             this.click(r.center());
@@ -1783,6 +1834,7 @@ impl Run {
         match self.step {
             2000 => {
                 app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
+                app.remote.clear();
                 self.step = 2009;
                 self.next(400);
             }
@@ -4546,8 +4598,7 @@ impl Run {
                     .store
                     .msgs
                     .get(&general)
-                    .and_then(|e| e.list.iter().find_map(|m| m.poll.as_ref()))
-                    .is_some_and(|p| p.answers.iter().any(|a| a.id == 2 && a.me));
+                    .is_some_and(|e| e.list.iter().filter_map(|m| m.poll.as_ref()).any(|p| p.answers.iter().any(|a| a.id == 2 && a.me)));
                 if voted {
                     self.mark("home_poll");
                     self.shot(ctx, "home_poll.png");
@@ -5474,6 +5525,10 @@ impl Run {
             }
             2501 => {
                 clear(ctx, &VOICE);
+                // the only server we can invite from is ours, and the activity steps met Alice there
+                if let Some(den) = app.store.members.get_mut(&1008) {
+                    den.remove(&101);
+                }
                 app.user_menu = Some((101, self.target.0, None, at));
                 app.menu_from = Origin::Voice(2021);
                 self.next(600);

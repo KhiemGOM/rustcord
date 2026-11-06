@@ -66,7 +66,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .filter(|(u, t)| **t == FRIEND && (in_voice.contains_key(u) || store.activities.get(u).is_some_and(|a| presence::shown(a).next().is_some())))
                 .map(|(u, _)| *u)
                 .collect();
-            busy.sort_by_key(|u| store.name_in(0, *u).to_lowercase());
+            busy.sort_by_cached_key(|u| store.name_in(0, *u).to_lowercase());
             let want: Vec<Id> = {
                 let mut w: Vec<Id> = busy.iter().filter_map(|u| store.activities.get(u)).flatten().map(|a| a.app).filter(|a| *a != 0 && !store.app_icons.contains_key(a)).collect();
                 w.sort_unstable();

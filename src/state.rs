@@ -1046,6 +1046,8 @@ pub struct Tracked {
 struct Sums {
     badges: Map<Id, (bool, u32)>,
     mentions: u32,
+    threads: Map<Id, Vec<Id>>,
+    unread: bool,
 }
 
 impl std::ops::Deref for Tracked {
@@ -1078,7 +1080,13 @@ impl Tracked {
                 .filter(|(ch, _)| s.channels.get(ch).is_some_and(|c| !s.muted.contains(&c.id) && !s.muted.contains(&c.guild)))
                 .map(|(_, r)| r.mentions)
                 .sum();
-            Sums { badges: s.guilds.keys().map(|g| (*g, s.guild_badge(*g))).collect(), mentions }
+            let mut threads: Map<Id, Vec<Id>> = Default::default();
+            for c in s.channels.values().filter(|c| c.is_thread()) {
+                threads.entry(c.guild).or_default().push(c.id);
+            }
+            threads.values_mut().for_each(|t| t.sort_unstable());
+            let unread = s.channels.values().any(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c));
+            Sums { badges: s.guilds.keys().map(|g| (*g, s.guild_badge(*g))).collect(), mentions, threads, unread }
         })
     }
 
@@ -1089,6 +1097,15 @@ impl Tracked {
     /// Mentions over every channel that isn't muted, as the inbox and the title count them.
     pub fn mention_count(&self) -> u32 {
         self.sums().mentions
+    }
+
+    /// A server's threads, oldest first.
+    pub fn threads_in(&self, gid: Id) -> impl Iterator<Item = &Channel> {
+        self.sums().threads.get(&gid).into_iter().flatten().filter_map(|t| self.channels.get(t))
+    }
+
+    pub fn any_unread(&self) -> bool {
+        self.sums().unread
     }
 }
 

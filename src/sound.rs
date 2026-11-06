@@ -250,6 +250,12 @@ fn loop_silently(cue: &str, clip: &Clip, stop: &AtomicBool) {
     }
 }
 
+pub fn forget() {
+    if let Ok(mut c) = CLIPS.lock() {
+        *c = None;
+    }
+}
+
 fn load(file: &str) -> Option<Arc<Clip>> {
     let mut clips = CLIPS.lock().ok()?;
     let clips = clips.get_or_insert_with(HashMap::new);

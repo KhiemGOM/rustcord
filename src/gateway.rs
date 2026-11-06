@@ -99,7 +99,15 @@ async fn connect(
                         if r.is_err() {
                             return End::Retry;
                         }
-                        match serde_json::from_slice(&out) {
+                        let v = serde_json::from_slice(&out);
+                        // READY grows both to tens of MB; don't keep that for the whole session
+                        if out.capacity() > 1 << 20 {
+                            out = Vec::new();
+                        }
+                        if buf.capacity() > 1 << 20 {
+                            buf = Vec::new();
+                        }
+                        match v {
                             Ok(v) => v,
                             Err(_) => continue,
                         }
