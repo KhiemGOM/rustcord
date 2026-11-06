@@ -35,6 +35,12 @@ pub fn cdn() -> &'static str {
     V.get_or_init(|| env_or("RUSTCORD_CDN", "https://cdn.discordapp.com"))
 }
 
+/// Stickers and proxied pictures live on media.discordapp.net, unless RUSTCORD_CDN moves the CDN.
+pub fn media() -> &'static str {
+    static V: OnceLock<String> = OnceLock::new();
+    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://media.discordapp.net".into() })
+}
+
 pub fn emoji_cdn() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
     V.get_or_init(|| env_or("RUSTCORD_EMOJI_CDN", "https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72"))

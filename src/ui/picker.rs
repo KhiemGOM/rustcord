@@ -747,7 +747,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let mut chosen = None;
     let mut go = None;
     let mut hovered: Option<((Id, String, u8), String)> = None;
-    let url = |id: &Id, fmt: u8| format!("https://media.discordapp.net/stickers/{id}.{}?size=160", if fmt == 4 { "gif" } else { "png" });
+    let url = |id: &Id, fmt: u8| format!("{}/stickers/{id}.{}?size=160", crate::api::media(), if fmt == 4 { "gif" } else { "png" });
     let (area, to) = shell(ctx, at, Align2::RIGHT_BOTTOM, Some(Tab::Stickers), |ui| {
         search_box(ui, &mut q, "Find the perfect sticker", None).request_focus();
         header_rule(ui);
@@ -889,9 +889,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         let nonce = crate::state::make_nonce();
         app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id], tts: false });
         app.jump_to_present(ch);
-        app.ui.frequent_stickers.retain(|s| *s != id);
-        app.ui.frequent_stickers.insert(0, id);
-        app.ui.frequent_stickers.truncate(12);
+        super::favs::used_sticker(app, id);
         app.stickers = None;
     } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || (super::popups::pressed_outside(ctx, &area) && !on_picker_button(app, ctx)) {
         app.stickers = None;

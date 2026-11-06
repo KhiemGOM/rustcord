@@ -25,6 +25,12 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/cdn.rs"]
+mod cdn_shape;
+#[path = "mockcord/frecency.rs"]
+mod frecency;
+#[path = "mockcord/gallery.rs"]
+mod gallery;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 
@@ -401,7 +407,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         let mut m = msg(id, GENERAL, a, text);
         if i == n - 9 {
             m["attachments"] = json!([{ "id": "1", "filename": "screenshot.png", "size": 183_220,
-                "url": format!("{cdn}/attachments/shot.png"), "proxy_url": format!("{cdn}/attachments/shot.png"),
+                "url": format!("{cdn}/attachments/2011/1/photo-800x450-1.png"), "proxy_url": format!("{cdn}/attachments/2011/1/photo-800x450-1.png"),
                 "width": 800, "height": 450, "content_type": "image/png" }]);
             m["content"] = json!("here's the new layout");
         }
@@ -449,7 +455,7 @@ fn seed(cdn: &str) -> Vec<Value> {
                     { "answer_id": 3, "poll_media": { "text": "emacs" } },
                 ],
                 "allow_multiselect": false,
-                "expiry": "2099-01-01T00:00:00+00:00",
+                "expiry": iso(now_ms() + 2 * 86_400_000),
                 "results": { "is_finalized": false, "answer_counts": [
                     { "id": 1, "count": 7, "me_voted": false },
                     { "id": 2, "count": 11, "me_voted": false },
@@ -461,6 +467,11 @@ fn seed(cdn: &str) -> Vec<Value> {
     }
     out.extend(media_msgs(cdn));
     out.extend(system_msgs());
+    let gallery = gallery::messages(cdn);
+    if let Some(parent) = gallery.iter().find(|m| m["thread"].is_object()) {
+        out.extend(gallery::thread_messages(parent));
+    }
+    out.extend(gallery);
     for (i, (a, text)) in [(101, "anyone up for ranked?"), (103, "in 10")].iter().enumerate() {
         out.push(msg(snow(now_ms() - 8 * 60_000 + i as u64 * 60_000), THREAD_B, *a, text));
     }
@@ -812,9 +823,9 @@ fn ready(last_general: u64) -> Value {
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)),
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)), ch(gallery::GALLERY, 0, "gallery", 8, Some(2010)),
         ],
-        "threads": [thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
+        "threads": [thread(), gallery::thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
         "voice_states": [{ "user_id": "101", "channel_id": "2021", "mute": true }, { "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }],
     });
@@ -940,7 +951,30 @@ fn channel(w: &W, id: &str) -> Option<Value> {
     Some(c)
 }
 
-fn member_list() -> Value {
+/// Everyone else's servers: the same few people, as many of them as that server would plausibly have.
+fn roster_list(gid: &str) -> Value {
+    let n: u64 = gid.parse().unwrap_or(0);
+    let mut ids: Vec<u64> = vec![ME];
+    ids.extend((0..if n <= 1002 { 6 } else { 3 }).map(|i| 101 + (n + i) % 6));
+    ids.dedup();
+    let status = |id: u64| ["online", "idle", "dnd", "offline"][((id + n) % 4) as usize];
+    let item = |id: u64, s: &str| json!({ "member": { "user": user(id), "roles": [], "nick": null, "premium_since": null, "presence": { "status": s } } });
+    let (on, off): (Vec<u64>, Vec<u64>) = ids.into_iter().partition(|id| status(*id) != "offline");
+    let mut items = vec![json!({ "group": { "id": "online", "count": on.len() } })];
+    items.extend(on.iter().map(|id| item(*id, status(*id))));
+    items.push(json!({ "group": { "id": "offline", "count": off.len() } }));
+    items.extend(off.iter().map(|id| item(*id, "offline")));
+    json!({
+        "guild_id": gid, "id": "everyone", "member_count": on.len() + off.len(), "online_count": on.len(),
+        "groups": [{ "id": "online", "count": on.len() }, { "id": "offline", "count": off.len() }],
+        "ops": [{ "op": "SYNC", "range": [0, 99], "items": items }]
+    })
+}
+
+fn member_list(gid: &str) -> Value {
+    if gid != "1000" {
+        return roster_list(gid);
+    }
     let item = |id: u64, status: &str| json!({ "member": { "user": user(id), "roles": member(id)["roles"], "nick": null, "premium_since": member(id)["premium_since"], "presence": { "status": status } } });
     json!({
         "guild_id": "1000", "id": "everyone", "member_count": 6, "online_count": 4,
@@ -1100,13 +1134,16 @@ fn bill_state() -> Value {
             let gift = i % 3 == 1;
             json!({ "id": (9900 + i).to_string(), "amount": if gift { 227045 } else { 113000 }, "currency": "vnd", "description": "Nitro", "status": if i == 2 { 2 } else { 1 },
                     "gift": gift, "created_at": iso(now - (i + 1) * 9 * day), "amount_refunded": 0, "tax": 0, "tax_inclusive": true,
+                    "sku_id": "521842831262875670", "sku_price": if gift { 227045 } else { 113000 }, "subscription_id": if gift { Value::Null } else { json!("9601") }, "flags": 0,
                     "payment_source": { "id": "9501", "brand": "visa", "last_4": "4487" } })
         })
         .collect();
     let applied = |sub: &str, guild: &str| json!({ "id": sub, "guild_id": guild, "user_id": ME.to_string(), "ended": false });
     json!({
         "sources": [source("9501", "visa", "4487", 9, 2029, false, true), source("9502", "visa", "7790", 8, 2023, true, false), source("9503", "mastercard", "4683", 4, 2028, false, false)],
-        "subs": [{ "id": "9601", "type": 1, "status": 1, "payment_source_id": "9501", "current_period_end": iso(now + 20 * day), "canceled_at": null, "items": [{ "plan_id": "511651880837840896", "quantity": 1 }] }],
+        "subs": [{ "id": "9601", "type": 1, "status": 1, "payment_source_id": "9501", "payment_gateway": 1, "payment_gateway_plan_id": "premium_month", "currency": "vnd",
+                  "created_at": iso(now - 400 * day), "current_period_start": iso(now - 10 * day), "current_period_end": iso(now + 20 * day), "canceled_at": null, "trial_ends_at": null,
+                  "plan_id": "511651880837840896", "items": [{ "id": "9611", "plan_id": "511651880837840896", "quantity": 1 }], "metadata": null }],
         "slots": [
             { "id": "9701", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": null, "premium_guild_subscription": applied("9801", "1002") },
             { "id": "9702", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": null, "premium_guild_subscription": null },
@@ -1133,6 +1170,13 @@ fn billing(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
         ("GET", ["api", "v9", "users", "@me", "billing", "payments"]) => Some((200, g["payments"].clone())),
         ("GET", ["api", "v9", "users", "@me", "guilds", "premium", "subscription-slots"]) => Some((200, g["slots"].clone())),
         ("GET", ["api", "v9", "users", "@me", "guilds", "premium", "subscriptions", "cooldown"]) => Some((200, json!({ "ends_at": null }))),
+        ("GET", ["api", "v9", "users", "@me", "entitlements"]) => Some((200, json!([{
+            "id": "1290000000000009001", "type": 11, "user_id": ME.to_string(), "sku_id": "521842831262875670", "application_id": "521842831262875670", "parent_id": null,
+            "promotion_id": "1290000000000009100", "subscription_id": null, "gift_code_flags": 0, "gifter_user_id": null, "deleted": false, "consumed": false,
+            "starts_at": iso(now - 3 * day), "ends_at": iso(now + 27 * day) }]))),
+        ("GET", ["api", "v9", "users", "@me", "billing", "country-code"]) => Some((200, json!({ "country_code": "VN" }))),
+        ("GET", ["api", "v9", "users", "@me", "billing", "localized-pricing-promo"]) => Some((200, json!({ "country_code": "VN", "localized_pricing_promo": null }))),
+        ("GET", ["api", "v9", "users", "@me", "billing", "nitro-affinity"]) => Some((200, json!({ "is_nitro_affinity": false, "nitro_affinity_score": 0.0 }))),
         ("GET", ["api", "v9", "users", "@me", "entitlements", "gifts"]) => Some((200, g["gifts"].clone())),
         ("GET", ["api", "v9", "users", "@me", "entitlements", "gift-codes"]) => Some((200, g["codes"].clone())),
         ("GET", ["api", "v9", "users", "%40me" | "@me", "badges", "17"]) => Some((200, json!({ "badge_id": "17", "progress": { "current": 4 } }))),
@@ -1218,6 +1262,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
+    if method == "GET" && parts.first() == Some(&"cdn") {
+        if let Some(refusal) = cdn_shape::check(path) {
+            return refusal;
+        }
+    }
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
@@ -1262,14 +1311,14 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "gifs", "trending"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
-            let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/attachments/gif{i}.png");
+            let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/media/gif{i}.png");
             let cats: Vec<Value> = ["hello", "lol", "love", "happy birthday"].iter().enumerate().map(|(i, n)| json!({ "name": n, "src": src(i as u32) })).collect();
             ok(json!({ "categories": cats, "gifs": [{ "src": src(5), "width": 220, "height": 160 }] }))
         }
         ("GET", ["api", "v9", "gifs", _]) => {
             let gifs: Vec<Value> = (0..8)
                 .map(|i| json!({ "id": i.to_string(), "title": format!("mock {i}"), "url": format!("https://tenor.com/view/mock-{i}"),
-                                 "src": format!("http://127.0.0.1:{}/cdn/attachments/gif{i}.png", PORT.load(std::sync::atomic::Ordering::Relaxed)),
+                                 "src": format!("http://127.0.0.1:{}/cdn/media/gif{i}.png", PORT.load(std::sync::atomic::Ordering::Relaxed)),
                                  "width": 220 + (i % 3) * 40, "height": 160 + (i % 2) * 60 }))
                 .collect();
             ok(json!(gifs))
@@ -1342,6 +1391,33 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let proto = settings_proto(b["theme"].as_u64().unwrap_or(1), b["compact_avatars"].as_bool().unwrap_or(false));
             let tx = w.lock().unwrap().events.clone();
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
+            ok(json!({}))
+        }
+        ("GET", ["api", "v9", "users", "@me", "settings-proto", "2"]) => {
+            use base64::Engine;
+            ok(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(frecency::get()) }))
+        }
+        ("PATCH", ["api", "v9", "users", "@me", "settings-proto", "2"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let patch = base64::engine::general_purpose::STANDARD.decode(b["settings"].as_str().unwrap_or("")).unwrap_or_default();
+            let Some(merged) = frecency::patch(&patch) else {
+                return (400, "application/json", json!({ "message": "Invalid user settings data", "code": 50035 }).to_string().into_bytes());
+            };
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 2, "proto": base64::engine::general_purpose::STANDARD.encode(&patch) }, "partial": true } }));
+            ok(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(merged) }))
+        }
+        // another client of the account changing its favourites
+        ("POST", ["api", "v9", "mock", "frecency"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let patch = base64::engine::general_purpose::STANDARD.decode(b["settings"].as_str().unwrap_or("")).unwrap_or_default();
+            if frecency::patch(&patch).is_none() {
+                return (400, "application/json", json!({ "message": "Invalid user settings data", "code": 50035 }).to_string().into_bytes());
+            }
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 2, "proto": b["settings"] }, "partial": true } }));
             ok(json!({}))
         }
         ("PATCH", ["api", "v9", "users", "@me", "settings-proto", _]) => ok(json!({})),
@@ -1816,7 +1892,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["api", "v9", "users", "@me", "connections"]) => ok(json!([
             { "type": "github", "id": "1", "name": "you-on-github", "visibility": 1, "show_activity": true, "verified": true },
         ])),
-        ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => ok(json!([])),
+        ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => {
+            (404, "application/json", json!({ "message": "404: Not Found", "code": 0 }).to_string().into_bytes())
+        }
         // a thread from a message or from nothing: the new channel back, and over the gateway
         ("POST", ["api", "v9", "channels", ch, "messages", _, "threads"]) | ("POST", ["api", "v9", "channels", ch, "threads"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -2047,7 +2125,22 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
         }
         ("GET", ["assets", f]) if f.starts_with("mock-") && f.ends_with(".woff2") => (200, "font/woff2", gg_stand_in(&f[5..f.len() - 6])),
-        ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
+        ("GET", ["cdn", "attachments", _, _, name]) => {
+            let natural = cdn_shape::attachment_size(name);
+            let (w, h) = cdn_shape::fitted(natural, path);
+            let seed = name.bytes().map(u64::from).sum();
+            match name.rsplit('.').next() {
+                Some("mp4") if query(path, "width").is_some() => (200, "image/png", png(w, h, seed, false)),
+                Some("mp4") => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
+                Some("txt") => (200, "text/plain", b"release notes
+- faster startup
+".to_vec()),
+                _ => (200, "image/png", png(w, h, seed, false)),
+            }
+        }
+        ("GET", ["cdn", "stickers", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(160, 160, f.len() as u32)),
+        ("GET", ["cdn", "stickers", f]) if f.ends_with(".json") => (200, "application/json", b"{}".to_vec()),
+        ("GET", ["cdn", "stickers", f]) => (200, "image/png", png(160, 160, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {
             let size = query(path, "size").unwrap_or(128).clamp(16, 256) as u32;
@@ -2101,6 +2194,9 @@ async fn http_conn(mut s: TcpStream, w: W) {
             Some((code, v)) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
             None => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
         };
+        if code >= 400 && path.starts_with("/cdn/") {
+            log(&w, json!({ "t": now_ms(), "cdn_refused": path, "code": code }));
+        }
         let reason = match code {
             200 => "OK",
             204 => "No Content",
@@ -2163,8 +2259,12 @@ async fn ws_conn(s: TcpStream, w: W) {
                     Some(4) => voice_state(&w, &v["d"]),
                     Some(op @ 18..=22) => stream_op(&w, op, &v["d"]),
                     Some(37) => {
-                        let mut out = vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())];
+                        let mut out: Vec<(String, Value)> = Vec::new();
+                        if v["d"]["subscriptions"].as_object().is_none_or(|o| o.is_empty()) {
+                            out.push(("GUILD_MEMBER_LIST_UPDATE".into(), member_list("1000")));
+                        }
                         for (g, s) in v["d"]["subscriptions"].as_object().into_iter().flatten() {
+                            out.push(("GUILD_MEMBER_LIST_UPDATE".into(), member_list(g)));
                             for t in s["thread_member_lists"].as_array().into_iter().flatten() {
                                 out.push(("THREAD_MEMBER_LIST_UPDATE".into(), thread_members(t.as_str().unwrap_or_default(), g)));
                             }
@@ -2184,7 +2284,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                             .filter_map(|id| id.as_str()?.parse::<u64>().ok())
                             .map(|id| { let mut m = member(id); m["user"] = user(id); m })
                             .collect();
-                        vec![("GUILD_MEMBERS_CHUNK".into(), json!({ "guild_id": "1000", "members": members, "chunk_index": 0, "chunk_count": 1 }))]
+                        vec![("GUILD_MEMBERS_CHUNK".into(), json!({ "guild_id": v["d"]["guild_id"].as_str().unwrap_or("1000"), "members": members, "chunk_index": 0, "chunk_count": 1 }))]
                     }
                     _ => vec![],
                 };

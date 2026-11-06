@@ -3,6 +3,8 @@
 //! images, 12 = localization, 13 = appearance, 14 = guild folders). Field numbers
 //! are from dolfies/discord-protos.
 
+pub mod frecency;
+
 use crate::cache::{Settings, Spoilers};
 use crate::state::{Folder, Id};
 use crate::theme::Theme;

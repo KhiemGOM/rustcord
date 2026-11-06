@@ -21,6 +21,7 @@ mod dmpick;
 mod discover;
 mod e2e;
 mod events;
+mod favs;
 mod folders;
 mod follow;
 mod forum;
@@ -108,6 +109,7 @@ pub struct App {
     rx: Receiver<Ev>,
     pub store: Tracked,
     pub ui: UiState,
+    favs: favs::Favs,
     pub token: Option<String>,
     // the other accounts signed in on this machine, for Switch Accounts
     pub accounts: Vec<cache::SavedAccount>,
@@ -397,6 +399,7 @@ impl App {
             rects: Map::default(),
             voice: Default::default(),
             e2e: e2e::Run::from_env(t0),
+            favs: Default::default(),
             win: None,
             settings: cache::settings(),
             settings_page: None,
@@ -788,9 +791,7 @@ impl App {
 
     /// An emoji went out, as a reaction or in a message: it moves up the picker's frequently used.
     pub fn used(&mut self, em: ReactEmoji) {
-        self.ui.frequent.retain(|q| *q != em);
-        self.ui.frequent.insert(0, em);
-        self.ui.frequent.truncate(27);
+        favs::used_emoji(self, &em);
     }
 
     pub fn rest(&self, method: &'static str, path: String, body: Option<serde_json::Value>, tag: Tag) {
@@ -1298,7 +1299,7 @@ impl App {
                     Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
-                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
+                    Tag::Feed | Tag::Favs | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -1473,6 +1474,7 @@ impl App {
                 }
             }
             Tag::Saved(k) => titlebar::saved(self, k, &v),
+            Tag::Favs => favs::loaded(self, &v),
             Tag::Note(u) => {
                 if let Some(n) = v["note"].as_str() {
                     self.notes.insert(u, n.to_string());
@@ -1621,6 +1623,12 @@ impl App {
                     self.store.apply(&t, &d);
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
                         self.sync_account(ctx);
+                    }
+                    if t == "READY" {
+                        favs::fetch(self);
+                    }
+                    if t == "USER_SETTINGS_PROTO_UPDATE" {
+                        favs::updated(self, &d);
                     }
                     if t == "READY"
                         && let Some(e) = &mut self.e2e
@@ -2095,6 +2103,7 @@ impl eframe::App for App {
             self.feed_at = Some(Instant::now() + Duration::from_secs(600));
             self.rest("GET", "/content-inventory/users/@me?for_game_profile=false&feature=inbox".into(), None, Tag::Feed);
         }
+        favs::tick(self, &ctx);
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
             self.save_at = None;
             let took = Instant::now();
