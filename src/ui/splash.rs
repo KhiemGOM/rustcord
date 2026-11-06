@@ -27,7 +27,7 @@ pub fn show(ui: &mut Ui) {
         icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(c - vec2(0.0, 60.0), vec2(96.0, 96.0)), Color32::WHITE.gamma_multiply(pulse));
         ui.painter().text(pos2(c.x, c.y + 20.0), Align2::CENTER_CENTER, "DID YOU KNOW", bold(12.0), GREEN);
         let tip = TIPS[std::process::id() as usize % TIPS.len()];
-        let g = ui.painter().layout(tip.into(), medium(16.0), pal().text_normal, 420.0.min(r.width() - 48.0));
+        let g = ui.painter().layout(tip.into(), medium(16.0), pal().text_normal, 420.0_f32.min(r.width() - 48.0));
         ui.painter().galley(pos2(c.x - g.size().x / 2.0, c.y + 40.0), g, pal().text_normal);
         let y = r.bottom() - 40.0;
         let hint = ui.painter().text(pos2(c.x - 90.0, y), Align2::CENTER_CENTER, "Connection problems? Let us know!", reg(14.0), pal().text_muted);
