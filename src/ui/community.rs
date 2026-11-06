@@ -41,6 +41,8 @@ pub struct Home {
 
 // .headerCell's padding-inline, and each cell's
 const CELL: f32 = 8.0;
+// a member row
+const ROW: f32 = 60.0;
 
 const SORTS: [(u8, &str); 4] = [(1, "Member Since (Newest first)"), (2, "Member Since (Oldest first)"), (3, "Joined Discord (Newest first)"), (4, "Joined Discord (Oldest first)")];
 
@@ -300,20 +302,21 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
     let inner = outer.width() - 2.0 - 2.0 * CELL;
     let code = list.iter().filter_map(|m| m["source_invite_code"].as_str()).max_by_key(|c| c.chars().count()).unwrap_or("");
     let flagged = list.iter().any(|m| flags(m) != (false, false));
+    let hw = |t: &str| word(t, bold(12.0));
     let mins = [
-        32.0 + 8.0 + 24.0 + 2.0 * CELL,
-        word("months", medium(14.0)) + 2.0 * CELL,
-        word("months", medium(14.0)) + 2.0 * CELL,
-        word(code, medium(14.0)) + 24.0 + 2.0 * CELL,
-        40.0 + 28.0 + 2.0 * CELL,
-        if flagged { word("Unusual DMs", medium(12.0)) + 16.0 + 2.0 * CELL } else { 2.0 * CELL },
+        (32.0f32 + 8.0 + 24.0).max(hw("NAME")) + 2.0 * CELL,
+        word("months", medium(14.0)).max(hw("MEMBER")) + 2.0 * CELL,
+        word("months", medium(14.0)).max(hw("DISCORD")) + 2.0 * CELL,
+        (word(code, medium(14.0)) + 24.0).max(hw("METHOD")) + 2.0 * CELL,
+        (40.0 + 28.0f32).max(hw("ROLES")) + 2.0 * CELL,
+        if flagged { word("Unusual DMs", medium(12.0)) + 16.0 } else { 0.0 }.max(hw("SIGNALS") + 24.0) + 2.0 * CELL,
     ];
     let share = [0.0, 0.11, 0.11, 0.11, 0.22, 0.11];
     let mut w: [f32; 6] = std::array::from_fn(|i| (share[i] * inner).max(mins[i]));
     let (check_w, act_w) = (20.0 + 2.0 * CELL, 28.0 * 2.0 + 8.0 + 2.0 * CELL);
     w[0] = (inner - check_w - act_w - w[1..].iter().sum::<f32>()).max(mins[0]);
     let want = (check_w + act_w + w.iter().sum::<f32>() + 2.0 + 2.0 * CELL).max(outer.width());
-    let rows_h = (outer.bottom() - head.bottom() - 57.0 - 64.0).max(60.0);
+    let rows_h = (outer.bottom() - head.bottom() - 57.0 - 64.0).max(3.0 * ROW);
     let mut picks: Vec<(Id, bool)> = Vec::new();
     egui::ScrollArea::horizontal().id_salt(("members_wide", gid)).auto_shrink([false, true]).show(&mut cu, |cu| {
         cu.set_min_width(want);
@@ -372,7 +375,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                     continue;
                 }
                 let uid = sid(&u["id"]);
-                let (r, resp) = ui.allocate_exact_size(vec2(want, 60.0), Sense::click());
+                let (r, resp) = ui.allocate_exact_size(vec2(want, ROW), Sense::click());
                 crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, faint(20), 0.05);
                 ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
                 let y = r.center().y;
@@ -403,7 +406,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 let name = mem["nick"].as_str().or(u["global_name"].as_str()).or(u["username"].as_str()).unwrap_or_default().to_string();
                 let text_w = (room(0) - 40.0).max(0.0);
                 let p = cell(0);
-                let n = super::text::paint_em(&p, pos2(av.right() + 8.0, y - 9.0), Align2::LEFT_CENTER, &name, medium(14.0), ink, (text_w - 62.0).max(text_w * 0.6), 1.0);
+                let chip = user.as_ref().and_then(|u| u.tag.as_ref()).map_or(0.0, |(t, _, _)| 4.0 + 8.0 + 16.0 + p.layout_no_wrap(t.clone(), semi(12.0), pal().text_normal).size().x);
+                let n = super::text::paint_em(&p, pos2(av.right() + 8.0, y - 9.0), Align2::LEFT_CENTER, &name, medium(14.0), ink, (text_w - chip).max(0.0), 1.0);
                 if let Some(user) = &user {
                     super::tag_chip(&p, user, pos2(n.right() + 4.0, y - 9.0), 1.0);
                 }
