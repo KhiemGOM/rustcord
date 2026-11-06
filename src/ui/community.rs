@@ -15,6 +15,7 @@ use crate::theme::*;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Members,
+    Guide,
     // Customize, then Browse Channels
     Channels(u8),
 }
@@ -161,6 +162,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(page) = app.home.as_ref().map(|h| h.page) else { return };
     let (icon, title) = match page {
         Page::Members => (Icon::People, "Members"),
+        Page::Guide => (Icon::ServerGuide, "Server Guide"),
         Page::Channels(_) => (Icon::ChannelsRoles, "Channels & Roles"),
     };
     egui::Panel::top("home_head")
@@ -176,6 +178,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
         });
     egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| match page {
         Page::Members => members(app, ui, gid),
+        Page::Guide => super::guide::show(app, ui, gid),
         Page::Channels(tab) => channels(app, ui, gid, tab),
     });
 }
@@ -465,7 +468,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                         }
                     }
                     None => {
-                        p.text(pos2(col(3), y), Align2::LEFT_CENTER, "Unknown", medium(14.0), pal().text_muted);
+                        let t = p.text(pos2(col(3), y), Align2::LEFT_CENTER, "Unknown", medium(14.0), pal().text_muted);
+                        ui.interact(t.expand(4.0), ui.id().with(("join_unknown", uid)), Sense::hover()).on_hover_text("Join method not available");
                     }
                 }
                 let p = cell(4);
@@ -512,6 +516,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                         ui.data_mut(|d| d.insert_temp(adding, true));
                     }
                     icons::draw(&p, Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
+                    let pr = pr.on_hover_text("Add Roles");
                     egui::Popup::menu(&pr).show(|ui| {
                         super::menu_body(ui, |ui| {
                             let mut left: Vec<&(Id, String, u32, i32)> = roles.iter().filter(|r| r.0 != gid && !mine.iter().any(|m| m.0 == r.0)).collect();

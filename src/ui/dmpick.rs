@@ -42,7 +42,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     people.retain(|u| ql.is_empty() || store.user(*u).is_some_and(|x| x.username.to_lowercase().contains(&ql) || store.name_in(0, *u).to_lowercase().contains(&ql)));
     people.truncate(60);
     let (mut go, mut close) = (false, false);
-    let title = if p.base.is_some() { "Add Friends to DM" } else { "New Message" };
+    let title = if adding { "Invite to Group DM" } else if p.base.is_some() { "Add Friends to DM" } else { "New Message" };
+    let mut link = false;
     let button_text = if adding { "Add" } else { "Create Message" };
     let modal = crate::ui::motion::Modal::new("group_pick".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
@@ -56,12 +57,23 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked());
                 });
                 ui.add_space(8.0);
-                ui.label(RichText::new(format!("Group DMs can have up to {LIMIT} members.")).font(reg(16.0)).color(pal().header_secondary));
+                let sub = if adding { format!("You can add {max} more {}.", if max == 1 { "person" } else { "people" }) } else { format!("Group DMs can have up to {LIMIT} members.") };
+                ui.label(RichText::new(sub).font(reg(16.0)).color(pal().header_secondary));
                 ui.add_space(16.0);
                 if p.q.is_empty() && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Backspace)) {
                     p.picked.pop();
                 }
-                let (field, _) = ui.allocate_exact_size(vec2(432.0, 40.0), Sense::hover());
+                let (row, _) = ui.allocate_exact_size(vec2(432.0, 40.0), Sense::hover());
+                let field = if adding { Rect::from_min_size(row.min, vec2(432.0 - 120.0, 40.0)) } else { row };
+                if adding {
+                    let at = Rect::from_min_size(pos2(row.right() - 112.0, row.top()), vec2(112.0, 40.0));
+                    let ready = !p.picked.is_empty();
+                    let resp = ui.interact(at, ui.id().with("pick_add"), if ready { Sense::click() } else { Sense::hover() });
+                    ui.painter().rect_filled(at, 8, BLURPLE.gamma_multiply(if ready { 1.0 } else { 0.5 }));
+                    ui.painter().text(at.center(), Align2::CENTER_CENTER, "Add", medium(16.0), egui::Color32::WHITE);
+                    super::settings::mark(ui, "pick:go", at);
+                    go |= resp.clicked();
+                }
                 ui.painter().rect_filled(field, 8, pal().input_bg);
                 let e = ui.put(
                     Rect::from_min_max(pos2(field.left() + 12.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0)),
@@ -110,6 +122,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let (sep, _) = ui.allocate_exact_size(vec2(480.0, 1.0), Sense::hover());
             ui.painter().hline(sep.x_range(), sep.center().y, Stroke::new(1.0, pal().border_subtle));
             Frame::new().inner_margin(Margin::same(24)).show(ui, |ui| {
+                if adding {
+                    ui.label(RichText::new("Or, send an invite link").font(medium(16.0)).color(pal().header_primary));
+                    ui.add_space(8.0);
+                    let (r, _) = ui.allocate_exact_size(vec2(432.0, 48.0), Sense::hover());
+                    ui.painter().rect(r, 8, pal().input_bg, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, "https://discord.gg/example", reg(16.0), pal().text_muted);
+                    let b = Rect::from_center_size(pos2(r.right() - 36.0, r.center().y), vec2(60.0, 32.0));
+                    let resp = ui.interact(b, ui.id().with("pick_link"), Sense::click());
+                    ui.painter().rect_filled(b, 4, BLURPLE);
+                    ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create", medium(14.0), egui::Color32::WHITE);
+                    super::settings::mark(ui, "pick:link", b);
+                    link = resp.clicked();
+                    return;
+                }
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     close |= super::grey_button(ui, "Cancel", 212.0).clicked();
@@ -130,6 +156,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             p.q.clear();
         }
+    }
+    if link && let Some(c) = app.group_pick.take().and_then(|p| p.base) {
+        app.invite_people(c);
+        return;
     }
     if go && let Some(p) = app.group_pick.take() {
         match p.base.and_then(|c| app.store.channels.get(&c).map(|c| (c.id, c.kind, c.recipients.clone()))) {

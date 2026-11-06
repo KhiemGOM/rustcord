@@ -46,6 +46,16 @@ impl App {
                     }
                 }
                 Some(("has", v)) if !v.is_empty() => params.push(format!("has={}", enc(v))),
+                Some(("pinned", v @ ("true" | "false"))) => params.push(format!("pinned={v}")),
+                Some(("author_type", v @ ("user" | "bot" | "webhook"))) => params.push(format!("author_type={v}")),
+                Some((k @ ("before" | "after" | "during"), v)) if let Ok(d) = chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d") => {
+                    let id = |d: chrono::NaiveDate| ((d.and_hms_opt(0, 0, 0).map_or(0, |t| t.and_utc().timestamp_millis()) - 1_420_070_400_000).max(0) as u64) << 22;
+                    match k {
+                        "before" => params.push(format!("max_id={}", id(d))),
+                        "after" => params.push(format!("min_id={}", id(d.succ_opt().unwrap_or(d)))),
+                        _ => params.push(format!("min_id={}&max_id={}", id(d), id(d.succ_opt().unwrap_or(d)))),
+                    }
+                }
                 _ => words.push(w),
             }
         }
@@ -430,6 +440,8 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     let card = &app.invite_card;
     let mut join = None;
     let mut close = false;
+    let mut discover = false;
+    let mut fill = None;
     let modal = crate::ui::motion::Modal::new("invite".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
         .show(ctx, |ui| {
@@ -441,7 +453,11 @@ fn invite(app: &mut App, ctx: &egui::Context) {
             });
             ui.add_space(16.0);
             card.draw(ui);
-            ui.label(RichText::new("Invite Link").font(medium(14.0)).color(pal().header_secondary));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new("Invite link").font(semi(14.0)).color(pal().header_secondary));
+                ui.label(RichText::new("*").font(semi(14.0)).color(pal().critical));
+            });
             ui.add_space(8.0);
             input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
                 let r = ui.add(
@@ -453,6 +469,36 @@ fn invite(app: &mut App, ctx: &egui::Context) {
                 r.request_focus();
             });
             ui.add_space(16.0);
+            ui.label(RichText::new("Invites should look like").font(reg(14.0)).color(pal().header_secondary));
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                for sample in ["hTKzmak", "https://discord.gg/hTKzmak", "https://discord.gg/wumpus-friends"] {
+                    let g = ui.painter().layout_no_wrap(sample.into(), reg(14.0), pal().header_primary);
+                    let (r, resp) = ui.allocate_exact_size(g.size() + vec2(16.0, 12.0), Sense::click());
+                    ui.painter().rect(r, 4, if resp.hovered() { pal().bg_mod_hover } else { pal().input_bg }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().galley(r.min + vec2(8.0, 6.0), g, pal().header_primary);
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        fill = Some(sample);
+                    }
+                }
+            });
+            ui.add_space(16.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 68.0), Sense::click());
+            super::settings::mark(ui, "invite:discover", r);
+            ui.painter().rect(r, 8, if resp.hovered() { pal().bg_mod_hover } else { pal().input_bg }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            let c = pos2(r.left() + 36.0, r.center().y);
+            ui.painter().circle_filled(c, 18.0, GREEN);
+            super::icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(c, vec2(20.0, 20.0)), egui::Color32::WHITE);
+            ui.painter().text(pos2(r.left() + 68.0, r.center().y - 11.0), Align2::LEFT_CENTER, "Don't have an invite?", semi(16.0), pal().header_primary);
+            let g = ui.painter().layout("Check out Discoverable communities in Server Discovery.".into(), reg(14.0), pal().text_normal, r.width() - 140.0);
+            ui.painter().galley(pos2(r.left() + 68.0, r.center().y - 2.0), g, pal().text_normal);
+            super::icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+            discover = resp.clicked();
+            ui.add_space(16.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if button(ui, "Join Server", BLURPLE, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                     join = Some(text.clone());
@@ -462,6 +508,14 @@ fn invite(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
+    if let Some(s) = fill {
+        *text = s.to_string();
+    }
+    if discover {
+        app.invite = None;
+        app.open_servers();
+        return;
+    }
     if let Some(t) = join {
         let code = super::invitecard::code_of(&t);
         if !code.is_empty() {
@@ -756,6 +810,16 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     // with nothing typed discord lists where you were and what's unread, each under a header
     let mut hits: Vec<Hit> = Vec::new();
     let mut heads: Vec<(usize, &str)> = Vec::new();
+    let mode = match ql.chars().next() {
+        Some('@') => Some("Searching All Users"),
+        Some('#') => Some("Searching Text Channels"),
+        Some('!') => Some("Searching Voice Channels"),
+        Some('*') => Some("Searching Servers"),
+        _ => None,
+    };
+    if let Some(m) = mode {
+        heads.push((0, m));
+    }
     if ql.is_empty() {
         let prev: Vec<Hit> = app.ui.recent.iter().filter(|c| Some(**c) != cur && store.channels.contains_key(c)).take(3).map(|c| Hit::Channel(*c)).collect();
         if !prev.is_empty() {
@@ -815,6 +879,8 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     let mut pick = ctx.input(|i| i.key_pressed(Key::Enter)).then_some(sel);
 
     // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule
+    let rows_h = (ctx.content_rect().height() - 2.0 * (super::titlebar::HEIGHT + 41.0 + 4.0) - 155.0).clamp(80.0, 236.0);
+    let typed = !q.is_empty();
     let modal = crate::ui::motion::Modal::new("switcher".into())
         .frame(
             Frame::new()
@@ -836,14 +902,18 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                 r.request_focus();
             });
             ui.add_space(16.0);
-            egui::ScrollArea::vertical().max_height(236.0).min_scrolled_height(236.0).auto_shrink([false, false]).show(ui, |ui| {
-                if hits.is_empty() && !q.is_empty() {
+            egui::ScrollArea::vertical().max_height(rows_h).min_scrolled_height(rows_h).auto_shrink([false, false]).show(ui, |ui| {
+                if hits.is_empty() && !q.is_empty() && mode.is_none() {
                     ui.add_space(90.0);
                     ui.vertical_centered(|ui| {
                         ui.label(RichText::new("Can't find what you're looking for?").font(medium(16.0)).color(pal().text_muted));
                     });
                 }
                 ui.spacing_mut().item_spacing.y = 0.0;
+                if hits.is_empty() && let Some(m) = mode {
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                    ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, m.to_uppercase(), semi(12.0), pal().header_secondary);
+                }
                 for (i, hit) in hits.iter().enumerate() {
                     if let Some((_, h)) = heads.iter().find(|(at, _)| *at == i) {
                         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
@@ -867,7 +937,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     // the title and arrows sit on the backdrop around the box
     let b = modal.response.rect;
     let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("switcher_deco")));
-    p.text(pos2(b.center().x, b.top() - 41.0 + 12.0), Align2::CENTER_CENTER, "Search for servers, channels or DMs", medium(18.0), egui::Color32::WHITE);
+    p.text(pos2(b.center().x, b.top() - 41.0 + 12.0), Align2::CENTER_CENTER, if typed { "Select a result and press ENTER to jump to it" } else { "Search for servers, channels or DMs" }, medium(18.0), egui::Color32::WHITE);
     let iy = b.top() + 12.0 + 35.0;
     super::icons::draw(&p, super::icons::Icon::ArrowRight, Rect::from_center_size(pos2(b.left() - 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
     super::icons::draw(&p, super::icons::Icon::ArrowLeft, Rect::from_center_size(pos2(b.right() + 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
@@ -1057,7 +1127,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         }
                         role_act = profile::roles_row(ui, store, gid, uid, &roles, 268.0, 2);
                     }
-                    if uid != me && note_open {
+                    if uid != me && note_open && !crate::theme::view().hide_personal {
                         ui.add_space(16.0);
                         ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
                         ui.add_space(4.0);
@@ -1268,10 +1338,12 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
             ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
-            ui.add_space(24.0);
-            ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
-            ui.add_space(4.0);
-            save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
+            if !crate::theme::view().hide_personal {
+                ui.add_space(24.0);
+                ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
+                ui.add_space(4.0);
+                save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
+            }
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
@@ -1384,7 +1456,14 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
         ui.add_space(3.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
-            let mut r = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::hover()).rect;
+            let copy = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::click());
+            if copy.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if copy.clicked() {
+                ui.ctx().copy_text(user.username.clone());
+            }
+            let mut r = copy.on_hover_text("Copy Username").rect;
             if let Some(pr) = pronouns {
                 ui.painter().circle_filled(pos2(r.right() + 9.0, r.center().y), 2.0, pal().header_primary);
                 ui.add_space(18.0);
@@ -1405,6 +1484,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
 
 enum AccountAct {
     Status(&'static str),
+    StatusFor(&'static str, Option<i64>),
     Edit,
     Custom,
     CopyId,
@@ -1490,11 +1570,22 @@ pub fn account(app: &mut App, ui: &mut Ui) {
                     ("dnd", "Do Not Disturb", Some("You will not receive desktop notifications"), Status::Dnd),
                     ("invisible", "Invisible", Some("You will appear offline"), Status::Offline),
                 ] {
-                    let (resp, lead) = super::menu_row_at(ui, true, label, sub, false, super::Trail::None);
+                    let timed = key != "online";
+                    let (resp, lead) = super::menu_row_at(ui, true, label, sub, false, if timed { super::Trail::Caret } else { super::Trail::None });
                     let c = lead.center();
                     super::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), st, pal().bg_floating);
-                    if resp.clicked() {
+                    if !timed && resp.clicked() {
                         act = Some(AccountAct::Status(key));
+                    }
+                    if timed {
+                        egui::containers::menu::SubMenu::new().show(ui, &resp, |ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            for (name, secs) in super::cstatus::STATUS_FOR {
+                                if super::menu_item(ui, None, name, false) {
+                                    act = Some(AccountAct::StatusFor(key, secs));
+                                }
+                            }
+                        });
                     }
                     if key == "online" {
                         super::menu_sep(ui);
@@ -1530,7 +1621,8 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     });
     theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
     match act {
-        Some(AccountAct::Status(s)) => app.set_status(s),
+        Some(AccountAct::Status(s)) => app.set_status_for(s, None),
+        Some(AccountAct::StatusFor(s, secs)) => app.set_status_for(s, secs),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
         Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(app.store.custom_status.as_ref())),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),
@@ -1752,7 +1844,10 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
     let id = egui::Id::new("search_options");
     let hovered = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     if !(field.has_focus() || hovered) {
-        ctx.data_mut(|d| d.insert_temp(id, false));
+        ctx.data_mut(|d| {
+            d.insert_temp(id, false);
+            d.insert_temp(id.with("more"), false);
+        });
         return None;
     }
     let typed = q.trim().to_string();
@@ -1817,7 +1912,41 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                     p.text(pos2(k.right() + 4.0, r.center().y + 9.0), Align2::LEFT_CENTER, hint, medium(14.0), pal().text_muted);
                     resp.clicked()
                 };
-                if typed.is_empty() {
+                let more_id = id.with("more");
+                let more = ui.ctx().data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
+                let has_word = word.strip_prefix("has:");
+                if let Some(have) = has_word {
+                    head(ui, "Message Contains");
+                    ui.add_space(4.0);
+                    for (icon, kind) in [(Icon::Image, "image"), (Icon::Video, "video"), (Icon::Link, "link"), (Icon::File, "file"), (Icon::Play, "embed"), (Icon::Soundboard, "sound"), (Icon::Poll, "poll"), (Icon::Sticker, "sticker"), (Icon::Forward, "forward")] {
+                        if !kind.starts_with(have) {
+                            continue;
+                        }
+                        let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                        let p = ui.painter();
+                        crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
+                        super::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(24.0, 24.0)), pal().header_secondary);
+                        p.text(pos2(r.left() + 52.0, r.center().y), Align2::LEFT_CENTER, kind, medium(16.0), pal().header_primary);
+                        if resp.clicked() {
+                            replace = Some(format!("has:{kind} "));
+                        }
+                    }
+                } else if more {
+                    head(ui, "More filters");
+                    ui.add_space(4.0);
+                    for (icon, title, key, hint) in [
+                        (Icon::Clock, "Before a date", "before:", "specific date"),
+                        (Icon::Clock, "After a date", "after:", "specific date"),
+                        (Icon::Clock, "Sent on a date", "during:", "specific date"),
+                        (Icon::Pin, "Pinned", "pinned:", "true or false"),
+                        (Icon::Person, "By author type", "author_type:", "user, bot or webhook"),
+                    ] {
+                        if row(ui, icon, None, title, key, hint) {
+                            add = Some(key.to_string());
+                            ui.ctx().data_mut(|d| d.insert_temp(more_id, false));
+                        }
+                    }
+                } else if typed.is_empty() {
                     head(ui, "Filters");
                     ui.add_space(4.0);
                     for (icon, title, key, hint) in [
@@ -1829,6 +1958,15 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                         if row(ui, icon, None, title, key, hint) {
                             add = Some(key.to_string());
                         }
+                    }
+                    let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                    crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
+                    super::icons::draw(ui.painter(), Icon::Filter, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                    ui.painter().text(pos2(r.left() + 45.0, r.center().y - 9.0), Align2::LEFT_CENTER, "More filters", medium(14.0), pal().header_primary);
+                    ui.painter().text(pos2(r.left() + 45.0, r.center().y + 9.0), Align2::LEFT_CENTER, "dates, author type, and more", medium(14.0), pal().text_muted);
+                    app.rects.insert("search_more".into(), r);
+                    if resp.clicked() {
+                        ui.ctx().data_mut(|d| d.insert_temp(more_id, true));
                     }
                     let history = &app.ui.searches;
                     if !history.is_empty() {
@@ -2406,6 +2544,7 @@ pub struct NewThread {
     name: String,
     first: String,
     hint: String,
+    private: bool,
 }
 
 impl NewThread {
@@ -2413,17 +2552,18 @@ impl NewThread {
         let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
         let words = app.store.find_msg(ch, msg).map(|m| crate::markdown::plain(&m.content, &app.store, guild)).unwrap_or_default();
         let hint: String = words.chars().take(40).collect();
-        NewThread { ch, msg: Some(msg), name: String::new(), first: String::new(), hint: if hint.trim().is_empty() { "New Thread".into() } else { hint } }
+        NewThread { ch, msg: Some(msg), name: String::new(), first: String::new(), hint: if hint.trim().is_empty() { "New Thread".into() } else { hint }, private: false }
     }
 
     pub fn blank(ch: Id) -> Self {
-        NewThread { ch, msg: None, name: String::new(), first: String::new(), hint: "New Thread".into() }
+        NewThread { ch, msg: None, name: String::new(), first: String::new(), hint: "New Thread".into(), private: false }
     }
 }
 
 fn new_thread(app: &mut App, ctx: &egui::Context) {
     let Some(t) = &mut app.new_thread else { return };
     let msg = t.msg.and_then(|m| app.store.find_msg(t.ch, m).cloned());
+    let can_private = t.msg.is_none() && app.store.channels.get(&t.ch).is_some_and(|c| c.kind == 0 && app.store.perms(c) & (1 << 36) != 0);
     let (mut make, mut close) = (false, false);
     let modal = crate::ui::motion::Modal::new("new_thread".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
@@ -2461,13 +2601,38 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
             };
             let first_frame = !ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("new_thread_seen")).unwrap_or(false));
             let n = field(ui, &mut t.name, &t.hint, first_frame);
-            ui.add_space(16.0);
+            if can_private {
+                ui.add_space(16.0);
+                ui.label(RichText::new("Private Thread").font(semi(12.0)).color(pal().header_secondary));
+                ui.add_space(8.0);
+                let (r, resp) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::click());
+                super::settings::mark(ui, "new_thread:private", r);
+                let b = Rect::from_min_size(r.min, vec2(24.0, 24.0));
+                if t.private {
+                    ui.painter().rect_filled(b, 6, BLURPLE);
+                    super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
+                } else {
+                    ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                }
+                ui.painter().text(pos2(b.right() + 12.0, r.center().y), Align2::LEFT_CENTER, "Only people you invite and moderators can see", reg(14.0), pal().text_normal);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    t.private = !t.private;
+                }
+                ui.add_space(16.0);
+            } else {
+                ui.add_space(16.0);
+            }
             let f = field(ui, &mut t.first, "Enter a message to start the conversation!", false);
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("new_thread_seen"), true));
             let enter = (n.lost_focus() || f.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                make = button(ui, "Create Thread", BLURPLE, 128.0).clicked() || enter;
+                let create = button(ui, "Create Thread", BLURPLE, 128.0);
+                super::settings::mark(ui, "new_thread:create", create.rect);
+                make = create.clicked() || enter;
                 ui.add_space(8.0);
                 close |= super::grey_button(ui, "Cancel", 92.0).clicked();
             });
@@ -2478,6 +2643,7 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
         let first = std::mem::take(&mut t.first);
         let (path, body) = match t.msg {
             Some(m) => (format!("/channels/{ch}/messages/{m}/threads"), json!({ "name": name, "auto_archive_duration": 4320 })),
+            None if t.private => (format!("/channels/{ch}/threads"), json!({ "name": name, "type": 12, "invitable": false, "auto_archive_duration": 4320 })),
             None => (format!("/channels/{ch}/threads"), json!({ "name": name, "type": 11, "auto_archive_duration": 4320 })),
         };
         app.rest("POST", path, Some(body), Tag::Thread(first));

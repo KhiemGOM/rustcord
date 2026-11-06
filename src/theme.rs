@@ -366,6 +366,7 @@ pub struct View {
     pub underline_links: bool,
     pub animate_emoji: bool,
     pub hide_invites: bool,
+    pub hide_personal: bool,
     pub name_styles: bool,
     pub own_profiles: bool,
     pub switch_icons: bool,
@@ -376,6 +377,7 @@ const VIEW_DEFAULT: View = View {
     underline_links: false,
     animate_emoji: true,
     hide_invites: false,
+    hide_personal: false,
     name_styles: true,
     own_profiles: false,
     switch_icons: false,
@@ -904,6 +906,7 @@ pub fn style(ctx: &egui::Context) {
     style.spacing.item_spacing = egui::vec2(8.0, 0.0);
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    style.spacing.default_area_size = egui::vec2(600.0, 4096.0);
     style.spacing.scroll = egui::style::ScrollStyle {
         bar_width: 4.0,
         bar_outer_margin: 2.0,

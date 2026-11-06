@@ -103,48 +103,52 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             icons::draw(ui.painter(), if d.servers { Icon::Discover } else { Icon::Apps }, ir, pal().header_primary);
             ui.add_space(20.0);
             let names: Vec<String> = std::iter::once(if d.servers { "Home" } else { "Featured" }.to_string()).chain(cats.iter().map(|c| c.1.clone())).collect();
-            for (i, n) in names.iter().enumerate() {
-                let g = ui.painter().layout_no_wrap(n.clone(), medium(16.0), Color32::WHITE);
-                let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
-                app.rects.insert(format!("discover:tab:{i}"), tr);
-                let on = d.tab == i && d.searched.is_empty();
-                let col = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
-                ui.painter().galley(pos2(tr.left(), tr.center().y - g.size().y / 2.0), g, col);
-                if on {
-                    ui.painter().rect_filled(Rect::from_min_max(pos2(tr.left(), tr.bottom() - 2.0), tr.max), CornerRadius::same(1), pal().header_primary);
-                }
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if resp.clicked() {
-                    d.tab = i;
-                    d.searched.clear();
-                    d.query.clear();
-                }
-                ui.add_space(28.0);
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let r = Frame::new()
-                    .fill(Color32::from_black_alpha(31))
-                    .stroke(Stroke::new(1.0, faint(51)))
-                    .corner_radius(8)
-                    .inner_margin(Margin::symmetric(12, 6))
-                    .show(ui, |ui| {
-                        ui.set_width(256.0);
-                        ui.horizontal(|ui| {
-                            let (sr, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                            icons::draw(ui.painter(), Icon::Search, sr, pal().header_secondary);
-                            ui.add_space(8.0);
-                            ui.add(egui::TextEdit::singleline(&mut d.query).frame(Frame::NONE).font(reg(16.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
-                        })
-                        .inner
-                    })
-                    .inner;
-                app.rects.insert("discover:search".into(), r.rect);
-                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    d.searched = d.query.trim().to_string();
+            let search = Rect::from_min_size(pos2(r.right() - 240.0, r.center().y - 16.0), vec2(240.0, 32.0));
+            let strip = Rect::from_min_max(pos2(ui.cursor().left(), r.top()), pos2(search.left() - 16.0, r.bottom()));
+            let mut tabs = ui.new_child(egui::UiBuilder::new().max_rect(strip).layout(egui::Layout::left_to_right(egui::Align::Center)));
+            egui::ScrollArea::horizontal().id_salt("discover_tabs_scroll").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(&mut tabs, |ui| {
+                for (i, n) in names.iter().enumerate() {
+                    let g = ui.painter().layout_no_wrap(n.clone(), medium(16.0), Color32::WHITE);
+                    let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
+                    app.rects.insert(format!("discover:tab:{i}"), tr);
+                    let on = d.tab == i && d.searched.is_empty();
+                    let col = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
+                    ui.painter().galley(pos2(tr.left(), tr.center().y - g.size().y / 2.0), g, col);
+                    if on {
+                        ui.painter().rect_filled(Rect::from_min_max(pos2(tr.left(), tr.bottom() - 2.0), tr.max), CornerRadius::same(1), pal().header_primary);
+                    }
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        d.tab = i;
+                        d.searched.clear();
+                        d.query.clear();
+                    }
+                    ui.add_space(28.0);
                 }
             });
+            let mut field = ui.new_child(egui::UiBuilder::new().max_rect(search));
+            let hit = Frame::new()
+                .fill(Color32::from_black_alpha(31))
+                .stroke(Stroke::new(1.0, faint(51)))
+                .corner_radius(8)
+                .inner_margin(Margin::symmetric(10, 4))
+                .show(&mut field, |ui| {
+                    ui.set_width(search.width() - 22.0);
+                    ui.horizontal(|ui| {
+                        let (sr, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                        icons::draw(ui.painter(), Icon::Search, sr, pal().header_secondary);
+                        ui.add_space(8.0);
+                        ui.add(egui::TextEdit::singleline(&mut d.query).frame(Frame::NONE).font(reg(16.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
+                    })
+                    .inner
+                })
+                .inner;
+            app.rects.insert("discover:search".into(), search);
+            if hit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                d.searched = d.query.trim().to_string();
+            }
         });
     });
     if d.servers {
@@ -226,6 +230,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(c) = card {
         let ctx = ui.ctx().clone();
         let mut close = false;
+        let mut add = false;
         let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
         let m = crate::ui::motion::Modal::new("app_card".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
             ui.set_width(560.0);
@@ -256,15 +261,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if super::settings::primary(ui, "Add App").clicked() {
-                        let url = match c["custom_install_url"].as_str() {
-                            Some(u) => u.to_string(),
-                            None => {
-                                let scopes = c["install_params"]["scopes"].as_array().map(|s| s.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("%20")).unwrap_or_else(|| "applications.commands".into());
-                                let perms = c["install_params"]["permissions"].as_str().unwrap_or("0");
-                                format!("https://discord.com/oauth2/authorize?client_id={id}&scope={scopes}&permissions={perms}")
-                            }
-                        };
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        match c["custom_install_url"].as_str() {
+                            Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+                            None => add = true,
+                        }
                     }
                     if super::settings::secondary(ui, "Close").clicked() {
                         close = true;
@@ -272,7 +272,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 });
             });
         });
-        if close || m.should_close() {
+        if add {
+            super::addapp::open(app, &c);
+        }
+        if close || add || m.should_close() {
             if let Some(d) = &mut app.directory {
                 d.card = None;
             }

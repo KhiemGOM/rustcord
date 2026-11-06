@@ -360,7 +360,7 @@ fn controls(app: &mut App, ui: &mut Ui, chan: &Channel, bar: Rect, mods: bool, m
     ui.painter().rect_filled(end, CornerRadius::same(25), if r.hovered() { DANGER.gamma_multiply(0.85) } else { DANGER });
     icons::draw(ui.painter(), Icon::HangUp, Rect::from_center_size(end.center(), vec2(20.0, 20.0)), Color32::WHITE);
     app.rects.insert("voice:leave_big".into(), end);
-    if r.on_hover_text("Leave the Stage").clicked() {
+    if r.on_hover_text(if audience { "Disconnect Quietly" } else { "Leave the Stage" }).clicked() {
         app.voice.leave(&app.net);
     }
 }

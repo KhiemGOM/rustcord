@@ -37,6 +37,8 @@ mod rules;
 mod members;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
+#[path = "mockcord/prefs.rs"]
+mod prefs;
 
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -867,7 +869,7 @@ fn ready(last_general: u64) -> Value {
     let mut roles = guilds[0]["roles"].as_array().cloned().unwrap_or_default();
     roles[0]["id"] = json!("1001");
     guilds[1]["roles"] = json!(roles);
-    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS"]);
+    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS", "GUILD_SERVER_GUIDE"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
     guilds[1]["threads"] = json!([thread_b()]);
     guilds[1]["guild_scheduled_events"] = json!(events_base("1001"));
@@ -1309,6 +1311,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         if let Some(refusal) = cdn_shape::check(path) {
             return refusal;
         }
+    }
+    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body).or_else(|| prefs::install(method, &parts, path, body)).or_else(|| prefs::guide(method, &parts)).or_else(|| prefs::discovery(method, &parts))) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {
@@ -1783,7 +1788,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["api", "v9", "application-directory-static", "categories"]) => ok(json!([{ "id": 6, "name": "Games" }, { "id": 9, "name": "Social" }])),
         ("GET", ["api", "v9", "application-directory-static", "collections"]) => {
             let app = |id: &str, name: &str| json!({ "application": { "id": id, "name": name, "icon": "icon".to_string() + id, "cover_image": "cover".to_string() + id,
-                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6] } });
+                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6],
+                                                     "install_params": if id == "9101" { json!({ "scopes": ["bot", "applications.commands"], "permissions": "68608" }) } else { json!({ "scopes": ["applications.commands"], "permissions": "0" }) } } });
             ok(json!([{ "id": "1", "title": "Promoted Games", "position": 1, "application_directory_collection_items": [app("9101", "Rusty Racers"), app("9102", "Crab Chess")] }]))
         }
         ("GET", ["api", "v9", "application-directory-static", "search"]) => ok(json!({ "results": [], "num_pages": 0, "result_count": 0 })),

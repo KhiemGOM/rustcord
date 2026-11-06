@@ -592,7 +592,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             body.add_space(24.0);
         }
-        if uid != me {
+        if uid != me && !crate::theme::view().hide_personal {
             body.label(RichText::new("Note (only visible to you)").font(medium(12.0)).color(pal().header_secondary));
             body.add_space(4.0);
             if let Some(n) = note_box(&mut body, notes, "full_note", uid, &saved, 336.0, 14.0, false) {
