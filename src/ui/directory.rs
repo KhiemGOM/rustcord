@@ -230,6 +230,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(c) = card {
         let ctx = ui.ctx().clone();
         let mut close = false;
+        let mut add = false;
         let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
         let m = crate::ui::motion::Modal::new("app_card".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
             ui.set_width(560.0);
@@ -260,15 +261,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if super::settings::primary(ui, "Add App").clicked() {
-                        let url = match c["custom_install_url"].as_str() {
-                            Some(u) => u.to_string(),
-                            None => {
-                                let scopes = c["install_params"]["scopes"].as_array().map(|s| s.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("%20")).unwrap_or_else(|| "applications.commands".into());
-                                let perms = c["install_params"]["permissions"].as_str().unwrap_or("0");
-                                format!("https://discord.com/oauth2/authorize?client_id={id}&scope={scopes}&permissions={perms}")
-                            }
-                        };
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        match c["custom_install_url"].as_str() {
+                            Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+                            None => add = true,
+                        }
                     }
                     if super::settings::secondary(ui, "Close").clicked() {
                         close = true;
@@ -276,7 +272,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 });
             });
         });
-        if close || m.should_close() {
+        if add {
+            super::addapp::open(app, &c);
+        }
+        if close || add || m.should_close() {
             if let Some(d) = &mut app.directory {
                 d.card = None;
             }

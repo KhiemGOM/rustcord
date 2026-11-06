@@ -344,7 +344,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Page::Bans => moderation::bans(app, ui, gid),
                 Page::Audit => moderation::audit(app, ui, gid),
                 Page::AutoMod => automod::page(app, ui, gid),
-                _ => elsewhere(ui, gid, page),
+                Page::Directory => {
+                    app.server = None;
+                    app.open_directory();
+                }
             });
         });
     });
@@ -410,12 +413,3 @@ fn search(ui: &mut Ui, app: &mut App, hint: &str) -> String {
     s.search.trim().to_lowercase()
 }
 
-fn elsewhere(ui: &mut Ui, gid: Id, page: Page) {
-    let name = SIDE.iter().flat_map(|(_, i)| i.iter()).find(|(p, _)| *p == page).map(|(_, n)| *n).unwrap_or("Enable Community");
-    title(ui, name, "");
-    ui.label(RichText::new("Rustcord doesn't have this page yet. Discord's own client can change it.").font(reg(16.0)).color(pal().text_normal));
-    ui.add_space(16.0);
-    if super::settings::secondary(ui, "Open in Discord").clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}")));
-    }
-}

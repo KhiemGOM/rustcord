@@ -113,6 +113,8 @@ pub enum Tag {
     Soundboard(Id),
     // the activity shelf, launching one and the oauth steps its page asks for, by step
     Activity(String),
+    // Add App's consent: true the install link's details, false the grant
+    AddApp(bool),
 }
 
 pub enum Cmd {

@@ -2,6 +2,7 @@ mod accounts;
 mod actions;
 mod attach;
 mod active;
+mod addapp;
 pub mod activity;
 mod autoscroll;
 mod boosts;
@@ -219,6 +220,7 @@ pub struct App {
     pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
     pub add_friend: String,
+    pub add_app: Option<addapp::AddApp>,
     pub add_friend_note: Option<(bool, String)>,
     pub post: Option<(String, String)>,
     pub scroll_to: Option<(Id, Id)>,
@@ -443,6 +445,7 @@ impl App {
             quests: None,
             friends_tab: 0,
             add_friend: String::new(),
+            add_app: None,
             add_friend_note: None,
             post: None,
             scroll_to: None,
@@ -1297,6 +1300,7 @@ impl App {
             Err(e) => {
                 match tag {
                     Tag::Activity(k) => return activity::failed(self, &k, e),
+                    Tag::AddApp(_) => return addapp::done(self, Err(e)),
                     Tag::InvitePreview(_) => return,
                     Tag::Pins(_) => self.pins = None,
                     Tag::Report(_) => return self.report_failed(e),
@@ -1503,6 +1507,8 @@ impl App {
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Activity(k) => activity::on_rest(self, &k, v),
+            Tag::AddApp(true) => addapp::info(self, &v),
+            Tag::AddApp(false) => addapp::done(self, Ok(())),
             Tag::Quiet => {}
         }
     }
@@ -1804,6 +1810,7 @@ impl App {
         self.confirm_modal(&ctx);
         settings::camera::frame(self, &ctx);
         notifs::show(self, &ctx);
+        addapp::show(self, &ctx);
         crop::show(self, &ctx);
         cstatus::show(self, &ctx);
         picker::show(self, &ctx);
