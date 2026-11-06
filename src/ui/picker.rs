@@ -2,8 +2,10 @@ use egui::{Align2, Color32, CornerRadius, Frame, Image, Pos2, Rect, RichText, Se
 
 use super::{App, Pick};
 use crate::markdown::twemoji;
+use crate::net::Tag;
 use crate::state::{Emoji, Id, ReactEmoji};
 use crate::theme::*;
+use std::time::{Duration, Instant};
 
 
 /// Every name that types an emoji, default skin tone only. Gemoji gives several per emoji
@@ -713,20 +715,64 @@ fn toggle_fav(app: &mut App, ctx: &egui::Context, em: ReactEmoji) {
     app.save_settings(ctx);
 }
 
+/// One of discord's own sticker packs, as `GET /sticker-packs` lists it.
+pub struct Pack {
+    pub name: String,
+    pub cover: Id,
+    pub stickers: Vec<(Id, String, u8)>,
+    pub tags: Vec<String>,
+}
+
+impl App {
+    pub fn load_packs(&mut self) {
+        if self.packs_at.is_some_and(|t| t.elapsed() < Duration::from_secs(3600)) {
+            return;
+        }
+        self.packs_at = Some(Instant::now());
+        self.rest("GET", "/sticker-packs?locale=en-US".into(), None, Tag::StickerPacks);
+    }
+
+    pub fn set_packs(&mut self, v: &serde_json::Value) {
+        self.packs = v["sticker_packs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| {
+                let list = p["stickers"].as_array().map(Vec::as_slice).unwrap_or_default();
+                Pack {
+                    name: p["name"].as_str().unwrap_or_default().to_string(),
+                    cover: crate::state::sid(&p["cover_sticker_id"]),
+                    stickers: list.iter().map(|s| (crate::state::sid(&s["id"]), s["name"].as_str().unwrap_or_default().to_string(), s["format_type"].as_u64().unwrap_or(1) as u8)).collect(),
+                    tags: list.iter().map(|s| s["tags"].as_str().unwrap_or_default().to_lowercase()).collect(),
+                }
+            })
+            .filter(|p| !p.stickers.is_empty())
+            .collect();
+    }
+}
+
 /// Discord's sticker picker: every server's stickers, the current one first; another
-/// server's need nitro.
+/// server's need nitro. Discord's own packs follow, every one of them sendable.
 pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let Some(at) = app.stickers else { return };
     let Some(ch) = app.cur() else { return };
+    app.load_packs();
     let here = app.store.channels.get(&ch).map_or(0, |c| c.guild);
     let nitro = app.store.nitro();
     let order = std::iter::once(here).chain(app.store.guild_order.iter().copied().filter(|g| *g != here));
     // (server, its icon, its stickers, whether we may send them here)
-    let groups: Vec<(String, Option<String>, Vec<(Id, String, u8)>, bool)> = order
+    let mut groups: Vec<(String, Option<String>, Vec<(Id, String, u8)>, bool)> = order
         .filter_map(|g| app.store.guilds.get(&g))
         .filter(|g| !g.stickers.is_empty())
         .map(|g| (g.name.clone(), g.icon_url(), g.stickers.clone(), nitro || g.id == here))
         .collect();
+    let url = |id: &Id, fmt: u8| format!("https://media.discordapp.net/stickers/{id}.{}?size=160", if fmt == 4 { "gif" } else { "png" });
+    let mut tags: std::collections::HashMap<Id, &str> = std::collections::HashMap::new();
+    for p in &app.packs {
+        let cover = p.stickers.iter().find(|s| s.0 == p.cover).or(p.stickers.first()).filter(|s| s.2 != 3).map(|s| url(&s.0, s.2));
+        groups.push((p.name.clone(), cover, p.stickers.clone(), true));
+        tags.extend(p.stickers.iter().zip(&p.tags).map(|(s, t)| (s.0, t.as_str())));
+    }
     let qid = egui::Id::new("sticker_q");
     let jump_id = egui::Id::new("sticker_jump");
     let tops_id = egui::Id::new("sticker_tops");
@@ -747,7 +793,6 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let mut chosen = None;
     let mut go = None;
     let mut hovered: Option<((Id, String, u8), String)> = None;
-    let url = |id: &Id, fmt: u8| format!("https://media.discordapp.net/stickers/{id}.{}?size=160", if fmt == 4 { "gif" } else { "png" });
     let (area, to) = shell(ctx, at, Align2::RIGHT_BOTTOM, Some(Tab::Stickers), |ui| {
         search_box(ui, &mut q, "Find the perfect sticker", None).request_focus();
         header_rule(ui);
@@ -809,7 +854,11 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                     sections.push(("Frequently Used", Lead::Icon(super::icons::Icon::Clock), recent.iter().map(|(s, g, _, ok)| (s.clone(), g.clone(), *ok)).collect()));
                 }
                 for (name, icon, l, ok) in &groups {
-                    let l = l.iter().filter(|(_, n, _)| ql.is_empty() || n.to_lowercase().contains(&ql)).map(|s| (s.clone(), name.clone(), *ok)).collect();
+                    let l = l
+                        .iter()
+                        .filter(|(id, n, _)| ql.is_empty() || n.to_lowercase().contains(&ql) || name.to_lowercase().contains(&ql) || tags.get(id).is_some_and(|t| t.contains(&ql)))
+                        .map(|s| (s.clone(), name.clone(), *ok))
+                        .collect();
                     sections.push((name, icon.as_deref().map_or(Lead::None, Lead::Image), l));
                 }
                 for (title, lead, l) in sections {
@@ -832,6 +881,8 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                                 if st.2 != 3 && ui.is_rect_visible(r) {
                                     let tint = if *ok { Color32::WHITE } else { Color32::from_white_alpha(90) };
                                     Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), true)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
+                                } else if st.2 == 3 {
+                                    super::text::paint(ui.painter(), r.center(), Align2::CENTER_CENTER, &st.1, medium(14.0), pal().text_muted, r.width() - 16.0);
                                 }
                                 let resp = resp.on_hover_text(if *ok { st.1.clone() } else { format!("{} needs Nitro here", st.1) });
                                 let fav = app.ui.fav_stickers.contains(&st.0);

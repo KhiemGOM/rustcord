@@ -1466,7 +1466,18 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         })),
         ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("PATCH", ["api", "v9", "users", "@me", "guilds", _, "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "guilds", _, "settings"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let bad_flags = b.get("flags").is_some_and(|f| !f.is_u64());
+            let bad_over = match b.get("channel_overrides") {
+                None => false,
+                Some(o) => o.as_object().is_none_or(|o| o.iter().any(|(k, v)| k.parse::<u64>().is_err() || !v.is_object() || v.get("flags").is_some_and(|f| !f.is_u64()))),
+            };
+            if !b.is_object() || bad_flags || bad_over {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body" }).to_string().into_bytes());
+            }
+            ok(b)
+        }
         ("PATCH", ["api", "v9", "users", "@me"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let mut u = user(ME);
