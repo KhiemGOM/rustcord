@@ -18,6 +18,7 @@ pub struct Frame {
     host: Option<Host>,
     win: HWND,
     main: HWND,
+    hushed: std::cell::Cell<bool>,
 }
 
 fn meet(a: [i32; 4], b: [i32; 4]) -> Option<[i32; 4]> {
@@ -40,7 +41,7 @@ impl Frame {
             CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 0, 0, main as HWND, std::ptr::null_mut(), inst, std::ptr::null())
         };
         let host = Host::open(ctx, win as isize, Cfg { src, hello: Value::Null, embed: true });
-        Frame { host: Some(host), win, main: main as HWND }
+        Frame { host: Some(host), win, main: main as HWND, hushed: Default::default() }
     }
 
     pub fn status(&self) -> Status {
@@ -59,6 +60,14 @@ impl Frame {
                 unsafe { ShowWindow(self.win, SW_HIDE) };
                 host.place(self.win as isize, [0, 0, full[2], full[3]], false);
             }
+        }
+    }
+
+    pub fn hush(&self, on: bool) {
+        if self.hushed.replace(on) != on
+            && let Some(host) = &self.host
+        {
+            host.hush(on);
         }
     }
 

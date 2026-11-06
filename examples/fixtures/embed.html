@@ -19,6 +19,9 @@ log('loaded', {
 if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia({ audio: true }).then(() => log('mic', 'granted'), e => log('mic', e.name));
 const v = document.getElementById('v');
 v.addEventListener('playing', () => log('playing', { muted: v.muted }), { once: true });
-let n = 0;
+v.addEventListener('pause', () => log('paused', v.currentTime));
+let n = 0, resumed = false;
+v.addEventListener('pause', () => { resumed = true; });
+v.addEventListener('play', () => { if (resumed) log('resumed', v.currentTime); });
 v.addEventListener('timeupdate', () => { if (v.currentTime > 0.4 && !n++) log('progress', v.currentTime); });
 </script>

@@ -19,7 +19,7 @@ use std::time::Duration;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler, FrameCreatedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler, WindowCloseRequestedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::{E_POINTER, HWND as Hwnd, RECT as WinRect};
