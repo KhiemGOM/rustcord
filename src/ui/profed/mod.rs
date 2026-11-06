@@ -521,7 +521,7 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
     let pad = PAD.min(region.width() * 0.08);
     let inner = region.shrink2(vec2(pad, pad));
     let card_w = CARD_W.min(inner.width());
-    let side_by_side = inner.width() >= CARD_W + 32.0 + 432.0;
+    let side_by_side = inner.width() >= CARD_W + 32.0 + 2.0 * 208.0 + 16.0;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(region.left(), region.top() + pad), pos2(region.right(), region.bottom() - 8.0))));
     egui::ScrollArea::vertical().id_salt("profed_region").auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
