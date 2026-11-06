@@ -733,7 +733,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
     }
     let xr = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(16.0, 16.0));
-    let resp = ui.interact(xr.expand(4.0), egui::Id::new(("slash_close", ch)), Sense::click());
+    let resp = ui.interact(xr.expand(4.0), egui::Id::new(("slash_close", ch)), Sense::CLICK);
     icons::draw(ui.painter(), Icon::Close, xr, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
     app.rects.insert("slash_close".into(), xr);
     if resp.on_hover_text("Close").clicked() {
@@ -809,7 +809,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
         let border = if err.is_some() { RED } else if is_active { Color32::from_rgb(0, 120, 212) } else { Color32::TRANSPARENT };
         clip.rect_stroke(pill, CornerRadius::same(4), Stroke::new(1.0, border), egui::StrokeKind::Inside);
         app.rects.insert(format!("slash_pill:{key}"), pill);
-        let resp = ui.interact(pill, egui::Id::new(("slash_pill", ch, *i)), Sense::click());
+        let resp = ui.interact(pill, egui::Id::new(("slash_pill", ch, *i)), Sense::CLICK);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
         }
@@ -850,7 +850,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
         let g = clip.layout_no_wrap(format!("+{hidden} optional"), reg(14.0), pal().header_secondary);
         let r = Rect::from_min_size(pos2(x + 4.0, top + 28.0 - g.size().y / 2.0), g.size());
         clip.galley(r.min, g, pal().header_secondary);
-        let resp = ui.interact(r.expand(4.0), egui::Id::new(("slash_optional", ch)), Sense::click());
+        let resp = ui.interact(r.expand(4.0), egui::Id::new(("slash_optional", ch)), Sense::CLICK);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
@@ -923,7 +923,7 @@ pub fn list(app: &mut App, ctx: &egui::Context, chan: &Channel, composer: Rect) 
             let list_h = h * items.len().min(8) as f32;
             egui::ScrollArea::vertical().min_scrolled_height(list_h).max_height(list_h).show(ui, |ui| {
                 for (n, it) in items.iter().enumerate() {
-                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::CLICK);
                     if n == sel {
                         ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
                     }
