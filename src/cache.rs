@@ -622,8 +622,18 @@ pub fn window() -> Option<[f32; 2]> {
     Some([it.next()?, it.next()?])
 }
 
-pub fn set_window(size: [f32; 2]) {
-    let _ = std::fs::write(dir().join("window"), format!("{} {}", size[0], size[1]));
+/// The theme's background as it last was, to open the window in before anything can be drawn.
+pub fn window_color() -> [u8; 3] {
+    let s = std::fs::read_to_string(dir().join("window")).unwrap_or_default();
+    let mut it = s.split_whitespace().skip(2).filter_map(|x| x.parse().ok());
+    match (it.next(), it.next(), it.next()) {
+        (Some(r), Some(g), Some(b)) => [r, g, b],
+        _ => [0x1a, 0x1a, 0x1e],
+    }
+}
+
+pub fn set_window(size: [f32; 2], color: [u8; 3]) {
+    let _ = std::fs::write(dir().join("window"), format!("{} {} {} {} {}", size[0], size[1], color[0], color[1], color[2]));
 }
 
 #[cfg(test)]

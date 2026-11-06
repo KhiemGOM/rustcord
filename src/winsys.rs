@@ -5,6 +5,57 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+// the hook below while it's watching, and what it's watching for: width in points, and colour
+static EARLY: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static EARLY_FOR: std::sync::Mutex<([f32; 2], [u8; 3])> = std::sync::Mutex::new(([0.0; 2], [0; 3]));
+
+/// The window exists within a few ms, but eframe keeps it hidden until the first frame, which the
+/// graphics driver holds up for 200 ms more. So it's shown as soon as it has its size, filled with
+/// the theme's background, and the first frame lands on that. Showing it takes the main thread,
+/// which only a hook on its messages can run on before the driver starts loading.
+pub fn show_early(size: [f32; 2], color: [u8; 3]) {
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowsHookExW, WH_CALLWNDPROCRET};
+    *EARLY_FOR.lock().unwrap() = (size, color);
+    let hook = unsafe { SetWindowsHookExW(WH_CALLWNDPROCRET, Some(early_hook), std::ptr::null_mut(), GetCurrentThreadId()) };
+    EARLY.store(hook as isize, Ordering::Relaxed);
+}
+
+/// Stops watching, for a window that never turned out the size it was expected to be.
+pub fn show_early_over() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx;
+    let hook = EARLY.swap(0, Ordering::Relaxed);
+    if hook != 0 {
+        unsafe { UnhookWindowsHookEx(hook as _) };
+    }
+}
+
+unsafe extern "system" fn early_hook(code: i32, wp: usize, lp: isize) -> isize {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect, GetDC, ReleaseDC};
+    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CWPRETSTRUCT, CallNextHookEx, GetClassNameW, SW_SHOW, ShowWindow, WM_SIZE};
+    unsafe {
+        let m = &*(lp as *const CWPRETSTRUCT);
+        if code >= 0 && m.message == WM_SIZE {
+            let mut class = [0u16; 32];
+            let n = GetClassNameW(m.hwnd, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
+            let (w, h) = ((m.lParam & 0xffff) as i32, (m.lParam >> 16 & 0xffff) as i32);
+            let ([points, _], [r, g, b]) = *EARLY_FOR.lock().unwrap();
+            if String::from_utf16_lossy(&class[..n]) == "Window Class" && (w - (points * GetDpiForWindow(m.hwnd) as f32 / 96.0).round() as i32).abs() <= 2 {
+                show_early_over();
+                ShowWindow(m.hwnd, SW_SHOW);
+                let dc = GetDC(m.hwnd);
+                let brush = CreateSolidBrush(r as u32 | (g as u32) << 8 | (b as u32) << 16);
+                FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, brush);
+                DeleteObject(brush);
+                ReleaseDC(m.hwnd, dc);
+            }
+        }
+        CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
+    }
+}
+
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }

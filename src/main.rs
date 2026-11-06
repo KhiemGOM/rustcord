@@ -45,8 +45,8 @@ fn main() -> eframe::Result {
     {
         let _ = std::fs::rename(local.join("Fastcord"), cache::dir());
     }
-    // parse the snapshot while the GL context spins up
-    let snap = std::thread::spawn(cache::load);
+    // parse the snapshot while the graphics card's driver loads
+    let snap = std::sync::Mutex::new(Some(std::thread::spawn(cache::load)));
     let size = cache::window().unwrap_or([1280.0, 800.0]);
     // discord's own logo on the window and taskbar, as on the exe
     let logo = image::load_from_memory(include_bytes!("../assets/discord.png")).map(|i| i.into_rgba8()).ok();
@@ -63,33 +63,44 @@ fn main() -> eframe::Result {
     // isn't interrupted; its input is injected anyway
     if std::env::var_os("RUSTCORD_E2E").is_some() || std::env::var_os("RUSTCORD_BENCH").is_some() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
+    } else if !std::env::args().any(|a| a == "--startup") {
+        winsys::show_early(size, cache::window_color());
     }
-    let opts = eframe::NativeOptions {
-        viewport,
-        centered: true,
-        wgpu_options: gpu(),
-        ..Default::default()
+    let run = |backends| {
+        let opts = eframe::NativeOptions {
+            viewport: viewport.clone(),
+            centered: true,
+            wgpu_options: gpu(backends),
+            ..Default::default()
+        };
+        eframe::run_native(
+            "Rustcord",
+            opts,
+            Box::new(|cc| {
+                let snap = snap.lock().unwrap().take().ok_or("started twice")?;
+                Ok(Box::new(ui::App::new(cc, t0, snap)))
+            }),
+        )
     };
-    eframe::run_native(
-        "Rustcord",
-        opts,
-        Box::new(move |cc| Ok(Box::new(ui::App::new(cc, t0, snap)))),
-    )
+    // only Vulkan is asked for, because also starting Direct3D 12 just to not pick it takes 45 ms
+    let forced = eframe::wgpu::Backends::from_env();
+    let done = run(forced.unwrap_or(eframe::wgpu::Backends::VULKAN));
+    let never_started = snap.lock().unwrap().is_some();
+    if done.is_err() && never_started && forced.is_none() {
+        return run(eframe::wgpu::Backends::DX12);
+    }
+    done
 }
 
 /// Vulkan where there is one, else Direct3D 12: Vulkan's driver keeps far less in the process.
-fn gpu() -> eframe::egui_wgpu::WgpuConfiguration {
+fn gpu(backends: eframe::wgpu::Backends) -> eframe::egui_wgpu::WgpuConfiguration {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
-    use eframe::wgpu::{Backend, Backends, DeviceType};
+    use eframe::wgpu::DeviceType;
     let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = Backends::from_env().unwrap_or(Backends::VULKAN | Backends::DX12);
+    setup.instance_descriptor.backends = backends;
     setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, surface| {
         let usable = |a: &&eframe::wgpu::Adapter| surface.is_none_or(|s| a.is_surface_supported(s));
-        let rank = |a: &eframe::wgpu::Adapter| {
-            let i = a.get_info();
-            (i.backend != Backend::Vulkan, i.device_type == DeviceType::Cpu)
-        };
-        adapters.iter().filter(usable).min_by_key(|a| rank(a)).cloned().ok_or_else(|| "no gpu adapter".into())
+        adapters.iter().filter(usable).min_by_key(|a| a.get_info().device_type == DeviceType::Cpu).cloned().ok_or_else(|| "no gpu adapter".into())
     }));
     eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: WgpuSetup::CreateNew(setup), ..Default::default() }
 }
