@@ -889,7 +889,7 @@ fn ready(last_general: u64) -> Value {
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
         "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0, "mfa_enabled": false, "phone": "+15555550100", "nsfw_allowed": true },
         "users": users,
-        "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
+        "relationships": [{ "id": "101", "type": 1, "since": "2025-03-14T10:00:00.000000+00:00" }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
         "guilds": guilds,
         "merged_members": merged,
         "private_channels": [
@@ -1447,6 +1447,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let id: u64 = id.parse().unwrap_or(0);
             let mut prof = json!({ "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" });
             if id == 101 {
+                prof["bio"] = json!("rustacean. writes too many side projects, reads every changelog twice, and has opinions about linkers that nobody asked for. also bakes bread on weekends and will tell you about it at length.");
                 prof["profile_effect"] = json!({ "id": "7003", "expires_at": null });
                 prof["profile_frame"] = json!({ "id": "7005" });
                 prof["theme_colors"] = json!([0x1b6b5a, 0x0b3a52]);

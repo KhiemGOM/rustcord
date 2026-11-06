@@ -78,7 +78,10 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect) -> f32 {
     match ed.tab {
         Tab::Board => board(app, ed, ui, body) + 48.0,
         Tab::Activity => activity(app, ui, body) + 48.0,
-        Tab::Wishlist => wishlist(app, ui, body, app.store.me) + 48.0,
+        Tab::Wishlist => {
+            let w = wish(app, app.store.me);
+            paint_wishlist(ui, body, &w, Color32::WHITE) + 48.0
+        }
     }
 }
 
@@ -100,44 +103,77 @@ fn activity(app: &mut App, ui: &mut Ui, r: Rect) -> f32 {
     y - r.top()
 }
 
-/// A wishlist: what someone's saved from the shop, or why there's nothing.
-pub fn wishlist(app: &mut App, ui: &mut Ui, r: Rect, uid: crate::state::Id) -> f32 {
+pub struct Wish {
+    pub loading: bool,
+    pub rows: Vec<(String, String)>,
+}
+
+/// What's on someone's wishlist, asking for it the first time and for each product's picture.
+pub fn wish(app: &mut App, uid: crate::state::Id) -> Wish {
     let key = format!("wishlist:{uid}");
-    let missing = !app.keyed.contains_key(&key);
-    if missing {
+    if !app.keyed.contains_key(&key) {
         app.keyed.insert(key.clone(), None);
         app.rest("GET", format!("/wishlists/{uid}"), None, crate::net::Tag::Keyed(key.clone()));
     }
     let list = app.keyed.get(&key).cloned().flatten();
-    let items: Vec<Value> = match &list {
-        Some(Ok(v)) => v["items"].as_array().or(v.as_array()).cloned().unwrap_or_default(),
+    let skus: Vec<String> = match &list {
+        Some(Ok(v)) => v["items"].as_array().or(v.as_array()).into_iter().flatten().filter_map(|i| i["sku_id"].as_str().map(str::to_string)).collect(),
         _ => Vec::new(),
     };
-    let mut y = r.top();
-    match list {
-        None => {
-            motion::spinner(&mut ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(r.center().x - 12.0, y + 24.0), vec2(24.0, 24.0)))), 24.0, Color32::WHITE);
-            return 80.0;
-        }
-        Some(_) if items.is_empty() => {
-            ui.painter().text(pos2(r.center().x, y + 60.0), Align2::CENTER_CENTER, "Nothing on the wishlist yet", semi(16.0), Color32::WHITE);
-            ui.painter().text(pos2(r.center().x, y + 86.0), Align2::CENTER_CENTER, "Items added from the Shop show up here.", reg(14.0), Color32::WHITE.gamma_multiply(0.76));
-            return 120.0;
-        }
-        _ => {}
+    let rows = skus.iter().filter_map(|s| app.product(s)).map(|p| (p.name.clone(), p.still())).collect();
+    Wish { loading: list.is_none(), rows }
+}
+
+/// A wishlist in `r` from its top, as tall as it comes out.
+pub fn paint_wishlist(ui: &mut Ui, r: Rect, w: &Wish, ink: Color32) -> f32 {
+    if w.loading {
+        motion::spinner(&mut ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(r.center().x - 12.0, r.top() + 24.0), vec2(24.0, 24.0)))), 24.0, ink);
+        return 80.0;
+    }
+    if w.rows.is_empty() {
+        ui.painter().text(pos2(r.center().x, r.top() + 60.0), Align2::CENTER_CENTER, "Nothing on the wishlist yet", semi(16.0), ink);
+        ui.painter().text(pos2(r.center().x, r.top() + 86.0), Align2::CENTER_CENTER, "Items added from the Shop show up here.", reg(14.0), ink.gamma_multiply(0.76));
+        return 120.0;
     }
     let cw = ((r.width() - 12.0) / 2.0).max(120.0);
-    for (i, it) in items.iter().enumerate() {
-        let c = Rect::from_min_size(pos2(r.left() + (i % 2) as f32 * (cw + 12.0), y + (i / 2) as f32 * 112.0), vec2(cw, 100.0));
+    for (i, (name, still)) in w.rows.iter().enumerate() {
+        let c = Rect::from_min_size(pos2(r.left() + (i % 2) as f32 * (cw + 12.0), r.top() + (i / 2) as f32 * 112.0), vec2(cw, 100.0));
         ui.painter().rect_filled(c, CornerRadius::same(8), faint(31));
-        let sku = it["sku_id"].as_str().unwrap_or("");
-        if let Some(p) = app.product(sku) {
-            text::image(&ui.painter().with_clip_rect(c), &p.still(), Rect::from_min_size(c.min + vec2(8.0, 8.0), vec2(84.0, 84.0)));
-            text::paint(ui.painter(), pos2(c.left() + 100.0, c.top() + 24.0), Align2::LEFT_CENTER, &p.name, medium(14.0), Color32::WHITE, cw - 108.0);
-        }
-        mark(ui, &format!("wish:{sku}"), c);
+        text::image(&ui.painter().with_clip_rect(c), still, Rect::from_min_size(c.min + vec2(8.0, 8.0), vec2(84.0, 84.0)));
+        text::paint(ui.painter(), pos2(c.left() + 100.0, c.top() + 24.0), Align2::LEFT_CENTER, name, medium(14.0), ink, cw - 108.0);
+        mark(ui, &format!("wish:{i}"), c);
     }
-    y += items.len().div_ceil(2) as f32 * 112.0;
+    w.rows.len().div_ceil(2) as f32 * 112.0
+}
+
+pub fn game_ids(ws: &[Widget]) -> Vec<String> {
+    ws.iter().flat_map(|w| w.games.iter().map(|g| g.id.clone())).collect()
+}
+
+pub fn want_game_icons(app: &mut App, ws: &[Widget]) {
+    want_icons(app, &game_ids(ws));
+}
+
+/// A profile's widgets as cards: each with its title and the games' covers and names.
+pub fn paint_widgets(ui: &mut Ui, store: &crate::state::Store, r: Rect, ws: &[Widget], ink: Color32) -> f32 {
+    let mut y = r.top();
+    for w in ws {
+        ui.painter().text(pos2(r.left(), y + 8.0), Align2::LEFT_CENTER, w.slot.title(), medium(12.0), ink.gamma_multiply(0.88));
+        y += 24.0;
+        let per = (((r.width() + 8.0) / 64.0) as usize).max(1);
+        for (i, g) in w.games.iter().enumerate() {
+            let cr = Rect::from_min_size(pos2(r.left() + (i % per) as f32 * 64.0, y + (i / per) as f32 * 110.0), vec2(56.0, 75.0));
+            ui.painter().rect_filled(cr, CornerRadius::same(8), faint(21));
+            let url = g.id.parse::<u64>().ok().and_then(|a| store.app_icons.get(&a).cloned().flatten().map(|h| format!("{}/app-icons/{a}/{h}.png?size=128", crate::api::cdn())));
+            if let Some(u) = url {
+                text::image(&ui.painter().with_clip_rect(cr), &u, cr);
+            }
+            ui.painter().rect_stroke(cr, CornerRadius::same(8), Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
+            text::paint(ui.painter(), pos2(cr.left(), cr.bottom() + 10.0), Align2::LEFT_CENTER, &g.name, reg(12.0), ink, 56.0);
+            mark(ui, &format!("profile_game:{}", g.id), cr);
+        }
+        y += w.games.len().div_ceil(per) as f32 * 110.0 + 12.0;
+    }
     y - r.top()
 }
 
@@ -155,6 +191,9 @@ fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
     want_icons(app, &ids);
     let order = [Some(Slot::Favorite), Some(Slot::Played), None, Some(Slot::Current), Some(Slot::Want), None];
     let apps: Vec<Value> = featured.as_array().cloned().unwrap_or_default();
+    let me = app.store.me;
+    let idents = remote(app, "idents", &format!("/users/{me}/application-identities?with_profiles=true")).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
+    let linked_ids: Vec<String> = idents.as_array().into_iter().flatten().filter_map(|i| i["application_id"].as_str().map(str::to_string)).collect();
     let mut linked = apps.iter();
     let cw = ((r.width() - 16.0) / 2.0).max(150.0);
     let cols = if r.width() >= 2.0 * 208.0 + 16.0 { 2 } else { 1 };
@@ -165,7 +204,7 @@ fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
         match s {
             Some(slot) => slot_tile(app, ed, ui, cell, *slot),
             None => match linked.next() {
-                Some(a) => app_tile(app, ui, cell, a),
+                Some(a) => app_tile(app, ui, cell, a, linked_ids.iter().any(|l| Some(l.as_str()) == a["application_id"].as_str())),
                 None => {}
             },
         }
@@ -238,7 +277,7 @@ fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot
     }
 }
 
-fn app_tile(app: &mut App, ui: &mut Ui, cell: Rect, a: &Value) {
+fn app_tile(app: &mut App, ui: &mut Ui, cell: Rect, a: &Value, linked: bool) {
     let name = a["name"].as_str().or(a["application"]["name"].as_str()).unwrap_or("Game");
     let id = a["application_id"].as_str().or(a["id"].as_str()).unwrap_or("");
     let resp = tile_frame(ui, cell, id);
@@ -254,7 +293,11 @@ fn app_tile(app: &mut App, ui: &mut Ui, cell: Rect, a: &Value) {
     icons::draw(ui.painter(), Icon::Link, Rect::from_center_size(pos2(cell.center().x, cell.top() + 34.0), vec2(24.0, 24.0)), Color32::WHITE);
     ui.painter().text(pos2(cell.center().x, cell.top() + 66.0), Align2::CENTER_CENTER, name, medium(16.0), Color32::WHITE);
     mark(ui, &format!("widget_app:{id}"), cell);
-    if resp.on_hover_text(format!("Link your {name} account to add widget")).clicked() {
+    if linked {
+        if resp.on_hover_text(format!("Add {name} Widget")).clicked() {
+            app.toast(format!("{name} is linked. Its widget shows up on your board once it has stats."));
+        }
+    } else if resp.on_hover_text(format!("Link your {name} account to add widget")).clicked() {
         app.settings_page = Some(crate::ui::settings::Page::Apps);
         app.profed = None;
     }

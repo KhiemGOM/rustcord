@@ -374,22 +374,55 @@ impl Run {
             3994 => {
                 app.profed = None;
                 app.settings_page = None;
-                app.open_full(101, 0, crate::ui::profile::Tab::Activity);
+                app.open_profile(101, 0, egui::pos2(300.0, 160.0));
                 self.next(1500);
             }
             3995 => {
-                if app.cosmo.items.contains_key("7003") && app.cosmo.items.contains_key("7005") {
-                    self.mark("profile_effect_resolved");
-                    self.next(500);
+                if app.profiles.get(&101).is_none_or(|p| p.is_null()) || !app.cosmo.items.contains_key("7003") {
+                    return;
                 }
+                self.mark("profile_effect_resolved");
+                self.shot(ctx, "profed_popout.png");
+                self.next(700);
             }
             3996 => {
-                self.shot(ctx, "profed_full_profile_effect.png");
-                self.next(0);
+                self.shot(ctx, "profed_popout_later.png");
+                if at("view_full_bio").is_some() && at("game_collection").is_some() {
+                    self.mark("profile_popout_extras");
+                }
+                if crate::gif::shown("effect_7003_b") >= 2 || crate::gif::shown("effect_7003_a") >= 2 {
+                    self.mark("profile_effect_plays_on_profile");
+                }
+                let Some(h) = app.rects.get("profile_head").copied() else { return };
+                self.click(h.left_top() + vec2(56.0, 101.0));
+                self.next(400);
             }
             3997 => {
-                app.full_profile = None;
-                self.step = 99;
+                if app.viewer.is_some() {
+                    self.mark("profile_view_picture");
+                    app.viewer = None;
+                }
+                click(self, "game_collection");
+            }
+            3998 => {
+                if app.full_profile.as_ref().is_some_and(|f| f.tab == crate::ui::profile::Tab::Board) {
+                    self.mark("profile_board_tab");
+                    if app.store.rel_since.contains_key(&101) {
+                        self.mark("profile_friends_since");
+                    }
+                    self.shot(ctx, "profed_full_board.png");
+                    let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "fp_tab", crate::ui::profile::Tab::Wishlist as u8)))) else { return };
+                    self.click(r.center());
+                    self.next(700);
+                }
+            }
+            3999 => {
+                if app.full_profile.as_ref().is_some_and(|f| f.tab == crate::ui::profile::Tab::Wishlist) {
+                    self.mark("profile_wishlist_tab");
+                    self.shot(ctx, "profed_full_wishlist.png");
+                    app.full_profile = None;
+                    self.step = 99;
+                }
             }
             _ => self.step = 99,
         }

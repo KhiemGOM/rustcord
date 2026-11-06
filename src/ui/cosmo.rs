@@ -218,7 +218,8 @@ pub fn paint_profile(app: &mut App, ui: &Ui, rect: Rect, effect: &str, frame: &s
 /// When a card's effect started playing: the first frame it was drawn, until `forget`.
 pub fn since(ctx: &egui::Context, key: impl std::hash::Hash + std::fmt::Debug) -> f64 {
     let id = egui::Id::new(("fx_since", key));
-    ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(id, || ctx.input(|i| i.time)))
+    let now = ctx.input(|i| i.time);
+    ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(id, || now))
 }
 
 pub fn forget(ctx: &egui::Context, key: impl std::hash::Hash + std::fmt::Debug) {

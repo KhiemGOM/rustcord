@@ -14,8 +14,52 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::settings::{mark, remote};
 use crate::ui::{App, Confirm, DANGER, avatar, motion, text};
 
+const EYEDROP: &str = "profed_eyedrop";
+
+/// "Pick a color from the page": the next screenshot is the page, and a click on it picks a pixel.
+fn eyedrop(ed: &mut Editor, ctx: &egui::Context) {
+    let shot = ctx.input(|i| {
+        i.raw.events.iter().find_map(|e| match e {
+            egui::Event::Screenshot { user_data, image, .. } if user_data.data.as_ref().and_then(|d| d.downcast_ref::<String>()).is_some_and(|n| n == EYEDROP) => Some(image.clone()),
+            _ => None,
+        })
+    });
+    if shot.is_some() {
+        ed.eyedrop = shot;
+    }
+    let Some(img) = ed.eyedrop.clone() else { return };
+    let ppp = ctx.pixels_per_point();
+    let at = |p: egui::Pos2| img.pixels.get((p.y * ppp) as usize * img.size[0] + (p.x * ppp) as usize).copied().unwrap_or_default();
+    let screen = ctx.content_rect();
+    let mut picked = None;
+    egui::Area::new("profed_eyedrop".into()).order(egui::Order::Tooltip).fixed_pos(screen.min).show(ctx, |ui| {
+        let (_, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        if let Some(p) = ctx.pointer_hover_pos() {
+            let c = at(p);
+            let r = Rect::from_center_size(p + vec2(28.0, -28.0), vec2(40.0, 40.0));
+            ui.painter().rect(r, CornerRadius::same(20), c, Stroke::new(3.0, Color32::WHITE), egui::StrokeKind::Outside);
+            ui.painter().text(r.center_bottom() + vec2(0.0, 14.0), Align2::CENTER_CENTER, hex(pack([c.r(), c.g(), c.b()])), medium(12.0), Color32::WHITE);
+        }
+        if resp.clicked()
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            picked = Some(at(p));
+        }
+    });
+    if let Some(c) = picked {
+        if let Dlg::Colour(_, rgb) = &mut ed.dlg {
+            *rgb = [c.r(), c.g(), c.b()];
+        }
+        ed.eyedrop = None;
+    } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ed.eyedrop = None;
+    }
+}
+
 pub fn dialogs(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User) {
     menus(app, ed, ctx);
+    eyedrop(ed, ctx);
     match &ed.dlg {
         Dlg::None => {}
         Dlg::Avatar => avatar_dialog(app, ed, ctx),
@@ -392,7 +436,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
             ui.painter().text(btn.center(), Align2::CENTER_CENTER, "Example Button", medium(14.0), Color32::WHITE);
             if let Some(it) = it {
                 let layers = app.product(&it.sku).map_or_else(|| it.layers.clone(), |p| p.layers);
-                let started = ui.ctx().data_mut(|d| *d.get_temp_mut_or_insert_with(egui::Id::new(("profed_prev", it.sku.clone())), || ui.ctx().input(|i| i.time)));
+                let started = cosmo::since(ui.ctx(), ("profed_prev", it.sku.clone()));
                 let _ = since;
                 cosmo::paint_layers(ui, card, &layers, started);
             }
@@ -403,7 +447,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
 fn colour(ed: &mut Editor, ctx: &egui::Context) {
     let Dlg::Colour(which, rgb) = &mut ed.dlg else { return };
     let which = *which;
-    let (mut ok, mut cancel) = (false, false);
+    let (mut ok, mut cancel, mut pipette) = (false, false, false);
     let mut c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
     let mut text_hex = hex(pack(*rgb));
     let m = motion::Modal::new("profed_colour".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame().inner_margin(24)).show(ctx, |ui| {
@@ -411,6 +455,13 @@ fn colour(ed: &mut Editor, ctx: &egui::Context) {
         ui.label(RichText::new(match which { Swatch::Primary => "Primary Color", Swatch::Accent => "Accent Color", Swatch::Name(_) => "Pick a Color" }).font(semi(20.0)).color(pal().header_primary));
         ui.add_space(12.0);
         egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::Opaque);
+        ui.add_space(8.0);
+        let eb = ui.add(egui::Label::new(RichText::new("Pick a color from the page").font(medium(14.0)).color(pal().link)).sense(Sense::click()));
+        mark(ui, "colour:eyedrop", eb.rect);
+        if eb.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        pipette |= eb.clicked();
         ui.add_space(8.0);
         let r = ui.add(egui::TextEdit::singleline(&mut text_hex).desired_width(100.0).font(reg(14.0)));
         mark(ui, "colour:hex", r.rect);
@@ -429,6 +480,9 @@ fn colour(ed: &mut Editor, ctx: &egui::Context) {
     });
     *rgb = [c.r(), c.g(), c.b()];
     let value = pack(*rgb);
+    if pipette {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(EYEDROP.to_string())));
+    }
     if ok {
         match which {
             Swatch::Primary => ed.draft.theme[0] = Some(value),
