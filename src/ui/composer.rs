@@ -1,3 +1,5 @@
+pub mod slash;
+
 use egui::text_selection::CCursorRange;
 use egui::text::CCursor;
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
@@ -55,7 +57,7 @@ enum Item {
     When(i64, char),
     Channel(Id, String),
     Emoji(Em),
-    Command(usize),
+    Command(usize, Vec<usize>),
     BuiltIn(usize),
     Sticker(Id, String, u8, String),
 }
@@ -231,8 +233,10 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     if c["type"].as_u64().unwrap_or(1) != 1 {
                         continue;
                     }
-                    if let Some(s) = score(c["name"].as_str().unwrap_or(""), &q) {
-                        out.push((s as u16, Item::Command(i)));
+                    for path in slash::forms(c) {
+                        if let Some(s) = score(&slash::form_name(c, &path), &q) {
+                            out.push((s as u16, Item::Command(i, path)));
+                        }
                     }
                 }
             }
@@ -305,6 +309,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             });
     }
 
+    let slashing = app.slash.contains_key(&ch);
+    if slashing {
+        slash::bar(app, ui, chan);
+    } else {
+        app.slash_from_draft(chan);
+    }
     let focused = ui.memory(|m| m.has_focus(tid));
     let nothing_focused = ui.memory(|m| m.focused().is_none());
     let typed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Paste(_))));
@@ -349,7 +359,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .and_then(|s| s.cursor.char_range())
         .map(|r| r.primary.index.0)
         .unwrap_or(draft_now.chars().count());
-    let tok = token(&draft_now, cursor).filter(|t| app.ac_dismissed.as_ref() != Some(&t.2) || t.1 == '/');
+    let tok = token(&draft_now, cursor).filter(|t| !slashing && (app.ac_dismissed.as_ref() != Some(&t.2) || t.1 == '/'));
     if let Some((_, '/', _)) = &tok {
         app.ensure_commands(chan);
     }
@@ -368,6 +378,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // inside a ``` block left open, Enter is a new line and Tab a tab
     let in_code = draft_now.chars().take(cursor).collect::<String>().matches("```").count() % 2 == 1;
     let limit = if app.store.nitro() { 4000 } else { 2000 };
+    if slashing && (focused || (nothing_focused && typed)) && !modal && !off {
+        app.slash_keys(ui, chan);
+    }
     if (focused || (nothing_focused && typed)) && !modal && !off {
         if open {
             // ctrl+n walks the list too; ctrl+p is pins, which never reaches it
@@ -436,7 +449,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         _ => format!("Message #{}", chan.name),
     };
     let hint = super::gate::placeholder(chan, &gate).map_or(hint, str::to_string);
-    let top_r = if reply.is_some() { 0 } else { 8 };
+    let top_r = if reply.is_some() || slashing { 0 } else { 8 };
     let mut attach = false;
     let mut tab = None;
     let mut apps_click = false;
@@ -489,61 +502,66 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.set_min_height(56.0);
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
-                    let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &presp));
-                    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), if off { col.gamma_multiply(0.4) } else { col });
-                    if presp.hovered() && !off {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                    }
-                    app.rects.insert("plus_button".into(), pr);
-                    if !off {
-                        plus = super::plus::menu(app, &presp, chan);
-                    }
-                    // discord's text starts 64 in: 16, the 24 button, then 24 more
-                    ui.add_space(23.0);
-                    let preview = app.settings.md_preview;
-                    let draft = app.drafts.entry(ch).or_default();
+                    let slashing = app.slash.contains_key(&ch);
                     // the text stops short of the buttons: five 40 wide, six with the send button
                     let buttons = if off { 0.0 } else if app.settings.send_button { 240.0 } else { 200.0 };
                     let w = (ui.available_width() - buttons - 8.0).max(60.0);
                     let mut text_pos = egui::Pos2::ZERO;
-                    egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt(("composer_scroll", side)).show(ui, |ui| {
-                        // the row is horizontal; padding above and below the text has to be vertical
-                        ui.vertical(|ui| {
-                            ui.add_space(17.0);
-                            let mut styled = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| super::mdpreview::layout(ui, text.as_str(), wrap);
-                            let mut edit = egui::TextEdit::multiline(draft);
-                            if preview {
-                                edit = edit.layouter(&mut styled);
-                            }
-                            let out = edit
-                                .id(tid)
-                                .frame(Frame::NONE)
-                                .desired_rows(1)
-                                .margin(Margin::ZERO)
-                                .font(reg(16.0))
-                                .interactive(!off)
-                                .text_color(pal().text_normal)
-                                .desired_width(w)
-                                .lock_focus(true)
-                                .show(ui);
-                            text_pos = out.galley_pos;
-                            spell_changed = super::spelling::composer(&mut app.spell, &mut app.settings, ui, &out, draft, tid);
-                            if let Some(r) = out.cursor_range.filter(|r| !r.is_empty() && out.response.has_focus()) {
-                                let [a, _] = r.sorted_cursors();
-                                sel_at = Some(out.galley_pos + out.galley.pos_from_cursor(a).left_top().to_vec2());
-                            }
-                            if draft.is_empty() {
-                                // painted here rather than as the hint so its emoji come from the system font, as discord's do
-                                let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().channel_default, w, 1.0);
-                                t.paint(ui.painter(), out.galley_pos);
-                            }
-                            if colon {
-                                colon_at = out.cursor_range.map(|r| r.primary.index.0);
-                            }
-                            ui.add_space(17.0);
+                    if slashing {
+                        slash::row(app, ui, chan, tid, w, off);
+                    } else {
+                        let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
+                        let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &presp));
+                        icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), if off { col.gamma_multiply(0.4) } else { col });
+                        if presp.hovered() && !off {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        app.rects.insert("plus_button".into(), pr);
+                        if !off {
+                            plus = super::plus::menu(app, &presp, chan);
+                        }
+                        // discord's text starts 64 in: 16, the 24 button, then 24 more
+                        ui.add_space(23.0);
+                        let preview = app.settings.md_preview;
+                        let draft = app.drafts.entry(ch).or_default();
+                        egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt(("composer_scroll", side)).show(ui, |ui| {
+                            // the row is horizontal; padding above and below the text has to be vertical
+                            ui.vertical(|ui| {
+                                ui.add_space(17.0);
+                                let mut styled = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| super::mdpreview::layout(ui, text.as_str(), wrap);
+                                let mut edit = egui::TextEdit::multiline(draft);
+                                if preview {
+                                    edit = edit.layouter(&mut styled);
+                                }
+                                let out = edit
+                                    .id(tid)
+                                    .frame(Frame::NONE)
+                                    .desired_rows(1)
+                                    .margin(Margin::ZERO)
+                                    .font(reg(16.0))
+                                    .interactive(!off)
+                                    .text_color(pal().text_normal)
+                                    .desired_width(w)
+                                    .lock_focus(true)
+                                    .show(ui);
+                                text_pos = out.galley_pos;
+                                spell_changed = super::spelling::composer(&mut app.spell, &mut app.settings, ui, &out, draft, tid);
+                                if let Some(r) = out.cursor_range.filter(|r| !r.is_empty() && out.response.has_focus()) {
+                                    let [a, _] = r.sorted_cursors();
+                                    sel_at = Some(out.galley_pos + out.galley.pos_from_cursor(a).left_top().to_vec2());
+                                }
+                                if draft.is_empty() {
+                                    // painted here rather than as the hint so its emoji come from the system font, as discord's do
+                                    let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().channel_default, w, 1.0);
+                                    t.paint(ui.painter(), out.galley_pos);
+                                }
+                                if colon {
+                                    colon_at = out.cursor_range.map(|r| r.primary.index.0);
+                                }
+                                ui.add_space(17.0);
+                            });
                         });
-                    });
+                    }
                     if spell_changed {
         app.save_settings(ui.ctx());
     }
@@ -625,6 +643,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         ui.interact(r, egui::Id::new(("char_count", side)), Sense::hover()).on_hover_text(tip);
     }
 
+    if app.slash.contains_key(&ch) {
+        slash::list(app, ui.ctx(), chan, crect);
+    }
     if open {
         let picked = popup(app, ui.ctx(), chan, &items, crect, tok.as_ref().map(|t| t.1).unwrap_or('@'));
         if picked.is_some() {
@@ -702,7 +723,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             })
             .blurple(),
         );
-    } else if (send || send_click) && !app.quick_react(chan) && !app.substitute(chan) && !app.try_command(chan) && !app.built_in(chan) {
+    } else if (send || send_click) && slashing {
+        app.slash_submit(chan);
+    } else if (send || send_click) && !app.quick_react(chan) && !app.substitute(chan) && !app.built_in(chan) {
         app.send_message(ch);
     }
     super::gate::cooldown(app, ui, chan, crect);
@@ -876,9 +899,15 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary);
             text::paint(p, pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, server, semi(12.0), pal().header_secondary, r.width() * 0.4);
         }
-        Item::Command(i) => {
+        Item::Command(i, path) => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
             let Some(c) = app.commands.get(&scope).and_then(|c| c.list.get(*i)) else { return };
+            let mut leaf = &c["options"];
+            let mut desc = c["description"].as_str().unwrap_or("");
+            for p in path {
+                desc = leaf[*p]["description"].as_str().unwrap_or(desc);
+                leaf = &leaf[*p]["options"];
+            }
             let app_id = sid(&c["application_id"]);
             let (app_name, icon) = app
                 .commands
@@ -893,16 +922,22 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
                     p.circle_filled(ir.center(), 16.0, BLURPLE);
                 }
             }
-            let name = c["name"].as_str().unwrap_or("");
+            let name = slash::form_name(c, path);
             let mut args = String::new();
-            for o in c["options"].as_array().into_iter().flatten() {
+            let mut optional = 0;
+            for o in leaf.as_array().into_iter().flatten() {
                 if o["required"].as_bool() == Some(true) {
                     args.push_str(&format!(" {}", o["name"].as_str().unwrap_or("")));
+                } else {
+                    optional += 1;
                 }
+            }
+            if optional > 0 {
+                args.push_str(&format!("  +{optional} optional"));
             }
             let nr = p.text(pos2(x + 44.0, y - 9.0), Align2::LEFT_CENTER, format!("/{name}"), semi(15.0), pal().header_primary);
             p.text(pos2(nr.right() + 6.0, y - 9.0), Align2::LEFT_CENTER, args, reg(14.0), pal().header_secondary);
-            text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, c["description"].as_str().unwrap_or(""), reg(13.0), pal().header_secondary, r.width() - 200.0);
+            text::paint(p, pos2(x + 44.0, y + 10.0), Align2::LEFT_CENTER, desc, reg(13.0), pal().header_secondary, r.width() - 200.0);
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, app_name, semi(13.0), pal().header_secondary);
         }
         Item::BuiltIn(i) => {
@@ -996,10 +1031,12 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         Item::Emoji(e) if e.locked => (format!(":{}:", e.name), String::new()),
         Item::Emoji(e) if e.url.is_some() => (format!(":{}:", e.name), e.raw.clone()),
         Item::Emoji(e) => (e.raw.clone(), e.raw.clone()),
-        Item::Command(i) => {
+        Item::Command(i, path) => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
-            let name = app.commands.get(&scope).and_then(|c| c.list.get(*i)).and_then(|c| c["name"].as_str()).unwrap_or("").to_string();
-            (format!("/{name}"), String::new())
+            if let Some(cmd) = app.commands.get(&scope).and_then(|c| c.list.get(*i)).cloned() {
+                app.start_slash(chan, &cmd, path, "");
+            }
+            return Some(0);
         }
         Item::BuiltIn(i) => (format!("/{}", BUILT_IN[*i].0), String::new()),
         Item::Sticker(id, ..) => {
@@ -1167,75 +1204,6 @@ impl App {
         self.commands.insert(scope, Commands { apps, list });
     }
 
-    /// Send "/name args" as an application command if it names one we know.
-    pub fn try_command(&mut self, chan: &Channel) -> bool {
-        let ch = chan.id;
-        let draft = self.drafts.get(&ch).cloned().unwrap_or_default();
-        let Some(rest) = draft.trim().strip_prefix('/') else { return false };
-        let scope = if chan.guild != 0 { chan.guild } else { chan.id };
-        let mut words = rest.splitn(2, char::is_whitespace);
-        let name = words.next().unwrap_or("");
-        let args = words.next().unwrap_or("").trim().to_string();
-        let Some(cmd) = self.commands.get(&scope).and_then(|c| c.list.iter().find(|c| c["name"] == name)).cloned() else {
-            return false;
-        };
-        let args = self.resolve_aliases(ch, &args);
-        let (options, err) = build_options(&cmd["options"], &args);
-        if let Some(e) = err {
-            self.toast(e);
-            return true;
-        }
-        let mut payload = json!({
-            "type": 2,
-            "application_id": cmd["application_id"],
-            "channel_id": ch.to_string(),
-            "session_id": self.store.session,
-            "nonce": make_nonce(),
-            "analytics_location": "slash_ui",
-            "data": {
-                "version": cmd["version"],
-                "id": cmd["id"],
-                "name": name,
-                "type": 1,
-                "options": options,
-                "application_command": cmd,
-                "attachments": [],
-            }
-        });
-        if chan.guild != 0 {
-            payload["guild_id"] = json!(chan.guild.to_string());
-        }
-        self.net.send(Cmd::Interact(payload));
-        self.drafts.remove(&ch);
-        self.aliases.remove(&ch);
-        self.jump_to_present(ch);
-        true
-    }
-
-    /// Click a button or pick a select option on a bot message.
-    pub fn press(&mut self, ch: Id, msg: Id, custom_id: &str, values: Option<Vec<String>>) {
-        let Some(m) = self.store.find_msg(ch, msg) else { return };
-        let guild = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
-        let data = match values {
-            Some(v) => json!({ "component_type": 3, "custom_id": custom_id, "type": 3, "values": v }),
-            None => json!({ "component_type": 2, "custom_id": custom_id }),
-        };
-        let mut payload = json!({
-            "type": 3,
-            "nonce": make_nonce(),
-            "channel_id": ch.to_string(),
-            "message_flags": m.flags,
-            "message_id": msg.to_string(),
-            "application_id": m.app_id.to_string(),
-            "session_id": self.store.session,
-            "data": data,
-        });
-        if guild != 0 {
-            payload["guild_id"] = json!(guild.to_string());
-        }
-        self.net.send(Cmd::Interact(payload));
-    }
-
     /// `+:fire:` then Enter: a reaction on the newest message rather than a message.
     pub fn quick_react(&mut self, chan: &Channel) -> bool {
         let ch = chan.id;
@@ -1391,28 +1359,7 @@ impl App {
 
     /// One of an app's message commands from a message's Apps submenu.
     pub fn message_command(&mut self, chan: &Channel, cmd: &Value, target: Id) {
-        let mut payload = json!({
-            "type": 2,
-            "application_id": cmd["application_id"],
-            "channel_id": chan.id.to_string(),
-            "session_id": self.store.session,
-            "nonce": make_nonce(),
-            "analytics_location": "message_context_menu",
-            "data": {
-                "version": cmd["version"],
-                "id": cmd["id"],
-                "name": cmd["name"],
-                "type": 3,
-                "target_id": target.to_string(),
-                "options": [],
-                "application_command": cmd,
-                "attachments": [],
-            }
-        });
-        if chan.guild != 0 {
-            payload["guild_id"] = json!(chan.guild.to_string());
-        }
-        self.net.send(Cmd::Interact(payload));
+        self.send_command(chan, cmd, 3, Vec::new(), Vec::new(), Some(target), "message_context_menu");
     }
 
     /// A member timed out until `secs` from now.
