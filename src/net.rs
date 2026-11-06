@@ -147,7 +147,7 @@ fn allowed(c: &Cmd) -> bool {
     match c {
         Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
-        Cmd::Rest { method, .. } => *method == "GET",
+        Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
         Cmd::Sticker { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),

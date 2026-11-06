@@ -186,8 +186,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     let private = d["visibility"].as_u64() == Some(1);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
+        let text_w = (ui.available_width() - PRIVATE_CARD - 48.0 - 2.0 * 24.0 - 4.0).max(0.0);
         ui.vertical(|ui| {
-            ui.set_width(200.0);
+            ui.set_width(text_w);
             ui.label(RichText::new("Private Profile").font(medium(16.0)).color(pal().header_primary));
             ui.add_space(4.0);
             ui.label(RichText::new("When enabled, only server members can view profile content. Non-members won't be able to see this content unless they have an invite.").font(reg(14.0)).color(pal().header_secondary));
@@ -236,8 +237,8 @@ fn paint_switch(ui: &Ui, r: Rect, on: bool) {
 
 fn private_card(ui: &mut Ui) {
     Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
-        ui.set_width(263.0);
-        let (top, _) = ui.allocate_exact_size(vec2(263.0, 80.0), Sense::hover());
+        ui.set_width(PRIVATE_CARD);
+        let (top, _) = ui.allocate_exact_size(vec2(PRIVATE_CARD, 80.0), Sense::hover());
         swatch(ui, top, [0x1c, 0x1c, 0x1f], [0x48, 0x48, 0x4c]);
         Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
             let ir = Rect::from_min_size(pos2(ui.max_rect().left(), top.bottom() - 32.0), vec2(64.0, 64.0));
@@ -344,6 +345,7 @@ fn detectable() -> Arc<Vec<(Snow, String, Option<String>)>> {
 
 const FORM_MAX: f32 = 560.0;
 const PREVIEW: f32 = 300.0;
+const PRIVATE_CARD: f32 = 263.0;
 const GAP: f32 = 40.0;
 // the preview column goes at this viewport width and below (@media (max-width: 1024px))
 const PREVIEW_HIDDEN: f32 = 1024.0;

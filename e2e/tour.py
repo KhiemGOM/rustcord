@@ -39,7 +39,7 @@ def sweep(art, spec):
     finally:
         mock.kill()
     sent = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()] if log.exists() else []
-    writes = [f'{r["method"]} {r["path"]}' for r in sent if r.get("method") not in (None, "GET")]
+    writes = [f'{r["method"]} {r["path"]}' for r in sent if r.get("method") not in (None, "GET") and not r["path"].endswith("/members-search")]
     shots = res.get("screenshots", [])
     skipped = res.get("rects", {}).get("sweep_skipped", [])
     checks = {

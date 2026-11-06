@@ -536,7 +536,8 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
     for (v, label, desc) in options {
         lead(ui);
         let on = *value == *v;
-        let h = if desc.is_empty() { 24.0 } else { 43.0 };
+        let text = (!desc.is_empty()).then(|| ui.painter().layout(desc.to_string(), reg(14.0), pal().header_secondary, (ui.available_width() - 32.0).max(0.0)));
+        let h = text.as_ref().map_or(24.0, |g| (25.0 + g.size().y).max(43.0));
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         mark(ui, &format!("radio:{label}"), r);
         let c = pos2(r.left() + 11.0, r.top() + 10.5);
@@ -551,8 +552,8 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
             ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary.gamma_multiply(1.0 - u)));
         }
         ui.painter().text(pos2(r.left() + 32.0, r.top()), Align2::LEFT_TOP, *label, reg(16.0), pal().text_normal);
-        if !desc.is_empty() {
-            ui.painter().text(pos2(r.left() + 32.0, r.top() + 25.0), Align2::LEFT_TOP, *desc, reg(14.0), pal().header_secondary);
+        if let Some(g) = text {
+            ui.painter().galley(pos2(r.left() + 32.0, r.top() + 25.0), g, pal().header_secondary);
         }
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
