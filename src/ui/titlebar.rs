@@ -269,6 +269,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         keys(app, &ctx);
     }
     let (mark, title) = place(app);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "title")), title.clone()));
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
     egui::Panel::top("titlebar")
         .exact_size(HEIGHT)

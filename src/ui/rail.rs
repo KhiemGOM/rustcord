@@ -581,6 +581,7 @@ fn beside(r: egui::Response, content: impl FnOnce(&mut Ui)) -> egui::Response {
         .show(content);
     if let Some(s) = shown {
         let b = s.response.rect;
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "rail_tip")), (r.rect, b)));
         let tip = pos2(b.left() - 6.0, b.center().y);
         let p = ctx.layer_painter(s.response.layer_id);
         let tri = [pos2(b.left() + 1.0, b.center().y - 6.0), tip, pos2(b.left() + 1.0, b.center().y + 6.0)];

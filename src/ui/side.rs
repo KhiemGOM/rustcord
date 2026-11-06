@@ -963,6 +963,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     let icon_hit = ui.interact(ir, ui.id().with(("kind", c.id)), Sense::hover());
     if icon_hit.hovered() {
         icon_hit.show_tooltip_text(kind_tip(store, c));
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "kind_tip")), kind_tip(store, c).to_string()));
     } else if hovered && voice_full(store, c) {
         resp.show_tooltip_text("This channel is full.");
     }
