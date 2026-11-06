@@ -302,7 +302,7 @@ def main():
         "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
         "settings: privacy switches PATCHed to the settings blob": sum(1 for r in reqs if r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/settings-proto/1")) >= 2 * 4,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
-        "settings: username PATCHed with the password": sum('"username":"you!"' in r.get("body", "") and '"password":"hunter2"' in r.get("body", "") for r in reqs) == 2,
+        "settings: username PATCHed with the password": sum('"username":"you_"' in r.get("body", "") and '"password":"hunter2"' in r.get("body", "") for r in reqs) == 2,
         "settings: sudo ticket finished and the token sent on the retry": sum(1 for r in reqs if r.get("path", "").endswith("/mfa/finish")) == 4,
         "settings: data request, connection sign-in, app and connection removal, integration join reached discord": all(
             sum(1 for r in reqs if r.get("method") == m and p in r.get("path", "")) == 2

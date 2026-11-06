@@ -14,7 +14,7 @@ def body(r):
 def checks(runs, reqs, data):
     both = lambda m: all(m in r.get("marks_ms", {}) for r in runs.values())
     sent = lambda method, part: [r for r in reqs if r.get("method") == method and part in r.get("path", "")]
-    settings = [body(r) for r in sent("PATCH", "/users/@me/guilds/1001/settings")]
+    settings = [body(r)["guilds"]["1001"] for r in sent("PATCH", "/users/@me/guilds/settings") if "1001" in body(r).get("guilds", {})]
     fresh = [
         b for b in settings
         if b.get("flags", 0) & (1 << 14) and len(b.get("channel_overrides", {})) >= 2 and "2101" not in b["channel_overrides"]

@@ -321,7 +321,7 @@ impl Api {
             if stopped() {
                 return Err("cancelled".into());
             }
-            let slot = slots.iter().find(|s| s["id"].as_u64().or_else(|| s["id"].as_str().and_then(|x| x.parse().ok())) == Some(i as u64)).ok_or("upload refused")?;
+            let slot = slots.iter().find(|s| slot_id(s) == Some(i as u64)).ok_or("upload refused")?;
             let url = slot["upload_url"].as_str().ok_or("upload refused")?;
             self.put_file(url, f, name, job.as_ref()).await?;
             atts[i]["uploaded_filename"] = slot["upload_filename"].clone();
@@ -397,7 +397,7 @@ impl Api {
             let slots = self.call(Method::POST, &format!("/channels/{ch}/attachments"), Some(json!({ "files": listing }))).await.map_err(fail)?;
             let mut staged = Vec::new();
             for (f, b) in files.iter().zip(bytes) {
-                let slot = slots["attachments"].as_array().and_then(|a| a.iter().find(|s| s["id"] == f["id"])).ok_or_else(|| fail("no upload slot".into()))?;
+                let slot = slots["attachments"].as_array().and_then(|a| a.iter().find(|s| slot_id(s).is_some() && slot_id(s) == slot_id(f))).ok_or_else(|| fail("no upload slot".into()))?;
                 let put = self.http.put(slot["upload_url"].as_str().unwrap_or_default()).body(b).send().await.map_err(|e| fail(e.to_string()))?;
                 if !put.status().is_success() {
                     return Err(fail("upload failed".into()));
@@ -466,6 +466,10 @@ impl Api {
     pub async fn remote_login(&self, ticket: &str) -> Result<Reply, String> {
         self.auth_post("/users/@me/remote-auth/login", json!({ "ticket": ticket }), None).await
     }
+}
+
+fn slot_id(v: &Value) -> Option<u64> {
+    v["id"].as_u64().or_else(|| v["id"].as_str()?.parse().ok())
 }
 
 fn first_error(v: &Value) -> Option<String> {

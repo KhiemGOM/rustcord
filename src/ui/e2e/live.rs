@@ -7,6 +7,7 @@ use crate::state::Status;
 #[derive(Default)]
 pub struct State {
     n: u64,
+    rows: usize,
     msg: Id,
     flag: u64,
     text: String,
@@ -141,6 +142,7 @@ impl Run {
                     return;
                 }
                 self.fx.n = n as u64;
+                self.fx.rows = n;
                 event(app, "GUILD_MEMBER_REMOVE", json!({ "guild_id": g.to_string(), "user": person(103) }));
                 self.next(0);
             }
@@ -158,7 +160,7 @@ impl Run {
             }
             3612 => {
                 let count = app.store.guilds.get(&g).map_or(0, |x| x.member_count);
-                let back = app.server.as_ref().and_then(|s| s.pages.members.list.as_ref()).is_some_and(|l| l.len() == 5);
+                let back = app.server.as_ref().and_then(|s| s.pages.members.list.as_ref()).is_some_and(|l| l.len() == self.fx.rows);
                 if count as u64 != self.fx.n + 1 || app.store.user(NEWCOMER).is_none() || !back {
                     return;
                 }
