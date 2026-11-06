@@ -955,6 +955,7 @@ impl App {
             underline_links: s.underline_links,
             animate_emoji: s.animate_emoji,
             hide_invites: s.streamer && s.hide_invites,
+            hide_personal: s.hiding_personal(),
             name_styles: s.name_styles,
             own_profiles: s.own_theme_on_profiles,
             switch_icons: s.switch_icons,
