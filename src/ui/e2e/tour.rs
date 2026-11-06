@@ -197,7 +197,12 @@ impl Run {
                     }
                     return false;
                 }
-                app.settings_page.map(crate::ui::settings::label) == Some(label)
+                let here = app.settings_page.map(crate::ui::settings::label) == Some(label);
+                if !here {
+                    self.sweep.ready = false;
+                    self.wait = Instant::now() + Duration::from_millis(500);
+                }
+                here
             }
             Target::Server(page, _) => {
                 if app.settings_page.is_some() {
