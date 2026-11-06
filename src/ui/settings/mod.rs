@@ -161,8 +161,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         app.settings_page = None;
     }
     if logout {
-        app.settings_page = None;
-        app.logout();
+        app.confirm = Some(crate::ui::Confirm::new("Log Out", "Are you sure you want to logout?", "Log Out", |app: &mut App| {
+            app.settings_page = None;
+            app.logout();
+        }));
     }
 }
 

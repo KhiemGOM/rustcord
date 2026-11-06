@@ -575,13 +575,14 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
     }
     let lit = c.lit;
     let screen = ctx.content_rect();
-    let area = Rect::from_min_max(pos2(screen.left() + 440.0, screen.top() + super::titlebar::HEIGHT + 56.0), pos2(screen.right() - 160.0, screen.bottom() - 90.0));
+    let width = (screen.width() * 0.8).clamp(800.0, 950.0).min(screen.width());
     let mut close = false;
     let modal = crate::ui::motion::Modal::new("combos".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)))
         .show(ctx, |ui| {
-            ui.set_width(area.width().clamp(560.0, 1100.0));
+            ui.set_width(width);
             ui.spacing_mut().item_spacing.y = 0.0;
+            let top = ui.cursor().top();
             Frame::new().inner_margin(Margin { left: 36, right: 36, top: 32, bottom: 24 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
@@ -608,7 +609,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                     });
                 });
             });
-            let max_h = (screen.height() - 240.0).max(200.0);
+            let max_h = (screen.height() * 0.8 - (ui.cursor().top() - top)).max(100.0);
             egui::ScrollArea::vertical().max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
                 Frame::new().inner_margin(Margin { left: 36, right: 36, top: 8, bottom: 32 }).show(ui, |ui| {
                     ui.set_width(ui.available_width());
