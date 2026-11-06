@@ -185,9 +185,11 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
 
     form::rule(ui);
     let private = !matches!(d["visibility"].as_u64(), Some(1 | 3));
+    let row = ui.available_width();
+    let beside = row - PRIVATE_CARD - 48.0 - 2.0 * 24.0 - 4.0 >= PRIVATE_CARD;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
-        let text_w = (ui.available_width() - PRIVATE_CARD - 48.0 - 2.0 * 24.0 - 4.0).max(0.0);
+        let text_w = row - 48.0 - 24.0 - if beside { PRIVATE_CARD + 28.0 } else { 0.0 };
         ui.vertical(|ui| {
             ui.set_width(text_w);
             ui.label(RichText::new("Private Profile").font(medium(16.0)).color(pal().header_primary));
@@ -203,9 +205,15 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         if resp.clicked() {
             d["visibility"] = json!(if !private { 2 } else if raw["visibility"].as_u64() == Some(3) { 3 } else { 1 });
         }
-        ui.add_space(4.0);
-        private_card(ui);
+        if beside {
+            ui.add_space(4.0);
+            private_card(ui);
+        }
     });
+    if !beside {
+        ui.add_space(16.0);
+        private_card(ui);
+    }
 
     preview(ui.ctx(), &g, &d, &raw);
     form::put(app, "profile", d);
@@ -238,8 +246,9 @@ fn paint_switch(ui: &Ui, r: Rect, on: bool) {
 
 fn private_card(ui: &mut Ui) {
     Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
-        ui.set_width(PRIVATE_CARD);
-        let (top, _) = ui.allocate_exact_size(vec2(PRIVATE_CARD, 80.0), Sense::hover());
+        let w = PRIVATE_CARD.min(ui.available_width());
+        ui.set_width(w);
+        let (top, _) = ui.allocate_exact_size(vec2(w, 80.0), Sense::hover());
         swatch(ui, top, [0x1c, 0x1c, 0x1f], [0x48, 0x48, 0x4c]);
         Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
             let ir = Rect::from_min_size(pos2(ui.max_rect().left(), top.bottom() - 32.0), vec2(64.0, 64.0));
