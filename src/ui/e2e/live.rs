@@ -61,7 +61,7 @@ impl Run {
                     return;
                 }
                 event(app, "GUILD_BAN_ADD", json!({ "guild_id": g.to_string(), "user": person(105) }));
-                self.next(0);
+                self.next(900);
             }
             3602 => {
                 if rows(app, "bans") != Some(vec![105, BANNED]) {
@@ -210,6 +210,7 @@ impl Run {
                 app.ui.guild = Some(g);
                 app.open(ch);
                 self.next(400);
+                self.step = 3620;
             }
             3620 => {
                 let Some(m) = app.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| !m.pending && !m.pinned)) else { return };
