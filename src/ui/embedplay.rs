@@ -2,8 +2,9 @@
 //! provider's page (YouTube, Twitch, ...) opens in one web view at a time, only for hosts
 //! Discord's own client frames, and is placed over the embed and clipped to the chat's viewport.
 
-use egui::{Context, Rect};
+use egui::{Color32, Context, CornerRadius, Rect, Sense, Ui, vec2};
 
+use super::icons::{self, Icon};
 use super::{App, activity::view};
 use crate::state::Id;
 use crate::webwin::frame::Frame;
@@ -27,6 +28,28 @@ pub type Key = (Id, usize);
 pub struct Play {
     pub key: Key,
     pub frame: Frame,
+    fresh: bool,
+}
+
+/// Discord's pill over a video poster: a play button and an open-link one, 24 icons on a
+/// black 60% pill. Says whether the link half was clicked.
+pub fn pill(ui: &mut Ui, poster: Rect, play: bool, link: bool) -> bool {
+    let both = play && link;
+    let pill = Rect::from_center_size(poster.center(), vec2(if both { 78.0 } else { 48.0 }, 48.0));
+    ui.painter().rect_filled(pill, CornerRadius::same(24), Color32::from_black_alpha(153));
+    let icon = |x: f32, i: Icon| icons::draw(ui.painter(), i, Rect::from_min_size(pill.min + vec2(x, 12.0), vec2(24.0, 24.0)), Color32::WHITE);
+    if play {
+        icon(if both { 13.0 } else { 12.0 }, Icon::Play);
+    }
+    if !link {
+        return false;
+    }
+    icon(if both { 38.0 } else { 12.0 }, Icon::LinkExternal);
+    let hit = ui.interact(Rect::from_min_max(egui::pos2(if both { pill.center().x } else { pill.left() }, pill.top()), pill.max), ui.id().with(("embed_link", poster.min.x as i32, poster.min.y as i32)), Sense::click());
+    if hit.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    hit.clicked()
 }
 
 fn query(u: &mut reqwest::Url, drop: &[&str], add: &[(&str, &str)]) {
@@ -62,7 +85,8 @@ pub fn start(app: &mut App, ctx: &Context, key: Key, url: &str) {
     crate::media::stop();
     crate::audioplay::stop();
     let main = crate::winsys::WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-    app.embed = Some(Play { key, frame: Frame::open(ctx, main, src) });
+    app.embed = Some(Play { key, frame: Frame::open(ctx, main, src), fresh: true });
+    ctx.request_repaint();
 }
 
 pub fn px(r: Rect, ppp: f32) -> [i32; 4] {
@@ -73,11 +97,15 @@ pub fn px(r: Rect, ppp: f32) -> [i32; 4] {
 /// draws it (another channel, scrolled well away, a different page).
 pub fn place(app: &mut App, ctx: &Context) {
     let at = app.embed_at.take();
-    let Some(p) = &app.embed else { return };
+    let Some(p) = &mut app.embed else { return };
     let Some((_, full, clip)) = at.filter(|(k, ..)| *k == p.key) else {
+        if std::mem::take(&mut p.fresh) {
+            return;
+        }
         app.embed = None;
         return;
     };
+    p.fresh = false;
     let covered = view::overlaid(app, ctx);
     let seen = full.intersect(clip);
     let pressed = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !seen.contains(p)));

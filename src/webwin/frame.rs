@@ -4,11 +4,12 @@
 
 use serde_json::Value;
 use windows_sys::Win32::Foundation::{HWND, RECT};
-use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
+use windows_sys::Win32::Graphics::Gdi::{BLACK_BRUSH, ClientToScreen, GetStockObject};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, GetWindowRect, IsWindowVisible, SW_HIDE, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowPos, ShowWindow,
-    WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowRect, IsWindowVisible, RegisterClassW, SW_HIDE, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SetWindowPos, ShowWindow, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
 };
 
 use super::child::{Cfg, Host, Status};
@@ -27,9 +28,16 @@ fn meet(a: [i32; 4], b: [i32; 4]) -> Option<[i32; 4]> {
 
 impl Frame {
     pub fn open(ctx: &egui::Context, main: isize, src: String) -> Frame {
-        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        let class: Vec<u16> = "RustcordEmbed\0".encode_utf16().collect();
         let win = unsafe {
-            CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 0, 0, main as HWND, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
+            let inst = GetModuleHandleW(std::ptr::null());
+            let mut wc: WNDCLASSW = std::mem::zeroed();
+            wc.lpfnWndProc = Some(DefWindowProcW);
+            wc.hInstance = inst;
+            wc.lpszClassName = class.as_ptr();
+            wc.hbrBackground = GetStockObject(BLACK_BRUSH) as _;
+            RegisterClassW(&wc);
+            CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 0, 0, main as HWND, std::ptr::null_mut(), inst, std::ptr::null())
         };
         let host = Host::open(ctx, win as isize, Cfg { src, hello: Value::Null, embed: true });
         Frame { host: Some(host), win, main: main as HWND }
@@ -41,7 +49,7 @@ impl Frame {
 
     pub fn place(&self, full: [i32; 4], clip: [i32; 4], show: bool) {
         let Some(host) = &self.host else { return };
-        let seen = meet(full, clip).filter(|_| show && matches!(host.status(), Status::Up));
+        let seen = meet(full, clip).filter(|_| show);
         match seen {
             Some(v) => {
                 unsafe { SetWindowPos(self.win, std::ptr::null_mut(), v[0], v[1], v[2], v[3], SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW) };

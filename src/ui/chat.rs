@@ -2238,12 +2238,14 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> Option<Rect>
                     d.rects.push(("embed_clip".into(), ui.clip_rect()));
                 } else {
                     let r = media(ui, d, &m.url, &m.url, w, h, None);
+                    let mut link = false;
                     if e.kind == "video" {
-                        ui.painter().circle_filled(r.rect.center(), 24.0, Color32::from_black_alpha(160));
-                        icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(r.rect.center() + vec2(2.0, 0.0), vec2(22.0, 22.0)), Color32::WHITE);
+                        link = super::embedplay::pill(ui, r.rect, framed.is_some(), e.url.is_some());
                         d.rects.push((format!("embed_poster:{msg}"), r.rect.intersect(ui.clip_rect())));
                     }
-                    if r.clicked() {
+                    if link {
+                        d.acts.extend(e.url.clone().map(Act::Url));
+                    } else if r.clicked() {
                         match (&e.url, framed, e.kind == "video") {
                             (_, Some(v), _) => d.acts.push(Act::Frame(key, v.url.clone())),
                             (Some(u), _, true) => d.acts.push(Act::Url(u.clone())),
