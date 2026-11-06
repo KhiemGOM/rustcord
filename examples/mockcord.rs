@@ -37,6 +37,8 @@ mod rules;
 mod members;
 #[path = "mockcord/bot.rs"]
 mod bot;
+#[path = "mockcord/shop.rs"]
+mod shop;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 #[path = "mockcord/prefs.rs"]
@@ -1377,6 +1379,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
+    if let Some((code, v)) = shop::route(method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -2355,11 +2360,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
-        ("GET", ["store" | "shop"]) => (
-            200,
-            "text/html",
-            br#"<title>Discord</title><script>fetch("/api/v9/mock/webwin",{method:"POST",body:JSON.stringify({page:location.pathname,token:localStorage.getItem("token")})})</script>"#.to_vec(),
-        ),
+        ("GET", ["billing", ..]) => shop::billing_page(&parts, path).unwrap_or((404, "text/plain", b"not found".to_vec())),
         ("GET", ["app"]) => (200, "text/html", br#"<link href="/assets/other.css" rel="stylesheet"><link href="/assets/fonts.css" rel="stylesheet">"#.to_vec()),
         ("GET", ["assets", "other.css"]) => (200, "text/css", b"body{margin:0}".to_vec()),
         ("GET", ["assets", "fonts.css"]) => {

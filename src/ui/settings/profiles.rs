@@ -361,7 +361,8 @@ fn picker(app: &mut App, ctx: &egui::Context, owned: Option<Result<Value, String
                 ui.add_space(8.0);
                 ui.label(RichText::new(format!("You don't own any {} yet.", title.to_lowercase())).font(reg(14.0)).color(pal().header_secondary));
                 if link(ui, "Browse the Shop").clicked() {
-                    super::open_web("/shop");
+                    app.settings_page = None;
+                    app.open_shop(crate::ui::shop::Page::Shop);
                 }
             }
         });

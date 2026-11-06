@@ -45,6 +45,7 @@ import players
 import voice_settings
 import rpc
 import qol
+import shop
 import web
 import sound
 import activity
@@ -557,6 +558,7 @@ def main():
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **fixes.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
+        **shop.checks({"cold": cold, "warm": warm}, reqs, data),
         **clips.checks({"cold": cold, "warm": warm}, reqs, data),
         **refusals.checks({"cold": cold, "warm": warm}, reqs, data),
         **live.checks({"cold": cold, "warm": warm}, reqs, data),

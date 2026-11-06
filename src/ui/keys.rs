@@ -26,6 +26,7 @@ impl App {
     /// A dialog over everything, whose Enter and Escape nothing underneath may take.
     pub fn modal_open(&self) -> bool {
         self.confirm.is_some()
+            || self.shop.as_ref().is_some_and(|s| s.product.is_some())
             || self.forward.is_some()
             || self.reactors.is_some()
             || self.report.is_some()
