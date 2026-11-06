@@ -908,7 +908,7 @@ pub fn list(app: &mut App, ctx: &egui::Context, chan: &Channel, composer: Rect) 
     let sel = s.sel.min(items.len().saturating_sub(1));
     let mut picked = None;
     let mut hover = None;
-    egui::Area::new(egui::Id::new("slash_list")).order(egui::Order::Foreground).pivot(Align2::LEFT_BOTTOM).fixed_pos(composer.left_top()).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("slash_list")).order(egui::Order::Foreground).pivot(Align2::LEFT_BOTTOM).fixed_pos(composer.left_top() - vec2(0.0, 37.0)).show(ctx, |ui| {
         Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(Margin::symmetric(8, 8)).show(ui, |ui| {
             ui.set_width(composer.width() - 16.0);
             ui.spacing_mut().item_spacing.y = 0.0;
