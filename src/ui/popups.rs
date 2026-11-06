@@ -439,6 +439,8 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     let card = &app.invite_card;
     let mut join = None;
     let mut close = false;
+    let mut discover = false;
+    let mut fill = None;
     let modal = crate::ui::motion::Modal::new("invite".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
         .show(ctx, |ui| {
@@ -450,7 +452,11 @@ fn invite(app: &mut App, ctx: &egui::Context) {
             });
             ui.add_space(16.0);
             card.draw(ui);
-            ui.label(RichText::new("Invite Link").font(medium(14.0)).color(pal().header_secondary));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new("Invite link").font(semi(14.0)).color(pal().header_secondary));
+                ui.label(RichText::new("*").font(semi(14.0)).color(pal().critical));
+            });
             ui.add_space(8.0);
             input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
                 let r = ui.add(
@@ -462,6 +468,36 @@ fn invite(app: &mut App, ctx: &egui::Context) {
                 r.request_focus();
             });
             ui.add_space(16.0);
+            ui.label(RichText::new("Invites should look like").font(reg(14.0)).color(pal().header_secondary));
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                for sample in ["hTKzmak", "https://discord.gg/hTKzmak", "https://discord.gg/wumpus-friends"] {
+                    let g = ui.painter().layout_no_wrap(sample.into(), reg(14.0), pal().header_primary);
+                    let (r, resp) = ui.allocate_exact_size(g.size() + vec2(16.0, 12.0), Sense::click());
+                    ui.painter().rect(r, 4, if resp.hovered() { pal().bg_mod_hover } else { pal().input_bg }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().galley(r.min + vec2(8.0, 6.0), g, pal().header_primary);
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        fill = Some(sample);
+                    }
+                }
+            });
+            ui.add_space(16.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 68.0), Sense::click());
+            super::settings::mark(ui, "invite:discover", r);
+            ui.painter().rect(r, 8, if resp.hovered() { pal().bg_mod_hover } else { pal().input_bg }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            let c = pos2(r.left() + 36.0, r.center().y);
+            ui.painter().circle_filled(c, 18.0, GREEN);
+            super::icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(c, vec2(20.0, 20.0)), egui::Color32::WHITE);
+            ui.painter().text(pos2(r.left() + 68.0, r.center().y - 11.0), Align2::LEFT_CENTER, "Don't have an invite?", semi(16.0), pal().header_primary);
+            let g = ui.painter().layout("Check out Discoverable communities in Server Discovery.".into(), reg(14.0), pal().text_normal, r.width() - 140.0);
+            ui.painter().galley(pos2(r.left() + 68.0, r.center().y - 2.0), g, pal().text_normal);
+            super::icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+            discover = resp.clicked();
+            ui.add_space(16.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if button(ui, "Join Server", BLURPLE, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                     join = Some(text.clone());
@@ -471,6 +507,14 @@ fn invite(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
+    if let Some(s) = fill {
+        *text = s.to_string();
+    }
+    if discover {
+        app.invite = None;
+        app.open_servers();
+        return;
+    }
     if let Some(t) = join {
         let code = super::invitecard::code_of(&t);
         if !code.is_empty() {

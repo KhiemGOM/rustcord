@@ -70,6 +70,7 @@ mod tagpop;
 mod textfile;
 mod thread;
 mod spelling;
+mod splash;
 mod when;
 pub mod text;
 mod titlebar;
@@ -1994,6 +1995,9 @@ impl eframe::App for App {
             login::show(self, ui);
         } else {
             self.streamer_banner(ui);
+            if splash::waiting(self) {
+                return splash::show(ui);
+            }
             // a modal over the app; shown first so it takes ESC before the chat does
             let settings_open = self.settings_page.is_some();
             if settings_open {
