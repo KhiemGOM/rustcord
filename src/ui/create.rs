@@ -134,6 +134,7 @@ pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, 
         let room = ctx.content_rect().height() - 80.0 - 48.0 - if title.is_some() { 48.0 } else { 0.0 };
         egui::ScrollArea::vertical().max_height(room.max(100.0)).auto_shrink([false, true]).show(ui, |ui| add(ui));
     });
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("modal:{id}"))), r.response.rect));
     close || r.should_close()
 }
 
