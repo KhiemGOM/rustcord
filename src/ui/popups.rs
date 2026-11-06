@@ -2493,6 +2493,7 @@ pub struct NewThread {
     name: String,
     first: String,
     hint: String,
+    private: bool,
 }
 
 impl NewThread {
@@ -2500,17 +2501,18 @@ impl NewThread {
         let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
         let words = app.store.find_msg(ch, msg).map(|m| crate::markdown::plain(&m.content, &app.store, guild)).unwrap_or_default();
         let hint: String = words.chars().take(40).collect();
-        NewThread { ch, msg: Some(msg), name: String::new(), first: String::new(), hint: if hint.trim().is_empty() { "New Thread".into() } else { hint } }
+        NewThread { ch, msg: Some(msg), name: String::new(), first: String::new(), hint: if hint.trim().is_empty() { "New Thread".into() } else { hint }, private: false }
     }
 
     pub fn blank(ch: Id) -> Self {
-        NewThread { ch, msg: None, name: String::new(), first: String::new(), hint: "New Thread".into() }
+        NewThread { ch, msg: None, name: String::new(), first: String::new(), hint: "New Thread".into(), private: false }
     }
 }
 
 fn new_thread(app: &mut App, ctx: &egui::Context) {
     let Some(t) = &mut app.new_thread else { return };
     let msg = t.msg.and_then(|m| app.store.find_msg(t.ch, m).cloned());
+    let can_private = t.msg.is_none() && app.store.channels.get(&t.ch).is_some_and(|c| c.kind == 0 && app.store.perms(c) & (1 << 36) != 0);
     let (mut make, mut close) = (false, false);
     let modal = crate::ui::motion::Modal::new("new_thread".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
@@ -2548,7 +2550,30 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
             };
             let first_frame = !ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("new_thread_seen")).unwrap_or(false));
             let n = field(ui, &mut t.name, &t.hint, first_frame);
-            ui.add_space(16.0);
+            if can_private {
+                ui.add_space(16.0);
+                ui.label(RichText::new("Private Thread").font(semi(12.0)).color(pal().header_secondary));
+                ui.add_space(8.0);
+                let (r, resp) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::click());
+                super::settings::mark(ui, "new_thread:private", r);
+                let b = Rect::from_min_size(r.min, vec2(24.0, 24.0));
+                if t.private {
+                    ui.painter().rect_filled(b, 6, BLURPLE);
+                    super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
+                } else {
+                    ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                }
+                ui.painter().text(pos2(b.right() + 12.0, r.center().y), Align2::LEFT_CENTER, "Only people you invite and moderators can see", reg(14.0), pal().text_normal);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    t.private = !t.private;
+                }
+                ui.add_space(16.0);
+            } else {
+                ui.add_space(16.0);
+            }
             let f = field(ui, &mut t.first, "Enter a message to start the conversation!", false);
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("new_thread_seen"), true));
             let enter = (n.lost_focus() || f.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
@@ -2565,6 +2590,7 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
         let first = std::mem::take(&mut t.first);
         let (path, body) = match t.msg {
             Some(m) => (format!("/channels/{ch}/messages/{m}/threads"), json!({ "name": name, "auto_archive_duration": 4320 })),
+            None if t.private => (format!("/channels/{ch}/threads"), json!({ "name": name, "type": 12, "invitable": false, "auto_archive_duration": 4320 })),
             None => (format!("/channels/{ch}/threads"), json!({ "name": name, "type": 11, "auto_archive_duration": 4320 })),
         };
         app.rest("POST", path, Some(body), Tag::Thread(first));
