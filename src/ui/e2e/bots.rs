@@ -448,6 +448,7 @@ impl Run {
             }
             3553 => when!(bot_msg(app, general, |m| m.content.starts_with("pick_color:")).is_some(), {
                 self.mark("bot_select_multi");
+                self.key(Key::Escape);
                 self.next(300);
             }),
             3554 => {

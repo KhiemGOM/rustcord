@@ -264,6 +264,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(mut m) = app.interactions.modal.take() else { return };
     let guild = app.store.channels.get(&m.channel).map_or(0, |c| c.guild);
     let errors = m.errors();
+    let dropped = (0..m.fields.len()).any(|i| ctx.data(|d| d.get_temp::<bool>(egui::Id::new(("bot_modal_select", i)).with("open")).unwrap_or(false)));
     let (mut close, mut submit) = (false, false);
     let shown = super::motion::Modal::new("bot_modal".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
@@ -299,7 +300,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 close |= grey_button(ui, "Cancel", 92.0).clicked();
             });
         });
-    if close || shown.should_close() {
+    if close || (shown.should_close() && !dropped) {
         return;
     }
     if submit && !m.busy {
