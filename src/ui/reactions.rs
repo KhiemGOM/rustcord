@@ -185,7 +185,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     if resp.clicked() {
                         profile = Some((*u, r.right_top()));
                     }
-                    if manage && resp.hovered() {
+                    if manage && resp.contains_pointer() {
                         let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(20.0, 20.0));
                         let xr = ui.interact(x, ui.id().with(("remove_reactor", *u)), Sense::click());
                         icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().critical, crate::ui::motion::hot(ui.ctx(), &xr)));

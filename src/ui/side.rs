@@ -1171,7 +1171,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
 fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> (egui::Response, bool) {
     let (row, resp, hl) = dense_row(ui, 42.0);
     let inner = row.shrink2(vec2(8.0, 0.0));
-    let hovered = resp.hovered();
+    let hovered = resp.contains_pointer();
     if selected {
         ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {

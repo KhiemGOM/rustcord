@@ -57,7 +57,7 @@ fn clock(ms: i64) -> String {
 fn card(ui: &mut Ui, c: &Clip, on: bool, acts: &mut Vec<Act>, sel: &mut Vec<String>, picking: bool) {
     let (r, resp) = ui.allocate_exact_size(vec2(256.0, 196.0), Sense::click());
     let thumb = Rect::from_min_size(r.min, vec2(256.0, 144.0));
-    let hot = resp.hovered();
+    let hot = resp.contains_pointer();
     ui.painter().rect_filled(thumb, CornerRadius::same(8), Color32::BLACK);
     if c.has_thumb {
         let uri = format!("file:///{}", c.thumb().display().to_string().replace('\\', "/"));
