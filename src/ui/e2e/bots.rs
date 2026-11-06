@@ -129,6 +129,11 @@ impl Run {
                     return;
                 }
                 let (name, text) = OPTIONAL[self.loaded];
+                let line = self.loaded.to_string();
+                if self.local_log.as_deref() != Some(line.as_str()) {
+                    self.local_log = Some(line);
+                    self.step_at = Instant::now();
+                }
                 match self.sub {
                     0 => {
                         if !i.optional_open {
