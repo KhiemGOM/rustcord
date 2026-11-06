@@ -33,6 +33,7 @@ import polish
 import call
 import discover
 import motion
+import fixes
 import home
 import composer
 import messages
@@ -510,6 +511,7 @@ def main():
         **composer.checks({"cold": cold, "warm": warm}, reqs, data),
         **people.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
+        **fixes.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
         **clips.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),

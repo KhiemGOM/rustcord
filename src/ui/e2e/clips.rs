@@ -32,7 +32,7 @@ impl Run {
                     return;
                 }
                 if std::env::var_os("RUSTCORD_FAKE_VIDEO").is_none() {
-                    self.step = 99;
+                    self.step = 3000;
                     return;
                 }
                 app.settings.clips = true;
@@ -245,9 +245,9 @@ impl Run {
                     self.mark("clips_hotkey_off");
                 }
                 app.voice.leave(&app.net);
-                self.step = 99;
+                self.step = 3000;
             }
-            _ => self.step = 99,
+            _ => self.step = 3000,
         }
     }
 }

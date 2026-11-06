@@ -1234,6 +1234,7 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
     if hovered {
         let xr = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
         let hit = ui.interact(xr.expand(4.0), ui.id().with(("dm_close", c.id)), Sense::click());
+        super::settings::mark(ui, &format!("dm_close:{}", c.id), xr);
         icons::draw(ui.painter(), Icon::Close, xr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
         closed = hit.on_hover_text("Close DM").clicked();
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
