@@ -91,7 +91,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     });
     if let Some(p) = pick {
         if p == "discover" {
-            super::super::settings::open_web(&format!("/channels/{gid}"));
+            if let Some(s) = &mut app.server {
+                s.page = super::Page::Discovery;
+            }
         } else {
             d["join"] = json!(p);
         }
