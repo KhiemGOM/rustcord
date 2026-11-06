@@ -77,7 +77,7 @@ impl App {
     }
 
     fn remove_reactor(&mut self, ch: Id, msg: Id, em: &ReactEmoji, burst: bool, user: Id) {
-        let path = format!("/channels/{ch}/messages/{msg}/reactions/{}/{user}?type={}", crate::api::esc(&em.api_name()), burst as u8);
+        let path = format!("/channels/{ch}/messages/{msg}/reactions/{}/{}/{user}?location=Message&burst={burst}", crate::api::esc(&em.api_name()), burst as u8);
         self.rest("DELETE", path, None, Tag::Quiet);
         if let Some(e) = self.store.reactors.get_mut(&(msg, em.api_name(), burst)) {
             e.0 = e.0.saturating_sub(1);

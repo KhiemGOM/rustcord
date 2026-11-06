@@ -174,15 +174,18 @@ impl Api {
     /// `call` for the requests discord guards with a second factor: the token from /mfa/finish
     /// rides in X-Discord-MFA-Authorization, and a 60003 answer comes back as `mfa:<ticket and methods>`.
     pub async fn call_mfa(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, String> {
-        self.try_call(m, path, body, mfa).await.map_err(|f| f.message)
+        self.try_call(m, path, body, mfa, None).await.map_err(|f| f.message)
     }
 
     /// The same request with the whole refusal kept: the field errors and the raw answer.
-    pub async fn try_call(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, Failure> {
+    pub async fn try_call(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>, reason: Option<&str>) -> Result<Value, Failure> {
         for _ in 0..4 {
             let mut req = self.build(m.clone(), path);
             if let Some(t) = mfa {
                 req = req.header("X-Discord-MFA-Authorization", t);
+            }
+            if let Some(r) = reason.filter(|r| !r.is_empty()) {
+                req = req.header("X-Audit-Log-Reason", esc(r));
             }
             if let Some(b) = &body {
                 req = req.json(b);
@@ -324,8 +327,11 @@ impl Api {
     }
 
     pub async fn react(&self, ch: Id, id: Id, emoji: &str, add: bool) -> Result<Value, String> {
-        let p = format!("/channels/{ch}/messages/{id}/reactions/{}/@me?location=Message&type=0", esc(emoji));
-        self.call(if add { Method::PUT } else { Method::DELETE }, &p, None).await
+        let e = esc(emoji);
+        if add {
+            return self.call(Method::PUT, &format!("/channels/{ch}/messages/{id}/reactions/{e}/@me?location=Message&type=0"), None).await;
+        }
+        self.call(Method::DELETE, &format!("/channels/{ch}/messages/{id}/reactions/{e}/0/@me?location=Message&burst=false"), None).await
     }
 
     pub async fn ack(&self, ch: Id, id: Id) -> Result<Value, String> {

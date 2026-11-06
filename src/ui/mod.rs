@@ -799,6 +799,20 @@ impl App {
         self.net.send(Cmd::Rest { method, path, body, tag });
     }
 
+    /// Notification settings the way discord saves them: servers go in the bulk route keyed by
+    /// id, direct messages on their own.
+    pub fn guild_settings(&self, gid: Id, body: serde_json::Value) {
+        if gid == 0 {
+            self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), Tag::Quiet);
+        } else {
+            self.rest("PATCH", "/users/@me/guilds/settings".into(), Some(json!({ "guilds": { gid.to_string(): body } })), Tag::Quiet);
+        }
+    }
+
+    pub fn audit(&self, method: &'static str, path: String, body: Option<serde_json::Value>, reason: &str) {
+        self.net.send(Cmd::Audit { method, path, body, reason: reason.trim().to_string() });
+    }
+
     pub fn mark_read(&mut self, chans: &[Id]) {
         let mut states = Vec::new();
         for ch in chans {
@@ -831,12 +845,11 @@ impl App {
             self.store.muted.remove(&id);
         }
         if guild {
-            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted, "mute_config": cfg })), Tag::Quiet);
+            self.guild_settings(id, if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) });
         } else {
             let g = self.store.channels.get(&id).map(|c| c.guild).unwrap_or(0);
-            let path = if g == 0 { "@me".to_string() } else { g.to_string() };
-            let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted, "mute_config": cfg } } });
-            self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
+            let over = if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) };
+            self.guild_settings(g, json!({ "channel_overrides": { id.to_string(): over } }));
         }
     }
 
@@ -859,7 +872,7 @@ impl App {
             }
         }
         let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.guild_settings(g, body);
     }
 
     /// Edit Per-server Profile: Settings > Profiles on that server.
@@ -881,7 +894,7 @@ impl App {
             if let Some(n) = level {
                 self.store.levels.insert(ch, n);
             }
-            self.rest("PATCH", format!("/users/@me/guilds/{ch}/settings"), Some(json!({ "message_notifications": level.unwrap_or(3) })), Tag::Quiet);
+            self.guild_settings(ch, json!({ "message_notifications": level.unwrap_or(3) }));
             return;
         }
         match level {
@@ -890,7 +903,7 @@ impl App {
         };
         let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
         let body = json!({ "channel_overrides": { ch.to_string(): { "message_notifications": level.unwrap_or(3) } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.guild_settings(g, body);
     }
 
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
@@ -1773,6 +1786,7 @@ Shift Click this notification to see error details.", e.trim_end()));
         channel::show(self, &ctx);
         events::show(self, &ctx);
         stage::modals(self, &ctx);
+        settings::verify(self, &ctx);
         share::show(self, &ctx);
         let mut show_detail = false;
         clips_gallery::show(self, &ctx);

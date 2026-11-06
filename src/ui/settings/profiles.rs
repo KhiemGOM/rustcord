@@ -492,7 +492,7 @@ fn save_profile(app: &mut App) {
         }
         None => {
             if changed(&d.effect, &base, |b| &b.effect) {
-                prof["profile_effect_id"] = d.effect.as_ref().map_or(Value::Null, |e| json!(e.sku));
+                prof["collectibles_sku_ids"] = json!(d.effect.iter().map(|e| e.sku.clone()).collect::<Vec<_>>());
             }
             acct["global_name"] = if d.name.trim().is_empty() { Value::Null } else { json!(d.name.trim()) };
             if changed(&d.nameplate, &base, |b| &b.nameplate) {

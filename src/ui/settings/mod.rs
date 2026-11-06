@@ -30,6 +30,17 @@ use crate::net::Tag;
 use crate::theme::*;
 
 pub use system::combo;
+
+/// A request discord may answer with a second-factor challenge, from outside the settings.
+pub fn guarded(app: &mut App, method: &'static str, path: &str, body: Option<serde_json::Value>) {
+    modals::send(app, modals::Done::Toast, method, path, body);
+}
+
+pub fn verify(app: &mut App, ctx: &egui::Context) {
+    if app.settings_page.is_none() {
+        modals::verify_modal(app, ctx);
+    }
+}
 pub use user::Forms;
 
 /// Read back what a settings page wrote, for the e2e.
@@ -644,6 +655,7 @@ pub fn button(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let fill = motion::mix(fill, over, motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(16.0), ink);
+    mark(ui, &format!("button:{text}"), r);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

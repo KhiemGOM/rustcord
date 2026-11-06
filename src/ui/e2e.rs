@@ -24,6 +24,7 @@ use crate::voice::{State, audio};
 
 mod more;
 mod players;
+mod refusals;
 mod local;
 
 
@@ -1318,6 +1319,7 @@ impl Run {
             2500..=2549 => self.person_steps(app, ctx),
             1600..=1699 => self.local_steps(app, ctx),
             2600..=2619 => self.motion_steps(app, ctx),
+            3400..=3449 => self.refusal_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);

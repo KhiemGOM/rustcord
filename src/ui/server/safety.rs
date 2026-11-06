@@ -36,6 +36,11 @@ const FILTERS: [(u8, &str, &str); 3] = [
 ];
 
 const ALERTS_OFF: &str = "RAID_ALERTS_DISABLED";
+const ALERTS_ON: &str = "NON_COMMUNITY_RAID_ALERTS";
+
+fn alerts_on(g: &crate::state::Guild) -> bool {
+    if g.features.iter().any(|f| f == "COMMUNITY") { !g.features.iter().any(|f| f == ALERTS_OFF) } else { g.features.iter().any(|f| f == ALERTS_ON) }
+}
 const PRUNE_ADMIN: &str = "PRUNE_REQUIRES_ADMIN";
 
 fn choose(ui: &mut Ui, open: &mut bool, value: &mut u8, options: &[(u8, &str, &str)]) -> bool {
@@ -143,7 +148,7 @@ fn status(ui: &mut Ui, head: &str, desc: &str) {
 }
 
 fn overview(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info: &Value) {
-    let off = g.features.iter().any(|f| f == ALERTS_OFF);
+    let off = !alerts_on(g);
     let mfa = info["mfa_level"].as_u64() == Some(1);
     let prune = g.features.iter().any(|f| f == PRUNE_ADMIN);
     let everyone = g.roles.get(&gid).map_or(0, |r| r.perms);
@@ -223,7 +228,7 @@ fn mfa_prune(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info:
     let mut mfa = info["mfa_level"].as_u64().unwrap_or(0) == 1;
     ui.add_enabled_ui(owner, |ui| {
         if settings::toggle(ui, &mut mfa, "Require 2FA for moderator actions", "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages. Only the server owner can change this setting if they have 2FA enabled.") {
-            app.rest("POST", format!("/guilds/{gid}/mfa"), Some(json!({ "level": mfa as u8 })), Tag::Quiet);
+            settings::guarded(app, "POST", &format!("/guilds/{gid}/mfa"), Some(json!({ "level": mfa as u8 })));
             set_info(app, "mfa_level", json!(mfa as u8));
         }
     });
@@ -253,9 +258,13 @@ fn filter_block(app: &mut App, ui: &mut Ui, gid: Id, info: &Value) {
 }
 
 fn alerts(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info: &Value) {
-    let mut on = !g.features.iter().any(|f| f == ALERTS_OFF);
+    let mut on = alerts_on(g);
     if settings::toggle(ui, &mut on, "Receive notifications for DM or join activity that exceeds usual numbers for your server.", "Each notification will contain information about the activity, including time period and approximate number of joins or DMs.") {
-        features(app, gid, ALERTS_OFF, !on);
+        if g.features.iter().any(|f| f == "COMMUNITY") {
+            features(app, gid, ALERTS_OFF, !on);
+        } else {
+            features(app, gid, ALERTS_ON, on);
+        }
     }
     ui.add_space(24.0);
     settings::h5(ui, "Safety Notifications Channel");

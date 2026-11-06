@@ -101,7 +101,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     title(ui, "Server Tag", "");
     ui.label(RichText::new("Create a tag that your server members can display next to their name! Anyone outside your server can view your Server Profile through the Server Tag, and if applications are enabled, they can apply to join. Your Server Profile is private. Users will not be able to see it from a Server Tag.").font(reg(14.0)).line_height(Some(18.0)).color(pal().text_normal));
     ui.add_space(16.0);
-    if raw["visibility"].as_u64() != Some(2) && info(ui, 332.0, "Your Server Profile is private. Users will not be able to see it from a Server Tag.", Some("Edit Setting")) {
+    if !matches!(raw["visibility"].as_u64(), Some(1 | 3)) && info(ui, 332.0, "Your Server Profile is private. Users will not be able to see it from a Server Tag.", Some("Edit Setting")) {
         if let Some(s) = &mut app.server {
             s.page = super::Page::Profile;
         }

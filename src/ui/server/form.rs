@@ -300,6 +300,7 @@ pub fn data_uri(path: &std::path::Path) -> Option<String> {
     let mime = match bytes.get(..4) {
         Some([0x89, b'P', ..]) => "image/png",
         Some([b'G', b'I', ..]) => "image/gif",
+        Some([b'R', b'I', ..]) if bytes.get(8..12) == Some(b"WAVE") => "audio/wav",
         Some([b'R', b'I', ..]) => "image/webp",
         Some([b'O', b'g', ..]) => "audio/ogg",
         Some([b'I', b'D', b'3', ..]) | Some([0xff, 0xfb, ..]) | Some([0xff, 0xf3, ..]) => "audio/mpeg",

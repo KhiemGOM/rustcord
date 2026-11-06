@@ -138,7 +138,7 @@ fn connections(app: &mut App, ui: &mut Ui) {
             ui.add_space(16.0);
             let mut vis = c["visibility"].as_u64() == Some(1);
             if toggle(ui, &mut vis, "Display on profile", "") {
-                patch = Some((format!("{kind}/{id}"), json!({ "visibility": vis as u8 })));
+                patch = Some((format!("{kind}/{id}"), json!({ "visibility": vis })));
             }
             if ACTIVITY.contains(&kind.as_str()) {
                 let mut act = c["show_activity"].as_bool().unwrap_or(false);

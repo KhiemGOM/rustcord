@@ -17,7 +17,7 @@ def checks(runs, reqs, data):
     sent = lambda method, part: [r for r in reqs if r.get("method") == method and part in r.get("path", "")]
     searches = [body(r) for r in sent("POST", "/guilds/1001/members-search")]
     hangout = [body(r) for r in sent("PATCH", "/channels/2102")]
-    browse = [body(r) for r in sent("PATCH", "/users/@me/guilds/1001/settings")]
+    browse = [body(r)["guilds"]["1001"] for r in sent("PATCH", "/users/@me/guilds/settings") if "1001" in body(r).get("guilds", {})]
     return {
         "home: voice rows show muted, deafened and server muted": both("home_voice_states"),
         "home: a hovered perk card shows its button": both("home_perk_hover"),

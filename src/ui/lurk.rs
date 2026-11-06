@@ -10,7 +10,8 @@ use crate::theme::*;
 
 pub fn start(app: &mut App, gid: Id, ch: Id) {
     app.lurk_goto = Some((gid, ch));
-    app.rest("PUT", format!("/guilds/{gid}/members/@me?lurker=true"), Some(serde_json::json!({})), Tag::Lurk(gid));
+    let session = app.store.session.clone();
+    app.rest("PUT", format!("/guilds/{gid}/members/@me?lurker=true&session_id={session}"), Some(serde_json::json!({})), Tag::Lurk(gid));
 }
 
 pub fn tick

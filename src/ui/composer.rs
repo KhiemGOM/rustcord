@@ -1345,21 +1345,23 @@ impl App {
             }
             "kick" => {
                 if let Some(u) = user {
-                    self.rest("DELETE", format!("/guilds/{g}/members/{u}"), None, Tag::Quiet);
+                    let why = text("reason");
+                    let q = if why.is_empty() { String::new() } else { format!("?reason={}", crate::api::esc(&why)) };
+                    self.rest("DELETE", format!("/guilds/{g}/members/{u}{q}"), None, Tag::Quiet);
                     self.toast(format!("{who} was kicked from the server."));
                 }
             }
             "ban" => {
                 if let Some(u) = user {
                     let secs = get("delete_messages").and_then(|v| v.as_i64()).unwrap_or(0);
-                    self.rest("PUT", format!("/guilds/{g}/bans/{u}"), Some(json!({ "delete_message_seconds": secs })), Tag::Quiet);
+                    self.audit("PUT", format!("/guilds/{g}/bans/{u}"), Some(json!({ "delete_message_seconds": secs })), &text("reason"));
                     self.toast(format!("{who} was banned from the server."));
                 }
             }
             "timeout" => {
                 if let Some(u) = user {
                     let secs = get("duration").and_then(|v| v.as_i64()).unwrap_or(60);
-                    self.time_out(g, u, secs);
+                    self.time_out(g, u, secs, &text("reason"));
                     self.toast(format!("{who} timed out for {secs} seconds."));
                 }
             }
@@ -1416,9 +1418,9 @@ impl App {
     }
 
     /// A member timed out until `secs` from now.
-    pub fn time_out(&mut self, guild: Id, user: Id, secs: i64) {
+    pub fn time_out(&mut self, guild: Id, user: Id, secs: i64, reason: &str) {
         let until = (chrono::Utc::now() + chrono::Duration::seconds(secs)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        self.rest("PATCH", format!("/guilds/{guild}/members/{user}"), Some(json!({ "communication_disabled_until": until })), Tag::Quiet);
+        self.audit("PATCH", format!("/guilds/{guild}/members/{user}"), Some(json!({ "communication_disabled_until": until })), reason);
     }
 
     pub fn resolve_aliases(&self, ch: Id, text: &str) -> String {
