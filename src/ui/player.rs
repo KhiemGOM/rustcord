@@ -228,18 +228,33 @@ fn center_button(ui: &mut Ui, rect: Rect, hot: bool, spinner: bool) {
     }
 }
 
+/// How a video fills its box: which corners are round and the part of the picture that shows.
+#[derive(Clone, Copy)]
+pub struct Look {
+    pub radius: CornerRadius,
+    pub uv: Rect,
+}
+
+impl Look {
+    pub const FULL: Look = Look { radius: CornerRadius::same(8), uv: Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) };
+}
+
 pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &mut Vec<Do>) -> Rect {
+    video_in(ui, a, size, poster, out, Look::FULL)
+}
+
+pub fn video_in(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &mut Vec<Do>, look: Look) -> Rect {
     let ctx = ui.ctx().clone();
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let id = resp.id;
-    let radius = CornerRadius::same(8);
+    let radius = look.radius;
     let session = media::current(&a.url);
     let view = session.as_ref().map(|s| s.view());
     ui.painter().rect_filled(rect, radius, Color32::BLACK);
     let tex = session.as_ref().and_then(|s| s.frame(&ctx));
     match tex {
-        Some(t) => egui::Image::from_texture(egui::load::SizedTexture::new(t, size)).corner_radius(radius).paint_at(ui, rect),
-        None => egui::Image::from_uri(poster.to_string()).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect),
+        Some(t) => egui::Image::from_texture(egui::load::SizedTexture::new(t, size)).uv(look.uv).corner_radius(radius).paint_at(ui, rect),
+        None => egui::Image::from_uri(poster.to_string()).uv(look.uv).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect),
     }
     resp.context_menu(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -289,7 +304,7 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
                 if vis > 0.0 {
                     let bar = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 32.0), rect.right_bottom());
                     let b = Bar { key: &a.url, s, v, video: true, fs: false, live: vis > 0.5 };
-                    ui.painter().rect_filled(bar, CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }, Color32::from_black_alpha((153.0 * vis) as u8));
+                    ui.painter().rect_filled(bar, CornerRadius { nw: 0, ne: 0, sw: radius.sw, se: radius.se }, Color32::from_black_alpha((153.0 * vis) as u8));
                     let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(bar));
                     inner.set_opacity(vis);
                     controls(&mut inner, id, bar, &b, out);

@@ -17,6 +17,7 @@ mod composer;
 mod motion;
 mod login;
 mod camera;
+mod gallery;
 mod watchdog;
 
 pub use watchdog::beat;
@@ -637,7 +638,7 @@ impl Run {
             16 => {
                 self.shot(ctx, "forum.png");
                 let g = self.target.0;
-                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined).map(|c| c.id);
+                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined && c.name == "release planning").map(|c| c.id);
                 let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
                     return self.fail("no joined thread in the sidebar".into());
                 };
@@ -1317,6 +1318,7 @@ impl Run {
             1700..=1719 => self.spell_steps(app, ctx),
             2800..=2829 => self.camera_steps(app, ctx),
             2900..=2959 => self.clips_steps(app, ctx),
+            4000..=4099 => self.gallery_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),
