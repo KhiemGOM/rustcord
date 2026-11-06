@@ -37,6 +37,14 @@ pub struct Modal {
     pub regenerate: bool,
     pub secret: String,
     pub key: Option<(String, String)>,
+    pub name: Check,
+}
+
+#[derive(Default)]
+pub struct Check {
+    typed: String,
+    since: Option<std::time::Instant>,
+    asked: String,
 }
 
 pub struct Web {
@@ -86,6 +94,7 @@ pub fn new_modal(kind: Edit) -> Modal {
         regenerate: false,
         secret: String::new(),
         key: None,
+        name: Check::default(),
     }
 }
 
@@ -421,7 +430,47 @@ fn parse_codes(v: &Value) -> Vec<(String, bool)> {
     v["backup_codes"].as_array().into_iter().flatten().map(|c| (c["code"].as_str().unwrap_or("").to_string(), c["consumed"].as_bool().unwrap_or(false))).collect()
 }
 
+/// What to say under the username box: whether what's typed is free, asking `pomelo-attempt`
+/// once it's sat still for a moment.
+fn pomelo(app: &mut App, ctx: &egui::Context) -> Option<(&'static str, Color32)> {
+    let m = app.sform.modal.as_mut().filter(|m| m.kind == Edit::Username)?;
+    let name = m.f[0].trim().to_string();
+    if m.name.typed != name {
+        m.name.typed = name.clone();
+        m.name.since = Some(std::time::Instant::now());
+    }
+    let mine = app.store.user(app.store.me).map(|u| u.username.clone()).unwrap_or_default();
+    if name.is_empty() || name == mine {
+        return None;
+    }
+    let ok_chars = name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.');
+    if name.contains("..") {
+        return Some(("Username cannot contain repeating dots.", RED));
+    }
+    if !ok_chars || name.chars().count() < 2 || name.chars().count() > 32 {
+        return Some(("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED));
+    }
+    let key = format!("pomelo:{name}");
+    match app.keyed.get(&key) {
+        Some(Some(Ok(v))) => Some(if v["taken"].as_bool().unwrap_or(false) { ("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED) } else { ("Username is available. Nice!", GREEN) }),
+        Some(Some(Err(_))) => Some(("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED)),
+        Some(None) => Some(("Checking if username is available", pal().header_secondary)),
+        None => {
+            let due = m.name.since.is_some_and(|t| t.elapsed() >= std::time::Duration::from_millis(400));
+            if due {
+                m.name.asked = name.clone();
+                app.keyed.insert(key.clone(), None);
+                app.rest("POST", "/users/@me/pomelo-attempt".into(), Some(json!({ "username": name })), Tag::Keyed(key));
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+            Some(("Checking if username is available", pal().header_secondary))
+        }
+    }
+}
+
 fn modal(app: &mut App, ctx: &egui::Context) {
+    let uname = pomelo(app, ctx);
     let email = app.store.email.clone().unwrap_or_default();
     let old_phone = app.store.me_raw["phone"].as_str().unwrap_or("").to_string();
     let standing_state = match app.remote.get("safety") {
@@ -481,6 +530,11 @@ fn modal(app: &mut App, ctx: &egui::Context) {
                 label(ui, "Username");
                 let r = input(ui, &mut m.f[0], "", false);
                 super::mark(ui, "modal_input", r.rect);
+                if let Some((t, c)) = uname {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(t).font(reg(14.0)).color(c));
+                    ui.add_space(4.0);
+                }
                 para(ui, "Please only use numbers, letters, underscores _ , or periods.");
                 ui.add_space(8.0);
                 label(ui, "Current Password");

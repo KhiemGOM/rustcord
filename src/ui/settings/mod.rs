@@ -6,12 +6,11 @@ mod account;
 mod modals;
 mod activity;
 mod app;
-mod apps;
+pub mod apps;
 pub mod billing;
 pub mod camera;
 mod clips;
 mod privacy;
-mod profiles;
 mod keybinds;
 mod notify;
 mod search;
@@ -141,8 +140,14 @@ fn faint(a: u8) -> Color32 {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let Some(page) = app.settings_page else { return };
+    let Some(mut page) = app.settings_page else { return };
     let ctx = ui.ctx().clone();
+    if page == Page::Profiles {
+        let guild = app.sform.profile_guild.take();
+        crate::ui::profed::open(app, guild);
+        page = Page::Account;
+        app.settings_page = Some(page);
+    }
     // reopening starts every list at the top, and so does moving to another page
     let now = ctx.cumulative_frame_nr();
     if ctx.data_mut(|d| d.get_temp::<u64>(Id::new("settings_frame"))).is_none_or(|t| now > t + 1) {
@@ -171,6 +176,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         changed = body(app, ui, Rect::from_min_max(pos2(area.left() + SIDE, area.top()), area.max), page);
     });
     modals::modals(app, &ctx);
+    crate::ui::profed::show(app, &ctx);
     if changed {
         app.save_settings(&ctx);
     }
@@ -374,7 +380,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
             ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
             changed = match page {
                 Page::Account => account::account(app, ui),
-                Page::Profiles => profiles::page(app, ui),
+                Page::Profiles => account::account(app, ui),
                 Page::Privacy => privacy::data(app, ui),
                 Page::Messaging => privacy::messaging(app, ui),
                 Page::Notifications => notify::page(app, ui),
@@ -397,7 +403,6 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
         ui.add_space(96.0);
     });
     crate::ui::e2e::scrolled(ui.ctx(), &out);
-    profiles::save_bar(app, ui, view);
     changed
 }
 
@@ -418,7 +423,8 @@ pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
     match key {
         "guard" => modals::guard_done(app, res),
         "mfa_finish" => modals::finish_done(app, res),
-        "profile_save" => profiles::saved(app, res),
+        "profile_save" => crate::ui::profed::saved(app, res),
+        "widgets_save" => crate::ui::profed::widgets_saved(app, res),
         "proto_set" => privacy::proto_done(app, res),
         "conn_auth" => apps::authorize_done(app, res),
         "action" => match res {

@@ -39,6 +39,8 @@ mod members;
 mod bot;
 #[path = "mockcord/shop.rs"]
 mod shop;
+#[path = "mockcord/profiles.rs"]
+mod profiles;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 #[path = "mockcord/prefs.rs"]
@@ -939,6 +941,9 @@ fn ready(last_general: u64) -> Value {
     ]);
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
+    if let Some(f) = guilds[0]["features"].as_array_mut() {
+        f.push(json!("GUILD_TAGS"));
+    }
     guilds[1]["owner_id"] = json!(ME.to_string());
     // the roles the members table shows, which only the first server has otherwise
     let mut roles = guilds[0]["roles"].as_array().cloned().unwrap_or_default();
@@ -994,7 +999,7 @@ fn ready(last_general: u64) -> Value {
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
         "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0, "mfa_enabled": false, "phone": "+15555550100", "nsfw_allowed": true },
         "users": users,
-        "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }, { "id": "108", "type": 2 }],
+        "relationships": [{ "id": "101", "type": 1, "since": "2025-03-14T10:00:00.000000+00:00" }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }, { "id": "108", "type": 2 }],
         "guilds": guilds,
         "merged_members": merged,
         "private_channels": [
@@ -1087,6 +1092,44 @@ fn member_list(gid: &str) -> Value {
             { "group": { "id": "offline", "count": 2 } }, item(104, "offline"), item(105, "offline"),
         ]}]
     })
+}
+
+/// An effect layer: sparkles orbiting on nothing, so a profile shows through it.
+fn fx_gif(w: u32, h: u32, hue: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut enc = image::codecs::gif::GifEncoder::new(&mut out);
+        enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+        let frames = (0..8u32).map(|f| {
+            let spin = f as f32 / 8.0 * std::f32::consts::TAU;
+            let tint = [(255, 230, 120), (160, 220, 255), (255, 170, 220)][(hue % 3) as usize];
+            let img = image::RgbaImage::from_fn(w, h, |x, y| {
+                let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+                for k in 0..6u32 {
+                    let a = spin + k as f32 * std::f32::consts::TAU / 6.0;
+                    let (cx, cy) = (0.5 + 0.38 * a.cos(), 0.5 + 0.42 * a.sin());
+                    if ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() < 0.04 {
+                        return image::Rgba([tint.0, tint.1, tint.2, 235]);
+                    }
+                }
+                image::Rgba([0, 0, 0, 0])
+            });
+            image::Frame::from_parts(img, 0, 0, image::Delay::from_numer_denom_ms(100, 1))
+        });
+        enc.encode_frames(frames).unwrap();
+    }
+    out
+}
+
+/// A profile frame: a coloured border round a clear middle.
+fn fx_frame(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let edge = x.min(w - 1 - x).min(y.min(h - 1 - y));
+        if edge < 8 { image::Rgba([0xfa, 0xa6, 0x1a, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
 }
 
 fn png(w: u32, h: u32, seed: u64, round: bool) -> Vec<u8> {
@@ -1380,6 +1423,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
     if let Some((code, v)) = shop::route(method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     if let Some((code, v)) = billing(method, &parts, body) {
@@ -1676,10 +1723,23 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "users", id, "profile"]) => {
             let id: u64 = id.parse().unwrap_or(0);
+            let mut prof = json!({ "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" });
+            if id == 101 {
+                prof["bio"] = json!("rustacean. writes too many side projects, reads every changelog twice, and has opinions about linkers that nobody asked for. also bakes bread on weekends and will tell you about it at length.");
+                prof["profile_effect"] = json!({ "id": "7003", "expires_at": null });
+                prof["profile_frame"] = json!({ "id": "7005" });
+                prof["theme_colors"] = json!([0x1b6b5a, 0x0b3a52]);
+            }
+            let widgets = if id == 101 { json!([
+                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
+                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
+            ]) } else { json!([]) };
             ok(json!({
-                "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" },
-                "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" }],
-                "connected_accounts": [],
+                "user": user(id), "user_profile": prof, "widgets": widgets,
+                "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
+                           { "id": "hypesquad_house_2", "description": "HypeSquad Brilliance", "icon": "011940fd013da3f7fb926e4a1cd2e618", "link": "https://support.discord.com/hc/en-us/articles/360035962891" },
+                           { "id": "quest_completed", "description": "Completed a Quest", "icon": "7d9ae358c8c5e118768335dbe68b4fb8", "link": "https://discord.com/quests" }],
+                "connected_accounts": [{ "type": "github", "id": "9", "name": "alice-codes", "verified": true }],
                 "mutual_friends": [user(102), user(103)], "mutual_friends_count": 2,
                 "mutual_guilds": [{ "id": "1000", "nick": null }, { "id": "1001", "nick": null }],
                 "guild_member": { "roles": member(id)["roles"], "joined_at": "2025-06-01T10:00:00+00:00", "premium_since": null },
@@ -2354,6 +2414,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
+        ("GET", ["cdn", "media", f]) if f.starts_with("effect_") && f.ends_with(".gif") => (200, "image/gif", fx_gif(300, 400, f.len() as u32)),
+        ("GET", ["cdn", "media", f]) if f.starts_with("frame_") && f.ends_with("_a.png") => (200, "image/png", fx_frame(300, 400)),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", "still.png"]) => (200, "image/png", png(480, 270, 7, false)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),

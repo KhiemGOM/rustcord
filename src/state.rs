@@ -1262,6 +1262,9 @@ pub struct Store {
     pub voice_start: Map<Id, i64>,
     #[serde(default)]
     pub relationships: Map<Id, u8>,
+    // when each relationship began, from the relationship's `since`
+    #[serde(default)]
+    pub rel_since: Map<Id, i64>,
     // what you call a friend, and the people you ignore
     #[serde(default)]
     pub nicks: Map<Id, String>,
@@ -1305,6 +1308,17 @@ pub struct Store {
 impl Store {
     pub fn user(&self, id: Id) -> Option<&User> {
         self.users.get(&id)
+    }
+
+    fn set_since(&mut self, uid: Id, v: &Value) {
+        match v.as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) {
+            Some(t) => {
+                self.rel_since.insert(uid, t.timestamp_millis());
+            }
+            None => {
+                self.rel_since.remove(&uid);
+            }
+        }
     }
 
     pub fn name_in(&self, guild: Id, user: Id) -> String {
@@ -1965,6 +1979,7 @@ impl Store {
                 self.upsert_user(&r["user"]);
             }
             self.relationships.insert(uid, r["type"].as_u64().unwrap_or(0) as u8);
+            self.set_since(uid, &r["since"]);
             self.set_nick(uid, &r["nickname"]);
         }
 
@@ -2599,11 +2614,13 @@ impl Store {
                     self.upsert_user(&d["user"]);
                 }
                 self.relationships.insert(uid, d["type"].as_u64().unwrap_or(0) as u8);
+                self.set_since(uid, &d["since"]);
                 self.set_nick(uid, &d["nickname"]);
             }
             "RELATIONSHIP_REMOVE" => {
                 let uid = sid(&d["id"]);
                 self.relationships.remove(&uid);
+                self.rel_since.remove(&uid);
                 self.nicks.remove(&uid);
             }
             "GUILD_MEMBERS_CHUNK" => {

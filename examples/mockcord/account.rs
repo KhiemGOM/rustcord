@@ -28,6 +28,8 @@ struct Acct {
     tickets: Vec<String>,
     tokens: Vec<String>,
     profile: Map<String, Value>,
+    recent: Vec<Value>,
+    widgets: Vec<Value>,
     guild_profile: Map<String, Value>,
     password: String,
     nonce: u64,
@@ -78,6 +80,8 @@ fn fresh(settings: Vec<u8>) -> Acct {
         tickets: Vec::new(),
         tokens: Vec::new(),
         profile: Map::new(),
+        recent: vec![json!({ "id": "1", "hash": "recent1", "color": "668CE2" }), json!({ "id": "2", "hash": "recent2", "color": "A1B2C3" })],
+        widgets: Vec::new(),
         guild_profile: Map::new(),
         password: PASSWORD.into(),
         nonce: 1,
@@ -304,10 +308,34 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             if let Some(n) = b["new_password"].as_str() {
                 a.password = n.into();
             }
+            let nitro = a.me.get("premium_type").and_then(Value::as_u64).unwrap_or(2) != 0;
+            if let Some(e) = super::profiles::check_account(&b, nitro) {
+                return Some(e);
+            }
             if b["avatar"].is_string() {
-                a.me.insert("avatar".into(), json!("e2eavatar"));
+                let n = a.recent.len() + 3;
+                a.recent.insert(0, json!({ "id": n.to_string(), "hash": format!("e2eavatar{n}"), "color": "336699" }));
+                a.recent.truncate(6);
+                a.me.insert("avatar".into(), json!(format!("e2eavatar{n}")));
+            } else if let Some(id) = b["avatar_id"].as_str() {
+                let hash = a.recent.iter().find(|r| r["id"] == id).map(|r| r["hash"].clone());
+                match hash {
+                    Some(h) => {
+                        a.me.insert("avatar".into(), h);
+                    }
+                    None => return Some(err(400, "Unknown avatar.")),
+                }
             } else if b.get("avatar").is_some() {
                 a.me.insert("avatar".into(), Value::Null);
+            }
+            if b["display_name_font_id"].is_u64() {
+                a.me.insert("display_name_styles".into(), json!({ "font_id": b["display_name_font_id"], "effect_id": b["display_name_effect_id"], "colors": b["display_name_colors"] }));
+            } else if b.get("display_name_font_id").is_some() {
+                a.me.insert("display_name_styles".into(), Value::Null);
+            }
+            if let Some(g) = b.get("primary_guild_id") {
+                let tag = if g.is_null() { json!({ "identity_enabled": false, "identity_guild_id": null, "tag": null, "badge": null }) } else { json!({ "identity_enabled": true, "identity_guild_id": g, "tag": "RUST", "badge": "" }) };
+                a.me.insert("primary_guild".into(), tag);
             }
             if let Some(sku) = b.get("avatar_decoration_sku_id") {
                 a.me.insert("avatar_decoration_data".into(), if sku.is_null() { Value::Null } else { json!({ "asset": format!("a_deco{}", sku.as_str().unwrap_or("")), "sku_id": sku }) });
@@ -373,19 +401,35 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             a.ignored.retain(|x| *x != id);
             Some((204, Value::Null))
         }
-        ("GET", ["users", "@me", "collectibles-purchases"]) => ok(json!([
-            { "sku_id": "7001", "name": "Mock Bundle", "items": [
-                { "type": 0, "id": "7001", "sku_id": "7001", "asset": "a_mock1", "label": "Mock Halo" },
-                { "type": 2, "id": "7002", "sku_id": "7002", "asset": "nameplates/mock/7002/", "label": "Mock Plate" },
-                { "type": 1, "id": "7003", "sku_id": "7003", "title": "Mock Sparkle", "thumbnailPreviewSrc": "" } ] },
-        ])),
+        ("GET", ["users", "@me", "avatars"]) => ok(json!(a.recent)),
+        ("DELETE", ["users", "@me", "avatars", id]) => {
+            let before = a.recent.len();
+            a.recent.retain(|r| r["id"] != *id);
+            if a.recent.len() == before { Some(err(404, "Unknown avatar.")) } else { Some((204, Value::Null)) }
+        }
+        ("PUT", ["users", "@me", "widgets"]) => {
+            if let Some(e) = super::profiles::check_widgets(&b) {
+                return Some(e);
+            }
+            a.nonce += 1;
+            let list: Vec<Value> = b["widgets"].as_array().into_iter().flatten().enumerate().map(|(i, w)| json!({ "id": w["id"].as_str().map_or_else(|| format!("w{}{i}", a.nonce), str::to_string), "updated_at": "2026-11-06T10:00:00+00:00", "data": w["data"] })).collect();
+            a.widgets = list.clone();
+            ok(json!({ "widgets": list }))
+        }
         ("PATCH", ["users", "@me", "profile"]) => {
+            let nitro = a.me.get("premium_type").and_then(Value::as_u64).unwrap_or(2) != 0;
+            if let Some(e) = super::profiles::check_profile(&b, nitro) {
+                return Some(e);
+            }
             for (k, v) in b.as_object().into_iter().flatten() {
                 a.profile.insert(k.clone(), v.clone());
             }
             ok(json!(a.profile))
         }
         ("PATCH", ["guilds", _, "profile", "@me"]) => {
+            if let Some(e) = super::profiles::check_profile(&b, true) {
+                return Some(e);
+            }
             for (k, v) in b.as_object().into_iter().flatten() {
                 a.guild_profile.insert(k.clone(), v.clone());
             }
@@ -403,7 +447,25 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             if let Some(e) = a.profile.get("collectibles_sku_ids").and_then(|l| l.get(0)) {
                 prof["profile_effect"] = json!({ "id": e });
             }
-            let mut out = json!({ "user": u, "user_profile": prof });
+            if let Some(e) = a.profile.get("profile_frame_id").filter(|e| !e.is_null()) {
+                prof["profile_frame"] = json!({ "id": e });
+            }
+            if a.profile.get("banner").is_some_and(Value::is_string) {
+                prof["banner"] = json!("e2ebanner");
+                u["banner"] = json!("e2ebanner");
+            } else if a.profile.get("banner").is_some() {
+                prof["banner"] = Value::Null;
+            }
+            let accounts: Vec<Value> = a.connections.iter().map(|c| json!({ "type": c["type"], "id": c["id"], "name": c["name"], "verified": true })).collect();
+            let mut out = json!({
+                "user": u, "user_profile": prof, "connected_accounts": accounts, "widgets": a.widgets,
+                "badges": [
+                    { "id": "premium", "description": "Subscriber since 12/2/25", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
+                    { "id": "hypesquad_house_1", "description": "HypeSquad Bravery", "icon": "8a88d63823d8a71cd5e390baa45efa02", "link": "https://support.discord.com/hc/en-us/articles/360035962891" },
+                    { "id": "quest_completed", "description": "Completed a Quest", "icon": "7d9ae358c8c5e118768335dbe68b4fb8", "link": "https://discord.com/quests" },
+                    { "id": "legendary_gifter", "description": "Gifting LEGEND", "icon": "5e0ab9d21c3c4f0c8b0f7f2d1e1d9a77", "link": "https://discord.com/settings/gift-inventory" },
+                ],
+            });
             if !a.guild_profile.is_empty() {
                 out["guild_member_profile"] = json!(a.guild_profile);
             }
