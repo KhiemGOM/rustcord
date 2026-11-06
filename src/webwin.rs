@@ -245,9 +245,11 @@ fn fire(done: &Done, r: windows::core::Result<ICoreWebView2Controller>) {
 /// from the thread's message loop, nothing here blocks.
 pub(crate) fn create(parent: HWND, data: &Path, args: &str, done: impl FnOnce(windows::core::Result<ICoreWebView2Controller>) + 'static) {
     let folder = HSTRING::from(data.as_os_str());
-    let options = CoreWebView2EnvironmentOptions::default();
-    unsafe { options.set_additional_browser_arguments(args.to_string()) };
-    let options: ICoreWebView2EnvironmentOptions = options.into();
+    let options = (!args.is_empty()).then(|| {
+        let o = CoreWebView2EnvironmentOptions::default();
+        unsafe { o.set_additional_browser_arguments(args.to_string()) };
+        ICoreWebView2EnvironmentOptions::from(o)
+    });
     let parent = Hwnd(parent);
     let done: Done = Rc::new(RefCell::new(Some(Box::new(done))));
     let on_env = {
@@ -275,7 +277,7 @@ pub(crate) fn create(parent: HWND, data: &Path, args: &str, done: impl FnOnce(wi
             Ok(())
         }))
     };
-    let started = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &folder, &options, &on_env) };
+    let started = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &folder, options.as_ref(), &on_env) };
     if let Err(e) = started {
         fire(&done, Err(e));
     }

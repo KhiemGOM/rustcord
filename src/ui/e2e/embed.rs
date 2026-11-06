@@ -3,6 +3,7 @@
 //! a time, gone with its channel; and the proxied file playing in the inline player.
 
 use egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};
+use std::time::Duration;
 
 use super::Run;
 use crate::media::{self, Phase};
@@ -50,14 +51,19 @@ impl Run {
     fn window_shot(&self, name: &str) {
         use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
         use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-        use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos};
         let w = crate::winsys::WINDOW.load(std::sync::atomic::Ordering::Relaxed) as HWND;
         let (mut r, mut o): (RECT, POINT) = unsafe { (std::mem::zeroed(), POINT { x: 0, y: 0 }) };
+        let lift = |z| unsafe { SetWindowPos(w, z, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) };
+        lift(HWND_TOPMOST);
+        std::thread::sleep(Duration::from_millis(250));
         unsafe {
             GetClientRect(w, &mut r);
             ClientToScreen(w, &mut o);
         }
-        let Some(img) = crate::shareable::screen(o.x, o.y, (r.right - r.left).max(1) as usize, (r.bottom - r.top).max(1) as usize) else { return };
+        let img = crate::shareable::screen(o.x, o.y, (r.right - r.left).max(1) as usize, (r.bottom - r.top).max(1) as usize);
+        lift(HWND_NOTOPMOST);
+        let Some(img) = img else { return };
         let [iw, ih] = img.size;
         let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
         if let Some(buf) = image::RgbaImage::from_raw(iw as u32, ih as u32, bytes) {
@@ -91,17 +97,32 @@ impl Run {
                     self.mark("embed_poster");
                     self.shot(ctx, "embed_poster.png");
                 }
-                self.click(r.center());
+                self.click(r.center() - vec2(30.0, 0.0));
                 self.next(0);
             }
             3302 => {
                 if !playing(app, b) || !probe(app).is_some_and(|p| p.0) {
+                    if self.step_at.elapsed() > std::time::Duration::from_secs(8) {
+                        let at = app.embed.as_ref().map(|p| (p.key.0 == b, matches!(p.frame.status(), crate::webwin::child::Status::Up), p.frame.probe()));
+                        self.fail(format!("the embed never came up: {at:?}"));
+                    }
                     return;
                 }
                 self.mark("embed_frame_starts");
                 self.next(3000);
             }
             3303 => {
+                let Some((full, clip)) = frame_rects(app, b) else { return };
+                let target = clip.top() + 30.0;
+                if (full.top() - target).abs() > 6.0 {
+                    self.scroll_by(side(clip), target - full.top());
+                    self.next(500);
+                    self.step -= 1;
+                    return;
+                }
+                self.next(0);
+            }
+            3304 => {
                 self.window_shot("embed_playing.png");
                 let (Some((full, clip)), Some((shown, win, bounds))) = (frame_rects(app, b), probe(app)) else { return };
                 let want = embedplay::px(full.intersect(clip), ppp);
@@ -111,7 +132,7 @@ impl Run {
                 self.scroll_by(side(clip), clip.bottom() - 90.0 - full.top());
                 self.next(700);
             }
-            3304 => {
+            3305 => {
                 let (Some((full, clip)), Some((shown, win, bounds))) = (frame_rects(app, b), probe(app)) else { return };
                 let target = clip.bottom() - 90.0;
                 if (full.top() - target).abs() > 6.0 {
@@ -127,7 +148,7 @@ impl Run {
                 self.window_shot("embed_clipped_bottom.png");
                 self.next(0);
             }
-            3305 => {
+            3306 => {
                 let Some((_, clip)) = frame_rects(app, b) else { return };
                 let Some(r) = poster(app, a) else {
                     self.scroll_by(side(clip), 160.0);
@@ -135,10 +156,10 @@ impl Run {
                     self.step -= 1;
                     return;
                 };
-                self.click(r.center());
+                self.click(r.center() - vec2(30.0, 0.0));
                 self.next(0);
             }
-            3306 => {
+            3307 => {
                 if !playing(app, a) || !probe(app).is_some_and(|p| p.0) {
                     return;
                 }
@@ -147,13 +168,13 @@ impl Run {
                 }
                 self.next(2000);
             }
-            3307 => {
+            3308 => {
                 self.window_shot("embed_second.png");
                 let Some((full, clip)) = frame_rects(app, a) else { return };
                 self.scroll_by(side(clip), clip.top() - full.height() / 2.0 - full.top());
                 self.next(700);
             }
-            3308 => {
+            3309 => {
                 let (Some((full, clip)), Some((shown, win, bounds))) = (frame_rects(app, a), probe(app)) else { return };
                 let target = clip.top() - full.height() / 2.0;
                 if (full.top() - target).abs() > 6.0 {
@@ -170,7 +191,7 @@ impl Run {
                 self.scroll_by(side(clip), clip.bottom() + 120.0 - full.top());
                 self.next(700);
             }
-            3309 => {
+            3310 => {
                 let Some((full, clip)) = frame_rects(app, a) else { return };
                 if (full.top() - (clip.bottom() + 120.0)).abs() > 6.0 {
                     self.scroll_by(side(clip), clip.bottom() + 120.0 - full.top());
@@ -184,7 +205,7 @@ impl Run {
                 self.scroll_by(side(clip), 3000.0);
                 self.next(900);
             }
-            3310 => {
+            3311 => {
                 if app.embed.is_some() {
                     return;
                 }
@@ -193,37 +214,37 @@ impl Run {
                 self.scroll_by(side(clip), -9000.0);
                 self.next(900);
             }
-            3311 => {
+            3312 => {
                 let Some(r) = poster(app, b) else { return };
-                self.click(r.center());
+                self.click(r.center() - vec2(30.0, 0.0));
                 self.next(0);
             }
-            3312 => {
+            3313 => {
                 if !playing(app, b) || !probe(app).is_some_and(|p| p.0) {
                     return;
                 }
                 app.switcher = Some(String::new());
                 self.next(600);
             }
-            3313 => {
+            3314 => {
                 if probe(app).is_some_and(|p| !p.0) {
                     self.mark("embed_frame_hides_for_dialog");
                 }
                 self.key(Key::Escape);
                 self.next(600);
             }
-            3314 => {
+            3315 => {
                 if app.switcher.is_some() || !probe(app).is_some_and(|p| p.0) {
                     return;
                 }
                 self.mark("embed_frame_returns_after_dialog");
                 self.next(0);
             }
-            3315 => {
+            3316 => {
                 app.open(GENERAL);
                 self.next(0);
             }
-            3316 => {
+            3317 => {
                 if app.cur() != Some(GENERAL) || app.embed.is_some() {
                     return;
                 }
@@ -231,12 +252,12 @@ impl Run {
                 app.open(EMBEDS);
                 self.next(600);
             }
-            3317 => {
+            3318 => {
                 let Some(r) = poster(app, b) else { return };
-                self.click(r.center());
+                self.click(r.center() - vec2(30.0, 0.0));
                 self.next(0);
             }
-            3318 => {
+            3319 => {
                 if !playing(app, b) {
                     return;
                 }
@@ -250,12 +271,12 @@ impl Run {
                 self.mark("embed_direct_player");
                 self.next(0);
             }
-            3319 => {
+            3320 => {
                 let Some(r) = player(app, file) else { return };
                 self.click(r.center());
                 self.next(1200);
             }
-            3320 => {
+            3321 => {
                 let ready = app.store.msgs.get(&EMBEDS).and_then(|e| e.list.iter().find(|m| m.id == file)).and_then(|m| m.embeds.first()?.video.as_ref()).and_then(|v| media::current(&v.url)).is_some_and(|s| matches!(s.view().phase, Phase::Ready));
                 if !ready {
                     return;
