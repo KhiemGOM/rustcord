@@ -13,6 +13,7 @@ mod bots;
 mod embed;
 mod call;
 mod web;
+mod shop;
 mod stage;
 mod clips;
 mod composer;
@@ -1357,6 +1358,7 @@ impl Run {
                 }
             }
             900..=919 => self.web_steps(),
+            3200..=3299 => self.shop_steps(app, ctx),
             2200..=2299 => self.activity_steps(app, ctx),
             3500..=3599 => self.bot_steps(app, ctx),
             3300..=3399 => self.embed_steps(app, ctx),

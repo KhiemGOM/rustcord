@@ -711,8 +711,8 @@ fn get_started(ui: &mut Ui, total: usize, done: usize) -> bool {
 }
 
 /// The rows over the channels, in discord's order and on its conditions. Server Boosts, Members
-/// and Channels & Roles are pages in place of the chat, Events is a window, the shop opens in the
-/// checkout window and what's left opens discord's own page in the browser. Hands back the row clicked
+/// and Channels & Roles are pages in place of the chat, Events is a window, and what's left opens
+/// discord's own page in the browser. Hands back the row clicked
 /// and which page is open.
 fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
@@ -733,7 +733,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
     }
     // servers selling role subscriptions get discord's shop row
     if has("ROLE_SUBSCRIPTIONS_AVAILABLE_FOR_PURCHASE") {
-        rows.push((Icon::Shop, "Server Shop", format!("/channels/{id}/shop")));
+        rows.push((Icon::Shop, "Server Shop", format!("https://discord.com/channels/{id}/shop")));
     }
     // the member table is for moderators, in community servers or ones with discord's tools on
     let moderator = perms & (BAN_MEMBERS | KICK_MEMBERS | MODERATE_MEMBERS | MANAGE_GUILD) != 0;
@@ -779,8 +779,6 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         if resp.clicked() {
             if url.is_empty() {
                 clicked = Some(label);
-            } else if url.starts_with('/') {
-                crate::webwin::checkout(&url);
             } else {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
             }
@@ -1121,17 +1119,18 @@ fn dms(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(8.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-            // friends, the store pages in the checkout window, and quests
-            let rows = [
-                (Icon::Friends, "Friends", None),
-                (Icon::Nitro, "Nitro Home", Some("/store")),
-                (Icon::Shop, "Shop", Some("/shop")),
-                (Icon::Quests, "Quests", None),
-            ];
-            for (icon, label, url) in rows {
+            let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro Home"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
+            let shop = app.shop.as_ref().map(|s| s.page);
+            for (icon, label) in rows {
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
                 let inner = row.shrink2(vec2(8.0, 0.0));
-                let on = if label == "Quests" { app.quests.is_some() } else { url.is_none() && app.friends };
+                let on = match label {
+                    "Quests" => app.quests.is_some(),
+                    "Nitro Home" => shop == Some(crate::ui::shop::Page::Nitro),
+                    "Shop" => shop == Some(crate::ui::shop::Page::Shop),
+                    _ => app.friends,
+                };
+                app.rects.insert(format!("home:{label}"), row);
                 if on {
                     ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
                 } else if resp.hovered() {
@@ -1140,7 +1139,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
-                if url.is_none() && label == "Friends" {
+                if label == "Friends" {
                     if pending > 0 {
                         badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
                     }
@@ -1150,13 +1149,14 @@ fn dms(app: &mut App, ui: &mut Ui) {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 if resp.clicked() {
-                    match url {
-                        Some(u) if u.starts_with('/') => crate::webwin::checkout(u),
-                        Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
-                        None if label == "Quests" => app.open_quests(),
-                        None => {
+                    match label {
+                        "Quests" => app.open_quests(),
+                        "Nitro Home" => app.open_shop(crate::ui::shop::Page::Nitro),
+                        "Shop" => app.open_shop(crate::ui::shop::Page::Shop),
+                        _ => {
                             app.friends = true;
                             app.quests = None;
+                            app.shop = None;
                         }
                     }
                 }
@@ -1189,7 +1189,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             for id in ids {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let (r, x) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none());
+                let (r, x) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none() && app.shop.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 if x {
                     leave = Some(id);

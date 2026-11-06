@@ -706,7 +706,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 
     if gift_click {
-        crate::webwin::checkout("/store");
+        crate::webwin::gift_nitro();
     }
     if apps_click {
         app.launcher = if app.launcher.is_some() { None } else { Some(super::plus::Launcher::new()) };

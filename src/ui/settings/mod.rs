@@ -7,7 +7,7 @@ mod modals;
 mod activity;
 mod app;
 mod apps;
-mod billing;
+pub mod billing;
 pub mod camera;
 mod clips;
 mod privacy;

@@ -5,6 +5,7 @@
 //! anything but its one frame, and the frame has no way off its own origin. Video embeds use the
 //! same host with a page that holds just the iframe (`webwin/frame.rs`).
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 
 use serde_json::{Value, json};

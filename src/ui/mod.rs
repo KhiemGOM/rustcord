@@ -70,6 +70,7 @@ mod report;
 mod system;
 mod profile;
 mod quests;
+pub mod shop;
 mod rail;
 mod reorder;
 mod channel;
@@ -253,6 +254,7 @@ pub struct App {
     pub embed_at: Option<(embedplay::Key, egui::Rect, egui::Rect)>,
     pub events: Option<events::Events>,
     pub quests: Option<quests::Quests>,
+    pub shop: Option<shop::Shop>,
     pub friends_tab: u8,
     pub add_friend: String,
     pub status_until: Option<i64>,
@@ -503,6 +505,7 @@ impl App {
             embed_at: None,
             events: None,
             quests: None,
+            shop: None,
             friends_tab: 0,
             add_friend: String::new(),
             status_until: None,
@@ -648,6 +651,7 @@ impl App {
         }
         self.friends = false;
         self.quests = None;
+        self.shop = None;
         if is_thread {
             self.side_thread = None;
         }

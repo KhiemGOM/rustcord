@@ -200,6 +200,7 @@ fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
 }
 
 enum Mark {
+    Icon(Icon),
     Guild(Id),
     Page(Icon),
     Avatar(String),
@@ -217,6 +218,12 @@ fn place(app: &App) -> (Mark, String) {
     }
     if app.ui.guild.is_none() && app.quests.is_some() {
         return (Mark::Page(Icon::Quests), "Quests".into());
+    }
+    if let Some(s) = app.shop.as_ref().filter(|_| app.ui.guild.is_none()) {
+        return match s.page {
+            super::shop::Page::Nitro => (Mark::Icon(Icon::Nitro), "Nitro".into()),
+            super::shop::Page::Shop => (Mark::Icon(Icon::Shop), "Shop".into()),
+        };
     }
     if let Some(g) = app.ui.guild.and_then(|g| s.guilds.get(&g)) {
         return (Mark::Guild(g.id), g.name.clone());
@@ -383,6 +390,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     Mark::Avatar(url) => super::avatar(ui, icon, &url),
                     Mark::Page(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
                     Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
+                    Mark::Icon(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
                     Mark::None => {}
                 }
                 let name_at = if bare { bar.center().x - label.size().x / 2.0 } else { left + 24.0 };

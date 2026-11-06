@@ -33,6 +33,7 @@ impl App {
         self.ui.guild = None;
         self.directory = None;
         self.friends = false;
+        self.shop = None;
         self.fetch_quests();
     }
 
@@ -420,7 +421,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 app.toast("Link copied to clipboard.");
             }
             Act::Open(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
-            Act::Shop => app.open_shop(),
+            Act::Shop => app.open_shop(crate::ui::shop::Page::Shop),
         }
     }
 }
@@ -438,8 +439,3 @@ fn chip(ui: &mut Ui, r: Rect, label: &str, caret: bool, key: &'static str) -> eg
     resp
 }
 
-impl App {
-    pub fn open_shop(&mut self) {
-        crate::webwin::checkout("/shop");
-    }
-}

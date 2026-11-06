@@ -189,6 +189,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if app.ui.guild.is_none() && app.quests.is_some() {
         return super::quests::show(app, ui);
     }
+    if app.ui.guild.is_none() && app.shop.is_some() {
+        return super::shop::show(app, ui);
+    }
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }
@@ -920,7 +923,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Forward(id) => app.forward = Some(super::popups::Forward::new(ch, id)),
             Act::Jump(id) => app.jump_to(ch, id),
             Act::Component(id, custom_id, what) => app.press(ch, id, &custom_id, what),
-            Act::Premium(sku) => crate::webwin::checkout(&format!("/store/skus/{sku}")),
+            Act::Premium(sku) => ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/store/skus/{sku}"))),
             Act::View(img, open, w, h) => {
                 // the message's other pictures come along, for the viewer's arrows
                 let all = app.store.msgs.get(&ch).and_then(|e| e.list.iter().find(|m| m.attachments.iter().any(|a| a.proxy == img) || m.embeds.iter().any(|e| e.image.as_ref().or(e.thumb.as_ref()).or(e.video.as_ref()).is_some_and(|x| x.url == img))));
