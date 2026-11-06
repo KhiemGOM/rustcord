@@ -82,3 +82,37 @@ pub fn friend_request(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16,
         Some((400, json!({ "code": 80004, "message": "No users with DiscordTag exist" })))
     }
 }
+
+pub fn install(method: &str, parts: &[&str], path: &str, body: &[u8]) -> Option<(u16, Value)> {
+    let ["api", "v9", "oauth2", "authorize"] = parts else { return None };
+    let q: Vec<(String, String)> = path.split_once('?').map(|(_, q)| q).unwrap_or_default().split('&').filter_map(|p| p.split_once('=')).map(|(k, v)| (k.to_string(), v.replace("%20", " ").replace('+', " "))).collect();
+    let get = |k: &str| q.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+    let (name, cid) = match get("client_id")? {
+        "9101" => ("Rusty Racers", "9101"),
+        "9102" => ("Crab Chess", "9102"),
+        _ => return None,
+    };
+    let bot = get("scope").is_some_and(|s| s.split(' ').any(|x| x == "bot"));
+    if method == "GET" {
+        let mut v = json!({ "application": { "id": cid, "name": name, "icon": null, "description": "a mock app" }, "authorized": false });
+        if bot {
+            v["bot"] = json!({ "id": cid, "username": name, "bot": true });
+            v["guilds"] = json!([{ "id": "1000", "name": "Rust Lounge", "permissions": "32" }, { "id": "1001", "name": "Gamers United", "permissions": "0" }]);
+        }
+        return Some((200, v));
+    }
+    if method != "POST" {
+        return None;
+    }
+    let b: Value = serde_json::from_slice(body).unwrap_or_default();
+    if b["authorize"] != json!(true) || !b["permissions"].is_string() {
+        return Some(bad("authorize must be true and permissions a string"));
+    }
+    if bot && b["guild_id"] != json!("1000") {
+        return Some(bad("guild_id must be a server you manage"));
+    }
+    if !bot && b["integration_type"] != json!(1) {
+        return Some(bad("integration_type must be 1 to install to an account"));
+    }
+    Some((200, json!({ "location": "/oauth2/authorized" })))
+}

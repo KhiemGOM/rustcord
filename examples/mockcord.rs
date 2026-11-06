@@ -1220,7 +1220,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body)) {
+    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body).or_else(|| prefs::install(method, &parts, path, body))) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     match (method, parts.as_slice()) {
@@ -1632,7 +1632,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["api", "v9", "application-directory-static", "categories"]) => ok(json!([{ "id": 6, "name": "Games" }, { "id": 9, "name": "Social" }])),
         ("GET", ["api", "v9", "application-directory-static", "collections"]) => {
             let app = |id: &str, name: &str| json!({ "application": { "id": id, "name": name, "icon": "icon".to_string() + id, "cover_image": "cover".to_string() + id,
-                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6] } });
+                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6],
+                                                     "install_params": if id == "9101" { json!({ "scopes": ["bot", "applications.commands"], "permissions": "68608" }) } else { json!({ "scopes": ["applications.commands"], "permissions": "0" }) } } });
             ok(json!([{ "id": "1", "title": "Promoted Games", "position": 1, "application_directory_collection_items": [app("9101", "Rusty Racers"), app("9102", "Crab Chess")] }]))
         }
         ("GET", ["api", "v9", "application-directory-static", "search"]) => ok(json!({ "results": [], "num_pages": 0, "result_count": 0 })),
