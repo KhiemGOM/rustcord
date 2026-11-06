@@ -7,6 +7,9 @@ mod draft;
 mod pick;
 mod style;
 
+pub use draft::{Pic, Slot};
+pub use style::PRESETS;
+
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
 
@@ -17,7 +20,7 @@ use super::{App, avatar, text};
 use crate::net::Tag;
 use crate::state::Id;
 use crate::theme::*;
-use draft::{Draft, Pic};
+use draft::Draft;
 
 const PANEL_W: f32 = 242.0;
 const REGION_W: f32 = 960.0;

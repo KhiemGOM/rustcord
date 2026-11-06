@@ -245,7 +245,7 @@ impl Run {
                     self.mark("clips_hotkey_off");
                 }
                 app.voice.leave(&app.net);
-                self.step = 99;
+                self.step = 3900;
             }
             _ => self.step = 99,
         }
