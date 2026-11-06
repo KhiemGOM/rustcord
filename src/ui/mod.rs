@@ -314,7 +314,7 @@ pub struct App {
     // when the window stopped being used (hidden or out of focus), and whether its memory went
     // back since; and whether the pages startup left behind have gone
     quiet: Option<(Instant, bool)>,
-    trimmed_startup: bool,
+    startup_trims: usize,
     born: Instant,
 }
 
@@ -514,7 +514,7 @@ impl App {
             system: crate::winsys::preferences(),
             system_at: 0.0,
             quiet: None,
-            trimmed_startup: false,
+            startup_trims: 0,
             born: t0,
         };
         app.apply_settings(&ctx);
@@ -1247,10 +1247,8 @@ impl App {
         });
     }
 
-    /// Minimized or put away in the tray: eframe stops calling ui() for the first and we skip
-    /// drawing for the second, so logic() keeps the badge and the tray icon up to date.
     /// Pages nothing touches go back to Windows: what startup left behind (READY's parse, setting
-    /// up) half a minute in, and everything once the window has sat hidden for 5 s or out of focus
+    /// up) within the first half minute, and everything once the window has sat hidden for 5 s or out of focus
     /// for a minute. Drawing and the gateway touch about 40 MB; the rest comes back if it's needed.
     fn trim_memory(&mut self, ctx: &egui::Context) {
         let away = self.away(ctx);
@@ -1260,7 +1258,7 @@ impl App {
         } else if self.quiet.is_none() {
             self.quiet = Some((Instant::now(), false));
         }
-        let startup = (!self.trimmed_startup).then(|| self.born + Duration::from_secs(30));
+        let startup = [12, 30].get(self.startup_trims).map(|s| self.born + Duration::from_secs(*s));
         let quiet = self.quiet.filter(|q| !q.1).map(|(at, _)| at + wait);
         let Some(due) = startup.into_iter().chain(quiet).min() else { return };
         let now = Instant::now();
@@ -1277,12 +1275,16 @@ impl App {
             }
         }
         crate::winsys::trim();
-        self.trimmed_startup |= self.born.elapsed() >= Duration::from_secs(30);
+        if startup.is_some_and(|at| at <= now) {
+            self.startup_trims += 1;
+        }
         if settled {
             self.quiet = self.quiet.map(|(at, _)| (at, true));
         }
     }
 
+    /// Minimized or put away in the tray: eframe stops calling ui() for the first and we skip
+    /// drawing for the second, so logic() keeps the badge and the tray icon up to date.
     fn away(&self, ctx: &egui::Context) -> bool {
         self.frames > 0 && (ctx.input(|i| i.viewport().visible() == Some(false)) || !crate::winsys::shown())
     }
