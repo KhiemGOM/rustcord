@@ -6,7 +6,7 @@ use crate::theme::*;
 use crate::ui::App;
 
 fn bind_index(app: &mut App) -> usize {
-    match app.settings.keybinds.iter().position(|(a, _)| a == "save_clip") {
+    match app.settings.keybinds.iter().position(|(a, _)| crate::ui::clips::is_save_clip(a)) {
         Some(i) => i,
         None => {
             app.settings.keybinds.push(("save_clip".into(), DEFAULT_KEYS.to_vec()));

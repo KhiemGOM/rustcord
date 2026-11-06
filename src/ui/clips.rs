@@ -45,7 +45,7 @@ impl App {
             self.clips.live = live;
             self.sync_hotkeys();
         }
-        if self.settings.clips && !self.settings.keybinds.iter().any(|(a, _)| a == "save_clip") {
+        if self.settings.clips && !self.settings.keybinds.iter().any(|(a, _)| is_save_clip(a)) {
             self.settings.keybinds.push(("save_clip".into(), clips::DEFAULT_KEYS.to_vec()));
             self.save_settings(ctx);
         }
