@@ -12,10 +12,6 @@ const LOBBY: Id = 2100;
 const GAMERS: Id = 1001;
 
 impl Run {
-    fn rect(ctx: &egui::Context, key: &str) -> Option<Rect> {
-        Self::at(ctx, key)
-    }
-
     fn inside(ctx: &egui::Context, r: Rect) -> bool {
         ctx.content_rect().expand(0.5).contains_rect(r)
     }
@@ -61,7 +57,7 @@ impl Run {
                 self.next(600);
             }
             3804 => {
-                let Some(panel) = Self::rect(ctx, "combos:panel") else { return };
+                let Some(panel) = Self::at(ctx, "combos:panel") else { return };
                 let screen = ctx.content_rect();
                 if Self::inside(ctx, panel) && panel.width() >= 800.0f32.min(screen.width() - 1.0) && panel.height() > 450.0f32.min(screen.height() * 0.5) {
                     self.mark("combos_fits");
@@ -297,7 +293,7 @@ impl Run {
                 self.next(600);
             }
             3840 => {
-                let Some(panel) = Self::rect(ctx, "combos:panel") else { return };
+                let Some(panel) = Self::at(ctx, "combos:panel") else { return };
                 if Self::inside(ctx, panel) {
                     self.mark("combos_fits_short");
                 }
