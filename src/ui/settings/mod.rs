@@ -9,6 +9,7 @@ mod app;
 mod apps;
 mod billing;
 pub mod camera;
+mod clips;
 mod privacy;
 mod profiles;
 mod keybinds;
@@ -27,6 +28,7 @@ use super::icons::{self, Icon};
 use crate::net::Tag;
 use crate::theme::*;
 
+pub use system::combo;
 pub use user::Forms;
 
 /// Read back what a settings page wrote, for the e2e.
@@ -49,6 +51,7 @@ pub enum Page {
     Privacy,
     Messaging,
     Notifications,
+    Clips,
     Nitro,
     Boost,
     Subscriptions,
@@ -76,6 +79,7 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Privacy, "Data & Privacy", Icon::SidePrivacy, &["How Discord Uses My Data", "Profile Privacy"]),
     Item::Page(Page::Messaging, "Messaging Permissions", Icon::SideMessaging, &[]),
     Item::Page(Page::Notifications, "Notifications", Icon::SideBell, &["Overview", "Sounds", "Badges", "Email", "Advanced"]),
+    Item::Page(Page::Clips, "Clips", Icon::Clips, &["Clipping", "Capture Settings", "Storage"]),
     Item::Head("Billing"),
     Item::Page(Page::Nitro, "Nitro", Icon::SideNitro, &[]),
     Item::Page(Page::Boost, "Server Boost", Icon::SideBoost, &[]),
@@ -343,6 +347,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::Privacy => privacy::data(app, ui),
                 Page::Messaging => privacy::messaging(app, ui),
                 Page::Notifications => notify::page(app, ui),
+                Page::Clips => clips::page(app, ui),
                 Page::Nitro => billing::nitro(app, ui),
                 Page::Boost => billing::boost(app, ui),
                 Page::Subscriptions => billing::subscriptions(app, ui),

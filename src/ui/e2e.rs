@@ -11,6 +11,7 @@ mod activity;
 mod call;
 mod web;
 mod stage;
+mod clips;
 mod composer;
 mod login;
 mod camera;
@@ -1306,6 +1307,7 @@ impl Run {
             1400..=1419 => self.scroll_steps(app, ctx),
             1700..=1719 => self.spell_steps(app, ctx),
             2800..=2829 => self.camera_steps(app, ctx),
+            2900..=2959 => self.clips_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),

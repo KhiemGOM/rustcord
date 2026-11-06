@@ -1346,7 +1346,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         };
         status_dot(ui, av, status, pal().bg_secondary_alt);
         // leave room for the three buttons so long names elide instead of running under them
-        let col = (ui.available_width() - 146.0).max(40.0);
+        let col = (ui.available_width() - 146.0 - if app.settings.clips { 32.0 } else { 0.0 }).max(40.0);
         let hot = ui.rect_contains_pointer(ui.max_rect());
         let names = ui.allocate_ui_with_layout(vec2(col, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
@@ -1402,6 +1402,9 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
             app.rects.insert("gear".into(), gear.rect);
             if gear.clicked() {
                 app.settings_page = Some(super::settings::Page::Account);
+            }
+            if app.settings.clips {
+                super::clips::panel_button(app, ui);
             }
             super::call::user_buttons(app, ui);
         });
