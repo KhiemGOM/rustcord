@@ -18,7 +18,7 @@ pub mod stage;
 mod video;
 
 pub use capture::cameras;
-pub use video::{Quality, Source};
+pub use video::{Quality, Source, shown};
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};

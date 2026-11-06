@@ -6,8 +6,8 @@ use openh264::decoder::Decoder;
 use openh264::encoder::{BitRate, Complexity, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, UsageType};
 use openh264::formats::{BgraSliceU8, YUVBuffer, YUVSource};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::sync::mpsc as smpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -160,7 +160,51 @@ pub fn set_codecs(hw: bool, openh264: bool) {
     SOFT.store(openh264, Relaxed);
 }
 
-/// Decodes on its own thread so a 1080p keyframe never stalls the media loop.
+// the pixels each person's video is drawn at, and when
+static SHOWN: LazyLock<Mutex<HashMap<Id, ((usize, usize), Instant)>>> = LazyLock::new(Default::default);
+
+/// Called as a person's video is drawn. A bigger size counts at once, a smaller one after a second,
+/// so the same person in a tile and on the stage gets the stage's.
+pub fn shown(user: Id, size: egui::Vec2) {
+    let px = (size.x.ceil() as usize, size.y.ceil() as usize);
+    let now = Instant::now();
+    let mut m = SHOWN.lock().unwrap();
+    let e = m.entry(user).or_insert((px, now));
+    if (px.0 >= e.0.0 && px.1 >= e.0.1) || now - e.1 > Duration::from_secs(1) {
+        *e = (px, now);
+    }
+}
+
+fn on_screen(user: Id) -> Option<(usize, usize)> {
+    SHOWN.lock().unwrap().get(&user).filter(|e| e.1.elapsed() < Duration::from_millis(1500)).map(|e| e.0)
+}
+
+/// Averages each `f` by `f` block of a 4-byte-a-pixel picture into one pixel.
+fn shrink(src: &[u8], (w, h): (usize, usize), f: usize, [r, g, b]: [usize; 3]) -> ColorImage {
+    let (nw, nh) = (w / f, h / f);
+    let n = (f * f) as u32;
+    let mut px = Vec::with_capacity(nw * nh);
+    let mut sum = vec![0u32; nw * 3];
+    for y in 0..nh {
+        sum.fill(0);
+        for row in 0..f {
+            let line = &src[(y * f + row) * w * 4..][..nw * f * 4];
+            for (o, block) in sum.chunks_exact_mut(3).zip(line.chunks_exact(4 * f)) {
+                for c in block.chunks_exact(4) {
+                    o[0] += c[r] as u32;
+                    o[1] += c[g] as u32;
+                    o[2] += c[b] as u32;
+                }
+            }
+        }
+        px.extend(sum.chunks_exact(3).map(|o| egui::Color32::from_rgb((o[0] / n) as u8, (o[1] / n) as u8, (o[2] / n) as u8)));
+    }
+    ColorImage::new([nw, nh], px)
+}
+
+/// Decodes on its own thread so a 1080p keyframe never stalls the media loop. Every frame has to go
+/// through the decoder, but only what's on screen becomes a picture, at the size it's on screen:
+/// off screen one a second, small, which is what puts it there in the first place.
 pub struct Decode {
     tx: smpsc::Sender<(u32, Id, Vec<u8>)>,
 }
@@ -171,7 +215,13 @@ impl Decode {
         let _ = std::thread::Builder::new().name("video-decode".into()).spawn(move || {
             let mut decs: HashMap<u32, Decoder> = HashMap::new();
             let mut rgba = Vec::new();
+            let mut last: HashMap<u32, Instant> = HashMap::new();
+            let mut settle = None;
             while let Ok((ssrc, user, frame)) = rx.recv() {
+                if settle.is_some_and(|t| Instant::now() >= t) {
+                    crate::winsys::trim();
+                    settle = Some(Instant::now() + Duration::from_secs(3600));
+                }
                 let dec = match decs.get_mut(&ssrc) {
                     Some(d) => d,
                     None => match SOFT.load(Relaxed).then(Decoder::new) {
@@ -182,11 +232,18 @@ impl Decode {
                 match dec.decode(&frame) {
                     Ok(Some(yuv)) => {
                         let (w, h) = yuv.dimensions();
+                        shared.video_in.fetch_add(1, Relaxed);
+                        let want = on_screen(user);
+                        if want.is_none() && last.get(&ssrc).is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+                            continue;
+                        }
+                        last.insert(ssrc, Instant::now());
+                        settle.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));
                         rgba.resize(w * h * 4, 0);
                         yuv.write_rgba8(&mut rgba);
-                        shared.video_in.fetch_add(1, Relaxed);
-                        let img = Arc::new(ColorImage::from_rgba_unmultiplied([w, h], &rgba));
-                        out.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, img) }));
+                        let f = want.map_or(4, |(tw, th)| (w / tw.max(1)).min(h / th.max(1))).clamp(1, 8);
+                        let img = if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) };
+                        out.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, Arc::new(img)) }));
                     }
                     Ok(None) => {}
                     Err(_) => {
@@ -194,6 +251,8 @@ impl Decode {
                     }
                 }
             }
+            drop((decs, rgba));
+            crate::winsys::trim();
         });
         Decode { tx }
     }
@@ -279,7 +338,12 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
             let frame_time = Duration::from_secs(1) / fps;
             let mut next = Instant::now();
             let mut n = 0u64;
+            let mut settle = Some(Instant::now() + Duration::from_secs(3));
             while !s2.load(Relaxed) {
+                if settle.is_some_and(|t| Instant::now() >= t) {
+                    crate::winsys::trim();
+                    settle = None;
+                }
                 // never behind by more than a frame, so a hiccup doesn't come out as a burst
                 next = (next + frame_time).max(Instant::now());
                 if !pipe.paced()
@@ -319,6 +383,8 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                     }
                 }
             }
+            drop(pipe);
+            crate::winsys::trim();
         })
         .map_err(|e| e.to_string())?;
     let (size, bitrate) = ready.recv().map_err(|e| e.to_string())??;
@@ -392,8 +458,7 @@ impl Pipe {
                     return Ok(false);
                 }
                 if let Some(p) = look {
-                    let px = bgra.chunks_exact(4).map(|p| egui::Color32::from_rgb(p[2], p[1], p[0])).collect();
-                    p(Arc::new(ColorImage::new([w, h], px)));
+                    p(Arc::new(shrink(bgra, (w, h), (h / 360).max(1), [2, 1, 0])));
                 }
                 match enc {
                     Enc::Card(e, yuv) => {

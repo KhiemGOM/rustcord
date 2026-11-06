@@ -508,6 +508,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let a = Rect::from_min_size(pos2(x, top.center().y - s.y / 2.0), s);
                     match app.voice.video.get(u).cloned() {
                         Some(img) => {
+                            crate::voice::shown(*u, a.size() * ui.ctx().pixels_per_point());
                             frame(app, ui, format!("cam:{u}"), &img, a);
                             let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "cam")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
                             if k > 0.0 {
@@ -565,7 +566,10 @@ fn stage(app: &mut App, ui: &mut Ui, r: Rect, img: Option<Arc<ColorImage>>) {
     ui.painter().rect_filled(r, CornerRadius::same(8), Color32::BLACK);
     let Some((who, mine)) = app.voice.stream.as_ref().map(|l| (l.user, l.mine)) else { return };
     match img {
-        Some(img) => frame(app, ui, "stream".into(), &img, r),
+        Some(img) => {
+            crate::voice::shown(who, r.size() * ui.ctx().pixels_per_point());
+            frame(app, ui, "stream".into(), &img, r)
+        }
         None => {
             ui.painter().text(r.center(), Align2::CENTER_CENTER, "Connecting to stream…", reg(14.0), pal().header_secondary);
         }
@@ -725,7 +729,10 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
             app.rects.insert(format!("voice:tile:{u}"), tile);
             match app.voice.video.get(u).cloned() {
-                Some(img) => frame(app, ui, format!("cam:{u}"), &img, tile),
+                Some(img) => {
+                    crate::voice::shown(*u, tile.size() * ui.ctx().pixels_per_point());
+                    frame(app, ui, format!("cam:{u}"), &img, tile)
+                }
                 None => {
                     let av = if tile.width() >= 400.0 { 80.0 } else if tile.width() >= 200.0 { 64.0 } else { 40.0 };
                     let a = Rect::from_center_size(tile.center(), vec2(av, av));
