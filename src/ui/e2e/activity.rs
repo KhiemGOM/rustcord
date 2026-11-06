@@ -17,6 +17,7 @@ impl Run {
                 if app.conn != Conn::Online || !app.store.channels.contains_key(&HANGOUT) {
                     return;
                 }
+                app.rest("POST", "/mock/activity/forget".into(), Some(json!({})), crate::net::Tag::Quiet);
                 app.select_guild(Some(DEN));
                 app.open(HANGOUT);
                 app.join_voice(HANGOUT, false);
