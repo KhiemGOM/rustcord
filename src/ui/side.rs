@@ -852,7 +852,6 @@ fn voice_full(store: &Store, c: &Channel) -> bool {
     c.is_voice() && store.full(c) && store.guilds.get(&c.guild).and_then(|g| g.voice.get(&store.me)) != Some(&c.id)
 }
 
-/// What discord's tooltip on a channel's icon says: its kind, and how it's restricted.
 fn kind_tip(store: &Store, c: &Channel) -> &'static str {
     let limited = store.limited(c);
     let age = c.nsfw;

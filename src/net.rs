@@ -68,7 +68,6 @@ pub enum Tag {
     // the note you keep on someone
     Note(Id),
     Friend,
-    // a request typed into Add Friend: the name, to say how it went under the box
     AddFriend(String),
     Commands(Id),
     Gifs(String),
@@ -113,7 +112,6 @@ pub enum Tag {
     Soundboard(Id),
     // the activity shelf, launching one and the oauth steps its page asks for, by step
     Activity(String),
-    // Add App's consent: true the install link's details, false the grant
     AddApp(bool),
 }
 
