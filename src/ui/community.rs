@@ -15,6 +15,7 @@ use crate::theme::*;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Members,
+    Guide,
     // Customize, then Browse Channels
     Channels(u8),
 }
@@ -132,6 +133,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(page) = app.home.as_ref().map(|h| h.page) else { return };
     let (icon, title) = match page {
         Page::Members => (Icon::People, "Members"),
+        Page::Guide => (Icon::ServerGuide, "Server Guide"),
         Page::Channels(_) => (Icon::ChannelsRoles, "Channels & Roles"),
     };
     egui::Panel::top("home_head")
@@ -147,6 +149,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
         });
     egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| match page {
         Page::Members => members(app, ui, gid),
+        Page::Guide => super::guide::show(app, ui, gid),
         Page::Channels(tab) => channels(app, ui, gid, tab),
     });
 }

@@ -26,6 +26,7 @@ mod folders;
 mod follow;
 mod forum;
 mod gate;
+mod guide;
 mod guildmodal;
 mod friends;
 pub mod icons;
@@ -151,6 +152,8 @@ pub struct App {
     pub report: Option<report::Report>,
     // the server guide's new member actions, per server: (their channels, the ones done)
     pub guides: Map<Id, (Vec<Id>, Set<Id>)>,
+    // what the welcome request answered, for the guide page
+    pub guide_raw: Map<Id, serde_json::Value>,
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
@@ -385,6 +388,7 @@ impl App {
             reactors: None,
             report: None,
             guides: Map::default(),
+            guide_raw: Map::default(),
             user_menu: None,
             menu_from: Default::default(),
             user_dialog: None,
@@ -1500,6 +1504,7 @@ impl App {
                 let actions = v["new_member_actions"].as_array().into_iter().flatten().map(|a| crate::state::sid(&a["channel_id"]));
                 let e = self.guides.entry(g).or_default();
                 e.0 = if on { actions.filter(|c| *c != 0).collect() } else { Vec::new() };
+                self.guide_raw.insert(g, v);
             }
             Tag::MemberActions(g) => {
                 let done = v["channel_actions"].as_object().into_iter().flatten().filter(|(_, a)| a["completed"].as_bool() == Some(true));
