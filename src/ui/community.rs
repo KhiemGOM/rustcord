@@ -44,6 +44,7 @@ const SORTS: [(u8, &str); 4] = [(1, "Member Since (Newest first)"), (2, "Member 
 impl App {
     pub fn open_home(&mut self, gid: Id, page: Page) {
         self.boosts = None;
+        self.server_shop = None;
         if let Some(h) = self.home.as_mut().filter(|h| h.guild == gid) {
             h.page = page;
             return;

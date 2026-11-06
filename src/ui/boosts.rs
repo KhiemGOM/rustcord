@@ -54,6 +54,7 @@ impl App {
     pub fn open_boosts(&mut self, gid: Id) {
         self.boosts = Some(gid);
         self.home = None;
+        self.server_shop = None;
         self.boost_info.insert(gid, Info::default());
         self.rest("GET", format!("/store/published-listings/skus?application_id={POWERUPS_APP}&guild_id={gid}"), None, Tag::Boosts(gid, 0));
         self.rest("GET", format!("/guilds/{gid}/powerups?include_ends_at=true"), None, Tag::Boosts(gid, 1));
@@ -304,7 +305,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
                 s.page = if name == "Enhanced Role Styles" { super::server::Page::Roles } else { super::server::Page::Tag };
             }
         }
-        Some((_, false)) => crate::webwin::boost(gid),
+        Some((_, false)) => app.open_buy(super::buy::What::Boost(gid)),
         None => {}
     }
 }
@@ -373,7 +374,7 @@ fn side(app: &mut App, ui: &mut Ui, gid: Id) {
         });
     });
     if boost {
-        crate::webwin::boost(gid);
+        app.open_buy(super::buy::What::Boost(gid));
     }
 }
 
