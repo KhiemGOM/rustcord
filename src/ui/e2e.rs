@@ -1715,7 +1715,7 @@ impl Run {
             135 => {
                 let (Some(r), Some(p)) = (Self::at(ctx, "modal_input"), Self::at(ctx, "modal_password")) else { return };
                 self.click(r.right_center() - vec2(4.0, 0.0));
-                self.queue.push_back(vec![Event::Text("!".into())]);
+                self.queue.push_back(vec![Event::Text("_".into())]);
                 self.click(p.center());
                 self.queue.push_back(vec![Event::Text("hunter2".into())]);
                 self.next(400);
@@ -1727,7 +1727,7 @@ impl Run {
                 self.next(0);
             }
             137 => {
-                if app.sform.modal_closed() && app.store.user(app.store.me).map(|u| u.username.as_str()) == Some("you!") {
+                if app.sform.modal_closed() && app.store.user(app.store.me).map(|u| u.username.as_str()) == Some("you_") {
                     self.mark("display_name");
                     self.next(300);
                 }

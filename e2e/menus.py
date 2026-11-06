@@ -8,7 +8,7 @@ def checks(runs, reqs, data):
     both = lambda m: all(m in r.get("marks_ms", {}) for r in runs.values())
     sent = lambda method, part: [r for r in reqs if r.get("method") == method and part in r.get("path", "")]
     body = lambda r: json.loads(r.get("body") or "{}")
-    prefs = [body(r) for r in sent("PATCH", "/users/@me/guilds/1000/settings")]
+    prefs = [body(r)["guilds"]["1000"] for r in sent("PATCH", "/users/@me/guilds/settings") if "1000" in body(r).get("guilds", {})]
     has = lambda key, val: any(p.get(key) == val for p in prefs)
     searches = [r.get("path", "") for r in sent("GET", "/guilds/1000/messages/search")]
     installs = [body(r) for r in sent("POST", "/oauth2/authorize") if "client_id=9101" in r.get("path", "")]

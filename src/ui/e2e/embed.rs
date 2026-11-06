@@ -93,10 +93,16 @@ impl Run {
                     return;
                 }
                 let Some(r) = poster(app, b) else { return };
-                if poster(app, file).is_some() || r.height() > 150.0 {
-                    self.mark("embed_poster");
-                    self.shot(ctx, "embed_poster.png");
+                if r.height() < 150.0 && self.sub < 4 {
+                    let Some(chat) = app.wheel.chat else { return };
+                    self.sub += 1;
+                    self.scroll_by(side(chat), 200.0);
+                    self.wait = std::time::Instant::now() + std::time::Duration::from_millis(400);
+                    return;
                 }
+                self.sub = 0;
+                self.mark("embed_poster");
+                self.shot(ctx, "embed_poster.png");
                 self.click(r.center() - vec2(30.0, 0.0));
                 self.next(0);
             }

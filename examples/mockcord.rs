@@ -332,8 +332,8 @@ fn chatx_msgs(cdn: &str) -> Vec<Value> {
         });
     });
     add(101, "an image to copy", &|m| {
-        m["attachments"] = json!([{ "id": "11", "filename": "copy-me.png", "size": 4096, "url": format!("{cdn}/attachments/copy-me.png"),
-            "proxy_url": format!("{cdn}/attachments/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
+        m["attachments"] = json!([{ "id": "11", "filename": "copy-me.png", "size": 4096, "url": format!("{cdn}/attachments/2085/11/copy-me.png"),
+            "proxy_url": format!("{cdn}/attachments/2085/11/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
     });
     add(102, "a sticker from elsewhere", &|m| m["sticker_items"] = json!([{ "id": "7777", "name": "Monkey Think", "format_type": 1 }]));
     add(103, "a faraway <:CRose:9999> emoji", &|_| {});
@@ -1422,10 +1422,16 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
-    if let Some((code, v)) = shop::route(method, &parts, body) {
+    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some((code, mut v)) = shop::route(method, &parts, body) {
+        // one catalog: the shop's pages and the profile editor's pickers read the same list
+        if parts.ends_with(&["collectibles-categories", "v2"])
+            && let (Some((_, more)), Some(list)) = (profiles::route(method, &parts, &Value::Null, &cdn), v["categories"].as_array_mut())
+        {
+            list.extend(more["categories"].as_array().cloned().unwrap_or_default());
+        }
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
     if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1538,7 +1544,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                     let Some(size) = w.lock().unwrap().uploads.get(key).copied() else {
                         return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "attachments": { "_errors": [{ "code": "ATTACHMENT_NOT_UPLOADED", "message": "Attachment was not uploaded" }] } } }).to_string().into_bytes());
                     };
-                    let url = format!("http://127.0.0.1:{port}/cdn/attachments/{key}");
+                    let url = format!("http://127.0.0.1:{port}/cdn/attachments/{ch}/{}/{name}", fresh());
                     let image = matches!(name.rsplit('.').next(), Some("png" | "jpg" | "jpeg" | "gif"));
                     let mut att = json!({ "id": fresh().to_string(), "filename": name, "size": size, "url": url, "proxy_url": url, "content_type": if image { "image/png" } else { "application/octet-stream" } });
                     if image {
@@ -2273,10 +2279,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             keep(w, format!("g:{g}"), body);
             guild_update(w, g);
             ok(guild_full(w, g).unwrap())
-        }
-        ("POST", ["api", "v9", "guilds", _, "bulk-ban", "v2"]) => {
-            let b: Value = serde_json::from_slice(body).unwrap_or_default();
-            ok(json!({ "banned_users": b["user_ids"], "failed_users": [] }))
         }
         ("POST", ["api", "v9", "guilds", g, "delete"]) => {
             let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_DELETE", "d": { "id": g } }));

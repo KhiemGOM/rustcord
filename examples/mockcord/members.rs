@@ -186,7 +186,7 @@ pub fn route(method: &str, parts: &[&str], query: Option<&str>, body: &[u8], b: 
             (204, None, None)
         }
         ("GET", ["api", "v9", "guilds", _, "bans"]) => (200, Some(json!(st.banned.iter().map(|(u, r)| json!({ "user": (b.user)(*u), "reason": r })).collect::<Vec<_>>())), None),
-        ("POST", ["api", "v9", "guilds", g, "bulk-ban"]) => {
+        ("POST", ["api", "v9", "guilds", g, "bulk-ban", "v2"]) => {
             let Some(list) = v["user_ids"].as_array().filter(|l| !l.is_empty()) else { return Some(bad("user_ids", "This field is required")) };
             if list.len() > BULK_MAX {
                 return Some(bad("user_ids", "Must be 200 or fewer in length."));

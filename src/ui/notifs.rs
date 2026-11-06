@@ -86,7 +86,7 @@ fn ring(ui: &Ui, c: egui::Pos2, on: bool) {
 }
 
 fn patch(app: &mut App, gid: Id, body: Value) {
-    app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(body), Tag::Quiet);
+    app.guild_settings(gid, body, Tag::Quiet);
 }
 
 fn overrides(app: &App, gid: Id, added: &[Id]) -> Vec<Id> {

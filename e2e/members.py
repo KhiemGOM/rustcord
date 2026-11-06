@@ -15,6 +15,6 @@ def checks(runs, reqs, data):
         "members: a timeout from the row menu sent communication_disabled_until and the table shows it": has("mm_timeout") and sent("PATCH", "/members/102", "communication_disabled_until"),
         "members: a kick and a ban from the row menu left the table without that member": has("mm_kick", "mm_ban")
             and sent("DELETE", "/members/105") and sent("PUT", "/bans/104", "delete_message_seconds"),
-        "members: bulk ban of the owner was refused and the row stayed": has("mm_bulk_ban_owner_refused") and sent("POST", "/bulk-ban", "101"),
+        "members: bulk ban of the owner was refused and the row stayed": has("mm_bulk_ban_owner_refused") and sent("POST", "/bulk-ban/v2", "101"),
         "members: bulk kick of two selected rows removed both": has("mm_bulk_kick") and sent("DELETE", "/members/102") and sent("DELETE", "/members/103"),
     }
