@@ -6,13 +6,15 @@ use crate::net::Tag;
 use crate::state::Id;
 use crate::ui::settings;
 
+// .contentColumn's padding-block-end
+const PAGE_END: f32 = 80.0;
 const FEATURE: &str = "ENABLED_MODERATION_EXPERIENCE_FOR_NON_COMMUNITY";
 
 pub fn loaded(app: &mut App, v: Value) {
     let Some(s) = &mut app.server else { return };
-    for u in super::super::community::fill(&mut s.pages.members, &v) {
-        app.store.apply("USER_UPDATE", &u);
-    }
+    let gid = s.guild;
+    let rows = super::super::community::fill(&mut s.pages.members, &v);
+    super::super::community::remember(app, gid, rows);
 }
 
 pub fn list_toggle(app: &mut App, ui: &mut Ui, gid: Id, label: &str) -> bool {
@@ -50,9 +52,9 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
     if m.sort == 0 {
         m.sort = 1;
     }
-    let h = (ui.ctx().content_rect().height() - ui.cursor().top() - 100.0).max(520.0);
+    let h = (ui.ctx().content_rect().bottom() - ui.cursor().top() - PAGE_END).max(0.0);
     ui.allocate_ui(vec2(ui.available_width(), h), |ui| {
-        crate::ui::community::table(app, ui, gid, &mut m, Tag::Server("members"));
+        crate::ui::community::table(app, ui, gid, &mut m, Tag::Server("members"), 0.0);
     });
     if let Some(s) = &mut app.server {
         s.pages.members = m;

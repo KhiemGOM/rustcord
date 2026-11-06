@@ -72,12 +72,13 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     };
     let orig = norm(&raw);
     let mut d = form::take(app, "profile", &orig);
-    ui.set_max_width(560.0);
+    ui.set_max_width(form_width(ui.ctx(), ui.available_width()));
     title(ui, "Server Profile", "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages");
 
     super::super::settings::h5(ui, "Name");
     let mut name = d["name"].as_str().unwrap_or_default().to_string();
     let r = super::super::settings::input(ui, &mut name, "", false);
+    super::super::settings::mark(ui, "server_profile:name", r.rect);
     super::super::settings::mark(ui, "field:server_name", r.rect);
     d["name"] = json!(name);
 
@@ -186,8 +187,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     let private = !matches!(d["visibility"].as_u64(), Some(1 | 3));
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
+        let text_w = (ui.available_width() - PRIVATE_CARD - 48.0 - 2.0 * 24.0 - 4.0).max(0.0);
         ui.vertical(|ui| {
-            ui.set_width(200.0);
+            ui.set_width(text_w);
             ui.label(RichText::new("Private Profile").font(medium(16.0)).color(pal().header_primary));
             ui.add_space(4.0);
             ui.label(RichText::new("When enabled, only server members can view profile content. Non-members won't be able to see this content unless they have an invite.").font(reg(14.0)).color(pal().header_secondary));
@@ -236,8 +238,8 @@ fn paint_switch(ui: &Ui, r: Rect, on: bool) {
 
 fn private_card(ui: &mut Ui) {
     Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
-        ui.set_width(263.0);
-        let (top, _) = ui.allocate_exact_size(vec2(263.0, 80.0), Sense::hover());
+        ui.set_width(PRIVATE_CARD);
+        let (top, _) = ui.allocate_exact_size(vec2(PRIVATE_CARD, 80.0), Sense::hover());
         swatch(ui, top, [0x1c, 0x1c, 0x1f], [0x48, 0x48, 0x4c]);
         Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
             let ir = Rect::from_min_size(pos2(ui.max_rect().left(), top.bottom() - 32.0), vec2(64.0, 64.0));
@@ -342,18 +344,39 @@ fn detectable() -> Arc<Vec<(Snow, String, Option<String>)>> {
     Arc::new(out)
 }
 
+const FORM_MAX: f32 = 560.0;
+const PREVIEW: f32 = 300.0;
+const PRIVATE_CARD: f32 = 263.0;
+const GAP: f32 = 40.0;
+// the preview column goes at this viewport width and below (@media (max-width: 1024px))
+const PREVIEW_HIDDEN: f32 = 1024.0;
+
+fn has_preview(ctx: &egui::Context) -> bool {
+    ctx.content_rect().width() > PREVIEW_HIDDEN
+}
+
+/// The form column: it fills what the preview leaves, up to its max.
+fn form_width(ctx: &egui::Context, row: f32) -> f32 {
+    let taken = if has_preview(ctx) { PREVIEW + GAP } else { 0.0 };
+    (row - taken).clamp(0.0, FORM_MAX)
+}
+
 /// The invite card, held in place at the right of the page while it scrolls.
 fn preview(ctx: &egui::Context, g: &crate::state::Guild, d: &Value, raw: &Value) {
     let Some(area) = ctx.data(|m| m.get_temp::<Rect>(Id::new("server_area"))) else { return };
-    let at = pos2(area.center().x - 228.0 + 600.0, area.top() + 44.0);
+    let Some((left, right)) = ctx.data(|m| m.get_temp::<(f32, f32)>(Id::new("server_col"))) else { return };
+    if !has_preview(ctx) {
+        return;
+    }
+    let at = pos2(left + form_width(ctx, right - left) + GAP, area.top() + 44.0);
     let name = d["name"].as_str().unwrap_or_default();
     let color = d["brand_color_primary"].as_str().and_then(|c| BANNERS.iter().find(|b| b.1.eq_ignore_ascii_case(c))).map(|b| (b.2, b.3)).unwrap_or(([0x1c, 0x1c, 0x1f], [0x48, 0x48, 0x4c]));
     let bytes = ctx.data(|m| m.get_temp::<Arc<[u8]>>(Id::new("server_icon_bytes")));
     let picked = d["icon"].as_str().is_some_and(|i| i.starts_with("data:"));
     let shown = egui::Area::new(Id::new("server_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
-            ui.set_width(300.0);
-            let (top, _) = ui.allocate_exact_size(vec2(300.0, 120.0), Sense::hover());
+            ui.set_width(PREVIEW);
+            let (top, _) = ui.allocate_exact_size(vec2(PREVIEW, 120.0), Sense::hover());
             swatch(ui, top, color.0, color.1);
             Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                 let ir = Rect::from_min_size(pos2(ui.max_rect().left(), top.bottom() - 40.0), vec2(80.0, 80.0));

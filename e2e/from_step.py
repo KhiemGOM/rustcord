@@ -21,7 +21,7 @@ def main():
     mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE)])
     time.sleep(0.5)
     try:
-        env = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_CAM": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1", "RUSTCORD_E2E_FROM": sys.argv[1]}
+        env = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_CAM": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1", "RUSTCORD_E2E_FROM": sys.argv[1], "RUSTCORD_E2E_MEMBERS": "1"}
         res = run.run_client("run", art / "data", env)
     finally:
         mock.kill()

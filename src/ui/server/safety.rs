@@ -276,7 +276,7 @@ fn alerts(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info: &V
     let cur = sid(&info["safety_alerts_channel_id"]);
     let shown = chans.iter().find(|c| c.0 == cur).map(|c| c.1.clone()).unwrap_or_else(|| "Select a Safety Notifications channel".into());
     let mut pick = None;
-    settings::dropdown(ui, ui.available_width().min(480.0), Some(Icon::Hash), &shown, |ui| {
+    settings::dropdown(ui, ui.available_width(), Some(Icon::Hash), &shown, |ui| {
         crate::ui::menu_body(ui, |ui| {
             for (c, n) in &chans {
                 if crate::ui::menu_item(ui, (*c == cur).then_some(Icon::Check), n, false) {

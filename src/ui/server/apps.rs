@@ -285,7 +285,7 @@ fn edit_hook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
                 ui.add_space(12.0);
                 settings::h5(ui, "Channel");
                 let shown = chans.iter().find(|c| c.0 == k.channel).map(|c| format!("#{}", c.1)).unwrap_or_default();
-                settings::dropdown(ui, ui.available_width().min(360.0), Some(Icon::Hash), &shown, |ui| {
+                settings::dropdown(ui, ui.available_width(), Some(Icon::Hash), &shown, |ui| {
                     crate::ui::menu_body(ui, |ui| {
                         for (c, n) in &chans {
                             if crate::ui::menu_item(ui, (*c == k.channel).then_some(Icon::Check), n, false) {

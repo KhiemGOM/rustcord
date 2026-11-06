@@ -69,6 +69,7 @@ mod soundboard;
 mod stage;
 mod tile;
 mod side;
+mod sidebar_view;
 mod tagpop;
 mod textfile;
 mod thread;
@@ -1778,6 +1779,9 @@ impl App {
                     let took = Instant::now();
                     self.store.apply(&t, &d);
                     self.live(&t, &d);
+                    if matches!(t.as_str(), "GUILD_MEMBER_REMOVE" | "GUILD_MEMBER_UPDATE" | "GUILD_BAN_ADD" | "GUILD_BAN_REMOVE") {
+                        community::refresh(self);
+                    }
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
                         self.sync_account(ctx);
                     }
@@ -2598,10 +2602,12 @@ pub fn menu_closing(ctx: &egui::Context) -> egui::PopupCloseBehavior {
 /// Long menus scroll rather than run off a small window.
 pub fn menu_body(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     let h = ui.ctx().content_rect().height() - 32.0;
-    egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
+    ui.set_max_height(h);
+    let out = egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         content(ui)
     });
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("menu_h"), out.content_size.y));
 }
 
 thread_local! {

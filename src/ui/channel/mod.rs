@@ -196,8 +196,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     crate::ui::motion::layer(ctx, egui::Area::new("chan_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min), area).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
-        let side_right = area.center().x - 280.0;
-        let content_left = area.center().x - 228.0;
+        let col = super::sidebar_view::column(area.left(), area.width(), super::sidebar_view::SIDEBAR, super::sidebar_view::Kind::Default, true);
+        let side_right = col.region - 12.0;
+        ui.data_mut(|d| d.insert_temp(egui::Id::new("notice"), col.notice));
         ui.painter().rect_filled(Rect::from_min_max(area.min, pos2(side_right + 6.0, area.bottom())), 0, pal().bg_secondary_alt);
         let mut sc = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(side_right - 239.0, area.top()), pos2(side_right, area.bottom()))));
         sc.spacing_mut().item_spacing.y = 2.0;
@@ -251,7 +252,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         app.rects.insert("chanset:delete".into(), r);
         delete = resp.clicked();
 
-        let esc = Rect::from_center_size(pos2(area.right() - 56.0, area.top() + 64.0), vec2(36.0, 36.0));
+        let esc = Rect::from_center_size(pos2(col.tools + 18.0, area.top() + 64.0), vec2(36.0, 36.0));
         let er = ui.interact(esc, ui.id().with("chan_esc"), Sense::click());
         let ink = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er));
         ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, ink));
@@ -259,17 +260,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);
         close = er.clicked();
 
-        let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 660.0).min(esc.left() - 40.0), area.bottom()));
+        let gutter = (col.tools - col.right).min(16.0);
+        let body = Rect::from_min_max(pos2(col.left, area.top()), pos2(col.right + gutter, area.bottom()));
         let mut bc = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        egui::ScrollArea::vertical().id_salt(("chan_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
+        let out = egui::ScrollArea::vertical().id_salt(("chan_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
             ui.data_mut(|d| d.remove_temp::<f32>(egui::Id::new("settings_gap")));
-            Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 120 }).show(ui, |ui| match page {
+            Frame::new().inner_margin(Margin { left: 0, right: gutter as i8, top: 46, bottom: 120 }).show(ui, |ui| match page {
                 Page::Overview => overview::overview(app, ui, &c),
                 Page::Permissions => perms::permissions(app, ui, &c),
                 Page::Invites => extras::invites(app, ui, &c),
                 Page::Integrations => extras::integrations(app, ui, &c),
             });
         });
+        crate::ui::e2e::scrolled(ui.ctx(), &out);
         save_bar(app, ui, body);
     });
     overview::tag_modal(app, ctx);
@@ -311,7 +314,8 @@ fn save_bar(app: &mut App, ui: &mut Ui, area: Rect) {
     if changed.is_empty() && !perms_changed && hook.is_none() {
         return;
     }
-    let r = Rect::from_center_size(pos2(area.center().x, area.bottom() - 40.0), vec2(area.width() - 20.0, 52.0));
+    let (left, width) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(egui::Id::new("notice"))).unwrap_or((area.left(), area.width()));
+    let r = Rect::from_min_size(pos2(left, area.bottom() - super::sidebar_view::NOTICE_PAD - 52.0), vec2(width, 52.0));
     ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_floating);
     ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful — you have unsaved changes!", semi(16.0), pal().header_primary);
     let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(12.0, 7.0))).layout(Layout::right_to_left(Align::Center)));

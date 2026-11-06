@@ -50,6 +50,7 @@ import activity
 import clips
 import refusals
 import live
+import members
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -151,7 +152,7 @@ def run_client(name, data_dir, extra=None):
     })
     env.update(extra or {})
     env = {k: v for k, v in env.items() if v is not None}
-    exe = ROOT / "target" / "release" / "rustcord.exe"
+    exe = Path(os.environ.get("RUSTCORD_EXE") or ROOT / "target" / "release" / "rustcord.exe")
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     code = wait_for(p, out)
@@ -183,7 +184,7 @@ def main():
         # real mic, speakers, desktop and webcam are all opt-in
         fake = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1"}
         cam = {} if "--real-camera" in sys.argv else {"RUSTCORD_FAKE_CAM": "1"}
-        cold = run_client("cold", data, {**fake, **cam})
+        cold = run_client("cold", data, {**fake, **cam, "RUSTCORD_E2E_MEMBERS": "1"})
         # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
         real_video = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_SILENT": "1", **cam}
         warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
@@ -554,6 +555,7 @@ def main():
         **clips.checks({"cold": cold, "warm": warm}, reqs, data),
         **refusals.checks({"cold": cold, "warm": warm}, reqs, data),
         **live.checks({"cold": cold, "warm": warm}, reqs, data),
+        **members.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
