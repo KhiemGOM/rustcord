@@ -1196,7 +1196,7 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
     if voice.ringing == Some(c.id) {
         let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
         ui.painter().circle_stroke(av.center(), 18.0 + 4.0 * k, egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)));
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after_secs(0.033);
     }
     if muted {
         let under = if selected { pal().bg_mod_selected } else if hovered { pal().bg_mod_hover } else { pal().bg_tertiary };

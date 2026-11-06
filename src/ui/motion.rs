@@ -150,7 +150,7 @@ pub fn cycle(ctx: &Context, period: f32) -> f32 {
     if anim(1.0) == 0.0 {
         return 0.0;
     }
-    ctx.request_repaint();
+    ctx.request_repaint_after_secs(1.0 / 60.0);
     (ctx.input(|i| i.time) as f32 % period) / period
 }
 

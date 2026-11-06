@@ -1998,7 +1998,7 @@ fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment) {
         d.acts.push(if a.playable() { Act::PlayAudio(a.url.clone()) } else { Act::Url(a.url.clone()) });
     }
     if crate::audioplay::progress(&a.url).is_some() {
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after_secs(0.05);
     }
 }
 
