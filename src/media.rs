@@ -239,7 +239,10 @@ impl Session {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         url.hash(&mut h);
         let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5).unwrap_or("bin");
-        let file = std::env::temp_dir().join("rustcord-media").join(format!("{:x}.{ext}", h.finish()));
+        let file = match url.strip_prefix("file:///") {
+            Some(local) => PathBuf::from(local),
+            None => std::env::temp_dir().join("rustcord-media").join(format!("{:x}.{ext}", h.finish())),
+        };
         Session {
             st: Mutex::new(St {
                 phase: Phase::Loading(0.0),

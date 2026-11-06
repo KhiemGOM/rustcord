@@ -167,7 +167,35 @@ impl Run {
                 if let Some(g) = app.clips.gallery.as_mut() {
                     g.edit = None;
                 }
+                self.step = 2929;
                 self.next(300);
+            }
+            2930 => {
+                let c = app.clips.list.as_ref().and_then(|l| l.first().cloned());
+                if let (Some(c), Some(mut g)) = (c, app.clips.gallery.take()) {
+                    crate::ui::clips_gallery::play(app, ctx, &mut g, c);
+                    app.clips.gallery = Some(g);
+                }
+                self.next(0);
+            }
+            2931 => {
+                let c = app.clips.list.as_ref().and_then(|l| l.first().cloned());
+                let s = c.and_then(|c| crate::media::current(&crate::ui::clips_gallery::clip_url(&c)));
+                if s.is_some_and(|s| s.view().playing && s.pos() > 0.5) {
+                    self.mark("clip_plays_inline");
+                    self.shot(ctx, "clips_player.png");
+                    self.key(Key::Escape);
+                    self.next(500);
+                } else if waited(self, 8) {
+                    self.next(0);
+                }
+            }
+            2932 => {
+                if app.clips.gallery.as_ref().is_some_and(|g| g.playing.is_none()) {
+                    self.mark("clip_player_closed");
+                }
+                self.step = 2913;
+                self.next(0);
             }
             2914 => {
                 if let Some(c) = app.clips.list.as_ref().and_then(|l| l.first().cloned()) {
