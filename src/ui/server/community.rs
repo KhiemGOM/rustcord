@@ -95,7 +95,7 @@ fn pitch(app: &mut App, ui: &mut Ui, _gid: Snow) {
 fn overview(app: &mut App, ui: &mut Ui, gid: Snow) {
     title(ui, "Community Overview", "Community Servers are larger spaces where people with shared interests can come together.");
     let Some(raw) = app.server_data("guild", format!("/guilds/{gid}")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     ui.set_max_width(660.0);
@@ -187,7 +187,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
     let (mut next, mut back, mut close) = (false, false, false);
     let size = vec2(681.0, 628.0);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-    let m = egui::Modal::new(Id::new("community_setup")).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new(Id::new("community_setup")).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         let (all, _) = ui.allocate_exact_size(size, Sense::hover());
         let left = Rect::from_min_size(all.min, vec2(240.0, size.y));
         let mut m = egui::Mesh::default();
@@ -215,7 +215,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
         let right = Rect::from_min_max(pos2(left.right() + 32.0, all.top()), pos2(all.right() - 32.0, all.bottom()));
         let x = Rect::from_center_size(pos2(all.right() - 28.0, all.top() + 28.0), vec2(32.0, 32.0));
         let xr = ui.interact(x, ui.id().with("x"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), if xr.hovered() { pal().header_primary } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &xr)));
         close = xr.clicked();
         let badge = Rect::from_center_size(pos2(right.center().x, all.top() + 70.0), vec2(60.0, 60.0));
         ui.painter().rect_filled(badge, CornerRadius::same(16), Color32::from_gray(0x2b));
@@ -274,7 +274,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
                 ready = agree;
             }
             5 => {
-                body.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+                body.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
             }
             _ => {}
         }
@@ -287,7 +287,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
             let g = ui.painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE);
             let br = Rect::from_min_size(pos2(right.right() - g.size().x - 40.0, all.bottom() - 62.0), vec2(g.size().x + 40.0, 40.0));
             let resp = ui.interact(br, ui.id().with("next"), if ready { Sense::click() } else { Sense::hover() });
-            let fill = if ready { if resp.hovered() { Color32::from_rgb(0x1a, 0x6b, 0x38) } else { Color32::from_rgb(0x24, 0x80, 0x46) } } else { Color32::from_rgb(0x0b, 0x4a, 0x26) };
+            let fill = if ready { crate::ui::motion::mix(Color32::from_rgb(0x24, 0x80, 0x46), Color32::from_rgb(0x1a, 0x6b, 0x38), crate::ui::motion::hot(ui.ctx(), &resp)) } else { Color32::from_rgb(0x0b, 0x4a, 0x26) };
             ui.painter().rect_filled(br, CornerRadius::same(8), fill);
             ui.painter().text(br.center(), Align2::CENTER_CENTER, label, medium(16.0), Color32::WHITE.gamma_multiply(if ready { 1.0 } else { 0.5 }));
             super::super::settings::mark(ui, &format!("plate:{label}"), br);

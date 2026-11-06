@@ -376,7 +376,7 @@ pub fn permissions(app: &mut App, ui: &mut Ui, c: &Channel) {
             ui.painter().text(pos2(r.right() - 40.0, r.center().y), Align2::RIGHT_CENTER, if o.kind == 1 { "Member" } else { "Role" }, reg(12.0), pal().header_secondary);
             let x = egui::Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(24.0, 24.0));
             let xr = ui.interact(x, ui.id().with(("revoke", o.id)), Sense::click());
-            icons::draw(ui.painter(), Icon::Close, egui::Rect::from_center_size(x.center(), vec2(16.0, 16.0)), if xr.hovered() { pal().critical } else { pal().header_secondary });
+            icons::draw(ui.painter(), Icon::Close, egui::Rect::from_center_size(x.center(), vec2(16.0, 16.0)), crate::ui::motion::mix(pal().header_secondary, pal().critical, crate::ui::motion::hot(ui.ctx(), &xr)));
             settings::mark(ui, &format!("chanset:revoke:{name}"), x);
             if xr.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -392,8 +392,8 @@ pub fn permissions(app: &mut App, ui: &mut Ui, c: &Channel) {
     ui.add_space(32.0);
     let head = ui.horizontal(|ui| {
         ui.label(RichText::new("Advanced permissions").font(semi(20.0)).color(pal().header_primary));
-        let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-        icons::draw(ui.painter(), if s.advanced { Icon::ChevronDown } else { Icon::ChevronRight }, egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
+        let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+        crate::ui::motion::chevron(ui, resp.id, s.advanced, egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
     });
     let hr = ui.interact(head.response.rect, ui.id().with("adv_head"), Sense::click());
     settings::mark(ui, "chanset:advanced", hr.rect);
@@ -443,7 +443,7 @@ fn advanced(ui: &mut Ui, s: &mut State, c: &Channel, store: &Store, roles: &[Rol
             ui.painter().text(pos2(h.left() + 12.0, h.center().y), Align2::LEFT_CENTER, "ROLES/MEMBERS", bold(12.0), pal().header_secondary);
             let plus = egui::Rect::from_center_size(pos2(h.right() - 20.0, h.center().y), vec2(16.0, 16.0));
             let pr = ui.interact(plus.expand(2.0), ui.id().with("perm_add"), Sense::click());
-            icons::draw(ui.painter(), Icon::CirclePlus, plus, if pr.hovered() { pal().header_primary } else { pal().header_secondary });
+            icons::draw(ui.painter(), Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
             settings::mark(ui, "chanset:perm_add", pr.rect);
             if let Some(a) = picker(&pr, s, store, gid, roles, "Add:", search) {
                 add = Some(a);
@@ -461,7 +461,7 @@ fn advanced(ui: &mut Ui, s: &mut State, c: &Channel, store: &Store, roles: &[Rol
                 let x = egui::Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(20.0, 20.0));
                 if *id != gid && resp.hovered() {
                     let xr = ui.interact(x, ui.id().with(("who_x", *id)), Sense::click());
-                    icons::draw(ui.painter(), Icon::Close, x.shrink(3.0), if xr.hovered() { pal().critical } else { pal().header_secondary });
+                    icons::draw(ui.painter(), Icon::Close, x.shrink(3.0), crate::ui::motion::mix(pal().header_secondary, pal().critical, crate::ui::motion::hot(ui.ctx(), &xr)));
                     if xr.clicked() {
                         drop = Some(*id);
                     }

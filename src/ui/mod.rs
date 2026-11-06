@@ -36,6 +36,7 @@ mod mdpreview;
 mod members;
 mod modview;
 mod now;
+mod motion;
 mod palette;
 mod newserver;
 mod menus;
@@ -1758,26 +1759,33 @@ impl App {
         let mut show_detail = false;
         clips_gallery::show(self, &ctx);
         if let Some((text, at)) = &self.toast {
-            if at.elapsed() > Duration::from_secs(4) {
+            let e = at.elapsed().as_secs_f32();
+            if e > 4.0 {
                 self.toast = None;
             } else {
                 let text = text.clone();
-                egui::Area::new("toast".into())
-                    .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -90.0))
-                    .order(egui::Order::Tooltip)
-                    .show(&ctx, |ui| {
-                        let r = Frame::new()
-                            .fill(pal().bg_floating)
-                            .corner_radius(8)
-                            .inner_margin(egui::Margin::symmetric(16, 10))
-                            .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
-                        self.rects.insert("toast".into(), r.response.rect);
-                        let r = ui.interact(r.response.rect, egui::Id::new("toast_click"), Sense::click());
-                        if r.clicked() && ui.input(|i| i.modifiers.shift) {
-                            show_detail = true;
-                        }
-                    });
-                ctx.request_repaint_after(Duration::from_millis(500));
+                let k = motion::EASE_OUT.at(e / 0.3) - motion::EASE_IN.at((e - 3.7) / 0.3);
+                let slide = if crate::theme::anim(1.0) > 0.0 { 24.0 * (1.0 - k) } else { 0.0 };
+                let area = egui::Area::new("toast".into()).anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -90.0)).order(egui::Order::Tooltip).fade_in(false);
+                ctx.set_transform_layer(area.layer(), egui::emath::TSTransform::from_translation(vec2(0.0, slide)));
+                area.show(&ctx, |ui| {
+                    ui.multiply_opacity(k);
+                    let r = Frame::new()
+                        .fill(pal().bg_floating)
+                        .corner_radius(8)
+                        .inner_margin(egui::Margin::symmetric(16, 10))
+                        .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(text).color(pal().text_normal).font(reg(14.0))).wrap_mode(egui::TextWrapMode::Extend)));
+                    self.rects.insert("toast".into(), r.response.rect);
+                    let r = ui.interact(r.response.rect, egui::Id::new("toast_click"), Sense::click());
+                    if r.clicked() && ui.input(|i| i.modifiers.shift) {
+                        show_detail = true;
+                    }
+                });
+                if e < 0.3 || e >= 3.7 {
+                    ctx.request_repaint();
+                } else {
+                    ctx.request_repaint_after(Duration::from_secs_f32(3.7 - e));
+                }
             }
         }
         if show_detail && let Some(e) = self.toast_detail.take() {
@@ -1792,7 +1800,7 @@ impl App {
             let level = self.store.levels.get(&gid).copied().unwrap_or(default);
             let muted = self.store.muted.contains(&gid);
             let (mut pick, mut mute) = (None, None);
-            let modal = egui::Modal::new("guild_notifs".into())
+            let modal = crate::ui::motion::Modal::new("guild_notifs".into())
                 .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
                 .show(&ctx, |ui| {
                     ui.set_width(440.0);
@@ -1854,7 +1862,7 @@ impl App {
         let pinned = |ch: Id, id: Id| self.pins.as_ref().filter(|(c, _)| *c == ch).and_then(|(_, l)| l.as_ref()?.iter().find(|m| m.id == id).cloned());
         let msg = c.msg.and_then(|(ch, id)| self.store.find_msg(ch, id).cloned().or_else(|| pinned(ch, id)));
         let store = &self.store;
-        let modal = egui::Modal::new("confirm".into())
+        let modal = crate::ui::motion::Modal::new("confirm".into())
             .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
             .show(ctx, |ui| {
                 ui.set_width(432.0);
@@ -2127,6 +2135,7 @@ impl eframe::App for App {
             e.frame_time(started.elapsed());
             self.e2e = Some(e);
         }
+        motion::tooltips(&ctx);
         self.frames += 1;
         // fullscreen's size isn't the window's; keep the one to come back to
         if !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
@@ -2252,12 +2261,22 @@ pub fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
 }
 
 pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
+    badge_scaled(ui, right_center, n, ring, 1.0);
+}
+
+/// A badge that grows in when it first shows, on discord's .2s (0, 0, .2, 1.1) curve.
+pub fn badge_in(ui: &Ui, id: egui::Id, right_center: Pos2, n: u32, ring: Option<Color32>) {
+    badge_scaled(ui, right_center, n, ring, motion::enter(ui.ctx(), id, 0.2, motion::Curve::Bezier(0.0, 0.0, 0.2, 1.1)));
+}
+
+fn badge_scaled(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>, k: f32) {
     let text = if n > 99 { "99+".to_string() } else { n.to_string() };
     let galley = ui.painter().layout_no_wrap(text, semi(12.0), Color32::WHITE);
     let w = (galley.size().x + 10.0).max(16.0);
     let rect = Rect::from_min_size(pos2(right_center.x - w, right_center.y - 8.0), vec2(w, 16.0));
+    let rect = Rect::from_center_size(rect.center(), rect.size() * k);
     if let Some(ring) = ring {
-        ui.painter().rect_filled(rect.expand(3.0), CornerRadius::same(11), ring);
+        ui.painter().rect_filled(rect.expand(3.0 * k), CornerRadius::same(11), ring);
     }
     ui.painter().rect_filled(rect, CornerRadius::same(8), RED);
     // centre the digits' ink, not the line box, which keeps room under them for descenders
@@ -2269,12 +2288,12 @@ pub fn badge(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>) {
         }
     }
     let mid = if ink.0 < ink.1 { (ink.0 + ink.1) / 2.0 } else { galley.size().y / 2.0 };
-    ui.painter().galley(pos2(rect.center().x - galley.size().x / 2.0, rect.center().y - mid), galley, Color32::WHITE);
+    ui.painter().galley_with_override_text_color(pos2(rect.center().x - galley.size().x / 2.0, rect.center().y - mid), galley, Color32::WHITE.gamma_multiply(k.clamp(0.0, 1.0)));
 }
 
 pub fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
-    let fill = if resp.hovered() { fill.gamma_multiply(0.85) } else { fill };
+    let fill = motion::mix(fill, fill.gamma_multiply(0.85), motion::hot(ui.ctx(), &resp));
     ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, semi(14.0), Color32::WHITE);
     if resp.hovered() {
@@ -2292,17 +2311,12 @@ pub fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui
 /// An icon button that stays lit while what it opens is showing, like discord's member list toggle.
 pub fn toggle_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str, on: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    let col = if resp.hovered() {
-        pal().interactive_hover
-    } else if on {
-        pal().header_primary
-    } else {
-        pal().header_secondary
-    };
+    let k = motion::hot(ui.ctx(), &resp);
+    let col = motion::mix(if on { pal().header_primary } else { pal().header_secondary }, pal().interactive_hover, k);
+    if size >= 32.0 {
+        ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover.gamma_multiply(k));
+    }
     if resp.hovered() {
-        if size >= 32.0 {
-            ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover);
-        }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let s = if size >= 32.0 { 20.0 } else { (size * 0.86).min(24.0) };
@@ -2366,7 +2380,7 @@ impl Confirm {
 /// Discord's quieter button: a grey wash with a hairline, for Cancel and the like.
 pub fn grey_button(ui: &mut Ui, text: &str, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = motion::mix(pal().control, pal().control_hover, motion::hot(ui.ctx(), &resp));
     ui.painter().rect(rect, CornerRadius::same(8), fill, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), pal().header_primary);
     if resp.hovered() {
@@ -2553,8 +2567,10 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     // menus have no app to report to; the e2e driver finds rows here by label
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
     let p = ui.painter();
-    if resp.hovered() || resp.has_focus() {
+    if resp.has_focus() {
         p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });
+    } else {
+        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER }, 0.05);
     }
     let top = if sub.is_some() { r.top() + 8.0 } else { r.center().y - text.size().y / 2.0 };
     if let Some(s) = sub {

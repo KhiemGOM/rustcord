@@ -13,6 +13,7 @@ mod web;
 mod stage;
 mod clips;
 mod composer;
+mod motion;
 mod login;
 mod camera;
 
@@ -1316,6 +1317,7 @@ impl Run {
             2400..=2499 => self.voice_steps(app, ctx),
             2500..=2549 => self.person_steps(app, ctx),
             1600..=1699 => self.local_steps(app, ctx),
+            2600..=2619 => self.motion_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);

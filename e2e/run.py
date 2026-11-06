@@ -32,6 +32,7 @@ import look
 import polish
 import call
 import discover
+import motion
 import home
 import composer
 import messages
@@ -515,6 +516,7 @@ def main():
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
+        **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
         **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),

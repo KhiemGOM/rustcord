@@ -189,7 +189,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-                icons::draw(ui.painter(), Icon::PersonAdd, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                icons::draw(ui.painter(), Icon::PersonAdd, r, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 invite = resp.on_hover_text("Invite to Server").clicked();
             });
         }
@@ -752,7 +752,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         }
         let is_events = label == "Events";
         let lit = is_events && ev.unread;
-        let col = if selected || lit { pal().header_primary } else if is_events && ev.muted { pal().channel_muted } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+        let col = if selected || lit { pal().header_primary } else if is_events && ev.muted { pal().channel_muted } else { crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
         if lit && !selected {
             ui.painter().rect_filled(Rect::from_min_size(pos2(row.left(), row.center().y - 4.0), vec2(4.0, 8.0)), CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().header_primary);
         }
@@ -815,17 +815,17 @@ fn events_menu(r: &egui::Response, ev: EventsRow, out: &mut Option<EventsAct>) {
 /// A category header, and whether its create-channel plus was clicked.
 fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click_and_drag());
-    let col = if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
-    let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
+    let col = crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
+    let turn = (1.0 - super::motion::tween(ui.ctx(), resp.id.with("chev"), !collapsed, 0.2, super::motion::EASE_OUT)) * -std::f32::consts::FRAC_PI_2;
     let y = rect.top() + 12.0;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name
     let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 52.0, 1.0);
-    icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col);
+    icons::draw_turned(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col, turn);
     let mut add = false;
     if can_add {
         let pr = Rect::from_center_size(pos2(rect.right() - 24.0, y), vec2(16.0, 16.0));
         let hit = ui.interact(pr.expand(2.0), ui.id().with(("add_channel", name)), Sense::click());
-        icons::draw(ui.painter(), Icon::Plus, pr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        icons::draw(ui.painter(), Icon::Plus, pr, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
         add = hit.on_hover_text("Create Channel").clicked();
     }
     if resp.hovered() {
@@ -946,7 +946,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         let ir = Rect::from_center_size(pos2(x, y), vec2(16.0, 16.0));
         let hit = ui.interact(ir.expand(2.0), ui.id().with((tip, c.id)), Sense::click());
         super::settings::mark(ui, &format!("row_btn:{tip}:{}", c.id), ir);
-        icons::draw(ui.painter(), icon, ir, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+        icons::draw(ui.painter(), icon, ir, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
         *out = hit.on_hover_text(tip).clicked();
         right = ir.left() - 6.0;
         x -= 22.0;
@@ -977,7 +977,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         if v.prompt {
             let pen = Rect::from_center_size(pos2(r.right() + 10.0, sy), vec2(14.0, 14.0));
             let hit = ui.interact(r.union(pen), ui.id().with(("set_status", c.id)), Sense::click());
-            icons::draw(ui.painter(), Icon::Pencil, pen, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
+            icons::draw(ui.painter(), Icon::Pencil, pen, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
             set = hit.on_hover_text("Set a channel status").clicked();
         }
     }
@@ -1008,9 +1008,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
                 if let Some(user) = store.user(*u) {
                     avatar(ui, av, &user.avatar_url());
                 }
-                if voice.is_speaking(*u) {
-                    super::call::ring(ui, av);
-                }
+                super::call::ring(ui, av, *u, voice.is_speaking(*u));
             }
         }
         return None;
@@ -1030,9 +1028,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             avatar(ui, av, &user.avatar_url());
         }
         let speaking = voice.is_speaking(u);
-        if speaking {
-            super::call::ring(ui, av);
-        }
+        super::call::ring(ui, av, u, speaking);
         let used = super::call::badges(ui, voice, u, row);
         // discord's usernameSpeaking: the name goes bright while they talk
         let col = if speaking { pal().interactive_hover } else { pal().channel_default };
@@ -1059,7 +1055,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
     let mut leave = None;
     header(ui, |ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-        ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control });
+        ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(r.center(), Align2::CENTER_CENTER, "Find or start a conversation", medium(14.0), pal().header_primary);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1092,7 +1088,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
                 } else if resp.hovered() {
                     ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
                 }
-                let col = if on { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().channel_default };
+                let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
                 if url.is_none() && label == "Friends" {
@@ -1121,7 +1117,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
             ui.painter().text(pos2(h.left() + 16.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
             let pr = Rect::from_center_size(pos2(h.right() - 24.0, h.center().y), vec2(16.0, 16.0));
             let plus = ui.interact(pr.expand(4.0), ui.id().with("new_dm"), Sense::click());
-            icons::draw(ui.painter(), Icon::Plus, pr, if plus.hovered() { pal().interactive_hover } else { pal().channel_default });
+            icons::draw(ui.painter(), Icon::Plus, pr, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &plus)));
             if plus.on_hover_text("Create DM").clicked() {
                 app.group_pick = Some(super::dmpick::Pick::new(None));
             }
@@ -1291,7 +1287,7 @@ fn game_panel(app: &mut App, ui: &mut Ui, area: Rect) {
         ui.painter().rect_filled(btn, CornerRadius::same(8), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let col = if live { GREEN } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = if live { GREEN } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     icons::draw(ui.painter(), Icon::ScreenArrow, Rect::from_center_size(btn.center(), vec2(20.0, 20.0)), col);
     app.rects.insert("game:live".into(), btn);
     let tip = match (app.voice.chan.is_some(), live) {
@@ -1318,7 +1314,7 @@ fn game_panel(app: &mut App, ui: &mut Ui, area: Rect) {
         let galley = ui.painter().layout_no_wrap("Not Sharing".into(), medium(12.0), pal().header_secondary);
         let r = Rect::from_min_size(pos2(x, inner.top() + 16.0), vec2(galley.size().x, 16.0));
         let resp = ui.interact(r, ui.id().with("game_sharing"), Sense::click());
-        let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+        let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
         ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, "Not Sharing", medium(12.0), col);
         app.rects.insert("game:not_sharing".into(), r);
         if resp.hovered() {

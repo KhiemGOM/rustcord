@@ -224,7 +224,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut close = false;
     let mut delete = false;
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("server_area"), area));
-    egui::Area::new("server_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min).show(ctx, |ui| {
+    crate::ui::motion::layer(ctx, egui::Area::new("server_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min), area).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
         // discord's layer: the sidebar ends a little left of the middle, the page starts just after it
@@ -252,8 +252,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     let on = *p == page;
                     if on {
                         ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
+                    } else {
+                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                     }
                     ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, *label, medium(16.0), if on || resp.hovered() { pal().header_primary } else { pal().header_secondary });
                     if *p == Page::Directory {
@@ -275,9 +275,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
             if page == Page::Community {
                 ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
-            } else if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-            }
+            } else {
+                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
+                    }
             ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, if community { "Community Overview" } else { "Enable Community" }, medium(16.0), if page == Page::Community || resp.hovered() { pal().header_primary } else { pal().header_secondary });
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -292,9 +292,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
             if page == Page::Template {
                 ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
-            } else if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-            }
+            } else {
+                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
+                    }
             ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Server Template", medium(16.0), if page == Page::Template || resp.hovered() { pal().header_primary } else { pal().header_secondary });
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -303,9 +303,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 goto = Some(Page::Template);
             }
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-            if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-            }
+            crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
             super::settings::mark(ui, "side:Delete Server", r);
             ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Delete Server", medium(16.0), RED);
             icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(16.0, 16.0)), RED);
@@ -320,8 +318,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         // the round ESC button off to the right
         let esc = Rect::from_center_size(pos2(area.right() - 56.0, area.top() + 78.0 - 32.0 + 18.0), vec2(36.0, 36.0));
         let er = ui.interact(esc, ui.id().with("esc"), Sense::click());
-        ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, if er.hovered() { pal().header_primary } else { pal().header_secondary }));
-        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), if er.hovered() { pal().header_primary } else { pal().header_secondary });
+        ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er))));
+        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er)));
         ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);
         close = er.clicked();
         let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 900.0).min(esc.left() - 40.0), area.bottom()));
@@ -399,9 +397,7 @@ fn rule(ui: &mut Ui) {
 /// A row of a list page: a hairline under it, hover wash, whatever `draw` puts in it.
 fn row(ui: &mut Ui, h: f32, draw: impl FnOnce(&Ui, Rect, bool)) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-    }
+    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
     ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
     draw(ui, r, resp.hovered());
     resp

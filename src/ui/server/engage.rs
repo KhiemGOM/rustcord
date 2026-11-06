@@ -33,7 +33,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     form::fresh(ui);
     title(ui, "Engagement", "Manage settings that help keep your server active.");
     let Some(raw) = app.server_data("guild", format!("/guilds/{gid}")).cloned() else {
-        ui.add(egui::Spinner::new().color(crate::theme::pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, crate::theme::pal().text_muted);
         return;
     };
     let widget = app.server_data("widget", format!("/guilds/{gid}/widget")).cloned().unwrap_or(Value::Null);

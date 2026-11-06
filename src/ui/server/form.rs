@@ -80,7 +80,7 @@ pub fn bar_with(app: &mut App, ctx: &egui::Context, key: &'static str, orig: &Va
         let b = Rect::from_center_size(pos2(r.right() - 12.0 - (g.size().x + 32.0) / 2.0, r.center().y), vec2(g.size().x + 32.0, 32.0));
         let br = ui.interact(b, ui.id().with("save"), if saving { Sense::hover() } else { Sense::click() });
         super::super::settings::mark(ui, "bar:Save Changes", b);
-        let fill = if br.hovered() { Color32::from_rgb(0x1a, 0x6b, 0x38) } else { Color32::from_rgb(0x24, 0x80, 0x46) };
+        let fill = crate::ui::motion::mix(Color32::from_rgb(0x24, 0x80, 0x46), Color32::from_rgb(0x1a, 0x6b, 0x38), crate::ui::motion::hot(ui.ctx(), &br));
         ui.painter().rect_filled(b, CornerRadius::same(3), fill.gamma_multiply(if saving { 0.6 } else { 1.0 }));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Save Changes", medium(14.0), Color32::WHITE);
         let rg = ui.painter().layout_no_wrap("Reset".into(), medium(14.0), pal().link);
@@ -205,7 +205,7 @@ pub fn card(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 pub fn button(ui: &mut Ui, text: &str, primary: bool) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.into(), medium(14.0), Color32::WHITE);
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(60.0), 32.0), Sense::click());
-    let (fill, ink) = if primary { (if resp.hovered() { Color32::from_rgb(0x47, 0x52, 0xc4) } else { BLURPLE }, Color32::WHITE) } else { (if resp.hovered() { faint(51) } else { faint(31) }, pal().header_primary) };
+    let (fill, ink) = if primary { (crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Color32::WHITE) } else { (crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary) };
     ui.painter().rect_filled(r, CornerRadius::same(3), fill);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(14.0), ink);
     super::super::settings::mark(ui, &format!("button:{text}"), r);
@@ -232,7 +232,7 @@ pub fn emoji_button(ui: &mut Ui, app: &App, gid: Snow, cur: &Pick) -> Option<Pic
     let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
     paint_emoji(ui, r.shrink(2.0), cur);
     if cur.0.is_empty() {
-        icons::draw(ui.painter(), Icon::Smile, r.shrink(2.0), if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Smile, r.shrink(2.0), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -253,9 +253,7 @@ pub fn emoji_button(ui: &mut Ui, app: &App, gid: Snow, cur: &Pick) -> Option<Pic
                 ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
                 for it in &items {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                     paint_emoji(ui, r.shrink(4.0), it);
                     if resp.clicked() {
                         out = Some(it.clone());

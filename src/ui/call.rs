@@ -43,6 +43,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let t = Rect::from_min_size(pos2(tile.right() + 8.0, y - 17.0), vec2(r.right() - 76.0 - tile.right() - 8.0, 19.0));
     let status = ui.interact(t, egui::Id::new("voice_status"), Sense::click());
     ui.painter().text(t.left_center(), Align2::LEFT_CENTER, if status.hovered() { "Voice Details" } else { text }, medium(16.0), col);
+    if app.voice.state != State::Connected {
+        super::motion::ellipsis(ui, pos2(t.right() + 6.0, t.center().y), col);
+    }
     if status.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -55,7 +58,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         Align2::LEFT_CENTER,
         place,
         reg(12.0),
-        if sub_r.hovered() { pal().header_primary } else { pal().header_secondary },
+        crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &sub_r)),
     );
     if sub_r.clicked() {
         app.open(ch);
@@ -66,7 +69,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         ui.painter().rect_filled(b, CornerRadius::same(4), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    hangup(ui, b.center(), if leave.hovered() { pal().header_primary } else { pal().header_secondary });
+    hangup(ui, b.center(), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &leave)));
     app.rects.insert("voice:disconnect".into(), b);
     super::callbar::krisp(app, ui, pos2(r.right() - 52.0, y));
     if leave.on_hover_text("Disconnect").clicked() {
@@ -145,7 +148,7 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
                 let g = ui.painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE);
                 let r = Rect::from_min_size(pos2(x, bar.top()), vec2(g.size().x, 24.0));
                 let resp = ui.interact(r, egui::Id::new(("rtc_tab", i)), Sense::click());
-                let col = if on { Color32::from_rgb(0x94, 0x9c, 0xf7) } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                let col = if on { Color32::from_rgb(0x94, 0x9c, 0xf7) } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 ui.painter().galley(pos2(x, bar.top()), g, col);
                 if on {
                     ui.painter().rect_filled(Rect::from_min_size(pos2(r.left(), bar.bottom() + 6.0), vec2(r.width(), 2.0)), 1, BLURPLE);
@@ -205,7 +208,7 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
             for (i, (icon, label)) in [(Icon::Bug, "Debug"), (Icon::Copy, "Copy Logs")].into_iter().enumerate() {
                 let b = Rect::from_min_size(pos2(row.left() + i as f32 * (half + 8.0), row.top()), vec2(half, 32.0));
                 let resp = ui.interact(b, egui::Id::new(("rtc_btn", i)), Sense::click());
-                ui.painter().rect(b, 8, if resp.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                ui.painter().rect(b, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                 let g = ui.painter().layout_no_wrap(label.into(), medium(14.0), pal().header_primary);
                 let x = b.center().x - (g.size().x + 26.0) / 2.0;
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(x + 9.0, b.center().y), vec2(18.0, 18.0)), pal().header_primary);
@@ -356,13 +359,10 @@ const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 /// The left half of Discord's mic/headphone split button; washed red with a red icon while off.
 fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-    let bg = match (off, resp.hovered()) {
-        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
-        (false, true) => pal().control_hover,
-        (false, false) => Color32::TRANSPARENT,
-    };
+    let k = super::motion::hover(ui.ctx(), &resp, 0.2);
+    let bg = if off { DANGER.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
     ui.painter().rect_filled(r, CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 }, bg);
-    let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = if off { DANGER } else { super::motion::mix(pal().header_secondary, pal().interactive_hover, k) };
     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -371,14 +371,17 @@ fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
 }
 
 /// Green ring around a speaking user's avatar.
-pub fn ring(ui: &Ui, av: Rect) {
-    ui.painter().circle_stroke(av.center(), av.width() / 2.0 + 1.5, Stroke::new(2.0, GREEN));
+pub fn ring(ui: &Ui, av: Rect, u: Id, speaking: bool) {
+    let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", u, av.width() as i32)), speaking, 0.15, super::motion::EASE);
+    if k > 0.0 {
+        ui.painter().circle_stroke(av.center(), av.width() / 2.0 + 1.5, Stroke::new(2.0, GREEN.gamma_multiply(k)));
+    }
 }
 
 pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
     let inside = app.voice.chan == Some(ch);
     let (rect, r) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    icons::draw(ui.painter(), Icon::Phone, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if r.hovered() { pal().interactive_hover } else { pal().header_secondary });
+    icons::draw(ui.painter(), Icon::Phone, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &r)));
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -393,7 +396,7 @@ pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
 pub fn video_button(app: &mut App, ui: &mut Ui, ch: Id) {
     let inside = app.voice.chan == Some(ch);
     let (rect, r) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    let col = if r.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &r));
     camera(ui, rect.center(), 1.2, col);
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -506,16 +509,18 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     match app.voice.video.get(u).cloned() {
                         Some(img) => {
                             frame(app, ui, format!("cam:{u}"), &img, a);
-                            if app.voice.is_speaking(*u) {
-                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, GREEN), egui::StrokeKind::Outside);
+                            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "cam")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
+                            if k > 0.0 {
+                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, GREEN.gamma_multiply(k)), egui::StrokeKind::Outside);
                             }
                         }
                         None => {
                             if let Some(user) = app.store.user(*u) {
                                 avatar(ui, a, &user.avatar_url());
                             }
-                            if app.voice.is_speaking(*u) {
-                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, GREEN));
+                            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "stage")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
+                            if k > 0.0 {
+                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, GREEN.gamma_multiply(k)));
                             }
                         }
                     }
@@ -573,7 +578,7 @@ fn stage(app: &mut App, ui: &mut Ui, r: Rect, img: Option<Arc<ColorImage>>) {
     live_badge(ui, pos2(tag.right() + 52.0, tag.top() + 3.0));
     let stop = Rect::from_min_size(pos2(r.right() - 130.0, r.top() + 10.0), vec2(120.0, 30.0));
     let resp = ui.interact(stop, egui::Id::new("stop_stream"), Sense::click());
-    ui.painter().rect_filled(stop, CornerRadius::same(4), if resp.hovered() { RED.gamma_multiply(0.85) } else { RED });
+    ui.painter().rect_filled(stop, CornerRadius::same(4), crate::ui::motion::mix(RED, RED.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
     ui.painter().text(stop.center(), Align2::CENTER_CENTER, if mine { "Stop Streaming" } else { "Stop Watching" }, semi(13.0), Color32::WHITE);
     app.rects.insert("voice:stopstream".into(), stop);
     if resp.clicked() {
@@ -649,7 +654,7 @@ pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, shown: f32, icon: Icon) 
         if !app.voice_chat {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                icons::draw(ui.painter(), Icon::Bubble, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                icons::draw(ui.painter(), Icon::Bubble, r, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 app.rects.insert("voice:show_chat".into(), r);
                 if resp.on_hover_text("Show Chat").clicked() {
                     app.voice_chat = true;
@@ -754,8 +759,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             if app.voice.live.contains(u) {
                 live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
             }
-            if app.voice.is_speaking(*u) {
-                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN), egui::StrokeKind::Inside);
+            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "tile")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
+            if k > 0.0 {
+                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN.gamma_multiply(k)), egui::StrokeKind::Inside);
             }
             super::tile::options(app, ui, chan, *u, tile, shown);
         }
@@ -852,13 +858,10 @@ pub fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
 /// The little chevron beside the panel's mic and headphones: the same menu as the call's.
 fn device_menu(app: &mut App, ui: &mut Ui, output: bool, off: bool) {
     let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
-    let bg = match (off, resp.hovered()) {
-        (true, h) => DANGER.gamma_multiply(if h { 0.2 } else { 0.12 }),
-        (false, true) => pal().control_hover,
-        (false, false) => Color32::TRANSPARENT,
-    };
+    let k = super::motion::hover(ui.ctx(), &resp, 0.2);
+    let bg = if off { DANGER.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
     ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
-    let col = if off { DANGER } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let col = if off { DANGER } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
     let resp = resp.on_hover_text(if output { "Output Options" } else { "Input Options" });
     let mut res = (false, false);

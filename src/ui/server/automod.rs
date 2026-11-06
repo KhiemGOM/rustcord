@@ -202,7 +202,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.add_space(8.0);
         for r in &existing {
             let (rc, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
-            ui.painter().rect(rc, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+            ui.painter().rect(rc, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
             crate::ui::text::paint(ui.painter(), pos2(rc.left() + 16.0, rc.center().y - 10.0), Align2::LEFT_CENTER, r["name"].as_str().unwrap_or_default(), semi(16.0), pal().header_primary, rc.width() - 160.0);
             crate::ui::text::paint(ui.painter(), pos2(rc.left() + 16.0, rc.center().y + 12.0), Align2::LEFT_CENTER, &summary(r), reg(12.0), pal().header_secondary, rc.width() - 160.0);
             let on = r["enabled"].as_bool().unwrap_or(false);
