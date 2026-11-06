@@ -57,6 +57,7 @@ struct World {
     acts: Vec<(u64, u64, String, Vec<u64>)>,
     // applications the account has authorized
     authorized: std::collections::HashSet<u64>,
+    fails: Vec<(String, String, u16, Value, u32)>,
 }
 
 const ACTIVITY_APPS: [(u64, &str, &str); 2] = [(9100, "Mock Quiz", "A quiz for the whole call"), (9101, "Mock Draw", "Draw something together")];
@@ -262,6 +263,17 @@ fn msg(id: u64, ch: u64, author: u64, content: &str) -> Value {
         "content": content, "type": 0, "attachments": [], "embeds": [], "mentions": [], "mention_roles": [],
         "mention_everyone": false, "edited_timestamp": null
     })
+}
+
+fn fail_body(status: u16) -> Value {
+    match status {
+        400 => json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "name": { "_errors": [{ "code": "BASE_TYPE_MAX_LENGTH", "message": "Must be 32 or fewer in length." }] } } }),
+        401 => json!({ "message": "401: Unauthorized", "code": 0 }),
+        403 => json!({ "message": "Missing Permissions", "code": 50013 }),
+        404 => json!({ "message": "Unknown Message", "code": 10008 }),
+        429 => json!({ "message": "You are being rate limited.", "retry_after": 30.0, "global": false }),
+        _ => json!({}),
+    }
 }
 
 const SYSTEM: u64 = 2070;
@@ -1215,6 +1227,17 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
+    if !clean.contains("/mock/") {
+        let mut w = w.lock().unwrap();
+        if let Some(i) = w.fails.iter().position(|f| f.0 == method && clean.contains(f.1.as_str())) {
+            let (status, reply) = (w.fails[i].2, w.fails[i].3.clone());
+            w.fails[i].4 -= 1;
+            if w.fails[i].4 == 0 {
+                w.fails.remove(i);
+            }
+            return (status, "application/json", reply.to_string().into_bytes());
+        }
+    }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1400,6 +1423,18 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 tokio::time::sleep(after).await;
                 let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
             });
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "fail"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let status = b["status"].as_u64().unwrap_or(403) as u16;
+            let reply = if b["body"].is_null() { fail_body(status) } else { b["body"].clone() };
+            let f = (b["method"].as_str().unwrap_or("GET").to_string(), b["path"].as_str().unwrap_or("").to_string(), status, reply, b["times"].as_u64().unwrap_or(1) as u32);
+            w.lock().unwrap().fails.push(f);
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "fail", "clear"]) => {
+            w.lock().unwrap().fails.clear();
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "premium"]) => {
@@ -2009,6 +2044,62 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
         ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
+        ("PATCH", ["api", "v9", "channels", ch, "messages", id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["content"].as_str().is_some_and(|c| c.chars().count() > 2000) {
+                return (400, "application/json", fail_body(400).to_string().into_bytes());
+            }
+            let mut w = w.lock().unwrap();
+            let Some(m) = w.msgs.iter_mut().find(|m| m["channel_id"] == *ch && m["id"] == *id) else {
+                return (404, "application/json", fail_body(404).to_string().into_bytes());
+            };
+            if let Some(c) = b.get("content") {
+                m["content"] = c.clone();
+                m["edited_timestamp"] = json!(iso(now_ms()));
+            }
+            if let Some(f) = b["flags"].as_u64() {
+                m["flags"] = json!(f);
+                if f & 4 != 0 {
+                    m["embeds"] = json!([]);
+                }
+            }
+            let m = m.clone();
+            let _ = w.events.send(json!({ "t": "MESSAGE_UPDATE", "d": m }));
+            ok(m)
+        }
+        ("DELETE", ["api", "v9", "channels", ch, "messages", id]) => {
+            let mut w = w.lock().unwrap();
+            let Some(at) = w.msgs.iter().position(|m| m["channel_id"] == *ch && m["id"] == *id) else {
+                return (404, "application/json", fail_body(404).to_string().into_bytes());
+            };
+            w.msgs.remove(at);
+            let _ = w.events.send(json!({ "t": "MESSAGE_DELETE", "d": { "id": id, "channel_id": ch } }));
+            (204, "application/json", Vec::new())
+        }
+        ("PUT" | "DELETE", ["api", "v9", "channels", ch, "messages", "pins", id]) => {
+            let mut w = w.lock().unwrap();
+            let Some(m) = w.msgs.iter_mut().find(|m| m["channel_id"] == *ch && m["id"] == *id) else {
+                return (404, "application/json", fail_body(404).to_string().into_bytes());
+            };
+            m["pinned"] = json!(method == "PUT");
+            let _ = w.events.send(json!({ "t": "CHANNEL_PINS_UPDATE", "d": { "channel_id": ch, "last_pin_timestamp": iso(now_ms()) } }));
+            (204, "application/json", Vec::new())
+        }
+        ("PUT" | "DELETE", ["api", "v9", "channels", ch, "messages", id, "reactions", ..]) => {
+            let w = w.lock().unwrap();
+            if !w.msgs.iter().any(|m| m["channel_id"] == *ch && m["id"] == *id) {
+                return (404, "application/json", fail_body(404).to_string().into_bytes());
+            }
+            (204, "application/json", Vec::new())
+        }
+        ("DELETE", ["api", "v9", "guilds", _, "members", _]) | ("PUT", ["api", "v9", "guilds", _, "bans", _]) | ("PATCH", ["api", "v9", "guilds", _, "members", _]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["nick"].as_str().is_some_and(|n| n.chars().count() > 32) {
+                let reply = json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "nick": { "_errors": [{ "code": "BASE_TYPE_MAX_LENGTH", "message": "Must be 32 or fewer in length." }] } } });
+                return (400, "application/json", reply.to_string().into_bytes());
+            }
+            (204, "application/json", Vec::new())
+        }
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
         ("GET", ["store" | "shop"]) => (
@@ -2783,6 +2874,7 @@ async fn main() {
         hands: Default::default(),
         acts: Vec::new(),
         authorized: Default::default(),
+        fails: Vec::new(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");

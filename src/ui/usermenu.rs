@@ -522,12 +522,12 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
             let body = "You won't see their messages unless you choose to, and they won't know you ignored them.";
             app.confirm = Some(super::Confirm::new(format!("Ignore {name}?"), body, "Ignore", move |app: &mut App| {
                 app.store.ignored.insert(uid);
-                app.rest("PUT", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| drop(app.store.ignored.remove(&uid))))
+                app.rest("PUT", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| { app.store.ignored.remove(&uid); }))
             }));
         }
         Act::Ignore(false) => {
             app.store.ignored.remove(&uid);
-            app.rest("DELETE", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| drop(app.store.ignored.insert(uid))));
+            app.rest("DELETE", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| { app.store.ignored.insert(uid); }));
         }
         Act::Block => {
             let body = "They won't be able to message you, and you won't see their messages unless you choose to.";

@@ -77,8 +77,6 @@ fn super_props() -> &'static str {
 pub const RATE_LIMITED: &str = "You are being rate limited.";
 pub const UNAUTHORIZED: &str = "401: Unauthorized";
 
-/// What a refused request says, the way discord's client words it: the field errors of a 400, else
-/// the body's message, else a line for the status.
 pub fn explain(status: u16, v: &Value) -> String {
     let mut fields = Vec::new();
     collect_errors(&v["errors"], &mut fields);
@@ -362,5 +360,28 @@ impl Api {
 
     pub async fn remote_login(&self, ticket: &str) -> Result<Reply, String> {
         self.auth_post("/users/@me/remote-auth/login", json!({ "ticket": ticket }), None).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_errors_win_over_the_generic_message() {
+        let v = json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "nick": { "_errors": [{ "code": "BASE_TYPE_MAX_LENGTH", "message": "Must be 32 or fewer in length." }] } } });
+        assert_eq!(explain(400, &v), "Must be 32 or fewer in length.");
+    }
+
+    #[test]
+    fn the_body_message_is_used_when_there_are_no_fields() {
+        assert_eq!(explain(403, &json!({ "message": "Missing Permissions", "code": 50013 })), "Missing Permissions");
+    }
+
+    #[test]
+    fn a_bare_status_gets_a_line_of_its_own() {
+        assert!(explain(502, &Value::Null).starts_with("Oh no, it looks like the Discord servers"));
+        assert_eq!(explain(429, &Value::Null), RATE_LIMITED);
+        assert_eq!(explain(401, &json!({ "message": "401: Unauthorized", "code": 0 })), UNAUTHORIZED);
     }
 }
