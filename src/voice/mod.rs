@@ -51,6 +51,7 @@ pub enum Media {
 
 pub enum Ctl {
     Camera(bool),
+    Flags(u32),
 }
 
 pub struct Connect {
@@ -93,6 +94,7 @@ pub enum Kind {
     Loss(f32),
     /// DAVE's privacy code for the call, while it's end-to-end encrypted
     Privacy(Option<String>),
+    Clips,
 }
 
 /// Net-side handles on the running sessions (voice, and at most one stream); dropping a sender ends it.
@@ -268,6 +270,7 @@ impl VoiceUi {
             net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
         }
         self.camera = false;
+        crate::clips::forget_flags();
         self.video.clear();
         self.tex.clear();
         self.viewers.clear();
@@ -614,6 +617,7 @@ impl VoiceUi {
             }
             Kind::Loss(p) => self.loss = Some(p),
             Kind::Privacy(c) => self.privacy = c,
+            Kind::Clips => {}
             Kind::Closed(err) => {
                 self.state = State::Idle;
                 self.speaking.clear();

@@ -2091,7 +2091,8 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale, "auth": header("authorization") });
+            let text: String = String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect();
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
@@ -2494,6 +2495,13 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                     Some(5) => line["speaking"] = d["speaking"].clone(),
                     Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
                     Some(12) | Some(15) | Some(31) => line["d"] = d.clone(),
+                    // clip flags: once the client says it's clipping, the other speaker says so too
+                    Some(18) => {
+                        line["d"] = d.clone();
+                        if kind == Kind::Voice && d["flags"].as_u64().unwrap_or(0) & 1 != 0 {
+                            out.push(Reply::Json(json!({ "op": 18, "d": { "user_id": SPEAKER.to_string(), "flags": 3 } })));
+                        }
+                    }
                     Some(23) => {
                         // everyone is ready, so media switches to E2EE now
                         line["d"] = d.clone();

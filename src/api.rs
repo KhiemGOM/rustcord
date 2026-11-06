@@ -220,6 +220,14 @@ impl Api {
             if !alt.is_empty() {
                 att["description"] = json!(alt);
             }
+            if let Some(c) = crate::clips::library::read(f) {
+                att["is_clip"] = json!(true);
+                if !c.title.is_empty() {
+                    att["title"] = json!(c.title);
+                }
+                att["clip_created_at"] = json!(chrono::DateTime::from_timestamp_millis(c.created).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)));
+                att["clip_participant_ids"] = json!(c.users.iter().map(|u| u.to_string()).collect::<Vec<_>>());
+            }
             atts.push(att);
             form = form.part(format!("files[{i}]"), multipart::Part::bytes(bytes).file_name(name));
         }

@@ -236,6 +236,7 @@ pub struct Sender {
     pub size: (usize, usize),
     pub fps: u32,
     pub bitrate: u32,
+    clip: bool,
     th: Option<JoinHandle<()>>,
 }
 
@@ -244,6 +245,9 @@ impl Drop for Sender {
         self.stop.store(true, Relaxed);
         if let Some(t) = self.th.take() {
             let _ = t.join();
+        }
+        if self.clip {
+            crate::clips::stream_end();
         }
     }
 }
@@ -256,6 +260,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
     let stop = Arc::new(AtomicBool::new(false));
     let key = Arc::new(AtomicBool::new(true));
     let (s2, k2) = (stop.clone(), key.clone());
+    let clip = src != Source::Camera;
     // COM objects stay on the thread that made them, so the source is opened over there
     let (opened, ready) = smpsc::sync_channel(1);
     let th = std::thread::Builder::new()
@@ -270,6 +275,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
             };
             let _ = opened.send(Ok((size, bps)));
             let t0 = Instant::now();
+            let base = crate::clips::ticks(t0);
             let frame_time = Duration::from_secs(1) / fps;
             let mut next = Instant::now();
             let mut n = 0u64;
@@ -304,6 +310,9 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                 }
                 for (data, t) in frames {
                     shared.video_out.fetch_add(1, Relaxed);
+                    if clip && crate::clips::active() {
+                        crate::clips::video(&data, base + t, crate::clips::is_key(&data));
+                    }
                     let ts = (t as u64 * 9 / 1000) as u32;
                     if out.send(Encoded { data, ts }).is_err() {
                         return;
@@ -313,7 +322,13 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
         })
         .map_err(|e| e.to_string())?;
     let (size, bitrate) = ready.recv().map_err(|e| e.to_string())??;
-    Ok(Sender { stop, key, size, fps, bitrate, th: Some(th) })
+    if clip {
+        crate::clips::stream_start(size, fps, crate::clips::source_name(match src {
+            Source::Window(h) => Some(h),
+            _ => None,
+        }));
+    }
+    Ok(Sender { stop, key, size, fps, bitrate, clip, th: Some(th) })
 }
 
 enum Pipe {
