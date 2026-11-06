@@ -396,7 +396,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
                     }
                 }
                 None => {
-                    p.text(pos2(col(0.465), y), Align2::LEFT_CENTER, "Unknown", medium(14.0), pal().text_muted);
+                    let t = p.text(pos2(col(0.465), y), Align2::LEFT_CENTER, "Unknown", medium(14.0), pal().text_muted);
+                    ui.interact(t.expand(4.0), ui.id().with(("join_unknown", uid)), Sense::hover()).on_hover_text("Join method not available");
                 }
             }
             // the highest role, how many more, and the plus to give one
@@ -433,6 +434,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
                 let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
                 let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
                 icons::draw(ui.painter(), Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
+                let pr = pr.on_hover_text("Add Roles");
                 egui::Popup::menu(&pr).show(|ui| {
                     super::menu_body(ui, |ui| {
                         let mut left: Vec<&(Id, String, u32, i32)> = roles.iter().filter(|r| r.0 != gid && !mine.iter().any(|m| m.0 == r.0)).collect();
