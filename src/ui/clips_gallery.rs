@@ -311,18 +311,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-pub fn send_clips(app: &mut App, ch: Id, note: String, clips: &[Clip]) {
-    let files: Vec<_> = clips
-        .iter()
-        .filter_map(|c| super::clips_trim::export(c).map(|p| (p.clone(), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), String::new())))
-        .collect();
-    if files.is_empty() {
-        return;
-    }
-    let nonce = crate::state::make_nonce();
-    app.store.add_pending(ch, note.clone(), nonce.clone(), None);
-    app.net.send(crate::net::Cmd::Send { channel: ch, content: note, nonce, reply: None, files, stickers: Vec::new(), tts: false });
-    app.toast("Clip shared");
+/// Encoding a trim takes seconds, so it runs off the UI thread and comes back through
+/// `clips::outcomes`.
+pub fn send_clips(ctx: &egui::Context, channel: Id, note: String, clips: &[Clip]) {
+    let (ctx, clips) = (ctx.clone(), clips.to_vec());
+    std::thread::spawn(move || {
+        let files: Vec<_> = clips.iter().filter_map(super::clips_trim::export).collect();
+        let done = if files.is_empty() { clips::Outcome::Failed } else { clips::Outcome::Exported { channel, note, files } };
+        clips::report(&ctx, done);
+    });
 }
 
 fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
@@ -392,7 +389,7 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
         let (ids, to, note) = (s.ids.clone(), s.to, s.note.clone());
         if let Some(ch) = to {
             let picked: Vec<Clip> = app.clips.list.iter().flatten().filter(|c| ids.contains(&c.id)).cloned().collect();
-            send_clips(app, ch, note, &picked);
+            send_clips(ctx, ch, note, &picked);
         }
         g.share = None;
         g.sel.clear();

@@ -71,6 +71,13 @@ impl App {
                     crate::sound::cue("clip_error");
                     self.toast("Unable to save clip");
                 }
+                Outcome::Exported { channel, note, files } => {
+                    let files = files.into_iter().map(|p| (p.clone(), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), String::new())).collect();
+                    let nonce = crate::state::make_nonce();
+                    self.store.add_pending(channel, note.clone(), nonce.clone(), None);
+                    self.net.send(crate::net::Cmd::Send { channel, content: note, nonce, reply: None, files, stickers: Vec::new(), tts: false });
+                    self.toast("Clip shared");
+                }
             }
         }
     }

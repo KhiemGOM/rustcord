@@ -49,6 +49,7 @@ struct Rec {
 pub enum Outcome {
     Saved(Clip),
     Failed,
+    Exported { channel: u64, note: String, files: Vec<PathBuf> },
 }
 
 pub struct Context {
@@ -184,6 +185,12 @@ pub fn allowed(user: u64) -> bool {
 
 pub fn others_clipping(me: u64) -> bool {
     FLAGS.lock().unwrap().iter().any(|e| e.0 != me && e.1 & CLIPS_ENABLED != 0)
+}
+
+pub fn report(ctx: &egui::Context, o: Outcome) {
+    DONE.lock().unwrap().push(o);
+    READY.store(true, Relaxed);
+    ctx.request_repaint();
 }
 
 pub fn outcomes() -> Vec<Outcome> {
