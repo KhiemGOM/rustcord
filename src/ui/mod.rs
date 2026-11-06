@@ -1929,6 +1929,7 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        e2e::beat();
         self.pump(ctx);
         activity::logic(self, ctx);
         self.os_settings(ctx, frame);
