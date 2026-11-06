@@ -58,9 +58,7 @@ fn tag_row(ui: &mut Ui, wearer: &crate::state::User) -> bool {
     let chip = ui.painter().layout_no_wrap(wearer.tag.as_ref().map(|t| t.0.clone()).unwrap_or_default(), semi(12.0), pal().header_primary);
     let w = 8.0 + 8.0 + if wearer.tag_badge_url().is_some() { 16.0 } else { 0.0 } + chip.size().x + 10.0 + 70.0;
     let (r, resp) = ui.allocate_at_least(vec2(w, 34.0), Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, 4, MENU_HOVER);
-    }
+    crate::ui::motion::wash(ui, &resp, r, 4, MENU_HOVER, 0.05);
     let end = super::tag_chip(ui.painter(), wearer, pos2(r.left() + 8.0, r.center().y), 1.0).map_or(r.left() + 8.0, |c| c.right());
     ui.painter().text(pos2(end + 10.0, r.center().y), egui::Align2::LEFT_CENTER, "Server Tag", medium(14.0), pal().header_primary);
     resp.clicked()

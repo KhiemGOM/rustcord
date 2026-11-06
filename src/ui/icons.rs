@@ -125,6 +125,10 @@ pub enum Icon {
     Location,
     NavBack,
     VideoSlash,
+    Camera,
+    BackgroundNone,
+    BackgroundBlur,
+    BackgroundCustom,
     FlowerStar,
     BoostGem,
     Bug,
@@ -159,6 +163,7 @@ pub enum Icon {
     SideDev,
     SideLogout,
     Poll,
+    Clips,
     Timer,
     FileUpload,
     Filter,
@@ -294,6 +299,10 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Location => svg!("location"),
         Icon::NavBack => svg!("nav_back"),
         Icon::VideoSlash => svg!("video_slash"),
+        Icon::Camera => svg!("camera"),
+        Icon::BackgroundNone => svg!("background_none"),
+        Icon::BackgroundBlur => svg!("background_blur"),
+        Icon::BackgroundCustom => svg!("background_custom"),
         Icon::FlowerStar => svg!("flower_star"),
         Icon::BoostGem => svg!("boost_gem"),
         Icon::Bug => svg!("bug"),
@@ -329,6 +338,7 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::SideDev => svg!("s_dev"),
         Icon::SideLogout => svg!("s_logout"),
         Icon::Poll => svg!("poll"),
+        Icon::Clips => svg!("clips"),
         Icon::Timer => svg!("timer"),
         Icon::FileUpload => svg!("file_upload"),
         Icon::Pause => svg!("pause"),
@@ -470,6 +480,25 @@ pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) 
             g.fill(&[(18.5, 0.5), (23.5, 10.5), (13.5, 10.5)]);
         }
     }
+}
+
+/// `draw`, turned by `angle` radians (clockwise) about its centre.
+pub fn draw_turned(p: &Painter, icon: Icon, rect: Rect, c: Color32, angle: f32) {
+    if angle != 0.0
+        && let Some((uri, bytes)) = discord(icon)
+    {
+        let side = rect.width().min(rect.height());
+        let r = Rect::from_center_size(rect.center(), vec2(side, side));
+        let src = egui::ImageSource::Bytes { uri: uri.into(), bytes: egui::load::Bytes::Static(bytes) };
+        if let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src).load_for_size(p.ctx(), r.size()) {
+            let mut m = egui::Mesh::with_texture(texture.id);
+            m.add_rect_with_uv(r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), c);
+            m.rotate(egui::emath::Rot2::from_angle(angle), r.center());
+            p.add(Shape::mesh(m));
+            return;
+        }
+    }
+    draw(p, icon, rect, c);
 }
 
 pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {

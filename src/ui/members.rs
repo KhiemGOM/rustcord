@@ -257,9 +257,9 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>
     named.push((format!("activity:{}", cards.len()), head));
     let gr = Rect::from_min_size(pos2(t.right(), r.center().y - 12.0), vec2(24.0, 24.0));
     let g = ui.interact(gr, ui.id().with("activity_gear"), Sense::click()).on_hover_text("Activity Settings");
-    icons::draw(p, Icon::Gear, Rect::from_center_size(gr.center(), vec2(12.0, 12.0)), if g.hovered() { pal().interactive_hover } else { pal().channel_default });
+    icons::draw(p, Icon::Gear, Rect::from_center_size(gr.center(), vec2(12.0, 12.0)), crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &g)));
     let chev = Rect::from_center_size(pos2(head.right() - 12.0, r.center().y), vec2(12.0, 12.0));
-    icons::draw(p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, chev, if resp.hovered() { pal().interactive_hover } else { pal().channel_default });
+    super::motion::chevron(ui, resp.id, open, chev, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
     if g.clicked() {
         pick = Some(Pick::Gear);
     } else if resp.clicked() {
@@ -281,7 +281,7 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>
         let resp = ui.interact(card, ui.id().with(("activity_card", e.author, e.id, &e.title)), Sense::click());
         let p = ui.painter();
         // the card's 1px border sits on its own fill, as css draws it
-        p.rect_filled(card, CornerRadius::same(12), if resp.hovered() { pal().bg_floating } else { pal().bg_secondary });
+        p.rect_filled(card, CornerRadius::same(12), crate::ui::motion::mix(pal().bg_secondary, pal().bg_floating, crate::ui::motion::hot(ui.ctx(), &resp)));
         p.rect_stroke(card, CornerRadius::same(12), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
         let x = card.left() + 9.0;
         let info = card.width() - 18.0 - 56.0;
@@ -414,7 +414,7 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             if fade < 1.0 {
                 ui.painter().circle_filled(av.center(), 19.5, pal().bg_primary.gamma_multiply(0.7));
             } else {
-                status_dot(ui, av, st, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary });
+                status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
             let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), medium(16.0), pal().header_secondary.gamma_multiply(fade), inner.right() - av.right() - 40.0);
             if chan.owner == uid {

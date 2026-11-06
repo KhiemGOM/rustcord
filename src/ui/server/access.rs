@@ -34,11 +34,11 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     title(ui, "Access", "");
     let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
     let Some(ver) = app.server_data("verification", format!("/guilds/{gid}/member-verification?with_guild=false")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let Some(raw) = app.server_data("guild", format!("/guilds/{gid}")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let community = g.features.iter().any(|f| f == "COMMUNITY");
@@ -170,7 +170,7 @@ fn rules(ui: &mut Ui, d: &mut Value) {
                     super::super::settings::mark(ui, &format!("rule:{i}"), resp.rect);
                 });
                 let (x, xr) = ui.allocate_exact_size(vec2(28.0, 40.0), Sense::click());
-                icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(16.0, 16.0)), if xr.hovered() { pal().header_primary } else { pal().header_secondary });
+                icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(16.0, 16.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &xr)));
                 if xr.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -186,7 +186,7 @@ fn rules(ui: &mut Ui, d: &mut Value) {
         }
         if list.len() < 16 {
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
-            dashed(ui, r, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+            dashed(ui, r, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
             icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(r.center().x - 36.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
             ui.painter().text(pos2(r.center().x - 20.0, r.center().y), Align2::LEFT_CENTER, "Add a rule", medium(16.0), pal().header_primary);
             super::super::settings::mark(ui, "button:Add a rule", r);
@@ -204,7 +204,7 @@ fn rules(ui: &mut Ui, d: &mut Value) {
             for ex in EXAMPLES {
                 let g = ui.painter().layout_no_wrap(ex.into(), reg(14.0), pal().text_normal);
                 let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 30.0, 36.0), Sense::click());
-                ui.painter().rect(r, CornerRadius::same(18), if resp.hovered() { faint(31) } else { faint(15) }, Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
+                ui.painter().rect(r, CornerRadius::same(18), crate::ui::motion::mix(faint(15), faint(31), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
                 ui.painter().galley(pos2(r.left() + 15.0, r.center().y - g.size().y / 2.0), g, pal().text_normal);
                 super::super::settings::mark(ui, &format!("example:{ex}"), r);
                 if resp.hovered() {
@@ -272,7 +272,7 @@ fn questions(ui: &mut Ui, d: &mut Value) {
     }
     if qs.len() < 5 {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
-        dashed(ui, r, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+        dashed(ui, r, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
         icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(r.center().x - 56.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
         ui.painter().text(pos2(r.center().x - 40.0, r.center().y), Align2::LEFT_CENTER, "Add a question", medium(16.0), pal().header_primary);
         super::super::settings::mark(ui, "button:Add a question", r);

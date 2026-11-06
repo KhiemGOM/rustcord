@@ -103,7 +103,7 @@ fn plate(ui: &Ui, r: Rect, icon: Icon, text: &str, on: bool) -> egui::Response {
     let resp = ui.interact(r, ui.id().with(("event_btn", text, r.min.x as i32, r.min.y as i32)), Sense::click());
     super::settings::mark(ui, &format!("event:{text}"), r);
     let p = ui.painter();
-    let fill = if on { Color32::from_rgb(0x00, 0x85, 0x45) } else if resp.hovered() { faint(51) } else { faint(31) };
+    let fill = if on { Color32::from_rgb(0x00, 0x85, 0x45) } else { crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)) };
     p.rect_filled(r, CornerRadius::same(8), fill);
     p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, if on { Color32::from_white_alpha(20) } else { faint(61) }), egui::StrokeKind::Inside);
     let ink = if on { Color32::WHITE } else { pal().header_primary };
@@ -241,14 +241,14 @@ fn details(app: &App, ctx: &egui::Context, gid: Id, e: &Value, rsvp: &HashSet<Id
     let mut close = false;
     let screen = ctx.content_rect();
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-    let m = egui::Modal::new("event_details".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("event_details".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(604.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (head, _) = ui.allocate_exact_size(vec2(604.0, 56.0), Sense::hover());
         ui.painter().text(pos2(head.left() + 24.0, head.top() + 30.0), Align2::LEFT_CENTER, "Event Details", semi(16.0), pal().header_primary);
         let x = Rect::from_min_size(pos2(head.right() - 42.0, head.top() + 15.0), vec2(24.0, 24.0));
         let xr = ui.interact(x.expand(8.0), ui.id().with("event_details_close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x, if xr.hovered() { pal().interactive_hover } else { pal().text_muted });
+        icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &xr)));
         close = xr.clicked();
         egui::ScrollArea::vertical().max_height((screen.height() - 200.0).max(300.0)).auto_shrink([false, true]).show(ui, |ui| {
             card(app, ui, e, gid, rsvp, acts, true);
@@ -258,7 +258,7 @@ fn details(app: &App, ctx: &egui::Context, gid: Id, e: &Value, rsvp: &HashSet<Id
             match users {
                 None => {
                     ui.add_space(20.0);
-                    ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+                    ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
                 }
                 Some(l) => {
                     for u in l {
@@ -294,7 +294,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut drop_detail = false;
     let screen = ctx.content_rect();
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-    let m = egui::Modal::new("events".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("events".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(604.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (head, _) = ui.allocate_exact_size(vec2(604.0, 56.0), Sense::hover());
@@ -306,7 +306,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             p.vline(t.right() + 18.0, head.top() + 22.0..=head.top() + 38.0, Stroke::new(1.0, faint(51)));
             let b = Rect::from_min_size(pos2(t.right() + 36.0, head.top() + 16.0), vec2(102.0, 32.0));
             let br = ui.interact(b, ui.id().with("events_create"), Sense::click());
-            ui.painter().rect_filled(b, CornerRadius::same(8), if br.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+            ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &br)));
             ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create Event", medium(14.0), Color32::WHITE);
             create = br.clicked();
         } else {
@@ -314,7 +314,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         let x = Rect::from_min_size(pos2(head.right() - 42.0, head.top() + 15.0), vec2(24.0, 24.0));
         let xr = ui.interact(x.expand(8.0), ui.id().with("events_close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x, if xr.hovered() { pal().interactive_hover } else { pal().text_muted });
+        icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &xr)));
         close = xr.clicked();
         let max_h = (screen.height() - 200.0).max(300.0);
         egui::ScrollArea::vertical().max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
@@ -322,7 +322,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             match &list {
                 None => {
                     ui.add_space(140.0);
-                    ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+                    ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
                 }
                 Some(l) if l.is_empty() => roles = empty(ui, can_create),
                 Some(l) => {

@@ -116,6 +116,10 @@ pub struct Settings {
     // voice
     pub mic: Option<String>,
     pub speaker: Option<String>,
+    pub camera: Option<String>,
+    pub preview_video: bool,
+    pub video_bg: VideoBg,
+    pub custom_bg: Option<String>,
     pub vad_db: i32,
     pub auto_sensitivity: bool,
     pub ptt: bool,
@@ -164,6 +168,12 @@ pub struct Settings {
     // go live: the tallest the stream gets (0 for the source's own size) and its frame rate
     pub stream_height: usize,
     pub stream_fps: u32,
+    // clips: on or off, seconds kept, the reminder after a stream, and where they are written ("" is the default folder)
+    pub clips: bool,
+    pub clips_secs: u32,
+    pub clips_reminders: bool,
+    pub clips_dir: String,
+    pub clips_voice: bool,
     // sites whose links no longer ask "Leaving Discord", ticked in that dialog
     pub trusted: Vec<String>,
     // "Don't ask again" on switching voice channels
@@ -198,6 +208,15 @@ impl Default for Peer {
     fn default() -> Self {
         Peer { volume: 100.0, muted: false, soundboard_muted: false }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum VideoBg {
+    #[default]
+    None,
+    Blur,
+    Preset(u8),
+    Custom,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -315,6 +334,10 @@ impl Default for Settings {
             hide_names: Vec::new(),
             mic: None,
             speaker: None,
+            camera: None,
+            preview_video: false,
+            video_bg: VideoBg::None,
+            custom_bg: None,
             vad_db: -50,
             auto_sensitivity: true,
             ptt: false,
@@ -354,6 +377,11 @@ impl Default for Settings {
             hide_window: false,
             stream_height: 720,
             stream_fps: 30,
+            clips: false,
+            clips_secs: 30,
+            clips_reminders: true,
+            clips_dir: String::new(),
+            clips_voice: true,
             trusted: Vec::new(),
             voice_switch_ok: false,
             peers: Map::default(),

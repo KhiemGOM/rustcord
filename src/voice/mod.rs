@@ -7,8 +7,10 @@ mod capture;
 mod conn;
 mod dsp;
 mod duck;
+pub mod effects;
 mod hwenc;
 mod log;
+pub mod preview;
 pub mod probe;
 mod qos;
 mod rtp;
@@ -91,6 +93,7 @@ pub enum Kind {
     Loss(f32),
     /// DAVE's privacy code for the call, while it's end-to-end encrypted
     Privacy(Option<String>),
+    Clips,
 }
 
 /// Net-side handles on the running sessions (voice, and at most one stream); dropping a sender ends it.
@@ -142,6 +145,7 @@ pub struct Live {
 #[derive(Default)]
 pub struct VoiceUi {
     pub state: State,
+    clip_flags: u32,
     pub guild: Id,
     pub chan: Option<Id>,
     pub mute: bool,
@@ -266,6 +270,7 @@ impl VoiceUi {
             net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
         }
         self.camera = false;
+        crate::clips::forget_flags();
         self.video.clear();
         self.tex.clear();
         self.viewers.clear();
@@ -313,7 +318,17 @@ impl VoiceUi {
             "self_mute": self.mute || self.deaf,
             "self_deaf": self.deaf,
             "self_video": self.camera,
+            "flags": self.clip_flags,
         }})));
+    }
+
+    pub fn set_clip_flags(&mut self, net: &Net, flags: u32) {
+        if self.clip_flags != flags {
+            self.clip_flags = flags;
+            if self.chan.is_some() {
+                self.op4(net);
+            }
+        }
     }
 
     pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
@@ -612,6 +627,7 @@ impl VoiceUi {
             }
             Kind::Loss(p) => self.loss = Some(p),
             Kind::Privacy(c) => self.privacy = c,
+            Kind::Clips => {}
             Kind::Closed(err) => {
                 self.state = State::Idle;
                 self.speaking.clear();

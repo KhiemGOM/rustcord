@@ -118,7 +118,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let users = app.store.reactors.get(&(msg, cur.emoji.api_name(), burst)).and_then(|e| e.1.clone());
     let (mut close, mut pick, mut profile, mut remove) = (false, None, None, None);
     let store = &app.store;
-    let modal = egui::Modal::new("reactors".into())
+    let modal = crate::ui::motion::Modal::new("reactors".into())
         .frame(Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(440.0);
@@ -166,15 +166,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(list.width());
                 let Some(users) = &users else {
                     ui.add_space(24.0);
-                    ui.vertical_centered(|ui| ui.add(egui::Spinner::new()));
+                    ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
                     return;
                 };
                 for u in users {
                     let Some(user) = store.user(*u) else { continue };
                     let (r, resp) = ui.allocate_exact_size(vec2(list.width(), 52.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(4), MENU_HOVER);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), MENU_HOVER, 0.05);
                     avatar(ui, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(32.0, 32.0)), &user.avatar_url());
                     let display = store.name_in(guild, *u);
                     let sub = user.username.clone();
@@ -190,7 +188,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     if manage && resp.hovered() {
                         let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(20.0, 20.0));
                         let xr = ui.interact(x, ui.id().with(("remove_reactor", *u)), Sense::click());
-                        icons::draw(ui.painter(), Icon::Close, x, if xr.hovered() { pal().critical } else { pal().header_secondary });
+                        icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().critical, crate::ui::motion::hot(ui.ctx(), &xr)));
                         if xr.on_hover_text("Remove Reaction").clicked() {
                             remove = Some(*u);
                         }

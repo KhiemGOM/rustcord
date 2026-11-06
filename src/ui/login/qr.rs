@@ -78,7 +78,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             texts(ui, "Check your phone!", &format!("Logging in as {name}"));
             ui.add_space(16.0);
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), egui::Sense::click());
-            let col = if resp.hovered() { pal().header_primary } else { pal().link };
+            let col = crate::ui::motion::mix(pal().link, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
             ui.painter().text(rect.center(), Align2::CENTER_CENTER, "Not me, start over", reg(14.0), col);
             app.login.rects.insert("qr_cancel", rect);
             if resp.clicked() {

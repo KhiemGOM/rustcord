@@ -11,8 +11,11 @@ mod activity;
 mod call;
 mod web;
 mod stage;
+mod clips;
 mod composer;
+mod motion;
 mod login;
+mod camera;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -1064,10 +1067,7 @@ impl Run {
                 }
                 self.next(1500);
             }
-            60 => {
-                self.shot(ctx, "settings_voice.png");
-                self.next(300);
-            }
+            60 => self.step = 2800,
             61 => {
                 self.key(Key::Escape);
                 self.next(400);
@@ -1081,7 +1081,7 @@ impl Run {
             63 => {
                 let Some(r) = app.rects.get("voice:camera").copied() else { return };
                 self.click(r.center());
-                self.next(0);
+                self.step = 2819;
             }
             64 => {
                 if app.voice.camera && app.voice.video.contains_key(&me) && n(&sh.video_out) > 10 {
@@ -1339,6 +1339,8 @@ impl Run {
             1300..=1399 => self.item_steps(app, ctx),
             1400..=1419 => self.scroll_steps(app, ctx),
             1700..=1719 => self.spell_steps(app, ctx),
+            2800..=2829 => self.camera_steps(app, ctx),
+            2900..=2959 => self.clips_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),
@@ -1347,6 +1349,7 @@ impl Run {
             2400..=2499 => self.voice_steps(app, ctx),
             2500..=2549 => self.person_steps(app, ctx),
             1600..=1699 => self.local_steps(app, ctx),
+            2600..=2619 => self.motion_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
                     self.finish(ctx);
@@ -5584,7 +5587,7 @@ impl Run {
                 self.mark("accounts");
                 self.next(300);
             }
-            _ => self.step = 99,
+            _ => self.step = 2600,
         }
     }
 

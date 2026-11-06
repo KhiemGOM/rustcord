@@ -490,7 +490,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
-                    let col = if presp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                    let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &presp));
                     icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), if off { col.gamma_multiply(0.4) } else { col });
                     if presp.hovered() && !off {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -555,7 +555,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                         let slot = |ui: &mut Ui, icon: Icon, tip: &str| {
                             let (r, resp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
-                            let col = if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+                            let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
                             icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
                             if resp.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -564,7 +564,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         };
                         if app.settings.send_button {
                             let (sr, sresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
-                            let col = if sresp.hovered() { BLURPLE } else { pal().header_secondary };
+                            let col = crate::ui::motion::mix(pal().header_secondary, BLURPLE, crate::ui::motion::hot(ui.ctx(), &sresp));
                             icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(20.0, 20.0)), col);
                             if sresp.on_hover_text("Send Message").clicked() {
                                 send_click = true;
@@ -649,6 +649,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     match plus {
         Some(super::plus::Plus::Upload) => attach = true,
+        Some(super::plus::Plus::Clip) => {
+            app.open_clips();
+            if let Some(g) = &mut app.clips.gallery {
+                g.pick = Some(ch);
+            }
+        }
         Some(super::plus::Plus::Thread) => app.new_thread = Some(super::popups::NewThread::blank(ch)),
         Some(super::plus::Plus::Poll) => app.poll = Some(super::poll::Draft::new(ch)),
         Some(super::plus::Plus::Apps) => app.launcher = Some(super::plus::Launcher::new()),
@@ -958,10 +964,8 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
                         ui.painter().vline(r.center().x, r.y_range().shrink(6.0), Stroke::new(1.0, pal().border_subtle));
                     }
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, 4, pal().control_hover);
-                    }
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+                    crate::ui::motion::wash(ui, &resp, r, 4, pal().control_hover, 0.05);
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "format", tip)), r));
                     if resp.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
                         pick = Some(mark);
@@ -1116,11 +1120,9 @@ fn typing_line(app: &App, ui: &mut Ui, chan: &Channel, composer: Rect) {
     p.add(m);
 
     let y = composer.top() - 12.0;
-    let t = ui.input(|i| i.time) as f32;
-    ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     for i in 0..3 {
-        let phase = ((t * 4.0 - i as f32 * 0.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
-        p.circle_filled(pos2(composer.left() + 19.5 + i as f32 * 8.75, y), 3.5, pal().text_normal.gamma_multiply(0.3 + 0.7 * phase));
+        let (a, s) = super::motion::dots(ui.ctx(), i);
+        p.circle_filled(pos2(composer.left() + 19.5 + i as f32 * 8.75, y), 3.5 * s, pal().text_normal.gamma_multiply(a));
     }
     let names: Vec<String> = users.iter().map(|u| app.store.name_in(chan.guild, *u)).collect();
     let parts: Vec<(&str, bool)> = match names.as_slice() {

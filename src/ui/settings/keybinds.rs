@@ -3,10 +3,11 @@ use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, RichText, Sense, 
 use super::{Look, button, dropdown, section};
 use crate::theme::*;
 use crate::ui::App;
+use crate::ui::clips::is_save_clip;
 use crate::ui::icons::Icon;
 use crate::ui::keys::{SHEET, keycap};
 
-pub const ACTIONS: [(&str, &str, &str); 17] = [
+pub const ACTIONS: [(&str, &str, &str); 18] = [
     ("ptt", "Push to Talk (Normal)", "Hold to temporarily enable your microphone while in Push to Talk mode."),
     ("ptt_priority", "Push to Talk (Priority)", "Hold to temporarily enable your microphone while in Push to Talk mode. Other speakers who are not also transmitting with priority will temporarily have their volume lowered while you are speaking."),
     ("push_to_mute", "Push to Mute", "Hold to temporarily disable your microphone while in Voice Activity mode."),
@@ -24,6 +25,7 @@ pub const ACTIONS: [(&str, &str, &str); 17] = [
     ("disconnect", "Disconnect From Voice Channel", "Leave the voice channel you are connected to."),
     ("soundboard", "Open Soundboard", "Open and close the soundboard in your current server call."),
     ("soundboard_hold", "Open Soundboard (Hold)", "Keep the soundboard open while the keys are held."),
+    ("save_clip", "Save Clip", "Clips the last 30 seconds to 2 minutes of your stream, depending on your settings."),
 ];
 
 pub fn key_name(vk: u32) -> String {
@@ -67,6 +69,12 @@ pub fn combo(keys: &[u32]) -> String {
     keys.iter().map(|k| key_name(*k)).collect::<Vec<_>>().join(" + ")
 }
 
+#[cfg(test)]
+#[test]
+fn save_clip_is_listed_once() {
+    assert_eq!(ACTIONS.iter().filter(|a| a.0 == "save_clip").count(), 1);
+}
+
 fn banner(ui: &mut Ui, text: &str) {
     super::lead(ui);
     let g = ui.painter().layout(text.into(), medium(14.0), pal().text_normal, ui.available_width() - 64.0);
@@ -106,12 +114,16 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
     if app.sform.recording.is_some() {
         ui.ctx().request_repaint();
     }
-    if app.settings.keybinds.is_empty() {
+    let clips_on = app.settings.clips;
+    let mut rows: Vec<usize> = (0..app.settings.keybinds.len()).filter(|i| clips_on || !is_save_clip(&app.settings.keybinds[*i].0)).collect();
+    rows.sort_by_key(|i| !is_save_clip(&app.settings.keybinds[*i].0));
+    if rows.is_empty() {
         super::note(ui, "You haven’t added any custom keybinds yet.");
     }
     let mut remove = None;
-    for i in 0..app.settings.keybinds.len() {
+    for i in rows {
         let recording = app.sform.recording == Some(i);
+        let managed = is_save_clip(&app.settings.keybinds[i].0);
         super::card(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 16.0;
             ui.columns(2, |cols| {
@@ -122,13 +134,15 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
                 let id = action.trim_start_matches('!').to_string();
                 let shown = ACTIONS.iter().find(|a| a.0 == id).map_or("Unassigned", |a| a.1);
                 let w = cols[0].available_width();
-                dropdown(&mut cols[0], w, None, shown, |ui| {
-                    for (k, l) in std::iter::once(("", "Unassigned")).chain(ACTIONS.iter().map(|a| (a.0, a.1))) {
-                        if crate::ui::option(ui, id == k, l).clicked() {
-                            *action = format!("{}{k}", if off { "!" } else { "" });
-                            changed = true;
+                cols[0].add_enabled_ui(!managed, |ui| {
+                    dropdown(ui, w, None, shown, |ui| {
+                        for (k, l) in std::iter::once(("", "Unassigned")).chain(ACTIONS.iter().filter(|a| a.0 != "save_clip").map(|a| (a.0, a.1))) {
+                            if crate::ui::option(ui, id == k, l).clicked() {
+                                *action = format!("{}{k}", if off { "!" } else { "" });
+                                changed = true;
+                            }
                         }
-                    }
+                    });
                 });
                 let about = ACTIONS.iter().find(|a| a.0 == id).map_or("This action doesn’t do anything! Please choose one from the drop down.", |a| a.2);
                 cols[0].add_space(8.0);
@@ -169,7 +183,7 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
                     changed = true;
                 }
                 ui.add_space(8.0);
-                if crate::ui::icon_button(ui, Icon::Trash, 24.0, "Remove Keybind").clicked() {
+                if !managed && crate::ui::icon_button(ui, Icon::Trash, 24.0, "Remove Keybind").clicked() {
                     remove = Some(i);
                 }
             });
@@ -181,7 +195,7 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
         changed = true;
     }
     if changed {
-        crate::hotkeys::set(&app.settings.keybinds);
+        app.sync_hotkeys();
     }
     changed
 }

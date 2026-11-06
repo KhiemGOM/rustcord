@@ -87,7 +87,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             ui.add_space(20.0);
 
             let Some(posts) = app.store.forum_posts.get(&forum.id) else {
-                ui.add(egui::Spinner::new().color(pal().text_muted));
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                 return;
             };
             let q = v.query.trim().to_lowercase();
@@ -324,7 +324,7 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
     let resp = ui.interact(r, ui.id().with(("tile", p.id)), Sense::click());
     let first = app.store.refs.get(&p.id);
     let paint = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
-    paint.rect(r, 8, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary }, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    paint.rect(r, 8, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     let x = r.left() + 13.0;
     let who = first.map_or(p.owner, |m| m.author);
     let color = app.store.role_color(p.guild, who).map(role_color).unwrap_or(pal().header_primary);

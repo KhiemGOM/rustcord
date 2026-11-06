@@ -32,6 +32,7 @@ import look
 import polish
 import call
 import discover
+import motion
 import home
 import composer
 import messages
@@ -44,6 +45,7 @@ import qol
 import web
 import sound
 import activity
+import clips
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -378,7 +380,18 @@ def main():
                               ("go live: the share button opens discord's picker and a screen from it goes live", "share_picker"),
                               ("rail: a server's tooltip shows who's in voice beside a speaker", "guild_tip_voice"),
                               ("do not disturb: a dm arriving raised no notification", "dnd_quiet"),
-                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout")]},
+                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout"),
+                              ("camera settings: Test Video shows the live camera in its box", "camera_test_video"),
+                              ("camera settings: Blur went behind the person in the preview", "camera_background"),
+                              ("camera settings: Always preview video switched on", "camera_always_preview"),
+                              ("camera settings: a blur picked with the camera off loaded no model and ran no thread", "camera_idle_no_load"),
+                              ("camera settings: leaving the page stopped the preview's camera", "camera_preview_stops"),
+                              ("camera settings: a custom upload showed in the preview", "camera_bg_custom"),
+                              ("camera settings: a preset fetched from the cdn showed in the preview", "camera_bg_preset"),
+                              ("camera: with it on, the camera button opens the preview and Turn On Camera starts it", "camera_preview_modal"),
+                              ("camera: the device chosen in settings is the one the call opened", "camera_device"),
+                              ("camera: the background went into the stream that was sent", "camera_stream_bg"),
+                              ("camera: the call bar's menu switched the live camera to another device", "camera_callbar_menu")]},
         "voice: channel info was asked for with op 43": any(r.get("gateway_op") == 43 for r in reqs),
         "invite: the link was made for 30 days and sent to the friend's new dm": any(
             r.get("method") == "POST" and r.get("path", "").endswith("/channels/2400/invites") and '"max_age":2592000' in r.get("body", "") for r in reqs)
@@ -498,10 +511,12 @@ def main():
         **people.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
+        **clips.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
+        **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
         **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),

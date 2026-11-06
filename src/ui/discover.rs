@@ -132,7 +132,7 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
                 let msg = if first && loading { None } else { Some(if searching { "No servers found." } else { "Nothing here yet." }) };
                 match msg {
                     None => {
-                        ui.add(egui::Spinner::new().color(pal().text_muted));
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                     }
                     Some(m) => {
                         ui.label(RichText::new(m).font(reg(16.0)).color(pal().header_secondary));
@@ -161,7 +161,7 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
             }
             if loading || guilds.len() < total {
                 ui.add_space(8.0);
-                ui.add(egui::Spinner::new().color(pal().text_muted));
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             }
             ui.add_space(48.0);
         });
@@ -254,7 +254,7 @@ fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
         ui.painter().galley(pos2(x + 12.0, cy - t.size().y / 2.0), t, pal().text_normal);
         x += 12.0 + w + 16.0;
     }
-    let edge = if resp.hovered() { faint(110) } else { faint(51) };
+    let edge = crate::ui::motion::mix(faint(51), faint(110), crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect_stroke(r, radius, Stroke::new(1.0, edge), StrokeKind::Inside);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

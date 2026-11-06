@@ -54,7 +54,7 @@ fn glyph(ui: &Ui, r: &Response, icon: Icon, on: bool, ink: Color32) {
 fn corner(ui: &mut Ui, id: &'static str, right: f32, cy: f32, icon: Icon, tip: &str) -> Response {
     let r = Rect::from_center_size(pos2(right - 12.0, cy), vec2(24.0, 24.0));
     let resp = ui.interact(r, egui::Id::new(id), Sense::click());
-    icons::draw(ui.painter(), icon, r, if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+    icons::draw(ui.painter(), icon, r, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -77,7 +77,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     if !inside {
         let b = Rect::from_center_size(bar.center(), vec2(140.0, 40.0));
         let r = ui.interact(b, egui::Id::new(("join", ch)), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(20), if r.hovered() { GREEN.gamma_multiply(0.85) } else { GREEN });
+        ui.painter().rect_filled(b, CornerRadius::same(20), crate::ui::motion::mix(GREEN, GREEN.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &r)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, join_text, semi(14.0), Color32::WHITE);
         app.rects.insert("voice:join".into(), b);
         if r.clicked() {
@@ -87,12 +87,15 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     }
     let guild = app.store.channels.get(&ch).map_or(0, |c| c.guild);
     let mute = app.voice.mute || app.voice.deaf || app.voice.suppressed;
-    let (cam, me) = (app.voice.camera, app.store.me);
+    let cam = app.voice.camera;
     let sharing = app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let cy = if room { bar.bottom() - 41.0 } else { bar.center().y };
     let cells = if guild != 0 { 4 } else { 3 };
     let w2 = cells as f32 * 48.0 + 2.0;
     let x0 = bar.center().x - (140.0 + 12.0 + w2 + 12.0 + 66.0) / 2.0;
+    if bar.width() > 640.0 {
+        super::clips::badge(app, ui, pos2(bar.left() + 16.0, cy - 12.0));
+    }
     let sec = |x: f32, w: f32| Rect::from_min_size(pos2(x, cy - 25.0), vec2(w, 50.0));
     let (s1, s2) = (sec(x0, 140.0), sec(x0 + 152.0, w2));
     let p = ui.painter().clone();
@@ -114,8 +117,9 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let (v, vc) = unit(ui, "cam", s1.left() + 70.0, cy, true);
     glyph(ui, &v, if cam { Icon::Video } else { Icon::VideoSlash }, false, Color32::WHITE);
     app.rects.insert("voice:camera".into(), v.rect);
+    app.rects.insert("voice:camera_more".into(), vc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
     if v.on_hover_text(if cam { "Turn Off Camera" } else { "Turn On Camera" }).clicked() {
-        app.voice.set_camera(&app.net, me, !cam);
+        super::settings::camera::toggle_camera(app, ui.ctx(), !cam);
     }
     if let Some(c) = vc {
         let c = c.on_hover_text("More Camera Options");
@@ -224,7 +228,7 @@ pub fn popped(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     ui.painter().text(r.center() - vec2(0.0, 24.0), Align2::CENTER_CENTER, format!("{} is in its own window", chan.name), semi(20.0), pal().header_primary);
     let b = Rect::from_center_size(r.center() + vec2(0.0, 24.0), vec2(104.0, 40.0));
     let resp = ui.interact(b, egui::Id::new("pop_in"), Sense::click());
-    ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { Color32::from_rgb(0xe0, 0xe0, 0xe3) } else { Color32::WHITE });
+    ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::WHITE, Color32::from_rgb(0xe0, 0xe0, 0xe3), crate::ui::motion::hot(ui.ctx(), &resp)));
     ui.painter().text(b.center(), Align2::CENTER_CENTER, "Pop In", medium(14.0), Color32::BLACK);
     app.rects.insert("voice:pop_in".into(), b);
     if resp.clicked() {
@@ -315,12 +319,37 @@ pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> 
 }
 
 fn camera_popup(app: &mut App, at: &Response) {
-    let mut open = false;
+    let (mut open, mut background, mut picked) = (false, false, None);
+    let cams = super::settings::camera::cameras(app, &at.ctx);
+    let cur = super::settings::camera::shown(app, &cams);
     egui::Popup::menu(at).align(egui::RectAlign::TOP).gap(8.0).frame(frame()).show(|ui| {
         ui.set_min_width(222.0);
-        menu_body(ui, |ui| open = menu_item(ui, None, "Video Settings", false));
+        menu_body(ui, |ui| {
+            let row = menu_row(ui, None, "Camera", Some(&cur), false, Trail::Caret);
+            super::settings::mark(ui, "callcam:row", row.rect);
+            egui::containers::menu::SubMenu::new().show(ui, &row, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for name in &cams {
+                    let item = menu_row(ui, None, name, None, false, Trail::Radio(*name == cur));
+                    super::settings::mark(ui, &format!("callcam:dev:{name}"), item.rect);
+                    if item.clicked() {
+                        picked = Some(name.clone());
+                    }
+                }
+            });
+            background = menu_item(ui, None, "Change Video Background", false);
+            menu_sep(ui);
+            open = menu_item(ui, None, "Video Settings", false);
+        });
     });
-    if open {
+    if let Some(name) = picked {
+        super::settings::camera::choose(app, &at.ctx, &name);
+        app.save_settings(&at.ctx);
+    }
+    if background {
+        at.ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), "Video Background".to_string()));
+    }
+    if open || background {
         app.settings_page = Some(super::settings::Page::Voice);
     }
 }
@@ -396,7 +425,7 @@ pub fn krisp(app: &mut App, ui: &mut Ui, center: egui::Pos2) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 let (b, t) = ui.allocate_exact_size(vec2(60.0, 32.0), Sense::click());
-                ui.painter().rect_filled(b, CornerRadius::same(8), if t.hovered() { pal().control_hover } else { pal().control });
+                ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &t)));
                 ui.painter().text(b.center(), Align2::CENTER_CENTER, if app.call.mic_test { "Stop" } else { "Test" }, medium(14.0), pal().header_primary);
                 app.rects.insert("krisp:test".into(), b);
                 if t.clicked() {

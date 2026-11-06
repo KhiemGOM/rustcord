@@ -44,7 +44,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let (mut go, mut close) = (false, false);
     let title = if p.base.is_some() { "Add Friends to DM" } else { "New Message" };
     let button_text = if adding { "Add" } else { "Create Message" };
-    let modal = egui::Modal::new("group_pick".into())
+    let modal = crate::ui::motion::Modal::new("group_pick".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(480.0);

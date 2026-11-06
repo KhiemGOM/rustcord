@@ -192,7 +192,7 @@ pub(super) fn link(ui: &mut Ui, text: &str) -> egui::Response {
 pub(super) fn primary(ui: &mut Ui, text: &str, busy: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     let on = ui.is_enabled() && !busy;
-    let fill = if !on { BLURPLE.gamma_multiply(0.6) } else if resp.hovered() { Color32::from_rgb(0x48, 0x54, 0xc4) } else { BLURPLE };
+    let fill = if !on { BLURPLE.gamma_multiply(0.6) } else { crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x48, 0x54, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     let shown = if busy { "…" } else { text };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, shown, medium(16.0), if on { Color32::WHITE } else { Color32::from_white_alpha(170) });
@@ -204,7 +204,7 @@ pub(super) fn primary(ui: &mut Ui, text: &str, busy: bool) -> egui::Response {
 
 pub(super) fn secondary(ui: &mut Ui, text: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-    let fill = if resp.hovered() { pal().control_hover } else { pal().control };
+    let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), Color32::WHITE);
     if resp.hovered() {

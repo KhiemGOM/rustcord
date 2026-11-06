@@ -2,7 +2,7 @@ use base64::Engine;
 use egui::{Align2, Color32, CornerRadius, Frame, Id, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
 
-use super::{Look, button, caption, divider, dropdown, h5, link, note, radio, section, slider, sub, toggle};
+use super::{Look, button, caption, divider, dropdown, h5, link, radio, section, slider, sub, toggle};
 use crate::cache::{InputProfile, Noise};
 use crate::net::Tag;
 use crate::theme::*;
@@ -345,9 +345,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         changed |= toggle(ui, &mut s.openh264, "OpenH264 Video Codec provided by Cisco Systems, Inc.", "Turning this off will disable use of OpenH264 for video calls and media playback. This may result in some media being unplayable.");
     }
 
-    section(ui, "Camera");
-    note(ui, "Rustcord uses your default camera. Turn it on from the call controls.");
-
+    changed |= super::camera::section(app, ui);
     section(ui, "Streaming");
     changed |= toggle(ui, &mut app.settings.stream_previews, "Show Stream Previews", "Allows others to see a preview of your stream before they join.");
 

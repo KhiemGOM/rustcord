@@ -311,7 +311,7 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
             }
         }
     }
-    if hovered {
+    if hovered && !a.url.starts_with("file:") {
         let btn = Rect::from_min_size(pos2(rect.right() - 36.0, rect.top() + 4.0), vec2(32.0, 32.0));
         let r = ui.interact(btn, id.with("dl"), Sense::CLICK);
         if r.hovered() {
