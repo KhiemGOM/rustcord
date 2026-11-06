@@ -17,6 +17,8 @@ pub enum Tab {
     Activity,
     Friends,
     Servers,
+    Wishlist,
+    Board,
 }
 
 pub struct Full {
@@ -73,6 +75,11 @@ impl App {
         if !self.notes.contains_key(&uid) {
             self.notes.insert(uid, String::new());
             self.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
+        }
+        let key = format!("idents:{uid}");
+        if !self.keyed.contains_key(&key) {
+            self.keyed.insert(key.clone(), None);
+            self.rest("GET", format!("/users/{uid}/application-identities?with_profiles=true"), None, Tag::Keyed(key));
         }
         if !self.outbox.contains_key(&uid) {
             self.outbox.insert(uid, Vec::new());
@@ -438,6 +445,7 @@ enum Do {
     Note(String),
     Play(String),
     Tag,
+    Avatar,
 }
 
 /// The modal: the person down the left, their activity and mutuals on the right.
@@ -451,6 +459,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
     let layers = super::cosmo::layers_of(app, worn.as_ref());
     let fx_since = super::cosmo::since(ctx, ("full", uid));
+    let widgets = worn.as_ref().map(super::profed::widgets_of).unwrap_or_default();
+    super::profed::board::want_game_icons(app, &widgets);
+    let linked: Vec<String> = match app.keyed.get(&format!("idents:{uid}")) {
+        Some(Some(Ok(v))) => v.as_array().into_iter().flatten().filter_map(|i| i["name"].as_str().map(str::to_string)).collect(),
+        _ => Vec::new(),
+    };
+    let wish = (tab == Tab::Wishlist).then(|| super::profed::board::wish(app, uid));
     let p = app.profiles.get(&uid).filter(|p| !p.is_null());
     let name = app.store.name_in(gid, uid);
     let status = app.store.status(uid);
@@ -501,6 +516,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(144.0, 144.0)));
         }
         status_dot(ui, Rect::from_min_size(av.right_bottom() - vec2(95.0, 95.0), vec2(95.0, 95.0)), status, ring);
+        if user.avatar.is_some() {
+            let hit = ui.interact(av, ui.id().with("fp_avatar"), Sense::click());
+            if hit.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if hit.on_hover_text("View Profile Picture").clicked() {
+                act = Some(Do::Avatar);
+            }
+        }
         let mut y = banner.bottom() + 80.0;
         let x = panel.left() + 32.0;
         let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 24.0) } else { semi(24.0) };
@@ -568,6 +592,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             text::paint(ui.painter(), pos2(cx + 44.0, y + 9.0), Align2::LEFT_CENTER, &since(joined), reg(14.0), pal().header_primary, 150.0);
         }
         y += 42.0;
+        if rel == Some(crate::state::FRIEND)
+            && let Some(ms) = store.rel_since.get(&uid)
+        {
+            label(ui, y, "Friends Since");
+            y += 24.0;
+            text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &since(*ms), reg(14.0), pal().header_primary, 200.0);
+            y += 42.0;
+        }
         let mut body = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(x, y), pos2(x + 336.0, panel.bottom() - 8.0))));
         body.spacing_mut().item_spacing = vec2(0.0, 0.0);
         if guild.is_some() && (!roles.is_empty() || can_manage_any(store, gid)) {
@@ -590,15 +622,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         super::cosmo::paint_layers(ui, panel, &layers, fx_since);
 
         let rx = area.left() + 481.0;
-        let tabs: Vec<(Tab, String)> = if uid == me || user.bot {
-            vec![(Tab::Activity, "Activity".into())]
-        } else {
-            vec![
-                (Tab::Activity, "Activity".into()),
+        let mut tabs: Vec<(Tab, String)> = Vec::new();
+        if !widgets.is_empty() {
+            tabs.push((Tab::Board, "Board".into()));
+        }
+        tabs.push((Tab::Activity, "Activity".into()));
+        if !user.bot {
+            tabs.push((Tab::Wishlist, "Wishlist".into()));
+        }
+        if uid != me && !user.bot {
+            tabs.extend([
                 (Tab::Friends, format!("{n_friends} Mutual Friend{}", if n_friends == 1 { "" } else { "s" })),
                 (Tab::Servers, format!("{} Mutual Server{}", servers.len(), if servers.len() == 1 { "" } else { "s" })),
-            ]
-        };
+            ]);
+        }
         let mut tx = rx;
         let ty = area.top() + 76.0;
         for (t, label) in &tabs {
@@ -638,6 +675,25 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.label(RichText::new(s).font(medium(12.0)).color(pal().header_secondary));
             };
             match tab {
+                Tab::Board => {
+                    let r = Rect::from_min_size(ui.cursor().min, vec2(432.0, 0.0));
+                    let mut h = super::profed::board::paint_widgets(ui, store, r, &widgets, pal().header_primary);
+                    if !linked.is_empty() {
+                        ui.painter().text(pos2(r.left(), r.top() + h + 8.0), Align2::LEFT_CENTER, "Linked accounts", medium(12.0), pal().header_secondary);
+                        for (i, n) in linked.iter().enumerate() {
+                            ui.painter().text(pos2(r.left(), r.top() + h + 32.0 + i as f32 * 22.0), Align2::LEFT_CENTER, n, reg(14.0), pal().header_primary);
+                        }
+                        h += 40.0 + linked.len() as f32 * 22.0;
+                    }
+                    ui.allocate_exact_size(vec2(432.0, h), Sense::hover());
+                }
+                Tab::Wishlist => {
+                    if let Some(w) = &wish {
+                        let r = Rect::from_min_size(ui.cursor().min, vec2(432.0, 0.0));
+                        let h = super::profed::board::paint_wishlist(ui, r, w, pal().header_primary);
+                        ui.allocate_exact_size(vec2(432.0, h), Sense::hover());
+                    }
+                }
                 Tab::Activity => {
                     if !live.is_empty() {
                         head(ui, "Current activity");
@@ -739,6 +795,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             app.notes.insert(uid, n);
         }
         Some(Do::Play(u)) => ctx.open_url(egui::OpenUrl::new_tab(u)),
+        Some(Do::Avatar) => {
+            let big = user_avatar_big(&app.store, uid);
+            app.viewer = Some((big.clone(), big, 1024, 1024));
+        }
         Some(Do::Tag) => {
             if let Some((g, ..)) = user_tag(&app.store, uid) {
                 app.tag_pop = Some((g, Pos2::new(ctx.content_rect().center().x, 140.0)));
@@ -772,4 +832,8 @@ fn text_button(ui: &mut Ui, r: Rect, label: &str, icon: Icon, primary: bool) -> 
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.clicked()
+}
+
+fn user_avatar_big(store: &Store, uid: Id) -> String {
+    store.user(uid).map(|u| u.avatar_url().replace("size=80", "size=1024")).unwrap_or_default()
 }

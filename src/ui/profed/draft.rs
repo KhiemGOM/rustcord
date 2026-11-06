@@ -236,22 +236,22 @@ pub fn writes(d: &Draft, base: &Draft, guild: Option<Id>) -> Writes {
             if d.nameplate != base.nameplate {
                 acct["nameplate_sku_id"] = sku(&d.nameplate);
             }
-            if d.style != base.style {
-                match &d.style {
-                    Some(s) => {
-                        acct["display_name_font_id"] = json!(s.font);
-                        acct["display_name_effect_id"] = json!(s.effect);
-                        acct["display_name_colors"] = json!(s.colors);
-                    }
-                    None => {
-                        acct["display_name_font_id"] = Value::Null;
-                        acct["display_name_effect_id"] = Value::Null;
-                        acct["display_name_colors"] = Value::Null;
-                    }
-                }
-            }
             if d.tag != base.tag {
                 acct["primary_guild_id"] = d.tag.map_or(Value::Null, |g| json!(g.to_string()));
+            }
+        }
+    }
+    if d.style != base.style {
+        match &d.style {
+            Some(s) => {
+                acct["display_name_font_id"] = json!(s.font);
+                acct["display_name_effect_id"] = json!(s.effect);
+                acct["display_name_colors"] = json!(s.colors);
+            }
+            None => {
+                acct["display_name_font_id"] = Value::Null;
+                acct["display_name_effect_id"] = Value::Null;
+                acct["display_name_colors"] = Value::Null;
             }
         }
     }

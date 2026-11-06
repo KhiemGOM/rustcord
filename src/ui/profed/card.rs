@@ -44,6 +44,9 @@ pub fn paint_avatar(ui: &Ui, av: Rect, d: &super::Draft, current: &str) {
 }
 
 pub fn change_banner(app: &mut App, ed: &mut Editor) {
+    if !super::nitro(app, "Banners") {
+        return;
+    }
     let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() else { return };
     let Ok(b) = std::fs::read(p) else { return };
     let _ = ed;
@@ -157,7 +160,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
             ui.memory_mut(|m| m.request_focus(ui.id().with("name")));
         }
         let eb = Rect::from_min_size(pos2(tr.right() + 8.0, y - 1.0), vec2(32.0, 32.0));
-        if round_icon(ui, eb, Icon::Pencil, "Edit display name style", false).clicked() {
+        if round_icon(ui, eb, Icon::Pencil, "Edit display name style", false).clicked() && super::nitro(app, "Display name styles") {
             ed.dlg = Dlg::Style(style::Edit::from(ed.draft.style.as_ref()));
         }
         crate::ui::settings::mark(ui, "edit_dns", eb);
@@ -213,6 +216,28 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     head(ui, &mut y, "Member Since");
     ui.painter().text(pos2(x, y + 9.0), Align2::LEFT_CENTER, since(crate::state::snowflake_ms(me)), reg(14.0), ink());
     y += 36.0;
+    if let Some(g) = ed.guild {
+        let roles = crate::ui::profile::member_roles(&app.store, Some(&ed.raw), g, me);
+        if !roles.is_empty() {
+            head(ui, &mut y, "Roles Granted");
+            y += 8.0;
+            let mut cx = x;
+            for r in roles.iter().filter_map(|r| app.store.guilds.get(&g).and_then(|g| g.roles.get(r))) {
+                let lay = ui.painter().layout_no_wrap(r.name.clone(), reg(12.0), ink());
+                let cwid = lay.size().x + 32.0;
+                if cx + cwid > o.x + w - 32.0 && cx > x {
+                    cx = x;
+                    y += 32.0;
+                }
+                let chip = Rect::from_min_size(pos2(cx, y), vec2(cwid, 24.0));
+                ui.painter().rect_filled(chip, CornerRadius::same(6), Color32::WHITE.gamma_multiply(0.12));
+                ui.painter().circle_filled(pos2(chip.left() + 13.0, chip.center().y), 6.0, role_color(r.color));
+                ui.painter().galley(pos2(chip.left() + 26.0, chip.center().y - lay.size().y / 2.0), lay, ink());
+                cx += cwid + 6.0;
+            }
+            y += 44.0;
+        }
+    }
     let accounts = ed.raw["connected_accounts"].clone();
     head(ui, &mut y, "Connections");
     y += 8.0;

@@ -1,13 +1,13 @@
 //! Discord's profile editor: "Your full profile" with the styles panel on the left, the profile
 //! itself in the middle as the thing you edit, and the widgets board on the right.
 
-mod board;
+pub mod board;
 mod card;
 mod draft;
 mod pick;
 mod style;
 
-pub use draft::{Pic, Slot};
+pub use draft::{Pic, Slot, widgets_of};
 pub use style::PRESETS;
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
@@ -74,6 +74,7 @@ pub struct Editor {
     pub prompts: [usize; 2],
     pub tag_q: String,
     pub anchor: Rect,
+    pub eyedrop: Option<std::sync::Arc<egui::ColorImage>>,
     pub style_back: Option<style::Edit>,
 }
 
@@ -112,11 +113,13 @@ pub fn open(app: &mut App, guild: Option<Id>) {
         prompts: [t % BIO_PROMPTS.len(), (t / 7) % STATUS_PROMPTS.len()],
         tag_q: String::new(),
         anchor: Rect::NOTHING,
+        eyedrop: None,
         style_back: None,
     });
-    for k in ["me_profile", "owned", "shop", "avatars", "idents"] {
+    for k in ["me_profile", "owned", "avatars"] {
         refetch(app, k);
     }
+    app.cosmo.owned = None;
 }
 
 pub fn dirty(ed: &Editor) -> bool {
@@ -134,6 +137,14 @@ pub(self) fn tile(ui: &mut Ui, r: Rect, id: &str, on: bool) -> egui::Response {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
+}
+
+pub(self) fn nitro(app: &mut App, what: &str) -> bool {
+    let on = app.store.nitro();
+    if !on {
+        app.toast(format!("{what} are exclusive to Nitro."));
+    }
+    on
 }
 
 pub(self) fn faint(a: u8) -> Color32 {
@@ -354,7 +365,11 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
         }
     }
     overlay_icon(ui, r, resp.hovered(), d.nameplate.is_some(), true);
-    if resp.on_hover_text(if d.nameplate.is_some() { "Nameplate: Set" } else { "Nameplate: Not set" }).clicked() {
+    let tip = match d.nameplate.as_ref().map(|n| app.product(&n.sku).map_or_else(|| "Set".to_string(), |p| p.name)) {
+        Some(n) => format!("Nameplate: {n}"),
+        None => "Nameplate: Not set".into(),
+    };
+    if resp.on_hover_text(tip).clicked() {
         ed.dlg = Dlg::Pick(Kind::Nameplate, ed.draft.nameplate.clone());
     }
     *y += bar.y + 24.0;
@@ -389,7 +404,11 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
         text::image(ui.painter(), &cosmo::deco(&dec.asset, 128), Rect::from_center_size(c.center(), c.size() * 1.2));
     }
     overlay_icon(ui, rd, resp.hovered(), d.decoration.is_some(), d.decoration.is_none());
-    if resp.on_hover_text(if d.decoration.is_some() { "Avatar Decoration: Set" } else { "Avatar Decoration: Not set" }).clicked() {
+    let tip = match d.decoration.as_ref().map(|n| app.product(&n.sku).map_or_else(|| "Set".to_string(), |p| p.name)) {
+        Some(n) => format!("Avatar Decoration: {n}"),
+        None => "Avatar Decoration: Not set".into(),
+    };
+    if resp.on_hover_text(tip).clicked() {
         ed.dlg = Dlg::Pick(Kind::Decoration, ed.draft.decoration.clone());
     }
     *y += sq + 24.0;
@@ -402,7 +421,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
         let nm = if ed.draft.name.is_empty() { user.display().to_string() } else { ed.draft.name.clone() };
         style::paint_name(ui, pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, &nm, ed.draft.style.as_ref(), 24.0, r.width() - 56.0, true);
         overlay_icon(ui, r, resp.hovered(), ed.draft.style.is_some(), ed.draft.style.is_none());
-        if resp.on_hover_text(if ed.draft.style.is_some() { "Display name style: Set" } else { "Display name style: Not set" }).clicked() {
+        if resp.on_hover_text(if ed.draft.style.is_some() { "Display name style: Set" } else { "Display name style: Not set" }).clicked() && nitro(app, "Display name styles") {
             ed.dlg = Dlg::Style(style::Edit::from(ed.draft.style.as_ref()));
         }
         *y += bar.y + 24.0;
@@ -431,7 +450,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if resp.on_hover_text(format!("{tip}: {}", col.map_or("Not set".into(), hex))).clicked() {
+        if resp.on_hover_text(format!("{tip}: {}", col.map_or("Not set".into(), hex))).clicked() && nitro(app, "Theme colors") {
             ed.dlg = Dlg::Colour(which, rgb_of(col.unwrap_or(0x5865f2)));
         }
     }
