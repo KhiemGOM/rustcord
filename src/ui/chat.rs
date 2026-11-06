@@ -1,4 +1,4 @@
-use chrono::{Datelike, Local, TimeZone};
+use chrono::Datelike;
 use egui::text::CCursor;
 use egui::{
     Align, Align2, Color32, CornerRadius, Frame, Image, Key, Label, Layout, Margin, Modifiers, Pos2, Rect, RichText,
@@ -108,7 +108,7 @@ fn normal(kind: u8) -> bool {
 }
 
 fn day(ts: i64) -> (i32, u32) {
-    let d = Local.timestamp_millis_opt(ts).single().unwrap_or_default();
+    let d = markdown::local(ts);
     (d.year(), d.ordinal())
 }
 
@@ -144,8 +144,8 @@ pub fn estimate(m: &Message) -> f32 {
 }
 
 fn stamp(ts: i64) -> String {
-    let Some(d) = Local.timestamp_millis_opt(ts).single() else { return String::new() };
-    let now = Local::now();
+    let d = markdown::local(ts);
+    let now = markdown::local(chrono::Utc::now().timestamp_millis());
     let time = d.format(markdown::hm());
     // discord's headers drop "Today at" and show just the time
     if d.date_naive() == now.date_naive() {
@@ -968,11 +968,7 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
             let r = Rect::from_min_size(area.min + vec2(16.0, 0.0), vec2(area.width() - 32.0, 24.0));
             let p = ui.painter();
             p.rect_filled(r, CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }, Color32::from_rgb(0x58, 0x65, 0xf2));
-            let since = Local
-                .timestamp_millis_opt(crate::state::snowflake_ms(after))
-                .single()
-                .map(|t| t.format(markdown::hm()).to_string())
-                .unwrap_or_default();
+            let since = markdown::local(crate::state::snowflake_ms(after)).format(markdown::hm()).to_string();
             let more = if list.first().is_some_and(|m| m.id > after) { "+" } else { "" };
             p.text(
                 pos2(r.left() + 12.0, r.center().y),
@@ -1122,7 +1118,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     {
         // the date sits 24 under the last message, then 24-N or the group's gap, whichever's more
         ui.add_space(24.0);
-        let label = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format("%B %-d, %Y").to_string()).unwrap_or_default();
+        let label = markdown::local(m.ts()).format("%B %-d, %Y").to_string();
         divider(ui, ui.cursor().top(), &label, unread);
         ui.add_space(1.0);
         gap = gap.max(24.0 - gs);
@@ -1346,7 +1342,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
 
     if compact && normal(m.kind) {
         // compact mode keeps the time in the gutter on every line
-        let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format(markdown::hm()).to_string()).unwrap_or_default();
+        let t = markdown::local(m.ts()).format(markdown::hm()).to_string();
         ui.painter().text(pos2(left + 64.0, head_top + font * 0.69), Align2::RIGHT_CENTER, t, medium((11.0 * font / 16.0).max(10.0)), pal().text_muted);
     } else if start && normal(m.kind) {
         if let Some(u) = d.store.user(m.author) {
@@ -1367,7 +1363,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             }
         }
     } else if hovered && normal(m.kind) {
-        let t = Local.timestamp_millis_opt(m.ts()).single().map(|t| t.format(markdown::hm()).to_string()).unwrap_or_default();
+        let t = markdown::local(m.ts()).format(markdown::hm()).to_string();
         ui.painter().text(pos2(left + 56.0, top + 13.0), Align2::RIGHT_CENTER, t, medium(11.0), pal().text_muted);
     }
 
@@ -1542,12 +1538,11 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     let ty = base - text::baseline(&t);
     let tr = Rect::from_min_size(pos2(x + 4.0, ty), t.size());
     ui.painter().galley(tr.min, t, pal().chat_muted);
-    let full = Local
-        .timestamp_millis_opt(m.ts())
-        .single()
-        .map(|t| format!("{} {}", t.format("%A, %B %-d, %Y"), t.format(markdown::hm())))
-        .unwrap_or_default();
-    ui.interact(tr, ui.id().with(("stamp", name, m.id)), Sense::hover()).on_hover_text(full);
+    let r = ui.interact(tr, ui.id().with(("stamp", name, m.id)), Sense::hover());
+    if r.hovered() {
+        let t = markdown::local(m.ts());
+        r.on_hover_text(format!("{} {}", t.format("%A, %B %-d, %Y"), t.format(markdown::hm())));
+    }
     if vis {
         d.rects.push((format!("stamp:{}", m.author), tr));
     }
@@ -2466,7 +2461,7 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
 }
 
 fn poll_left(expiry: i64) -> String {
-    let ms = expiry - Local::now().timestamp_millis();
+    let ms = expiry - chrono::Utc::now().timestamp_millis();
     if ms <= 0 {
         return "Poll closed".into();
     }
