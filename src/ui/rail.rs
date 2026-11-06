@@ -72,7 +72,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 if app.voice.ringing == Some(c) {
                     let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
                     ui.painter().rect_stroke(r.rect.expand(2.0 + 4.0 * k), CornerRadius::same(RADIUS + 2), egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)), egui::StrokeKind::Outside);
-                    ui.ctx().request_repaint();
+                    ui.ctx().request_repaint_after_secs(0.033);
                 }
                 app.rects.insert(format!("dmbubble:{c}"), r.rect);
                 if tip(r, &title).clicked() {
