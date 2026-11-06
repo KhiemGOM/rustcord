@@ -1,13 +1,14 @@
-//! H.264 on the graphics card for what we watch: Microsoft's decoder drives the card's video engine,
-//! the frames stay in its memory, and its video processor makes BGRA at the size they're on screen.
-//! Only that small picture comes back to the cpu, read a frame late so the cpu never waits on the card.
+//! H.264 on the graphics card for what we watch: Microsoft's decoder drives the card's video engine
+//! and the frames stay in its memory. Only a size that still covers the screen comes back to the cpu,
+//! made by averaging (see `Mips`), because the card's video processor scales noticeably softer.
 
 use egui::{Color32, ColorImage};
 use std::mem::ManuallyDrop;
+use std::time::Duration;
 
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_RATIONAL, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_RATIONAL, DXGI_SAMPLE_DESC};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::core::{GUID, Interface};
@@ -45,17 +46,91 @@ impl Gpu {
     }
 }
 
+/// How many times a picture can be halved and still cover `want`.
+pub fn halvings((w, h): (usize, usize), want: (usize, usize)) -> u32 {
+    (w / want.0.max(1)).min(h / want.1.max(1)).clamp(1, 16).ilog2()
+}
+
+/// A full-size picture on the card and its halves, each the average of the one above: as sharp as
+/// averaging on the cpu, for no cpu. Only the smallest comes back.
+pub struct Mips {
+    ctx: ID3D11DeviceContext,
+    pub tex: ID3D11Texture2D,
+    srv: ID3D11ShaderResourceView,
+    staging: ID3D11Texture2D,
+    format: DXGI_FORMAT,
+    full: (u32, u32),
+    steps: u32,
+}
+
+impl Mips {
+    pub fn new(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, full: (u32, u32), steps: u32, format: DXGI_FORMAT) -> Result<Mips> {
+        unsafe {
+            let desc = |w, h, levels, usage, bind, cpu, misc| D3D11_TEXTURE2D_DESC {
+                Width: w,
+                Height: h,
+                MipLevels: levels,
+                ArraySize: 1,
+                Format: format,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: usage,
+                BindFlags: bind,
+                CPUAccessFlags: cpu,
+                MiscFlags: misc,
+            };
+            let misc = if steps > 0 { D3D11_RESOURCE_MISC_GENERATE_MIPS.0 as u32 } else { 0 };
+            let bind = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
+            let (mut tex, mut staging, mut srv) = (None, None, None);
+            dev.CreateTexture2D(&desc(full.0, full.1, steps + 1, D3D11_USAGE_DEFAULT, bind, 0, misc), None, Some(&mut tex))?;
+            let (w, h) = ((full.0 >> steps).max(1), (full.1 >> steps).max(1));
+            dev.CreateTexture2D(&desc(w, h, 1, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ.0 as u32, 0), None, Some(&mut staging))?;
+            let tex: ID3D11Texture2D = tex.ok_or_else(|| err("no texture"))?;
+            dev.CreateShaderResourceView(&tex, None, Some(&mut srv))?;
+            Ok(Mips { ctx: ctx.clone(), tex, srv: srv.ok_or_else(|| err("no view"))?, staging: staging.ok_or_else(|| err("no texture"))?, format, full, steps })
+        }
+    }
+
+    pub fn fits(&self, full: (u32, u32), steps: u32, format: DXGI_FORMAT) -> bool {
+        self.full == full && self.steps == steps && self.format == format
+    }
+
+    /// The picture in `tex`, at its smallest.
+    pub fn read(&self) -> Result<Option<ColorImage>> {
+        unsafe {
+            if self.steps > 0 {
+                self.ctx.GenerateMips(&self.srv);
+            }
+            self.ctx.CopySubresourceRegion(&self.staging, 0, 0, 0, 0, &self.tex, self.steps, None);
+            self.ctx.Flush();
+            // waits with the thread asleep, where Map's own wait spins in some drivers
+            let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+            let mut tries = 0;
+            while self.ctx.Map(&self.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)).is_err() {
+                tries += 1;
+                if tries > 50 {
+                    return Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let (w, h) = (((self.full.0 >> self.steps).max(1)) as usize, ((self.full.1 >> self.steps).max(1)) as usize);
+            let src = std::slice::from_raw_parts(m.pData as *const u8, m.RowPitch as usize * h);
+            let px = src.chunks_exact(m.RowPitch as usize).flat_map(|row| row[..w * 4].chunks_exact(4).map(|c| Color32::from_rgb(c[2], c[1], c[0]))).collect();
+            self.ctx.Unmap(&self.staging, 0);
+            Ok(Some(ColorImage::new([w, h], px)))
+        }
+    }
+}
+
+// NV12 to BGRA at full size, which the card's video processor does cleanly
 struct Scaler {
     from: (u32, u32),
-    to: (u32, u32),
+    steps: u32,
     en: ID3D11VideoProcessorEnumerator,
     vp: ID3D11VideoProcessor,
     out: ID3D11VideoProcessorOutputView,
-    target: ID3D11Texture2D,
-    staging: ID3D11Texture2D,
+    mips: Mips,
     // the decoder cycles through a few array slices, each with a view of its own
     inputs: Vec<(usize, u32, ID3D11VideoProcessorInputView)>,
-    pending: bool,
 }
 
 pub struct HwDec {
@@ -66,6 +141,8 @@ pub struct HwDec {
     vctx: ID3D11VideoContext,
     // the picture inside the decoder's surface, which is rounded up to whole macroblocks
     size: (u32, u32),
+    // what the stream says its colours are, as the video processor wants it
+    color: u32,
     latest: Option<IMFSample>,
     scaler: Option<Scaler>,
     time: i64,
@@ -98,6 +175,7 @@ impl HwDec {
                 vdev: gpu.dev.cast()?,
                 vctx: gpu.ctx.cast()?,
                 size: (0, 0),
+                color: 0,
                 latest: None,
                 scaler: None,
                 time: 0,
@@ -122,6 +200,11 @@ impl HwDec {
                 let mut area = MFVideoArea::default();
                 let got = t.GetBlob(&MF_MT_MINIMUM_DISPLAY_APERTURE, std::slice::from_raw_parts_mut(&raw mut area as *mut u8, size_of::<MFVideoArea>()), None);
                 self.size = if got.is_ok() && area.Area.cx > 0 { (area.Area.cx as u32, area.Area.cy as u32) } else { ((size >> 32) as u32, size as u32) };
+                // BT.601 studio range unless the stream says otherwise: what hwenc sends, and what
+                // the software decoder takes everything to be
+                let bt709 = t.GetUINT32(&MF_MT_YUV_MATRIX).is_ok_and(|m| m == MFVideoTransferMatrix_BT709.0 as u32);
+                let full = t.GetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE).is_ok_and(|r| r == MFNominalRange_0_255.0 as u32);
+                self.color = (bt709 as u32) << 2 | if full { 2 << 4 } else { 1 << 4 };
                 self.scaler = None;
                 return Ok(());
             }
@@ -185,41 +268,26 @@ impl HwDec {
         }
     }
 
-    /// The last frame finished, and the newest one started on its way, at `size`.
-    pub fn picture(&mut self, size: (usize, usize)) -> Result<Option<ColorImage>> {
+    /// The newest frame, if there's been one since the last time, big enough to cover `want`.
+    pub fn picture(&mut self, want: (usize, usize)) -> Result<Option<ColorImage>> {
         unsafe {
-            let to = (size.0 as u32, size.1 as u32);
-            if self.scaler.as_ref().is_none_or(|s| s.to != to || s.from != self.size) {
-                self.scaler = Some(self.scaler_for(to)?);
+            let steps = halvings(self.size(), want);
+            if self.scaler.as_ref().is_none_or(|s| s.steps != steps || s.from != self.size) {
+                self.scaler = Some(self.scaler_for(steps)?);
             }
-            let Some(s) = &self.scaler else { return Ok(None) };
-            let mut img = None;
-            if s.pending {
-                let mut m = D3D11_MAPPED_SUBRESOURCE::default();
-                // still drawing: leave it be rather than start another on top
-                if self.ctx.Map(&s.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)).is_err() {
-                    return Ok(None);
-                }
-                let src = std::slice::from_raw_parts(m.pData as *const u8, m.RowPitch as usize * size.1);
-                let px = src.chunks_exact(m.RowPitch as usize).flat_map(|row| row[..size.0 * 4].chunks_exact(4).map(|c| Color32::from_rgb(c[2], c[1], c[0]))).collect();
-                self.ctx.Unmap(&s.staging, 0);
-                img = Some(ColorImage::new([size.0, size.1], px));
-            }
-            let Some(sample) = self.latest.take() else { return Ok(img) };
+            let Some(sample) = self.latest.take() else { return Ok(None) };
             let dxgi = sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>()?;
             let mut tex: Option<ID3D11Texture2D> = None;
             dxgi.GetResource(&ID3D11Texture2D::IID, &raw mut tex as *mut *mut _)?;
             let tex = tex.ok_or_else(|| err("no decoded surface"))?;
             let slice = dxgi.GetSubresourceIndex()?;
             let input = self.input(&tex, slice)?;
-            let Some(s) = &mut self.scaler else { return Ok(img) };
+            let Some(s) = &self.scaler else { return Ok(None) };
             let stream = D3D11_VIDEO_PROCESSOR_STREAM { Enable: true.into(), pInputSurface: ManuallyDrop::new(Some(input)), ..Default::default() };
             let res = self.vctx.VideoProcessorBlt(&s.vp, &s.out, 0, std::slice::from_ref(&stream));
             drop(ManuallyDrop::into_inner(stream.pInputSurface));
             res?;
-            self.ctx.CopyResource(&s.staging, &s.target);
-            s.pending = true;
-            Ok(img)
+            s.mips.read()
         }
     }
 
@@ -243,7 +311,7 @@ impl HwDec {
         }
     }
 
-    unsafe fn scaler_for(&self, to: (u32, u32)) -> Result<Scaler> {
+    unsafe fn scaler_for(&self, steps: u32) -> Result<Scaler> {
         unsafe {
             let from = self.size;
             let rate = DXGI_RATIONAL { Numerator: 60, Denominator: 1 };
@@ -253,51 +321,29 @@ impl HwDec {
                 InputWidth: from.0,
                 InputHeight: from.1,
                 OutputFrameRate: rate,
-                OutputWidth: to.0,
-                OutputHeight: to.1,
-                Usage: D3D11_VIDEO_USAGE_OPTIMAL_SPEED,
+                OutputWidth: from.0,
+                OutputHeight: from.1,
+                Usage: D3D11_VIDEO_USAGE_OPTIMAL_QUALITY,
             };
             let en = self.vdev.CreateVideoProcessorEnumerator(&desc)?;
             let vp = self.vdev.CreateVideoProcessor(&en, 0)?;
-            let (vctx, source, dest) = (&self.vctx, rect(from), rect(to));
+            let (vctx, whole) = (&self.vctx, rect(from));
             vctx.VideoProcessorSetStreamAutoProcessingMode(&vp, 0, false);
             vctx.VideoProcessorSetStreamFrameFormat(&vp, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
-            // BT.601 studio range in, as hwenc sends and as the software decoder assumes; full range RGB out
-            vctx.VideoProcessorSetStreamColorSpace(&vp, 0, &D3D11_VIDEO_PROCESSOR_COLOR_SPACE { _bitfield: 1 << 4 });
+            vctx.VideoProcessorSetStreamColorSpace(&vp, 0, &D3D11_VIDEO_PROCESSOR_COLOR_SPACE { _bitfield: self.color });
             vctx.VideoProcessorSetOutputColorSpace(&vp, &D3D11_VIDEO_PROCESSOR_COLOR_SPACE { _bitfield: 0 });
-            vctx.VideoProcessorSetStreamSourceRect(&vp, 0, true, Some(&source));
-            vctx.VideoProcessorSetStreamDestRect(&vp, 0, true, Some(&dest));
-            vctx.VideoProcessorSetOutputTargetRect(&vp, true, Some(&dest));
-            let target = self.bgra(to, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET.0 as u32, 0)?;
-            let staging = self.bgra(to, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ.0 as u32)?;
+            vctx.VideoProcessorSetStreamSourceRect(&vp, 0, true, Some(&whole));
+            vctx.VideoProcessorSetStreamDestRect(&vp, 0, true, Some(&whole));
+            vctx.VideoProcessorSetOutputTargetRect(&vp, true, Some(&whole));
+            let mips = Mips::new(&self.dev, &self.ctx, from, steps, DXGI_FORMAT_B8G8R8A8_UNORM)?;
             let ov = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 } },
             };
             let mut out = None;
-            self.vdev.CreateVideoProcessorOutputView(&target, &en, &ov, Some(&mut out))?;
+            self.vdev.CreateVideoProcessorOutputView(&mips.tex, &en, &ov, Some(&mut out))?;
             let out = out.ok_or_else(|| err("no output view"))?;
-            Ok(Scaler { from, to, en, vp, out, target, staging, inputs: Vec::new(), pending: false })
-        }
-    }
-
-    unsafe fn bgra(&self, (w, h): (u32, u32), usage: D3D11_USAGE, bind: u32, cpu: u32) -> Result<ID3D11Texture2D> {
-        unsafe {
-            let d = D3D11_TEXTURE2D_DESC {
-                Width: w,
-                Height: h,
-                MipLevels: 1,
-                ArraySize: 1,
-                Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-                Usage: usage,
-                BindFlags: bind,
-                CPUAccessFlags: cpu,
-                MiscFlags: 0,
-            };
-            let mut t = None;
-            self.dev.CreateTexture2D(&d, None, Some(&mut t))?;
-            t.ok_or_else(|| err("no texture"))
+            Ok(Scaler { from, steps, en, vp, out, mips, inputs: Vec::new() })
         }
     }
 }

@@ -8,7 +8,7 @@ mod conn;
 mod dsp;
 mod duck;
 pub mod effects;
-mod hwdec;
+pub mod hwdec;
 mod hwenc;
 mod log;
 pub mod preview;

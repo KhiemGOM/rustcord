@@ -261,7 +261,7 @@ impl Decode {
                             }
                             shared.video_in.fetch_add(1, Relaxed);
                             let size = d.size();
-                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| d.picture(crate::media::fit(size, want)))
+                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| d.picture(want))
                         });
                         match shown {
                             Ok(img) if d.starved < STARVED => img,
