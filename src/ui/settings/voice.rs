@@ -535,6 +535,7 @@ fn entrance(app: &mut App, ui: &mut Ui) -> bool {
     let label = current.map(|(_, s, _)| list.iter().find(|x| x.id == s).map(|x| x.name.clone()).unwrap_or_else(|| "Custom sound".into())).unwrap_or_else(|| "None".into());
     let mut set: Option<Option<(u64, u64)>> = None;
     let (r, resp) = ui.allocate_exact_size(vec2(w.min(400.0), 40.0), Sense::click());
+    let resp = resp.on_hover_text("Change sound");
     ui.painter().rect(r, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, super::faint(61)), egui::StrokeKind::Inside);
     let shown = ui.painter().text(r.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, &label, reg(16.0), pal().text_normal);
     icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(pos2(r.right() - 22.0, r.center().y), vec2(20.0, 20.0)), pal().header_primary);

@@ -201,6 +201,7 @@ fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
 
 enum Mark {
     Guild(Id),
+    Page(Icon),
     Avatar(String),
     People,
     None,
@@ -208,8 +209,14 @@ enum Mark {
 
 fn place(app: &App) -> (Mark, String) {
     let s = &app.store;
+    if app.directory.is_some() {
+        return (Mark::Page(Icon::Discover), "Discover".into());
+    }
     if app.ui.guild.is_none() && app.friends {
         return (Mark::People, "Friends".into());
+    }
+    if app.ui.guild.is_none() && app.quests.is_some() {
+        return (Mark::Page(Icon::Quests), "Quests".into());
     }
     if let Some(g) = app.ui.guild.and_then(|g| s.guilds.get(&g)) {
         return (Mark::Guild(g.id), g.name.clone());
@@ -262,6 +269,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         keys(app, &ctx);
     }
     let (mark, title) = place(app);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "title")), title.clone()));
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
     egui::Panel::top("titlebar")
         .exact_size(HEIGHT)
@@ -373,6 +381,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 match mark {
                     Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
                     Mark::Avatar(url) => super::avatar(ui, icon, &url),
+                    Mark::Page(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
                     Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
                     Mark::None => {}
                 }

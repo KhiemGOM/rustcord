@@ -70,6 +70,7 @@ pub enum Tag {
     // the note you keep on someone
     Note(Id),
     Friend,
+    AddFriend(String),
     Commands(Id),
     Gifs(String),
     GifCats,
@@ -118,6 +119,7 @@ pub enum Tag {
     Soundboard(Id),
     // the activity shelf, launching one and the oauth steps its page asks for, by step
     Activity(String),
+    AddApp(bool),
 }
 
 pub enum Cmd {

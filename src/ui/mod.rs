@@ -2,6 +2,7 @@ mod accounts;
 mod actions;
 mod attach;
 mod active;
+mod addapp;
 pub mod activity;
 mod autoscroll;
 mod boosts;
@@ -28,6 +29,7 @@ mod folders;
 mod follow;
 mod forum;
 mod gate;
+mod guide;
 mod guildmodal;
 mod friends;
 pub mod icons;
@@ -41,6 +43,7 @@ mod login;
 mod mdpreview;
 mod members;
 mod modview;
+mod notifs;
 mod now;
 mod motion;
 mod palette;
@@ -74,6 +77,7 @@ mod tagpop;
 mod textfile;
 mod thread;
 mod spelling;
+mod splash;
 mod when;
 pub mod text;
 mod titlebar;
@@ -162,6 +166,7 @@ pub struct App {
     pub report: Option<report::Report>,
     // the server guide's new member actions, per server: (their channels, the ones done)
     pub guides: Map<Id, (Vec<Id>, Set<Id>)>,
+    pub guide_raw: Map<Id, serde_json::Value>,
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,
     pub toast: Option<(String, Instant)>,
@@ -232,6 +237,9 @@ pub struct App {
     pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
     pub add_friend: String,
+    pub status_until: Option<i64>,
+    pub add_app: Option<addapp::AddApp>,
+    pub add_friend_note: Option<(bool, String)>,
     pub post: Option<(String, String)>,
     pub scroll_to: Option<(Id, Id)>,
     pub scroll_tries: u8,
@@ -406,6 +414,7 @@ impl App {
             reactors: None,
             report: None,
             guides: Map::default(),
+            guide_raw: Map::default(),
             user_menu: None,
             menu_from: Default::default(),
             user_dialog: None,
@@ -468,6 +477,9 @@ impl App {
             quests: None,
             friends_tab: 0,
             add_friend: String::new(),
+            status_until: None,
+            add_app: None,
+            add_friend_note: None,
             post: None,
             scroll_to: None,
             scroll_tries: 0,
@@ -1071,6 +1083,7 @@ impl App {
             underline_links: s.underline_links,
             animate_emoji: s.animate_emoji,
             hide_invites: s.streamer && s.hide_invites,
+            hide_personal: s.hiding_personal(),
             name_styles: s.name_styles,
             own_profiles: s.own_theme_on_profiles,
             switch_icons: s.switch_icons,
@@ -1437,6 +1450,7 @@ impl App {
             Err(e) => {
                 match tag {
                     Tag::Activity(k) => return activity::failed(self, &k, e),
+                    Tag::AddApp(_) => return addapp::done(self, Err(e)),
                     Tag::InvitePreview(_) => return,
                     Tag::Pins(_) => self.pins = None,
                     Tag::Report(_) => return self.report_failed(e),
@@ -1477,6 +1491,10 @@ impl App {
                     Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
                     Tag::Quests(k) => quests::loaded(self, k, &serde_json::json!({})),
                     Tag::Follow => follow::done(self, false),
+                    Tag::AddFriend(_) => {
+                        let why = if e.contains("DiscordTag") { "No one with that name could be found." } else { "Hm, didn’t work. Double check that the username is correct." };
+                        return self.add_friend_note = Some((false, why.into()));
+                    }
                     _ => {}
                 }
                 return self.error_toast(e);
@@ -1629,6 +1647,7 @@ impl App {
                 }
             }
             Tag::Friend => self.toast("Friend request sent."),
+            Tag::AddFriend(name) => self.add_friend_note = Some((true, format!("Success! Your friend request to **{name}** was sent."))),
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
             Tag::GifCats => self.set_gif_cats(&v),
@@ -1638,6 +1657,7 @@ impl App {
                 let actions = v["new_member_actions"].as_array().into_iter().flatten().map(|a| crate::state::sid(&a["channel_id"]));
                 let e = self.guides.entry(g).or_default();
                 e.0 = if on { actions.filter(|c| *c != 0).collect() } else { Vec::new() };
+                self.guide_raw.insert(g, v);
             }
             Tag::MemberActions(g) => {
                 let done = v["channel_actions"].as_object().into_iter().flatten().filter(|(_, a)| a["completed"].as_bool() == Some(true));
@@ -1645,6 +1665,8 @@ impl App {
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Activity(k) => activity::on_rest(self, &k, v),
+            Tag::AddApp(true) => addapp::info(self, &v),
+            Tag::AddApp(false) => addapp::done(self, Ok(())),
             Tag::Quiet | Tag::Act(_) => {}
         }
     }
@@ -1970,44 +1992,8 @@ impl App {
         }
         self.confirm_modal(&ctx);
         settings::camera::frame(self, &ctx);
-        if let Some(gid) = self.guild_notifs {
-            let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let default = self.store.guilds.get(&gid).map(|g| g.default_notif).unwrap_or(0);
-            let level = self.store.levels.get(&gid).copied().unwrap_or(default);
-            let muted = self.store.muted.contains(&gid);
-            let (mut pick, mut mute) = (None, None);
-            let modal = crate::ui::motion::Modal::new("guild_notifs".into())
-                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
-                .show(&ctx, |ui| {
-                    ui.set_width(440.0);
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    ui.label(egui::RichText::new("Notification Settings").font(semi(20.0)).color(pal().header_primary));
-                    ui.label(egui::RichText::new(&name).font(reg(14.0)).color(pal().header_secondary));
-                    ui.add_space(16.0);
-                    if menu_row(ui, None, &format!("Mute {name}"), None, false, Trail::Check(muted)).clicked() {
-                        mute = Some(!muted);
-                    }
-                    ui.add_space(16.0);
-                    ui.label(egui::RichText::new("Server Notification Settings").font(medium(14.0)).color(pal().header_secondary));
-                    ui.add_space(8.0);
-                    for (label, v) in [("All Messages", 0), ("Only @mentions", 1), ("Nothing", 2)] {
-                        if menu_row(ui, None, label, None, false, Trail::Radio(level == v)).clicked() {
-                            pick = Some(v);
-                        }
-                    }
-                    });
-                });
-            if let Some(m) = mute {
-                self.set_muted(gid, true, m);
-            }
-            if let Some(v) = pick {
-                self.set_level(gid, Some(v));
-            }
-            if modal.should_close() {
-                self.guild_notifs = None;
-            }
-        }
+        notifs::show(self, &ctx);
+        addapp::show(self, &ctx);
         crop::show(self, &ctx);
         cstatus::show(self, &ctx);
         picker::show(self, &ctx);
@@ -2107,6 +2093,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         e2e::beat();
         self.pump(ctx);
+        self.status_expiry(ctx);
         activity::logic(self, ctx);
         self.os_settings(ctx, frame);
         self.trim_memory(ctx);
@@ -2183,6 +2170,8 @@ impl eframe::App for App {
         titlebar::show(self, ui);
         if self.token.is_none() {
             login::show(self, ui);
+        } else if splash::waiting(self) {
+            splash::show(ui);
         } else {
             self.streamer_banner(ui);
             // a modal over the app; shown first so it takes ESC before the chat does

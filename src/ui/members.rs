@@ -431,6 +431,7 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     // shift+click puts an @mention of them in the composer
     let mut mention = None;
     let mut menu = None;
+    let mut invite = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         ui.add_space(16.0);
@@ -457,6 +458,7 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             if chan.owner == uid {
                 let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
+                ui.interact(cr, ui.id().with(("owner", uid)), Sense::hover()).on_hover_text("Group Owner");
             }
             if resp.clicked() && ui.input(|i| i.modifiers.shift) {
                 mention = Some(uid);
@@ -468,7 +470,21 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             }
         }
         ui.add_space(16.0);
+        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 16.0, 40.0), Sense::click());
+        let r = r.translate(vec2(8.0, 0.0));
+        super::settings::mark(ui, "group:invite", r);
+        ui.painter().rect(r, 8, if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+        super::icons::draw(ui.painter(), super::icons::Icon::PersonAdd, Rect::from_center_size(pos2(r.center().x - 62.0, r.center().y), vec2(20.0, 20.0)), pal().header_primary);
+        ui.painter().text(pos2(r.center().x - 46.0, r.center().y), Align2::LEFT_CENTER, "Invite to Group DM", medium(16.0), pal().header_primary);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        invite = resp.clicked();
+        ui.add_space(16.0);
     });
+    if invite {
+        app.group_pick = Some(super::dmpick::Pick::new(Some(chan.id)));
+    }
     if let Some((u, at)) = clicked {
         app.open_profile(u, 0, at);
     }

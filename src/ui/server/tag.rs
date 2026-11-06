@@ -229,6 +229,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
         let (r, resp) = ui.allocate_exact_size(vec2(60.0, 60.0), Sense::click());
         ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
         super::super::icons::draw(ui.painter(), super::super::icons::Icon::Refresh, r.shrink(20.0), pal().header_secondary);
+        let resp = resp.on_hover_text("Reset to default colors");
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }

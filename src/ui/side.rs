@@ -245,6 +245,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     } else {
         match app.home.as_ref().filter(|h| h.guild == gid).map(|h| h.page) {
             Some(super::community::Page::Members) => Some("Members"),
+            Some(super::community::Page::Guide) => Some("Server Guide"),
             Some(super::community::Page::Channels(_)) => Some(if app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "GUILD_ONBOARDING")) { "Channels & Roles" } else { "Browse Channels" }),
             None => None,
         }
@@ -272,7 +273,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let acts: Vec<Id> = app.guides.get(&gid).map(|(a, _)| a.iter().copied().filter(|c| store.channels.get(c).is_some_and(|c| store.can_view(c))).collect()).unwrap_or_default();
                 if g.features.iter().any(|f| f == "COMMUNITY") && !acts.is_empty() && g.new_member() {
                     let done = app.guides.get(&gid).map_or(0, |(_, d)| acts.iter().filter(|c| d.contains(c)).count());
-                    get_started(ui, gid, acts.len(), done);
+                    if get_started(ui, acts.len(), done) {
+                        home_page = Some(super::community::Page::Guide);
+                    }
                 }
                 let muted = store.events_muted.contains(&gid);
                 let read = store.event_reads.get(&gid);
@@ -282,6 +285,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     Some("Server Boosts") => boost_page = true,
                     Some("Events") => events_page = true,
                     Some("Members") => home_page = Some(super::community::Page::Members),
+                    Some("Server Guide") => home_page = Some(super::community::Page::Guide),
                     Some(_) => home_page = Some(super::community::Page::Channels(if g.features.iter().any(|f| f == "GUILD_ONBOARDING") { 0 } else { 1 })),
                     None => {}
                 }
@@ -683,7 +687,7 @@ fn boost_goal(ui: &mut Ui, boosts: u32, goal: u32, under_banner: bool) -> bool {
 
 /// Discord's "Get Started" bar over a server guide: how many of the new member steps are done,
 /// with a bar filling green, then a rule. It opens the guide, which lives in the browser here.
-fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
+fn get_started(ui: &mut Ui, total: usize, done: usize) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
     let p = ui.painter();
     let x = r.left() + 16.0;
@@ -702,10 +706,8 @@ fn get_started(ui: &mut Ui, gid: Id, total: usize, done: usize) {
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if resp.clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/@home")));
-    }
     ui.add_space(8.0);
+    resp.clicked()
 }
 
 /// The rows over the channels, in discord's order and on its conditions. Server Boosts, Members
@@ -720,7 +722,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
     let perms = if perms & ADMINISTRATOR != 0 { u64::MAX } else { perms };
     let mut rows: Vec<(Icon, &'static str, String)> = Vec::new();
     if has("GUILD_SERVER_GUIDE") {
-        rows.push((Icon::ServerGuide, "Server Guide", format!("https://discord.com/channels/{id}/@home")));
+        rows.push((Icon::ServerGuide, "Server Guide", String::new()));
     }
     // events only once there are some or you could make one
     if g.events > 0 || perms & (MANAGE_EVENTS | CREATE_EVENTS) != 0 {
@@ -854,6 +856,38 @@ pub fn chan_icon(store: &Store, p: &egui::Painter, c: &Channel, rect: Rect, col:
     }
 }
 
+fn voice_full(store: &Store, c: &Channel) -> bool {
+    c.is_voice() && store.full(c) && store.guilds.get(&c.guild).and_then(|g| g.voice.get(&store.me)) != Some(&c.id)
+}
+
+fn kind_tip(store: &Store, c: &Channel) -> &'static str {
+    let limited = store.limited(c);
+    let age = c.nsfw;
+    match c.kind {
+        2 if store.perms(c) & crate::state::CONNECT == 0 => "Voice (Locked)",
+        2 if age => "Voice (Age-Restricted)",
+        2 if limited => "Voice (Limited)",
+        2 => "Voice",
+        13 if store.perms(c) & crate::state::CONNECT == 0 => "Stage (Locked)",
+        13 if limited => "Stage (Limited)",
+        13 => "Stage",
+        5 if age => "Announcements (Age-Restricted)",
+        5 if limited => "Announcements (Limited)",
+        5 => "Announcements",
+        15 if age => "Forum (Age-Restricted)",
+        15 if limited => "Forum (Limited)",
+        15 => "Forum",
+        16 if age => "Media Channel (Age-Restricted)",
+        16 if limited => "Media Channel (Limited)",
+        16 => "Media Channel",
+        12 => "Private Thread",
+        10 | 11 => "Thread",
+        _ if age => "Text (Age-Restricted)",
+        _ if limited => "Text (Limited)",
+        _ => "Text",
+    }
+}
+
 pub fn glyph(c: &Channel) -> Icon {
     match c.kind {
         2 => Icon::Speaker,
@@ -933,6 +967,13 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     };
     let ir = Rect::from_center_size(pos2(inner.left() + 18.0, y), vec2(20.0, 20.0));
     chan_icon(store, ui.painter(), c, ir, icon_col);
+    let icon_hit = ui.interact(ir, ui.id().with(("kind", c.id)), Sense::hover());
+    if icon_hit.hovered() {
+        icon_hit.show_tooltip_text(kind_tip(store, c));
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "kind_tip")), kind_tip(store, c).to_string()));
+    } else if hovered && voice_full(store, c) {
+        resp.show_tooltip_text("This channel is full.");
+    }
     // the invite and edit buttons discord shows on the hovered or selected row; a running call
     // keeps its timer there until the row is hovered
     let timer = voice.and_then(|v| v.timer.as_ref());

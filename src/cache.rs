@@ -181,6 +181,7 @@ pub struct Settings {
     pub voice_switch_ok: bool,
     // what each person in a call is played at on this device
     pub peers: Map<Id, Peer>,
+    pub alerts_off: Map<Id, [bool; 2]>,
     // the call's More Options: names on the tiles, and tiles for people without video
     pub hide_call_names: bool,
     pub hide_idle_tiles: bool,
@@ -387,6 +388,7 @@ impl Default for Settings {
             trusted: Vec::new(),
             voice_switch_ok: false,
             peers: Map::default(),
+            alerts_off: Map::default(),
             hide_call_names: false,
             hide_idle_tiles: false,
             recent_activities: Vec::new(),

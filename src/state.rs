@@ -217,6 +217,8 @@ pub struct Channel {
     pub last_pin: i64,
     #[serde(default)]
     pub rate: u32,
+    #[serde(default)]
+    pub user_limit: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -269,6 +271,7 @@ impl Channel {
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
             layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
             rate: v["rate_limit_per_user"].as_u64().unwrap_or(0) as u32,
+            user_limit: v["user_limit"].as_u64().unwrap_or(0) as u32,
         }
     }
 
@@ -944,6 +947,20 @@ impl Poll {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GuildPrefs {
+    pub suppress_everyone: bool,
+    pub suppress_roles: bool,
+    pub highlights_off: bool,
+    pub mobile_push: bool,
+}
+
+impl Default for GuildPrefs {
+    fn default() -> Self {
+        Self { suppress_everyone: false, suppress_roles: false, highlights_off: false, mobile_push: true }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct ReadState {
     pub last_acked: Id,
@@ -1156,6 +1173,8 @@ pub struct Store {
     // servers whose new events are muted, and how far you've read their event notifications
     #[serde(default)]
     pub events_muted: Set<Id>,
+    #[serde(default)]
+    pub gprefs: Map<Id, GuildPrefs>,
     #[serde(default)]
     pub event_reads: Map<Id, ReadState>,
     // servers that only list the channels picked in onboarding or browse channels, and the picks
@@ -1402,6 +1421,19 @@ impl Store {
         (last + c.rate as i64 * 1000 - now).max(0)
     }
 
+    pub fn limited(&self, c: &Channel) -> bool {
+        let Some(g) = self.guilds.get(&c.guild) else { return false };
+        let mut p = g.roles.get(&g.id).map_or(0, |r| r.perms);
+        if let Some(o) = c.overwrites.iter().find(|o| o.id == g.id) {
+            p = (p & !o.deny) | o.allow;
+        }
+        p & VIEW_CHANNEL == 0
+    }
+
+    pub fn full(&self, c: &Channel) -> bool {
+        c.user_limit > 0 && self.guilds.get(&c.guild).is_some_and(|g| g.voice.values().filter(|ch| **ch == c.id).count() >= c.user_limit as usize)
+    }
+
     /// Whether @everyone is kept out of the channel (or, for voice, kept from joining).
     pub fn locked(&self, c: &Channel) -> bool {
         let Some(g) = self.guilds.get(&c.guild) else { return false };
@@ -1508,6 +1540,11 @@ impl Store {
         } else {
             self.events_muted.remove(&gid);
         }
+        let prefs = self.gprefs.entry(gid).or_default();
+        prefs.suppress_everyone = s["suppress_everyone"].as_bool() == Some(true);
+        prefs.suppress_roles = s["suppress_roles"].as_bool() == Some(true);
+        prefs.highlights_off = s["notify_highlights"].as_u64() == Some(2);
+        prefs.mobile_push = s["mobile_push"].as_bool() != Some(false);
         if let Some(all) = unreads(s, 2048, 4096) {
             self.unreads.insert(gid, all);
         }
@@ -1857,6 +1894,7 @@ impl Store {
         };
         self.muted.clear();
         self.events_muted.clear();
+        self.gprefs.clear();
         self.unreads.clear();
         self.levels.clear();
         self.opt_in.clear();

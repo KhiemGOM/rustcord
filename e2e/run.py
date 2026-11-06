@@ -39,6 +39,7 @@ import home
 import composer
 import messages
 import rail
+import menus
 import people
 import players
 import voice_settings
@@ -549,6 +550,7 @@ def main():
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
         **composer.checks({"cold": cold, "warm": warm}, reqs, data),
         **people.checks({"cold": cold, "warm": warm}, reqs, data),
+        **menus.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **fixes.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
