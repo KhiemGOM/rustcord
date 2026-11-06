@@ -101,7 +101,7 @@ def checks(runs, reqs, data):
         "bots: select menus of every kind opened, a multi-select under its minimum sent nothing, and each answer went out with its component type and values":
             has("bot_menus", "bot_select_min", "bot_select_multi", "bot_select_user", "bot_select_role", "bot_select_channel", "bot_select_mentionable")
             and sel("pick_color", 3, ["r", "g"]) and sel("pick_user", 5, ["101"]) and sel("pick_role", 6, ["1100"]) and sel("pick_channel", 8, ["2011"])
-            and len(either) == runs_n and all(b["data"]["component_type"] == 7 and sorted(b["data"]["values"]) == ["101", "1100"] for b in either),
+            and len(either) == runs_n and all(b["data"]["component_type"] == 7 and sorted(b["data"]["values"]) == ["101", "102"] for b in either),
         "bots: a disabled menu sent nothing": has("bot_disabled") and not pick("pick_off"),
         "bots: a pressed button showed its loading state, a failed one its error":
             has("bot_button_loading", "bot_button_failed") and len(pick("slow_btn")) == runs_n and len(pick("fail_btn")) == runs_n,

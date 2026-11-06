@@ -537,7 +537,7 @@ impl Run {
                 self.next(300);
             }
             3566 => {
-                let r = rect("select_opt:1100").unwrap_or(Rect::ZERO);
+                let r = rect("select_opt:102").unwrap_or(Rect::ZERO);
                 self.click(r.center());
                 self.next(1200);
             }
