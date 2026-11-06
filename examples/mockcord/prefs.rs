@@ -135,3 +135,8 @@ pub fn guide(method: &str, parts: &[&str]) -> Option<(u16, Value)> {
         _ => None,
     }
 }
+
+pub fn discovery(method: &str, parts: &[&str]) -> Option<(u16, Value)> {
+    let ("GET", ["api", "v9", "guilds", gid, "discovery-requirements"]) = (method, parts) else { return None };
+    Some((200, json!({ "guild_id": gid, "safe_environment": true, "healthy": true, "health_score_pending": false, "size": 12, "minimum_size": 1000, "age": true, "sufficient": false, "sufficient_without_grace_period": false, "valid_rules_channel": true })))
+}

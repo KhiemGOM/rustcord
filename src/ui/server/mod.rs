@@ -4,6 +4,7 @@
 
 mod access;
 mod community;
+mod discovery;
 mod engage;
 mod form;
 mod perks;
@@ -54,6 +55,7 @@ pub enum Page {
     Bans,
     AutoMod,
     Community,
+    Discovery,
     Template,
 }
 
@@ -285,6 +287,21 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if resp.clicked() {
                 goto = Some(Page::Community);
             }
+            if community {
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+                if page == Page::Discovery {
+                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+                } else {
+                    crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
+                }
+                ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Discovery", medium(16.0), if page == Page::Discovery || resp.hovered() { pal().header_primary } else { pal().header_secondary });
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    goto = Some(Page::Discovery);
+                }
+            }
             ui.add_space(8.0);
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
             ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
@@ -333,6 +350,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Page::Soundboard => sound::show(app, ui, gid),
                 Page::Access => access::show(app, ui, gid),
                 Page::Community => community::show(app, ui, gid),
+                Page::Discovery => discovery::show(app, ui, gid),
                 Page::Template => template::show(app, ui, gid),
                 Page::Emoji => expression::emoji(app, ui, gid),
                 Page::Stickers => expression::stickers(app, ui, gid),

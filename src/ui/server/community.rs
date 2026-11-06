@@ -121,8 +121,10 @@ fn overview(app: &mut App, ui: &mut Ui, gid: Snow) {
     super::super::settings::h5(ui, "Server Discovery");
     form::small(ui, "Apply to be in Server Discovery so more people can find your server directly on Discord.");
     ui.add_space(8.0);
-    if form::button(ui, "Open Discovery Settings", false).clicked() {
-        super::super::settings::open_web(&format!("/channels/{gid}"));
+    if form::button(ui, "Open Discovery Settings", false).clicked()
+        && let Some(s) = &mut app.server
+    {
+        s.page = super::Page::Discovery;
     }
     form::line(ui);
     super::super::settings::h5(ui, "Disable Community");
