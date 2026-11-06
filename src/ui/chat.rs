@@ -1886,8 +1886,10 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     let x = origin.x + (c.min.x - lead).max(0.0);
                     let rect = Rect::from_min_size(pos2(x, origin.y + c.center().y - size / 2.0), vec2(*size, *size));
                     Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).show_loading_spinner(false).paint_at(ui, rect);
-                    if url.contains("/emojis/") && ui.clip_rect().contains_rect(rect) {
-                        d.rects.push(("custom_emoji".into(), rect));
+                    if let Some((_, id)) = url.split('?').next().and_then(|u| u.rsplit_once("/emojis/"))
+                        && ui.clip_rect().contains_rect(rect)
+                    {
+                        d.rects.push((format!("custom_emoji:{}", id.split('.').next().unwrap_or("")), rect));
                     }
                 }
                 if !t.links.is_empty()

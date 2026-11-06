@@ -181,29 +181,43 @@ impl Run {
                 if app.source_pop.is_some() {
                     return;
                 }
-                let Some(id) = id_of(app, "faraway emoji") else { return };
+                let Some(id) = id_of(app, "a faraway") else { return };
                 app.scroll_to = Some((CH, id));
                 self.next(500);
             }
             3721 => {
-                let Some(r) = app.rects.get("custom_emoji").copied() else { return };
+                let Some(r) = app.rects.get("custom_emoji:9999").copied() else { return };
                 if app.scroll_to.is_some() {
                     return;
                 }
+                self.rects.insert("emoji_at".into(), json!([r.center().x, r.center().y, r.width()]));
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(700);
+            }
+            3722 => {
+                let Some(r) = app.rects.get("custom_emoji:9999").copied() else { return };
+                self.shot(ctx, "chatx_emoji_hover.png");
                 self.click(r.center());
                 self.next(600);
             }
-            3722 => {
+            3723 => {
+                if app.source_pop.is_some() {
+                    self.mark("chatx_emoji_click");
+                } else {
+                    app.open_source(crate::ui::sourcepop::Pop { id: 9999, name: "CRose".into(), sticker: false, animated: false, at: pos2(560.0, 420.0) });
+                }
+                self.next(300);
+                self.step = 3725;
+            }
+            3725 => {
                 let loaded = app.sources.get(&(false, 9999)).is_some_and(|v| !v.is_null());
                 if !app.source_pop.as_ref().is_some_and(|p| !p.sticker && p.id == 9999) || !loaded {
                     return;
                 }
-                self.next(400);
-            }
-            3723 => {
                 self.mark("chatx_emoji_popout");
                 self.shot(ctx, "chatx_emoji_popout.png");
                 self.next(500);
+                self.step = 3724;
             }
             3724 => {
                 self.key(Key::Escape);
@@ -279,10 +293,17 @@ impl Run {
                 self.step = 3737;
             }
             3737 => {
-                app.open_thread(2031, false, false);
+                app.open(2030);
                 self.next(900);
             }
             3738 => {
+                if !app.store.forum_posts.get(&2030).is_some_and(|p| !p.is_empty()) || !app.store.channels.contains_key(&2031) {
+                    return;
+                }
+                app.open_thread(2031, true, false);
+                self.next(900);
+            }
+            3739 => {
                 if app.cur() != Some(2031) || app.rects.get("op_chip").is_none() {
                     return;
                 }
@@ -290,12 +311,8 @@ impl Run {
                 self.shot(ctx, "chatx_op_chip.png");
                 self.next(500);
             }
-            3739 => {
-                app.open(CH);
-                self.next(600);
-                self.step = 3740;
-            }
             3740 => {
+                app.open(CH);
                 let _ = std::fs::create_dir_all(&files);
                 for (name, mb) in [("slow-4mb.bin", 4usize), ("big-3mb.bin", 3), ("huge-12mb.bin", 12)] {
                     let _ = std::fs::write(files.join(name), vec![0u8; mb << 20]);
