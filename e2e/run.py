@@ -54,6 +54,7 @@ import live
 import members
 import chatx
 import bots
+import embed
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -562,6 +563,7 @@ def main():
         **members.checks({"cold": cold, "warm": warm}, reqs, data),
         **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
         **bots.checks({"cold": cold, "warm": warm}, reqs, data),
+        **embed.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),

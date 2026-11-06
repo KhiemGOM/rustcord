@@ -4,6 +4,7 @@
 //! providers Discord uses, anything else goes to the system browser.
 
 pub mod child;
+pub mod frame;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use std::time::Duration;
 
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
-    AcceleratorKeyPressedEventHandler, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
+    AcceleratorKeyPressedEventHandler, CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
     DownloadStartingEventHandler, ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler, WindowCloseRequestedEventHandler, take_pwstr,
 };
@@ -242,8 +243,13 @@ fn fire(done: &Done, r: windows::core::Result<ICoreWebView2Controller>) {
 
 /// Starts a WebView2 under `parent` with a private profile in `data`; `done` gets the controller
 /// from the thread's message loop, nothing here blocks.
-pub(crate) fn create(parent: HWND, data: &Path, done: impl FnOnce(windows::core::Result<ICoreWebView2Controller>) + 'static) {
+pub(crate) fn create(parent: HWND, data: &Path, args: &str, done: impl FnOnce(windows::core::Result<ICoreWebView2Controller>) + 'static) {
     let folder = HSTRING::from(data.as_os_str());
+    let options = (!args.is_empty()).then(|| {
+        let o = CoreWebView2EnvironmentOptions::default();
+        unsafe { o.set_additional_browser_arguments(args.to_string()) };
+        ICoreWebView2EnvironmentOptions::from(o)
+    });
     let parent = Hwnd(parent);
     let done: Done = Rc::new(RefCell::new(Some(Box::new(done))));
     let on_env = {
@@ -271,7 +277,7 @@ pub(crate) fn create(parent: HWND, data: &Path, done: impl FnOnce(windows::core:
             Ok(())
         }))
     };
-    let started = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &folder, None::<&ICoreWebView2EnvironmentOptions>, &on_env) };
+    let started = unsafe { CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &folder, options.as_ref(), &on_env) };
     if let Err(e) = started {
         fire(&done, Err(e));
     }
@@ -279,7 +285,7 @@ pub(crate) fn create(parent: HWND, data: &Path, done: impl FnOnce(windows::core:
 
 fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows::core::Result<()> {
     let (tx, rx) = mpsc::channel();
-    create(hwnd, data, move |r| {
+    create(hwnd, data, "", move |r| {
         let _ = tx.send(r);
     });
     let ctl = webview2_com::wait_with_pump(rx).map_err(|_| windows::core::Error::from(E_POINTER))??;

@@ -46,6 +46,7 @@ const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 const GENERAL: u64 = 2011;
 const MEDIA: u64 = 2060;
+const EMBEDS: u64 = 2062;
 const SPEAKER: u64 = 101;
 const SPEAKER_SSRC: u32 = 2001;
 const CLIENT_SSRC: u32 = 1001;
@@ -530,6 +531,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         out.push(m);
     }
     out.extend(media_msgs(cdn));
+    out.extend(embed_msgs(cdn));
     out.extend(system_msgs());
     let gallery = gallery::messages(cdn);
     if let Some(parent) = gallery.iter().find(|m| m["thread"].is_object()) {
@@ -604,6 +606,38 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
     let dance = format!("{cdn}/media/dance.gif?ex=65f0a1b2&is=65ee2cb2&hm=abc");
     m["attachments"] = json!([{ "id": "2", "filename": "dance.gif", "size": 41_000, "url": dance, "proxy_url": dance,
         "width": 120, "height": 90, "content_type": "image/gif" }]);
+    out.push(m);
+    out
+}
+
+// video embeds as discord makes them: a provider's page to frame (no proxy_url), and a file it kept
+fn embed_msgs(cdn: &str) -> Vec<Value> {
+    let t0 = now_ms() - 40 * 60_000;
+    let site = cdn.trim_end_matches("/cdn");
+    let mut out: Vec<Value> = (0..30).map(|i| msg(snow(t0 + i * 20_000), EMBEDS, 101 + i % 3, &format!("filler {i}, so there is something to scroll past"))).collect();
+    let still = format!("{cdn}/media/still.png");
+    let frame = |n: u64| {
+        json!({ "type": "video", "url": format!("https://www.youtube.com/watch?v=mock{n}"), "title": format!("Mock clip {n}"),
+            "provider": { "name": "YouTube", "url": "https://www.youtube.com" },
+            "thumbnail": { "url": still, "proxy_url": still, "width": 480, "height": 270 },
+            "video": { "url": format!("{site}/embed/player?clip={n}"), "width": 480, "height": 270 } })
+    };
+    let mut m = msg(snow(t0 + 30 * 20_000), EMBEDS, 102, "https://www.youtube.com/watch?v=mock1");
+    m["embeds"] = json!([frame(1)]);
+    out.push(m);
+    let file = format!("{cdn}/media/clip.mp4");
+    let mut m = msg(snow(t0 + 31 * 20_000), EMBEDS, 103, "https://medal.tv/clips/mock");
+    m["embeds"] = json!([{ "type": "video", "url": "https://medal.tv/clips/mock", "title": "Mock Medal clip", "provider": { "name": "Medal" },
+        "thumbnail": { "url": still, "proxy_url": still, "width": 320, "height": 180 },
+        "video": { "url": file, "proxy_url": file, "width": 320, "height": 180 } }]);
+    out.push(m);
+    let mut m = msg(snow(t0 + 32 * 20_000), EMBEDS, 101, "https://www.youtube.com/watch?v=mock2");
+    m["embeds"] = json!([frame(2)]);
+    out.push(m);
+    let mut m = msg(snow(t0 + 33 * 20_000), EMBEDS, 102, "https://example.org/video");
+    m["embeds"] = json!([{ "type": "video", "url": "https://example.org/video", "title": "Not a provider Discord frames", "provider": { "name": "Example" },
+        "thumbnail": { "url": still, "proxy_url": still, "width": 480, "height": 270 },
+        "video": { "url": "https://example.org/player", "width": 480, "height": 270 } }]);
     out.push(m);
     out
 }
@@ -882,7 +916,7 @@ fn ready(last_general: u64) -> Value {
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)), ch(CHATX, 0, "chat-extras", 7, Some(2010)), ch(gallery::GALLERY, 0, "gallery", 8, Some(2010)),
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)), ch(CHATX, 0, "chat-extras", 7, Some(2010)), ch(gallery::GALLERY, 0, "gallery", 8, Some(2010)), ch(EMBEDS, 0, "embeds", 9, Some(2010)),
         ],
         "threads": [thread(), gallery::thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
@@ -1375,8 +1409,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!(list))
         }
         ("POST", ["api", "v9", "interactions"]) => bot::handle(w, body),
-        ("POST", ["api", "v9", "channels", _, "attachments"]) => ok(bot::upload_slots(body, PORT.load(std::sync::atomic::Ordering::Relaxed))),
-        ("PUT", ["mock-upload", ..]) => (200, "application/json", Vec::new()),
         ("GET", ["api", "v9", "gifs", "trending"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
             let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/media/gif{i}.png");
@@ -1792,6 +1824,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
         ("GET", ["activity", _]) => (200, "text/html", activity_page()),
+        ("GET", ["embed", "player"]) => (200, "text/html", include_bytes!("fixtures/embed.html").to_vec()),
+        ("POST", ["api", "v9", "mock", "embed"]) => ok(json!({})),
         ("POST", ["api", "v9", "stage-instances"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let ch: u64 = b["channel_id"].as_str().and_then(|c| c.parse().ok()).unwrap_or(0);
@@ -2316,6 +2350,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
+        ("GET", ["cdn", "media", "still.png"]) => (200, "image/png", png(480, 270, 7, false)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
         ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),

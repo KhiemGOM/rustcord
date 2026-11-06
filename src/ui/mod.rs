@@ -21,6 +21,7 @@ mod crop;
 mod directory;
 mod dmpick;
 mod discover;
+mod embedplay;
 mod e2e;
 mod events;
 mod favs;
@@ -248,6 +249,8 @@ pub struct App {
     // a thread whose first messages are being fetched for Jump To Top
     pub jump_top: Option<Id>,
     pub activity: activity::Activity,
+    pub embed: Option<embedplay::Play>,
+    pub embed_at: Option<(embedplay::Key, egui::Rect, egui::Rect)>,
     pub events: Option<events::Events>,
     pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
@@ -496,6 +499,8 @@ impl App {
             side_thread: None,
             jump_top: None,
             activity: Default::default(),
+            embed: None,
+            embed_at: None,
             events: None,
             quests: None,
             friends_tab: 0,
@@ -2072,6 +2077,7 @@ impl App {
         crate::media::tick(ctx.cumulative_frame_nr());
         call::incoming(self, &ctx);
         activity::overlays(self, &ctx);
+        embedplay::place(self, &ctx);
         keys::combos(self, &ctx);
         keys::breathe(self, &ctx);
         keys::demon(self, &ctx);

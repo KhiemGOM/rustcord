@@ -29,6 +29,8 @@ enum Act {
     Picker(Id, Pos2),
     Menu(Id, Pos2),
     Url(String),
+    // the poster of a video embed clicked: which one, and the address of its player
+    Frame(super::embedplay::Key, String),
     // a link opened in the browser as it is, as a middle click does
     Browser(String),
     Channel(Id),
@@ -104,6 +106,8 @@ struct D<'a> {
     unblocked: &'a Set<Id>,
     // a right click landed on a picture, whose own menu opens instead of the message's
     image_menu: bool,
+    playing: Option<super::embedplay::Key>,
+    frame_at: Option<(super::embedplay::Key, Rect, Rect)>,
 }
 
 impl D<'_> {
@@ -664,6 +668,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         invites: &mut app.chat_invites,
         unblocked: &app.unblocked,
         image_menu: false,
+        playing: app.embed.as_ref().map(|p| p.key),
+        frame_at: None,
     };
     let mut focus_at = None;
     if d.flash.is_some() {
@@ -754,8 +760,11 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
     }));
 
-    let D { acts, bar, rects, .. } = d;
+    let D { acts, bar, rects, frame_at, .. } = d;
     app.bar = bar;
+    if frame_at.is_some() {
+        app.embed_at = frame_at;
+    }
     app.rects.extend(rects);
     let offset = out.state.offset.y;
     app.offsets.insert(ch, offset);
@@ -844,7 +853,12 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::ClearEmbeds(id) => app.clear_embeds(ch, id, !shift),
             Act::Vote(id, picks) => app.vote(ch, id, picks),
             Act::PlayAudio(url) => app.play_audio(url),
-            Act::Player(d) => super::player::apply(app, ui.ctx(), d),
+            Act::Player(d) => {
+                if matches!(d, super::player::Do::Open { .. }) {
+                    app.embed = None;
+                }
+                super::player::apply(app, ui.ctx(), d)
+            }
             Act::EditChannel => app.open_chan_settings(ch),
             Act::Resend(id) => app.resend(ch, id),
             Act::Invite(go) => app.chat_invite(go),
@@ -879,6 +893,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Picker(id, at) => app.picker = Some((Pick::React(ch, id), at)),
             Act::Menu(id, at) => app.menu = Some((ch, id, at)),
             Act::Url(u) => app.open_link(ui.ctx(), &u, false),
+            Act::Frame(key, u) => super::embedplay::start(app, ui.ctx(), key, &u),
             Act::Masked(u) => app.open_link(ui.ctx(), &u, true),
             Act::Browser(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
             Act::Channel(c) => app.open_thread(c, false, shift),
@@ -1360,7 +1375,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         for (i, e) in embeds.iter().enumerate() {
             cui.add_space(acc);
             acc = 4.0;
-            let r = embed(&mut cui, d, e, m.id);
+            let r = embed(&mut cui, d, e, m.id, i);
             // discord's ✕ beside the first of your own embeds, to take them all off for everyone
             if let Some(r) = r.filter(|_| i == 0 && hot && m.author == me && !d.popout) {
                 let x = Rect::from_min_size(pos2(r.right() + 4.0, r.top()), vec2(16.0, 16.0));
@@ -2201,25 +2216,35 @@ fn link_only(m: &Message) -> bool {
     m.embeds.iter().any(|e| matches!(e.kind.as_str(), "image" | "gifv") && e.url.as_deref() == Some(c))
 }
 
+fn direct(v: &crate::state::Media) -> bool {
+    v.proxied || is_video_file(&v.url)
+}
+
+fn inline_video(ui: &mut Ui, d: &mut D, e: &Embed, v: &crate::state::Media, msg: Id) -> Rect {
+    let name = v.url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("video.mp4").to_string();
+    let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new(), description: String::new() };
+    let (w, h) = fit(v.w, v.h, 400.0, 300.0, ui.available_width());
+    let poster = e.thumb.as_ref().map_or(v.url.as_str(), |t| t.url.as_str());
+    let mut outs = Vec::new();
+    let rect = super::player::video(ui, &a, vec2(w, h), poster, &mut outs);
+    d.player(outs);
+    d.rects.push((format!("embed_player:{msg}"), rect.intersect(ui.clip_rect())));
+    rect
+}
+
 fn is_video_file(url: &str) -> bool {
     let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
     [".mp4", ".m4v", ".mov", ".webm"].iter().any(|e| path.ends_with(e))
 }
 
-fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) -> Option<Rect> {
+fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> Option<Rect> {
     let bare = e.title.is_none() && e.desc.is_none() && e.author.is_none() && e.fields.is_empty();
     let media_ok = d.s.inline_links;
     // gifv is always just the looping clip, whatever title the provider gave it
     let gifv = e.kind == "gifv";
-    if let Some(v) = e.video.as_ref().filter(|v| e.kind == "video" && bare && media_ok && is_video_file(&v.url)) {
-        let name = v.url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("video.mp4").to_string();
-        let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new(), description: String::new() };
-        let (w, h) = fit(v.w, v.h, 400.0, 300.0, ui.available_width());
-        let poster = e.thumb.as_ref().map_or(v.url.as_str(), |t| t.url.as_str());
-        let mut outs = Vec::new();
-        let rect = super::player::video(ui, &a, vec2(w, h), poster, &mut outs);
-        d.player(outs);
-        return Some(rect);
+    let video = e.video.as_ref().filter(|_| e.kind == "video" && media_ok);
+    if let Some(v) = video.filter(|v| bare && direct(v)) {
+        return Some(inline_video(ui, d, e, v, msg));
     }
     if gifv || (bare && e.kind == "image") {
         if !media_ok {
@@ -2344,18 +2369,36 @@ fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id) -> Option<Rect> {
                     });
                 }
             });
-            if let Some(m) = e.image.as_ref().or(if e.kind == "video" { e.thumb.as_ref() } else { None }).filter(|_| media_ok) {
+            if let Some(v) = video.filter(|v| direct(v)) {
                 ui.add_space(16.0);
-                let (w, h) = fit(m.w, m.h, 400.0, 300.0, ui.available_width());
-                let r = media(ui, d, &m.url, &m.url, w, h, None);
-                if e.kind == "video" {
-                    ui.painter().circle_filled(r.rect.center(), 24.0, Color32::from_black_alpha(160));
-                    icons::draw(ui.painter(), Icon::Play, Rect::from_center_size(r.rect.center() + vec2(2.0, 0.0), vec2(22.0, 22.0)), Color32::WHITE);
-                }
-                if r.clicked() {
-                    match (&e.url, e.kind == "video") {
-                        (Some(u), true) => d.acts.push(Act::Url(u.clone())),
-                        _ => d.acts.push(Act::View(m.url.clone(), e.url.clone().unwrap_or_else(|| m.url.clone()), m.w, m.h)),
+                inline_video(ui, d, e, v, msg);
+            } else if let Some(m) = e.image.as_ref().or(if e.kind == "video" { e.thumb.as_ref() } else { None }).filter(|_| media_ok) {
+                ui.add_space(16.0);
+                let framed = video.filter(|v| super::embedplay::src(&v.url).is_some());
+                let (mw, mh) = framed.filter(|v| v.w > 0).map_or((m.w, m.h), |v| (v.w, v.h));
+                let (w, h) = fit(mw, mh, 400.0, 300.0, ui.available_width());
+                let key = (msg, idx);
+                if framed.is_some() && d.playing == Some(key) {
+                    let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+                    ui.painter().rect_filled(rect, CornerRadius::same(4), Color32::BLACK);
+                    d.frame_at = Some((key, rect, ui.clip_rect()));
+                    d.rects.push((format!("embed_frame:{msg}"), rect));
+                    d.rects.push(("embed_clip".into(), ui.clip_rect()));
+                } else {
+                    let r = media(ui, d, &m.url, &m.url, w, h, None);
+                    let mut link = false;
+                    if e.kind == "video" {
+                        link = super::embedplay::pill(ui, r.rect, framed.is_some(), e.url.is_some());
+                        d.rects.push((format!("embed_poster:{msg}"), r.rect.intersect(ui.clip_rect())));
+                    }
+                    if link {
+                        d.acts.extend(e.url.clone().map(Act::Url));
+                    } else if r.clicked() {
+                        match (&e.url, framed, e.kind == "video") {
+                            (_, Some(v), _) => d.acts.push(Act::Frame(key, v.url.clone())),
+                            (Some(u), _, true) => d.acts.push(Act::Url(u.clone())),
+                            _ => d.acts.push(Act::View(m.url.clone(), e.url.clone().unwrap_or_else(|| m.url.clone()), m.w, m.h)),
+                        }
                     }
                 }
             }
@@ -3127,6 +3170,8 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         invites: &mut invites,
         unblocked: &none,
         image_menu: false,
+        playing: None,
+        frame_at: None,
     };
     // discord's cards: a raised fill and a hairline, the reply it answers above the author
     let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {

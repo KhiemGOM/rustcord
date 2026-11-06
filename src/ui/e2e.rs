@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 mod activity;
 mod bots;
+mod embed;
 mod call;
 mod web;
 mod stage;
@@ -1358,6 +1359,7 @@ impl Run {
             900..=919 => self.web_steps(),
             2200..=2299 => self.activity_steps(app, ctx),
             3500..=3599 => self.bot_steps(app, ctx),
+            3300..=3399 => self.embed_steps(app, ctx),
             100..=199 => self.settings_steps(app, ctx),
             700..=759 => self.stage_steps(app, ctx),
             2100..=2199 => self.call_steps(app, ctx),
