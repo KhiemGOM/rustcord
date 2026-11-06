@@ -52,6 +52,7 @@ import clips
 import refusals
 import live
 import members
+import chatx
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -210,7 +211,7 @@ def main():
 
     sent_bodies = [content(r["body"]) for r in sends]
     interactions = [r for r in reqs if r.get("path", "").endswith("/interactions")]
-    uploads = [r for r in sends if 'filename="image.png"' in r.get("body", "")]
+    uploads = [r for r in sends if '"filename":"image.png"' in r.get("body", "")]
     acks = [r for r in reqs if "/ack" in r.get("path", "")]
     history = [r for r in reqs if "before=" in r.get("path", "")]
     subs = [r for r in reqs if r.get("gateway_op") == 37]
@@ -558,6 +559,7 @@ def main():
         **refusals.checks({"cold": cold, "warm": warm}, reqs, data),
         **live.checks({"cold": cold, "warm": warm}, reqs, data),
         **members.checks({"cold": cold, "warm": warm}, reqs, data),
+        **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),

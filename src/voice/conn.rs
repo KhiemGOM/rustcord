@@ -831,7 +831,11 @@ impl Sess {
             };
             match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
                 Ok(s) => self.cam = Some(s),
-                Err(e) => self.emit(Kind::Error(format!("couldn't start {}: {e}", if src == Source::Camera { "the camera" } else { "screen capture" }))),
+                Err(e) if src == Source::Camera => {
+                    super::log::line(&format!("camera error {e}"));
+                    self.emit(Kind::Error(super::CAMERA_FAILED.into()));
+                }
+                Err(e) => self.emit(Kind::Error(format!("couldn't start screen capture: {e}"))),
             }
         }
         if self.cam.is_none() {

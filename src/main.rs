@@ -27,6 +27,7 @@ mod games;
 mod shareable;
 mod toast;
 mod tray;
+mod upload;
 mod ui;
 mod voice;
 mod webauthn;

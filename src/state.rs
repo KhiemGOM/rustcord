@@ -1698,7 +1698,7 @@ impl Store {
         Some((None, verb.to_string(), a.name.clone()))
     }
 
-    fn upsert_user(&mut self, v: &Value) -> Id {
+    pub fn upsert_user(&mut self, v: &Value) -> Id {
         let mut u = User::parse(v);
         let id = u.id;
         if id == 0 {
@@ -2133,6 +2133,12 @@ impl Store {
         self.msgs.entry(channel).or_default().list.push(m);
     }
 
+    pub fn drop_pending(&mut self, channel: Id, nonce: &str) {
+        if let Some(e) = self.msgs.get_mut(&channel) {
+            e.list.retain(|m| m.nonce.as_deref() != Some(nonce));
+        }
+    }
+
     pub fn fail_pending(&mut self, channel: Id, nonce: &str) {
         if let Some(e) = self.msgs.get_mut(&channel) {
             for m in e.list.iter_mut().filter(|m| m.nonce.as_deref() == Some(nonce)) {
@@ -2400,11 +2406,6 @@ impl Store {
             "GUILD_MEMBER_UPDATE" => {
                 let uid = self.upsert_user(&d["user"]);
                 self.upsert_member(sid(&d["guild_id"]), uid, d);
-            }
-            "GUILD_MEMBER_REMOVE" => {
-                if let Some(m) = self.members.get_mut(&sid(&d["guild_id"])) {
-                    m.remove(&sid(&d["user"]["id"]));
-                }
             }
             "GUILD_STICKERS_UPDATE" => {
                 if let Some(g) = self.guilds.get_mut(&sid(&d["guild_id"])) {
