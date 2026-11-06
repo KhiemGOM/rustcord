@@ -110,7 +110,7 @@ impl App {
     /// Submitting a poll vote: set our picks locally and send discord the whole set (empty clears).
     pub fn vote(&mut self, ch: Id, id: Id, picks: Vec<u8>) {
         if self.store.set_votes(ch, id, &picks) {
-            let ids: Vec<String> = picks.iter().map(|a| a.to_string()).collect();
+            let ids: Vec<u8> = picks.to_vec();
             self.rest("PUT", format!("/channels/{ch}/polls/{id}/answers/@me"), Some(json!({ "answer_ids": ids })), Tag::Quiet);
         }
     }
@@ -150,7 +150,7 @@ impl App {
             self.toast("Bookmark removed.");
         } else {
             self.bookmarks.insert(id);
-            self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "source": "message_context_menu" })), Tag::Quiet);
+            self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "source": "context_menu" })), Tag::Quiet);
             self.toast("Bookmark added.");
         }
         if let Some(i) = &mut self.inbox {
@@ -160,7 +160,7 @@ impl App {
 
     pub fn remind(&mut self, ch: Id, id: Id, at: chrono::DateTime<chrono::Utc>) {
         let due = at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "due_at": due, "source": "message_context_menu" })), Tag::Quiet);
+        self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "due_at": due, "source": "context_menu" })), Tag::Quiet);
         self.toast("Reminder added.");
         if let Some(i) = &mut self.inbox {
             i.saved = None;

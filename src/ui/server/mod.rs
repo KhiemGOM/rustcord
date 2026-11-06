@@ -355,7 +355,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
         app.confirm = Some(super::Confirm::new(format!("Delete '{name}'"), format!("Are you sure you want to delete **{name}**? This action cannot be undone."), "Delete Server", move |app: &mut App| {
             app.server = None;
-            app.rest("DELETE", format!("/guilds/{gid}"), None, Tag::Quiet);
+            super::settings::guarded(app, "POST", &format!("/guilds/{gid}/delete"), None);
         }));
     }
     if close && form::guard(app, ctx) {

@@ -501,7 +501,7 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         Act::Note => app.user_dialog = Some(super::userdlg::Dialog::note(app, uid)),
         Act::FriendNick => app.user_dialog = Some(super::userdlg::Dialog::nick(&app.store, 0, uid)),
         Act::Nick => app.user_dialog = Some(super::userdlg::Dialog::nick(&app.store, gid, uid)),
-        Act::Invite(c) => app.rest("POST", format!("/channels/{c}/invites"), Some(json!({ "max_age": 86400, "max_uses": 0, "temporary": false })), Tag::InviteTo(uid)),
+        Act::Invite(c) => app.rest("POST", format!("/channels/{c}/invites"), Some(json!({ "max_uses": 1, "unique": true })), Tag::InviteTo(uid)),
         Act::Command(cmd) => app.user_command(dm.or(vch), gid, &cmd, uid),
         Act::ManageApp => {
             app.open_server_settings(gid);
@@ -546,7 +546,7 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         Act::ServerDeaf(on) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "deaf": on })), Tag::Quiet),
         Act::Disconnect => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "channel_id": null })), Tag::Quiet),
         Act::ModView => app.open_mod_view(gid, uid),
-        Act::Timeout if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60),
+        Act::Timeout if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60, ""),
         Act::Timeout => app.open_timeout(gid, uid),
         Act::Kick => app.kick(gid, uid),
         Act::Ban => app.ban(gid, uid),
@@ -576,7 +576,7 @@ impl App {
         };
         let flags = unreads | if on { 2048 } else { 0 };
         let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
-        self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), Tag::Quiet);
+        self.guild_settings(0, body);
     }
 
     /// Rings them: in the dm you have with them, made first when there isn't one.

@@ -400,7 +400,7 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             for (k, v) in &a.me {
                 u[k] = v.clone();
             }
-            if let Some(e) = a.profile.get("profile_effect_id").filter(|e| !e.is_null()) {
+            if let Some(e) = a.profile.get("collectibles_sku_ids").and_then(|l| l.get(0)) {
                 prof["profile_effect"] = json!({ "id": e });
             }
             let mut out = json!({ "user": u, "user_profile": prof });

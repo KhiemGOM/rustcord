@@ -43,7 +43,7 @@ fn norm(p: &Value) -> Value {
         "description": p["description"].as_str().unwrap_or_default(),
         "icon": p["icon_hash"].as_str().or(p["icon"].as_str()),
         "brand_color_primary": p["brand_color_primary"],
-        "visibility": p["visibility"].as_u64().unwrap_or(1),
+        "visibility": p["visibility"].as_u64().unwrap_or(0),
         "traits": traits,
         "game_application_ids": p["game_application_ids"].as_array().cloned().unwrap_or_default(),
     })
@@ -183,7 +183,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     games(app, ui, &raw, &mut d);
 
     form::rule(ui);
-    let private = d["visibility"].as_u64() == Some(1);
+    let private = !matches!(d["visibility"].as_u64(), Some(1 | 3));
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
         ui.vertical(|ui| {
@@ -199,7 +199,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if resp.clicked() {
-            d["visibility"] = json!(if private { 2 } else { 1 });
+            d["visibility"] = json!(if !private { 2 } else if raw["visibility"].as_u64() == Some(3) { 3 } else { 1 });
         }
         ui.add_space(4.0);
         private_card(ui);

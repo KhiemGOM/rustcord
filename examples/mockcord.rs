@@ -1217,9 +1217,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
-    if let Some(v) = rules::check(method, &parts, body) {
-        return (400, "application/json", v.to_string().into_bytes());
-    }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1471,7 +1468,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         })),
         ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("PATCH", ["api", "v9", "users", "@me", "guilds", _, "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "guilds", "@me", "settings"]) | ("PATCH", ["api", "v9", "users", "@me", "guilds", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let mut u = user(ME);
@@ -1712,8 +1709,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
         ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
-        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(json!([])),
-        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(json!([])),
+        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "guilds", "1000", "roles", _, "members"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "guilds", "1000", "roles"]) => {
             let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -1930,7 +1927,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             guild_update(w, g);
             ok(guild_full(w, g).unwrap())
         }
-        ("DELETE", ["api", "v9", "guilds", g]) => {
+        ("POST", ["api", "v9", "guilds", _, "bulk-ban", "v2"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            ok(json!({ "banned_users": b["user_ids"], "failed_users": [] }))
+        }
+        ("POST", ["api", "v9", "guilds", g, "delete"]) => {
             let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_DELETE", "d": { "id": g } }));
             (204, "application/json", Vec::new())
         }
@@ -2104,13 +2105,15 @@ async fn http_conn(mut s: TcpStream, w: W) {
         {
             let mut wl = w.lock().unwrap();
             let text: String = String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization") });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
-        let (code, ctype, out) = match account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user) {
-            Some((code, v)) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
-            None => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
+        let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
+        let (code, ctype, out) = match (rules::check(&method, &parts, &body), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
+            (Some(refusal), _) => (400, "application/json", refusal.to_string().into_bytes()),
+            (None, Some((code, v))) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
+            (None, None) => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
         };
         let reason = match code {
             200 => "OK",

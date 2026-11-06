@@ -31,6 +31,19 @@ const ROUTES: &[(&str, &str, Spec)] = &[
     ("PATCH", "guilds/*/vanity-url", &[("code", "s?!")]),
     ("PATCH", "guilds/*/widget", &[("enabled", "b"), ("channel_id", "n?")]),
     ("POST", "guilds/*/mfa", &[("level", "i!")]),
+    ("POST", "guilds/*/delete", &[]),
+    ("POST", "guilds/*/bulk-ban/v2", &[("user_ids", "a!"), ("delete_message_seconds", "i")]),
+    ("PATCH", "guilds/*", &[("name", "s"), ("region", "s?"), ("icon", "s?"), ("splash", "s?"), ("banner", "s?"), ("discovery_splash", "s?"), ("home_header", "s?"), ("description", "s?"), ("afk_channel_id", "n?"), ("afk_timeout", "i"), ("system_channel_id", "n?"), ("system_channel_flags", "i"), ("verification_level", "i"), ("explicit_content_filter", "i"), ("default_message_notifications", "i"), ("owner_configured_content_level", "i"), ("rules_channel_id", "n?"), ("public_updates_channel_id", "n?"), ("safety_alerts_channel_id", "n?"), ("premium_progress_bar_enabled", "b"), ("features", "a"), ("preferred_locale", "s")]),
+    ("PUT", "users/@me/saved-messages/*/*", &[("source", "s"), ("due_at", "s?")]),
+    ("PUT", "channels/*/polls/*/answers/@me", &[("answer_ids", "a!")]),
+    ("POST", "users/@me/harvest", &[("backends", "a!")]),
+    ("PATCH", "users/@me/connections/*/*", &[("visibility", "b"), ("show_activity", "b")]),
+    ("PATCH", "users/@me/guilds/settings", &[("guilds", "o!")]),
+    ("POST", "users/@me/channels", &[("recipients", "a!")]),
+    ("POST", "channels/*/send-soundboard-sound", &[("sound_id", "n!"), ("source_guild_id", "n?"), ("emoji_id", "n?"), ("emoji_name", "s?")]),
+    ("PUT", "guilds/*/scheduled-events/*/users/@me", &[("response", "i")]),
+    ("POST", "invites/*", &[("session_id", "s?"), ("invite_instance_id", "s?"), ("received_installation_id", "s?")]),
+    ("POST", "channels/*/invites", &[("max_age", "i"), ("max_uses", "i"), ("temporary", "b"), ("unique", "b"), ("flags", "i"), ("validate", "s?"), ("target_type", "i?"), ("role_ids", "a")]),
 ];
 
 fn kind_ok(t: u8, v: &Value) -> bool {

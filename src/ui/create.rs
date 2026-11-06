@@ -320,9 +320,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if let Some(p) = f.parent.filter(|_| f.kind == Kind::Channel) {
                     b["parent_id"] = json!(p.to_string());
                 }
-                // private: @everyone (the server's id) can't see it
+                // private: @everyone (the server's id) can't see it, nor join it when it has a call; the creator keeps access
                 if f.private {
-                    b["permission_overwrites"] = json!([{ "id": gid.to_string(), "type": 0, "allow": "0", "deny": "1024" }]);
+                    let calls = matches!(kind, 2 | 4 | 13);
+                    let (view, join) = (1u64 << 10, 1u64 << 20);
+                    let me = app.store.me.to_string();
+                    b["permission_overwrites"] = json!([
+                        { "id": gid.to_string(), "type": 0, "allow": "0", "deny": (view | if calls { join } else { 0 }).to_string() },
+                        { "id": me, "type": 1, "allow": (view | if calls { join } else { 0 }).to_string(), "deny": "0" },
+                    ]);
                 }
                 (format!("/guilds/{gid}/channels"), b)
             }

@@ -511,8 +511,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
         let body = format!("Are you sure you want to {verb} **{n}** member{} from the server?", if n == 1 { "" } else { "s" });
         app.confirm = Some(super::Confirm::new(title, body, if bulk_ban { "Ban" } else { "Kick" }, move |app: &mut App| {
             if bulk_ban {
-                let ids: Vec<String> = chosen.iter().map(|u| u.to_string()).collect();
-                app.rest("POST", format!("/guilds/{gid}/bulk-ban"), Some(json!({ "user_ids": ids, "delete_message_seconds": 0 })), Tag::Quiet);
+                let ids: Vec<String> = chosen.iter().take(200).map(|u| u.to_string()).collect();
+                app.rest("POST", format!("/guilds/{gid}/bulk-ban/v2"), Some(json!({ "user_ids": ids, "delete_message_seconds": 0 })), Tag::Quiet);
             } else {
                 for u in &chosen {
                     app.rest("DELETE", format!("/guilds/{gid}/members/{u}"), None, Tag::Quiet);
