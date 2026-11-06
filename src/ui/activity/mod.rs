@@ -607,6 +607,6 @@ fn open(app: &mut App, ctx: &Context, id: Id, channel: Id, instance: String, tic
         return app.toast("The activity's address isn't usable.");
     };
     let parent = crate::winsys::WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-    let host = Host::open(ctx, parent, Cfg { src, hello: params });
+    let host = Host::open(ctx, parent, Cfg { src, hello: params, embed: false });
     app.activity.run = Some(Run { app: id, channel, instance, host, sock: bridge::Socket::new(id, frame_id, origin), failed: false });
 }

@@ -508,13 +508,19 @@ pub struct Media {
     pub url: String,
     pub w: u32,
     pub h: u32,
+    // Discord kept a copy of it, so `url` is that copy; otherwise `url` is the provider's own page
+    #[serde(default)]
+    pub proxied: bool,
 }
 
 impl Media {
     fn parse(v: &Value) -> Option<Media> {
-        let url = ost(&v["proxy_url"]).or_else(|| ost(&v["url"]))?;
+        let proxy = ost(&v["proxy_url"]);
+        let proxied = proxy.is_some();
+        let url = proxy.or_else(|| ost(&v["url"]))?;
         Some(Media {
             url,
+            proxied,
             w: v["width"].as_u64().unwrap_or(0) as u32,
             h: v["height"].as_u64().unwrap_or(0) as u32,
         })

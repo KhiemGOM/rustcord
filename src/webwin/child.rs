@@ -2,7 +2,8 @@
 //! call's stage. It loads one of our own pages from a folder mapped to discord.com, which holds the
 //! activity in an iframe like Discord's client does and passes the iframe's postMessages across;
 //! the protocol itself is spoken in Rust (`ui/activity/bridge.rs`). The page has no way to reach
-//! anything but its one frame, and the frame has no way off its own origin.
+//! anything but its one frame, and the frame has no way off its own origin. Video embeds use the
+//! same host with a page that holds just the iframe (`webwin/frame.rs`).
 
 use std::collections::VecDeque;
 
@@ -11,6 +12,8 @@ use serde_json::{Value, json};
 use super::*;
 
 const PAGE: &str = include_str!("../../assets/activity_host.html");
+const EMBED: &str = include_str!("../../assets/embed_host.html");
+const AUTOPLAY: &str = "--autoplay-policy=no-user-gesture-required";
 const HOST: &str = "discord.com";
 const INBOX: usize = 512;
 const MESSAGE: usize = 1 << 20;
@@ -18,6 +21,7 @@ const MESSAGE: usize = 1 << 20;
 pub struct Cfg {
     pub src: String,
     pub hello: Value,
+    pub embed: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -43,6 +47,7 @@ struct Inner {
     failed: RefCell<Option<String>>,
     page: String,
     origin: String,
+    embed: bool,
     ctx: egui::Context,
 }
 
@@ -94,18 +99,19 @@ impl Host {
             failed: RefCell::new(None),
             page,
             origin: origin.clone(),
+            embed: cfg.embed,
             ctx: ctx.clone(),
         });
         let host = Host { s: s.clone(), dirs: [data.clone(), site.clone()] };
         LIVE.lock().unwrap().extend([data.clone(), site.clone()]);
-        let html = PAGE.replace("__ORIGIN__", &origin).replace("__CFG__", &json_in_html(&json!({ "src": cfg.src, "origin": origin, "hello": cfg.hello })));
+        let html = (if cfg.embed { EMBED } else { PAGE }).replace("__ORIGIN__", &origin).replace("__CFG__", &json_in_html(&json!({ "src": cfg.src, "origin": origin, "hello": cfg.hello })));
         let written = std::fs::create_dir_all(&site).and_then(|_| std::fs::write(site.join("index.html"), html));
         if origin.is_empty() || written.is_err() {
             *s.failed.borrow_mut() = Some("the activity's address is not usable".into());
             return host;
         }
         let weak = Rc::downgrade(&s);
-        create(parent as HWND, &data, move |r| {
+        create(parent as HWND, &data, if cfg.embed { AUTOPLAY } else { "" }, move |r| {
             let Some(s) = weak.upgrade() else { return };
             if let Err(e) = r.and_then(|ctl| start(&s, ctl, &site)) {
                 *s.failed.borrow_mut() = Some(e.message());
@@ -125,6 +131,11 @@ impl Host {
     pub fn place(&self, parent: isize, r: [i32; 4], show: bool) {
         self.s.want.set(Want { parent, r, show });
         apply(&self.s);
+    }
+
+    pub fn placed(&self) -> ([i32; 4], bool) {
+        let d = self.s.done.get();
+        (d.r, d.show)
     }
 
     pub fn blur(&self) {
@@ -268,10 +279,18 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
             })),
             &mut t,
         )?;
+        let popups = s.embed;
         wv.add_NewWindowRequested(
-            &NewWindowRequestedEventHandler::create(Box::new(|_, args| {
+            &NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
                     args.SetHandled(true)?;
+                    let mut u = PWSTR::null();
+                    if popups && args.Uri(&mut u).is_ok() {
+                        let u = take_pwstr(u);
+                        if u.starts_with("https://") {
+                            browser(&u);
+                        }
+                    }
                 }
                 Ok(())
             })),
