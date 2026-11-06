@@ -61,6 +61,13 @@ enum Act {
     // a chip hovered: who reacted wants fetching
     Reactors(Id, ReactEmoji, bool, u32),
     Resend(Id),
+    Invite(super::chatinvite::Go),
+    CopyImage(String),
+    Votes(Id),
+    Sticker(Id, String, Pos2),
+    CancelUpload(String),
+    // a run of blocked messages shown or folded again: their ids
+    Blocked(Vec<Id>, bool),
 }
 
 struct D<'a> {
@@ -85,6 +92,8 @@ struct D<'a> {
     // the message keyboard focus is on, ringed and kept in view
     focus: Option<Id>,
     bookmarks: &'a Set<Id>,
+    invites: &'a mut super::chatinvite::Cache,
+    unblocked: &'a Set<Id>,
 }
 
 impl D<'_> {
@@ -134,6 +143,7 @@ pub fn estimate(m: &Message) -> f32 {
         h += if a.is_image() { (a.h as f32).min(350.0) + 8.0 } else { 80.0 };
     }
     h += m.embeds.len() as f32 * 120.0;
+    h += super::chatinvite::codes(&m.content).len() as f32 * 240.0;
     if let Some(p) = &m.poll {
         h += 92.0 + p.answers.len() as f32 * 50.0;
     }
@@ -261,7 +271,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .frame(Frame::new().fill(pal().bg_secondary).inner_margin(Margin { left: 28, right: 16, top: 0, bottom: 0 }))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.label(RichText::new("This channel is not on your channel list").font(reg(14.0)).color(pal().text_normal));
+                    ui.label(RichText::new("This channel is not on your channel list.").font(reg(14.0)).color(pal().text_normal));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let g = ui.painter().layout_no_wrap("Add to Channel List".into(), medium(14.0), Color32::WHITE);
                         let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
@@ -636,6 +646,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         popout: false,
         focus: app.focus_msg,
         bookmarks: &app.bookmarks,
+        invites: &mut app.chat_invites,
+        unblocked: &app.unblocked,
     };
     let mut focus_at = None;
     if d.flash.is_some() {
@@ -675,11 +687,17 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
         }
         let mut prev: Option<&Message> = None;
-        for m in list {
+        for (i, m) in list.iter().enumerate() {
+            let hidden = super::blocked::hides(d.store, m);
+            let first = hidden && (i == 0 || !super::blocked::hides(d.store, &list[i - 1]));
+            let folded = hidden && !d.unblocked.contains(&m.id);
+            if folded && !first {
+                continue;
+            }
             let y = ui.cursor().top() - origin;
             let start = group_start(prev, m);
             let known = heights.get(&(m.id, start)).copied();
-            let h = known.unwrap_or_else(|| estimate(m));
+            let h = known.unwrap_or_else(|| if folded { 26.0 } else { estimate(m) });
             if target == Some(m.id) {
                 target_y = Some(y);
             }
@@ -690,7 +708,15 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.allocate_space(vec2(w, h));
             } else {
                 let top = ui.cursor().top();
-                message(ui, &mut d, m, prev, start);
+                if first {
+                    let (ids, ignored) = super::blocked::run(d.store, list, i);
+                    if super::blocked::row(ui, ids.len(), ignored, !folded, m.id) {
+                        d.acts.push(Act::Blocked(ids, folded));
+                    }
+                }
+                if !folded {
+                    message(ui, &mut d, m, prev, start);
+                }
                 let real = ui.cursor().top() - top;
                 if known.is_none_or(|k| (k - real).abs() > 0.5) {
                     if y + real <= vp.top() {
@@ -804,6 +830,19 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Player(d) => super::player::apply(app, ui.ctx(), d),
             Act::EditChannel => app.open_chan_settings(ch),
             Act::Resend(id) => app.resend(ch, id),
+            Act::Invite(go) => app.chat_invite(go),
+            Act::CopyImage(url) => app.copy_image(url),
+            Act::CancelUpload(nonce) => crate::upload::cancel(&nonce),
+            Act::Votes(id) => app.votes = Some(super::pollvotes::Votes::new(ch, id)),
+            Act::Blocked(ids, show) => {
+                for id in ids {
+                    if show {
+                        app.unblocked.insert(id);
+                    } else {
+                        app.unblocked.remove(&id);
+                    }
+                }
+            }
             Act::Reactors(id, em, burst, n) => app.ask_reactors(ch, id, &em, burst, n),
             Act::System(go, at) => match go {
                 system::Go::Profile(u) => app.open_profile(u, chan.guild, at),
@@ -815,7 +854,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 system::Go::Guild(g) => app.select_guild(Some(g)),
                 system::Go::GuildSettings(g) => app.open_server_settings(g),
             },
-            Act::Emoji(id, name, animated, at) => app.emoji_pop = Some((id, name, animated, at)),
+            Act::Emoji(id, name, animated, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: false, animated, at }),
+            Act::Sticker(id, name, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: true, animated: false, at }),
             Act::Role(r, at) => app.role_pop = Some((chan.guild, r, at)),
             Act::Tag(g, at) => app.tag_pop = Some((g, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
@@ -1233,6 +1273,19 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 d.acts.push(Act::Url(a.url.clone()));
             }
         }
+        if m.pending
+            && let Some(job) = m.nonce.as_deref().and_then(crate::upload::get)
+        {
+            cui.add_space(acc);
+            acc = 4.0;
+            let c = super::uploading::card(&mut cui, &job);
+            d.card("upload_card", &cui, c.rect);
+            d.card("upload_bar", &cui, c.bar);
+            d.card("upload_cancel", &cui, c.x);
+            if c.cancel {
+                d.acts.push(Act::CancelUpload(m.nonce.clone().unwrap_or_default()));
+            }
+        }
         for (id, name, fmt) in &m.stickers {
             cui.add_space(acc);
             acc = 4.0;
@@ -1241,7 +1294,18 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             } else {
                 let ext = if *fmt == 4 { "gif" } else { "png" };
                 let url = format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160");
-                media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
+                let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
+                d.card("sticker", &cui, r.rect);
+                if r.clicked() {
+                    d.acts.push(Act::Sticker(*id, name.clone(), r.rect.right_top() + vec2(8.0, 0.0)));
+                }
+            }
+        }
+        for code in super::chatinvite::codes(&m.content) {
+            cui.add_space(acc);
+            acc = 4.0;
+            if let Some(go) = super::chatinvite::card(&mut cui, d.store, d.invites, &code, m.author == me) {
+                d.acts.push(Act::Invite(go));
             }
         }
         let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
@@ -1538,6 +1602,17 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     if let Some(u) = user.filter(|u| u.bot) {
         x = super::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
     }
+    let op = d.store.channels.get(&d.ch).is_some_and(|c| c.is_thread() && c.owner == m.author && d.store.channels.get(&c.parent).is_some_and(|p| p.is_forum()));
+    if op {
+        let r = Rect::from_min_size(pos2(x + 4.0, cy - 7.5), vec2(26.0, 15.0));
+        ui.painter().rect_filled(r, CornerRadius::same(4), Color32::from_rgb(199, 210, 255));
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, "OP", semi(12.0), Color32::from_rgb(70, 84, 192));
+        ui.interact(r, ui.id().with(("op", m.id)), Sense::hover()).on_hover_text("Original Poster");
+        if vis {
+            d.rects.push(("op_chip".into(), r));
+        }
+        x = r.right();
+    }
     let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
     let ty = base - text::baseline(&t);
     let tr = Rect::from_min_size(pos2(x + 4.0, ty), t.size());
@@ -1550,6 +1625,14 @@ fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: 
     ui.interact(tr, ui.id().with(("stamp", name, m.id)), Sense::hover()).on_hover_text(full);
     if vis {
         d.rects.push((format!("stamp:{}", m.author), tr));
+    }
+    if m.flags & (1 << 12) != 0 {
+        let ir = Rect::from_min_size(pos2(tr.right() + 4.0, tr.center().y - 8.0), vec2(16.0, 16.0));
+        icons::draw(ui.painter(), Icon::BellOff, ir, pal().chat_muted);
+        ui.interact(ir, ui.id().with(("silent", m.id)), Sense::hover()).on_hover_text("This is a @silent message.");
+        if vis {
+            d.rects.push((format!("silent:{}", m.id), ir));
+        }
     }
     if resp.clicked() {
         d.acts.push(if ui.input(|i| i.modifiers.shift) { Act::Mention(m.author) } else { Act::Profile(m.author, name_rect.right_top() + vec2(8.0, 0.0)) });
@@ -1798,6 +1881,9 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     let x = origin.x + (c.min.x - lead).max(0.0);
                     let rect = Rect::from_min_size(pos2(x, origin.y + c.center().y - size / 2.0), vec2(*size, *size));
                     Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).show_loading_spinner(false).paint_at(ui, rect);
+                    if url.contains("/emojis/") && ui.clip_rect().contains_rect(rect) {
+                        d.rects.push(("custom_emoji".into(), rect));
+                    }
                 }
                 if !t.links.is_empty()
                     && let Some(p) = resp.hover_pos()
@@ -1913,6 +1999,9 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     resp.context_menu(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
+        if super::menu_item(ui, None, "Copy Image", false) {
+            d.acts.push(Act::CopyImage(full.to_string()));
+        }
         if super::menu_item(ui, None, "Save Image", false) {
             d.acts.push(Act::Save(full.to_string()));
         }
@@ -2556,12 +2645,21 @@ fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let left = if p.finalized {
-                    format!("{} vote{} \u{2022} Poll closed", p.total(), if p.total() == 1 { "" } else { "s" })
-                } else {
-                    format!("{} vote{} \u{2022} {}", p.total(), if p.total() == 1 { "" } else { "s" }, poll_left(p.expiry))
-                };
-                ui.label(RichText::new(left).font(reg(14.0)).color(pal().text_muted));
+                let votes = format!("{} vote{}", p.total(), if p.total() == 1 { "" } else { "s" });
+                let tail = if p.finalized { "Poll closed".to_string() } else { poll_left(p.expiry) };
+                let count = ui.add(Label::new(RichText::new(votes).font(reg(14.0)).color(pal().text_muted)).selectable(false).sense(if results { Sense::click() } else { Sense::hover() }));
+                if results {
+                    if ui.clip_rect().contains_rect(count.rect) {
+                        d.rects.push(("poll_votes_btn".into(), count.rect));
+                    }
+                    if count.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if count.on_hover_text("View Votes").clicked() {
+                        d.acts.push(Act::Votes(m.id));
+                    }
+                }
+                ui.label(RichText::new(format!(" \u{2022} {tail}")).font(reg(14.0)).color(pal().text_muted));
                 if !p.finalized {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if results {
@@ -2810,6 +2908,7 @@ enum MenuPick {
     Pin,
     Bookmark,
     Remind(chrono::DateTime<chrono::Utc>),
+    RemindCustom,
     App(serde_json::Value),
     Unread,
     Link,
@@ -2958,10 +3057,15 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         let rem = menu_row(ui, Some(Icon::Clock), "Create Reminder", None, false, Trail::Caret);
         egui::containers::menu::SubMenu::new().show(ui, &rem, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
+            let (r, _) = ui.allocate_exact_size(vec2(170.0, 36.0), Sense::hover());
+            ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, "Remind Me", medium(14.0), pal().chat_muted);
             for (label, due) in App::reminder_times() {
                 if menu_item(ui, None, &label, false) {
                     pick = Some(MenuPick::Remind(due));
                 }
+            }
+            if menu_item(ui, None, "Custom...", false) {
+                pick = Some(MenuPick::RemindCustom);
             }
         });
         let a = menu_row(ui, Some(Icon::Launched), "Apps", None, false, Trail::Caret);
@@ -3083,6 +3187,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(MenuPick::Pin) => app.pin_msg(ch, id, !shift),
         Some(MenuPick::Bookmark) => app.bookmark(ch, id),
         Some(MenuPick::Remind(due)) => app.remind(ch, id, due),
+        Some(MenuPick::RemindCustom) => app.remind_custom = Some(super::remind::Custom::new(ch, id)),
         Some(MenuPick::App(c)) => app.message_command(&chan, &c, id),
         Some(MenuPick::Unread) => app.mark_unread(ch, id),
         Some(MenuPick::Link) => ctx.copy_text(app.message_link(ch, id)),
@@ -3118,6 +3223,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
     let mut editing = None;
     let settings = crate::cache::Settings::default();
     let none = Set::default();
+    let mut invites = Default::default();
     let mut d = D {
         store,
         ctx: &ctx,
@@ -3138,6 +3244,8 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         popout: true,
         focus: None,
         bookmarks: &none,
+        invites: &mut invites,
+        unblocked: &none,
     };
     // discord's cards: a raised fill and a hairline, the reply it answers above the author
     let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {

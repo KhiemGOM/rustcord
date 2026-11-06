@@ -52,6 +52,8 @@ struct World {
     edits: serde_json::Map<String, Value>,
     gone: Vec<String>,
     speakers: std::collections::HashSet<u64>,
+    // files PUT to an upload url, by the filename it handed out, and their sizes
+    uploads: std::collections::HashMap<String, usize>,
     hands: std::collections::HashMap<u64, String>,
     // running activities: channel, application, launch id, who has it open
     acts: Vec<(u64, u64, String, Vec<u64>)>,
@@ -229,6 +231,8 @@ fn user(id: u64) -> Value {
         103 => ("carol", "Carol ✿", false),
         104 => ("dyno", "Dyno", true),
         106 => ("frank", "Frank", false),
+        108 => ("grim", "Grim", false),
+        109 => ("shade", "Shade", false),
         _ => ("eve", "Eve", false),
     };
     let mut u = json!({ "id": id.to_string(), "username": name, "global_name": global, "avatar": format!("av{id}"), "bot": bot, "discriminator": "0" });
@@ -265,6 +269,46 @@ fn msg(id: u64, ch: u64, author: u64, content: &str) -> Value {
 }
 
 const SYSTEM: u64 = 2070;
+const CHATX: u64 = 2085;
+
+/// What the chat cards and popouts have to draw: invite links, runs from a blocked user, a closed
+/// poll with voters, a custom emoji and a sticker from servers you aren't in, a @silent message.
+fn chatx_msgs(cdn: &str) -> Vec<Value> {
+    let t0 = now_ms() - 2 * 3_600_000;
+    let mut out: Vec<Value> = Vec::new();
+    let mut add = |author: u64, content: &str, f: &dyn Fn(&mut Value)| {
+        let mut m = msg(snow(t0 + out.len() as u64 * 60_000), CHATX, author, content);
+        f(&mut m);
+        out.push(m);
+    };
+    add(103, "who is coming? https://discord.gg/e2eChat1", &|_| {});
+    add(101, "the old one https://discord.gg/e2eGone1", &|_| {});
+    add(102, "our own place https://discord.gg/e2eHere1", &|_| {});
+    add(108, "blocked words one", &|_| {});
+    add(108, "blocked words two", &|_| {});
+    add(103, "an ordinary message in between", &|_| {});
+    add(109, "ignored words", &|_| {});
+    add(103, "", &|m| {
+        m["poll"] = json!({
+            "question": { "text": "tabs or spaces?" },
+            "answers": [
+                { "answer_id": 1, "poll_media": { "text": "tabs" } },
+                { "answer_id": 2, "poll_media": { "text": "spaces", "emoji": { "id": null, "name": "🚀" } } },
+            ],
+            "allow_multiselect": false,
+            "expiry": "2020-01-01T00:00:00+00:00",
+            "results": { "is_finalized": true, "answer_counts": [{ "id": 1, "count": 3, "me_voted": false }, { "id": 2, "count": 0, "me_voted": false }] },
+        });
+    });
+    add(101, "an image to copy", &|m| {
+        m["attachments"] = json!([{ "id": "11", "filename": "copy-me.png", "size": 4096, "url": format!("{cdn}/attachments/copy-me.png"),
+            "proxy_url": format!("{cdn}/attachments/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
+    });
+    add(102, "a sticker from elsewhere", &|m| m["sticker_items"] = json!([{ "id": "7777", "name": "Monkey Think", "format_type": 1 }]));
+    add(103, "a faraway emoji <:CRose:9999>", &|_| {});
+    add(101, "quiet please", &|m| m["flags"] = json!(4096));
+    out
+}
 
 
 /// One message of every kind discord draws specially, in a channel of their own, with a few
@@ -461,6 +505,7 @@ fn seed(cdn: &str) -> Vec<Value> {
     }
     out.extend(media_msgs(cdn));
     out.extend(system_msgs());
+    out.extend(chatx_msgs(cdn));
     for (i, (a, text)) in [(101, "anyone up for ranked?"), (103, "in 10")].iter().enumerate() {
         out.push(msg(snow(now_ms() - 8 * 60_000 + i as u64 * 60_000), THREAD_B, *a, text));
     }
@@ -812,7 +857,7 @@ fn ready(last_general: u64) -> Value {
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)),
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)), ch(CHATX, 0, "chat-extras", 7, Some(2010)),
         ],
         "threads": [thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
@@ -884,7 +929,7 @@ fn ready(last_general: u64) -> Value {
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
         "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0, "mfa_enabled": false, "phone": "+15555550100", "nsfw_allowed": true },
         "users": users,
-        "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
+        "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }, { "id": "108", "type": 2 }],
         "guilds": guilds,
         "merged_members": merged,
         "private_channels": [
@@ -1296,6 +1341,32 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             });
             ok(json!([101, 102, 103, 105, 106].iter().take(n.unwrap_or(0) as usize).map(|u| user(*u)).collect::<Vec<_>>()))
         }
+        ("POST", ["api", "v9", "channels", _, "attachments"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let files = b["files"].as_array().cloned().unwrap_or_default();
+            let bad = |f: &Value| f["filename"].as_str().is_none_or(str::is_empty) || f["file_size"].as_u64().is_none();
+            if files.is_empty() || files.iter().any(bad) {
+                return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035 }).to_string().into_bytes());
+            }
+            if files.iter().any(|f| f["file_size"].as_u64().unwrap_or(0) > 10 << 20) {
+                return (413, "application/json", json!({ "message": "Request entity too large", "code": 40005 }).to_string().into_bytes());
+            }
+            let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+            let slots: Vec<Value> = files
+                .iter()
+                .map(|f| {
+                    let name = f["filename"].as_str().unwrap_or("file");
+                    let key = format!("{:x}/{name}", fresh());
+                    let id: u64 = f["id"].as_str().and_then(|i| i.parse().ok()).or(f["id"].as_u64()).unwrap_or(0);
+                    json!({ "id": id, "upload_url": format!("http://127.0.0.1:{port}/upload/{key}"), "upload_filename": key })
+                })
+                .collect();
+            ok(json!({ "attachments": slots }))
+        }
+        ("PUT", ["upload", token, name]) => {
+            w.lock().unwrap().uploads.insert(format!("{token}/{name}"), body.len());
+            (200, "text/plain", Vec::new())
+        }
         ("POST", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
             let b: Value = serde_json::from_slice(body).unwrap_or_else(|_| payload_json(body));
@@ -1306,6 +1377,26 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
+            if let Some(list) = b["attachments"].as_array() {
+                let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+                let mut out = Vec::new();
+                for a in list {
+                    let name = a["filename"].as_str().unwrap_or("file");
+                    let key = a["uploaded_filename"].as_str().unwrap_or("");
+                    let Some(size) = w.lock().unwrap().uploads.get(key).copied() else {
+                        return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "attachments": { "_errors": [{ "code": "ATTACHMENT_NOT_UPLOADED", "message": "Attachment was not uploaded" }] } } }).to_string().into_bytes());
+                    };
+                    let url = format!("http://127.0.0.1:{port}/cdn/attachments/{key}");
+                    let image = matches!(name.rsplit('.').next(), Some("png" | "jpg" | "jpeg" | "gif"));
+                    let mut att = json!({ "id": fresh().to_string(), "filename": name, "size": size, "url": url, "proxy_url": url, "content_type": if image { "image/png" } else { "application/octet-stream" } });
+                    if image {
+                        att["width"] = json!(800);
+                        att["height"] = json!(450);
+                    }
+                    out.push(att);
+                }
+                m["attachments"] = json!(out);
+            }
             if let Some(p) = b["poll"].as_object() {
                 let answers: Vec<Value> = p["answers"].as_array().into_iter().flatten().enumerate().map(|(i, a)| json!({ "answer_id": i + 1, "poll_media": a["poll_media"] })).collect();
                 let hours = p["duration"].as_u64().unwrap_or(24);
@@ -1691,6 +1782,37 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let list: Vec<Value> = b["urls"].as_array().into_iter().flatten().map(|u| json!({ "url": u, "external_asset_path": format!("external/mock/{}", u.as_str().unwrap_or("").replace("https://", "")) })).collect();
             ok(json!(list))
+        }
+        ("GET", ["api", "v9", "invites", "e2eChat1"]) => ok(json!({
+            "code": "e2eChat1", "type": 0, "channel": { "id": "3050", "name": "general", "type": 0 }, "inviter": user(103),
+            "guild": { "id": "3000", "name": "Rustaceans Hangout", "icon": "icon3000", "features": ["COMMUNITY"] },
+            "approximate_presence_count": 709, "approximate_member_count": 4668,
+            "profile": { "id": "3000", "name": "Rustaceans Hangout", "icon_hash": "icon3000", "member_count": 4668, "online_count": 709, "brand_color_primary": "#5865F2",
+                "description": "Welcome to the home of everyone who writes Rust! Hang out in our global chats, get live help from people who know the borrow checker, and share what you built this week.",
+                "features": ["COMMUNITY"] },
+        })),
+        ("GET", ["api", "v9", "invites", "e2eHere1"]) => ok(json!({
+            "code": "e2eHere1", "type": 0, "channel": { "id": "2011", "name": "general", "type": 0 }, "inviter": user(101),
+            "guild": { "id": "1000", "name": "Rust Lounge", "icon": "icon1000", "features": [] },
+            "approximate_presence_count": 3, "approximate_member_count": 6,
+        })),
+        ("POST", ["api", "v9", "invites", "e2eChat1"]) => {
+            let g = json!({ "id": "3000", "name": "Rustaceans Hangout", "owner_id": "102", "member_count": 4669, "emojis": [], "roles": [{ "id": "3000", "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" }],
+                            "channels": [{ "id": "3050", "type": 0, "guild_id": "3000", "name": "general", "position": 0, "permission_overwrites": [], "last_message_id": null }] });
+            let tx = w.lock().unwrap().events.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let _ = tx.send(json!({ "t": "GUILD_CREATE", "d": g }));
+            });
+            ok(json!({ "code": "e2eChat1", "guild": { "id": "3000", "name": "Rustaceans Hangout" } }))
+        }
+        ("GET", ["api", "v9", "emojis", "9999", "source"]) => ok(json!({ "type": 1, "guild": { "id": "3000", "name": "Rustaceans Hangout", "icon": "icon3000", "features": ["DISCOVERABLE"], "approximate_presence_count": 709 } })),
+        ("GET", ["api", "v9", "emojis", _, "source"]) => (404, "application/json", json!({ "message": "Unknown Emoji", "code": 10014 }).to_string().into_bytes()),
+        ("GET", ["api", "v9", "stickers", "7777", "guild"]) => ok(json!({ "id": "3000", "name": "Rustaceans Hangout", "icon": "icon3000", "features": ["DISCOVERABLE"], "approximate_presence_count": 6287 })),
+        ("GET", ["api", "v9", "guilds", _, "top-emojis"]) => ok(json!({ "items": [{ "emoji_id": "5100", "emoji_rank": 2 }, { "emoji_id": "5000", "emoji_rank": 1 }] })),
+        ("GET", ["api", "v9", "channels", "2085", "polls", _, "answers", n]) => {
+            let who: &[u64] = if *n == "1" { &[101, 102, 103] } else { &[] };
+            ok(json!({ "users": who.iter().map(|u| user(*u)).collect::<Vec<_>>() }))
         }
         ("GET", ["api", "v9", "invites", "e2eRpc1"]) => ok(json!({
             "code": "e2eRpc1", "guild": { "id": "1000", "name": "Mock Server", "icon": null }, "channel": { "id": "2010", "name": "general" },
@@ -2082,6 +2204,9 @@ async fn http_conn(mut s: TcpStream, w: W) {
         let len: usize = header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
         let locale = header("x-discord-locale").unwrap_or_default();
         while buf.len() < head_end + len {
+            if path.starts_with("/upload/") && path.contains("slow") {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
             match s.read(&mut tmp).await {
                 Ok(0) | Err(_) => return,
                 Ok(n) => buf.extend_from_slice(&tmp[..n]),
@@ -2092,7 +2217,7 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let text: String = String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect();
+            let text: String = if path.starts_with("/upload/") { format!("{} bytes", body.len()) } else { String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect() };
             let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization") });
             let _ = writeln!(wl.log, "{line}");
         }
@@ -2780,6 +2905,7 @@ async fn main() {
         edits: Default::default(),
         gone: Vec::new(),
         speakers: Default::default(),
+        uploads: Default::default(),
         hands: Default::default(),
         acts: Vec::new(),
         authorized: Default::default(),

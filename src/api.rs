@@ -211,16 +211,19 @@ impl Api {
         if files.is_empty() {
             return self.call(Method::POST, &path, Some(body)).await;
         }
+        let job = crate::upload::get(nonce);
+        let stopped = || job.as_ref().is_some_and(|j| j.cancelled());
+        let mut asks = Vec::new();
         let mut atts = Vec::new();
-        let mut form = multipart::Form::new();
         for (i, (f, name, alt)) in files.iter().enumerate() {
-            let bytes = tokio::fs::read(f).await.map_err(|e| e.to_string())?;
-            let name = name.clone();
+            let size = tokio::fs::metadata(f).await.map_err(|e| e.to_string())?.len();
             let mut att = json!({ "id": i, "filename": name });
             if !alt.is_empty() {
                 att["description"] = json!(alt);
             }
+            let mut ask = json!({ "filename": name, "file_size": size, "id": i.to_string(), "is_clip": false, "original_content_type": crate::upload::mime(name) });
             if let Some(c) = crate::clips::library::read(f) {
+                ask["is_clip"] = json!(true);
                 att["is_clip"] = json!(true);
                 if !c.title.is_empty() {
                     att["title"] = json!(c.title);
@@ -228,20 +231,55 @@ impl Api {
                 att["clip_created_at"] = json!(chrono::DateTime::from_timestamp_millis(c.created).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)));
                 att["clip_participant_ids"] = json!(c.users.iter().map(|u| u.to_string()).collect::<Vec<_>>());
             }
+            asks.push(ask);
             atts.push(att);
-            form = form.part(format!("files[{i}]"), multipart::Part::bytes(bytes).file_name(name));
+        }
+        let slots = self.call(Method::POST, &format!("/channels/{ch}/attachments"), Some(json!({ "files": asks }))).await?;
+        let slots = slots["attachments"].as_array().ok_or("upload refused")?;
+        for (i, (f, name, _)) in files.iter().enumerate() {
+            if stopped() {
+                return Err("cancelled".into());
+            }
+            let slot = slots.iter().find(|s| s["id"].as_u64().or_else(|| s["id"].as_str().and_then(|x| x.parse().ok())) == Some(i as u64)).ok_or("upload refused")?;
+            let url = slot["upload_url"].as_str().ok_or("upload refused")?;
+            self.put_file(url, f, name, job.as_ref()).await?;
+            atts[i]["uploaded_filename"] = slot["upload_filename"].clone();
         }
         body["attachments"] = Value::Array(atts);
-        form = form.text("payload_json", body.to_string());
-        let res = self
-            .build(Method::POST, &path)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let ok = res.status().is_success();
-        let v: Value = res.json().await.unwrap_or_default();
-        if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
+        self.call(Method::POST, &path, Some(body)).await
+    }
+
+    /// One file to the storage url discord handed out, read off the disk as it goes so a big one
+    /// costs no memory, counting what's gone for the progress bar and stopping when cancelled.
+    async fn put_file(&self, url: &str, file: &std::path::Path, name: &str, job: Option<&std::sync::Arc<crate::upload::Job>>) -> Result<(), String> {
+        use tokio::io::AsyncReadExt;
+        let f = tokio::fs::File::open(file).await.map_err(|e| e.to_string())?;
+        let len = f.metadata().await.map_err(|e| e.to_string())?.len();
+        let job = job.cloned();
+        let seen = job.clone();
+        let body = reqwest::Body::wrap_stream(futures_util::stream::unfold((f, job), |(mut f, job)| async move {
+            if job.as_ref().is_some_and(|j| j.cancelled()) {
+                return Some((Err(std::io::Error::other("cancelled")), (f, job)));
+            }
+            let mut buf = vec![0u8; 64 << 10];
+            match f.read(&mut buf).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    buf.truncate(n);
+                    if let Some(j) = &job {
+                        j.sent.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Some((Ok(buf), (f, job)))
+                }
+                Err(e) => Some((Err(e), (f, job))),
+            }
+        }));
+        let res = self.http.put(url).header("Content-Length", len).header("Content-Type", crate::upload::mime(name)).body(body).send().await;
+        if seen.as_ref().is_some_and(|j| j.cancelled()) {
+            return Err("cancelled".into());
+        }
+        let res = res.map_err(|e| e.to_string())?;
+        if res.status().is_success() { Ok(()) } else { Err(format!("upload failed ({})", res.status())) }
     }
 
     pub async fn sticker(&self, gid: Id, fields: [(&'static str, String); 3], file: PathBuf) -> Result<Value, String> {

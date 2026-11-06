@@ -2,6 +2,7 @@ use egui::{Align2, Color32, CornerRadius, Frame, Image, Pos2, Rect, RichText, Se
 
 use super::{App, Pick};
 use crate::markdown::twemoji;
+use crate::net::Tag;
 use crate::state::{Emoji, Id, ReactEmoji};
 use crate::theme::*;
 
@@ -208,6 +209,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             _ => servers.push((g.id, g.name.clone(), g.icon_url(), vec![(e.clone(), ok)])),
         }
     }
+    if guild != 0 && !app.top_emojis.contains_key(&guild) {
+        app.top_emojis.insert(guild, Vec::new());
+        app.rest("GET", format!("/guilds/{guild}/top-emojis"), None, Tag::TopEmojis(guild));
+    }
+    let top_ids: Vec<Id> = app.top_emojis.get(&guild).cloned().unwrap_or_default();
+    let top_title = app.store.guilds.get(&guild).map(|g| format!("Top Emoji in {}", g.name)).unwrap_or_default();
     let query_id = egui::Id::new("picker_q");
     let jump_id = egui::Id::new("picker_jump");
     let tops_id = egui::Id::new("picker_tops");
@@ -296,10 +303,22 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         } else {
             Vec::new()
         };
+        let popular: Vec<(ReactEmoji, Chosen)> = if ql.is_empty() {
+            top_ids
+                .iter()
+                .filter_map(|id| {
+                    let (e, _) = servers.iter().flat_map(|(_, _, _, l)| l).find(|(x, ok)| x.id == *id && *ok)?;
+                    Some((ReactEmoji { id: e.id, name: e.name.clone(), animated: e.animated }, Chosen::Custom(e.clone())))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         // one mark per section down the left: frequently used, servers by their icon, then discord's categories
         enum Mark<'a> {
             Star,
             Clock,
+            Top(&'a str),
             Server(Option<&'a str>, &'a str),
             Group(&'a str),
         }
@@ -325,6 +344,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         if !recent.is_empty() {
             marks.push(Mark::Clock);
         }
+        if !popular.is_empty() {
+            marks.push(Mark::Top(&top_title));
+        }
         marks.extend(servers.iter().map(|(_, name, icon, _)| Mark::Server(icon.as_deref(), name.as_str())));
         marks.extend(GROUPS.iter().map(|(_, t)| Mark::Group(t)));
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail.shrink2(vec2(8.0, 8.0))), |ui| {
@@ -341,6 +363,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         Mark::Clock => {
                             super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary);
                             "Frequently Used"
+                        }
+                        Mark::Top(title) => {
+                            super::icons::draw(ui.painter(), super::icons::Icon::Fire, r.shrink(6.0), pal().header_secondary);
+                            title
                         }
                         Mark::Server(Some(url), name) => {
                             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);
@@ -372,11 +398,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             sa.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 let top = ui.min_rect().top();
-                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent)] {
+                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent), (top_title.as_str(), super::icons::Icon::Fire, &popular)] {
                     if list.is_empty() {
                         continue;
                     }
                     new_tops.push(ui.cursor().top() - top);
+                    if icon == super::icons::Icon::Fire {
+                        super::settings::mark(ui, "picker:top", ui.cursor());
+                    }
                     if section(ui, title, Lead::Icon(icon), &mut shut) {
                         let base = order.len();
                         order.extend(list.iter().map(|(_, c)| c.clone()));

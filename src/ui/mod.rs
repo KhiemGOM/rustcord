@@ -44,6 +44,12 @@ mod picker;
 mod player;
 mod plus;
 mod poll;
+mod blocked;
+mod pollvotes;
+mod remind;
+mod sourcepop;
+mod uploading;
+mod chatinvite;
 mod invitecard;
 mod popups;
 mod presence;
@@ -167,6 +173,10 @@ pub struct App {
     pub settings_page: Option<settings::Page>,
     pub invite: Option<String>,
     pub invite_card: invitecard::Card,
+    pub chat_invites: chatinvite::Cache,
+    pub unblocked: Set<Id>,
+    pub votes: Option<pollvotes::Votes>,
+    pub remind_custom: Option<remind::Custom>,
     pub folders: folders::State,
     pub wizard: Option<newserver::Wizard>,
     pub lurk_goto: Option<(Id, Id)>,
@@ -265,7 +275,9 @@ pub struct App {
     // what /sticker was given, for the sticker picker to start its search with
     pub sticker_q: Option<String>,
     // a custom emoji's popout: id, name, animated, where
-    pub emoji_pop: Option<(Id, String, bool, Pos2)>,
+    pub source_pop: Option<sourcepop::Pop>,
+    pub sources: Map<(bool, Id), serde_json::Value>,
+    pub top_emojis: Map<Id, Vec<Id>>,
     // a link waiting on "Leaving Discord", and whether to trust its site from now on
     pub leaving: Option<(String, bool)>,
     // the Ctrl+/ sheet, the Raging Demon it can set off, and breathing with Wumpus
@@ -402,6 +414,10 @@ impl App {
             settings_page: None,
             invite: None,
             invite_card: Default::default(),
+            chat_invites: Default::default(),
+            unblocked: Set::default(),
+            votes: None,
+            remind_custom: None,
             folders: Default::default(),
             wizard: None,
             lurk_goto: None,
@@ -475,7 +491,9 @@ impl App {
             crop: None,
             status_text: None,
             sticker_q: None,
-            emoji_pop: None,
+            source_pop: None,
+            sources: Map::default(),
+            top_emojis: Map::default(),
             leaving: None,
             combos: None,
             demon: None,
@@ -1294,6 +1312,13 @@ impl App {
                 match tag {
                     Tag::Activity(k) => return activity::failed(self, &k, e),
                     Tag::InvitePreview(_) => return,
+                    Tag::ChatInvite(code) => return self.chat_invites.failed(&code),
+                    Tag::PollVotes(..) | Tag::TopEmojis(_) => {}
+                    Tag::Source(s, id) => {
+                        self.sources.insert((s, id), serde_json::json!({}));
+                        return;
+                    }
+                    Tag::ChatJoin(code) => self.chat_invites.joined(&code),
                     Tag::Pins(_) => self.pins = None,
                     Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
@@ -1428,6 +1453,26 @@ impl App {
                 }
             }
             Tag::InvitePreview(code) => self.invite_card.got(&code, &v),
+            Tag::ChatInvite(code) => self.chat_invites.got(&code, &v),
+            Tag::TopEmojis(g) => {
+                let mut items: Vec<(u64, Id)> = v["items"].as_array().into_iter().flatten().map(|i| (i["emoji_rank"].as_u64().unwrap_or(u64::MAX), crate::state::sid(&i["emoji_id"]))).collect();
+                items.sort();
+                self.top_emojis.insert(g, items.into_iter().map(|(_, id)| id).collect());
+            }
+            Tag::Source(s, id) => {
+                self.sources.insert((s, id), v);
+            }
+            Tag::PollVotes(_, msg, ans) => {
+                let users: Vec<Id> = v["users"].as_array().into_iter().flatten().map(|u| self.store.upsert_user(u)).collect();
+                if let Some(w) = self.votes.as_mut().filter(|w| w.msg() == msg) {
+                    w.got(ans, users);
+                }
+            }
+            Tag::ChatJoin(code) => {
+                self.chat_invites.joined(&code);
+                let name = v["guild"]["name"].as_str().unwrap_or("the server").to_string();
+                self.toast(format!("Joined {name}"));
+            }
             Tag::Invite => {
                 let name = v["guild"]["name"].as_str().unwrap_or("the server").to_string();
                 self.toast(format!("Joined {name}"));
@@ -1504,7 +1549,7 @@ impl App {
         if let Ok(list) = cb.get().file_list()
             && !list.is_empty()
         {
-            self.files.extend(list.into_iter().map(composer::Upload::new));
+            self.attach_files(list);
             return;
         }
         let Ok(img) = cb.get_image() else { return };
@@ -1658,6 +1703,10 @@ impl App {
                         m.fresh = true;
                     }
                 }
+                Ev::SendCancelled { channel, nonce } => {
+                    self.store.drop_pending(channel, &nonce);
+                    self.unsent.remove(&nonce);
+                }
                 Ev::SendFailed { channel, nonce, err, again } => {
                     // a retry going out stays red without saying so again
                     let first = self.store.msgs.get(&channel).is_some_and(|e| e.list.iter().any(|m| m.pending && m.nonce.as_deref() == Some(nonce.as_str())));
@@ -1693,7 +1742,12 @@ impl App {
                         if let Some(e) = &mut self.e2e {
                             e.heard.push(json!({ "t": "voice error", "d": err }));
                         }
-                        self.toast(format!("Voice disconnected: {err}"));
+                        if err == crate::voice::CAMERA_FAILED {
+                            self.voice.camera = false;
+                            self.toast(err);
+                        } else {
+                            self.toast(format!("Voice disconnected: {err}"));
+                        }
                     }
                     if let Some((key, img)) = self.voice.preview_job.take() {
                         self.stream_preview(key, img);
@@ -2191,7 +2245,7 @@ impl eframe::App for App {
         let dropped = !raw.dropped_files.is_empty();
         for f in raw.dropped_files.drain(..) {
             if !server::dropped(self, f.path()) {
-                self.files.push(composer::Upload::new(f.path().to_path_buf()));
+                self.attach_files(vec![f.path().to_path_buf()]);
             }
         }
         if dropped && key_down(0x10) && let Some(ch) = self.cur() {
