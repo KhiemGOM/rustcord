@@ -56,6 +56,7 @@ import members
 import chatx
 import bots
 import embed
+import profed
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -566,6 +567,7 @@ def main():
         **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
         **bots.checks({"cold": cold, "warm": warm}, reqs, data),
         **embed.checks({"cold": cold, "warm": warm}, reqs, data),
+        **profed.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),

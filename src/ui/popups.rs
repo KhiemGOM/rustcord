@@ -1017,7 +1017,19 @@ fn switch_row(ui: &mut Ui, store: &crate::state::Store, hit: &Hit, sel: bool) ->
 }
 
 fn profile(app: &mut App, ctx: &egui::Context) {
-    let Some((uid, gid, at)) = app.profile else { return };
+    let key = egui::Id::new("popout_fx_uid");
+    let Some((uid, gid, at)) = app.profile else {
+        if let Some(old) = ctx.data_mut(|d| d.remove_temp::<Id>(key)) {
+            super::cosmo::forget(ctx, ("popout", old));
+        }
+        return;
+    };
+    ctx.data_mut(|d| d.insert_temp(key, uid));
+    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let layers = super::cosmo::layers_of(app, worn.as_ref());
+    let since = super::cosmo::since(ctx, ("popout", uid));
+    let widgets = worn.as_ref().map(super::profed::widgets_of).unwrap_or_default();
+    super::profed::board::want_game_icons(app, &widgets);
     let Some(user) = app.store.user(uid).cloned() else {
         app.profile = None;
         return;
@@ -1043,6 +1055,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     let note_open: bool = !saved.is_empty() || ctx.data(|d| d.get_temp(note_open_id)).unwrap_or(false);
     let mod_view = uid != me && gid != 0 && app.store.members.get(&gid).is_some_and(|m| m.contains_key(&uid)) && super::modview::allowed(&app.store, gid);
     let (mut message, mut banner, mut main, mut full, mut tab) = (None, BannerAct::default(), false, false, None);
+    let mut view_avatar = false;
     let (mut role_act, mut note_save, mut open_url): (Option<profile::RoleAct>, Option<String>, Option<String>) = (None, None, None);
     let mut head = Rect::NOTHING;
     let store = &app.store;
@@ -1069,6 +1082,12 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
                     main = hit.on_hover_text("View Main Profile").clicked();
+                } else if user.avatar.is_some() {
+                    let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
+                    if hit.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    view_avatar = hit.on_hover_text("View Profile Picture").clicked();
                 }
                 if uid != me {
                     banner = banner_buttons(ui, top, stranger, rel == Some(crate::state::FRIEND), mod_view);
@@ -1110,7 +1129,49 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     tab = mutuals(ui, store, p, pal().bg_secondary);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
-                        ui.label(RichText::new(&bio).font(reg(14.0)).color(pal().header_primary));
+                        let mut job = egui::text::LayoutJob::single_section(bio.clone(), egui::TextFormat::simple(reg(14.0), pal().header_primary));
+                        job.wrap.max_width = 268.0;
+                        job.wrap.max_rows = 3;
+                        job.wrap.break_anywhere = false;
+                        job.wrap.overflow_character = Some('…');
+                        let g = ui.painter().layout_job(job);
+                        let cut = g.elided;
+                        ui.label(g);
+                        if cut {
+                            ui.add_space(4.0);
+                            let (r, resp) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::click());
+                            let t = ui.painter().text(r.left_center(), Align2::LEFT_CENTER, "View Full Bio", medium(12.0), pal().header_primary);
+                            if resp.hovered() {
+                                ui.painter().hline(t.x_range(), t.bottom(), egui::Stroke::new(1.0, pal().header_primary));
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            notes.insert("view_full_bio".into(), r);
+                            if resp.clicked() {
+                                full = true;
+                            }
+                        }
+                    }
+                    if !widgets.is_empty() {
+                        ui.add_space(12.0);
+                        let (r, resp) = ui.allocate_exact_size(vec2(268.0, 40.0), Sense::click());
+                        ui.painter().rect_filled(r, 8, egui::Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 51 } else { 31 }));
+                        ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, "Game Collection", medium(12.0), pal().header_primary);
+                        let ids = super::profed::board::game_ids(&widgets);
+                        let n = ids.len().min(4);
+                        for (i, id) in ids.iter().take(4).enumerate() {
+                            let ir = Rect::from_min_size(pos2(r.right() - 12.0 - (n - i) as f32 * 28.0 + 4.0, r.center().y - 12.0), vec2(24.0, 24.0));
+                            ui.painter().rect_filled(ir, 4, egui::Color32::from_white_alpha(20));
+                            if let Some((a, h)) = id.parse::<u64>().ok().and_then(|a| app_icons.get(&a).cloned().flatten().map(|h| (a, h))) {
+                                text::image(ui.painter(), &format!("{}/app-icons/{a}/{h}.png?size=48", crate::api::cdn()), ir);
+                            }
+                        }
+                        notes.insert("game_collection".into(), r);
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if resp.clicked() {
+                            tab = Some(profile::Tab::Board);
+                        }
                     }
                     for a in &live {
                         ui.add_space(12.0);
@@ -1119,6 +1180,19 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                             Some(presence::Act::Play(u)) => open_url = Some(u),
                             Some(presence::Act::Connect) => open_url = Some("https://discord.com/settings/connections".into()),
                             None => {}
+                        }
+                    }
+                    if !live.is_empty() {
+                        ui.add_space(8.0);
+                        let (r, resp) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::click());
+                        let t = ui.painter().text(r.left_center(), Align2::LEFT_CENTER, "View All Activity", medium(12.0), pal().header_secondary);
+                        if resp.hovered() {
+                            ui.painter().hline(t.x_range(), t.bottom(), egui::Stroke::new(1.0, pal().header_secondary));
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        notes.insert("view_all_activity".into(), r);
+                        if resp.clicked() {
+                            tab = Some(profile::Tab::Activity);
                         }
                     }
                     if !roles.is_empty() || (gid != 0 && profile::can_manage_any(store, gid)) {
@@ -1169,6 +1243,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     }
                 });
                 theme_wash(ui, wash, p, ui.min_rect());
+                super::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
             });
         });
     app.rects.insert("profile_head".into(), head);
@@ -1181,6 +1256,10 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     }
     if let Some(u) = open_url {
         ctx.open_url(egui::OpenUrl::new_tab(u));
+    }
+    if view_avatar {
+        let big = user.avatar_url().replace("size=80", "size=1024");
+        app.viewer = Some((big.clone(), big, 1024, 1024));
     }
     if let Some(text) = message {
         app.profile = None;
@@ -1319,6 +1398,9 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let mut save_note = None;
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
+    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let layers = super::cosmo::layers_of(app, worn.as_ref());
+    let since = super::cosmo::since(ui.ctx(), ("side", uid));
     let (mut banner, mut full, mut tab) = (BannerAct::default(), false, None);
     let height = ui.available_height();
     let store = &app.store;
@@ -1353,6 +1435,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
         full = resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
+        super::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
     });
     if let Some(at) = banner.more.or(banner.friend) {
         app.user_menu = Some((uid, 0, None, at));

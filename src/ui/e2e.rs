@@ -56,6 +56,7 @@ const SIDEBAR: [&str; 19] = [
     "Developer", "Log Out",
 ];
 
+mod profed;
 mod spell_discover;
 mod system;
 
@@ -1391,6 +1392,7 @@ impl Run {
             3000..=3099 => self.fixes_steps(app, ctx),
             3110..=3189 => self.members_steps(app, ctx),
             3700..=3799 => self.chatx_steps(app, ctx),
+            3900..=4099 => self.profed_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),
@@ -1507,11 +1509,13 @@ impl Run {
                 self.next(900);
             }
             102 => {
-                if app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded]) {
+                let editor = PAGES[self.loaded] == "Profiles";
+                if (editor && app.profed.is_none()) || (!editor && app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded])) {
                     return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
                 }
                 let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
                 self.shot(ctx, &format!("settings_{slug}.png"));
+                app.profed = None;
                 self.loaded += 1;
                 self.step = 101;
                 self.wait = Instant::now() + Duration::from_millis(200);
@@ -1535,9 +1539,10 @@ impl Run {
                 self.next(0);
             }
             106 => {
-                let saved = app.sform.profile_base.as_ref().is_some_and(|_| app.sform.profile == app.sform.profile_base) && !app.sform.saving;
+                let saved = app.profed.as_ref().is_some_and(|e| e.ready && !super::profed::dirty(e) && !e.saving);
                 if saved {
                     self.mark("profile_saved");
+                    app.profed = None;
                     self.next(300);
                 }
             }
@@ -1958,13 +1963,14 @@ impl Run {
                     self.next(1200);
                 }
             }
-            2041 => click_at(self, "pick:decoration", 500),
+            2041 => click_at(self, "tile:decoration", 500),
             2042 => click_at(self, "collectible:7001", 300),
-            2043 => click_at(self, "picker_done", 300),
+            2043 => click_at(self, "pick:apply", 300),
             2044 => click_at(self, "save_changes", 0),
             2045 => {
                 if app.store.user(app.store.me).and_then(|u| u.decoration.as_deref()) == Some("a_deco7001") {
                     self.mark("profile_decoration");
+                    app.profed = None;
                     self.next(300);
                 }
             }

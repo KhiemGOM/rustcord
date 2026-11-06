@@ -1,7 +1,7 @@
 use egui::{RichText, Ui};
 use serde_json::Value;
 
-use super::{account, modals, card, open_web, primary, profiles, remote};
+use super::{account, modals, card, open_web, primary, remote};
 use crate::net::Tag;
 use crate::state::Id;
 use crate::theme::*;
@@ -15,11 +15,7 @@ pub struct Forms {
     pub web: Option<modals::Web>,
     pub sudo: Option<modals::Req>,
     pub sub: account::Sub,
-    pub profile: Option<profiles::Profile>,
-    pub profile_base: Option<profiles::Profile>,
     pub profile_guild: Option<Id>,
-    pub picker: Option<profiles::Kind>,
-    pub saving: bool,
     pub recording: Option<usize>,
     pub rec_keys: Vec<u32>,
     pub reveal_email: bool,

@@ -34,11 +34,11 @@ const PROVIDERS: [(&str, &str, u32); 21] = [
 
 const ACTIVITY: [&str; 4] = ["spotify", "xbox", "playstation", "crunchyroll"];
 
-fn provider(kind: &str) -> (&'static str, Color32) {
+pub fn provider(kind: &str) -> (&'static str, Color32) {
     PROVIDERS.iter().find(|p| p.0 == kind).map_or(("Account", BLURPLE), |p| (p.1, role_color(p.2)))
 }
 
-fn badge(ui: &Ui, r: Rect, name: &str, fill: Color32) {
+pub fn badge(ui: &Ui, r: Rect, name: &str, fill: Color32) {
     ui.painter().rect_filled(r, 8, fill);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, name.chars().next().unwrap_or('?'), semi(r.height() * 0.45), Color32::WHITE);
 }
