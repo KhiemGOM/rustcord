@@ -145,7 +145,7 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
                     let resp = ui.interact(r, ui.id().with(("recent", i)), Sense::click());
                     avatar(ui, r, &avatars_url(me, h));
                     mark(ui, &format!("avatar:recent:{i}"), r);
-                    if resp.hovered() {
+                    if ui.rect_contains_pointer(r) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         let x_r = Rect::from_min_size(pos2(r.right() - 20.0, r.top()), vec2(22.0, 22.0));
                         let xr = ui.interact(x_r, ui.id().with(("recent_x", i)), Sense::click());
