@@ -562,9 +562,20 @@ pub fn gradient_at(preset: &Preset, t: f32) -> Color32 {
 
 /// The gradient behind the window, drawn before anything else; nothing on a plain theme.
 pub fn backdrop(ctx: &egui::Context) {
-    let Some(preset) = PRESETS.get(GRADIENT.load(std::sync::atomic::Ordering::Relaxed) as usize) else { return };
+    let i = GRADIENT.load(std::sync::atomic::Ordering::Relaxed) as usize;
+    let Some(preset) = PRESETS.get(i) else { return };
     let screen = ctx.content_rect();
-    ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::mesh(gradient_mesh(preset, screen)));
+    let id = egui::Id::new("backdrop");
+    let kept = ctx.data(|d| d.get_temp::<(usize, egui::Rect, std::sync::Arc<egui::Mesh>)>(id)).filter(|k| k.0 == i && k.1 == screen);
+    let mesh = kept.map_or_else(
+        || {
+            let mesh = std::sync::Arc::new(gradient_mesh(preset, screen));
+            ctx.data_mut(|d| d.insert_temp(id, (i, screen, mesh.clone())));
+            mesh
+        },
+        |k| k.2,
+    );
+    ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::mesh(mesh));
 }
 
 pub fn gradient_mesh(preset: &Preset, r: egui::Rect) -> egui::Mesh {
