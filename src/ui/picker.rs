@@ -873,6 +873,7 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                             ui.spacing_mut().item_spacing.x = 4.0;
                             for (st, from, ok) in row {
                                 let (r, resp) = ui.allocate_exact_size(vec2(104.0, 104.0), Sense::click());
+                                super::settings::mark(ui, &format!("sticker:{}", st.0), r);
                                 if resp.hovered() {
                                     ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
                                     hovered = Some((st.clone(), format!("from {from}")));
