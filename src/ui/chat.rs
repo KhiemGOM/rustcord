@@ -14,6 +14,9 @@ use crate::net::Cmd;
 use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Set, Store};
 use crate::theme::*;
 
+mod forward;
+mod mosaic;
+
 enum Act {
     Reply(Id),
     Edit(Id),
@@ -1161,6 +1164,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if start && !compact {
             author_line(&mut cui, d, m, &name, &ink, dot, font, hot);
         }
+        let fwd = m.forward.map(|_| forward::begin(&mut cui));
         let editing = d.editing.as_ref().is_some_and(|(id, _)| *id == m.id);
         if editing {
             edit_box(&mut cui, d, m.id);
@@ -1188,7 +1192,18 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
         // discord's accessories: 2 under the text, 4 apart, 2 under the last
         let mut acc = 2.0;
-        for a in &m.attachments {
+        // a components-v2 message shows its files through its own gallery, file and thumbnail nodes
+        let files: &[crate::state::Attachment] = if m.flags & (1 << 15) != 0 { &[] } else { &m.attachments };
+        let tiled: Vec<&crate::state::Attachment> = files.iter().filter(|a| (a.is_image() && d.s.inline_uploads) || a.is_video()).collect();
+        for a in files {
+            if tiled.len() > 1 && tiled.iter().any(|t| std::ptr::eq(*t, a)) {
+                if std::ptr::eq(tiled[0], a) {
+                    cui.add_space(acc);
+                    acc = 4.0;
+                    mosaic::show(&mut cui, d, m.id, &tiled);
+                }
+                continue;
+            }
             cui.add_space(acc);
             acc = 4.0;
             if a.is_image() && d.s.inline_uploads {
@@ -1232,13 +1247,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         for (id, name, fmt) in &m.stickers {
             cui.add_space(acc);
             acc = 4.0;
-            if *fmt == 3 {
-                cui.label(RichText::new(format!("[sticker: {name}]")).color(pal().text_muted));
-            } else {
-                let ext = if *fmt == 4 { "gif" } else { "png" };
-                let url = format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160");
-                media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
-            }
+            let ext = if *fmt == 4 { "gif" } else { "png" };
+            let url = format!("{}/stickers/{id}.{ext}?size=160", crate::api::media());
+            media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
         }
         let embeds = if d.embeds { m.embeds.as_slice() } else { &[] };
         for (i, e) in embeds.iter().enumerate() {
@@ -1288,6 +1299,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             cui.add_space(acc);
             acc = 4.0;
             components(&mut cui, d, m);
+        }
+        if let Some(open) = fwd {
+            forward::end(&mut cui, d, m, open);
         }
         if m.edited && m.content.trim().is_empty() {
             cui.add_space(2.0);
@@ -1906,6 +1920,11 @@ fn alt_badge(ui: &Ui, image: &egui::Response, text: &str) {
 /// `poster` is a still drawn underneath while the animation downloads and decodes.
 fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: Option<&str>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    media_at(ui, d, &resp, rect, url, full, poster, super::player::Look::FULL);
+    resp
+}
+
+fn media_at(ui: &mut Ui, d: &mut D, resp: &egui::Response, rect: Rect, url: &str, full: &str, poster: Option<&str>, look: super::player::Look) {
     resp.context_menu(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         if super::menu_item(ui, None, "Save Image", false) {
@@ -1919,9 +1938,9 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
             d.acts.push(Act::Url(full.to_string()));
         }
     });
-    ui.painter().rect_filled(rect, CornerRadius::same(8), pal().bg_secondary);
+    ui.painter().rect_filled(rect, look.radius, pal().bg_secondary);
     if let Some(p) = poster {
-        Image::from_uri(p.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, rect);
+        Image::from_uri(p.to_string()).uv(look.uv).corner_radius(look.radius).show_loading_spinner(false).paint_at(ui, rect);
     }
     let (auto, on_hover) = if url.contains("/stickers/") {
         use crate::cache::Animate::*;
@@ -1935,13 +1954,13 @@ fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: 
     };
     let play = (auto || (on_hover && resp.hovered())) && ui.is_rect_visible(rect);
     Image::from_uri(gif::uri(ui.ctx(), url, play))
-        .corner_radius(CornerRadius::same(8))
+        .uv(look.uv)
+        .corner_radius(look.radius)
         .show_loading_spinner(false)
         .paint_at(ui, rect);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp
 }
 
 /// Discord's voice-message player: a pill with a play-pause button, the amplitude waveform
@@ -2274,6 +2293,14 @@ fn render_comp(ui: &mut Ui, d: &mut D, m: &Message, c: &Comp, width: f32) {
             let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 16.0, color: pal().text_normal, revealed: true, edited: false, embed: false };
             let blocks = markdown::parse(s, &cx);
             blocks_ui(ui, &blocks, d, m.id);
+        }
+        Comp::Gallery(items) if items.len() > 1 && items.iter().all(|(_, w, h)| *w > 0 && *h > 0) => {
+            let pictures: Vec<crate::state::Attachment> = items
+                .iter()
+                .map(|(url, w, h)| crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: "image.png".into(), ctype: "image/png".into(), w: *w, h: *h, ..Default::default() })
+                .collect();
+            let refs: Vec<&crate::state::Attachment> = pictures.iter().collect();
+            mosaic::show(ui, d, m.id, &refs);
         }
         Comp::Gallery(items) => {
             for (url, iw, ih) in items {

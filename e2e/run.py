@@ -32,6 +32,7 @@ import look
 import polish
 import call
 import discover
+import gallery
 import motion
 import home
 import composer
@@ -90,6 +91,42 @@ def prime():
         p.wait()
 
 
+STALL = int(os.environ.get("RUSTCORD_E2E_STALL", "180"))
+CAP = int(os.environ.get("RUSTCORD_E2E_CAP", "7200"))
+
+
+def wait_for(p, out):
+    """A run is hung when its step counter stops moving, not when it has taken long: the suite keeps growing."""
+    began = last = time.time()
+    seen = None
+    while True:
+        try:
+            return p.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+        mark = out / "progress"
+        now = mark.stat().st_mtime if mark.exists() else None
+        if now != seen:
+            seen, last = now, time.time()
+        why = "stalled" if time.time() - last > STALL else "over the cap" if time.time() - began > CAP else None
+        if why:
+            p.kill()
+            p.wait()
+            (out / "killed").write_text(why)
+            return f"killed ({why})"
+
+
+def partial(out):
+    """What a run got through before it died: the last step and every mark it set."""
+    read = lambda n: (out / n).read_text(encoding="utf-8").strip() if (out / n).exists() else ""
+    marks = {}
+    for line in read("marks.log").splitlines():
+        name, _, ms = line.partition("\t")
+        marks[name] = float(ms)
+    last = read("progress") or "before the first step"
+    return {"ok": False, "error": f"no results.json; last step finished: {last}; {read('killed') or 'client exited'}", "marks_ms": marks, "partial": True}
+
+
 def run_client(name, data_dir, extra=None):
     out = ART / name
     out.mkdir(parents=True, exist_ok=True)
@@ -114,13 +151,11 @@ def run_client(name, data_dir, extra=None):
     exe = ROOT / "target" / "release" / "rustcord.exe"
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
-    try:
-        code = p.wait(timeout=1500)
-    except subprocess.TimeoutExpired:
-        p.kill()
-        p.wait()
-        code = "timeout"
-    res = json.loads((out / "results.json").read_text(encoding="utf-8")) if (out / "results.json").exists() else {"ok": False, "error": "no results.json"}
+    code = wait_for(p, out)
+    if (out / "results.json").exists():
+        res = json.loads((out / "results.json").read_text(encoding="utf-8"))
+    else:
+        res = partial(out)
     ff = out / "first_frame_epoch_ms"
     res["spawn_to_first_frame_ms"] = round(float(ff.read_text()) - spawned, 1) if ff.exists() else None
     res["exit_code"] = code
@@ -517,6 +552,7 @@ def main():
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
+        **gallery.checks({"cold": cold, "warm": warm}, reqs, data),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
