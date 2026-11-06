@@ -46,6 +46,16 @@ impl App {
                     }
                 }
                 Some(("has", v)) if !v.is_empty() => params.push(format!("has={}", enc(v))),
+                Some(("pinned", v @ ("true" | "false"))) => params.push(format!("pinned={v}")),
+                Some(("author_type", v @ ("user" | "bot" | "webhook"))) => params.push(format!("author_type={v}")),
+                Some((k @ ("before" | "after" | "during"), v)) if let Ok(d) = chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d") => {
+                    let id = |d: chrono::NaiveDate| ((d.and_hms_opt(0, 0, 0).map_or(0, |t| t.and_utc().timestamp_millis()) - 1_420_070_400_000).max(0) as u64) << 22;
+                    match k {
+                        "before" => params.push(format!("max_id={}", id(d))),
+                        "after" => params.push(format!("min_id={}", id(d.succ_opt().unwrap_or(d)))),
+                        _ => params.push(format!("min_id={}&max_id={}", id(d), id(d.succ_opt().unwrap_or(d)))),
+                    }
+                }
                 _ => words.push(w),
             }
         }
@@ -1771,7 +1781,10 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
     let id = egui::Id::new("search_options");
     let hovered = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     if !(field.has_focus() || hovered) {
-        ctx.data_mut(|d| d.insert_temp(id, false));
+        ctx.data_mut(|d| {
+            d.insert_temp(id, false);
+            d.insert_temp(id.with("more"), false);
+        });
         return None;
     }
     let typed = q.trim().to_string();
@@ -1836,7 +1849,41 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                     p.text(pos2(k.right() + 4.0, r.center().y + 9.0), Align2::LEFT_CENTER, hint, medium(14.0), pal().text_muted);
                     resp.clicked()
                 };
-                if typed.is_empty() {
+                let more_id = id.with("more");
+                let more = ui.ctx().data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
+                let has_word = word.strip_prefix("has:");
+                if let Some(have) = has_word {
+                    head(ui, "Message Contains");
+                    ui.add_space(4.0);
+                    for (icon, kind) in [(Icon::Image, "image"), (Icon::Video, "video"), (Icon::Link, "link"), (Icon::File, "file"), (Icon::Play, "embed"), (Icon::Soundboard, "sound"), (Icon::Poll, "poll"), (Icon::Sticker, "sticker"), (Icon::Forward, "forward")] {
+                        if !kind.starts_with(have) {
+                            continue;
+                        }
+                        let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                        let p = ui.painter();
+                        crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
+                        super::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(24.0, 24.0)), pal().header_secondary);
+                        p.text(pos2(r.left() + 52.0, r.center().y), Align2::LEFT_CENTER, kind, medium(16.0), pal().header_primary);
+                        if resp.clicked() {
+                            replace = Some(format!("has:{kind} "));
+                        }
+                    }
+                } else if more {
+                    head(ui, "More filters");
+                    ui.add_space(4.0);
+                    for (icon, title, key, hint) in [
+                        (Icon::Clock, "Before a date", "before:", "specific date"),
+                        (Icon::Clock, "After a date", "after:", "specific date"),
+                        (Icon::Clock, "Sent on a date", "during:", "specific date"),
+                        (Icon::Pin, "Pinned", "pinned:", "true or false"),
+                        (Icon::Person, "By author type", "author_type:", "user, bot or webhook"),
+                    ] {
+                        if row(ui, icon, None, title, key, hint) {
+                            add = Some(key.to_string());
+                            ui.ctx().data_mut(|d| d.insert_temp(more_id, false));
+                        }
+                    }
+                } else if typed.is_empty() {
                     head(ui, "Filters");
                     ui.add_space(4.0);
                     for (icon, title, key, hint) in [
@@ -1848,6 +1895,15 @@ pub fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response
                         if row(ui, icon, None, title, key, hint) {
                             add = Some(key.to_string());
                         }
+                    }
+                    let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                    crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
+                    super::icons::draw(ui.painter(), Icon::Filter, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                    ui.painter().text(pos2(r.left() + 45.0, r.center().y - 9.0), Align2::LEFT_CENTER, "More filters", medium(14.0), pal().header_primary);
+                    ui.painter().text(pos2(r.left() + 45.0, r.center().y + 9.0), Align2::LEFT_CENTER, "dates, author type, and more", medium(14.0), pal().text_muted);
+                    app.rects.insert("search_more".into(), r);
+                    if resp.clicked() {
+                        ui.ctx().data_mut(|d| d.insert_temp(more_id, true));
                     }
                     let history = &app.ui.searches;
                     if !history.is_empty() {
