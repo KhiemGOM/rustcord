@@ -19,6 +19,7 @@ def checks(runs, reqs, data):
     return {
         "nitro: the Nitro Home row opened the page, with the plans, the subscription and the gift buttons": both("nitro_page") and has("/subscription-plans") and has("/billing/subscriptions"),
         "nitro: Gift Nitro opened the checkout window on the gift page, signed in": both("nitro_gift_checkout") and gift >= len(runs),
+        "nitro: Subscribe on a plan card opened the checkout window on that plan's page": both("nitro_subscribe_checkout"),
         "shop: the Shop row opened Featured from the catalog calls": both("shop_featured") and has("/collectibles-shop?") and has("/collectibles-categories/v2"),
         "shop: Featured drew the hero's items and the category tiles": both("shop_featured_content"),
         "shop: Browse listed the catalog and Show only filtered it": both("shop_browse") and both("shop_filter"),

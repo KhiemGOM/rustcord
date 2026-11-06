@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Id, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::Value;
 
-use super::{PLATE, button, pic};
+use super::{CARD_MIN, PLATE, RADIUS_LG, RADIUS_SM, SPACE_12, SPACE_16, SPACE_20, SPACE_24, SPACE_32, SPACE_8, button, pic, shade};
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings::{billing, mark};
@@ -88,35 +88,37 @@ fn ring(ui: &Ui, c: Pos2, avatar: &str, d: f32) {
 pub fn preview(ui: &Ui, r: Rect, p: &Value, avatar: &str) {
     let item = &p["items"][0];
     let c = r.center();
+    let k = r.width().min(r.height());
     match kind(p) {
         0 => {
-            let d = (r.height() * 0.44).min(110.0);
-            ring(ui, c - vec2(0.0, r.height() * 0.06), avatar, d);
+            let d = k * 0.5;
+            let at = c - vec2(0.0, k * 0.04);
+            ring(ui, at, avatar, d);
             if let Some(a) = item["asset"].as_str() {
-                let rr = Rect::from_center_size(c - vec2(0.0, r.height() * 0.06), vec2(d * 1.2, d * 1.2));
-                pic(ui, &format!("{}/avatar-decoration-presets/{a}.png?size=240&passthrough=false", crate::api::cdn()), rr, 0, false);
+                pic(ui, &format!("{}/avatar-decoration-presets/{a}.png?size=240&passthrough=false", crate::api::cdn()), Rect::from_center_size(at, vec2(d * 1.2, d * 1.2)), 0, false);
             }
         }
         2 => {
-            let w = (r.width() - 40.0).min(300.0);
-            for dy in [-62.0, 62.0] {
-                let row = Rect::from_center_size(c + vec2(0.0, dy - 10.0), vec2(w, 40.0));
-                ui.painter().circle_filled(pos2(row.left() + 20.0, row.center().y), 16.0, Color32::from_white_alpha(14));
-                ui.painter().rect_filled(Rect::from_min_size(pos2(row.left() + 48.0, row.center().y - 5.0), vec2(w * 0.5, 10.0)), CornerRadius::same(5), Color32::from_white_alpha(14));
+            let w = r.width() * 0.86;
+            let h = w * 0.17;
+            let row = Rect::from_center_size(c, vec2(w, h));
+            for dy in [-1.4 * h, 1.4 * h] {
+                let ghost = row.translate(vec2(0.0, dy));
+                ui.painter().circle_filled(pos2(ghost.left() + h * 0.5, ghost.center().y), h * 0.38, Color32::from_white_alpha(14));
+                ui.painter().rect_filled(Rect::from_min_size(pos2(ghost.left() + h * 1.2, ghost.center().y - h * 0.12), vec2(w * 0.5, h * 0.24)), CornerRadius::same((h * 0.12) as u8), Color32::from_white_alpha(14));
             }
-            let row = Rect::from_center_size(c - vec2(0.0, 10.0), vec2(w, 52.0));
             if let Some(a) = item["asset"].as_str() {
-                pic(ui, &cdn_asset(&format!("{a}static.png")), row, 8, true);
+                pic(ui, &cdn_asset(&format!("{a}static.png")), row, RADIUS_SM, true);
             }
-            ring(ui, pos2(row.left() + 26.0, row.center().y), avatar, 32.0);
-            ui.painter().rect_filled(Rect::from_min_size(pos2(row.left() + 52.0, row.center().y - 5.0), vec2(w * 0.4, 10.0)), CornerRadius::same(5), Color32::from_white_alpha(60));
+            ring(ui, pos2(row.left() + h * 0.55, row.center().y), avatar, h * 0.66);
+            ui.painter().rect_filled(Rect::from_min_size(pos2(row.left() + h * 1.2, row.center().y - h * 0.1), vec2(w * 0.4, h * 0.2)), CornerRadius::same((h * 0.1) as u8), Color32::from_white_alpha(60));
         }
         1 => {
-            let card = Rect::from_center_size(c - vec2(0.0, 12.0), vec2((r.width() * 0.55).min(190.0), (r.height() * 0.7).min(230.0)));
-            ui.painter().rect_filled(card, CornerRadius::same(10), Color32::from_black_alpha(120));
-            ring(ui, pos2(card.left() + 40.0, card.top() + 56.0), avatar, 56.0);
+            let card = Rect::from_center_size(c, vec2(k * 0.62, k * 0.78));
+            ui.painter().rect_filled(card, CornerRadius::same(RADIUS_SM), Color32::from_black_alpha(120));
+            ring(ui, pos2(card.left() + card.width() * 0.26, card.top() + card.height() * 0.24), avatar, card.width() * 0.3);
             for (i, f) in [0.7, 0.45].into_iter().enumerate() {
-                ui.painter().rect_filled(Rect::from_min_size(pos2(card.left() + 16.0, card.top() + 110.0 + i as f32 * 18.0), vec2(card.width() * f, 10.0)), CornerRadius::same(5), Color32::from_white_alpha(28));
+                ui.painter().rect_filled(Rect::from_min_size(pos2(card.left() + card.width() * 0.09, card.top() + card.height() * (0.5 + 0.08 * i as f32)), vec2(card.width() * f, card.height() * 0.04)), CornerRadius::same(4), Color32::from_white_alpha(28));
             }
             if let Some(u) = item["thumbnailPreviewSrc"].as_str().filter(|u| !u.is_empty()) {
                 pic(ui, u, r, 0, false);
@@ -131,7 +133,7 @@ pub fn preview(ui: &Ui, r: Rect, p: &Value, avatar: &str) {
                 pic(ui, u, r, 0, false);
             }
         }
-        _ => icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(c, vec2(72.0, 72.0)), Color32::from_gray(0xdd)),
+        _ => icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(c, vec2(k * 0.3, k * 0.3)), Color32::from_gray(0xdd)),
     }
 }
 
@@ -150,27 +152,37 @@ pub enum Hit {
     Wish,
 }
 
-pub fn card(ui: &mut Ui, r: Rect, p: &Value, member: bool, wished: bool, avatar: &str) -> Option<Hit> {
+const BORDER: f32 = 2.0;
+const FOOTER_LIFT: f32 = 56.0;
+const FOOTER_SHADE: f32 = 146.0;
+const BUNDLE_SHADE: f32 = 100.0;
+
+pub fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, member: bool, wished: bool, avatar: &str) -> Option<Hit> {
     let id = sku(p).to_string();
-    let resp = ui.interact(r, Id::new(("shop_card", &id, r.min.x as i32, r.min.y as i32)), Sense::click());
+    let resp = ui.interact(r, Id::new(("shop_card", salt, &id)), Sense::click());
     let (a, b) = backdrop(p);
-    let painter = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
-    painter.rect_filled(r, CornerRadius::same(12), PLATE);
-    painter.rect_filled(r, CornerRadius::same(12), a.lerp_to_gamma(b, 0.5).gamma_multiply(0.35));
-    preview(ui, r.shrink(1.0), p, avatar);
-    let shade = Rect::from_min_max(pos2(r.left(), r.bottom() - 96.0), r.max);
-    painter.rect_filled(shade, CornerRadius { nw: 0, ne: 0, sw: 12, se: 12 }, Color32::from_black_alpha(120));
-    painter.text(pos2(r.left() + 16.0, r.bottom() - 48.0), Align2::LEFT_CENTER, p["name"].as_str().unwrap_or_default(), medium(16.0), Color32::WHITE);
-    price_row(ui, pos2(r.left() + 16.0, r.bottom() - 24.0), &price(p, member), 16.0);
-    ui.painter().rect_stroke(r, CornerRadius::same(12), Stroke::new(if resp.hovered() { 2.0 } else { 1.0 }, Color32::from_white_alpha(if resp.hovered() { 90 } else { 28 })), egui::StrokeKind::Inside);
+    let clip = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
+    clip.rect_filled(r, CornerRadius::same(RADIUS_SM), PLATE);
+    clip.rect_filled(r, CornerRadius::same(RADIUS_SM), a.lerp_to_gamma(b, 0.5).gamma_multiply(0.35));
+    let inner = r.shrink(BORDER);
+    let bundle = kind(p) == 1000;
+    let area = if bundle { inner } else { Rect::from_min_max(pos2(inner.left() + SPACE_8, inner.top()), pos2(inner.right() - SPACE_8, inner.bottom() - FOOTER_LIFT)) };
+    preview(ui, area, p, avatar);
+    let tall = if bundle { BUNDLE_SHADE } else { FOOTER_SHADE }.min(inner.height());
+    shade(ui, Rect::from_min_max(pos2(inner.left(), inner.bottom() - tall), inner.max), Color32::BLACK, 0, 150);
+    let price_y = inner.bottom() - SPACE_12 - 10.0;
+    clip.text(pos2(inner.left() + SPACE_12, price_y - 26.0), Align2::LEFT_CENTER, p["name"].as_str().unwrap_or_default(), medium(16.0), Color32::WHITE);
+    price_row(ui, pos2(inner.left() + SPACE_12, price_y), &price(p, member), 16.0);
+    let edge = if resp.hovered() { Color32::from_white_alpha(46) } else { Color32::from_white_alpha(22) };
+    ui.painter().rect_stroke(r, CornerRadius::same(RADIUS_SM), Stroke::new(BORDER, edge), egui::StrokeKind::Inside);
     mark(ui, &format!("shop:card:{id}"), r);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let heart = Rect::from_min_size(pos2(r.right() - 44.0, r.top() + 12.0), vec2(32.0, 32.0));
-    if resp.hovered() || wished {
-        let hr = ui.interact(heart, Id::new(("shop_heart", &id, r.min.x as i32, r.min.y as i32)), Sense::click());
-        ui.painter().rect_filled(heart, CornerRadius::same(16), Color32::from_black_alpha(if hr.hovered() { 170 } else { 130 }));
+    let heart = Rect::from_min_size(pos2(inner.right() - SPACE_12 - 32.0, inner.top() + SPACE_12), vec2(32.0, 32.0));
+    if ui.rect_contains_pointer(r) || wished {
+        let hr = ui.interact(heart, Id::new(("shop_heart", salt, &id)), Sense::click());
+        ui.painter().rect_filled(heart, CornerRadius::same(RADIUS_LG), Color32::from_black_alpha(if hr.hovered() { 170 } else { 130 }));
         icons::draw(ui.painter(), Icon::Heart, Rect::from_center_size(heart.center(), vec2(16.0, 16.0)), if wished { RED } else { Color32::WHITE });
         mark(ui, &format!("shop:heart:{id}"), heart);
         if hr.clicked() {
@@ -191,51 +203,55 @@ pub enum Act {
 
 pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar: &str) -> Option<Act> {
     let mut out = None;
-    let shown = crate::ui::motion::Modal::new(Id::new("shop_detail")).frame(egui::Frame::new().fill(pal().bg_secondary).corner_radius(16)).show(ctx, |ui| {
-        let wide = ctx.content_rect().width() > 820.0;
-        let w = if wide { 760.0 } else { (ctx.content_rect().width() - 48.0).max(300.0) };
+    let screen = ctx.content_rect();
+    let side = (0.455 * screen.width()).clamp(300.0, 400.0);
+    let avail = screen.width() - 2.0 * SPACE_32;
+    let wide = avail >= side + SPACE_32 + CARD_MIN + 2.0 * SPACE_24;
+    let w = if wide { (2.0 * side + SPACE_32 + 2.0 * SPACE_24).min(avail) } else { avail.min(side + 2.0 * SPACE_24) };
+    let shown = crate::ui::motion::Modal::new(Id::new("shop_detail")).frame(egui::Frame::new().fill(pal().bg_secondary).corner_radius(RADIUS_LG)).show(ctx, |ui| {
         ui.set_width(w);
-        let pad = 24.0;
-        let pv = if wide { vec2(340.0, 340.0) } else { vec2(w - 2.0 * pad, 220.0) };
+        let pad = SPACE_24;
+        let pv = if wide { vec2(side, side) } else { vec2(w - 2.0 * pad, (w - 2.0 * pad).min(screen.height() * 0.4)) };
         let (box_, _) = ui.allocate_exact_size(vec2(w, pv.y + 2.0 * pad), Sense::hover());
         let left = Rect::from_min_size(box_.min + vec2(pad, pad), pv);
         let (a, b) = backdrop(p);
-        ui.painter().rect_filled(left, CornerRadius::same(12), a.lerp_to_gamma(b, 0.5));
+        ui.painter().rect_filled(left, CornerRadius::same(RADIUS_LG), a.lerp_to_gamma(b, 0.5));
         preview(ui, left, p, avatar);
-        let x = if wide { left.right() + 28.0 } else { left.left() };
-        let mut y = if wide { left.top() } else { left.bottom() + 16.0 };
+        let x = if wide { left.right() + SPACE_32 } else { left.left() };
+        let mut y = if wide { left.top() } else { left.bottom() + SPACE_16 };
         let tw = box_.right() - pad - x;
         let painter = ui.painter().clone();
         painter.text(pos2(x, y), Align2::LEFT_TOP, label(p), medium(12.0), pal().text_muted);
-        y += 22.0;
+        y += SPACE_24 - 2.0;
         painter.text(pos2(x, y), Align2::LEFT_TOP, p["name"].as_str().unwrap_or_default(), semi(24.0), pal().header_primary);
-        y += 38.0;
+        y += SPACE_32 + 6.0;
         let g = painter.layout(summary(p), reg(14.0), pal().header_secondary, tw);
         let gh = g.size().y;
         painter.galley(pos2(x, y), g, pal().header_secondary);
-        y += gh + 12.0;
+        y += gh + SPACE_12;
         if let Some(items) = p["bundled_products"].as_array() {
             for it in items.iter().take(6) {
                 painter.text(pos2(x, y), Align2::LEFT_TOP, format!("•  {}  ·  {}", it["name"].as_str().unwrap_or_default(), label(it)), reg(14.0), pal().header_secondary);
-                y += 20.0;
+                y += SPACE_20;
             }
         }
         let pr = price(p, member);
-        let bottom = if wide { left.bottom() } else { y + 90.0 };
-        price_row(ui, pos2(x, bottom - 72.0), &pr, 20.0);
+        let foot = 40.0 + SPACE_8 + 20.0 + SPACE_12;
+        let bottom = if wide { left.bottom() } else { y + SPACE_16 + foot };
+        price_row(ui, pos2(x, bottom - foot - 8.0), &pr, 20.0);
         if let Some(was) = &pr.was {
-            painter.text(pos2(x + 24.0, bottom - 50.0), Align2::LEFT_CENTER, format!("was {was}"), reg(12.0), pal().text_muted);
+            painter.text(pos2(x + 24.0, bottom - foot + 14.0), Align2::LEFT_CENTER, format!("was {was}"), reg(12.0), pal().text_muted);
         }
         if let Some(o) = pr.orbs.filter(|_| !pr.money.is_empty()) {
-            painter.text(pos2(x + 24.0, bottom - 34.0), Align2::LEFT_CENTER, format!("or {o} Orbs"), reg(12.0), pal().text_muted);
+            painter.text(pos2(x + 24.0, bottom - foot + 30.0), Align2::LEFT_CENTER, format!("or {o} Orbs"), reg(12.0), pal().text_muted);
         }
-        let buy = Rect::from_min_size(pos2(x, bottom - 40.0), vec2((tw - 48.0).min(180.0), 40.0));
+        let buy = Rect::from_min_size(pos2(x, bottom - 40.0), vec2((tw - 40.0 - SPACE_8).max(96.0), 40.0));
         if button(ui, buy, "Buy", accent(p), Color32::WHITE, "buy") {
             out = Some(Act::Buy);
         }
-        let heart = Rect::from_min_size(pos2(buy.right() + 8.0, buy.top()), vec2(40.0, 40.0));
+        let heart = Rect::from_min_size(pos2(buy.right() + SPACE_8, buy.top()), vec2(40.0, 40.0));
         let hr = ui.interact(heart, Id::new("shop_detail_heart"), Sense::click());
-        painter.rect_filled(heart, CornerRadius::same(8), Color32::from_rgba_unmultiplied(151, 151, 159, if hr.hovered() { 51 } else { 31 }));
+        painter.rect_filled(heart, CornerRadius::same(RADIUS_SM), Color32::from_rgba_unmultiplied(151, 151, 159, if hr.hovered() { 51 } else { 31 }));
         icons::draw(&painter, Icon::Heart, Rect::from_center_size(heart.center(), vec2(18.0, 18.0)), if wished { RED } else { pal().header_primary });
         mark(ui, "shop:detail_heart", heart);
         if hr.clicked() {

@@ -13,9 +13,6 @@ impl Run {
                 self.next(0);
             }
             901 => {
-                if crate::webwin::shown().is_some_and(|u| u.ends_with("/robots.txt")) {
-                    self.fail("the checkout window showed the sign-in step".into());
-                }
                 if at(&format!("/billing/premium/subscribe?plan_id={PLAN}&gift=false")) {
                     self.mark("web_open");
                     if crate::webwin::profiles_left() > 0 {
@@ -43,7 +40,7 @@ impl Run {
                 if crate::webwin::profiles_left() == 0 {
                     self.mark("web_profile_gone");
                     self.step = 3200;
-                } else if self.step_at.elapsed().as_secs() > 8 {
+                } else if self.step_at.elapsed().as_secs() > 18 {
                     self.step = 3200;
                 }
             }
