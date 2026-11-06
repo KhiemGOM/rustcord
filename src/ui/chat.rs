@@ -164,6 +164,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if app.ui.guild.is_none() && app.quests.is_some() {
         return super::quests::show(app, ui);
     }
+    if app.ui.guild.is_none() && app.shop.is_some() {
+        return super::shop::show(app, ui);
+    }
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }

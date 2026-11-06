@@ -52,6 +52,7 @@ mod report;
 mod system;
 mod profile;
 mod quests;
+pub mod shop;
 mod rail;
 mod reorder;
 mod channel;
@@ -216,6 +217,7 @@ pub struct App {
     pub activity: activity::Activity,
     pub events: Option<events::Events>,
     pub quests: Option<quests::Quests>,
+    pub shop: Option<shop::Shop>,
     pub friends_tab: u8,
     pub add_friend: String,
     pub post: Option<(String, String)>,
@@ -439,6 +441,7 @@ impl App {
             activity: Default::default(),
             events: None,
             quests: None,
+            shop: None,
             friends_tab: 0,
             add_friend: String::new(),
             post: None,
@@ -576,6 +579,7 @@ impl App {
         }
         self.friends = false;
         self.quests = None;
+        self.shop = None;
         if is_thread {
             self.side_thread = None;
         }

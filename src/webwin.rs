@@ -1,7 +1,9 @@
 //! Purchases open here: a small WebView2 window owned by the main window, on discord.com with
 //! the account signed in, so a checkout never leaves the app for the browser. One window at a
-//! time, on its own thread; it keeps no profile on disk and only reaches Discord and the payment
-//! providers Discord uses, anything else goes to the system browser.
+//! time, on its own thread; it keeps no profile on disk. It loads only Discord's standalone
+//! billing pages and the payment providers they use, and the page stays hidden behind a dark
+//! window until the real target has loaded, so the sign-in step is never seen. Browsing is
+//! never done here: any other page is refused.
 
 pub mod child;
 
@@ -26,17 +28,20 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
 use windows_sys::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowRect,
     ICON_SMALL, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, SW_SHOW, SW_SHOWNOACTIVATE, SendMessageW, ShowWindow, TranslateMessage,
-    IDC_ARROW, WM_APP, WM_CLOSE, WM_DESTROY, WM_GETICON, WM_SETICON, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CLIPCHILDREN, WS_SYSMENU,
+    IDC_ARROW, WM_APP, WM_CLOSE, WM_DESTROY, WM_GETICON, WM_KEYDOWN, WM_SETICON, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CLIPCHILDREN, WS_SYSMENU,
 };
 
 const WM_GO: u32 = WM_APP + 1;
 const CLIENT: (i32, i32) = (640, 720);
 const SURFACE: u32 = 0x0022_1f1e;
 const INK: u32 = 0x00f5_f3f2;
+pub const NITRO_MONTHLY: &str = "511651880837840896";
+const SMALL: [&str; 4] = ["/billing/premium/subscribe", "/billing/premium/manage", "/billing/payment-sources/create", "/billing/guild-subscriptions/purchase"];
 const HOSTS: [&str; 7] = ["discord.com", "stripe.com", "adyen.com", "paypal.com", "braintreegateway.com", "venmo.com", "cash.app"];
 
 static OPEN: AtomicIsize = AtomicIsize::new(0);
@@ -67,9 +72,36 @@ fn base() -> String {
     std::env::var("RUSTCORD_WEB").unwrap_or_else(|_| "https://discord.com".into())
 }
 
-/// Opens a discord.com page (`/store`, `/shop`, `/channels/<guild>/shop`, ...) in the checkout
-/// window; one already open goes to the new page.
-pub fn checkout(path: &str) {
+pub fn subscribe(plan_id: &str, gift: bool) {
+    if !plan_id.is_empty() && plan_id.bytes().all(|b| b.is_ascii_digit()) {
+        open(&format!("/billing/premium/subscribe?plan_id={plan_id}&gift={gift}"));
+    }
+}
+
+pub fn gift_nitro() {
+    subscribe(NITRO_MONTHLY, true);
+}
+
+pub fn boost(guild: u64) {
+    open(&format!("/billing/guild-subscriptions/purchase?guild_id={guild}"));
+}
+
+pub fn manage() {
+    open("/billing/premium/manage");
+}
+
+pub fn add_card() {
+    open("/billing/payment-sources/create");
+}
+
+fn small(path: &str) -> bool {
+    SMALL.contains(&path.split('?').next().unwrap_or_default())
+}
+
+fn open(path: &str) {
+    if !small(path) {
+        return;
+    }
     *NEXT.lock().unwrap() = Some(format!("{}{path}", base()));
     if BUSY.swap(true, Relaxed) {
         let w = OPEN.load(Relaxed);
@@ -97,11 +129,16 @@ pub fn is_open() -> bool {
     BUSY.load(Relaxed)
 }
 
-pub fn close() {
+pub fn press_escape() {
     let w = OPEN.load(Relaxed);
     if w != 0 {
-        unsafe { PostMessageW(w as HWND, WM_CLOSE, 0, 0) };
+        unsafe { PostMessageW(w as HWND, WM_KEYDOWN, VK_ESCAPE as usize, 0) };
     }
+}
+
+pub fn profiles_left() -> usize {
+    let mine = format!("{}-", std::process::id());
+    std::fs::read_dir(crate::cache::dir().join("webview2")).into_iter().flatten().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(&mine)).count()
 }
 
 fn browser(url: &str) {
@@ -110,15 +147,25 @@ fn browser(url: &str) {
     }
 }
 
+fn host_in(u: &reqwest::Url, d: &str) -> bool {
+    u.host_str().is_some_and(|h| h == d || h.strip_suffix(d).is_some_and(|p| p.ends_with('.')))
+}
+
+fn on_discord(url: &str, base: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else { return false };
+    reqwest::Url::parse(base).is_ok_and(|b| b.origin() == u.origin()) || (u.scheme() == "https" && host_in(&u, "discord.com"))
+}
+
 fn allowed(url: &str, base: &str) -> bool {
     if url == "about:blank" {
         return true;
     }
     let Ok(u) = reqwest::Url::parse(url) else { return false };
-    if reqwest::Url::parse(base).is_ok_and(|b| b.origin() == u.origin()) {
-        return true;
+    if on_discord(url, base) {
+        let p = u.path();
+        return p.starts_with("/billing/") || p == "/robots.txt" || p.starts_with("/login");
     }
-    u.scheme() == "https" && u.host_str().is_some_and(|h| HOSTS.iter().any(|d| h == *d || h.strip_suffix(d).is_some_and(|p| p.ends_with('.'))))
+    u.scheme() == "https" && HOSTS.iter().any(|d| host_in(&u, d))
 }
 
 fn sign_in_script(token: &str) -> Option<String> {
@@ -168,8 +215,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             if let Some(v) = view()
                 && let Some(u) = NEXT.lock().unwrap().take()
             {
+                let _ = unsafe { v.ctl.SetIsVisible(false) };
                 go(&v, &u);
             }
+            0
+        }
+        WM_KEYDOWN if wp == VK_ESCAPE as usize => {
+            unsafe { DestroyWindow(hwnd) };
             0
         }
         WM_CLOSE => {
@@ -292,7 +344,7 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
         let s = wv.Settings()?;
         s.SetAreDevToolsEnabled(false)?;
         s.SetIsStatusBarEnabled(false)?;
-        ctl.SetIsVisible(true)?;
+        ctl.SetIsVisible(false)?;
     }
     fit(&ctl, hwnd);
 
@@ -307,7 +359,11 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
                     let url = take_pwstr(u);
                     if !allowed(&url, &origin) {
                         args.SetCancel(true)?;
-                        browser(&url);
+                        if on_discord(&url, &origin) {
+                            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                        } else {
+                            browser(&url);
+                        }
                     }
                 }
                 Ok(())
@@ -351,6 +407,7 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
                 let (Some(v), Some(args)) = (view(), args) else { return Ok(()) };
                 let src = source(&v.wv);
                 let Some(target) = v.target.borrow_mut().take() else {
+                    let _ = v.ctl.SetIsVisible(true);
                     *SHOWN.lock().unwrap() = Some(src);
                     return Ok(());
                 };
@@ -461,10 +518,12 @@ mod tests {
     const B: &str = "https://discord.com";
 
     #[test]
-    fn payment_and_discord_hosts_stay_in_the_window() {
+    fn billing_pages_and_payment_hosts_stay_in_the_window() {
         for u in [
-            "https://discord.com/store",
-            "https://www.discord.com/shop",
+            "https://discord.com/billing/premium/subscribe?plan_id=1&gift=false",
+            "https://www.discord.com/billing/payment-sources/create",
+            "https://discord.com/billing/popup-bridge/abc",
+            "https://discord.com/robots.txt",
             "https://js.stripe.com/v3/",
             "https://checkoutshopper-live.adyen.com/x",
             "https://www.paypal.com/checkoutnow",
@@ -475,19 +534,39 @@ mod tests {
     }
 
     #[test]
+    fn the_rest_of_discord_is_not_shown() {
+        for u in ["https://discord.com/store", "https://discord.com/shop", "https://discord.com/channels/1/2", "https://discord.com/channels/@me", "https://discord.com/billing", "https://discord.com/settings/premium"] {
+            assert!(!allowed(u, B), "{u}");
+            assert!(on_discord(u, B), "{u}");
+        }
+    }
+
+    #[test]
     fn everything_else_leaves() {
         for u in [
             "https://evil.com/",
-            "https://discord.com.evil.com/",
+            "https://discord.com.evil.com/billing/premium/subscribe",
             "https://evildiscord.com/",
             "https://discord.com@evil.com/",
-            "http://discord.com/store",
+            "http://discord.com/billing/premium/subscribe",
             "javascript:alert(1)",
             "file:///c:/windows/win.ini",
             "ms-msdt:/id",
             "https://notstripe.com/",
         ] {
             assert!(!allowed(u, B), "{u}");
+            assert!(!on_discord(u, B), "{u}");
+        }
+    }
+
+    #[test]
+    fn only_standalone_billing_pages_open_the_window() {
+        for p in ["/billing/premium/subscribe?plan_id=1&gift=true", "/billing/premium/manage", "/billing/payment-sources/create", "/billing/guild-subscriptions/purchase?guild_id=5"] {
+            assert!(small(p), "{p}");
+            assert!(allowed(&format!("{B}{p}"), B), "{p}");
+        }
+        for p in ["/store", "/shop", "/channels/1/shop", "/channels/1/boosts", "/settings/premium", "/billing/premium"] {
+            assert!(!small(p), "{p}");
         }
     }
 

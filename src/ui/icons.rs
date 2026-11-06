@@ -174,6 +174,7 @@ pub enum Icon {
     Expand,
     ExpandExit,
     Code,
+    Heart,
 }
 
 macro_rules! svg {
@@ -224,6 +225,7 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Bell => svg!("bell"),
         Icon::BellOff => svg!("bell_off"),
         Icon::Gift => svg!("gift"),
+        Icon::Heart => svg!("heart"),
         Icon::Gif => svg!("gif"),
         Icon::Sticker => svg!("sticker"),
         Icon::Apps => svg!("apps"),
