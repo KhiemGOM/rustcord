@@ -875,7 +875,7 @@ mod tests {
     fn first_video_frame_is_the_right_way_up() {
         unsafe {
             init();
-            let VideoReader { r, info, pic, .. } = open_video(&fixture("clip.mp4"), false, (0, 0)).unwrap();
+            let VideoReader { r, info, pic, .. } = open_video(&fixture("clip.mp4"), false, (320, 180)).unwrap();
             assert_eq!((info.w, info.h), (320, 180));
             assert!(info.dur > 3.5 && info.dur < 4.5, "duration {}", info.dur);
             let (mut flags, mut sample) = (0u32, None);

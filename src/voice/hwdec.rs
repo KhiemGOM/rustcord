@@ -360,3 +360,22 @@ impl Drop for HwDec {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_comes_back_always_covers_the_screen() {
+        for source in [(1920, 1080), (1280, 720), (3840, 2160), (1080, 1920), (320, 180)] {
+            for want in [(1, 1), (240, 135), (889, 500), (960, 540), (961, 541), (1920, 1080), (5000, 5000)] {
+                let steps = halvings(source, want);
+                let got = (source.0 >> steps, source.1 >> steps);
+                assert!(got.0 >= want.0.min(source.0) && got.1 >= want.1.min(source.1), "{source:?} for {want:?} came back {got:?}");
+                assert!(got.0 > 0 && got.1 > 0);
+            }
+        }
+        assert_eq!(halvings((1920, 1080), (889, 500)), 1);
+        assert_eq!(halvings((1920, 1080), (1920, 1080)), 0);
+    }
+}
