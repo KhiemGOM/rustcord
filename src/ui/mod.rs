@@ -1992,11 +1992,10 @@ impl eframe::App for App {
         titlebar::show(self, ui);
         if self.token.is_none() {
             login::show(self, ui);
+        } else if splash::waiting(self) {
+            splash::show(ui);
         } else {
             self.streamer_banner(ui);
-            if splash::waiting(self) {
-                return splash::show(ui);
-            }
             // a modal over the app; shown first so it takes ESC before the chat does
             let settings_open = self.settings_page.is_some();
             if settings_open {
