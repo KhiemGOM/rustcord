@@ -215,6 +215,8 @@ pub struct Channel {
     pub last_pin: i64,
     #[serde(default)]
     pub rate: u32,
+    #[serde(default)]
+    pub user_limit: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -267,6 +269,7 @@ impl Channel {
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
             layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
             rate: v["rate_limit_per_user"].as_u64().unwrap_or(0) as u32,
+            user_limit: v["user_limit"].as_u64().unwrap_or(0) as u32,
         }
     }
 
@@ -1380,6 +1383,21 @@ impl Store {
         let now = chrono::Utc::now().timestamp_millis();
         let last = self.msgs.get(&c.id).and_then(|e| e.list.iter().rev().find(|m| m.author == self.me && !m.failed)).map_or(0, |m| if m.pending { now } else { m.ts() });
         (last + c.rate as i64 * 1000 - now).max(0)
+    }
+
+    /// Whether @everyone can't see the channel at all.
+    pub fn limited(&self, c: &Channel) -> bool {
+        let Some(g) = self.guilds.get(&c.guild) else { return false };
+        let mut p = g.roles.get(&g.id).map_or(0, |r| r.perms);
+        if let Some(o) = c.overwrites.iter().find(|o| o.id == g.id) {
+            p = (p & !o.deny) | o.allow;
+        }
+        p & VIEW_CHANNEL == 0
+    }
+
+    /// Whether a voice channel has as many people in it as its limit allows.
+    pub fn full(&self, c: &Channel) -> bool {
+        c.user_limit > 0 && self.guilds.get(&c.guild).is_some_and(|g| g.voice.values().filter(|ch| **ch == c.id).count() >= c.user_limit as usize)
     }
 
     /// Whether @everyone is kept out of the channel (or, for voice, kept from joining).
