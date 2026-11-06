@@ -2622,7 +2622,9 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
             let enter = (n.lost_focus() || f.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                make = button(ui, "Create Thread", BLURPLE, 128.0).clicked() || enter;
+                let create = button(ui, "Create Thread", BLURPLE, 128.0);
+                super::settings::mark(ui, "new_thread:create", create.rect);
+                make = create.clicked() || enter;
                 ui.add_space(8.0);
                 close |= super::grey_button(ui, "Cancel", 92.0).clicked();
             });

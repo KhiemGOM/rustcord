@@ -583,7 +583,6 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
             ui.set_width(width);
             ui.spacing_mut().item_spacing.y = 0.0;
             let top = ui.cursor().top();
-            super::settings::mark(ui, "combos:panel", ui.max_rect());
             Frame::new().inner_margin(Margin { left: 36, right: 36, top: 32, bottom: 24 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
@@ -655,6 +654,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                 });
             });
         });
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "combos:panel")), modal.response.rect));
     if lit.iter().flatten().any(|t| t.elapsed() < Duration::from_millis(300)) {
         ctx.request_repaint();
     }

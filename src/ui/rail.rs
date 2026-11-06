@@ -569,12 +569,11 @@ fn beside(r: egui::Response, content: impl FnOnce(&mut Ui)) -> egui::Response {
     let ctx = r.ctx.clone();
     let frame = Frame::popup(&ctx.global_style());
     let (fill, edge) = (frame.fill, frame.stroke);
-    let gap = 10.0;
     let shown = egui::Popup::from_response(&r)
         .id(r.id.with("rail_tip"))
         .kind(egui::PopupKind::Tooltip)
         .align(egui::RectAlign::RIGHT)
-        .gap(gap)
+        .gap(0.0)
         .open(true)
         .frame(frame)
         .show(content);
