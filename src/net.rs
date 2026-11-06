@@ -27,6 +27,8 @@ pub enum Ev {
     MessagesFailed { channel: Id, page: Page, err: String },
     // `again` when it'll be retried by itself
     SendFailed { channel: Id, nonce: String, err: String, again: bool },
+    // an upload stopped from its card: the message that was waiting on it goes away
+    SendCancelled { channel: Id, nonce: String },
     Auth(auth::Ev),
     Error(String),
     // the field errors and raw answer of the refusal that comes next
@@ -41,6 +43,15 @@ pub enum Ev {
 pub enum Tag {
     // the server behind the link in the Join a Server dialog
     InvitePreview(String),
+    // an invite link in a message: what the card under it shows, and joining from it
+    ChatInvite(String),
+    ChatJoin(String),
+    // the people who picked a poll answer: channel, message, answer
+    PollVotes(Id, Id, u8),
+    // where an emoji or a sticker (true) comes from
+    Source(bool, Id),
+    // a server's most used emoji, for the picker
+    TopEmojis(Id),
     Pins(Id),
     Search(Id),
     Profile(Id),
@@ -235,6 +246,10 @@ async fn sender(mut rx: mpsc::UnboundedReceiver<(Arc<Api>, Outgoing)>, tx: Tx) {
         let mut wait = 2;
         loop {
             let Err(err) = a.send(o.channel, &o.content, &o.nonce, o.reply, &o.files, &o.stickers, o.tts).await else { break };
+            if err == "cancelled" {
+                tx.send(Ev::SendCancelled { channel: o.channel, nonce: o.nonce.clone() });
+                break;
+            }
             let again = api::offline(&err) && wait <= 32;
             tx.send(Ev::SendFailed { channel: o.channel, nonce: o.nonce.clone(), err, again });
             if !again {
@@ -243,6 +258,7 @@ async fn sender(mut rx: mpsc::UnboundedReceiver<(Arc<Api>, Outgoing)>, tx: Tx) {
             tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
             wait *= 2;
         }
+        crate::upload::finish(&o.nonce);
     }
 }
 
@@ -308,6 +324,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 });
             }
             Cmd::Send { channel, content, nonce, reply, files, stickers, tts } => {
+                if !files.is_empty() {
+                    crate::upload::start(&nonce, &files);
+                }
                 let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
             }
             Cmd::Ack { channel, id } => {

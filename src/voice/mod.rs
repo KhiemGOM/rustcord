@@ -54,6 +54,8 @@ pub enum Ctl {
     Camera(bool),
 }
 
+pub const CAMERA_FAILED: &str = "Failed to start camera";
+
 pub struct Connect {
     pub kind: Media,
     pub tag: u64,

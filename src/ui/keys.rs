@@ -94,7 +94,7 @@ impl App {
             || self.crop.is_some()
             || self.status_text.is_some()
             || self.leaving.is_some()
-            || self.emoji_pop.is_some()
+            || self.source_pop.is_some()
             || self.create.is_some()
             || self.active_threads.is_some()
             || self.server.is_some()
@@ -294,7 +294,7 @@ impl App {
         if k(ctrl_shift, Key::U)
             && let Some(files) = rfd::FileDialog::new().pick_files()
         {
-            self.files.extend(files.into_iter().map(super::composer::Upload::new));
+            self.attach_files(files);
         }
     }
 

@@ -294,7 +294,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if let Some(ch) = g.pick {
                     for id in g.sel.drain(..).take(SHARE_MAX) {
                         if let Some(c) = list.iter().find(|c| c.id == id) {
-                            app.files.push(super::composer::Upload::new(c.path.clone()));
+                            app.attach_files(vec![c.path.clone()]);
                         }
                     }
                     let _ = ch;

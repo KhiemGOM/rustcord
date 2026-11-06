@@ -162,6 +162,20 @@ impl App {
         }
     }
 
+    pub fn copy_image(&mut self, url: String) {
+        let http = crate::api::http();
+        self.net.rt.spawn(async move {
+            let Ok(b) = http.get(&url).send().await else { return };
+            let Ok(b) = b.bytes().await else { return };
+            let Ok(img) = image::load_from_memory(&b) else { return };
+            let img = img.to_rgba8();
+            let (width, height) = (img.width() as usize, img.height() as usize);
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let _ = cb.set_image(arboard::ImageData { width, height, bytes: img.into_raw().into() });
+            }
+        });
+    }
+
     pub fn clear_reactions(&mut self, ch: Id, id: Id, ask: bool) {
         if !ask {
             let kept = self.store.find_msg(ch, id).map(|m| m.reactions.clone()).unwrap_or_default();
@@ -195,6 +209,25 @@ impl App {
         }
         if let Some(i) = &mut self.inbox {
             i.saved = None;
+        }
+    }
+
+    /// Files into the composer, the ones past what this account may upload here turned away with
+    /// discord's "Your files are too powerful".
+    pub fn attach_files(&mut self, paths: Vec<std::path::PathBuf>) {
+        let tier = self.cur().and_then(|c| self.store.channels.get(&c)).and_then(|c| self.store.guilds.get(&c.guild)).map_or(0, |g| g.tier);
+        let max = crate::upload::max_bytes(self.store.me_raw["premium_type"].as_u64().unwrap_or(0), tier);
+        let mut big = false;
+        for p in paths {
+            if std::fs::metadata(&p).is_ok_and(|m| m.len() > max) {
+                big = true;
+            } else {
+                self.files.push(super::composer::Upload::new(p));
+            }
+        }
+        if big {
+            let body = format!("Max file size is {} please.", crate::upload::size_text(max));
+            self.confirm = Some(super::Confirm::new("Your files are too powerful", body, "Okay", |_: &mut App| {}).blurple());
         }
     }
 

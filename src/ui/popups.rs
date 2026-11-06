@@ -399,6 +399,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     gifs(app, ctx);
     forward(app, ctx);
     super::reactions::show(app, ctx);
+    super::pollvotes::show(app, ctx);
+    super::remind::show(app, ctx);
     super::report::show(app, ctx);
     invite(app, ctx);
     made_invite(app, ctx);
@@ -412,7 +414,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     pins(app, ctx);
     new_thread(app, ctx);
     leaving(app, ctx);
-    emoji_pop(app, ctx);
+    super::sourcepop::show(app, ctx);
     timeout(app, ctx);
     super::poll::show(app, ctx);
     super::attach::modify(app, ctx);
@@ -2776,38 +2778,3 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// A custom emoji's popout: the emoji, its name, and where it's from when that's a server you're
-/// in, else that it's from one you can't see.
-fn emoji_pop(app: &mut App, ctx: &egui::Context) {
-    let Some((id, name, animated, at)) = app.emoji_pop.clone() else { return };
-    let from = app.store.guilds.values().find(|g| g.emojis.iter().any(|e| e.id == id)).map(|g| (g.name.clone(), g.icon_url()));
-    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Foreground, egui::Id::new("emoji_pop")), vec2(0.0, 1.0));
-    let area = egui::Area::new(egui::Id::new("emoji_pop")).order(egui::Order::Foreground).fixed_pos(at).constrain(true).show(ctx, |ui| {
-        let shadow = ui.style().visuals.popup_shadow;
-        Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(16).show(ui, |ui| {
-            ui.set_width(268.0);
-            ui.horizontal_top(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-                egui::Image::from_uri(crate::gif::uri(ui.ctx(), &crate::markdown::emoji_url(id, animated), true)).show_loading_spinner(false).paint_at(ui, r);
-                ui.add_space(12.0);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(RichText::new(format!(":{name}:")).font(semi(16.0)).color(pal().header_primary));
-                    match &from {
-                        Some((g, _)) => {
-                            ui.label(RichText::new("This emoji is from").font(reg(14.0)).color(pal().text_normal));
-                            ui.label(RichText::new(g).font(semi(14.0)).color(pal().header_primary));
-                        }
-                        None => {
-                            ui.label(RichText::new("This emoji is from a server that is either invite-only or unavailable.").font(reg(14.0)).color(pal().text_normal));
-                        }
-                    }
-                });
-            });
-        });
-    });
-    app.rects.insert("emoji_pop".into(), area.response.rect);
-    if dismissed(ctx, &area.response) {
-        app.emoji_pop = None;
-    }
-}

@@ -25,6 +25,7 @@ mod gallery;
 mod watchdog;
 
 pub use watchdog::beat;
+mod chatx;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -502,7 +503,7 @@ impl Run {
                 ("viewer", app.viewer.is_some()), ("profile", app.profile.is_some()), ("picker", app.picker.is_some()), ("stickers", app.stickers.is_some()),
                 ("gifs", app.gifs.is_some()), ("menu", app.menu.is_some()), ("user_menu", app.user_menu.is_some()), ("confirm", app.confirm.is_some()),
                 ("forward", app.forward.is_some()), ("switcher", app.switcher.is_some()), ("pins", app.pins.is_some()), ("inbox", app.inbox.is_some()),
-                ("emoji_pop", app.emoji_pop.is_some()), ("leaving", app.leaving.is_some()), ("new_thread", app.new_thread.is_some()), ("combos", app.combos.is_some()),
+                ("source_pop", app.source_pop.is_some()), ("leaving", app.leaving.is_some()), ("new_thread", app.new_thread.is_some()), ("combos", app.combos.is_some()),
                 ("settings", app.settings_page.is_some()), ("egui_popup", egui::Popup::is_any_open(ctx)), ("reply", app.reply.is_some()), ("timeout", app.timeout.is_some()),
                 ("editing", app.editing.is_some()), ("focus_msg", app.focus_msg.is_some()), ("files", !app.files.is_empty()),
             ]
@@ -1381,6 +1382,7 @@ impl Run {
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
             3110..=3189 => self.members_steps(app, ctx),
+            3700..=3799 => self.chatx_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),
