@@ -1220,8 +1220,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    if let Some((code, v)) = prefs::route(method, &parts, body) {
-        return (code, "application/json", v.to_string().into_bytes());
+    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body)) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {

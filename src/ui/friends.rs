@@ -87,7 +87,13 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
     ui.label(RichText::new("You can add friends with their Discord username.").color(pal().header_secondary));
     ui.add_space(16.0);
     let mut send = false;
-    input_frame().corner_radius(8).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    let seen = egui::Id::new("add_friend_seen");
+    let edge = match &app.add_friend_note {
+        Some((true, _)) => GREEN,
+        Some((false, _)) => pal().critical,
+        None => pal().border_subtle,
+    };
+    input_frame().corner_radius(8).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut app.add_friend)
@@ -96,6 +102,13 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
                     .hint_text("You can add friends with their Discord username.")
                     .desired_width(ui.available_width() - 190.0),
             );
+            if !ui.data(|d| d.get_temp::<bool>(seen)).unwrap_or(false) {
+                r.request_focus();
+                ui.data_mut(|d| d.insert_temp(seen, true));
+            }
+            if r.changed() {
+                app.add_friend_note = None;
+            }
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 send = true;
             }
@@ -104,14 +117,41 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+    if let Some((ok, text)) = &app.add_friend_note {
+        ui.add_space(8.0);
+        let ink = if *ok { GREEN } else { pal().critical };
+        ui.label(ui.painter().layout_job(super::bolded(text, 14.0, ink, ui.available_width())));
+    }
     let name = app.add_friend.trim().to_string();
     if send && !name.is_empty() {
-        app.rest("POST", "/users/@me/relationships".into(), Some(json!({ "username": name, "discriminator": null })), Tag::Friend);
+        app.rest("POST", "/users/@me/relationships".into(), Some(json!({ "username": name, "discriminator": null })), Tag::AddFriend(name));
         app.add_friend.clear();
+    }
+    ui.add_space(32.0);
+    let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, pal().border_subtle));
+    ui.add_space(24.0);
+    ui.label(RichText::new("Other Places to Make Friends").font(semi(16.0)).color(pal().header_primary));
+    ui.add_space(8.0);
+    ui.label(RichText::new("Don’t have a username handy? Check out our list of public servers that you can join to find new friends.").color(pal().header_secondary));
+    ui.add_space(16.0);
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(480.0), 64.0), Sense::click());
+    app.rects.insert("friends:explore".into(), r);
+    let fill = super::motion::mix(pal().bg_secondary, pal().bg_mod_hover, super::motion::hot(ui.ctx(), &resp));
+    ui.painter().rect(r, 8, fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    super::icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(pos2(r.left() + 32.0, r.center().y), vec2(24.0, 24.0)), pal().header_primary);
+    ui.painter().text(pos2(r.left() + 62.0, r.center().y), Align2::LEFT_CENTER, "Explore Discoverable Servers", medium(16.0), pal().header_primary);
+    super::icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        app.open_servers();
     }
 }
 
 fn list(app: &mut App, ui: &mut Ui) {
+    ui.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("add_friend_seen")));
     let tab = app.friends_tab;
     let mut people: Vec<(Id, u8)> = app
         .store

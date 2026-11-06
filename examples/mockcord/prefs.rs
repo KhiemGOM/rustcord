@@ -66,3 +66,19 @@ pub fn route(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> 
     out.insert("guild_id".into(), json!(gid));
     Some((200, Value::Object(out)))
 }
+
+const PEOPLE: [&str; 6] = ["alice", "bob_builds", "carol", "dyno", "eve", "frank"];
+
+pub fn friend_request(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
+    let ("POST", ["api", "v9", "users", "@me", "relationships"]) = (method, parts) else { return None };
+    let b: Value = serde_json::from_slice(body).unwrap_or_default();
+    let Some(name) = b["username"].as_str().filter(|n| !n.trim().is_empty()) else { return Some(bad("username is required")) };
+    if !b["discriminator"].is_null() && !b["discriminator"].is_string() {
+        return Some(bad("discriminator must be a string or null"));
+    }
+    if PEOPLE.contains(&name.to_lowercase().as_str()) {
+        Some((204, Value::Null))
+    } else {
+        Some((400, json!({ "code": 80004, "message": "No users with DiscordTag exist" })))
+    }
+}
