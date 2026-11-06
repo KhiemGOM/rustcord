@@ -957,6 +957,7 @@ impl App {
         ctx.set_zoom_factor(s.zoom);
         crate::tray::set_close_hides(s.minimize_to_tray && std::env::var_os("RUSTCORD_BENCH").is_none());
         crate::media::set_volume(s.media_volume, s.media_muted);
+        crate::media::set_gpu(s.hw_accel);
         crate::markdown::CLOCK24.store(s.clock24(), std::sync::atomic::Ordering::Relaxed);
         crate::markdown::set_date_order(&s.locale);
         crate::theme::set_reduced_motion(self.reduced_motion());
