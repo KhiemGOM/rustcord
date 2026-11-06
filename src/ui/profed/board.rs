@@ -18,6 +18,7 @@ pub struct Edit {
     pub q: String,
 }
 
+pub const CELL_MIN: f32 = 150.0;
 const SUGGESTED: &str = "/users/@me/widgets/suggested-games";
 
 fn game_art(app: &App, id: &str) -> Option<String> {
@@ -195,8 +196,8 @@ fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
     let idents = remote(app, "idents", &format!("/users/{me}/application-identities?with_profiles=true")).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
     let linked_ids: Vec<String> = idents.as_array().into_iter().flatten().filter_map(|i| i["application_id"].as_str().map(str::to_string)).collect();
     let mut linked = apps.iter();
-    let cw = ((r.width() - 16.0) / 2.0).max(150.0);
-    let cols = if r.width() >= 2.0 * 208.0 + 16.0 { 2 } else { 1 };
+    let cw = ((r.width() - 16.0) / 2.0).max(CELL_MIN);
+    let cols = if r.width() >= 2.0 * CELL_MIN + 16.0 { 2 } else { 1 };
     let cw = if cols == 2 { cw } else { r.width() };
     let ch = 99.0;
     for (i, s) in order.iter().enumerate() {

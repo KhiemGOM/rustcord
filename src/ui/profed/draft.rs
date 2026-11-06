@@ -201,8 +201,8 @@ pub struct Writes {
 
 pub fn writes(d: &Draft, base: &Draft, guild: Option<Id>) -> Writes {
     let mut prof = json!({ "bio": d.bio, "pronouns": d.pronouns, "accent_color": d.accent });
-    if d.theme != [None, None] {
-        prof["theme_colors"] = json!([d.theme[0], d.theme[1]]);
+    if let Some(a) = d.theme[0].or(d.theme[1]) {
+        prof["theme_colors"] = json!([d.theme[0].unwrap_or(a), d.theme[1].unwrap_or(a)]);
     }
     if let Some(b) = pic(&d.banner) {
         prof["banner"] = b;
