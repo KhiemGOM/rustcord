@@ -150,11 +150,14 @@ impl Run {
                 }
                 app.files.clear();
                 app.sticker_q = Some("thumbs".into());
-                let Some(r) = app.rects.get("sticker_button").copied() else { return };
-                self.click(r.center());
-                self.next(1200);
+                self.next(600);
             }
             3016 => {
+                let Some(r) = app.rects.get("sticker_button").copied() else { return };
+                self.click(r.center());
+                self.next(1500);
+            }
+            3017 => {
                 let Some(c) = at("sticker:8102") else { return };
                 if app.packs.len() == 2 {
                     self.mark("fixes_sticker_packs");
@@ -163,7 +166,7 @@ impl Run {
                 self.click(c.center());
                 self.next(800);
             }
-            3017 => {
+            3018 => {
                 if app.stickers.is_none() {
                     self.mark("fixes_sticker_closed");
                 }
@@ -171,19 +174,19 @@ impl Run {
                 app.open(general);
                 self.next(600);
             }
-            3018 => {
+            3019 => {
                 let Some(g) = app.rects.get("activity:gear").copied() else { return };
                 self.click(g.center());
                 self.next(500);
             }
-            3019 => {
+            3020 => {
                 let (Some(_), Some(hide)) = (row("About Recent Activity"), row("Hide Activity Cards")) else { return };
                 self.mark("fixes_feed_menu");
                 self.shot(ctx, "fixes_feed_menu.png");
                 self.click(hide.center());
                 self.next(600);
             }
-            3020 => {
+            3021 => {
                 let cards = app.rects.keys().any(|k| k.starts_with("activity:card:"));
                 if app.settings.hide_activity_cards && !cards {
                     self.mark("fixes_feed_hidden");
@@ -193,7 +196,7 @@ impl Run {
                 self.click(h.left_center() + egui::vec2(30.0, 0.0));
                 self.next(600);
             }
-            3021 => {
+            3022 => {
                 let cards = app.rects.keys().any(|k| k.starts_with("activity:card:"));
                 if !app.settings.hide_activity_cards && cards {
                     self.mark("fixes_feed_shown");
@@ -202,12 +205,12 @@ impl Run {
                 self.click(g.center());
                 self.next(500);
             }
-            3022 => {
+            3023 => {
                 let Some(r) = row("About Recent Activity") else { return };
                 self.click(r.center());
                 self.next(700);
             }
-            3023 => {
+            3024 => {
                 if app.feed_about {
                     self.mark("fixes_feed_about");
                 }
@@ -215,7 +218,7 @@ impl Run {
                 self.key(Key::Escape);
                 self.next(400);
             }
-            3024 => {
+            3025 => {
                 if !app.feed_about {
                     self.mark("fixes_feed_about_closed");
                 }
