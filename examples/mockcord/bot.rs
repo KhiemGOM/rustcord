@@ -389,7 +389,8 @@ pub fn handle(w: &W, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
             let w2 = w.clone();
             match id.as_str() {
                 "slow_btn" => {
-                    later(w, 100, move |w| send(w, json!({ "t": "INTERACTION_CREATE", "d": { "id": iid.to_string(), "nonce": nonce, "type": 3 } })));
+                    let early = nonce.clone();
+                    later(w, 100, move |w| send(w, json!({ "t": "INTERACTION_CREATE", "d": { "id": iid.to_string(), "nonce": early, "type": 3 } })));
                     later(w, 2000, move |w| {
                         reply(w, ch, &nonce, iid, 3, "", "Slow button answered", 0, Value::Null);
                         send(w, json!({ "t": "INTERACTION_SUCCESS", "d": { "id": iid.to_string(), "nonce": nonce } }));
