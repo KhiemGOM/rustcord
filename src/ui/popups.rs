@@ -754,6 +754,16 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     // with nothing typed discord lists where you were and what's unread, each under a header
     let mut hits: Vec<Hit> = Vec::new();
     let mut heads: Vec<(usize, &str)> = Vec::new();
+    let mode = match ql.chars().next() {
+        Some('@') => Some("Searching All Users"),
+        Some('#') => Some("Searching Text Channels"),
+        Some('!') => Some("Searching Voice Channels"),
+        Some('*') => Some("Searching Servers"),
+        _ => None,
+    };
+    if let Some(m) = mode {
+        heads.push((0, m));
+    }
     if ql.is_empty() {
         let prev: Vec<Hit> = app.ui.recent.iter().filter(|c| Some(**c) != cur && store.channels.contains_key(c)).take(3).map(|c| Hit::Channel(*c)).collect();
         if !prev.is_empty() {
@@ -812,7 +822,10 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     sel = sel.min(hits.len().saturating_sub(1));
     let mut pick = ctx.input(|i| i.key_pressed(Key::Enter)).then_some(sel);
 
-    // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule
+    // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule; the
+    // title over the box has to clear the title bar, so a short window gets a shorter list
+    let rows_h = (ctx.content_rect().height() - 2.0 * (super::titlebar::HEIGHT + 41.0 + 4.0) - 155.0).clamp(80.0, 236.0);
+    let typed = !q.is_empty();
     let modal = crate::ui::motion::Modal::new("switcher".into())
         .frame(
             Frame::new()
@@ -834,14 +847,18 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                 r.request_focus();
             });
             ui.add_space(16.0);
-            egui::ScrollArea::vertical().max_height(236.0).min_scrolled_height(236.0).auto_shrink([false, false]).show(ui, |ui| {
-                if hits.is_empty() && !q.is_empty() {
+            egui::ScrollArea::vertical().max_height(rows_h).min_scrolled_height(rows_h).auto_shrink([false, false]).show(ui, |ui| {
+                if hits.is_empty() && !q.is_empty() && mode.is_none() {
                     ui.add_space(90.0);
                     ui.vertical_centered(|ui| {
                         ui.label(RichText::new("Can't find what you're looking for?").font(medium(16.0)).color(pal().text_muted));
                     });
                 }
                 ui.spacing_mut().item_spacing.y = 0.0;
+                if hits.is_empty() && let Some(m) = mode {
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                    ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, m.to_uppercase(), semi(12.0), pal().header_secondary);
+                }
                 for (i, hit) in hits.iter().enumerate() {
                     if let Some((_, h)) = heads.iter().find(|(at, _)| *at == i) {
                         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
@@ -865,7 +882,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     // the title and arrows sit on the backdrop around the box
     let b = modal.response.rect;
     let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("switcher_deco")));
-    p.text(pos2(b.center().x, b.top() - 41.0 + 12.0), Align2::CENTER_CENTER, "Search for servers, channels or DMs", medium(18.0), egui::Color32::WHITE);
+    p.text(pos2(b.center().x, b.top() - 41.0 + 12.0), Align2::CENTER_CENTER, if typed { "Select a result and press ENTER to jump to it" } else { "Search for servers, channels or DMs" }, medium(18.0), egui::Color32::WHITE);
     let iy = b.top() + 12.0 + 35.0;
     super::icons::draw(&p, super::icons::Icon::ArrowRight, Rect::from_center_size(pos2(b.left() - 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
     super::icons::draw(&p, super::icons::Icon::ArrowLeft, Rect::from_center_size(pos2(b.right() + 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
