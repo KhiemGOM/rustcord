@@ -827,7 +827,7 @@ impl Sess {
                 if clip {
                     crate::clips::look(&img);
                 }
-                tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }))
+                tx.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }))
             };
             match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
                 Ok(s) => self.cam = Some(s),
