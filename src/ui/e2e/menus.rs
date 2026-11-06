@@ -33,10 +33,10 @@ impl Run {
     fn reach(&mut self, ctx: &egui::Context, key: &str) -> Option<Rect> {
         let r = Self::at(ctx, key)?;
         let m = Self::at(ctx, "modal:guild_notifs")?;
-        if r.top() >= m.top() + 80.0 && r.bottom() <= m.bottom() - 110.0 {
+        if r.top() >= m.top() + 40.0 && r.bottom() <= m.bottom() - 110.0 {
             return Some(r);
         }
-        let dir = if r.top() < m.top() + 80.0 { 150.0 } else { -150.0 };
+        let dir = if r.top() < m.top() + 40.0 { 150.0 } else { -150.0 };
         self.queue.push_back(vec![Event::PointerMoved(m.center()), Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, dir), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
         self.wait = Instant::now() + Duration::from_millis(150);
         None

@@ -636,7 +636,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                                         ui.set_width(w - 24.0);
                                         ui.set_min_height(70.0);
                                         ui.spacing_mut().item_spacing.y = 8.0;
-                                        ui.label(RichText::new(*label).font(medium(14.0)).color(pal().header_primary));
+                                        ui.add(egui::Label::new(RichText::new(*label).font(medium(14.0)).color(pal().header_primary)).wrap());
                                         for combo in combos.iter() {
                                             ui.horizontal(|ui| {
                                                 ui.spacing_mut().item_spacing.x = 4.0;
