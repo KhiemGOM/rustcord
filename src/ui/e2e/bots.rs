@@ -202,10 +202,14 @@ impl Run {
                                     self.mark("bot_autocomplete");
                                     self.shot(ctx, "bot_autocomplete.png");
                                 }
-                                self.key(Key::Enter);
-                                self.sub = 4;
+                                self.sub = 6;
                             }
                         }
+                        self.pause(500);
+                    }
+                    6 => {
+                        self.key(Key::Enter);
+                        self.sub = 4;
                         self.pause(400);
                     }
                     4 => {
@@ -277,19 +281,32 @@ impl Run {
             }),
             3519 => when!(app.interactions.modal.is_some() && rect("bot_modal:submit").is_some(), {
                 self.mark("bot_modal_open");
-                self.shot(ctx, "bot_modal.png");
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(940.0, 500.0)));
-                self.next(700);
+                self.next(900);
             }),
             3520 => {
                 self.shot(ctx, "bot_modal_940.png");
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
-                self.next(600);
+                self.next(700);
             }
             3521 => when!(rect("bot_modal:submit").is_some(), {
-                let r = rect("bot_modal:submit").unwrap();
-                self.click(r.center());
-                self.next(500);
+                match self.sub {
+                    0 => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
+                        self.sub = 1;
+                        self.pause(900);
+                    }
+                    1 => {
+                        self.shot(ctx, "bot_modal.png");
+                        self.sub = 2;
+                        self.pause(500);
+                    }
+                    _ => {
+                        let r = rect("bot_modal:submit").unwrap();
+                        self.click(r.center());
+                        self.sub = 0;
+                        self.next(500);
+                    }
+                }
             }),
             3522 => when!(app.interactions.modal.as_ref().is_some_and(|m| m.invalid() == 2), {
                 self.mark("bot_modal_validation");
@@ -526,6 +543,7 @@ impl Run {
             }
             3567 => when!(bot_msg(app, general, |m| m.content.starts_with("pick_either:")).is_some(), {
                 self.mark("bot_select_mentionable");
+                self.key(Key::Escape);
                 app.jump_to(general, menus);
                 self.next(700);
             }),

@@ -124,7 +124,7 @@ fn group_start(prev: Option<&Message>, m: &Message) -> bool {
             p.author != m.author
                 || m.ts() - p.ts() > 7 * 60 * 1000
                 || m.reply.is_some()
-                || m.interaction.is_some()
+                || m.interaction.as_ref().is_some_and(|i| !i.name.is_empty())
                 || !normal(p.kind)
                 || !normal(m.kind)
                 || day(p.ts()) != day(m.ts())
@@ -1165,7 +1165,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if let Some(r) = m.reply {
             reply_line(&mut cui, d, r, left);
             head_top = cui.cursor().top();
-        } else if let Some(i) = &m.interaction {
+        } else if let Some(i) = m.interaction.as_ref().filter(|i| !i.name.is_empty()) {
             interaction::executed(&mut cui, d, i, left);
             head_top = cui.cursor().top();
         }

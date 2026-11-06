@@ -16,7 +16,7 @@ const GRACE: Duration = Duration::from_secs(3);
 
 pub fn status(d: &D, m: &Message) -> Option<Status> {
     let app = d.store.name_in(d.guild, m.author);
-    match m.busy.as_ref().map(|b| &b.stage) {
+    match m.busy.as_ref().filter(|b| b.component.is_empty()).map(|b| &b.stage) {
         Some(Stage::Sending) if m.interaction.is_some() => return Some(Status::Sending),
         Some(Stage::Created) if m.interaction.is_some() => return Some(Status::Thinking(app)),
         Some(Stage::Failed(why, sent)) if m.interaction.is_some() => {
