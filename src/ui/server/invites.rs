@@ -8,12 +8,10 @@ use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings;
 
-const PAUSED: &str = "INVITES_DISABLED";
-
 pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
     title(ui, "Invites", "Here's a list of all active invite links. You can revoke any one or create one.");
     let Some(g) = app.store.guilds.get(&gid) else { return };
-    let paused = g.features.iter().any(|f| f == PAUSED);
+    let paused = g.invites_paused();
     let first = g.channels.iter().filter_map(|c| app.store.channels.get(c)).filter(|c| c.kind == 0).min_by_key(|c| c.position).map(|c| c.id);
     let mut toggle = false;
     let mut create = false;
@@ -89,15 +87,10 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         }));
     }
     if toggle {
-        let mut feats = app.store.guilds.get(&gid).map(|g| g.features.clone()).unwrap_or_default();
-        feats.retain(|f| f != PAUSED);
-        if !paused {
-            feats.push(PAUSED.into());
-        }
-        if let Some(g) = app.store.guilds.get_mut(&gid) {
-            g.features = feats.clone();
-        }
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": feats })), Tag::Quiet);
+        let dms = app.store.guilds.get(&gid).is_some_and(|g| g.dms_paused());
+        let until = (chrono::Utc::now() + chrono::Duration::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let body = json!({ "invites_disabled_until": (!paused).then_some(&until), "dms_disabled_until": dms.then_some(&until), "lockdown_duration_hours": (!paused || dms).then_some(24) });
+        app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::Quiet);
     }
     if create && let Some(ch) = first {
         app.invite_people(ch);

@@ -104,6 +104,41 @@ pub struct Reply {
     pub body: Value,
 }
 
+/// A refused request: the line to show (the first field error, else discord's message), each
+/// field error with its dotted path, and the answer as it came for the details view.
+pub struct Failure {
+    pub message: String,
+    pub fields: Vec<(String, String)>,
+    pub raw: String,
+}
+
+impl Failure {
+    fn plain(message: String) -> Self {
+        Failure { message, fields: Vec::new(), raw: String::new() }
+    }
+
+    fn new(status: StatusCode, v: &Value) -> Self {
+        let mut fields = Vec::new();
+        field_errors(&v["errors"], "", &mut fields);
+        let message = fields
+            .first()
+            .map(|f| f.1.clone())
+            .or_else(|| v["message"].as_str().filter(|m| !m.is_empty()).map(str::to_string))
+            .unwrap_or_else(|| status.to_string());
+        Failure { message, fields, raw: format!("{status}
+{v}") }
+    }
+}
+
+fn field_errors(v: &Value, path: &str, out: &mut Vec<(String, String)>) {
+    for e in v["_errors"].as_array().into_iter().flatten() {
+        out.push((path.to_string(), e["message"].as_str().unwrap_or_default().to_string()));
+    }
+    for (k, c) in v.as_object().into_iter().flatten().filter(|(k, _)| *k != "_errors") {
+        field_errors(c, &if path.is_empty() { k.clone() } else { format!("{path}.{k}") }, out);
+    }
+}
+
 pub struct Captcha {
     pub key: String,
     pub rqtoken: Option<String>,
@@ -139,6 +174,11 @@ impl Api {
     /// `call` for the requests discord guards with a second factor: the token from /mfa/finish
     /// rides in X-Discord-MFA-Authorization, and a 60003 answer comes back as `mfa:<ticket and methods>`.
     pub async fn call_mfa(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, String> {
+        self.try_call(m, path, body, mfa).await.map_err(|f| f.message)
+    }
+
+    /// The same request with the whole refusal kept: the field errors and the raw answer.
+    pub async fn try_call(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, Failure> {
         for _ in 0..4 {
             let mut req = self.build(m.clone(), path);
             if let Some(t) = mfa {
@@ -147,7 +187,7 @@ impl Api {
             if let Some(b) = &body {
                 req = req.json(b);
             }
-            let res = req.send().await.map_err(|e| e.to_string())?;
+            let res = req.send().await.map_err(|e| Failure::plain(e.to_string()))?;
             let status = res.status();
             if status == StatusCode::TOO_MANY_REQUESTS {
                 let v: Value = res.json().await.unwrap_or_default();
@@ -163,11 +203,11 @@ impl Api {
                 return Ok(v);
             }
             if v["code"].as_u64() == Some(60003) && v["mfa"].is_object() {
-                return Err(format!("mfa:{}", v["mfa"]));
+                return Err(Failure::plain(format!("mfa:{}", v["mfa"])));
             }
-            return Err(v["message"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string()));
+            return Err(Failure::new(status, &v));
         }
-        Err("rate limited".into())
+        Err(Failure::plain("rate limited".into()))
     }
 
     pub async fn bearer(&self, path: &str, token: &str) -> Result<Value, String> {

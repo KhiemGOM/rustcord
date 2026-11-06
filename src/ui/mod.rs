@@ -154,6 +154,7 @@ pub struct App {
     pub toast: Option<(String, Instant)>,
     // an error toast's full text, which shift+click opens
     pub toast_detail: Option<String>,
+    pub fail: Option<(Vec<(String, String)>, String)>,
     pub marker: Option<(Id, Id)>,
     // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
     pub marker_bar: bool,
@@ -388,6 +389,7 @@ impl App {
             bar: None,
             toast: None,
             toast_detail: None,
+            fail: None,
             marker: None,
             marker_bar: false,
             autoscroll: None,
@@ -1316,7 +1318,12 @@ impl App {
                     }
                     // an empty list rather than a spinner that never stops
                     Tag::Directory(k) => directory::loaded(self, k, serde_json::json!([])),
-                    Tag::Server(k) => server::loaded(self, k, serde_json::json!([])),
+                    Tag::Server(k) => {
+                        if let Some(s) = &mut self.server {
+                            s.errors = self.fail.as_ref().map(|f| f.0.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| vec![(String::new(), e.clone())]);
+                        }
+                        server::loaded(self, k, serde_json::json!([]))
+                    }
                     Tag::Chan("saved") => {
                         if let Some(s) = &mut self.chan_settings {
                             s.saving = false;
@@ -1533,8 +1540,14 @@ impl App {
     }
 
     pub fn error_toast(&mut self, e: String) {
-        self.toast("Something went wrong. Shift Click this notification to see error details.");
-        self.toast_detail = Some(e);
+        let detail = self.fail.take().map_or_else(|| e.clone(), |f| f.1);
+        if e.is_empty() || crate::api::offline(&e) {
+            self.toast("Something went wrong. Shift Click this notification to see error details.");
+        } else {
+            self.toast(format!("{}
+Shift Click this notification to see error details.", e.trim_end()));
+        }
+        self.toast_detail = Some(detail);
     }
 
     pub fn logout(&mut self) {
@@ -1687,7 +1700,12 @@ impl App {
                 Ev::Auth(e) => self.login.event(e, &self.net),
                 Ev::Error(e) => self.error_toast(e),
                 Ev::Toast(e) => self.toast(e),
-                Ev::Rest { tag, res } => self.on_rest(tag, res),
+                Ev::Fail { req, fields, raw } => self.fail = Some((fields, format!("{req}
+{raw}"))),
+                Ev::Rest { tag, res } => {
+                    self.on_rest(tag, res);
+                    self.fail = None;
+                }
                 Ev::Voice(e) => {
                     if let Some(err) = self.voice.event(e) {
                         if let Some(e) = &mut self.e2e {

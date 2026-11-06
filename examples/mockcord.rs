@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/rules.rs"]
+mod rules;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 
@@ -1058,7 +1060,7 @@ fn profile_full(w: &W, gid: &str) -> Option<Value> {
     let g = guild_full(w, gid)?;
     let mut p = json!({ "id": gid, "name": g["name"], "description": "", "icon_hash": g["icon"], "brand_color_primary": null, "visibility": 1, "traits": [],
                         "game_application_ids": ["7100"], "games": [{ "id": "7100", "name": "Mockcord Quest" }], "member_count": g["member_count"], "online_count": 3,
-                        "tag": "", "badge": 6, "badge_color_primary": "#816bee", "badge_color_secondary": "#b79cf8" });
+                        "tag": "", "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
     if let Some(e) = w.lock().unwrap().edits.get(&format!("p:{gid}")).and_then(|e| e.as_object()) {
         for (k, v) in e {
             p[k] = v.clone();
@@ -1215,6 +1217,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
+    if let Some(v) = rules::check(method, &parts, body) {
+        return (400, "application/json", v.to_string().into_bytes());
+    }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1933,6 +1938,12 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("PATCH", ["api", "v9", "guilds", g, "profile"]) => {
             keep(w, format!("p:{g}"), body);
             ok(profile_full(w, g).unwrap_or_default())
+        }
+        ("PUT", ["api", "v9", "guilds", g, "incident-actions"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            keep(w, format!("g:{g}"), json!({ "incidents_data": { "invites_disabled_until": b["invites_disabled_until"], "dms_disabled_until": b["dms_disabled_until"] } }).to_string().as_bytes());
+            guild_update(w, g);
+            ok(guild_full(w, g).unwrap_or_default()["incidents_data"].clone())
         }
         ("GET", ["api", "v9", "guilds", g, "widget"]) => ok(w.lock().unwrap().edits.get(&format!("w:{g}")).cloned().unwrap_or(json!({ "enabled": false, "channel_id": null }))),
         ("PATCH", ["api", "v9", "guilds", g, "widget"]) => {
