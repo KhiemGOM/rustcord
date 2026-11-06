@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use super::super::App;
 use super::form;
 use super::{faint, title};
+use crate::net::Tag;
 use crate::state::Id as Snow;
 use crate::theme::*;
 
@@ -25,19 +26,19 @@ const BADGES: [(u64, &str, &[u8]); 10] = [
 ];
 
 const COLORS: [(&str, &str, &str); 13] = [
-    ("Hot pink", "#ff1b90", "#ff7fc0"),
-    ("Bright orange", "#ff6a1a", "#ffb27a"),
-    ("Golden yellow", "#ffb84b", "#ffe361"),
-    ("Teal", "#1abc9c", "#7fffd4"),
-    ("Blue teal", "#0abbff", "#87e0ff"),
-    ("Purple", "#816bee", "#b79cf8"),
-    ("Violet", "#9b4fd1", "#d19ae6"),
-    ("Deep purple", "#5b2a9c", "#c878d8"),
-    ("Red", "#e8363c", "#ff9a8a"),
-    ("Brown", "#7a4a2a", "#d2a679"),
-    ("Olive green", "#6b7f2a", "#a5a79b"),
-    ("Burgundy", "#8a1538", "#e88aa5"),
-    ("Dark gray", "#57595f", "#d1cdd5"),
+    ("Hot pink", "#ff1c90", "#ff7fc0"),
+    ("Bright orange", "#ff8f1c", "#ffae77"),
+    ("Golden yellow", "#eebe1a", "#fffc7f"),
+    ("Teal", "#32a070", "#57b59e"),
+    ("Blue teal", "#32839a", "#71c2d9"),
+    ("Purple", "#8a43ff", "#bd95ff"),
+    ("Violet", "#9b3fe5", "#cc8dff"),
+    ("Deep purple", "#942e8f", "#d46cb5"),
+    ("Red", "#d14242", "#ff8989"),
+    ("Brown", "#814300", "#a88a6c"),
+    ("Olive green", "#717224", "#c3c3c3"),
+    ("Burgundy", "#5d1d47", "#c58fbb"),
+    ("Dark gray", "#222222", "#cccccc"),
 ];
 
 fn hex(s: &str) -> Color32 {
@@ -95,6 +96,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     };
     let orig = norm(&raw);
     let mut d = form::take(app, "tag", &orig);
+    let err = form::error_of(app, "tag");
     ui.set_max_width(332.0);
     title(ui, "Server Tag", "");
     ui.label(RichText::new("Create a tag that your server members can display next to their name! Anyone outside your server can view your Server Profile through the Server Tag, and if applications are enabled, they can apply to join. Your Server Profile is private. Users will not be able to see it from a Server Tag.").font(reg(14.0)).line_height(Some(18.0)).color(pal().text_normal));
@@ -127,15 +129,19 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         if !unlocked {
             ui.set_opacity(0.35);
         }
-        ui.add_enabled_ui(unlocked, |ui| body(ui, &mut d));
+        ui.add_enabled_ui(unlocked, |ui| body(ui, &mut d, err.as_deref()));
     });
     preview(ui.ctx(), &d);
     form::put(app, "tag", d);
     let ctx = ui.ctx().clone();
-    form::bar(app, &ctx, "tag", "profile", &orig, format!("/guilds/{gid}/profile"), Value::Object);
+    let base = orig.clone();
+    form::bar_with(app, &ctx, "tag", &orig, move |app, _| {
+        let d = form::take(app, "tag", &base);
+        app.rest("PATCH", format!("/guilds/{gid}/profile"), Some(d), Tag::Server("profile"));
+    });
 }
 
-fn body(ui: &mut Ui, d: &mut Value) {
+fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
     let label = |ui: &mut Ui, t: &str| {
         ui.label(RichText::new(t).font(medium(16.0)).color(pal().header_primary));
         ui.add_space(8.0);
@@ -158,6 +164,7 @@ fn body(ui: &mut Ui, d: &mut Value) {
     });
     tag.retain(|c| c.is_ascii_alphanumeric());
     d["tag"] = json!(tag);
+    form::field_error(ui, err);
     ui.add_space(16.0);
     info(ui, 332.0, "Updating your Server Tag will require all of your members to manually reapply the tag to their profile. We do this to prevent abuse.", Some("Learn more"));
     ui.add_space(32.0);
@@ -211,7 +218,7 @@ fn body(ui: &mut Ui, d: &mut Value) {
         egui::Popup::menu(&resp).show(|ui| {
             for (k, c) in [("badge_color_primary", "Primary"), ("badge_color_secondary", "Secondary")] {
                 ui.horizontal(|ui| {
-                    let mut col = hex(d[k].as_str().unwrap_or("#5865f2"));
+                    let mut col = hex(d[k].as_str().unwrap_or(COLORS[5].1));
                     ui.label(RichText::new(c).font(medium(14.0)).color(pal().text_normal));
                     if egui::color_picker::color_edit_button_srgba(ui, &mut col, egui::color_picker::Alpha::Opaque).changed() {
                         d[k] = json!(to_hex(col));
@@ -246,7 +253,7 @@ fn preview(ctx: &egui::Context, d: &Value) {
     let Some(area) = ctx.data(|m| m.get_temp::<Rect>(Id::new("server_area"))) else { return };
     let at = pos2(area.center().x - 228.0 + 385.0, area.top() + 60.0);
     let tag = d["tag"].as_str().filter(|t| !t.is_empty()).unwrap_or("WUMP").to_uppercase();
-    let (c1, c2) = (hex(d["badge_color_primary"].as_str().unwrap_or("#816bee")), hex(d["badge_color_secondary"].as_str().unwrap_or("#b79cf8")));
+    let (c1, c2) = (hex(d["badge_color_primary"].as_str().unwrap_or(COLORS[5].1)), hex(d["badge_color_secondary"].as_str().unwrap_or(COLORS[5].2)));
     let id = d["badge"].as_u64().unwrap_or(6);
     let shown = egui::Area::new(Id::new("server_tag_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         let rows = [("Roka", "anyone down for aram", Color32::from_rgb(0x75, 0x7e, 0xf6), false), ("hongo", "count me in", Color32::from_rgb(0x2d, 0xc7, 0x70), false), ("Lily", "check out my tag!", Color32::from_rgb(0xf0, 0x8a, 0x36), true), ("sharon", "woah how did you get that", Color32::from_rgb(0x8a, 0xd0, 0x6a), false), ("Lily", "anyone here can get it!", Color32::from_rgb(0xf0, 0x8a, 0x36), false)];

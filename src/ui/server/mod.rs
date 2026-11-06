@@ -73,6 +73,7 @@ pub struct State {
     pub draft: HashMap<&'static str, Value>,
     pub dirty: bool,
     pub saving: bool,
+    pub errors: Vec<(String, String)>,
     pub shake: f64,
     pub sub: u8,
     pub sound: Option<sound::Form>,
@@ -98,7 +99,7 @@ impl State {
 
 impl App {
     pub fn open_server_settings(&mut self, gid: Id) {
-        self.server = Some(State { guild: gid, page: Page::Profile, search: String::new(), data: HashMap::new(), draft: HashMap::new(), dirty: false, saving: false, shake: 0.0, sub: 0, sound: None, pages: Pages::default() });
+        self.server = Some(State { guild: gid, page: Page::Profile, search: String::new(), data: HashMap::new(), draft: HashMap::new(), dirty: false, saving: false, errors: Vec::new(), shake: 0.0, sub: 0, sound: None, pages: Pages::default() });
     }
 
     /// A page's data, asked for the first time it's drawn.

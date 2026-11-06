@@ -29,6 +29,8 @@ pub enum Ev {
     SendFailed { channel: Id, nonce: String, err: String, again: bool },
     Auth(auth::Ev),
     Error(String),
+    // the field errors and raw answer of the refusal that comes next
+    Fail { req: String, fields: Vec<(String, String)>, raw: String },
     Toast(String),
     Rest { tag: Tag, res: Result<Value, String> },
     Voice(voice::Ev),
@@ -231,6 +233,13 @@ async fn sender(mut rx: mpsc::UnboundedReceiver<(Arc<Api>, Outgoing)>, tx: Tx) {
     }
 }
 
+fn fail(tx: &Tx, m: &reqwest::Method, path: &str, f: crate::api::Failure) -> String {
+    if !f.raw.is_empty() {
+        tx.send(Ev::Fail { req: format!("{m} {path}"), fields: f.fields, raw: f.raw });
+    }
+    f.message
+}
+
 async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let http = api::http();
     let mut api = Arc::new(Api::new(http.clone(), String::new()));
@@ -315,7 +324,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Rest { method, path, body, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.call(m, &path, body).await;
+                    let res = a.try_call(m.clone(), &path, body, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
@@ -333,7 +342,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Sudo { method, path, body, mfa, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.call_mfa(m, &path, body, mfa.as_deref()).await;
+                    let res = a.try_call(m.clone(), &path, body, mfa.as_deref()).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
                 });
             }

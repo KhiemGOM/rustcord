@@ -16,6 +16,19 @@ pub fn take(app: &mut App, key: &'static str, orig: &Value) -> Value {
     s.draft.entry(key).or_insert_with(|| orig.clone()).clone()
 }
 
+/// What discord said was wrong with a field: the message for that path, or the one with no
+/// path when the page has a single field to blame.
+pub fn error_of(app: &App, path: &str) -> Option<String> {
+    app.server.as_ref()?.errors.iter().find(|e| e.0 == path || e.0.is_empty()).map(|e| e.1.clone())
+}
+
+pub fn field_error(ui: &mut Ui, msg: Option<&str>) {
+    if let Some(m) = msg {
+        ui.add_space(4.0);
+        ui.label(RichText::new(m).font(reg(14.0)).color(RED));
+    }
+}
+
 pub fn put(app: &mut App, key: &'static str, d: Value) {
     if let Some(s) = &mut app.server {
         s.draft.insert(key, d);
@@ -69,13 +82,14 @@ pub fn bar_with(app: &mut App, ctx: &egui::Context, key: &'static str, orig: &Va
         ctx.request_repaint();
     }
     let saving = s.saving;
+    let said = s.errors.first().map(|e| e.1.clone());
     let size = vec2(700.0, 53.0);
     let at = pos2(area.center().x - 228.0 - 20.0 + off, area.bottom() - 20.0 - size.y);
     let (mut reset, mut save) = (false, false);
     let shown = egui::Area::new(Id::new(("server_bar", key))).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         let (r, _) = ui.allocate_exact_size(size, Sense::hover());
         ui.painter().rect(r, CornerRadius::same(5), Color32::from_rgb(0x11, 0x12, 0x14), Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
-        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful \u{2014} you have unsaved changes!", medium(16.0), Color32::WHITE);
+        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, said.as_deref().unwrap_or("Careful \u{2014} you have unsaved changes!"), medium(16.0), Color32::WHITE);
         let g = ui.painter().layout_no_wrap("Save Changes".into(), medium(14.0), Color32::WHITE);
         let b = Rect::from_center_size(pos2(r.right() - 12.0 - (g.size().x + 32.0) / 2.0, r.center().y), vec2(g.size().x + 32.0, 32.0));
         let br = ui.interact(b, ui.id().with("save"), if saving { Sense::hover() } else { Sense::click() });
@@ -98,8 +112,10 @@ pub fn bar_with(app: &mut App, ctx: &egui::Context, key: &'static str, orig: &Va
     if reset {
         s.draft.remove(key);
         s.dirty = false;
+        s.errors.clear();
     } else if save {
         s.saving = true;
+        s.errors.clear();
         send(app, changes);
     }
 }
