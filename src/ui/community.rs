@@ -64,6 +64,15 @@ impl App {
 }
 
 pub fn loaded(app: &mut App, key: &'static str, v: Value) {
+    if key == "prune" {
+        let Some(gid) = app.server.as_ref().map(|s| s.guild).or(app.home.as_ref().map(|h| h.guild)) else { return };
+        let n = v["pruned"].as_u64().unwrap_or(0);
+        let body = format!("**{n}** member{} who haven't been seen in **7 days** and have no roles will be kicked. They can rejoin with a new invite.", if n == 1 { "" } else { "s" });
+        app.confirm = Some(super::Confirm::new("Prune Members", body, "Prune", move |app: &mut App| {
+            app.rest("POST", format!("/guilds/{gid}/prune"), Some(json!({ "days": 7, "compute_prune_count": false })), Tag::Quiet);
+        }));
+        return;
+    }
     let Some(h) = &mut app.home else { return };
     match key {
         "members" => {
@@ -73,14 +82,6 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
             }
         }
         "onboarding" => h.onboarding = Some(v),
-        "prune" => {
-            let gid = h.guild;
-            let n = v["pruned"].as_u64().unwrap_or(0);
-            let body = format!("**{n}** member{} who haven't been seen in **7 days** and have no roles will be kicked. They can rejoin with a new invite.", if n == 1 { "" } else { "s" });
-            app.confirm = Some(super::Confirm::new("Prune Members", body, "Prune", move |app: &mut App| {
-                app.rest("POST", format!("/guilds/{gid}/prune"), Some(json!({ "days": 7, "compute_prune_count": false })), Tag::Quiet);
-            }));
-        }
         _ => {}
     }
 }
