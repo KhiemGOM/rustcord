@@ -423,6 +423,32 @@ impl Run {
                     self.mark("profile_wishlist_tab");
                     self.shot(ctx, "profed_full_wishlist.png");
                     app.full_profile = None;
+                    self.next(200);
+                }
+            }
+            4000 => {
+                app.sform.profile_guild = Some(1001);
+                app.settings_page = Some(Page::Profiles);
+                self.next(800);
+            }
+            4001 => {
+                if !app.profed.as_ref().is_some_and(|e| e.ready && e.guild == Some(1001)) {
+                    return;
+                }
+                self.mark("profed_server_profile");
+                self.shot(ctx, "profed_server.png");
+                click(self, "profile:pronouns");
+            }
+            4002 => {
+                self.queue.push_back(vec![Event::Text("ze/zir".into())]);
+                self.next(300);
+            }
+            4003 => click(self, "save_changes"),
+            4004 => {
+                if app.profed.as_ref().is_some_and(|e| e.ready && !e.saving && e.draft == e.base) {
+                    self.mark("profed_server_saved");
+                    app.profed = None;
+                    app.settings_page = None;
                     self.step = 99;
                 }
             }
