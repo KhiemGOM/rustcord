@@ -433,9 +433,11 @@ fn texture(app: &mut App, ctx: &egui::Context, key: String, img: &Arc<ColorImage
 
 // letterboxed into `r`
 fn frame(app: &mut App, ui: &Ui, key: String, img: &Arc<ColorImage>, r: Rect) {
+    use egui::emath::GuiRounding;
     let id = texture(app, ui.ctx(), key, img);
     let k = (r.width() / img.size[0] as f32).min(r.height() / img.size[1] as f32);
-    let fr = Rect::from_center_size(r.center(), vec2(img.size[0] as f32 * k, img.size[1] as f32 * k));
+    // on whole pixels, or a picture made to the pixel gets blurred by half of one
+    let fr = Rect::from_center_size(r.center(), vec2(img.size[0] as f32 * k, img.size[1] as f32 * k)).round_to_pixels(ui.pixels_per_point());
     egui::Image::new(egui::load::SizedTexture::new(id, fr.size())).corner_radius(6).paint_at(ui, fr);
 }
 
