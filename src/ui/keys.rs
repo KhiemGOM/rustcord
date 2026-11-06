@@ -32,6 +32,7 @@ impl App {
             || self.invite.is_some()
             || self.made_invite.is_some()
             || self.links.modal()
+            || self.interactions.modal.is_some()
             || self.status_edit.is_some()
             || self.share.is_some()
             || self.switcher.is_some()

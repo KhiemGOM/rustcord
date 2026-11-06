@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod activity;
+mod bots;
 mod call;
 mod web;
 mod stage;
@@ -129,6 +130,7 @@ pub struct Run {
     local: local::State,
     fx: live::State,
     sweep: tour::State,
+    local_log: Option<String>,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -204,6 +206,7 @@ impl Run {
             local: Default::default(),
             fx: Default::default(),
             sweep: Default::default(),
+            local_log: None,
         })
     }
 
@@ -1354,6 +1357,7 @@ impl Run {
             }
             900..=919 => self.web_steps(),
             2200..=2299 => self.activity_steps(app, ctx),
+            3500..=3599 => self.bot_steps(app, ctx),
             100..=199 => self.settings_steps(app, ctx),
             700..=759 => self.stage_steps(app, ctx),
             2100..=2199 => self.call_steps(app, ctx),

@@ -600,28 +600,9 @@ impl App {
     /// An app's user command, run on someone from their menu.
     pub fn user_command(&mut self, ch: Option<Id>, gid: Id, cmd: &Value, target: Id) {
         let Some(ch) = ch.or_else(|| self.cur()) else { return };
-        let mut payload = json!({
-            "type": 2,
-            "application_id": cmd["application_id"],
-            "channel_id": ch.to_string(),
-            "session_id": self.store.session,
-            "nonce": crate::state::make_nonce(),
-            "analytics_location": "user_context_menu",
-            "data": {
-                "version": cmd["version"],
-                "id": cmd["id"],
-                "name": cmd["name"],
-                "type": 2,
-                "target_id": target.to_string(),
-                "options": [],
-                "application_command": cmd,
-                "attachments": [],
-            }
-        });
-        if gid != 0 {
-            payload["guild_id"] = json!(gid.to_string());
-        }
-        self.net.send(crate::net::Cmd::Interact(payload));
+        let Some(chan) = self.store.channels.get(&ch).cloned() else { return };
+        let _ = gid;
+        self.send_command(&chan, cmd, 2, Vec::new(), Vec::new(), Some(target), "user_context_menu");
     }
 
     /// An invite link into a dm with them, made first when there isn't one.

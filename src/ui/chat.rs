@@ -5,13 +5,17 @@ use egui::{
     Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
 
+mod components;
+mod interaction;
+
+use super::interact::Press;
 use super::{App, Pick, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
 use super::{side, system, text};
 use crate::gif;
 use crate::markdown::{self, Block, Cx, Link};
 use crate::net::Cmd;
-use crate::state::{Channel, Comp, Embed, Id, Message, Page, ReactEmoji, Set, Store};
+use crate::state::{Channel, Embed, Id, Message, Page, ReactEmoji, Set, Store};
 use crate::theme::*;
 
 mod forward;
@@ -35,7 +39,8 @@ enum Act {
     UserMenu(Id, Pos2),
     Forward(Id),
     Jump(Id),
-    Component(Id, String, Option<Vec<String>>),
+    Component(Id, String, Press),
+    Premium(String),
     View(String, String, u32, u32),
     MarkUnread(Id),
     Save(String),
@@ -133,6 +138,7 @@ fn group_start(prev: Option<&Message>, m: &Message) -> bool {
             p.author != m.author
                 || m.ts() - p.ts() > 7 * 60 * 1000
                 || m.reply.is_some()
+                || m.interaction.as_ref().is_some_and(|i| !i.name.is_empty())
                 || !normal(p.kind)
                 || !normal(m.kind)
                 || day(p.ts()) != day(m.ts())
@@ -898,7 +904,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::UserMenu(u, at) => app.user_menu = Some((u, chan.guild, None, at)),
             Act::Forward(id) => app.forward = Some(super::popups::Forward::new(ch, id)),
             Act::Jump(id) => app.jump_to(ch, id),
-            Act::Component(id, custom_id, values) => app.press(ch, id, &custom_id, values),
+            Act::Component(id, custom_id, what) => app.press(ch, id, &custom_id, what),
+            Act::Premium(sku) => crate::webwin::checkout(&format!("/store/skus/{sku}")),
             Act::View(img, open, w, h) => {
                 // the message's other pictures come along, for the viewer's arrows
                 let all = app.store.msgs.get(&ch).and_then(|e| e.list.iter().find(|m| m.attachments.iter().any(|a| a.proxy == img) || m.embeds.iter().any(|e| e.image.as_ref().or(e.thumb.as_ref()).or(e.video.as_ref()).is_some_and(|x| x.url == img))));
@@ -1225,6 +1232,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if let Some(r) = m.reply {
             reply_line(&mut cui, d, r, left);
             head_top = cui.cursor().top();
+        } else if let Some(i) = m.interaction.as_ref().filter(|i| !i.name.is_empty()) {
+            interaction::executed(&mut cui, d, i, left);
+            head_top = cui.cursor().top();
         }
         let name = d.store.name_in(d.guild, m.author);
         let (ink, dot) = name_ink(d, m.author);
@@ -1257,6 +1267,9 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             blocks_ui(&mut cui, &blocks, d, m.id);
         } else if compact {
             compact_name_line(&mut cui, d, m, &name, color, font);
+        }
+        if let Some(s) = interaction::status(d, m) {
+            interaction::status_line(&mut cui, d, font, &s);
         }
         // discord's accessories: 2 under the text, 4 apart, 2 under the last
         let mut acc = 2.0;
@@ -1390,7 +1403,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if !m.components.is_empty() {
             cui.add_space(acc);
             acc = 4.0;
-            components(&mut cui, d, m);
+            components::components(&mut cui, d, m);
         }
         if let Some(open) = fwd {
             forward::end(&mut cui, d, m, open);
@@ -1807,25 +1820,24 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message, sys: system::Sys) {
     }
 }
 
+/// The line from a reply's (or a command's) header down to the message under it.
+fn spine(p: &egui::Painter, row_left: f32, r: Rect) {
+    let stroke = Stroke::new(2.0, pal().spine);
+    let x = row_left + 36.0;
+    let sy = r.center().y + 1.0;
+    p.line_segment([pos2(x, r.bottom()), pos2(x, sy + 6.0)], stroke);
+    p.add(egui::epaint::CubicBezierShape::from_points_stroke([pos2(x, sy + 6.0), pos2(x, sy), pos2(x, sy), pos2(x + 6.0, sy)], false, Color32::TRANSPARENT, stroke));
+    p.line_segment([pos2(x + 6.0, sy), pos2(r.left() - 4.0, sy)], stroke);
+}
+
 fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     // discord's reply is 18 tall with 4 under it; the spine's 2px border starts at its middle and
     // runs down to its bottom
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click());
     ui.add_space(4.0);
-    let spine = Stroke::new(2.0, pal().spine);
-    let x = row_left + 36.0;
+    spine(ui.painter(), row_left, r);
     let y = r.center().y;
-    let sy = y + 1.0;
     let p = ui.painter();
-    p.line_segment([pos2(x, r.bottom()), pos2(x, sy + 6.0)], spine);
-    p.add(egui::epaint::CubicBezierShape::from_points_stroke(
-        [pos2(x, sy + 6.0), pos2(x, sy), pos2(x, sy), pos2(x + 6.0, sy)],
-        false,
-        Color32::TRANSPARENT,
-        spine,
-    ));
-    p.line_segment([pos2(x + 6.0, sy), pos2(r.left() - 4.0, sy)], spine);
-
     let Some(rm) = d.store.find_msg(d.ch, rid) else {
         // discord: a small reply arrow, then the notice in italics
         icons::draw(p, Icon::Reply, Rect::from_center_size(pos2(r.left() + 6.0, y), vec2(12.0, 12.0)), pal().text_muted);
@@ -1853,9 +1865,10 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
-        icons::draw(p, Icon::Image, ir, pal().header_secondary);
+        let (icon, note) = if rm.interaction.is_some() { (Icon::Apps, "Click to see command") } else { (Icon::Image, "Click to see attachment") };
+        icons::draw(p, icon, ir, pal().header_secondary);
         cx += 20.0;
-        p.text(pos2(cx, y), Align2::LEFT_CENTER, "Click to see attachment", reg(14.0), pal().header_secondary);
+        p.text(pos2(cx, y), Align2::LEFT_CENTER, note, reg(14.0), pal().header_secondary);
     } else {
         let t = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().header_secondary, r.right() - cx - 50.0);
         cx = t.right() + 4.0;
@@ -2386,193 +2399,6 @@ pub fn emoji_url(e: &ReactEmoji) -> String {
     } else {
         markdown::twemoji(&e.name)
     }
-}
-
-fn components(ui: &mut Ui, d: &mut D, m: &Message) {
-    for (i, row) in m.components.iter().enumerate() {
-        if i > 0 {
-            ui.add_space(8.0);
-        }
-        // a lone components-v2 node (text, gallery, container, …) lays out on its own;
-        // everything else is a v1 action row of buttons and selects
-        if let [c] = row.as_slice() {
-            if !matches!(c, Comp::Button { .. } | Comp::Select { .. }) {
-                render_comp(ui, d, m, c, ui.available_width().min(520.0));
-                continue;
-            }
-        }
-        render_row(ui, d, m, row);
-    }
-}
-
-/// One components-v2 node, laid out like discord's: text as markdown, galleries as images,
-/// containers as a bordered box with an optional accent bar, sections with a side accessory.
-fn render_comp(ui: &mut Ui, d: &mut D, m: &Message, c: &Comp, width: f32) {
-    match c {
-        Comp::Row(children) => render_row(ui, d, m, children),
-        Comp::Text(s) => {
-            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 16.0, color: pal().text_normal, revealed: true, edited: false, embed: false };
-            let blocks = markdown::parse(s, &cx);
-            blocks_ui(ui, &blocks, d, m.id);
-        }
-        Comp::Gallery(items) if items.len() > 1 && items.iter().all(|(_, w, h)| *w > 0 && *h > 0) => {
-            let pictures: Vec<crate::state::Attachment> = items
-                .iter()
-                .map(|(url, w, h)| crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: "image.png".into(), ctype: "image/png".into(), w: *w, h: *h, ..Default::default() })
-                .collect();
-            let refs: Vec<&crate::state::Attachment> = pictures.iter().collect();
-            mosaic::show(ui, d, m.id, &refs);
-        }
-        Comp::Gallery(items) => {
-            for (url, iw, ih) in items {
-                let (w, h) = if *iw > 0 { fit(*iw, *ih, width.min(400.0), 300.0, width) } else { (width.min(300.0), 200.0) };
-                let r = media(ui, d, url, url, w, h, None);
-                if r.clicked() {
-                    d.acts.push(Act::View(url.clone(), url.clone(), *iw, *ih));
-                }
-                ui.add_space(4.0);
-            }
-        }
-        Comp::Thumbnail(url) => {
-            let r = media(ui, d, url, url, 80.0, 80.0, None);
-            if r.clicked() {
-                d.acts.push(Act::View(url.clone(), url.clone(), 0, 0));
-            }
-        }
-        Comp::FileCard { name, size, url } => {
-            if file_card(ui, name, *size).clicked() {
-                d.acts.push(Act::Url(url.clone()));
-            }
-        }
-        Comp::Separator { divider } => {
-            ui.add_space(4.0);
-            if *divider {
-                let (r, _) = ui.allocate_exact_size(vec2(width, 1.0), Sense::hover());
-                ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0, pal().border_muted));
-            }
-            ui.add_space(4.0);
-        }
-        Comp::Section { children, accessory } => {
-            ui.horizontal_top(|ui| {
-                let aw = if accessory.is_some() { 96.0 } else { 0.0 };
-                ui.vertical(|ui| {
-                    ui.set_width((width - aw - 12.0).max(80.0));
-                    for ch in children {
-                        render_comp(ui, d, m, ch, width - aw - 12.0);
-                    }
-                });
-                if let Some(a) = accessory {
-                    render_comp(ui, d, m, a, aw);
-                }
-            });
-        }
-        Comp::Container { accent, children } => {
-            let col = accent.map(|c| Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8));
-            Frame::new()
-                .fill(pal().bg_secondary)
-                .stroke(Stroke::new(1.0, pal().border_muted))
-                .corner_radius(8)
-                .inner_margin(Margin { left: if col.is_some() { 12 } else { 16 }, right: 16, top: 12, bottom: 12 })
-                .show(ui, |ui| {
-                    ui.set_width(width - 32.0);
-                    if let Some(col) = col {
-                        let g = ui.min_rect();
-                        ui.painter().rect_filled(Rect::from_min_size(pos2(g.left() - 8.0, g.top() - 12.0), vec2(4.0, g.height() + 24.0)), CornerRadius::same(2), col);
-                    }
-                    for (i, ch) in children.iter().enumerate() {
-                        if i > 0 {
-                            ui.add_space(8.0);
-                        }
-                        render_comp(ui, d, m, ch, width - 32.0);
-                    }
-                });
-        }
-        Comp::Button { .. } | Comp::Select { .. } => render_row(ui, d, m, std::slice::from_ref(c)),
-    }
-}
-
-fn render_row(ui: &mut Ui, d: &mut D, m: &Message, row: &[Comp]) {
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-        {
-            for c in row {
-                match c {
-                    Comp::Button { style, label, emoji, custom_id, url, disabled } => {
-                        // discord's small button: 32 tall, 1px border, 11 padding inside it, radius 8
-                        let edge = Color32::from_white_alpha(20);
-                        let (fill, hover, ink, stroke) = match style {
-                            1 => (BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), Color32::WHITE, edge),
-                            3 => (Color32::from_rgb(0x00, 0x85, 0x45), Color32::from_rgb(0x00, 0x6c, 0x37), Color32::WHITE, edge),
-                            4 => (Color32::from_rgb(0xd2, 0x2d, 0x39), Color32::from_rgb(0xa9, 0x23, 0x2e), Color32::WHITE, edge),
-                            _ => (pal().control, pal().control_hover, pal().header_primary, pal().border_muted),
-                        };
-                        let g = ui.painter().layout_no_wrap(label.clone(), medium(14.0), Color32::WHITE);
-                        let ew = if emoji.is_some() { 22.0 } else { 0.0 };
-                        let lw = if url.is_some() { 18.0 } else { 0.0 };
-                        let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + ew + lw + 24.0).max(60.0), 32.0), Sense::click());
-                        // disabled is opacity .5 on the whole button
-                        let fade = if *disabled { 0.5 } else { 1.0 };
-                        let fill = if resp.hovered() && !disabled { hover } else { fill };
-                        // the edge goes over the fill, as discord's border does, not beside it
-                        ui.painter().rect_filled(r, CornerRadius::same(8), fill.gamma_multiply(fade));
-                        ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, stroke.gamma_multiply(fade)), egui::StrokeKind::Inside);
-                        if ui.clip_rect().contains_rect(r) {
-                            d.rects.push((format!("button:{custom_id}"), r));
-                        }
-                        let mut x = r.center().x - (g.size().x + ew + lw) / 2.0;
-                        if let Some(e) = emoji {
-                            text::image(ui.painter(), &emoji_url(e), Rect::from_min_size(pos2(x, r.center().y - 9.0), vec2(18.0, 18.0)));
-                            x += ew;
-                        }
-                        let tc = ink.gamma_multiply(fade);
-                        let gw = g.size().x;
-                        ui.painter().galley(pos2(x, (r.center().y - g.size().y / 2.0).floor()), g, tc);
-                        if url.is_some() {
-                            icons::draw(ui.painter(), Icon::ArrowRight, Rect::from_center_size(pos2(x + gw + 12.0, r.center().y), vec2(14.0, 14.0)), tc);
-                        }
-                        if resp.hovered() && !disabled {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-                        if resp.clicked() && !disabled {
-                            match url {
-                                Some(u) => d.acts.push(Act::Url(u.clone())),
-                                None => d.acts.push(Act::Component(m.id, custom_id.clone(), None)),
-                            }
-                        }
-                    }
-                    Comp::Select { custom_id, placeholder, options, disabled, .. } => {
-                        let w = ui.available_width().min(400.0);
-                        let id = ui.id().with(("select", m.id, custom_id));
-                        let mut open: bool = ui.data(|dd| dd.get_temp(id).unwrap_or(false));
-                        let (r, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
-                        ui.painter().rect(r, CornerRadius::same(4), pal().input_bg, Stroke::new(1.0, if open { BLURPLE } else { pal().border_normal }), egui::StrokeKind::Inside);
-                        ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, placeholder, reg(15.0), pal().text_muted);
-                        icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(18.0, 18.0)), pal().header_secondary);
-                        if resp.clicked() && !disabled {
-                            open = !open;
-                        }
-                        if open {
-                            for (label, value, desc) in options {
-                                let h = if desc.is_some() { 48.0 } else { 36.0 };
-                                let (or, oresp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
-                                ui.painter().rect_filled(or, CornerRadius::ZERO, crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &oresp)));
-                                ui.painter().text(pos2(or.left() + 12.0, or.top() + 18.0), Align2::LEFT_CENTER, label, semi(15.0), pal().header_primary);
-                                if let Some(dsc) = desc {
-                                    ui.painter().text(pos2(or.left() + 12.0, or.top() + 36.0), Align2::LEFT_CENTER, dsc, reg(13.0), pal().header_secondary);
-                                }
-                                if oresp.clicked() {
-                                    d.acts.push(Act::Component(m.id, custom_id.clone(), Some(vec![value.clone()])));
-                                    open = false;
-                                }
-                            }
-                        }
-                        ui.data_mut(|dd| dd.insert_temp(id, open));
-                    }
-                    _ => {}
-                }
-            }
-        }
-    });
 }
 
 fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {

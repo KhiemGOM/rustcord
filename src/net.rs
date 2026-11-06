@@ -34,6 +34,7 @@ pub enum Ev {
     // the field errors and raw answer of the refusal that comes next
     Fail { req: String, fields: Vec<(String, String)>, raw: String },
     Toast(String),
+    InteractFailed { nonce: String, status: u16, message: String },
     Rest { tag: Tag, res: Result<Value, String> },
     Voice(voice::Ev),
 }
@@ -393,8 +394,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             }
             Cmd::Interact(payload) => {
                 tokio::spawn(async move {
-                    if let Err(e) = a.interact(payload).await {
-                        tx.send(Ev::Error(e));
+                    let nonce = payload["nonce"].as_str().unwrap_or_default().to_string();
+                    if let Err((status, message)) = a.interact(payload).await {
+                        tx.send(Ev::InteractFailed { nonce, status, message });
                     }
                 });
             }
