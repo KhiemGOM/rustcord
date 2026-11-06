@@ -491,7 +491,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         tones_open = false;
     }
     if add_emoji {
-        ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{guild}")));
+        app.open_server_settings(guild);
+        if let Some(s) = &mut app.server {
+            s.page = super::server::Page::Emoji;
+        }
+        app.picker = None;
     }
     ctx.data_mut(|d| {
         d.insert_temp(shut_id, shut);
