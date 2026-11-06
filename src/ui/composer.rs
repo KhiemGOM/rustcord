@@ -215,6 +215,15 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     }
                 }
             }
+            if app.settings.sticker_suggestions && q.chars().count() >= 2 {
+                for p in &app.packs {
+                    for (id, name, fmt) in p.stickers.iter().filter(|s| s.2 != 3) {
+                        if let Some(s) = score(name, &q) {
+                            out.push((s as u16 * 10 + 5, Item::Sticker(*id, name.clone(), *fmt, p.name.clone())));
+                        }
+                    }
+                }
+            }
             let mut seen = std::collections::HashSet::new();
             for (glyph, name) in super::picker::common() {
                 if let Some(k) = rank(&name, false, false, true)
@@ -352,6 +361,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let tok = token(&draft_now, cursor).filter(|t| app.ac_dismissed.as_ref() != Some(&t.2) || t.1 == '/');
     if let Some((_, '/', _)) = &tok {
         app.ensure_commands(chan);
+    }
+    if matches!(&tok, Some((_, ':', _))) && app.settings.sticker_suggestions {
+        app.load_packs();
     }
     let items = tok.as_ref().map(|(_, k, q)| candidates(app, chan, *k, q)).unwrap_or_default();
     let open = !items.is_empty() && (focused || typed);
@@ -716,15 +728,15 @@ enum CardAct {
 }
 
 fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
-    let (r, card) = ui.allocate_exact_size(vec2(216.0, 216.0), Sense::click());
+    let (r, card) = ui.allocate_exact_size(vec2(218.0, 218.0), Sense::click());
     if card.clicked() {
         card.request_focus();
     }
     super::settings::mark(ui, &format!("card:{i}"), r);
     let p = ui.painter();
-    p.rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
+    p.rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     if card.has_focus() {
-        p.rect_stroke(r, CornerRadius::same(4), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+        p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
     }
     let thumb = Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(200.0, 160.0));
     if let Some(bytes) = &f.thumb {
@@ -746,23 +758,25 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     }
     text::paint(p, pos2(r.left() + 8.0, r.bottom() - 24.0), Align2::LEFT_CENTER, &f.name, reg(14.0), pal().text_normal, 200.0);
 
-    let bar = Rect::from_min_size(pos2(r.right() - 108.0, r.top() - 12.0), vec2(104.0, 32.0));
-    p.rect(bar, CornerRadius::same(4), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    let bar = Rect::from_min_size(pos2(r.right() - 81.0, r.top() + 1.0), vec2(96.0, 32.0));
+    ui.painter().add(egui::Shadow { offset: [0, 1], blur: 4, spread: 0, color: Color32::from_black_alpha(36) }.as_shape(bar, CornerRadius::same(4)));
+    ui.painter().rect(bar, CornerRadius::same(4), pal().bg_floating, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     let mut act = None;
-    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink(2.0)).layout(Layout::left_to_right(Align::Center)));
-    b.spacing_mut().item_spacing.x = 0.0;
-    let eye = icon_button(&mut b, if f.spoiler { Icon::EyeOff } else { Icon::Eye }, 28.0, if f.spoiler { "Unmark as Spoiler" } else { "Mark as Spoiler" });
-    if eye.clicked() {
-        act = Some(CardAct::Spoiler);
-    }
-    if icon_button(&mut b, Icon::Pencil, 28.0, "Modify Attachment").clicked() {
-        act = Some(CardAct::Modify);
-    }
-    let del = b.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    let col = if del.1.hovered() { RED } else { RED.gamma_multiply(0.8) };
-    icons::draw(b.painter(), Icon::Trash, Rect::from_center_size(del.0.center(), vec2(20.0, 20.0)), col);
-    if del.1.on_hover_text("Remove Attachment").clicked() {
-        act = Some(CardAct::Remove);
+    let spoiler = if f.spoiler { "Unmark as Spoiler" } else { "Mark as Spoiler" };
+    let buttons = [
+        (if f.spoiler { Icon::EyeOff } else { Icon::Eye }, spoiler, CardAct::Spoiler, pal().header_secondary),
+        (Icon::Pencil, "Modify Attachment", CardAct::Modify, pal().header_secondary),
+        (Icon::Trash, "Remove Attachment", CardAct::Remove, RED),
+    ];
+    for (k, (icon, tip, what, ink)) in buttons.into_iter().enumerate() {
+        let cell = Rect::from_min_size(bar.min + vec2(32.0 * k as f32, 0.0), vec2(32.0, 32.0));
+        let resp = ui.interact(cell, ui.id().with(("upload_btn", i, k)), Sense::click());
+        let ink = if ink == RED { ink } else { crate::ui::motion::mix(ink, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+        icons::draw(ui.painter(), icon, Rect::from_center_size(cell.center(), vec2(20.0, 20.0)), ink);
+        super::settings::mark(ui, &format!("card:{i}:{k}"), cell);
+        if resp.on_hover_text(tip).clicked() {
+            act = Some(what);
+        }
     }
     (act, card.has_focus())
 }

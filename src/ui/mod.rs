@@ -23,6 +23,7 @@ mod e2e;
 mod events;
 mod favs;
 pub mod failed;
+mod feedabout;
 mod folders;
 mod follow;
 mod forum;
@@ -145,6 +146,8 @@ pub struct App {
     pub picker: Option<(Pick, Pos2)>,
     // the sticker picker, anchored where it opened
     pub stickers: Option<Pos2>,
+    pub packs: Vec<picker::Pack>,
+    pub packs_at: Option<Instant>,
     pub menu: Option<(Id, Id, Pos2)>,
     // a person's right-click menu: user, server, the dm it came from, where
     pub user_menu: Option<(Id, Id, Option<Id>, Pos2)>,
@@ -264,6 +267,7 @@ pub struct App {
     pub modify: Option<attach::Modify>,
     pub group_pick: Option<dmpick::Pick>,
     pub topic: Option<Id>,
+    pub feed_about: bool,
     // a DM whose call was started with video: the camera goes on once it's connected
     pub cam_on_join: Option<Id>,
     // what Discord told us alone about a send it refused: the channel and the words
@@ -393,6 +397,8 @@ impl App {
             revealed: Set::default(),
             picker: None,
             stickers: None,
+            packs: Vec::new(),
+            packs_at: None,
             menu: None,
             confirm: None,
             forward: None,
@@ -490,6 +496,7 @@ impl App {
             modify: None,
             group_pick: None,
             topic: None,
+            feed_about: false,
             cam_on_join: None,
             notice: None,
             crop: None,
@@ -915,7 +922,11 @@ impl App {
                 self.store.opted.remove(&ch);
             }
         }
-        let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
+        let mut body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
+        let joined_picks = bit == OPTED && on && self.store.opt_in.insert(g);
+        if joined_picks {
+            body["flags"] = json!(self.guild_flags(g));
+        }
         self.guild_settings(g, body, Tag::undo(SAVE_FAILED, move |app: &mut App| {
             match was_flags {
                 Some(f) => app.store.chan_flags.insert(ch, f),
@@ -926,7 +937,35 @@ impl App {
             } else {
                 app.store.opted.remove(&ch);
             }
+            if joined_picks {
+                app.store.opt_in.remove(&g);
+            }
         }));
+    }
+
+    /// A server's own flags: the unread setting's bits kept, and 1 << 14 while it lists only
+    /// the channels picked.
+    pub fn guild_flags(&self, gid: Id) -> u64 {
+        let unreads = match self.store.unreads.get(&gid) {
+            Some(true) => 2048,
+            Some(false) => 4096,
+            None => 0,
+        };
+        unreads | if self.store.opt_in.contains(&gid) { 1u64 << 14 } else { 0 }
+    }
+
+    /// Switches a server to its picked channels, starting from these.
+    pub fn opt_in_many(&mut self, gid: Id, ids: &[Id]) {
+        let mut overrides = serde_json::Map::new();
+        for id in ids {
+            let flags = self.store.chan_flags.entry(*id).or_default();
+            *flags |= OPTED;
+            overrides.insert(id.to_string(), json!({ "flags": *flags }));
+            self.store.opted.insert(*id);
+        }
+        self.store.opt_in.insert(gid);
+        let body = json!({ "flags": self.guild_flags(gid), "channel_overrides": overrides });
+        self.guild_settings(gid, body, Tag::Quiet);
     }
 
     /// Edit Per-server Profile: Settings > Profiles on that server.
@@ -1592,6 +1631,7 @@ impl App {
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
             Tag::GifCats => self.set_gif_cats(&v),
+            Tag::StickerPacks => self.set_packs(&v),
             Tag::Welcome(g) => {
                 let on = v["enabled"].as_bool().unwrap_or(false);
                 let actions = v["new_member_actions"].as_array().into_iter().flatten().map(|a| crate::state::sid(&a["channel_id"]));

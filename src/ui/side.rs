@@ -540,21 +540,16 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
 /// Out of onboarding's pick-your-channels list, or back into it; the unread bits of the
 /// server's flags stay as they were.
 fn show_all_channels(app: &mut App, gid: Id) {
-    let opt_in = !app.store.opt_in.remove(&gid);
-    let unreads = match app.store.unreads.get(&gid) {
-        Some(true) => 2048,
-        Some(false) => 4096,
-        None => 0,
-    };
-    let flags = unreads | if opt_in { 1u64 << 14 } else { 0 };
-    if opt_in {
+    let was_in = app.store.opt_in.contains(&gid);
+    if !app.store.opt_in.remove(&gid) {
         app.store.opt_in.insert(gid);
     }
+    let flags = app.guild_flags(gid);
     app.guild_settings(gid, serde_json::json!({ "flags": flags }), crate::net::Tag::undo("Failed to update your settings. Please try again.", move |app: &mut App| {
-        if opt_in {
-            app.store.opt_in.remove(&gid);
-        } else {
+        if was_in {
             app.store.opt_in.insert(gid);
+        } else {
+            app.store.opt_in.remove(&gid);
         }
     }));
 }
@@ -1184,7 +1179,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
 fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> (egui::Response, bool) {
     let (row, resp, hl) = dense_row(ui, 42.0);
     let inner = row.shrink2(vec2(8.0, 0.0));
-    let hovered = resp.hovered();
+    let hovered = resp.contains_pointer();
     if selected {
         ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
     } else if hovered {
@@ -1253,6 +1248,7 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
     if hovered {
         let xr = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
         let hit = ui.interact(xr.expand(4.0), ui.id().with(("dm_close", c.id)), Sense::click());
+        super::settings::mark(ui, &format!("dm_close:{}", c.id), xr);
         icons::draw(ui.painter(), Icon::Close, xr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
         closed = hit.on_hover_text("Close DM").clicked();
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

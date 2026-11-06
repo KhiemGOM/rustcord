@@ -73,6 +73,8 @@ pub enum Tag {
     Commands(Id),
     Gifs(String),
     GifCats,
+    // discord's own sticker packs
+    StickerPacks,
     Welcome(Id),
     MemberActions(Id),
     Inbox,

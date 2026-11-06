@@ -950,6 +950,9 @@ fn channel(w: &W, id: &str) -> Option<Value> {
         return Some(thread_b());
     }
     let r = ready(0);
+    if let Some(c) = r["private_channels"].as_array().and_then(|l| l.iter().find(|c| c["id"] == id)) {
+        return Some(c.clone());
+    }
     let (g, c) = r["guilds"].as_array()?.iter().find_map(|g| g["channels"].as_array()?.iter().find(|c| c["id"] == id).map(|c| (g["id"].clone(), c.clone())))?;
     let mut c = c;
     c["guild_id"] = g;
@@ -1379,6 +1382,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             if b["content"] == "e2e-fail-once" && failed_once().lock().unwrap().insert(b["nonce"].to_string()) {
                 return (403, "application/json", json!({ "message": "Missing Permissions", "code": 50013 }).to_string().into_bytes());
             }
+            if let Some(ids) = b.get("sticker_ids")
+                && !ids.as_array().is_some_and(|a| a.len() <= 3 && a.iter().all(|i| i.as_str().is_some_and(|i| i.parse::<u64>().is_ok())))
+            {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "sticker_ids": { "_errors": [{ "code": "BASE_TYPE_BAD_LENGTH", "message": "Must be between 0 and 3 in length." }] } } }).to_string().into_bytes());
+            }
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
@@ -1581,7 +1589,21 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         })),
         ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("PATCH", ["api", "v9", "users", "@me", "guilds", "@me", "settings"]) | ("PATCH", ["api", "v9", "users", "@me", "guilds", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "guilds", "@me", "settings"]) | ("PATCH", ["api", "v9", "users", "@me", "guilds", "settings"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let bad = |b: &Value| {
+                let bad_flags = b.get("flags").is_some_and(|f| !f.is_u64());
+                let bad_over = match b.get("channel_overrides") {
+                    None => false,
+                    Some(o) => o.as_object().is_none_or(|o| o.iter().any(|(k, v)| k.parse::<u64>().is_err() || !v.is_object() || v.get("flags").is_some_and(|f| !f.is_u64()))),
+                };
+                !b.is_object() || bad_flags || bad_over
+            };
+            if b.get("guilds").and_then(Value::as_object).map_or(bad(&b), |g| g.values().any(bad)) {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body" }).to_string().into_bytes());
+            }
+            ok(b)
+        }
         ("PATCH", ["api", "v9", "users", "@me"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let mut u = user(ME);
@@ -1997,6 +2019,20 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 })
                 .collect();
             ok(json!({ "guild_id": g, "members": list, "page_result_count": list.len(), "total_result_count": list.len() }))
+        }
+        ("GET", ["api", "v9", "sticker-packs"]) => {
+            let pack = |id: u64, name: &str, list: &[(u64, &str, &str, u8)]| {
+                json!({
+                    "id": id.to_string(), "name": name, "sku_id": (id + 1).to_string(), "cover_sticker_id": list[0].0.to_string(), "description": "", "banner_asset_id": null,
+                    "stickers": list.iter().enumerate().map(|(i, (sid, n, tags, fmt))| json!({
+                        "id": sid.to_string(), "name": n, "tags": tags, "type": 1, "format_type": fmt, "description": "", "pack_id": id.to_string(), "sort_value": i,
+                    })).collect::<Vec<_>>(),
+                })
+            };
+            ok(json!({ "sticker_packs": [
+                pack(8100, "Wumpus Beyond", &[(8101, "Wave", "hi, hello", 2), (8102, "Thumbs Up", "yes, like", 1), (8103, "Sleepy", "sleep, tired", 3)]),
+                pack(8200, "Hello Wumpus", &[(8201, "Cheers", "drink, toast", 1), (8202, "Hug", "love", 2)]),
+            ] }))
         }
         ("GET", ["api", "v9", "guilds", "1001", "onboarding"]) => ok(json!({
             "guild_id": "1001", "enabled": true, "mode": 0, "default_channel_ids": ["2100"], "responses": ["7101"],
