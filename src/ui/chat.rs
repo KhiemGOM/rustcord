@@ -1196,8 +1196,10 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
         // discord's accessories: 2 under the text, 4 apart, 2 under the last
         let mut acc = 2.0;
-        let tiled: Vec<&crate::state::Attachment> = m.attachments.iter().filter(|a| (a.is_image() && d.s.inline_uploads) || a.is_video()).collect();
-        for a in &m.attachments {
+        // a components-v2 message shows its files through its own gallery, file and thumbnail nodes
+        let files: &[crate::state::Attachment] = if m.flags & (1 << 15) != 0 { &[] } else { &m.attachments };
+        let tiled: Vec<&crate::state::Attachment> = files.iter().filter(|a| (a.is_image() && d.s.inline_uploads) || a.is_video()).collect();
+        for a in files {
             if tiled.len() > 1 && tiled.iter().any(|t| std::ptr::eq(*t, a)) {
                 if std::ptr::eq(tiled[0], a) {
                     cui.add_space(acc);
@@ -2296,6 +2298,14 @@ fn render_comp(ui: &mut Ui, d: &mut D, m: &Message, c: &Comp, width: f32) {
             let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 16.0, color: pal().text_normal, revealed: true, edited: false, embed: false };
             let blocks = markdown::parse(s, &cx);
             blocks_ui(ui, &blocks, d, m.id);
+        }
+        Comp::Gallery(items) if items.len() > 1 && items.iter().all(|(_, w, h)| *w > 0 && *h > 0) => {
+            let pictures: Vec<crate::state::Attachment> = items
+                .iter()
+                .map(|(url, w, h)| crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: "image.png".into(), ctype: "image/png".into(), w: *w, h: *h, ..Default::default() })
+                .collect();
+            let refs: Vec<&crate::state::Attachment> = pictures.iter().collect();
+            mosaic::show(ui, d, m.id, &refs);
         }
         Comp::Gallery(items) => {
             for (url, iw, ih) in items {

@@ -62,5 +62,7 @@ def checks(runs, reqs, data):
         "favourites: the account's settings-proto/2 was read": len(gets) >= 2,
         "favourites: another client's favourites and frecency reached the pickers": both("favs_from_account"),
         "favourites: starring and using here went back as a settings-proto/2 patch": both("favs_written") and wrote_emoji and cleared_gif,
+        "gallery: a thread's first message is the starter, with the message it started from": both("thread_starter_parsed"),
+        "members: a server that sent no list before now gets one of its own": both("members_filled"),
         "cdn: every url the client built has the shape discord's CDN accepts": not refused,
     }

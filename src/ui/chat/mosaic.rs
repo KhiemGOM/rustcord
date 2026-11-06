@@ -74,12 +74,12 @@ pub fn show(ui: &mut Ui, d: &mut D, msg: Id, items: &[&Attachment]) {
     let cells = layout(shown, w);
     let height = cells.iter().map(|c| c.bottom()).fold(0.0, f32::max);
     let (whole, _) = ui.allocate_exact_size(vec2(w, height), Sense::hover());
-    d.card(&format!("mosaic:{msg}"), ui, whole);
+    d.rects.push((format!("mosaic:{msg}:{}", d.ch), whole));
     for (i, (a, cell)) in items.iter().zip(&cells).enumerate() {
         let cell = cell.translate(whole.min.to_vec2());
         let (full, uv) = cover(cell.size(), a);
         let look = Look { radius: corners(cell, whole), uv };
-        d.card(&format!("mosaic:{msg}:{i}"), ui, cell);
+        d.rects.push((format!("mosaic:{msg}:{i}:{}", d.ch), cell));
         let sep = if a.proxy.contains('?') { '&' } else { '?' };
         if a.is_video() {
             let poster = format!("{}{sep}format=webp&width={}&height={}", a.proxy, (full.x * 2.0) as u32, (full.y * 2.0) as u32);
