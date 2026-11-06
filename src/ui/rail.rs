@@ -1,4 +1,4 @@
-use egui::{Align2, Color32, CornerRadius, Image, Rect, Sense, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Frame, Image, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
 use super::{App, avatar, badge, motion, text};
@@ -29,7 +29,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(pal().bg_tertiary));
             }
             app.rects.insert("guild:home".into(), r.rect);
-            let r = r.on_hover_text("Direct Messages");
+            let r = tip(r, "Direct Messages");
             if r.clicked() {
                 app.select_guild(None);
                 app.home_clicked();
@@ -103,7 +103,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, GREEN, k));
                 icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
-            let r = r.on_hover_text("Add a Server");
+            let r = tip(r, "Add a Server");
             if r.clicked() {
                 app.wizard = Some(super::newserver::Wizard::new(app));
             }
@@ -131,7 +131,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, GREEN, k));
                     icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
                 });
-                if r.on_hover_text(tip).clicked() {
+                if self::tip(r, tip).clicked() {
                     if url.is_empty() {
                         app.open_servers();
                     } else {
@@ -526,7 +526,7 @@ fn in_voice(app: &App, gid: Id) -> Vec<(Id, String)> {
 /// overlapping beside it, six at most and a count for the rest.
 fn guild_tip(app: &mut App, r: egui::Response, name: &str, talking: &[(Id, String)]) -> egui::Response {
     let rects = &mut app.rects;
-    r.on_hover_ui(|ui| {
+    beside(r, |ui| {
         ui.set_max_width(196.0);
         text::label(ui, name, semi(16.0), pal().text_normal, Sense::hover());
         if talking.is_empty() {
@@ -557,9 +557,38 @@ fn guild_tip(app: &mut App, r: egui::Response, name: &str, talking: &[(Id, Strin
 
 // the server-name bubble to the right of the rail, with emoji
 fn tip(r: egui::Response, name: &str) -> egui::Response {
-    r.on_hover_ui(|ui| {
+    beside(r, |ui| {
         text::label(ui, name, semi(16.0), pal().header_primary, Sense::hover());
     })
+}
+
+/// A tooltip to the right of the widget, centred on it, with the arrow pointing back at it.
+fn beside(r: egui::Response, content: impl FnOnce(&mut Ui)) -> egui::Response {
+    if !r.hovered() || r.dragged() {
+        return r;
+    }
+    let ctx = r.ctx.clone();
+    let frame = Frame::popup(&ctx.global_style());
+    let (fill, edge) = (frame.fill, frame.stroke);
+    let gap = 10.0;
+    let shown = egui::Popup::from_response(&r)
+        .id(r.id.with("rail_tip"))
+        .kind(egui::PopupKind::Tooltip)
+        .align(egui::RectAlign::RIGHT)
+        .gap(gap)
+        .open(true)
+        .frame(frame)
+        .show(content);
+    if let Some(s) = shown {
+        let b = s.response.rect;
+        let tip = pos2(b.left() - 6.0, b.center().y);
+        let p = ctx.layer_painter(s.response.layer_id);
+        let tri = [pos2(b.left() + 1.0, b.center().y - 6.0), tip, pos2(b.left() + 1.0, b.center().y + 6.0)];
+        p.add(egui::Shape::convex_polygon(tri.to_vec(), fill, Stroke::NONE));
+        p.line_segment([tri[0], tri[1]], edge);
+        p.line_segment([tri[1], tri[2]], edge);
+    }
+    r
 }
 
 #[derive(Clone, Copy)]
