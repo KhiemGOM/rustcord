@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 mod activity;
 mod call;
 mod web;
+mod buy;
 mod shop;
 mod stage;
 mod clips;
@@ -1286,6 +1287,7 @@ impl Run {
             }
             900..=919 => self.web_steps(),
             3200..=3299 => self.shop_steps(app, ctx),
+            4100..=4199 => self.buy_steps(app, ctx),
             2200..=2299 => self.activity_steps(app, ctx),
             100..=199 => self.settings_steps(app, ctx),
             700..=759 => self.stage_steps(app, ctx),

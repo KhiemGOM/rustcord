@@ -18,8 +18,8 @@ def checks(runs, reqs, data):
     wished = any(r.get("method") == "POST" and r.get("path", "").endswith("/users/@me/wishlist/items") and web.body(r).get("sku_id") == "5101" for r in reqs)
     return {
         "nitro: the Nitro Home row opened the page, with the plans, the subscription and the gift buttons": both("nitro_page") and has("/subscription-plans") and has("/billing/subscriptions"),
-        "nitro: Gift Nitro opened the checkout window on the gift page, signed in": both("nitro_gift_checkout") and gift >= len(runs),
-        "nitro: Subscribe on a plan card opened the checkout window on that plan's page": both("nitro_subscribe_checkout"),
+        "nitro: Gift Nitro opened the gift plan chooser in the client, not a window": both("nitro_gift_checkout") and gift == 0,
+        "nitro: Subscribe on a plan card opened the purchase dialog in the client": both("nitro_subscribe_checkout"),
         "shop: the Shop row opened Featured from the catalog calls": both("shop_featured") and has("/collectibles-shop?") and has("/collectibles-categories/v2"),
         "shop: Featured drew the hero's items and the category tiles": both("shop_featured_content"),
         "shop: Browse listed the catalog and Show only filtered it": both("shop_browse") and both("shop_filter"),
@@ -27,5 +27,5 @@ def checks(runs, reqs, data):
         "shop: the heart added the item to the wishlist on discord and the wishlist tab lists it": both("shop_wish") and wished and both("shop_wishlist"),
         "shop: search finds items by name": both("shop_search"),
         "shop: the Orbs balance shows and Orbs Exclusives lists the Orbs-priced item": both("shop_orbs") and both("shop_orbs_tab") and has("/virtual-currency/balance"),
-        "shop: Buy on a collectible does not open the checkout window": both("shop_buy_no_window"),
+        "shop: Buy on a collectible opened the purchase dialog, not a window": both("shop_buy_opens_checkout"),
     }

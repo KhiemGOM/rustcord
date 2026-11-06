@@ -282,7 +282,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
                         Some(slot) => {
                             act(app, ui, vec![apply(slot, &gid.to_string())]);
                         }
-                        None => crate::webwin::boost(gid),
+                        None => app.open_buy(crate::ui::buy::What::Boost(gid)),
                     }
                 }
             });

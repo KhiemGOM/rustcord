@@ -5,7 +5,7 @@
 
 mod catalog;
 mod nitro;
-mod product;
+pub mod product;
 
 use egui::load::TexturePoll;
 use egui::{Color32, CornerRadius, Rect, Sense, Ui, pos2, vec2};
@@ -45,7 +45,6 @@ pub struct Shop {
     // the Nitro page's favourites tabs
     pub perks: u8,
     pub wish: Vec<String>,
-    pub bought: Option<String>,
 }
 
 const KEYS: [&str; 7] = ["shop_home", "shop_cats", "shop_owned", "shop_orbs", "nitro_subs", "nitro_plans", "nitro_basic"];
@@ -58,7 +57,7 @@ impl App {
         for k in KEYS {
             refetch(self, k);
         }
-        self.shop = Some(Shop { page, tab: 0, search: String::new(), product: None, only: [false; 5], collection: None, perks: 0, wish: Vec::new(), bought: None });
+        self.shop = Some(Shop { page, tab: 0, search: String::new(), product: None, only: [false; 5], collection: None, perks: 0, wish: Vec::new() });
         self.ui.guild = None;
         self.directory = None;
         self.friends = false;

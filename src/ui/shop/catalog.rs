@@ -509,11 +509,7 @@ fn wish(app: &mut App, id: String) {
 }
 
 fn buy(app: &mut App, id: String) {
-    let url = format!("/shop#itemSkuId={id}");
-    if std::env::var_os("RUSTCORD_E2E").is_none() {
-        crate::ui::settings::open_web(&url);
-    }
-    if let Some(s) = &mut app.shop {
-        s.bought = Some(url);
+    if let Some(p) = products(app).into_iter().find(|p| sku(p) == id).cloned() {
+        app.open_buy(crate::ui::buy::What::Shop(p));
     }
 }
