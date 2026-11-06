@@ -10,14 +10,19 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
+use windows::Win32::Foundation::HMODULE;
+use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D11::{D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Multithread};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
-use windows::core::{GUID, HSTRING};
+use windows::core::{GUID, HSTRING, Interface};
 
 const QUEUE: usize = 4;
 const MAX_W: usize = 1920;
 const MAX_H: usize = 1080;
+// what a picture can be decoded down to, so a resize rarely has to change anything
+const SCALES: [f32; 5] = [0.25, 1.0 / 3.0, 0.5, 2.0 / 3.0, 1.0];
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
 const AUDIO: u32 = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
 const ALL: u32 = MF_SOURCE_READER_ALL_STREAMS.0 as u32;
@@ -28,8 +33,13 @@ const TYPE_CHANGED: u32 = MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32;
 static VOLUME: AtomicU32 = AtomicU32::new(0x3f80_0000);
 static UPLOADS: AtomicU64 = AtomicU64::new(0);
 static MUTED: AtomicBool = AtomicBool::new(false);
+static GPU: AtomicBool = AtomicBool::new(true);
 static CUR: Mutex<Option<Arc<Session>>> = Mutex::new(None);
 static RESUME: LazyLock<Mutex<HashMap<String, f64>>> = LazyLock::new(Default::default);
+
+pub fn set_gpu(on: bool) {
+    GPU.store(on, Relaxed);
+}
 
 pub fn set_volume(v: f32, muted: bool) {
     VOLUME.store(v.clamp(0.0, 1.0).to_bits(), Relaxed);
@@ -76,6 +86,7 @@ enum Cmd {
     Play,
     Pause,
     Seek(f64),
+    Resize,
 }
 
 enum Opened {
@@ -93,6 +104,7 @@ struct St {
     wall: f64,
     since: Option<Instant>,
     seen: u64,
+    off_since: Option<Instant>,
     audio_done: bool,
     video_done: bool,
 }
@@ -107,6 +119,8 @@ pub struct Session {
     txs: Mutex<Vec<Sender<Cmd>>>,
     stop: AtomicBool,
     tex: Mutex<Option<TextureHandle>>,
+    // the pixels it's drawn at, and when that last wasn't more than this
+    want: Mutex<((usize, usize), Instant)>,
     file: PathBuf,
     key: String,
 }
@@ -126,12 +140,17 @@ pub fn stop() {
 
 pub fn tick(frame: u64) {
     let Some(s) = CUR.lock().unwrap().clone() else { return };
-    let gone = {
-        let st = s.st.lock().unwrap();
-        st.playing && frame > st.seen + 1
+    let (gone, forgotten) = {
+        let mut st = s.st.lock().unwrap();
+        let off = frame > st.seen + 1;
+        st.off_since = if off { st.off_since.or(Some(Instant::now())) } else { None };
+        (st.playing && off, st.off_since.is_some_and(|t| t.elapsed() > Duration::from_secs(30)))
     };
     if gone {
         s.pause();
+    }
+    if forgotten {
+        stop();
     }
 }
 
@@ -195,7 +214,10 @@ fn start(s: Arc<Session>, video: bool, resume: f64) {
         let (tx, rx) = channel();
         txs.push(tx);
         let (s, done) = (s.clone(), done.clone());
-        std::thread::spawn(move || video_thread(s, rx, done));
+        std::thread::spawn(move || {
+            video_thread(s, rx, done);
+            crate::winsys::trim();
+        });
     }
     let (tx, rx) = channel();
     txs.push(tx);
@@ -254,6 +276,7 @@ impl Session {
                 wall: 0.0,
                 since: None,
                 seen: frame,
+                off_since: None,
                 audio_done: false,
                 video_done: false,
             }),
@@ -265,6 +288,7 @@ impl Session {
             txs: Mutex::default(),
             stop: AtomicBool::new(false),
             tex: Mutex::default(),
+            want: Mutex::new(((0, 0), Instant::now())),
             file,
             key: key.to_string(),
         }
@@ -358,7 +382,19 @@ impl Session {
         View { phase: st.phase.clone(), info: st.info, pos: if st.ended { st.info.dur } else { pos }, playing: st.playing }
     }
 
-    pub fn frame(&self, ctx: &egui::Context) -> Option<egui::TextureId> {
+    /// The newest picture, for drawing at `size` points. Fullscreen draws the inline player too,
+    /// so the biggest asked for lasts a second.
+    pub fn frame(&self, ctx: &egui::Context, size: egui::Vec2) -> Option<egui::TextureId> {
+        let px = size * ctx.pixels_per_point();
+        let px = (px.x.ceil() as usize, px.y.ceil() as usize);
+        let mut want = self.want.lock().unwrap();
+        if px != want.0 && ((px.0 >= want.0.0 && px.1 >= want.0.1) || want.1.elapsed() > Duration::from_secs(1)) {
+            *want = (px, Instant::now());
+            self.send(Cmd::Resize);
+        } else if px == want.0 {
+            want.1 = Instant::now();
+        }
+        drop(want);
         let (t, playing) = {
             let st = self.st.lock().unwrap();
             (self.clock(&st), st.playing)
@@ -419,13 +455,32 @@ unsafe fn init() {
     }
 }
 
-unsafe fn reader(path: &std::path::Path, advanced: bool) -> windows::core::Result<IMFSourceReader> {
+/// Lets the reader decode and scale on the graphics card, where its surfaces don't count against us.
+unsafe fn gpu_manager() -> windows::core::Result<IMFDXGIDeviceManager> {
+    unsafe {
+        let mut dev = None;
+        D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, HMODULE::default(), D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT, None, D3D11_SDK_VERSION, Some(&mut dev), None, None)?;
+        let dev = dev.ok_or_else(windows::core::Error::empty)?;
+        let _ = dev.cast::<ID3D11Multithread>()?.SetMultithreadProtected(true);
+        let (mut token, mut mgr) = (0u32, None);
+        MFCreateDXGIDeviceManager(&mut token, &mut mgr)?;
+        let mgr = mgr.ok_or_else(windows::core::Error::empty)?;
+        mgr.ResetDevice(&dev, token)?;
+        Ok(mgr)
+    }
+}
+
+unsafe fn reader(path: &std::path::Path, advanced: bool, gpu: bool) -> windows::core::Result<IMFSourceReader> {
     unsafe {
         let mut attrs = None;
-        MFCreateAttributes(&mut attrs, 1)?;
+        MFCreateAttributes(&mut attrs, 3)?;
         let attrs = attrs.ok_or_else(windows::core::Error::empty)?;
         if advanced {
             attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)?;
+        }
+        if gpu {
+            attrs.SetUnknown(&MF_SOURCE_READER_D3D_MANAGER, &gpu_manager()?)?;
+            attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
         }
         let url = HSTRING::from(path.to_string_lossy().as_ref());
         let r = MFCreateSourceReaderFromURL(&url, &attrs)?;
@@ -460,31 +515,51 @@ unsafe fn video_type(r: &IMFSourceReader) -> windows::core::Result<Pic> {
     }
 }
 
-unsafe fn open_video(path: &std::path::Path) -> windows::core::Result<(IMFSourceReader, Info, Pic)> {
+/// The smallest size of the picture that still covers `want` pixels.
+fn fit((w, h): (usize, usize), want: (usize, usize)) -> (usize, usize) {
+    let k = SCALES.into_iter().find(|k| w as f32 * k >= want.0 as f32 && h as f32 * k >= want.1 as f32).unwrap_or(1.0);
+    (((w as f32 * k) as usize & !1).max(2), ((h as f32 * k) as usize & !1).max(2))
+}
+
+unsafe fn output(r: &IMFSourceReader, (w, h): (usize, usize), native: u64) -> windows::core::Result<()> {
     unsafe {
-        let r = reader(path, true)?;
+        let mt = MFCreateMediaType()?;
+        mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+        mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
+        let size = (w as u64) << 32 | h as u64;
+        if size != native {
+            mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
+        }
+        if r.SetCurrentMediaType(VIDEO, None, &mt).is_err() && size != native {
+            mt.SetUINT64(&MF_MT_FRAME_SIZE, native)?;
+            r.SetCurrentMediaType(VIDEO, None, &mt)?;
+        }
+        Ok(())
+    }
+}
+
+struct VideoReader {
+    r: IMFSourceReader,
+    info: Info,
+    pic: Pic,
+    native: u64,
+}
+
+unsafe fn open_video(path: &std::path::Path, gpu: bool, want: (usize, usize)) -> windows::core::Result<VideoReader> {
+    unsafe {
+        let r = reader(path, true, gpu)?;
         r.SetStreamSelection(VIDEO, true)?;
         let native = r.GetNativeMediaType(VIDEO, 0)?;
         let size = native.GetUINT64(&MF_MT_FRAME_SIZE)?;
         let (nw, nh) = ((size >> 32) as usize, (size & 0xffff_ffff) as usize);
         let rate = native.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(30 << 32 | 1);
         let fps = (rate >> 32) as f32 / (rate & 0xffff_ffff).max(1) as f32;
-        let mt = MFCreateMediaType()?;
-        mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-        mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
         let k = (MAX_W as f32 / nw as f32).min(MAX_H as f32 / nh as f32).min(1.0);
-        let (w, h) = (((nw as f32 * k) as usize) & !1, ((nh as f32 * k) as usize) & !1);
-        let scaled = k < 1.0;
-        if scaled {
-            mt.SetUINT64(&MF_MT_FRAME_SIZE, (w as u64) << 32 | h as u64)?;
-        }
-        if r.SetCurrentMediaType(VIDEO, None, &mt).is_err() && scaled {
-            mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
-            r.SetCurrentMediaType(VIDEO, None, &mt)?;
-        }
+        let top = (((nw as f32 * k) as usize) & !1, ((nh as f32 * k) as usize) & !1);
+        output(&r, fit(top, want), size)?;
         let pic = video_type(&r)?;
-        let info = Info { dur: duration(&r), w: pic.w, h: pic.h, fps: if fps.is_finite() && fps > 0.0 { fps } else { 30.0 } };
-        Ok((r, info, pic))
+        let info = Info { dur: duration(&r), w: top.0, h: top.1, fps: if fps.is_finite() && fps > 0.0 { fps } else { 30.0 } };
+        Ok(VideoReader { r, info, pic, native: size })
     }
 }
 
@@ -511,19 +586,37 @@ unsafe fn to_image(sample: &IMFSample, pic: &Pic) -> Option<ColorImage> {
 fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
     unsafe {
         init();
-        let (r, info, mut pic) = match open_video(&s.file) {
+        let asked = || s.want.lock().unwrap().0;
+        let mut gpu = GPU.load(Relaxed);
+        let opened = open_video(&s.file, gpu, asked()).or_else(|e| {
+            if std::mem::replace(&mut gpu, false) { open_video(&s.file, false, asked()) } else { Err(e) }
+        });
+        let VideoReader { mut r, info, mut pic, mut native } = match opened {
             Ok(v) => v,
             Err(e) => {
                 let _ = done.send(Opened::Video(Err(e.message())));
                 return;
             }
         };
+        let top = (info.w, info.h);
+        let mut shown = false;
         let _ = done.send(Opened::Video(Ok(info)));
         drop(done);
         let (mut playing, mut need, mut eof, mut skip) = (false, true, false, 0.0f64);
+        let mut settle = None;
         loop {
             if s.stop.load(Relaxed) {
                 return;
+            }
+            // setting the decoder up leaves far more behind than playing touches
+            if shown && settle.is_none() {
+                settle = Some((Instant::now() + Duration::from_secs(3), false));
+            }
+            if let Some((t, false)) = settle
+                && Instant::now() >= t
+            {
+                crate::winsys::trim();
+                settle = Some((t, true));
             }
             let len = s.frames.lock().unwrap().len();
             let want = !eof && ((playing && len < QUEUE) || (need && len == 0));
@@ -543,9 +636,35 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     s.frames.lock().unwrap().clear();
                     (skip, need, eof) = (t, true, false);
                 }
+                Got::Cmd(Cmd::Resize) => {
+                    let size = fit(top, asked());
+                    if size != (pic.w, pic.h)
+                        && output(&r, size, native).is_ok()
+                        && let Ok(p) = video_type(&r)
+                    {
+                        pic = p;
+                        if !playing {
+                            let t = s.pos();
+                            seek_to(&r, t);
+                            s.frames.lock().unwrap().clear();
+                            (skip, need, eof) = (t, true, false);
+                        }
+                    }
+                }
                 Got::Nothing if want => {
                     let (mut flags, mut ts, mut sample) = (0u32, 0i64, None);
-                    if r.ReadSample(VIDEO, 0, None, Some(&mut flags), Some(&mut ts), Some(&mut sample)).is_err() {
+                    let read = r.ReadSample(VIDEO, 0, None, Some(&mut flags), Some(&mut ts), Some(&mut sample));
+                    // a card that opened and then can't deliver: start over on the processor
+                    if gpu && !shown && (read.is_err() || sample.as_ref().is_some_and(|sm| to_image(sm, &pic).is_none())) {
+                        gpu = false;
+                        if let Ok(o) = open_video(&s.file, false, asked()) {
+                            (r, pic, native) = (o.r, o.pic, o.native);
+                            seek_to(&r, skip);
+                            continue;
+                        }
+                        flags |= EOS;
+                        sample = None;
+                    } else if read.is_err() {
                         flags |= EOS;
                     }
                     if flags & TYPE_CHANGED != 0
@@ -557,6 +676,7 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     if let Some(img) = sample.as_ref().filter(|_| pts >= skip - 0.0005).and_then(|sm| to_image(sm, &pic)) {
                         s.frames.lock().unwrap().push_back(Frame { pts, img });
                         need = false;
+                        shown = true;
                     }
                     if flags & EOS != 0 {
                         eof = true;
@@ -571,7 +691,7 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
 
 unsafe fn open_audio(path: &std::path::Path, ch: u32, rate: u32) -> windows::core::Result<Option<(IMFSourceReader, f64, u32, u32)>> {
     unsafe {
-        let r = reader(path, false)?;
+        let r = reader(path, false, false)?;
         if r.SetStreamSelection(AUDIO, true).is_err() || r.GetNativeMediaType(AUDIO, 0).is_err() {
             return Ok(None);
         }
@@ -667,6 +787,7 @@ fn audio_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     playing = false;
                     let _ = stream.pause();
                 }
+                Got::Cmd(Cmd::Resize) => {}
                 Got::Cmd(Cmd::Seek(t)) => {
                     seek_to(&r, t);
                     let mut q = s.pcm.lock().unwrap();

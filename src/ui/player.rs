@@ -236,7 +236,7 @@ pub fn video(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out: &
     let session = media::current(&a.url);
     let view = session.as_ref().map(|s| s.view());
     ui.painter().rect_filled(rect, radius, Color32::BLACK);
-    let tex = session.as_ref().and_then(|s| s.frame(&ctx));
+    let tex = session.as_ref().and_then(|s| s.frame(&ctx, size));
     match tex {
         Some(t) => egui::Image::from_texture(egui::load::SizedTexture::new(t, size)).corner_radius(radius).paint_at(ui, rect),
         None => egui::Image::from_uri(poster.to_string()).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect),
@@ -422,7 +422,7 @@ pub fn overlay(app: &mut App, ctx: &Context) {
         let (iw, ih) = (v.info.w.max(1) as f32, v.info.h.max(1) as f32);
         let k = (bg.width() / iw).min(bg.height() / ih);
         let pic = Rect::from_center_size(bg.center(), vec2(iw * k, ih * k));
-        if let Some(t) = s.frame(ctx) {
+        if let Some(t) = s.frame(ctx, pic.size()) {
             egui::Image::from_texture(egui::load::SizedTexture::new(t, pic.size())).paint_at(ui, pic);
         }
         s.seen(ctx.cumulative_frame_nr());
