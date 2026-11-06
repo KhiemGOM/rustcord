@@ -116,3 +116,22 @@ pub fn install(method: &str, parts: &[&str], path: &str, body: &[u8]) -> Option<
     }
     Some((200, json!({ "location": "/oauth2/authorized" })))
 }
+
+pub fn guide(method: &str, parts: &[&str]) -> Option<(u16, Value)> {
+    match (method, parts) {
+        ("GET", ["api", "v9", "guilds", "1001", "new-member-welcome"]) => Some((
+            200,
+            json!({
+                "guild_id": "1001", "enabled": true,
+                "welcome_message": { "author_ids": [], "message": "Welcome to Gamers United! Here is how to get going." },
+                "new_member_actions": [
+                    { "channel_id": "2100", "action_type": 0, "title": "Say hi in the lobby", "description": "Tell us what you play.", "emoji_name": "👋" },
+                    { "channel_id": "2102", "action_type": 1, "title": "Join the hangout", "description": "Hop in a call.", "emoji_name": "🎧" },
+                ],
+                "resource_channels": [{ "channel_id": "2100", "title": "Read the rules", "description": "Be kind to each other.", "emoji_name": "📜" }],
+            }),
+        )),
+        ("GET", ["api", "v9", "guilds", "1001", "new-member-actions"]) => Some((200, json!({ "channel_actions": { "2100": { "completed": true } } }))),
+        _ => None,
+    }
+}
