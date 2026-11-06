@@ -1500,6 +1500,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
             let mut m = member(u);
             m["user"] = user(u);
+            if u == ME && *g == "1003" {
+                m["roles"] = json!(["1201"]);
+            }
             let vs = json!({ "guild_id": g, "channel_id": b["channel_id"], "user_id": u.to_string(), "session_id": "mock-voice-session", "mute": false, "deaf": false,
                 "self_mute": false, "self_deaf": false, "suppress": !wl.speakers.contains(&u), "request_to_speak_timestamp": wl.hands.get(&u), "member": m });
             let _ = wl.events.send(json!({ "t": "VOICE_STATE_UPDATE", "d": vs }));
@@ -1565,6 +1568,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let n = |k: &str| b[k].as_u64().unwrap_or(0);
             activity_join(&mut w.lock().unwrap(), n("channel"), n("app"), n("user"));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "activity", "forget"]) => {
+            w.lock().unwrap().authorized.clear();
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
@@ -2221,6 +2228,9 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     }
     let mut m = member(ME);
     m["user"] = user(ME);
+    if guild == Some(1003) {
+        m["roles"] = json!(["1201"]);
+    }
     let me = json!({
         "guild_id": guild.map(|g| g.to_string()), "channel_id": chan.map(|c| c.to_string()), "user_id": ME.to_string(),
         "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": d["self_video"],
