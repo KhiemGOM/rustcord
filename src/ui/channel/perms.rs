@@ -459,7 +459,7 @@ fn advanced(ui: &mut Ui, s: &mut State, c: &Channel, store: &Store, roles: &[Rol
                 crate::ui::text::paint(ui.painter(), pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, &name, medium(16.0), pal().header_primary, r.width() - 48.0);
                 settings::mark(ui, &format!("chanset:who:{name}"), r);
                 let x = egui::Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(20.0, 20.0));
-                if *id != gid && resp.hovered() {
+                if *id != gid && resp.contains_pointer() {
                     let xr = ui.interact(x, ui.id().with(("who_x", *id)), Sense::click());
                     icons::draw(ui.painter(), Icon::Close, x.shrink(3.0), crate::ui::motion::mix(pal().header_secondary, pal().critical, crate::ui::motion::hot(ui.ctx(), &xr)));
                     if xr.clicked() {
