@@ -2034,16 +2034,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             list.as_array_mut().unwrap().retain(|s| s["sound_id"] != *id);
             (204, "application/json", Vec::new())
         }
-        (_, ["api", ..]) => ok(json!({})),
-        ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
-        ("GET", ["cdn", "media", "clip.mp4"]) if query(path, "width").is_some() => (200, "image/png", png(320, 180, 5, false)),
-        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
-        ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
-        ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
-        ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
-        ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
-        ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
-        ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("PATCH", ["api", "v9", "channels", ch, "messages", id]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             if b["content"].as_str().is_some_and(|c| c.chars().count() > 2000) {
@@ -2051,7 +2041,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
             let mut w = w.lock().unwrap();
             let Some(m) = w.msgs.iter_mut().find(|m| m["channel_id"] == *ch && m["id"] == *id) else {
-                return (404, "application/json", fail_body(404).to_string().into_bytes());
+                return ok(json!({}));
             };
             if let Some(c) = b.get("content") {
                 m["content"] = c.clone();
@@ -2070,7 +2060,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("DELETE", ["api", "v9", "channels", ch, "messages", id]) => {
             let mut w = w.lock().unwrap();
             let Some(at) = w.msgs.iter().position(|m| m["channel_id"] == *ch && m["id"] == *id) else {
-                return (404, "application/json", fail_body(404).to_string().into_bytes());
+                return (204, "application/json", Vec::new());
             };
             w.msgs.remove(at);
             let _ = w.events.send(json!({ "t": "MESSAGE_DELETE", "d": { "id": id, "channel_id": ch } }));
@@ -2079,17 +2069,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("PUT" | "DELETE", ["api", "v9", "channels", ch, "messages", "pins", id]) => {
             let mut w = w.lock().unwrap();
             let Some(m) = w.msgs.iter_mut().find(|m| m["channel_id"] == *ch && m["id"] == *id) else {
-                return (404, "application/json", fail_body(404).to_string().into_bytes());
+                return (204, "application/json", Vec::new());
             };
             m["pinned"] = json!(method == "PUT");
             let _ = w.events.send(json!({ "t": "CHANNEL_PINS_UPDATE", "d": { "channel_id": ch, "last_pin_timestamp": iso(now_ms()) } }));
-            (204, "application/json", Vec::new())
-        }
-        ("PUT" | "DELETE", ["api", "v9", "channels", ch, "messages", id, "reactions", ..]) => {
-            let w = w.lock().unwrap();
-            if !w.msgs.iter().any(|m| m["channel_id"] == *ch && m["id"] == *id) {
-                return (404, "application/json", fail_body(404).to_string().into_bytes());
-            }
             (204, "application/json", Vec::new())
         }
         ("DELETE", ["api", "v9", "guilds", _, "members", _]) | ("PUT", ["api", "v9", "guilds", _, "bans", _]) | ("PATCH", ["api", "v9", "guilds", _, "members", _]) => {
@@ -2100,6 +2083,16 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
             (204, "application/json", Vec::new())
         }
+        (_, ["api", ..]) => ok(json!({})),
+        ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
+        ("GET", ["cdn", "media", "clip.mp4"]) if query(path, "width").is_some() => (200, "image/png", png(320, 180, 5, false)),
+        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
+        ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
+        ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
+        ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
+        ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
+        ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
         ("GET", ["store" | "shop"]) => (
