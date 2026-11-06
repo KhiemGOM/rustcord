@@ -325,7 +325,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     let view = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
     let mut changed = false;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(view));
-    egui::ScrollArea::vertical().id_salt(("settings_page", app.sform.visit)).auto_shrink([false, false]).show(&mut scroll, |ui| {
+    let out = egui::ScrollArea::vertical().id_salt(("settings_page", app.sform.visit)).auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.add_space(64.0);
         let col = Rect::from_x_y_ranges(view.center().x - 348.0..=view.center().x + 348.0, ui.cursor().top()..=f32::INFINITY);
         ui.scope_builder(UiBuilder::new().max_rect(col), |ui| {
@@ -365,6 +365,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
         });
         ui.add_space(96.0);
     });
+    crate::ui::e2e::scrolled(ui.ctx(), &out);
     profiles::save_bar(app, ui, view);
     changed
 }

@@ -261,7 +261,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
         let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 660.0).min(esc.left() - 40.0), area.bottom()));
         let mut bc = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        egui::ScrollArea::vertical().id_salt(("chan_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
+        let out = egui::ScrollArea::vertical().id_salt(("chan_page", page as u8)).auto_shrink([false, false]).show(&mut bc, |ui| {
             ui.data_mut(|d| d.remove_temp::<f32>(egui::Id::new("settings_gap")));
             Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 120 }).show(ui, |ui| match page {
                 Page::Overview => overview::overview(app, ui, &c),
@@ -270,6 +270,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Page::Integrations => extras::integrations(app, ui, &c),
             });
         });
+        crate::ui::e2e::scrolled(ui.ctx(), &out);
         save_bar(app, ui, body);
     });
     overview::tag_modal(app, ctx);

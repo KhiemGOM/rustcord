@@ -324,7 +324,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         close = er.clicked();
         let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 900.0).min(esc.left() - 40.0), area.bottom()));
         let mut bc = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        egui::ScrollArea::vertical().id_salt(("server_page", page as u8, depth)).auto_shrink([false, false]).show(&mut bc, |ui| {
+        let out = egui::ScrollArea::vertical().id_salt(("server_page", page as u8, depth)).auto_shrink([false, false]).show(&mut bc, |ui| {
             Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 80 }).show(ui, |ui| match page {
                 Page::Profile => profile::show(app, ui, gid),
                 Page::Tag => tag::show(app, ui, gid),
@@ -347,6 +347,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 _ => elsewhere(ui, gid, page),
             });
         });
+        crate::ui::e2e::scrolled(ui.ctx(), &out);
     });
     sound::modal_form(app, ctx);
     community::modal(app, ctx);
