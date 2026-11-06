@@ -17,28 +17,52 @@ const MEM_CAP: usize = 16 << 20;
 
 /// egui's texture loader, noting when each image was last drawn. egui keeps every texture it
 /// ever made, and the decoded pixels and bytes behind it, so a long session's memory only grew.
+/// An animation gets one texture whose pixels change with the frame, not one per frame.
 #[derive(Default)]
 pub struct Textures {
     inner: egui::load::DefaultTextureLoader,
     used: Mutex<HashMap<String, std::time::Instant>>,
+    anims: Mutex<HashMap<String, (egui::TextureHandle, Arc<egui::ColorImage>)>>,
 }
 
 impl Textures {
-    /// What hasn't been drawn for `age`: those textures, and an animation's own uri once none
-    /// of its frames has been, so its decoded frames go too.
-    pub fn stale(&self, age: std::time::Duration) -> Vec<String> {
+    /// What hasn't been drawn for `age`, or `anim_age` for an animation's frames: those, and an
+    /// animation's own uri once none of its frames has been, so its decoded frames go too.
+    pub fn stale(&self, age: std::time::Duration, anim_age: std::time::Duration) -> Vec<String> {
         let used = self.used.lock();
-        let mut out: Vec<String> = used.iter().filter(|(_, t)| t.elapsed() >= age).map(|(u, _)| u.clone()).collect();
+        let old = |u: &str, t: &std::time::Instant| t.elapsed() >= if u.contains(crate::gif::SEP) { anim_age } else { age };
+        let mut out: Vec<String> = used.iter().filter(|(u, t)| old(u, t)).map(|(u, _)| u.clone()).collect();
         let mut anims: Vec<&str> = out.iter().filter_map(|u| u.split_once(crate::gif::SEP).map(|(b, _)| b)).collect();
         anims.sort_unstable();
         anims.dedup();
         let anims: Vec<String> = anims
             .into_iter()
-            .filter(|b| !used.iter().any(|(u, t)| u.split_once(crate::gif::SEP).is_some_and(|(x, _)| x == *b) && t.elapsed() < age))
+            .filter(|b| !used.iter().any(|(u, t)| u.split_once(crate::gif::SEP).is_some_and(|(x, _)| x == *b) && !old(u, t)))
             .map(str::to_string)
             .collect();
         out.extend(anims);
         out
+    }
+
+    fn frame(&self, ctx: &egui::Context, uri: &str, base: &str, options: egui::TextureOptions, size: egui::SizeHint) -> egui::load::TextureLoadResult {
+        use egui::load::{ImagePoll, SizedTexture, TexturePoll};
+        let image = match ctx.try_load_image(uri, size)? {
+            ImagePoll::Ready { image } => image,
+            // the next frame is still decoding: keep showing the last one
+            ImagePoll::Pending { size } => {
+                return Ok(match self.anims.lock().get(base) {
+                    Some((h, shown)) => TexturePoll::Ready { texture: SizedTexture::new(h.id(), shown.source_size) },
+                    None => TexturePoll::Pending { size },
+                });
+            }
+        };
+        let mut anims = self.anims.lock();
+        let (h, shown) = anims.entry(base.to_string()).or_insert_with(|| (ctx.load_texture(base, image.clone(), options), image.clone()));
+        if !Arc::ptr_eq(shown, &image) {
+            h.set(image.clone(), options);
+            *shown = image.clone();
+        }
+        Ok(TexturePoll::Ready { texture: SizedTexture::new(h.id(), image.source_size) })
     }
 }
 
@@ -57,16 +81,24 @@ impl egui::load::TextureLoader for Textures {
             }
         }
         drop(used);
-        self.inner.load(ctx, uri, options, size)
+        match uri.split_once(crate::gif::SEP) {
+            Some((base, _)) => self.frame(ctx, uri, base, options, size),
+            None => self.inner.load(ctx, uri, options, size),
+        }
     }
 
     fn forget(&self, uri: &str) {
         self.used.lock().remove(uri);
-        self.inner.forget(uri);
+        // a frame's texture is its animation's, which goes when the animation does
+        if !uri.contains(crate::gif::SEP) {
+            self.anims.lock().remove(uri);
+            self.inner.forget(uri);
+        }
     }
 
     fn forget_all(&self) {
         self.used.lock().clear();
+        self.anims.lock().clear();
         self.inner.forget_all();
     }
 
@@ -75,7 +107,7 @@ impl egui::load::TextureLoader for Textures {
     }
 
     fn byte_size(&self) -> usize {
-        self.inner.byte_size()
+        self.inner.byte_size() + self.anims.lock().values().map(|(_, i)| i.pixels.len() * 4).sum::<usize>()
     }
 }
 
@@ -296,7 +328,7 @@ mod tests {
             (format!("h{sep}0"), old),
             (format!("h{sep}1"), now),
         ]);
-        let mut stale = t.stale(Duration::from_secs(120));
+        let mut stale = t.stale(Duration::from_secs(120), Duration::from_secs(120));
         stale.sort();
         assert_eq!(stale, ["a".to_string(), "g".into(), format!("g{sep}0"), format!("g{sep}1"), format!("h{sep}0")]);
     }
