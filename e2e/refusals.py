@@ -8,7 +8,9 @@ def body(r):
     try:
         return json.loads(r.get("body") or "{}")
     except ValueError:
-        return {}
+        refused = [r for r in reqs if r.get("refused") and not (r.get("path", "").endswith("/guilds/1001/profile") and body(r).get("tag") == "A")]
+    return {
+        "refusals: the mock refused no write the client sent, bar the one-letter tag": not refused,}
 
 
 def checks(runs, reqs, data):

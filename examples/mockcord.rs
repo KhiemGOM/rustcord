@@ -2111,7 +2111,10 @@ async fn http_conn(mut s: TcpStream, w: W) {
         let mfa = header("x-discord-mfa-authorization");
         let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
         let (code, ctype, out) = match (rules::check(&method, &parts, &body), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
-            (Some(refusal), _) => (400, "application/json", refusal.to_string().into_bytes()),
+            (Some(refusal), _) => {
+                log(&w, json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "refused": refusal }));
+                (400, "application/json", refusal.to_string().into_bytes())
+            }
             (None, Some((code, v))) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
             (None, None) => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
         };
