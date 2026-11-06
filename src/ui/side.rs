@@ -846,6 +846,39 @@ pub fn chan_icon(store: &Store, p: &egui::Painter, c: &Channel, rect: Rect, col:
     }
 }
 
+fn voice_full(store: &Store, c: &Channel) -> bool {
+    c.is_voice() && store.full(c) && store.guilds.get(&c.guild).and_then(|g| g.voice.get(&store.me)) != Some(&c.id)
+}
+
+/// What discord's tooltip on a channel's icon says: its kind, and how it's restricted.
+fn kind_tip(store: &Store, c: &Channel) -> &'static str {
+    let limited = store.limited(c);
+    let age = c.nsfw;
+    match c.kind {
+        2 if store.perms(c) & crate::state::CONNECT == 0 => "Voice (Locked)",
+        2 if age => "Voice (Age-Restricted)",
+        2 if limited => "Voice (Limited)",
+        2 => "Voice",
+        13 if store.perms(c) & crate::state::CONNECT == 0 => "Stage (Locked)",
+        13 if limited => "Stage (Limited)",
+        13 => "Stage",
+        5 if age => "Announcements (Age-Restricted)",
+        5 if limited => "Announcements (Limited)",
+        5 => "Announcements",
+        15 if age => "Forum (Age-Restricted)",
+        15 if limited => "Forum (Limited)",
+        15 => "Forum",
+        16 if age => "Media Channel (Age-Restricted)",
+        16 if limited => "Media Channel (Limited)",
+        16 => "Media Channel",
+        12 => "Private Thread",
+        10 | 11 => "Thread",
+        _ if age => "Text (Age-Restricted)",
+        _ if limited => "Text (Limited)",
+        _ => "Text",
+    }
+}
+
 pub fn glyph(c: &Channel) -> Icon {
     match c.kind {
         2 => Icon::Speaker,
@@ -925,6 +958,12 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     };
     let ir = Rect::from_center_size(pos2(inner.left() + 18.0, y), vec2(20.0, 20.0));
     chan_icon(store, ui.painter(), c, ir, icon_col);
+    let icon_hit = ui.interact(ir, ui.id().with(("kind", c.id)), Sense::hover());
+    if icon_hit.hovered() {
+        icon_hit.show_tooltip_text(kind_tip(store, c));
+    } else if hovered && voice_full(store, c) {
+        resp.show_tooltip_text("This channel is full.");
+    }
     // the invite and edit buttons discord shows on the hovered or selected row; a running call
     // keeps its timer there until the row is hovered
     let timer = voice.and_then(|v| v.timer.as_ref());
