@@ -633,18 +633,20 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                                 ui.spacing_mut().item_spacing.x = 16.0;
                                 for (label, combos) in row {
                                     Frame::new().fill(pal().bg_tertiary).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                                        ui.set_width(w - 24.0);
-                                        ui.set_min_height(70.0);
-                                        ui.spacing_mut().item_spacing.y = 8.0;
-                                        ui.add(egui::Label::new(RichText::new(*label).font(medium(14.0)).color(pal().header_primary)).wrap());
-                                        for combo in combos.iter() {
-                                            ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing.x = 4.0;
-                                                for key in combo.iter() {
-                                                    keycap(ui, key);
-                                                }
-                                            });
-                                        }
+                                        ui.vertical(|ui| {
+                                            ui.set_width(w - 24.0);
+                                            ui.set_min_height(70.0);
+                                            ui.spacing_mut().item_spacing.y = 8.0;
+                                            ui.add(egui::Label::new(RichText::new(*label).font(medium(14.0)).color(pal().header_primary)).wrap());
+                                            for combo in combos.iter() {
+                                                ui.horizontal(|ui| {
+                                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                                    for key in combo.iter() {
+                                                        keycap(ui, key);
+                                                    }
+                                                });
+                                            }
+                                        });
                                     });
                                 }
                             });
