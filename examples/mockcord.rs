@@ -305,7 +305,7 @@ fn chatx_msgs(cdn: &str) -> Vec<Value> {
             "proxy_url": format!("{cdn}/attachments/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
     });
     add(102, "a sticker from elsewhere", &|m| m["sticker_items"] = json!([{ "id": "7777", "name": "Monkey Think", "format_type": 1 }]));
-    add(103, "a faraway emoji <:CRose:9999>", &|_| {});
+    add(103, "a faraway <:CRose:9999> emoji", &|_| {});
     add(101, "quiet please", &|m| m["flags"] = json!(4096));
     out
 }
@@ -514,7 +514,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         out.push(msg(snow(t0 + i as u64 * 60_000), THREAD, *a, text));
     }
     for (post, a, text) in [(POST_A, 103, "Could we get a compact message mode? Long threads get tall fast."), (POST_B, 105, "Emoji picker should remember recently used ones.")] {
-        out.push(msg(post, FORUM, a, text));
+        out.push(msg(post, post, a, text));
     }
     out
 }
