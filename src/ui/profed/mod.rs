@@ -83,6 +83,7 @@ pub struct Editor {
     pub eyedrop: Option<std::sync::Arc<egui::ColorImage>>,
     pub style_back: Option<style::Edit>,
     pub to_shop: bool,
+    opened: usize,
 }
 
 pub const BIO_PROMPTS: [&str; 6] = [
@@ -123,6 +124,7 @@ pub fn open(app: &mut App, guild: Option<Id>) {
         eyedrop: None,
         style_back: None,
         to_shop: false,
+        opened: t,
     });
     for k in ["me_profile", "owned", "avatars"] {
         refetch(app, k);
@@ -313,7 +315,7 @@ fn panel_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, panel: Rect, user: &cra
     let list = Rect::from_min_max(pos2(panel.left(), head.bottom()), panel.max);
     mark(ui, "profed_panel", list);
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(list));
-    egui::ScrollArea::vertical().id_salt("profed_panel").auto_shrink([false, false]).show(&mut scroll, |ui| {
+    egui::ScrollArea::vertical().id_salt(("profed_panel", ed.opened)).auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let x = list.left() + 18.0;
         let w = list.width() - 36.0;
@@ -535,7 +537,7 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
     let card_w = CARD_W.min(inner.width());
     let side_by_side = !one_column(ui.ctx()) && inner.width() >= CARD_W + 32.0 + 2.0 * board::CELL_MIN + 16.0;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(region.left(), region.top() + pad), pos2(region.right(), region.bottom() - 8.0))));
-    let out = egui::ScrollArea::vertical().id_salt("profed_region").auto_shrink([false, false]).show(&mut scroll, |ui| {
+    let out = egui::ScrollArea::vertical().id_salt(("profed_region", ed.opened)).auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let origin = pos2(inner.left(), ui.cursor().top());
         let card_rect = Rect::from_min_size(origin, vec2(card_w, 0.0));
