@@ -56,6 +56,14 @@ unsafe extern "system" fn early_hook(code: i32, wp: usize, lp: isize) -> isize {
     }
 }
 
+/// The thread drawing the window, while the window's in use, goes ahead of whatever else wants the
+/// cpu, or a build in the background shows up as hitches in scrolling. It only wants a millisecond
+/// or so a frame. Out of focus it goes back to normal, to stay out of a game's way.
+pub fn set_ui_priority(focused: bool) {
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_NORMAL};
+    unsafe { SetThreadPriority(GetCurrentThread(), if focused { THREAD_PRIORITY_ABOVE_NORMAL } else { THREAD_PRIORITY_NORMAL }) };
+}
+
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
