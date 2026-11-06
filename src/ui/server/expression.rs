@@ -223,7 +223,7 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
             let (id, fmt) = (sid(&st["id"]), st["format_type"].as_u64().unwrap_or(1));
             if fmt != 3 {
                 let ext = if fmt == 4 { "gif" } else { "png" };
-                egui::Image::from_uri(format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160")).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(t.min + vec2(24.0, 16.0), vec2(88.0, 88.0)));
+                egui::Image::from_uri(format!("{}/stickers/{id}.{ext}?size=160", crate::api::media())).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(t.min + vec2(24.0, 16.0), vec2(88.0, 88.0)));
             }
             crate::ui::text::paint(ui.painter(), pos2(t.center().x, t.bottom() - 40.0), Align2::CENTER_CENTER, st["name"].as_str().unwrap_or_default(), semi(14.0), pal().header_primary, 120.0);
             crate::ui::text::paint(ui.painter(), pos2(t.center().x, t.bottom() - 20.0), Align2::CENTER_CENTER, st["tags"].as_str().map(|t| format!(":{t}:")).unwrap_or_default().as_str(), reg(12.0), pal().header_secondary, 120.0);

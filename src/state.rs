@@ -652,6 +652,9 @@ pub struct Message {
     pub call: Option<Call>,
     #[serde(default)]
     pub refer: Option<(Id, Id)>,
+    // a forward: when the original was sent, unix ms; its content is what the message shows
+    #[serde(default)]
+    pub forward: Option<i64>,
     #[serde(default)]
     pub interaction: Option<Interaction>,
     #[serde(default)]
@@ -962,7 +965,7 @@ impl Activity {
         if let Some(id) = key.strip_prefix("spotify:") {
             Some(format!("https://i.scdn.co/image/{id}"))
         } else if let Some(p) = key.strip_prefix("mp:external/") {
-            Some(format!("https://media.discordapp.net/external/{p}"))
+            Some(format!("{}/external/{p}", api::media()))
         } else if let Some(n) = key.strip_prefix("twitch:") {
             Some(format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{n}-440x248.jpg"))
         } else if let Some(v) = key.strip_prefix("youtube:") {
@@ -1968,6 +1971,16 @@ impl Store {
             ..Default::default()
         };
         m.fill(v);
+        let snap = &v["message_snapshots"][0]["message"];
+        if m.flags & (1 << 14) != 0 && snap.is_object() {
+            for u in snap["mentions"].as_array().into_iter().flatten() {
+                self.upsert_user(u);
+            }
+            let flags = m.flags;
+            m.fill(snap);
+            m.flags = flags;
+            m.forward = Some(snap["timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(m.ts(), |t| t.timestamp_millis()));
+        }
         m.app_id = if v["application_id"].is_null() { author } else { sid(&v["application_id"]) };
         if v["thread"].is_object() {
             self.put_channel(Channel::parse(&v["thread"], guild));

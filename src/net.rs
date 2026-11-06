@@ -107,6 +107,8 @@ pub enum Tag {
     // report message: false the menu, true the submission
     Report(bool),
     Quiet,
+    // the account's favourites and frecency lists, read or written
+    Favs,
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
     // the activity shelf, launching one and the oauth steps its page asks for, by step
