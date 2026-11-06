@@ -3,7 +3,7 @@
 //! guide, Discovery, Add App, private threads, rail tooltips, then the same dialogs in a short
 //! window.
 
-use egui::{Event, Key, Rect, pos2, vec2};
+use egui::{Event, Key, Modifiers, Rect, pos2, vec2};
 
 use super::*;
 use crate::ui::{addapp, community, keys, newserver, popups};
@@ -14,6 +14,32 @@ const GAMERS: Id = 1001;
 impl Run {
     fn inside(ctx: &egui::Context, r: Rect) -> bool {
         ctx.content_rect().expand(0.5).contains_rect(r)
+    }
+
+    fn settle(&mut self, ctx: &egui::Context, name: &str) -> bool {
+        if self.sub == 0 {
+            self.shot(ctx, name);
+            self.sub = 1;
+            self.step_at = Instant::now();
+            return false;
+        }
+        if self.step_at.elapsed() < Duration::from_millis(600) {
+            return false;
+        }
+        self.sub = 0;
+        true
+    }
+
+    fn reach(&mut self, ctx: &egui::Context, key: &str) -> Option<Rect> {
+        let r = Self::at(ctx, key)?;
+        let m = Self::at(ctx, "modal:guild_notifs")?;
+        if r.top() >= m.top() + 80.0 && r.bottom() <= m.bottom() - 110.0 {
+            return Some(r);
+        }
+        let dir = if r.top() < m.top() + 80.0 { 150.0 } else { -150.0 };
+        self.queue.push_back(vec![Event::PointerMoved(m.center()), Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, dir), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+        self.wait = Instant::now() + Duration::from_millis(150);
+        None
     }
 
     fn typed(&mut self, s: &str) {
@@ -43,7 +69,9 @@ impl Run {
             3802 => {
                 if app.confirm.as_ref().is_some_and(|c| c.title == "Log Out" && c.body == "Are you sure you want to logout?") && app.settings_page.is_some() && app.token.is_some() {
                     self.mark("logout_asks_first");
-                    self.shot(ctx, "menus_logout.png");
+                    if !self.settle(ctx, "menus_logout.png") {
+                    return;
+                }
                 }
                 self.key(Key::Escape);
                 self.next(400);
@@ -62,7 +90,9 @@ impl Run {
                 if Self::inside(ctx, panel) && panel.width() >= 800.0f32.min(screen.width() - 1.0) && panel.height() > 450.0f32.min(screen.height() * 0.5) {
                     self.mark("combos_fits");
                 }
-                self.shot(ctx, "menus_combos.png");
+                if !self.settle(ctx, "menus_combos.png") {
+                    return;
+                }
                 app.combos = None;
                 let s = ctx.content_rect();
                 app.user_menu = Some((101, guild, None, pos2(s.center().x, s.bottom() - 90.0)));
@@ -73,15 +103,19 @@ impl Run {
                 if Self::inside(ctx, block) && row("Copy User ID").is_none_or(|r| Self::inside(ctx, r)) {
                     self.mark("tall_menu_shows_block");
                 }
-                self.shot(ctx, "menus_user_menu.png");
+                if !self.settle(ctx, "menus_user_menu.png") {
+                    return;
+                }
                 self.key(Key::Escape);
                 app.user_menu = None;
                 app.guild_notifs = Some(guild);
                 self.next(600);
             }
             3806 => {
-                let Some(r) = Self::at(ctx, "notifs:everyone") else { return };
-                self.shot(ctx, "menus_notifs.png");
+                let Some(r) = self.reach(ctx, "notifs:everyone") else { return };
+                if !self.settle(ctx, "menus_notifs.png") {
+                    return;
+                }
                 for key in ["notifs:mute", "notifs:roles", "notifs:highlights", "notifs:events", "notifs:mobile"] {
                     if Self::at(ctx, key).is_none() {
                         return self.fail(format!("notification settings has no {key}"));
@@ -92,13 +126,15 @@ impl Run {
             }
             3807..=3811 => {
                 let keys = ["notifs:roles", "notifs:highlights", "notifs:events", "notifs:mobile", "notifs:mute"];
-                let Some(r) = Self::at(ctx, keys[(self.step - 3807) as usize]) else { return };
+                let Some(r) = self.reach(ctx, keys[(self.step - 3807) as usize]) else { return };
                 self.click(r.center());
                 self.next(350);
             }
             3812 => {
-                let Some(r) = Self::at(ctx, "notifs:o0:0").or_else(|| Self::at(ctx, "notifs:add")) else { return };
-                self.shot(ctx, "menus_notifs_overrides.png");
+                let Some(r) = self.reach(ctx, "notifs:add") else { return };
+                if !self.settle(ctx, "menus_notifs_overrides.png") {
+                    return;
+                }
                 self.click(r.center());
                 self.next(400);
             }
@@ -133,7 +169,9 @@ impl Run {
                 if !ok && text == "No one with that name could be found." {
                     self.mark("add_friend_error_line");
                 }
-                self.shot(ctx, "menus_add_friend.png");
+                if !self.settle(ctx, "menus_add_friend.png") {
+                    return;
+                }
                 self.typed("alice");
                 self.next(200);
             }
@@ -143,6 +181,9 @@ impl Run {
             }
             3819 => {
                 let Some((ok, text)) = app.add_friend_note.clone() else { return };
+                if !ok && self.step_at.elapsed() < Duration::from_secs(3) {
+                    return;
+                }
                 if ok && text.contains("alice") {
                     self.mark("add_friend_success_line");
                 }
@@ -159,7 +200,9 @@ impl Run {
             3821 => {
                 let Some(r) = Self::at(ctx, "guide:action:0") else { return };
                 self.mark("server_guide_page");
-                self.shot(ctx, "menus_guide.png");
+                if !self.settle(ctx, "menus_guide.png") {
+                    return;
+                }
                 self.click(r.center());
                 self.next(700);
             }
@@ -178,7 +221,9 @@ impl Run {
                     return;
                 }
                 self.mark("discovery_page");
-                self.shot(ctx, "menus_discovery.png");
+                if !self.settle(ctx, "menus_discovery.png") {
+                    return;
+                }
                 app.server = None;
                 app.open_directory();
                 self.next(800);
@@ -191,7 +236,9 @@ impl Run {
             }
             3825 => {
                 let Some(r) = Self::at(ctx, "addapp:server") else { return };
-                self.shot(ctx, "menus_add_app.png");
+                if !self.settle(ctx, "menus_add_app.png") {
+                    return;
+                }
                 self.click(r.center());
                 self.next(500);
             }
@@ -214,13 +261,15 @@ impl Run {
             }
             3829 => {
                 let Some(r) = Self::at(ctx, "new_thread:private") else { return };
-                self.shot(ctx, "menus_private_thread.png");
+                if !self.settle(ctx, "menus_private_thread.png") {
+                    return;
+                }
                 self.click(r.center());
-                self.typed("private talk");
                 self.next(400);
             }
             3830 => {
-                self.key(Key::Enter);
+                let Some(r) = Self::at(ctx, "new_thread:create") else { return };
+                self.click(r.center());
                 self.next(900);
             }
             3831 => {
@@ -239,7 +288,9 @@ impl Run {
                 if tip.left() >= icon.right() && (tip.center().y - icon.center().y).abs() < 3.0 {
                     self.mark("rail_tip_beside_icon");
                 }
-                self.shot(ctx, "menus_rail_tip.png");
+                if !self.settle(ctx, "menus_rail_tip.png") {
+                    return;
+                }
                 app.select_guild(None);
                 app.open_directory();
                 self.next(900);
@@ -249,7 +300,9 @@ impl Run {
                 if title == "Discover" {
                     self.mark("title_says_discover");
                 }
-                self.shot(ctx, "menus_discover.png");
+                if !self.settle(ctx, "menus_discover.png") {
+                    return;
+                }
                 app.directory = None;
                 app.open_quests();
                 self.next(900);
@@ -297,7 +350,9 @@ impl Run {
                 if Self::inside(ctx, panel) {
                     self.mark("combos_fits_short");
                 }
-                self.shot(ctx, "menus_combos_short.png");
+                if !self.settle(ctx, "menus_combos_short.png") {
+                    return;
+                }
                 app.combos = None;
                 app.wizard = Some(newserver::Wizard::new(app));
                 self.next(700);
@@ -307,13 +362,17 @@ impl Run {
                 if Self::inside(ctx, m) {
                     self.mark("new_server_fits_short");
                 }
-                self.shot(ctx, "menus_new_server_short.png");
+                if !self.settle(ctx, "menus_new_server_short.png") {
+                    return;
+                }
                 app.wizard = None;
                 app.switcher = Some("@".into());
                 self.next(700);
             }
             3842 => {
-                self.shot(ctx, "menus_switcher_short.png");
+                if !self.settle(ctx, "menus_switcher_short.png") {
+                    return;
+                }
                 app.switcher = None;
                 app.guild_notifs = Some(guild);
                 self.next(700);
@@ -323,13 +382,17 @@ impl Run {
                 if Self::inside(ctx, m) {
                     self.mark("notifs_fits_short");
                 }
-                self.shot(ctx, "menus_notifs_short.png");
+                if !self.settle(ctx, "menus_notifs_short.png") {
+                    return;
+                }
                 app.guild_notifs = None;
                 app.open_directory();
                 self.next(900);
             }
             3844 => {
-                self.shot(ctx, "menus_discover_short.png");
+                if !self.settle(ctx, "menus_discover_short.png") {
+                    return;
+                }
                 app.directory = None;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
                 self.step = 99;
