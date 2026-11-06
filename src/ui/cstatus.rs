@@ -100,6 +100,6 @@ impl App {
             json!({ "custom_status": { "text": text, "expires_at": expires, "emoji_id": null, "emoji_name": null } })
         };
         self.store.custom_status = (!text.is_empty()).then(|| text.to_string());
-        self.rest("PATCH", "/users/@me/settings".into(), Some(body), Tag::Quiet);
+        self.rest("PATCH", "/users/@me/settings".into(), Some(body), Tag::fail(super::SAVE_FAILED));
     }
 }

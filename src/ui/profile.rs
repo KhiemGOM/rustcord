@@ -80,8 +80,19 @@ impl App {
         }
     }
 
+    pub fn save_note(&mut self, uid: Id, note: String) {
+        let was = self.notes.insert(uid, note.clone());
+        self.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": note })), Tag::rollback(move |app: &mut App| {
+            match &was {
+                Some(n) => app.notes.insert(uid, n.clone()),
+                None => app.notes.remove(&uid),
+            };
+        }));
+    }
+
     pub fn set_role(&mut self, gid: Id, uid: Id, role: Id, on: bool) {
         let m = self.store.members.entry(gid).or_default().entry(uid).or_default();
+        let had = m.roles.contains(&role);
         if on {
             if !m.roles.contains(&role) {
                 m.roles.push(role);
@@ -89,7 +100,13 @@ impl App {
         } else {
             m.roles.retain(|r| *r != role);
         }
-        self.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/members/{uid}/roles/{role}"), None, Tag::Quiet);
+        self.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/members/{uid}/roles/{role}"), None, Tag::rollback(move |app: &mut App| {
+            let m = app.store.members.entry(gid).or_default().entry(uid).or_default();
+            m.roles.retain(|r| *r != role);
+            if had {
+                m.roles.push(role);
+            }
+        }));
     }
 }
 
@@ -727,10 +744,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             app.ui.guild = Some(g);
         }
         Some(Do::Role(a)) => do_role(app, gid, uid, a),
-        Some(Do::Note(n)) => {
-            app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": n })), Tag::Quiet);
-            app.notes.insert(uid, n);
-        }
+        Some(Do::Note(n)) => app.save_note(uid, n),
         Some(Do::Play(u)) => ctx.open_url(egui::OpenUrl::new_tab(u)),
         Some(Do::Tag) => {
             if let Some((g, ..)) = user_tag(&app.store, uid) {

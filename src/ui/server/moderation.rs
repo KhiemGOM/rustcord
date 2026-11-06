@@ -70,7 +70,7 @@ pub fn bans(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some((id, name, reason)) = pick {
         app.confirm = Some(crate::ui::Confirm::new(format!("Revoke ban for {name}"), format!("Ban reason: {reason}"), "Revoke Ban", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/bans/{id}"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/guilds/{gid}/bans/{id}"), None, Tag::rollback(crate::ui::failed::stale("bans")));
             if let Some(s) = &mut app.server {
                 if let Some(Value::Array(a)) = s.data.get_mut("bans") {
                     a.retain(|b| sid(&b["user"]["id"]) != id);

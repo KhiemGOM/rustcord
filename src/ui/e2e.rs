@@ -30,6 +30,7 @@ use crate::voice::{State, audio};
 mod more;
 mod players;
 mod refusals;
+mod live;
 mod local;
 
 
@@ -122,6 +123,7 @@ pub struct Run {
     live_at: Option<Instant>,
     samples: Vec<serde_json::Value>,
     local: local::State,
+    fx: live::State,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -196,6 +198,7 @@ impl Run {
             live_at: None,
             samples: Vec::new(),
             local: Default::default(),
+            fx: Default::default(),
         })
     }
 
@@ -1371,6 +1374,7 @@ impl Run {
             2800..=2829 => self.camera_steps(app, ctx),
             2900..=2959 => self.clips_steps(app, ctx),
             4000..=4099 => self.gallery_steps(app, ctx),
+            3600..=3699 => self.gateway_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),

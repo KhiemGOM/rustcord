@@ -71,7 +71,7 @@ fn choose(ui: &mut Ui, open: &mut bool, value: &mut u8, options: &[(u8, &str, &s
 }
 
 fn patch(app: &mut App, gid: Id, body: Value) {
-    app.rest("PATCH", format!("/guilds/{gid}"), Some(body), Tag::Quiet);
+    app.rest("PATCH", format!("/guilds/{gid}"), Some(body), Tag::rollback(crate::ui::failed::stale("guild")));
 }
 
 pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
@@ -197,7 +197,11 @@ fn risky(app: &mut App, ui: &mut Ui, gid: Id) {
     ui.add_space(12.0);
     if ui.add_enabled_ui(left != 0, |ui| settings::primary(ui, "Disable")).inner.clicked() {
         let perms = everyone & !RISKY;
-        app.rest("PATCH", format!("/guilds/{gid}/roles/{gid}"), Some(json!({ "permissions": perms.to_string() })), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}/roles/{gid}"), Some(json!({ "permissions": perms.to_string() })), Tag::rollback(move |app: &mut App| {
+            if let Some(r) = app.store.guilds.get_mut(&gid).and_then(|g| g.roles.get_mut(&gid)) {
+                r.perms = everyone;
+            }
+        }));
         if let Some(r) = app.store.guilds.get_mut(&gid).and_then(|g| g.roles.get_mut(&gid)) {
             r.perms = perms;
         }
@@ -228,7 +232,7 @@ fn mfa_prune(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info:
     let mut mfa = info["mfa_level"].as_u64().unwrap_or(0) == 1;
     ui.add_enabled_ui(owner, |ui| {
         if settings::toggle(ui, &mut mfa, "Require 2FA for moderator actions", "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages. Only the server owner can change this setting if they have 2FA enabled.") {
-            settings::guarded(app, "POST", &format!("/guilds/{gid}/mfa"), Some(json!({ "level": mfa as u8 })));
+            settings::guarded_or(app, "guild", "POST", &format!("/guilds/{gid}/mfa"), Some(json!({ "level": mfa as u8 })));
             set_info(app, "mfa_level", json!(mfa as u8));
         }
     });

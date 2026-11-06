@@ -5,6 +5,8 @@ use std::time::Instant;
 
 use crate::api;
 
+mod live;
+
 /// std's map and set with foldhash: SipHash over snowflakes was a fifth of every frame.
 pub type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 pub type Set<K> = HashSet<K, foldhash::fast::RandomState>;
@@ -866,6 +868,7 @@ pub struct Instance {
 #[derive(Clone)]
 pub struct Sound {
     pub id: Id,
+    pub guild: Id,
     pub name: String,
     pub emoji: Option<ReactEmoji>,
 }
@@ -881,7 +884,7 @@ impl Sound {
         } else {
             None
         };
-        Sound { id: sid(&v["sound_id"]), name: st(&v["name"]), emoji }
+        Sound { id: sid(&v["sound_id"]), guild: sid(&v["guild_id"]), name: st(&v["name"]), emoji }
     }
 }
 
@@ -1023,6 +1026,8 @@ pub struct Msgs {
     pub loading: bool,
     #[serde(skip)]
     pub fresh: bool,
+    #[serde(skip)]
+    pub failed: Option<(Page, String)>,
     // after a jump into old history the list no longer reaches the newest message
     #[serde(skip)]
     pub detached: bool,
@@ -2374,6 +2379,7 @@ impl Store {
                 }
             }
             "GUILD_MEMBER_LIST_UPDATE" => self.member_list(d),
+            "CHANNEL_RECIPIENT_ADD" | "CHANNEL_RECIPIENT_REMOVE" | "GUILD_MEMBER_ADD" | "GUILD_MEMBER_REMOVE" => self.live(t, d),
             "GUILD_SCHEDULED_EVENT_CREATE" | "GUILD_SCHEDULED_EVENT_UPDATE" | "GUILD_SCHEDULED_EVENT_DELETE" => {
                 let gid = sid(&d["guild_id"]);
                 let live = matches!(d["status"].as_u64(), Some(1 | 2));

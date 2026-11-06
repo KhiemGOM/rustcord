@@ -89,7 +89,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
     ui.add_space(8.0);
     if hit {
         match bar {
-            Bar::Blocked(u) => app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet),
+            Bar::Blocked(u) => app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::reason()),
             Bar::Follow => app.follow = app.cur().map(super::follow::Follow::new),
         }
     }
@@ -123,7 +123,13 @@ pub fn banner(app: &mut App, ui: &mut Ui, chan: &Channel) {
     });
     if hit {
         let body = if chan.archived { json!({ "archived": false, "locked": false }) } else { json!({ "locked": false }) };
-        app.rest("PATCH", format!("/channels/{}", chan.id), Some(body), Tag::Quiet);
+        let (id, locked, archived) = (chan.id, chan.locked, chan.archived);
+        app.rest("PATCH", format!("/channels/{id}"), Some(body), Tag::rollback(move |app: &mut App| {
+            if let Some(c) = app.store.channels.get_mut(&id) {
+                c.locked = locked;
+                c.archived = archived;
+            }
+        }));
         if let Some(c) = app.store.channels.get_mut(&chan.id) {
             c.locked = false;
             c.archived = false;

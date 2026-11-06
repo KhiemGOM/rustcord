@@ -650,6 +650,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let list = entry.map(|e| &e.list).unwrap_or(&empty);
     let at_start = entry.is_some_and(|e| e.at_start);
     let loading = entry.is_some_and(|e| e.loading);
+    let failed = entry.is_some_and(|e| e.failed.is_some());
 
     let mut anchor = 0.0f32;
     let target = app.scroll_to.filter(|(c, _)| *c == ch).map(|(_, id)| id);
@@ -673,7 +674,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
         } else {
             let (r, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
-            if loading || list.is_empty() {
+            if (loading || list.is_empty()) && !failed {
                 crate::ui::motion::paint_spinner(ui, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().text_muted);
             }
         }
@@ -746,7 +747,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
 
     // read first: taking the store mutably every frame would throw away its cached sums
     let page = app.store.msgs.get(&ch).filter(|e| !e.loading).and_then(|e| {
-        if offset < 800.0 && !e.at_start && e.fresh {
+        if offset < 800.0 && !e.at_start && e.fresh && e.failed.is_none() {
             return e.list.iter().find(|m| !m.pending).map(|m| Page::Before(m.id));
         }
         let near_end = offset + out.inner_rect.height() > out.content_size.y - 800.0;
@@ -837,12 +838,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let text = app.convert_emoji(guild, text.trim());
                 if text.is_empty() {
                     app.delete_msg(ch, id, true);
-                } else if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
-                    if m.content != text {
-                        m.content = text.clone();
-                        m.edited = true;
-                        app.net.send(Cmd::Edit { channel: ch, id, content: text });
-                    }
+                } else if app.store.find_msg(ch, id).is_some_and(|m| m.content != text) {
+                    app.edit_msg(ch, id, text);
                 }
                 app.focus_composer = true;
             }
@@ -991,6 +988,29 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
                 app.jump_to(ch, f);
             }
         }
+    }
+    if app.store.msgs.get(&ch).is_some_and(|e| e.failed.is_some()) {
+        let red = Color32::from_rgb(255, 160, 155);
+        let p = ui.painter();
+        let note = p.layout_no_wrap("Messages Failed To Load".into(), medium(14.0), red);
+        let label = p.layout_no_wrap("Try Again".into(), semi(14.0), red);
+        let w = (16.0 + note.size().x + 12.0 + label.size().x + 16.0 + 8.0).max(284.0);
+        let r = Rect::from_center_size(pos2(area.center().x, area.bottom() - 34.0), vec2(w, 44.0));
+        p.rect(r, 16, Color32::from_rgb(35, 0, 4), Stroke::new(1.0, Color32::from_rgb(235, 95, 94)), egui::StrokeKind::Inside);
+        p.galley(pos2(r.left() + 16.0, r.center().y - note.size().y / 2.0), note, red);
+        let br = Rect::from_min_max(pos2(r.right() - 8.0 - label.size().x - 16.0, r.top() + 8.0), r.max - vec2(8.0, 8.0));
+        let resp = ui.interact(br, egui::Id::new("messages_retry"), Sense::click());
+        let fill = Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 51 } else { 31 });
+        p.rect_filled(br, 4, fill);
+        p.galley(br.center() - label.size() / 2.0, label, red);
+        app.rects.insert("messages:retry".into(), br);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.clicked() {
+            app.retry_messages(ch);
+        }
+        return;
     }
     let scrolled_up = offset + area.height() < content_h - 1500.0;
     app.far_up = scrolled_up.then_some(ch);

@@ -27,10 +27,15 @@ pub fn list_toggle(app: &mut App, ui: &mut Ui, gid: Id, label: &str) -> bool {
         if on {
             feats.push(FEATURE.into());
         }
+        let before = app.store.guilds.get(&gid).map(|g| g.features.clone()).unwrap_or_default();
         if let Some(g) = app.store.guilds.get_mut(&gid) {
             g.features = feats.clone();
         }
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": feats })), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": feats })), Tag::rollback(move |app: &mut App| {
+            if let Some(g) = app.store.guilds.get_mut(&gid) {
+                g.features = before.clone();
+            }
+        }));
     }
     true
 }

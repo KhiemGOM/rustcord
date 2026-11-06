@@ -500,7 +500,13 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             } else {
                 app.store.events_muted.remove(&gid);
             }
-            app.guild_settings(gid, serde_json::json!({ "mute_scheduled_events": on }));
+            app.guild_settings(gid, serde_json::json!({ "mute_scheduled_events": on }), crate::net::Tag::undo("Failed to update your settings. Please try again.", move |app: &mut App| {
+                if on {
+                    app.store.events_muted.remove(&gid);
+                } else {
+                    app.store.events_muted.insert(gid);
+                }
+            }));
         }
         Some(EventsAct::Read) => app.read_events(gid),
         None => {}
@@ -544,7 +550,13 @@ fn show_all_channels(app: &mut App, gid: Id) {
     if opt_in {
         app.store.opt_in.insert(gid);
     }
-    app.guild_settings(gid, serde_json::json!({ "flags": flags }));
+    app.guild_settings(gid, serde_json::json!({ "flags": flags }), crate::net::Tag::undo("Failed to update your settings. Please try again.", move |app: &mut App| {
+        if opt_in {
+            app.store.opt_in.remove(&gid);
+        } else {
+            app.store.opt_in.insert(gid);
+        }
+    }));
 }
 
 pub fn toggle_hide_muted(app: &mut App, gid: Id) {
@@ -553,7 +565,13 @@ pub fn toggle_hide_muted(app: &mut App, gid: Id) {
         app.store.hide_muted.insert(gid);
     }
     let body = serde_json::json!({ "hide_muted_channels": hide });
-    app.guild_settings(gid, body);
+    app.guild_settings(gid, body, crate::net::Tag::undo("Failed to update your settings. Please try again.", move |app: &mut App| {
+        if hide {
+            app.store.hide_muted.remove(&gid);
+        } else {
+            app.store.hide_muted.insert(gid);
+        }
+    }));
 }
 
 /// Discord's question before a channel or category goes.
@@ -563,7 +581,7 @@ pub fn delete_channel(app: &mut App, ch: Id) {
     let name = if c.kind == 4 || c.is_voice() { c.name.clone() } else { format!("#{}", c.name) };
     let body = format!("Are you sure you want to delete **{name}**? This cannot be undone.");
     app.confirm = Some(super::Confirm::new(title, body, title, move |app: &mut App| {
-        app.rest("DELETE", format!("/channels/{ch}"), None, crate::net::Tag::Quiet);
+        app.rest("DELETE", format!("/channels/{ch}"), None, crate::net::Tag::reason());
         app.chan_settings = None;
     }));
 }
@@ -573,7 +591,7 @@ pub fn leave(app: &mut App, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
     let body = format!("Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited.");
     app.confirm = Some(super::Confirm::new(format!("Leave '{name}'"), body, "Leave Server", move |app: &mut App| {
-        app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": app.store.lurking.contains(&gid) })), crate::net::Tag::Quiet);
+        app.rest("DELETE", format!("/users/@me/guilds/{gid}"), Some(serde_json::json!({ "lurking": app.store.lurking.contains(&gid) })), crate::net::Tag::reason());
         app.select_guild(None);
     }));
 }

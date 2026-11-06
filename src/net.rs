@@ -24,7 +24,7 @@ pub enum Ev {
     Conn(Conn),
     AuthFailed,
     Messages { channel: Id, page: Page, list: Vec<Value> },
-    MessagesFailed { channel: Id },
+    MessagesFailed { channel: Id, page: Page, err: String },
     // `again` when it'll be retried by itself
     SendFailed { channel: Id, nonce: String, err: String, again: bool },
     Auth(auth::Ev),
@@ -111,6 +111,7 @@ pub enum Tag {
     Quiet,
     // the account's favourites and frecency lists, read or written
     Favs,
+    Act(crate::ui::failed::Act),
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
     // the activity shelf, launching one and the oauth steps its page asks for, by step
@@ -126,15 +127,12 @@ pub enum Cmd {
     Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
-    Edit { channel: Id, id: Id, content: String },
-    Delete { channel: Id, id: Id },
-    React { channel: Id, id: Id, emoji: String, add: bool },
     Ack { channel: Id, id: Id },
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
     /// A moderation write whose reason rides in X-Audit-Log-Reason.
-    Audit { method: &'static str, path: String, body: Option<Value>, reason: String },
+    Audit { method: &'static str, path: String, body: Option<Value>, reason: String, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     /// A GET with an app's own access token instead of ours.
@@ -151,7 +149,7 @@ pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 
 fn allowed(c: &Cmd) -> bool {
     match c {
-        Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
+        Cmd::Send { .. } | Cmd::Interact(_) => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
         Cmd::Rest { method, .. } => *method == "GET",
         Cmd::Sticker { .. } | Cmd::Audit { .. } => false,
@@ -299,33 +297,14 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     match a.messages(channel, page).await {
                         Ok(Value::Array(list)) => tx.send(Ev::Messages { channel, page, list }),
-                        _ => tx.send(Ev::MessagesFailed { channel }),
+                        Err(err) if err == api::UNAUTHORIZED => tx.send(Ev::AuthFailed),
+                        Err(err) => tx.send(Ev::MessagesFailed { channel, page, err }),
+                        Ok(_) => tx.send(Ev::MessagesFailed { channel, page, err: String::new() }),
                     }
                 });
             }
             Cmd::Send { channel, content, nonce, reply, files, stickers, tts } => {
                 let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
-            }
-            Cmd::Edit { channel, id, content } => {
-                tokio::spawn(async move {
-                    if let Err(e) = a.edit(channel, id, &content).await {
-                        tx.send(Ev::Error(e));
-                    }
-                });
-            }
-            Cmd::Delete { channel, id } => {
-                tokio::spawn(async move {
-                    if let Err(e) = a.delete(channel, id).await {
-                        tx.send(Ev::Error(e));
-                    }
-                });
-            }
-            Cmd::React { channel, id, emoji, add } => {
-                tokio::spawn(async move {
-                    if let Err(e) = a.react(channel, id, &emoji, add).await {
-                        tx.send(Ev::Error(e));
-                    }
-                });
             }
             Cmd::Ack { channel, id } => {
                 tokio::spawn(async move {
@@ -336,19 +315,24 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.try_call(m.clone(), &path, body, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
+                    if res.as_ref().is_err_and(|e| e == api::UNAUTHORIZED) {
+                        return tx.send(Ev::AuthFailed);
+                    }
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
-                        (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
+                        (Tag::Quiet, Err(_)) => {}
                         _ => tx.send(Ev::Rest { tag, res }),
                     }
                 });
             }
-            Cmd::Audit { method, path, body, reason } => {
+            Cmd::Audit { method, path, body, reason, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    if let Err(f) = a.try_call(m.clone(), &path, body, None, Some(&reason)).await {
-                        tx.send(Ev::Error(fail(&tx, &m, &path, f)));
+                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason)).await.map_err(|f| fail(&tx, &m, &path, f));
+                    if res.as_ref().is_err_and(|e| e == api::UNAUTHORIZED) {
+                        return tx.send(Ev::AuthFailed);
                     }
+                    tx.send(Ev::Rest { tag, res });
                 });
             }
             Cmd::Sticker { guild, name, tags, description, file } => {

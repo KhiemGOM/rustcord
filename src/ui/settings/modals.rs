@@ -56,6 +56,7 @@ pub(super) enum Done {
     Refresh(&'static str),
     Sms,
     Toast,
+    Stale(&'static str),
 }
 
 pub struct Verify {
@@ -152,6 +153,12 @@ pub fn guard_done(app: &mut App, res: Result<Value, String>) {
         },
         Done::Toast => {
             if let Err(e) = res {
+                app.toast(e);
+            }
+        }
+        Done::Stale(k) => {
+            if let Err(e) = res {
+                crate::ui::failed::stale(k)(app);
                 app.toast(e);
             }
         }

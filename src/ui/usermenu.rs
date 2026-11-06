@@ -515,36 +515,36 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         Act::RemoveFriend => {
             let body = format!("Are you sure you want to remove {name} from your friends?");
             app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
-                app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet)
+                app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::reason())
             }));
         }
         Act::Ignore(true) => {
             let body = "You won't see their messages unless you choose to, and they won't know you ignored them.";
             app.confirm = Some(super::Confirm::new(format!("Ignore {name}?"), body, "Ignore", move |app: &mut App| {
                 app.store.ignored.insert(uid);
-                app.rest("PUT", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::Quiet)
+                app.rest("PUT", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| { app.store.ignored.remove(&uid); }))
             }));
         }
         Act::Ignore(false) => {
             app.store.ignored.remove(&uid);
-            app.rest("DELETE", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| { app.store.ignored.insert(uid); }));
         }
         Act::Block => {
             let body = "They won't be able to message you, and you won't see their messages unless you choose to.";
             app.confirm = Some(super::Confirm::new(format!("Block {name}?"), body, "Block", move |app: &mut App| {
-                app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::Quiet)
+                app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::reason())
             }));
         }
-        Act::Unblock => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::Quiet),
+        Act::Unblock => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::reason()),
         Act::Mute(m, secs) => app.mute_for(chan, false, m, secs),
         Act::PersonMute(on) => person(app, uid, |p| p.muted = on),
         Act::Soundboard(on) => person(app, uid, |p| p.soundboard_muted = on),
         Act::Focus => app.call.focus = if app.call.focus == Some(uid) { None } else { Some(uid) },
-        Act::Role(r, on) => app.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/members/{uid}/roles/{r}"), on.then(|| json!({})), Tag::Quiet),
-        Act::Move(c) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "channel_id": c.to_string() })), Tag::Quiet),
-        Act::ServerMute(on) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "mute": on })), Tag::Quiet),
-        Act::ServerDeaf(on) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "deaf": on })), Tag::Quiet),
-        Act::Disconnect => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "channel_id": null })), Tag::Quiet),
+        Act::Role(r, on) => app.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/members/{uid}/roles/{r}"), on.then(|| json!({})), Tag::reason()),
+        Act::Move(c) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "channel_id": c.to_string() })), Tag::reason()),
+        Act::ServerMute(on) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "mute": on })), Tag::reason()),
+        Act::ServerDeaf(on) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "deaf": on })), Tag::reason()),
+        Act::Disconnect => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "channel_id": null })), Tag::reason()),
         Act::ModView => app.open_mod_view(gid, uid),
         Act::Timeout if ctx.input(|i| i.modifiers.ctrl) => app.time_out(gid, uid, 60, ""),
         Act::Timeout => app.open_timeout(gid, uid),
@@ -576,7 +576,7 @@ impl App {
         };
         let flags = unreads | if on { 2048 } else { 0 };
         let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
-        self.guild_settings(0, body);
+        self.guild_settings(0, body, Tag::fail(super::SAVE_FAILED));
     }
 
     /// Rings them: in the dm you have with them, made first when there isn't one.
@@ -625,7 +625,7 @@ impl App {
         let link = format!("https://discord.gg/{code}");
         let existing = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [uid]));
         match existing {
-            Some(c) => self.rest("POST", format!("/channels/{c}/messages"), Some(json!({ "content": link })), Tag::Quiet),
+            Some(c) => self.rest("POST", format!("/channels/{c}/messages"), Some(json!({ "content": link })), Tag::fail(super::SEND_FAILED)),
             None => self.rest("POST", "/users/@me/channels".into(), Some(json!({ "recipients": [uid.to_string()] })), Tag::InviteDm(link)),
         }
         self.toast("Invite sent.");
