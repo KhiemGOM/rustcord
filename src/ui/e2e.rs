@@ -76,6 +76,8 @@ pub struct Run {
     chat_open: bool,
     travel: f32,
     last_off: f32,
+    // the channels a "browse" file has us open one after another, the next one, and when
+    browse: Option<(Vec<Id>, usize, Instant)>,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -160,6 +162,7 @@ impl Run {
             chat_open: false,
             travel: 0.0,
             last_off: 0.0,
+            browse: None,
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -402,12 +405,37 @@ impl Run {
                 self.travel += (off - self.last_off).abs();
                 self.last_off = off;
             }
+            if let Some((list, i, when)) = &mut self.browse
+                && when.elapsed() > Duration::from_secs(3)
+            {
+                if let Some(ch) = list.get(*i).copied() {
+                    let g = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+                    app.ui.guild = (g != 0).then_some(g);
+                    app.open(ch);
+                }
+                *i += 1;
+                *when = Instant::now();
+            }
+            if self.browse.is_some() {
+                ctx.request_repaint_after(Duration::from_secs(1));
+            }
             if at.elapsed() > Duration::from_millis(100) {
+                if self.browse.is_none() && self.dir.join("browse").exists() {
+                    self.browse = Some((app.ui.recent.clone(), 0, Instant::now() - Duration::from_secs(3)));
+                }
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
                 self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "costs": self.costs, "travel": self.travel });
+                let loaders = ctx.loaders();
+                let mut images = serde_json::Map::new();
+                for (id, n) in loaders.bytes.lock().iter().map(|l| (l.id().to_string(), l.byte_size()))
+                    .chain(loaders.image.lock().iter().map(|l| (l.id().to_string(), l.byte_size())))
+                    .chain(loaders.texture.lock().iter().map(|l| (l.id().to_string(), l.byte_size())))
+                {
+                    images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
+                }
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
@@ -809,7 +837,11 @@ impl Run {
                 self.next(600);
             }
             36 => {
-                let Some(r) = app.rects.get("reply").copied() else { return };
+                // the glide can carry it off again: go back and find it
+                let Some(r) = app.rects.get("reply").copied() else {
+                    self.step = 35;
+                    return;
+                };
                 // the start of the line: the hover toolbar covers the message's top right
                 self.click(r.left_center() + vec2(40.0_f32.min(r.width() / 2.0), 0.0));
                 self.next(0);

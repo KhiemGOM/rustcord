@@ -307,6 +307,11 @@ pub struct App {
     sweep_at: Instant,
     system: crate::winsys::Prefs,
     system_at: f64,
+    // when the window stopped being used (hidden or out of focus), and whether its memory went
+    // back since; and whether the pages startup left behind have gone
+    quiet: Option<(Instant, bool)>,
+    trimmed_startup: bool,
+    born: Instant,
 }
 
 impl App {
@@ -317,7 +322,11 @@ impl App {
     ) -> Self {
         let ctx = cc.egui_ctx.clone();
         // egui's own ctrl +/- zoom goes by 10%; ours steps through discord's levels
-        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        ctx.options_mut(|o| {
+            o.zoom_with_keyboard = false;
+            // once an image is on the gpu, its decoded pixels and bytes are only a second copy
+            o.reduce_texture_memory = true;
+        });
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
         let textures = std::sync::Arc::new(crate::imgcache::Textures::default());
@@ -500,6 +509,9 @@ impl App {
             sweep_at: Instant::now(),
             system: crate::winsys::preferences(),
             system_at: 0.0,
+            quiet: None,
+            trimmed_startup: false,
+            born: t0,
         };
         app.apply_settings(&ctx);
         let (htx, hrx) = std::sync::mpsc::channel();
@@ -1242,6 +1254,34 @@ impl App {
 
     /// Minimized or put away in the tray: eframe stops calling ui() for the first and we skip
     /// drawing for the second, so logic() keeps the badge and the tray icon up to date.
+    /// Pages nothing touches go back to Windows: what startup left behind (READY's parse, setting
+    /// up) half a minute in, and everything once the window has sat hidden for 5 s or out of focus
+    /// for a minute. Drawing and the gateway touch about 40 MB; the rest comes back if it's needed.
+    fn trim_memory(&mut self, ctx: &egui::Context) {
+        let away = self.away(ctx);
+        let wait = if away { Duration::from_secs(5) } else { Duration::from_secs(60) };
+        if !(away || !ctx.input(|i| i.focused)) {
+            self.quiet = None;
+        } else if self.quiet.is_none() {
+            self.quiet = Some((Instant::now(), false));
+        }
+        let startup = (!self.trimmed_startup).then(|| self.born + Duration::from_secs(30));
+        let quiet = self.quiet.filter(|q| !q.1).map(|(at, _)| at + wait);
+        let Some(due) = startup.into_iter().chain(quiet).min() else { return };
+        let now = Instant::now();
+        if now < due {
+            ctx.request_repaint_after(due - now);
+            return;
+        }
+        crate::winsys::trim();
+        self.trimmed_startup |= self.born.elapsed() >= Duration::from_secs(30);
+        if let Some((at, false)) = self.quiet
+            && at.elapsed() >= wait
+        {
+            self.quiet = Some((at, true));
+        }
+    }
+
     fn away(&self, ctx: &egui::Context) -> bool {
         self.frames > 0 && (ctx.input(|i| i.viewport().visible() == Some(false)) || !crate::winsys::shown())
     }
@@ -1914,6 +1954,7 @@ impl eframe::App for App {
         self.pump(ctx);
         activity::logic(self, ctx);
         self.os_settings(ctx, frame);
+        self.trim_memory(ctx);
         if self.away(ctx) {
             self.update_title(ctx);
             if let Some(mut e) = self.e2e.take() {
@@ -2084,9 +2125,10 @@ impl eframe::App for App {
                 e.cost("cache_save", took.elapsed());
             }
         }
-        if self.sweep_at.elapsed() >= Duration::from_secs(30) {
+        // images off screen for two minutes go, animations (all their frames in memory) after ten seconds
+        if self.sweep_at.elapsed() >= Duration::from_secs(5) {
             self.sweep_at = Instant::now();
-            for uri in self.textures.stale(Duration::from_secs(120)) {
+            for uri in self.textures.stale(Duration::from_secs(120), Duration::from_secs(10)) {
                 ctx.forget_image(&uri);
             }
         }
@@ -2197,7 +2239,7 @@ impl eframe::App for App {
         c.to_normalized_gamma_f32()
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         crate::tray::remove();
         if self.token.is_some() {
             cache::save(&self.store, &self.ui, true);
