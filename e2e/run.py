@@ -42,6 +42,7 @@ import players
 import voice_settings
 import rpc
 import qol
+import shop
 import web
 import sound
 import activity
@@ -511,6 +512,7 @@ def main():
         **people.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
+        **shop.checks({"cold": cold, "warm": warm}, reqs, data),
         **clips.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
