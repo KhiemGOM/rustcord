@@ -27,7 +27,7 @@ def sweep(art, spec):
     size, _, zoom = spec.partition("@")
     name = "tour_" + spec.replace("@", "_z")
     out = art / name
-    extra = {"RUSTCORD_TOUR": str(out), "RUSTCORD_TOUR_SIZE": size, "RUSTCORD_TOUR_ZOOM": zoom or "100", "RUSTCORD_READONLY": "1", "RUSTCORD_TOUR_SERVER": "1",
+    extra = {"RUSTCORD_TOUR": str(out), "RUSTCORD_TOUR_SIZE": size, "RUSTCORD_TOUR_ZOOM": zoom or "100", "RUSTCORD_READONLY": None if "--writable" in sys.argv else "1", "RUSTCORD_TOUR_SERVER": "1",
              "RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_CAM": "1", "RUSTCORD_SILENT": "1"}
     log = art / f"{name}.jsonl"
     mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE)])
@@ -37,7 +37,7 @@ def sweep(art, spec):
     finally:
         mock.kill()
     sent = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()] if log.exists() else []
-    writes = [f'{r["method"]} {r["path"]}' for r in sent if r["method"] != "GET"]
+    writes = [f'{r["method"]} {r["path"]}' for r in sent if r.get("method") not in (None, "GET")]
     shots = res.get("screenshots", [])
     skipped = res.get("rects", {}).get("sweep_skipped", [])
     checks = {

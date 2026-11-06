@@ -122,7 +122,9 @@ impl Run {
                     return;
                 };
                 if self.step_at.elapsed() > Duration::from_secs(15) {
-                    self.sweep.skipped.push(t.name(self.sweep.i));
+                    let why = format!("{} settings={:?} server={} chan={} ready={}", t.name(self.sweep.i), app.settings_page, app.server.is_some(), app.chan_settings.is_some(), self.sweep.ready);
+                    let _ = std::fs::write(self.dir.join("progress"), &why);
+                    self.sweep.skipped.push(why);
                     self.sweep.i += 1;
                     self.sweep.ready = false;
                     self.step_at = Instant::now();
