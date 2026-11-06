@@ -4579,8 +4579,7 @@ impl Run {
                     .store
                     .msgs
                     .get(&general)
-                    .and_then(|e| e.list.iter().find_map(|m| m.poll.as_ref()))
-                    .is_some_and(|p| p.answers.iter().any(|a| a.id == 2 && a.me));
+                    .is_some_and(|e| e.list.iter().filter_map(|m| m.poll.as_ref()).any(|p| p.answers.iter().any(|a| a.id == 2 && a.me)));
                 if voted {
                     self.mark("home_poll");
                     self.shot(ctx, "home_poll.png");
