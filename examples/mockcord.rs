@@ -44,6 +44,7 @@ struct World {
     events: broadcast::Sender<Value>,
     voice_port: u16,
     voice_chan: Option<(Option<u64>, u64)>,
+    clip_flags: u64,
     voices: Vec<Voice>,
     // messages saved for later: bookmarks, and reminders with a due time
     saved: Vec<Value>,
@@ -2212,6 +2213,7 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     let mut wl = w.lock().unwrap();
     let moved = chan.map(|c| (guild, c)) != wl.voice_chan;
     wl.voice_chan = chan.map(|c| (guild, c));
+    wl.clip_flags = d["flags"].as_u64().unwrap_or(0);
     let stage = chan.and_then(stage_guild);
     if moved {
         wl.speakers.remove(&ME);
@@ -2412,6 +2414,7 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
     let live = Arc::new(AtomicBool::new(true));
     let gw = Gw::new();
     let (mut channel, mut dm, mut kind, mut cssrc) = (0u64, false, Kind::Voice, CLIENT_SSRC);
+    let mut told_clips = false;
     let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 1000.0 } }).to_string())).await;
     while let Some(Ok(m)) = rx.next().await {
         let mut out: Vec<Reply> = Vec::new();
@@ -2491,17 +2494,15 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                         line["seq_ack"] = d["seq_ack"].clone();
                         tokio::time::sleep(Duration::from_millis(40)).await;
                         let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
+                        // once the client's voice state says it's clipping, the other speaker says so too
+                        if kind == Kind::Voice && !told_clips && w.lock().unwrap().clip_flags & 1 != 0 {
+                            told_clips = true;
+                            out.push(Reply::Json(json!({ "op": 18, "d": { "user_id": SPEAKER.to_string(), "flags": 3 } })));
+                        }
                     }
                     Some(5) => line["speaking"] = d["speaking"].clone(),
                     Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
                     Some(12) | Some(15) | Some(31) => line["d"] = d.clone(),
-                    // clip flags: once the client says it's clipping, the other speaker says so too
-                    Some(18) => {
-                        line["d"] = d.clone();
-                        if kind == Kind::Voice && d["flags"].as_u64().unwrap_or(0) & 1 != 0 {
-                            out.push(Reply::Json(json!({ "op": 18, "d": { "user_id": SPEAKER.to_string(), "flags": 3 } })));
-                        }
-                    }
                     Some(23) => {
                         // everyone is ready, so media switches to E2EE now
                         line["d"] = d.clone();
@@ -2773,6 +2774,7 @@ async fn main() {
         events,
         voice_port,
         voice_chan: None,
+        clip_flags: 0,
         voices: Vec::new(),
         saved: Vec::new(),
         edits: Default::default(),

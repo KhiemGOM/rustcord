@@ -394,7 +394,6 @@ impl Sess {
                 }
                 c = ctl.recv() => match c {
                     Some(Ctl::Camera(on)) => self.video(ws, on.then_some((Source::Camera, Quality::CAMERA))).await,
-                    Some(Ctl::Flags(f)) => send(ws, &json!({ "op": 18, "d": { "flags": f } })).await,
                     None => return End::Quit,
                 },
             };

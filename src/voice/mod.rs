@@ -51,7 +51,6 @@ pub enum Media {
 
 pub enum Ctl {
     Camera(bool),
-    Flags(u32),
 }
 
 pub struct Connect {
@@ -146,6 +145,7 @@ pub struct Live {
 #[derive(Default)]
 pub struct VoiceUi {
     pub state: State,
+    clip_flags: u32,
     pub guild: Id,
     pub chan: Option<Id>,
     pub mute: bool,
@@ -318,7 +318,17 @@ impl VoiceUi {
             "self_mute": self.mute || self.deaf,
             "self_deaf": self.deaf,
             "self_video": self.camera,
+            "flags": self.clip_flags,
         }})));
+    }
+
+    pub fn set_clip_flags(&mut self, net: &Net, flags: u32) {
+        if self.clip_flags != flags {
+            self.clip_flags = flags;
+            if self.chan.is_some() {
+                self.op4(net);
+            }
+        }
     }
 
     pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
