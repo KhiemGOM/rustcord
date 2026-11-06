@@ -4,6 +4,7 @@
 //! the protocol itself is spoken in Rust (`ui/activity/bridge.rs`). The page has no way to reach
 //! anything but its one frame, and the frame has no way off its own origin.
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 
 use serde_json::{Value, json};

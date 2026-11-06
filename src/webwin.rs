@@ -1,13 +1,13 @@
 //! Purchases open here: a small WebView2 window owned by the main window, on discord.com with
 //! the account signed in, so a checkout never leaves the app for the browser. One window at a
 //! time, on its own thread; it keeps no profile on disk. It loads only Discord's standalone
-//! billing pages and the payment providers they use, and the page stays hidden behind a dark
-//! window until the real target has loaded, so the sign-in step is never seen. Browsing is
-//! never done here: any other page is refused.
+//! billing pages and the payment providers they use. The account's token is put in place by a
+//! script that runs before the page's own, so the target is the first and only page loaded and
+//! the window is dark until it paints. Browsing is never done here: any other page is refused.
 
 pub mod child;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -18,16 +18,17 @@ use std::time::Duration;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
-    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    AddScriptToExecuteOnDocumentCreatedCompletedHandler, DownloadStartingEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler, WindowCloseRequestedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::{E_POINTER, HWND as Hwnd, RECT as WinRect};
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
 use windows::core::{HSTRING, Interface, PCWSTR, PWSTR};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, LRESULT, RECT, WAIT_TIMEOUT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
 use windows_sys::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -37,7 +38,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const WM_GO: u32 = WM_APP + 1;
-const CLIENT: (i32, i32) = (640, 720);
+const PAYMENT_STEP_WIDTH: i32 = 480;
+const PAYMENT_STEP_MIN_HEIGHT: i32 = 750;
+const SPACE_24: i32 = 24;
+const BROWSER_EXIT_MS: u32 = 15_000;
+const CLIENT: (i32, i32) = (PAYMENT_STEP_WIDTH + 2 * SPACE_24, PAYMENT_STEP_MIN_HEIGHT);
 const SURFACE: u32 = 0x0022_1f1e;
 const INK: u32 = 0x00f5_f3f2;
 pub const NITRO_MONTHLY: &str = "511651880837840896";
@@ -49,6 +54,7 @@ static BUSY: AtomicBool = AtomicBool::new(false);
 static NEXT: Mutex<Option<String>> = Mutex::new(None);
 static SHOWN: Mutex<Option<String>> = Mutex::new(None);
 static COUNT: AtomicU32 = AtomicU32::new(0);
+static BROWSER: AtomicU32 = AtomicU32::new(0);
 static LIVE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 thread_local! {
@@ -58,10 +64,6 @@ thread_local! {
 struct View {
     ctl: ICoreWebView2Controller,
     wv: ICoreWebView2,
-    base: String,
-    token: Option<String>,
-    signed: Cell<bool>,
-    target: RefCell<Option<String>>,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -163,25 +165,15 @@ fn allowed(url: &str, base: &str) -> bool {
     let Ok(u) = reqwest::Url::parse(url) else { return false };
     if on_discord(url, base) {
         let p = u.path();
-        return p.starts_with("/billing/") || p == "/robots.txt" || p.starts_with("/login");
+        return p.starts_with("/billing/") || p.starts_with("/login");
     }
     u.scheme() == "https" && HOSTS.iter().any(|d| host_in(&u, d))
 }
 
-fn sign_in_script(token: &str) -> Option<String> {
-    let safe = !token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-+/=".contains(&b));
-    safe.then(|| format!("localStorage.setItem('token',JSON.stringify('{token}'))"))
-}
-
-fn go(v: &View, url: &str) {
-    let on_site = reqwest::Url::parse(url).ok().zip(reqwest::Url::parse(&v.base).ok()).is_some_and(|(u, b)| u.origin() == b.origin());
-    if v.token.is_some() && !v.signed.get() && on_site {
-        v.signed.set(true);
-        *v.target.borrow_mut() = Some(url.to_string());
-        navigate(v, &format!("{}/robots.txt", v.base));
-    } else {
-        navigate(v, url);
-    }
+fn sign_in_script(token: &str, base: &str) -> Option<String> {
+    let safe = |s: &str, extra: &[u8]| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || extra.contains(&b));
+    let origin = reqwest::Url::parse(base).ok()?.origin().ascii_serialization();
+    (safe(token, b"._-+/=") && safe(&origin, b":/.-")).then(|| format!("if(location.origin==='{origin}')localStorage.setItem('token',JSON.stringify('{token}'))"))
 }
 
 fn navigate(v: &View, url: &str) {
@@ -215,8 +207,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             if let Some(v) = view()
                 && let Some(u) = NEXT.lock().unwrap().take()
             {
-                let _ = unsafe { v.ctl.SetIsVisible(false) };
-                go(&v, &u);
+                navigate(&v, &u);
             }
             0
         }
@@ -256,10 +247,8 @@ fn create_window(parent: isize) -> HWND {
         let area = work.rcWork;
         let style = WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
         let mut r = RECT { left: 0, top: 0, right: CLIENT.0 * dpi / 96, bottom: CLIENT.1 * dpi / 96 };
-        r.right = r.right.min((area.right - area.left) * 9 / 10);
-        r.bottom = r.bottom.min((area.bottom - area.top) * 9 / 10);
         AdjustWindowRectExForDpi(&mut r, style, 0, 0, dpi as u32);
-        let (w, h) = (r.right - r.left, r.bottom - r.top);
+        let (w, h) = ((r.right - r.left).min(area.right - area.left), (r.bottom - r.top).min(area.bottom - area.top));
         let mut around = area;
         if !parent.is_null() {
             GetWindowRect(parent, &mut around);
@@ -344,12 +333,27 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
         let s = wv.Settings()?;
         s.SetAreDevToolsEnabled(false)?;
         s.SetIsStatusBarEnabled(false)?;
-        ctl.SetIsVisible(false)?;
+        ctl.SetIsVisible(true)?;
     }
     fit(&ctl, hwnd);
 
+    let mut pid = 0u32;
+    let _ = unsafe { wv.BrowserProcessId(&mut pid) };
+    BROWSER.store(pid, Relaxed);
+
+    if let Some(js) = token.as_deref().and_then(|t| sign_in_script(t, base)) {
+        let (tx, rx) = mpsc::channel();
+        let added = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(move |_, _| {
+            let _ = tx.send(());
+            Ok(())
+        }));
+        unsafe { wv.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(js), &added)? };
+        let _ = webview2_com::wait_with_pump(rx);
+    }
+
     let mut t = 0i64;
     let origin = base.to_string();
+    let opens = origin.clone();
     unsafe {
         wv.add_NavigationStarting(
             &NavigationStartingEventHandler::create(Box::new(move |_, args| {
@@ -378,7 +382,7 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
                     let url = take_pwstr(u);
                     args.SetHandled(true)?;
                     match view() {
-                        Some(v) if allowed(&url, &v.base) => go(&v, &url),
+                        Some(v) if allowed(&url, &opens) => navigate(&v, &url),
                         _ => browser(&url),
                     }
                 }
@@ -403,28 +407,9 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
             &mut t,
         )?;
         wv.add_NavigationCompleted(
-            &NavigationCompletedEventHandler::create(Box::new(|_, args| {
-                let (Some(v), Some(args)) = (view(), args) else { return Ok(()) };
-                let src = source(&v.wv);
-                let Some(target) = v.target.borrow_mut().take() else {
-                    let _ = v.ctl.SetIsVisible(true);
-                    *SHOWN.lock().unwrap() = Some(src);
-                    return Ok(());
-                };
-                let mut ok = Default::default();
-                args.IsSuccess(&mut ok)?;
-                let script = v.token.as_deref().and_then(sign_in_script).filter(|_| ok.as_bool() && src == format!("{}/robots.txt", v.base));
-                match script {
-                    Some(js) => {
-                        let done = ExecuteScriptCompletedHandler::create(Box::new(move |_, _| {
-                            if let Some(v) = view() {
-                                navigate(&v, &target);
-                            }
-                            Ok(())
-                        }));
-                        let _ = v.wv.ExecuteScript(&HSTRING::from(js), &done);
-                    }
-                    None => navigate(&v, &target),
+            &NavigationCompletedEventHandler::create(Box::new(|_, _| {
+                if let Some(v) = view() {
+                    *SHOWN.lock().unwrap() = Some(source(&v.wv));
                 }
                 Ok(())
             })),
@@ -447,22 +432,43 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
         )?;
     }
 
-    let v = Rc::new(View { ctl, wv, base: base.to_string(), token, signed: Cell::new(false), target: RefCell::new(None) });
+    let v = Rc::new(View { ctl, wv });
     VIEW.with(|c| *c.borrow_mut() = Some(v.clone()));
     if let Some(u) = NEXT.lock().unwrap().take() {
-        go(&v, &u);
+        navigate(&v, &u);
     }
     Ok(())
 }
 
+fn running(pid: u32) -> bool {
+    unsafe {
+        let h = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let alive = WaitForSingleObject(h, 0) == WAIT_TIMEOUT;
+        CloseHandle(h);
+        alive
+    }
+}
+
+fn wait_exit(pid: u32) {
+    unsafe {
+        let h = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if !h.is_null() {
+            WaitForSingleObject(h, BROWSER_EXIT_MS);
+            CloseHandle(h);
+        }
+    }
+}
+
 fn sweep(root: &Path) {
-    let mine = format!("{}-", std::process::id());
     for e in std::fs::read_dir(root).into_iter().flatten().flatten() {
         if LIVE.lock().unwrap().contains(&e.path()) {
             continue;
         }
-        let stale = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|a| a > Duration::from_secs(86400));
-        if stale || e.file_name().to_string_lossy().starts_with(&mine) {
+        let owner = e.file_name().to_string_lossy().split('-').next().and_then(|p| p.parse::<u32>().ok());
+        if owner.is_none_or(|p| p == std::process::id() || !running(p)) {
             let _ = std::fs::remove_dir_all(e.path());
         }
     }
@@ -501,6 +507,10 @@ fn run(parent: isize, token: Option<String>) {
     OPEN.store(0, Relaxed);
     *SHOWN.lock().unwrap() = None;
     BUSY.store(false, Relaxed);
+    let browser = BROWSER.swap(0, Relaxed);
+    if browser != 0 {
+        wait_exit(browser);
+    }
     for _ in 0..10 {
         if std::fs::remove_dir_all(&data).is_ok() || !data.exists() {
             break;
@@ -523,7 +533,6 @@ mod tests {
             "https://discord.com/billing/premium/subscribe?plan_id=1&gift=false",
             "https://www.discord.com/billing/payment-sources/create",
             "https://discord.com/billing/popup-bridge/abc",
-            "https://discord.com/robots.txt",
             "https://js.stripe.com/v3/",
             "https://checkoutshopper-live.adyen.com/x",
             "https://www.paypal.com/checkoutnow",
@@ -572,8 +581,9 @@ mod tests {
 
     #[test]
     fn only_a_plain_token_is_scripted() {
-        assert!(sign_in_script("abc.DEF_-123").is_some());
-        assert!(sign_in_script("a'); alert(1);//").is_none());
-        assert!(sign_in_script("").is_none());
+        assert!(sign_in_script("abc.DEF_-123", B).is_some());
+        assert!(sign_in_script("a'); alert(1);//", B).is_none());
+        assert!(sign_in_script("", B).is_none());
+        assert!(sign_in_script("abc", "not a url").is_none());
     }
 }

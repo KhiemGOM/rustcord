@@ -1,6 +1,7 @@
 //! Nitro Home and the Shop, the two pages under Friends in the Home sidebar, drawn from the calls
-//! Discord's own pages make. Browsing never leaves the client; only a purchase opens the checkout
-//! window.
+//! Discord's own pages make and sized by its CSS rules (container widths, grids that fill and
+//! wrap, min and max sizes), never by a fixed window size. Browsing never leaves the client; only
+//! a purchase opens the checkout window.
 
 mod catalog;
 mod nitro;
@@ -14,6 +15,17 @@ use super::App;
 use super::icons::{self, Icon};
 use super::settings::{mark, refetch, remote};
 use crate::theme::*;
+
+pub(super) const SPACE_8: f32 = 8.0;
+pub(super) const SPACE_12: f32 = 12.0;
+pub(super) const SPACE_16: f32 = 16.0;
+pub(super) const SPACE_20: f32 = 20.0;
+pub(super) const SPACE_24: f32 = 24.0;
+pub(super) const SPACE_32: f32 = 32.0;
+pub(super) const RADIUS_SM: u8 = 8;
+pub(super) const RADIUS_LG: u8 = 16;
+pub(super) const RADIUS_XXL: u8 = 32;
+pub(super) const CARD_MIN: f32 = 246.0;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
@@ -77,6 +89,15 @@ pub(super) fn list<'a>(v: Option<&'a Value>) -> &'a [Value] {
     v.and_then(|v| v.as_array()).map_or(&[], |a| a.as_slice())
 }
 
+/// `repeat(auto-fill, minmax(min, 1fr))` with `gap` between: how many columns fit.
+pub(super) fn columns(width: f32, min: f32, gap: f32) -> usize {
+    (((width + gap) / (min + gap)).floor() as usize).max(1)
+}
+
+pub(super) fn cell(width: f32, cols: usize, gap: f32) -> f32 {
+    (width - (cols - 1) as f32 * gap) / cols as f32
+}
+
 pub(super) fn pic(ui: &Ui, url: &str, r: Rect, radius: u8, cover: bool) {
     let src = crate::gif::uri(ui.ctx(), url, ui.is_rect_visible(r));
     let Ok(TexturePoll::Ready { texture }) = egui::Image::new(src.clone()).load_for_size(ui.ctx(), r.size()) else { return };
@@ -97,8 +118,8 @@ pub(super) fn pic(ui: &Ui, url: &str, r: Rect, radius: u8, cover: bool) {
 pub(super) fn button(ui: &mut Ui, r: Rect, label: &str, fill: Color32, ink: Color32, key: &str) -> bool {
     let resp = ui.interact(r, ui.id().with(("shop_button", key)), Sense::click());
     let fill = if resp.hovered() { fill.lerp_to_gamma(Color32::BLACK, 0.12) } else { fill };
-    ui.painter().rect_filled(r, CornerRadius::same(8), fill);
-    crate::ui::text::paint(ui.painter(), r.center(), egui::Align2::CENTER_CENTER, label, medium(16.0), ink, r.width() - 16.0);
+    ui.painter().rect_filled(r, CornerRadius::same(RADIUS_SM), fill);
+    crate::ui::text::paint(ui.painter(), r.center(), egui::Align2::CENTER_CENTER, label, medium(16.0), ink, r.width() - SPACE_16);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -106,9 +127,24 @@ pub(super) fn button(ui: &mut Ui, r: Rect, label: &str, fill: Color32, ink: Colo
     resp.clicked()
 }
 
+pub(super) fn shade(ui: &Ui, r: Rect, base: Color32, from: u8, to: u8) {
+    let mut m = egui::Mesh::default();
+    let (a, b) = (Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), from), Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), to));
+    for (p, c) in [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()].into_iter().zip([a, a, b, b]) {
+        m.colored_vertex(p, c);
+    }
+    m.add_triangle(0, 1, 2);
+    m.add_triangle(0, 2, 3);
+    ui.painter().add(egui::Shape::mesh(m));
+}
+
+pub(super) fn text_width(ui: &Ui, text: &str, font: egui::FontId) -> f32 {
+    ui.painter().layout_no_wrap(text.to_string(), font, Color32::WHITE).size().x
+}
+
 pub(super) fn round_button(ui: &mut Ui, r: Rect, icon: Icon, tint: Color32, key: &str) -> bool {
     let resp = ui.interact(r, ui.id().with(("shop_round", key)), Sense::click());
-    ui.painter().rect_filled(r, CornerRadius::same(16), Color32::from_black_alpha(if resp.hovered() { 170 } else { 143 }));
+    ui.painter().rect_filled(r, CornerRadius::same(RADIUS_LG), Color32::from_black_alpha(if resp.hovered() { 170 } else { 143 }));
     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), tint);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

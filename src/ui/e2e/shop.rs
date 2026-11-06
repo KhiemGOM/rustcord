@@ -54,9 +54,34 @@ impl Run {
                 if crate::webwin::is_open() {
                     return;
                 }
+                self.next(0);
+                self.step = 3234;
+            }
+            3234 => {
+                let Some(r) = at("shop:nitro:Nitro") else { return };
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(300);
+            }
+            3235 => {
+                let Some(r) = at("shop:card:Nitro") else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            3236 => {
+                if crate::webwin::shown().is_some_and(|u| u.ends_with("&gift=false") && u.contains("/billing/premium/subscribe?plan_id=")) {
+                    self.mark("nitro_subscribe_checkout");
+                    crate::webwin::press_escape();
+                    self.next(0);
+                }
+            }
+            3237 => {
+                if crate::webwin::is_open() {
+                    return;
+                }
                 let Some(r) = app.rects.get("home:Shop").copied() else { return };
                 self.click(r.center());
                 self.next(0);
+                self.step = 3206;
             }
             3206 => {
                 if page != Some(Page::Shop) || !loaded(app, "shop_home") || !loaded(app, "shop_cats") || at("shop:collection").is_none() {
@@ -90,7 +115,15 @@ impl Run {
                 self.next(400);
             }
             3210 => {
-                if !app.shop.as_ref().is_some_and(|s| s.only[1]) || at("shop:card:5102").is_none() {
+                if !app.shop.as_ref().is_some_and(|s| s.only[1]) {
+                    return;
+                }
+                forget(&["shop:card:5101", "shop:card:5102"]);
+                self.next(300);
+                self.step = 3230;
+            }
+            3230 => {
+                if at("shop:card:5102").is_none() {
                     return;
                 }
                 if at("shop:card:5101").is_none() {
@@ -99,6 +132,7 @@ impl Run {
                 let Some(r) = at("shop:only:Nameplates") else { return };
                 self.click(r.center());
                 self.next(400);
+                self.step = 3211;
             }
             3211 => {
                 let Some(r) = at("shop:card:5101") else { return };
@@ -167,22 +201,39 @@ impl Run {
                 self.next(500);
             }
             3220 => {
+                if app.shop.as_ref().is_none_or(|s| s.search != "witch dust") {
+                    return;
+                }
+                forget(&["shop:card:5101", "shop:card:5102"]);
+                self.next(300);
+                self.step = 3231;
+            }
+            3231 => {
                 if at("shop:card:5102").is_some() && at("shop:card:5101").is_none() {
                     self.mark("shop_search");
                     self.shot(ctx, "shop_search.png");
                     self.next(0);
+                    self.step = 3221;
                 }
             }
             3221 => {
                 let Some(r) = at("shop:wishlist") else { return };
-                forget(&["shop:card:5101", "shop:card:5102"]);
                 self.click(r.center());
                 self.next(400);
             }
             3222 => {
-                if tab == 3 && at("shop:card:5101").is_some() && at("shop:card:5102").is_none() {
+                if tab != 3 {
+                    return;
+                }
+                forget(&["shop:card:5101", "shop:card:5102"]);
+                self.next(300);
+                self.step = 3232;
+            }
+            3232 => {
+                if at("shop:card:5101").is_some() && at("shop:card:5102").is_none() {
                     self.mark("shop_wishlist");
                     self.next(0);
+                    self.step = 3223;
                 }
             }
             3223 => {
@@ -190,14 +241,22 @@ impl Run {
                     self.mark("shop_orbs");
                 }
                 let Some(r) = at("shop:tab:Orbs Exclusives") else { return };
-                forget(&["shop:card:5101", "shop:card:5203"]);
                 self.click(r.center());
                 self.next(400);
             }
             3224 => {
-                if tab == 2 && at("shop:card:5203").is_some() && at("shop:card:5101").is_none() {
+                if tab != 2 {
+                    return;
+                }
+                forget(&["shop:card:5101", "shop:card:5203"]);
+                self.next(300);
+                self.step = 3233;
+            }
+            3233 => {
+                if at("shop:card:5203").is_some() && at("shop:card:5101").is_none() {
                     self.mark("shop_orbs_tab");
                     self.next(0);
+                    self.step = 3225;
                 }
             }
             3225 => {
