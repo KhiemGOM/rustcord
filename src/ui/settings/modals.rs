@@ -55,6 +55,7 @@ pub(super) enum Done {
     Modal,
     Refresh(&'static str),
     Sms,
+    Toast,
 }
 
 pub struct Verify {
@@ -149,6 +150,11 @@ pub fn guard_done(app: &mut App, res: Result<Value, String>) {
             Ok(_) => set_sms(app, true),
             Err(e) => app.toast(e),
         },
+        Done::Toast => {
+            if let Err(e) = res {
+                app.toast(e);
+            }
+        }
     }
 }
 
@@ -214,7 +220,7 @@ fn poll_web(app: &mut App) {
     }
 }
 
-fn verify_modal(app: &mut App, ctx: &egui::Context) {
+pub(super) fn verify_modal(app: &mut App, ctx: &egui::Context) {
     let waiting = app.sform.web.is_some();
     let Some(v) = &mut app.sform.verify else { return };
     let method = v.methods[v.at];

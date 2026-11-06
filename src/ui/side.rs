@@ -500,7 +500,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             } else {
                 app.store.events_muted.remove(&gid);
             }
-            app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(serde_json::json!({ "mute_scheduled_events": on })), crate::net::Tag::Quiet);
+            app.guild_settings(gid, serde_json::json!({ "mute_scheduled_events": on }));
         }
         Some(EventsAct::Read) => app.read_events(gid),
         None => {}
@@ -544,7 +544,7 @@ fn show_all_channels(app: &mut App, gid: Id) {
     if opt_in {
         app.store.opt_in.insert(gid);
     }
-    app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(serde_json::json!({ "flags": flags })), crate::net::Tag::Quiet);
+    app.guild_settings(gid, serde_json::json!({ "flags": flags }));
 }
 
 pub fn toggle_hide_muted(app: &mut App, gid: Id) {
@@ -553,7 +553,7 @@ pub fn toggle_hide_muted(app: &mut App, gid: Id) {
         app.store.hide_muted.insert(gid);
     }
     let body = serde_json::json!({ "hide_muted_channels": hide });
-    app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(body), crate::net::Tag::Quiet);
+    app.guild_settings(gid, body);
 }
 
 /// Discord's question before a channel or category goes.

@@ -464,7 +464,8 @@ fn invite(app: &mut App, ctx: &egui::Context) {
     if let Some(t) = join {
         let code = super::invitecard::code_of(&t);
         if !code.is_empty() {
-            app.rest("POST", format!("/invites/{code}"), Some(json!({})), Tag::Invite);
+            let session = app.store.session.clone();
+            app.rest("POST", format!("/invites/{code}"), Some(json!({ "session_id": session })), Tag::Invite);
         }
         close = true;
     }
@@ -2177,7 +2178,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
         });
     go |= super::enter_submits(ctx, false);
     if go && let Some(t) = app.timeout.take() {
-        app.time_out(t.guild, t.user, t.secs);
+        app.time_out(t.guild, t.user, t.secs, &t.reason);
     } else if close || modal.should_close() {
         app.timeout = None;
     }

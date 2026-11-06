@@ -141,7 +141,7 @@ pub fn data(app: &mut App, ui: &mut Ui) -> bool {
     if let Some(h) = &pending {
         note(ui, &format!("You asked for your data{}. Discord will email you when it's ready.", h["created_at"].as_str().map(|t| format!(" on {}", &t[..t.len().min(10)])).unwrap_or_default()));
     } else if action(ui, "Request all of my Data", "It can take up to 30 days to arrive in your email.", "Request Data", Look::Secondary) {
-        app.rest("POST", "/users/@me/harvest".into(), Some(json!({})), Tag::Remote("action"));
+        app.rest("POST", "/users/@me/harvest".into(), Some(json!({ "backends": ["Account", "Analytics", "Activities", "Ads", "Messages", "Servers", "Zendesk"] })), Tag::Remote("action"));
         refetch(app, "harvest");
         app.toast("Data request sent. Discord will email you when it's ready.");
     }

@@ -33,7 +33,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
     heading(ui, "Invites", "");
     let ch = c.id;
     let perms = app.store.perms(c);
-    let paused = app.store.guilds.get(&c.guild).is_some_and(|g| g.features.iter().any(|f| f == "INVITES_DISABLED"));
+    let paused = app.store.guilds.get(&c.guild).is_some_and(|g| g.invites_paused());
     let mut list: Vec<Value> = app.chan_data("invites", format!("/channels/{ch}/invites")).and_then(|v| v.as_array().cloned()).unwrap_or_default();
     list.sort_by_key(|i| i["inviter"]["username"].as_str().unwrap_or_default().to_lowercase());
     let roles: Vec<(Id, String)> = app.store.guilds.get(&c.guild).map(|g| g.roles.values().map(|r| (r.id, r.name.clone())).collect()).unwrap_or_default();
@@ -122,7 +122,7 @@ pub fn pause_modal(app: &mut App, ctx: &egui::Context) {
     let Some(s) = app.chan_settings.as_mut() else { return };
     let Some(p) = s.pause.as_mut() else { return };
     let gid = app.store.channels.get(&s.chan).map_or(0, |c| c.guild);
-    let paused = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "INVITES_DISABLED"));
+    let paused = app.store.guilds.get(&gid).is_some_and(|g| g.invites_paused());
     let (mut save, mut cancel) = (false, false);
     let close = modal(ctx, "chan_pause", "Security Actions", |ui| {
         let shown = HOURS.iter().find(|(h, _)| *h == p.2).map_or("24 Hours", |(_, l)| l);

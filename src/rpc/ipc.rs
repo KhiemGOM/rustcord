@@ -386,7 +386,7 @@ impl Client {
         let party = self.activity.as_ref().and_then(|a| a["party"]["id"].as_str().filter(|_| a["secrets"]["join"].is_string())).ok_or_else(no_activity)?.to_string();
         let user = id(user).ok_or((4000, "Invalid payload".to_string()))?;
         let (_, session) = super::session().ok_or((4010, "User logged out".to_string()))?;
-        let dm = call("POST", "/users/@me/channels", Some(json!({ "recipient_id": user.to_string() }))).await.map_err(|e| (1000, e))?;
+        let dm = call("POST", "/users/@me/channels", Some(json!({ "recipients": [user.to_string()] }))).await.map_err(|e| (1000, e))?;
         let body = json!({ "content": content, "tts": false, "activity": { "type": 1, "session_id": session, "party_id": party }, "application_id": self.app.to_string() });
         call("POST", &format!("/channels/{}/messages", dm["id"].as_str().unwrap_or("0")), Some(body)).await.map_err(|e| (1000, e))?;
         Ok(Value::Null)

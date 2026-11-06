@@ -34,17 +34,10 @@ struct StickerForm {
 
 const IMAGES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 
-fn data_uri(path: &std::path::Path) -> Option<String> {
-    use base64::Engine;
-    let bytes = std::fs::read(path).ok()?;
-    let mime = if bytes.starts_with(b"GIF") { "image/gif" } else if bytes.starts_with(&[0x89, b'P']) { "image/png" } else { "image/jpeg" };
-    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
-}
-
 fn upload(app: &mut App, gid: Id, files: Vec<PathBuf>) {
     for path in files {
         let name: String = path.file_stem().map(|s| s.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()).unwrap_or_else(|| "emoji".into());
-        if let Some(image) = data_uri(&path) {
+        if let Some(image) = super::form::data_uri(&path) {
             app.rest("POST", format!("/guilds/{gid}/emojis"), Some(json!({ "name": name, "image": image })), Tag::Quiet);
         }
     }

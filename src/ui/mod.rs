@@ -158,6 +158,7 @@ pub struct App {
     pub toast: Option<(String, Instant)>,
     // an error toast's full text, which shift+click opens
     pub toast_detail: Option<String>,
+    pub fail: Option<(Vec<(String, String)>, String)>,
     pub marker: Option<(Id, Id)>,
     // whether the "new messages since" bar is still up; scrolling down to the newest takes it away
     pub marker_bar: bool,
@@ -400,6 +401,7 @@ impl App {
             bar: None,
             toast: None,
             toast_detail: None,
+            fail: None,
             marker: None,
             marker_bar: false,
             autoscroll: None,
@@ -810,6 +812,20 @@ impl App {
         self.net.send(Cmd::Rest { method, path, body, tag });
     }
 
+    /// Notification settings the way discord saves them: servers go in the bulk route keyed by
+    /// id, direct messages on their own.
+    pub fn guild_settings(&self, gid: Id, body: serde_json::Value) {
+        if gid == 0 {
+            self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), Tag::Quiet);
+        } else {
+            self.rest("PATCH", "/users/@me/guilds/settings".into(), Some(json!({ "guilds": { gid.to_string(): body } })), Tag::Quiet);
+        }
+    }
+
+    pub fn audit(&self, method: &'static str, path: String, body: Option<serde_json::Value>, reason: &str) {
+        self.net.send(Cmd::Audit { method, path, body, reason: reason.trim().to_string() });
+    }
+
     pub fn mark_read(&mut self, chans: &[Id]) {
         let mut states = Vec::new();
         for ch in chans {
@@ -842,12 +858,11 @@ impl App {
             self.store.muted.remove(&id);
         }
         if guild {
-            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted, "mute_config": cfg })), Tag::Quiet);
+            self.guild_settings(id, if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) });
         } else {
             let g = self.store.channels.get(&id).map(|c| c.guild).unwrap_or(0);
-            let path = if g == 0 { "@me".to_string() } else { g.to_string() };
-            let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted, "mute_config": cfg } } });
-            self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
+            let over = if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) };
+            self.guild_settings(g, json!({ "channel_overrides": { id.to_string(): over } }));
         }
     }
 
@@ -870,7 +885,7 @@ impl App {
             }
         }
         let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.guild_settings(g, body);
     }
 
     /// Edit Per-server Profile: Settings > Profiles on that server.
@@ -892,7 +907,7 @@ impl App {
             if let Some(n) = level {
                 self.store.levels.insert(ch, n);
             }
-            self.rest("PATCH", format!("/users/@me/guilds/{ch}/settings"), Some(json!({ "message_notifications": level.unwrap_or(3) })), Tag::Quiet);
+            self.guild_settings(ch, json!({ "message_notifications": level.unwrap_or(3) }));
             return;
         }
         match level {
@@ -901,7 +916,7 @@ impl App {
         };
         let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
         let body = json!({ "channel_overrides": { ch.to_string(): { "message_notifications": level.unwrap_or(3) } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.guild_settings(g, body);
     }
 
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
@@ -1354,7 +1369,12 @@ impl App {
                     }
                     // an empty list rather than a spinner that never stops
                     Tag::Directory(k) => directory::loaded(self, k, serde_json::json!([])),
-                    Tag::Server(k) => server::loaded(self, k, serde_json::json!([])),
+                    Tag::Server(k) => {
+                        if let Some(s) = &mut self.server {
+                            s.errors = self.fail.as_ref().map(|f| f.0.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| vec![(String::new(), e.clone())]);
+                        }
+                        server::loaded(self, k, serde_json::json!([]))
+                    }
                     Tag::Chan("saved") => {
                         if let Some(s) = &mut self.chan_settings {
                             s.saving = false;
@@ -1572,8 +1592,14 @@ impl App {
     }
 
     pub fn error_toast(&mut self, e: String) {
-        self.toast("Something went wrong. Shift Click this notification to see error details.");
-        self.toast_detail = Some(e);
+        let detail = self.fail.take().map_or_else(|| e.clone(), |f| f.1);
+        if e.is_empty() || crate::api::offline(&e) {
+            self.toast("Something went wrong. Shift Click this notification to see error details.");
+        } else {
+            self.toast(format!("{}
+Shift Click this notification to see error details.", e.trim_end()));
+        }
+        self.toast_detail = Some(detail);
     }
 
     pub fn logout(&mut self) {
@@ -1732,7 +1758,12 @@ impl App {
                 Ev::Auth(e) => self.login.event(e, &self.net),
                 Ev::Error(e) => self.error_toast(e),
                 Ev::Toast(e) => self.toast(e),
-                Ev::Rest { tag, res } => self.on_rest(tag, res),
+                Ev::Fail { req, fields, raw } => self.fail = Some((fields, format!("{req}
+{raw}"))),
+                Ev::Rest { tag, res } => {
+                    self.on_rest(tag, res);
+                    self.fail = None;
+                }
                 Ev::Voice(e) => {
                     if let Some(err) = self.voice.event(e) {
                         if let Some(e) = &mut self.e2e {
@@ -1800,6 +1831,7 @@ impl App {
         channel::show(self, &ctx);
         events::show(self, &ctx);
         stage::modals(self, &ctx);
+        settings::verify(self, &ctx);
         share::show(self, &ctx);
         let mut show_detail = false;
         clips_gallery::show(self, &ctx);
