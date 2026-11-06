@@ -617,6 +617,24 @@ pub struct Interaction {
     pub user: Id,
     pub owner: Id,
     pub in_guild: bool,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Where an interaction this client sent has got to.
+#[derive(Clone)]
+pub enum Stage {
+    Sending,
+    Created,
+    Failed(String, std::time::Instant),
+}
+
+/// An interaction waiting on a message: the command that made it, or the component pressed on it.
+#[derive(Clone)]
+pub struct Busy {
+    pub nonce: String,
+    pub component: String,
+    pub stage: Stage,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -654,6 +672,8 @@ pub struct Message {
     pub refer: Option<(Id, Id)>,
     #[serde(default)]
     pub interaction: Option<Interaction>,
+    #[serde(skip)]
+    pub busy: Option<Busy>,
     #[serde(default)]
     pub extra: Value,
     #[serde(skip)]
@@ -756,8 +776,22 @@ impl Message {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Comp {
-    Button { style: u8, label: String, emoji: Option<ReactEmoji>, custom_id: String, url: Option<String>, disabled: bool },
-    Select { kind: u8, custom_id: String, placeholder: String, options: Vec<(String, String, Option<String>)>, disabled: bool },
+    Button { style: u8, label: String, emoji: Option<ReactEmoji>, custom_id: String, url: Option<String>, disabled: bool, #[serde(default)] sku: Option<String> },
+    Select {
+        kind: u8,
+        custom_id: String,
+        placeholder: String,
+        options: Vec<(String, String, Option<String>)>,
+        disabled: bool,
+        #[serde(default)]
+        min: u32,
+        #[serde(default)]
+        max: u32,
+        #[serde(default)]
+        picked: Vec<String>,
+        #[serde(default)]
+        types: Vec<u8>,
+    },
     // components v2 (IS_COMPONENTS_V2): a layout tree instead of plain action rows
     Row(Vec<Comp>),
     Text(String),
@@ -780,6 +814,7 @@ impl Comp {
                 custom_id: st(&v["custom_id"]),
                 url: ost(&v["url"]),
                 disabled,
+                sku: ost(&v["sku_id"]),
             }),
             k @ (3 | 5..=8) => Some(Comp::Select {
                 kind: k as u8,
@@ -792,6 +827,17 @@ impl Comp {
                     .map(|o| (st(&o["label"]), st(&o["value"]), ost(&o["description"])))
                     .collect(),
                 disabled,
+                min: v["min_values"].as_u64().unwrap_or(1) as u32,
+                max: v["max_values"].as_u64().unwrap_or(1) as u32,
+                picked: v["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|o| o["default"].as_bool() == Some(true))
+                    .map(|o| st(&o["value"]))
+                    .chain(v["default_values"].as_array().into_iter().flatten().map(|o| st(&o["id"])))
+                    .collect(),
+                types: v["channel_types"].as_array().into_iter().flatten().filter_map(|t| t.as_u64().map(|t| t as u8)).collect(),
             }),
             _ => None,
         }
@@ -1623,7 +1669,7 @@ impl Store {
         Some((None, verb.to_string(), a.name.clone()))
     }
 
-    fn upsert_user(&mut self, v: &Value) -> Id {
+    pub fn upsert_user(&mut self, v: &Value) -> Id {
         let mut u = User::parse(v);
         let id = u.id;
         if id == 0 {
@@ -1969,7 +2015,7 @@ impl Store {
                 (_, Some(_)) => (sid(&owners["1"]), false),
                 _ => (0, false),
             };
-            m.interaction = Some(Interaction { user, owner, in_guild });
+            m.interaction = Some(Interaction { user, owner, in_guild, name: st(&im["name"]) });
         }
         if matches!(m.kind, 25 | 44) {
             m.extra = if v["role_subscription_data"].is_object() { v["role_subscription_data"].clone() } else { v["purchase_notification"].clone() };

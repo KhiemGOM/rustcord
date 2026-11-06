@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/bot.rs"]
+mod bot;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 
@@ -663,14 +665,6 @@ fn quest_list(w: &W) -> Vec<Value> {
         .collect()
 }
 
-fn bot_buttons() -> Value {
-    json!([{ "type": 1, "components": [
-        { "type": 2, "style": 1, "label": "Snooze", "custom_id": "snooze", "emoji": { "name": "😴" } },
-        { "type": 2, "style": 4, "label": "Cancel", "custom_id": "cancel" },
-        { "type": 2, "style": 5, "label": "Docs", "url": "https://example.com/docs" },
-    ]}])
-}
-
 // the client posts uploads and interactions as multipart; pull the json part out
 fn payload_json(body: &[u8]) -> Value {
     let s = String::from_utf8_lossy(body);
@@ -1238,28 +1232,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             list.reverse();
             ok(json!(list))
         }
-        ("POST", ["api", "v9", "interactions"]) => {
-            let b = payload_json(body);
-            let ch: u64 = b["channel_id"].as_str().unwrap_or("0").parse().unwrap_or(0);
-            let text = if b["type"] == json!(2) {
-                format!("⏰ Reminder set: **{}**", b["data"]["options"][0]["value"].as_str().unwrap_or("?"))
-            } else {
-                "😴 Snoozed for 10 minutes.".to_string()
-            };
-            let mut m = msg(fresh(), ch, 104, &text);
-            m["type"] = json!(20);
-            m["application_id"] = json!("104");
-            if b["type"] == json!(2) {
-                m["components"] = bot_buttons();
-            }
-            let tx = {
-                let mut w = w.lock().unwrap();
-                w.msgs.push(m.clone());
-                w.events.clone()
-            };
-            let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
-            (204, "application/json", Vec::new())
-        }
+        ("POST", ["api", "v9", "interactions"]) => bot::handle(w, body),
+        ("POST", ["api", "v9", "channels", _, "attachments"]) => ok(bot::upload_slots(body, PORT.load(std::sync::atomic::Ordering::Relaxed))),
+        ("PUT", ["mock-upload", ..]) => (200, "application/json", Vec::new()),
         ("GET", ["api", "v9", "gifs", "trending"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
             let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/attachments/gif{i}.png");
@@ -1274,16 +1249,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 .collect();
             ok(json!(gifs))
         }
-        ("GET", ["api", "v9", "guilds", _, "application-command-index"]) => ok(json!({
-            "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
-            "application_commands": [
-                { "id": "9001", "application_id": "104", "version": "1", "type": 1, "name": "remind", "description": "Set a reminder",
-                  "options": [{ "type": 3, "name": "what", "description": "What to remind you about", "required": true },
-                              { "type": 4, "name": "minutes", "description": "In how many minutes", "required": false }] },
-                { "id": "9002", "application_id": "104", "version": "1", "type": 1, "name": "poll", "description": "Start a poll",
-                  "options": [{ "type": 3, "name": "question", "description": "What to ask", "required": true }] },
-            ],
-        })),
+        ("GET", ["api", "v9", "guilds", _, "application-command-index"]) => ok(bot::index()),
         ("GET", ["api", "v9", "reporting", "menu", "message"]) => ok(serde_json::from_str(REPORT_MENU).unwrap()),
         ("POST", ["api", "v9", "reporting", "message"]) => ok(json!({ "report_id": "1" })),
         // the people behind a reaction: as many as it has, from a fixed cast

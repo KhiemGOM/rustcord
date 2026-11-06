@@ -5,6 +5,7 @@ mod active;
 pub mod activity;
 mod autoscroll;
 mod boosts;
+mod botmodal;
 mod call;
 mod callbar;
 mod callfx;
@@ -28,6 +29,7 @@ mod gate;
 mod guildmodal;
 mod friends;
 pub mod icons;
+mod interact;
 mod keys;
 mod lurk;
 mod links;
@@ -57,6 +59,7 @@ mod reorder;
 mod channel;
 mod community;
 mod server;
+mod selectmenu;
 mod settings;
 mod share;
 mod soundboard;
@@ -120,6 +123,8 @@ pub struct App {
     pub ac_dismissed: Option<String>,
     pub aliases: Map<Id, Vec<(String, String)>>,
     pub commands: Map<Id, composer::Commands>,
+    pub interactions: interact::State,
+    pub slash: Map<Id, composer::slash::Slash>,
     v_down: bool,
     fonts_rx: Option<Receiver<egui::FontDefinitions>>,
     cjk_loaded: bool,
@@ -361,6 +366,8 @@ impl App {
             ac_dismissed: None,
             aliases: Map::default(),
             commands: Map::default(),
+            interactions: Default::default(),
+            slash: Map::default(),
             v_down: false,
             fonts_rx: None,
             cjk_loaded: false,
@@ -1590,8 +1597,8 @@ impl App {
                         crate::rpc::on_message(&d);
                         self.notify(&d, ctx);
                     }
-                    if t == "INTERACTION_FAILURE" {
-                        self.toast("The application did not respond.");
+                    if t.starts_with("INTERACTION_") || t == "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE" {
+                        self.on_interaction(&t, &d);
                     }
                     if t == "READY" {
                         if let Some(e) = &mut self.e2e {
@@ -1687,6 +1694,7 @@ impl App {
                 Ev::Auth(e) => self.login.event(e, &self.net),
                 Ev::Error(e) => self.error_toast(e),
                 Ev::Toast(e) => self.toast(e),
+                Ev::InteractFailed { nonce, status, message } => self.interact_failed(&nonce, status, message),
                 Ev::Rest { tag, res } => self.on_rest(tag, res),
                 Ev::Voice(e) => {
                     if let Some(err) = self.voice.event(e) {
@@ -1842,6 +1850,8 @@ impl App {
         popups::show(self, &ctx);
         attach::dragging(self, &ctx);
         links::show(self, &ctx);
+        botmodal::show(self, &ctx);
+        self.interactions_tick();
         popups::viewer(self, &ctx);
         player::overlay(self, &ctx);
         crate::media::tick(ctx.cumulative_frame_nr());

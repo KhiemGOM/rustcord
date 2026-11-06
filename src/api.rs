@@ -264,14 +264,38 @@ impl Api {
     }
 
     // the official client posts interactions as multipart with a payload_json part
-    pub async fn interact(&self, payload: Value) -> Result<Value, String> {
+    pub async fn interact(&self, mut payload: Value) -> Result<(), (u16, String)> {
+        let fail = |e: String| (0, e);
+        if let Some(files) = payload["data"]["attachments"].as_array().filter(|a| !a.is_empty()).cloned() {
+            let ch = payload["channel_id"].as_str().unwrap_or_default().to_string();
+            let mut listing = Vec::new();
+            let mut bytes = Vec::new();
+            for f in &files {
+                let b = tokio::fs::read(f["path"].as_str().unwrap_or_default()).await.map_err(|e| fail(e.to_string()))?;
+                listing.push(json!({ "id": f["id"], "filename": f["filename"], "file_size": b.len() }));
+                bytes.push(b);
+            }
+            let slots = self.call(Method::POST, &format!("/channels/{ch}/attachments"), Some(json!({ "files": listing }))).await.map_err(fail)?;
+            let mut staged = Vec::new();
+            for (f, b) in files.iter().zip(bytes) {
+                let slot = slots["attachments"].as_array().and_then(|a| a.iter().find(|s| s["id"] == f["id"])).ok_or_else(|| fail("no upload slot".into()))?;
+                let put = self.http.put(slot["upload_url"].as_str().unwrap_or_default()).body(b).send().await.map_err(|e| fail(e.to_string()))?;
+                if !put.status().is_success() {
+                    return Err(fail("upload failed".into()));
+                }
+                staged.push(json!({ "id": f["id"], "filename": f["filename"], "uploaded_filename": slot["upload_filename"] }));
+            }
+            payload["data"]["attachments"] = Value::Array(staged);
+        }
         let form = multipart::Form::new().text("payload_json", payload.to_string());
-        let res = self.build(Method::POST, "/interactions").multipart(form).send().await.map_err(|e| e.to_string())?;
+        let res = self.build(Method::POST, "/interactions").multipart(form).send().await.map_err(|e| (0, e.to_string()))?;
+        let status = res.status().as_u16();
         if res.status().is_success() {
-            return Ok(Value::Null);
+            return Ok(());
         }
         let v: Value = res.json().await.unwrap_or_default();
-        Err(v["message"].as_str().unwrap_or("the application did not respond").to_string())
+        let nested = first_error(&v["errors"]);
+        Err((status, nested.or_else(|| v["message"].as_str().map(str::to_string)).unwrap_or_default()))
     }
 
     pub async fn edit(&self, ch: Id, id: Id, content: &str) -> Result<Value, String> {
@@ -337,4 +361,11 @@ impl Api {
     pub async fn remote_login(&self, ticket: &str) -> Result<Reply, String> {
         self.auth_post("/users/@me/remote-auth/login", json!({ "ticket": ticket }), None).await
     }
+}
+
+fn first_error(v: &Value) -> Option<String> {
+    if let Some(m) = v["_errors"][0]["message"].as_str() {
+        return Some(m.to_string());
+    }
+    v.as_object()?.values().find_map(first_error)
 }
