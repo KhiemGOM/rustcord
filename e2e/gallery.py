@@ -1,4 +1,4 @@
-"""Checks for the gallery channel and the account's favourites (steps 4000 and up in
+"""Checks for the gallery channel and the account's favourites (steps 4100 and up in
 src/ui/e2e/gallery.rs): what the mosaics, forwards and stickers drew, what went to
 settings-proto/2, and that the mock's CDN refused nothing."""
 

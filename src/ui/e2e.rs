@@ -1387,7 +1387,7 @@ impl Run {
             1700..=1719 => self.spell_steps(app, ctx),
             2800..=2829 => self.camera_steps(app, ctx),
             2900..=2959 => self.clips_steps(app, ctx),
-            4000..=4099 => self.gallery_steps(app, ctx),
+            4100..=4199 => self.gallery_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
             3110..=3189 => self.members_steps(app, ctx),
@@ -2903,7 +2903,7 @@ impl Run {
                 self.step = 3100;
                 self.wait = Instant::now() + Duration::from_millis(800);
             }
-            3100..=3199 => self.sweep_steps(app, ctx),
+            3100..=3109 => self.sweep_steps(app, ctx),
             _ => self.step = 99,
         }
     }

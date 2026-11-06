@@ -80,9 +80,9 @@ impl Run {
                 }
                 self.mark("invites_resumed");
                 app.server = None;
-                self.step = 4000;
+                self.step = 3600;
             }
-            _ => self.step = 4000,
+            _ => self.step = 3600,
         }
     }
 }
