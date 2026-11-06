@@ -412,7 +412,7 @@ fn modal(app: &mut App, ctx: &Context) {
     }
     let cams = cameras(app, ctx);
     let (mut close, mut go, mut changed) = (false, false, false);
-    let m = egui::Modal::new("camera_preview_modal".into())
+    let m = crate::ui::motion::Modal::new("camera_preview_modal".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);

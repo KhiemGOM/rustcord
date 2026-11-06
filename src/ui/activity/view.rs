@@ -25,7 +25,7 @@ pub fn popout_hwnd(title: &str) -> isize {
 
 fn button(ui: &mut Ui, r: Rect, id: impl std::hash::Hash + std::fmt::Debug, text: &str, fill: Color32) -> egui::Response {
     let resp = ui.interact(r, egui::Id::new(id), Sense::click());
-    ui.painter().rect_filled(r, CornerRadius::same(4), if resp.hovered() { fill.gamma_multiply(0.85) } else { fill });
+    ui.painter().rect_filled(r, CornerRadius::same(4), crate::ui::motion::mix(fill, fill.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, semi(13.0), Color32::WHITE);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -108,7 +108,7 @@ pub fn consent(app: &mut App, ctx: &Context) {
     let (name, icon, scopes) = (c.name.clone(), c.icon.clone(), c.scopes.clone());
     let mut answer = None;
     let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(12).inner_margin(Margin::same(24));
-    let m = egui::Modal::new("activity_consent".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("activity_consent".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(400.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {
@@ -176,7 +176,7 @@ pub fn list_rows(ui: &mut Ui, store: &crate::state::Store, act: &super::Activity
             continue;
         }
         let resp = ui.interact(b, egui::Id::new(("activity_join_row", i.app)), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(4), if resp.hovered() { GREEN.gamma_multiply(0.85) } else { GREEN });
+        ui.painter().rect_filled(b, CornerRadius::same(4), crate::ui::motion::mix(GREEN, GREEN.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Join", semi(12.0), Color32::WHITE);
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("activity_join_row_rect", i.app)), b));
         if resp.hovered() {

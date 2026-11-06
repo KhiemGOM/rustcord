@@ -230,7 +230,7 @@ pub fn selected(ctx: &Context, url: &str) -> bool {
 fn whole(ctx: &Context, a: &Attachment, v: &View, text: &str, out: &mut Vec<Do>) -> bool {
     let mut open = true;
     let screen = ctx.content_rect();
-    let modal = egui::Modal::new(Id::new(("textfile_whole", &a.url)))
+    let modal = crate::ui::motion::Modal::new(Id::new(("textfile_whole", &a.url)))
         .frame(egui::Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             let w = (screen.width() * 0.8).min(1100.0);

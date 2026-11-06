@@ -62,7 +62,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     };
     let me = app.store.me;
     let icon_of = |ch: Id| app.store.channels.get(&ch).and_then(|c| c.icon.clone());
-    let modal = egui::Modal::new("user_dialog".into())
+    let modal = crate::ui::motion::Modal::new("user_dialog".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);
@@ -216,7 +216,7 @@ fn cleanup(app: &mut App, ctx: &egui::Context) {
     groups.sort_by_key(|g| g.2);
     let Some(Dialog::Cleanup { picked }) = &mut app.user_dialog else { return };
     let mut done = None;
-    let modal = egui::Modal::new("user_dialog".into())
+    let modal = crate::ui::motion::Modal::new("user_dialog".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);
@@ -238,8 +238,8 @@ fn cleanup(app: &mut App, ctx: &egui::Context) {
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for (id, title, last, n) in &groups {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+                    crate::ui::motion::wash(ui, &resp, r, 4, pal().bg_mod_hover, 0.05);
                     if resp.hovered() {
-                        ui.painter().rect_filled(r, 4, pal().bg_mod_hover);
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
                     let on = picked.contains(id);

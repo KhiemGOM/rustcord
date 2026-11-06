@@ -24,8 +24,8 @@ fn icon(ui: &Ui, r: Rect, url: Option<&str>, fill: Color32, radius: u8) {
 
 fn tile(ui: &mut Ui, id: Id, at: Rect) -> egui::Response {
     let resp = ui.interact(at, egui::Id::new(("activity_card", id)), Sense::click());
+    crate::ui::motion::wash(ui, &resp, at, CornerRadius::same(12), pal().bg_mod_hover, 0.05);
     if resp.hovered() {
-        ui.painter().rect_filled(at, CornerRadius::same(12), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
@@ -58,7 +58,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         .corner_radius(12)
         .inner_margin(Margin::same(16))
         .shadow(egui::epaint::Shadow { offset: [0, 12], blur: 24, spread: 0, color: Color32::from_black_alpha(61) });
-    let modal = egui::Modal::new("activity_shelf".into()).backdrop_color(Color32::TRANSPARENT).frame(frame).show(ctx, |ui| {
+    let modal = crate::ui::motion::Modal::new("activity_shelf".into()).backdrop_color(Color32::TRANSPARENT).frame(frame).show(ctx, |ui| {
         ui.set_width(WIDTH);
         ui.set_height(648.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
