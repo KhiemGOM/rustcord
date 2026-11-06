@@ -132,11 +132,15 @@ impl App {
 pub fn panel_button(app: &mut App, ui: &mut Ui) {
     let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let ready = clips::streaming() && clips::saving() < clips::MAX_SAVES;
-    if resp.hovered() && ready {
-        ui.painter().rect_filled(rect, CornerRadius::same(8), pal().control_hover);
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    let ink = if !ready { pal().channel_muted } else if resp.hovered() { pal().interactive_hover } else { pal().header_secondary };
+    let ink = if ready {
+        super::motion::wash(ui, &resp, rect, CornerRadius::same(8), pal().control_hover, 0.05);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        super::motion::mix(pal().header_secondary, pal().interactive_hover, super::motion::hot(ui.ctx(), &resp))
+    } else {
+        pal().channel_muted
+    };
     icons::draw(ui.painter(), Icon::Clips, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), ink);
     app.rects.insert("clips:button".into(), rect);
     let tip = app.clip_tip();

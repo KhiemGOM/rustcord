@@ -292,15 +292,10 @@ pub struct Modal {
 
 pub struct Shown {
     pub response: Response,
-    backdrop_clicked: bool,
     closing: bool,
 }
 
 impl Shown {
-    pub fn backdrop_clicked(&self) -> bool {
-        self.backdrop_clicked
-    }
-
     pub fn should_close(&self) -> bool {
         self.closing
     }
@@ -367,9 +362,8 @@ impl Modal {
             began && ctx.input(|i| outside(i.pointer.interact_pos()))
         };
         let esc = top && !popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-        let backdrop_clicked = pressed_out && top && !popup_open;
-        let closing = backdrop_clicked || esc || out.response.should_close();
-        Shown { response: out.response, backdrop_clicked, closing }
+        let closing = (pressed_out && top && !popup_open) || esc || out.response.should_close();
+        Shown { response: out.response, closing }
     }
 }
 
@@ -434,6 +428,41 @@ mod tests {
         at(&ctx, 1.1, false);
         at(&ctx, 1.2, false);
         assert!(at(&ctx, 1.3, true) < 0.01);
+    }
+
+    #[test]
+    fn every_dialog_opens_through_motion_and_closes_on_its_backdrop() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") && p.file_name().is_some_and(|n| n != "motion.rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut bad = Vec::new();
+        let mut seen = 0;
+        for f in &files {
+            let src = std::fs::read_to_string(f).unwrap();
+            let lines: Vec<&str> = src.lines().collect();
+            for (i, l) in lines.iter().enumerate().filter(|(_, l)| l.contains("Modal::new(")) {
+                seen += 1;
+                if !l.contains("motion::Modal::new(") {
+                    bad.push(format!("{}:{}: not motion::Modal", f.display(), i + 1));
+                }
+                let var = l.trim().strip_prefix("let ").map(|r| r.trim_start_matches("mut ").split([' ', ':']).next().unwrap_or(""));
+                let till = lines[i + 1..].iter().position(|l| l.contains("Modal::new(")).map_or(lines.len(), |n| i + 1 + n);
+                if !var.is_some_and(|v| lines[i..till].iter().any(|l| l.contains(&format!("{v}.should_close()")))) {
+                    bad.push(format!("{}:{}: never reads should_close", f.display(), i + 1));
+                }
+            }
+        }
+        assert!(seen > 30, "only found {seen} dialogs");
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
     }
 
     #[test]

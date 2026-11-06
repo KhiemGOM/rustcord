@@ -108,7 +108,7 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
         t.shot = Some((i, ctx.load_texture("clip_frame", img, egui::TextureOptions::LINEAR)));
     }
     let loading = t.frames.lock().unwrap().is_none();
-    let modal = egui::Modal::new("clips_edit".into())
+    let modal = crate::ui::motion::Modal::new("clips_edit".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(W);

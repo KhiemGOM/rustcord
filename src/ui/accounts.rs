@@ -40,7 +40,7 @@ use crate::theme::*;
 
 fn shell(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut egui::Ui)) -> bool {
     let mut close = false;
-    let modal = egui::Modal::new("user_dialog".into())
+    let modal = crate::ui::motion::Modal::new("user_dialog".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(432.0);
@@ -78,9 +78,7 @@ pub fn manage_modal(app: &mut App, ctx: &egui::Context) {
             } else {
                 let b = egui::Rect::from_center_size(pos2(r.right() - 40.0, r.center().y), vec2(80.0, 32.0));
                 let resp = ui.interact(b, ui.id().with(("remove_account", a.id)), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(b, 4, crate::theme::CRITICAL_BG);
-                }
+                crate::ui::motion::wash(ui, &resp, b, 4, crate::theme::CRITICAL_BG, 0.05);
                 ui.painter().text(b.center(), egui::Align2::CENTER_CENTER, "Remove", medium(14.0), pal().critical);
                 if resp.clicked() {
                     remove = Some(a.id);

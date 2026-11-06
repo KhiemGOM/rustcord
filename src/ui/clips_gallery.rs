@@ -4,7 +4,7 @@
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, Confirm, channel_title, grey_button, icon_button, text};
+use super::{App, Confirm, channel_title, grey_button, icon_button, motion, text};
 use crate::clips::{self, Clip, library};
 use crate::state::Id;
 use crate::theme::*;
@@ -92,7 +92,7 @@ fn card(ui: &mut Ui, c: &Clip, on: bool, acts: &mut Vec<Act>, sel: &mut Vec<Stri
             let b = Rect::from_min_size(pos2(x, strip.top()), vec2(28.0, 28.0));
             x += 28.0;
             let rb = ui.interact(b, resp.id.with(act), Sense::click());
-            icons::draw(ui.painter(), icon, b.shrink(6.0), if rb.hovered() { Color32::WHITE } else { Color32::from_gray(200) });
+            icons::draw(ui.painter(), icon, b.shrink(6.0), motion::mix(Color32::from_gray(200), Color32::WHITE, motion::hot(ui.ctx(), &rb)));
             let rb = rb.on_hover_text(tip);
             inner |= rb.hovered();
             if rb.clicked() {
@@ -152,7 +152,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let (w, h) = ((screen.width() - 160.0).clamp(560.0, 1200.0), (screen.height() - 120.0).clamp(360.0, 900.0));
     let keys = app.clip_keys();
     let picking = g.pick.is_some();
-    let modal = egui::Modal::new("clips".into())
+    let modal = crate::ui::motion::Modal::new("clips".into())
         .frame(Frame::new().fill(pal().bg_primary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(w);
@@ -171,7 +171,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.add_space(12.0);
                     for (label, on) in [("All Clips", !g.favs), ("Favorites", g.favs)] {
                         let (r, resp) = ui.allocate_exact_size(vec2(96.0, 32.0), Sense::click());
-                        ui.painter().rect_filled(r, 8, if on { pal().bg_mod_selected } else if resp.hovered() { pal().bg_mod_hover } else { Color32::TRANSPARENT });
+                        if on {
+                            ui.painter().rect_filled(r, 8, pal().bg_mod_selected);
+                        } else {
+                            motion::wash(ui, &resp, r, 8, pal().bg_mod_hover, 0.05);
+                        }
                         ui.painter().text(r.center(), Align2::CENTER_CENTER, label, medium(14.0), if on { pal().header_primary } else { pal().header_secondary });
                         if resp.clicked() {
                             g.favs = label == "Favorites";
@@ -182,7 +186,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked();
                         ui.add_space(8.0);
                         let (r, resp) = ui.allocate_exact_size(vec2(88.0, 32.0), Sense::click());
-                        ui.painter().rect(r, 8, if resp.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                        ui.painter().rect(r, 8, motion::mix(pal().control, pal().control_hover, motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                         ui.painter().text(r.center(), Align2::CENTER_CENTER, if g.oldest { "Oldest" } else { "Recent" }, medium(14.0), pal().header_primary);
                         g.oldest ^= resp.on_hover_text("Sort Clips").clicked();
                     });
@@ -338,7 +342,7 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
         .collect();
     let (mut send, mut close) = (false, false);
     let n = s.ids.len();
-    let modal = egui::Modal::new("clips_share".into())
+    let modal = crate::ui::motion::Modal::new("clips_share".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(430.0);
@@ -359,8 +363,10 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
                 for c in &places {
                     let (r, resp) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::click());
                     let on = s.to == Some(*c);
-                    if resp.hovered() || on {
+                    if on {
                         ui.painter().rect_filled(r, 8, pal().bg_mod_hover);
+                    } else {
+                        motion::wash(ui, &resp, r, 8, pal().bg_mod_hover, 0.05);
                     }
                     text::paint(ui.painter(), pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, &channel_title(store, *c), medium(16.0), pal().header_primary, 360.0);
                     if on {

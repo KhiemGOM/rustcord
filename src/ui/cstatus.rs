@@ -27,7 +27,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(s) = &mut app.status_text else { return };
     let (mut save, mut close, mut clear) = (false, false, false);
     let had = app.store.custom_status.is_some();
-    let modal = egui::Modal::new("custom_status".into())
+    let modal = crate::ui::motion::Modal::new("custom_status".into())
         .backdrop_color(Color32::from_black_alpha(184))
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
