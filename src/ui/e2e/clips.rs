@@ -160,7 +160,7 @@ impl Run {
                     c.edit = Some((1000, 3000));
                     let out = crate::ui::clips_trim::export(&c);
                     let secs = out.and_then(|p| std::fs::read(p).ok()).and_then(|b| crate::mp4::frames(&b, 64 << 20).ok()).map_or(0.0, |f| f.iter().map(|p| p.1.as_secs_f64()).sum::<f64>());
-                    if (secs - 2.0).abs() < 0.6 {
+                    if (secs - 2.0).abs() < 0.2 {
                         self.mark("clip_trim_export");
                     }
                 }
@@ -171,7 +171,7 @@ impl Run {
             }
             2914 => {
                 if let Some(c) = app.clips.list.as_ref().and_then(|l| l.first().cloned()) {
-                    crate::ui::clips_gallery::send_clips(app, HANGOUT, "my clip".into(), &[c]);
+                    crate::ui::clips_gallery::send_clips(ctx, HANGOUT, "my clip".into(), &[c]);
                 }
                 app.clips.gallery = None;
                 self.next(1000);

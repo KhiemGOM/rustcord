@@ -68,7 +68,7 @@ fn header(b: &[u8]) -> Vec<u8> {
     out
 }
 
-fn video_type(size: (u32, u32), fps: u32, bps: u32, seq: &[u8]) -> Result<IMFMediaType> {
+pub fn video_type(size: (u32, u32), fps: u32, bps: u32, seq: &[u8]) -> Result<IMFMediaType> {
     unsafe {
         let t = MFCreateMediaType()?;
         t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
@@ -85,7 +85,7 @@ fn video_type(size: (u32, u32), fps: u32, bps: u32, seq: &[u8]) -> Result<IMFMed
     }
 }
 
-fn audio_type(sub: &GUID, bytes_per_sec: u32, align: u32) -> Result<IMFMediaType> {
+pub fn audio_type(sub: &GUID, bytes_per_sec: u32, align: u32) -> Result<IMFMediaType> {
     unsafe {
         let t = MFCreateMediaType()?;
         t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)?;
@@ -99,6 +99,17 @@ fn audio_type(sub: &GUID, bytes_per_sec: u32, align: u32) -> Result<IMFMediaType
     }
 }
 
+pub fn add_audio(w: &IMFSinkWriter) -> Result<u32> {
+    unsafe {
+        let out = audio_type(&MFAudioFormat_AAC, 24_000, 1)?;
+        out.SetUINT32(&MF_MT_AAC_PAYLOAD_TYPE, 0)?;
+        out.SetUINT32(&MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, 0x29)?;
+        let a = w.AddStream(&out)?;
+        w.SetInputMediaType(a, &audio_type(&MFAudioFormat_PCM, RATE as u32 * 2, 2)?, None)?;
+        Ok(a)
+    }
+}
+
 pub fn write(path: &Path, frames: &[Frame], size: (u32, u32), fps: u32, pcm: &[i16]) -> Result<i64> {
     let first = frames.first().ok_or_else(windows::core::Error::empty)?;
     let seq = header(&first.data);
@@ -109,17 +120,7 @@ pub fn write(path: &Path, frames: &[Frame], size: (u32, u32), fps: u32, pcm: &[i
         let v = video_type(size, fps, bps, &seq)?;
         let vs = w.AddStream(&v)?;
         w.SetInputMediaType(vs, &v, None)?;
-        let audio = if pcm.iter().any(|s| s.unsigned_abs() > 16) {
-            let out = audio_type(&MFAudioFormat_AAC, 24_000, 1)?;
-            out.SetUINT32(&MF_MT_AAC_PAYLOAD_TYPE, 0)?;
-            out.SetUINT32(&MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, 0x29)?;
-            let a = w.AddStream(&out)?;
-            let out = audio_type(&MFAudioFormat_PCM, RATE as u32 * 2, 2)?;
-            w.SetInputMediaType(a, &out, None)?;
-            Some(a)
-        } else {
-            None
-        };
+        let audio = if pcm.iter().any(|s| s.unsigned_abs() > 16) { Some(add_audio(&w)?) } else { None };
         w.BeginWriting()?;
         let mut next = 0usize;
         let chunk_ticks = CHUNK as i64 * TICKS / RATE;
