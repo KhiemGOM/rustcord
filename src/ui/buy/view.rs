@@ -1,6 +1,5 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Id, Margin, Rect, ScrollArea, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
-use super::req::Invoice;
 use super::{BASIC_MONTH, BASIC_YEAR, GIFT_STYLES, NITRO_MONTH, NITRO_YEAR, Buy, Step, What};
 use crate::state::Id as Uid;
 use crate::theme::*;
@@ -17,6 +16,8 @@ const SMALL_MODAL: f32 = 440.0;
 const LARGE_MODAL: f32 = 680.0;
 const HEAD: f32 = 64.0;
 const FOOT: f32 = 72.0;
+const FOOT_REVIEW: f32 = 176.0;
+const LINE: f32 = 20.0;
 const ROW: f32 = 56.0;
 const ART: f32 = 96.0;
 const GIFT_ROWS: f32 = 160.0;
@@ -209,41 +210,6 @@ fn gift(ui: &mut Ui, b: &mut Buy, friends: &[(Uid, String)], app_avatars: &dyn F
     crate::ui::settings::input(ui, &mut b.message, "Add a message (optional)", false);
 }
 
-fn totals(ui: &mut Ui, b: &Buy) {
-    label(ui, "Total");
-    let line = |ui: &mut Ui, name: &str, value: &str, strong: bool| {
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-        let (f, c) = if strong { (semi(16.0), pal().header_primary) } else { (reg(14.0), pal().header_secondary) };
-        ui.painter().text(r.left_center(), Align2::LEFT_CENTER, name, f.clone(), c);
-        ui.painter().text(r.right_center(), Align2::RIGHT_CENTER, value, f, c);
-        mark(ui, &format!("buy:{}", name.to_lowercase()), r);
-    };
-    if b.pay_orbs {
-        line(ui, "Total", &format!("{} Orbs", b.orbs_price().unwrap_or(0)), true);
-        return;
-    }
-    match b.ready() {
-        Some((inv, renewal)) => totals_of(ui, inv, renewal, line),
-        None if b.want().is_some_and(|k| k == b.prev.key) && matches!(b.prev.main, Some(Err(_))) => {
-            para(ui, b.blocker().as_deref().unwrap_or("Something went wrong"), reg(14.0), pal().critical);
-        }
-        None => {
-            crate::ui::motion::spinner(ui, 20.0, pal().header_secondary);
-        }
-    }
-}
-
-fn totals_of(ui: &mut Ui, inv: &Invoice, renewal: Option<&Invoice>, line: impl Fn(&mut Ui, &str, &str, bool)) {
-    line(ui, "Subtotal", &billing::money(inv.subtotal, &inv.currency), false);
-    line(ui, "Tax", &if inv.tax == 0 && inv.inclusive { "Included".to_string() } else { billing::money(inv.tax, &inv.currency) }, false);
-    line(ui, "Total", &billing::money(inv.total, &inv.currency), true);
-    if let Some(r) = renewal {
-        let text = format!("Renews at {}", billing::money(r.total, &r.currency));
-        ui.add_space(SPACE_8);
-        para(ui, &text, reg(12.0), pal().header_secondary);
-    }
-}
-
 fn stepper(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
     label(ui, "Boosts");
     ui.horizontal(|ui| {
@@ -267,12 +233,12 @@ fn stepper(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
 }
 
 fn plans(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
-    let cards = [("NITRO", NITRO_MONTH, NITRO_YEAR, &b.plans[0]), ("NITRO BASIC", BASIC_MONTH, BASIC_YEAR, &b.plans[1])];
+    let cards = [("NITRO", NITRO_MONTH, NITRO_YEAR, &b.plans[0], &billing::NITRO_PERKS[..]), ("NITRO BASIC", BASIC_MONTH, BASIC_YEAR, &b.plans[1], &billing::BASIC_PERKS[..])];
     let w = (ui.available_width() - SPACE_16) / 2.0;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = SPACE_16;
-        for (name, month, year, list) in cards {
-            let (r, _) = ui.allocate_exact_size(vec2(w, 230.0), Sense::hover());
+        for (name, month, year, list, perks) in cards {
+            let (r, _) = ui.allocate_exact_size(vec2(w, 200.0 + perks.len() as f32 * 28.0), Sense::hover());
             ui.painter().rect(r, CornerRadius::same(8), pal().bg_tertiary, Stroke::new(1.0, pal().border_subtle), StrokeKind::Inside);
             ui.painter().text(r.min + vec2(SPACE_16, SPACE_16), Align2::LEFT_TOP, name, bold_italic(28.0), pal().header_primary);
             let price = |id: &str| list.as_ref().and_then(|l| l.iter().find(|p| p["id"] == id)).map(|p| billing::money(p["price"].as_i64().unwrap_or(0), p["currency"].as_str().unwrap_or("usd")));
@@ -289,6 +255,11 @@ fn plans(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
                 if resp.clicked() && price(id).is_some() {
                     acts.push(Act::Plan(id.to_string()));
                 }
+            }
+            for (i, (icon, text)) in perks.iter().enumerate() {
+                let y = r.top() + 192.0 + i as f32 * 28.0;
+                icons::draw(ui.painter(), *icon, Rect::from_center_size(pos2(r.left() + SPACE_16 + 10.0, y + 10.0), vec2(20.0, 20.0)), pal().header_primary);
+                crate::ui::text::paint(ui.painter(), pos2(r.left() + SPACE_16 + 32.0, y + 10.0), Align2::LEFT_CENTER, text, reg(14.0), pal().header_primary, w - 2.0 * SPACE_16 - 32.0);
             }
         }
     });
@@ -315,9 +286,10 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
     let screen = ctx.content_rect();
     let wide = matches!(b.step, Step::Plans);
     let w = (if wide { LARGE_MODAL } else { SMALL_MODAL }).min(screen.width() - 2.0 * SPACE_16);
-    let body_h = (screen.height() - 2.0 * SPACE_32 - HEAD - FOOT).max(120.0);
+    let foot_h = if b.step == Step::Review { FOOT_REVIEW } else { FOOT };
+    let body_h = (screen.height() - 2.0 * SPACE_32 - HEAD - foot_h).max(96.0);
     let mut acts: Vec<Act> = Vec::new();
-    let busy = matches!(b.step, Step::Sending | Step::Confirming { .. });
+    let busy = matches!(b.step, Step::Sending);
     let shown = crate::ui::motion::Modal::new(Id::new("buy_modal")).frame(Frame::new().fill(pal().bg_secondary).corner_radius(RADIUS)).show(ctx, |ui| {
         ui.set_width(w);
         let pad = Margin::symmetric(SPACE_24 as i8, 0);
@@ -338,7 +310,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
                 acts.push(Act::Close);
             }
             ScrollArea::vertical().id_salt(("buy_body", wide)).max_height(body_h).auto_shrink([false, true]).show(ui, |ui| {
-                ui.set_width(ui.available_width());
+                ui.set_width(ui.available_width() - ui.spacing().scroll.allocated_width());
                 match b.step.clone() {
                     Step::Plans => plans(ui, &b, &mut acts),
                     Step::Review => review(ui, &mut b, &avatar, friends, &faces, &mut acts),
@@ -381,7 +353,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
                     }
                 }
             });
-            let (foot, _) = ui.allocate_exact_size(vec2(ui.available_width(), FOOT), Sense::hover());
+            let (foot, _) = ui.allocate_exact_size(vec2(ui.available_width(), foot_h), Sense::hover());
             footer(ui, foot, &b, &mut acts);
         });
     });
@@ -391,7 +363,12 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
     let mut keep = true;
     for a in acts {
         match a {
-            Act::Close => keep = false,
+            Act::Close => {
+                if matches!(b.step, Step::Confirming { .. }) {
+                    app.toast("Check Billing for the outcome of that payment.");
+                }
+                keep = false;
+            }
             Act::Back => match &b.step {
                 Step::Failed { .. } => b.step = Step::Review,
                 Step::Review if matches!(b.what, What::NitroGift) => b.step = Step::Plans,
@@ -482,7 +459,6 @@ fn review(ui: &mut Ui, b: &mut Buy, avatar: &str, friends: &[(Uid, String)], fac
         gift(ui, b, friends, &|id| faces.get(&id).cloned().unwrap_or_default(), acts);
     }
     payment(ui, b, acts);
-    totals(ui, b);
     if b.eea() {
         ui.add_space(SPACE_16);
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::CLICK);
@@ -498,19 +474,44 @@ fn review(ui: &mut Ui, b: &mut Buy, avatar: &str, friends: &[(Uid, String)], fac
         }
     }
     ui.add_space(SPACE_16);
-    let verb = if b.gift { "Buy gift" } else { "Purchase" };
-    para(ui, &format!("By clicking “{verb}”, you agree to the Paid Services Terms"), reg(12.0), pal().header_secondary);
-    if let Some(why) = b.blocker() {
-        ui.add_space(SPACE_8);
-        para(ui, &why, reg(12.0), pal().text_muted);
-        mark(ui, "buy:blocker", ui.min_rect());
-    }
-    ui.add_space(SPACE_16);
 }
 
 fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
     let h = 40.0;
-    let y = foot.center().y - h / 2.0;
+    let y = foot.bottom() - SPACE_16 - h;
+    if b.step == Step::Review {
+        let mut y = foot.top() + SPACE_8;
+        let row = |ui: &Ui, y: f32, name: &str, value: &str, strong: bool| {
+            let (f, c) = if strong { (semi(16.0), pal().header_primary) } else { (reg(14.0), pal().header_secondary) };
+            ui.painter().text(pos2(foot.left(), y + LINE / 2.0), Align2::LEFT_CENTER, name, f.clone(), c);
+            ui.painter().text(pos2(foot.right(), y + LINE / 2.0), Align2::RIGHT_CENTER, value, f, c);
+            mark(ui, &format!("buy:{}", name.to_lowercase()), Rect::from_min_size(pos2(foot.left(), y), vec2(foot.width(), LINE)));
+        };
+        let mut renews = None;
+        if b.pay_orbs {
+            row(ui, y, "Total", &format!("{} Orbs", b.orbs_price().unwrap_or(0)), true);
+        } else if let Some((inv, renewal)) = b.ready() {
+            row(ui, y, "Subtotal", &billing::money(inv.subtotal, &inv.currency), false);
+            row(ui, y + LINE, "Tax", &if inv.tax == 0 && inv.inclusive { "Included".to_string() } else { billing::money(inv.tax, &inv.currency) }, false);
+            row(ui, y + 2.0 * LINE, "Total", &billing::money(inv.total, &inv.currency), true);
+            renews = renewal.map(|r| format!("Renews at {}", billing::money(r.total, &r.currency)));
+        } else {
+            let failed = b.want().is_some_and(|k| k == b.prev.key) && matches!(b.prev.main, Some(Err(_)));
+            let (text, ink) = if failed { (b.blocker().unwrap_or_default(), pal().critical) } else { ("Loading the total".to_string(), pal().text_muted) };
+            ui.painter().text(pos2(foot.left(), y + LINE / 2.0), Align2::LEFT_CENTER, text, reg(14.0), ink);
+        }
+        y += 3.0 * LINE + SPACE_8;
+        let verb = if b.gift { "Buy gift" } else { "Purchase" };
+        let terms = format!("By clicking “{verb}”, you agree to the Paid Services Terms");
+        let mut text = renews.map_or(terms.clone(), |r| format!("{r}. {terms}"));
+        if let Some(why) = b.blocker().filter(|_| b.ready().is_some() || b.pay_orbs || b.selected().is_none()) {
+            text = format!("{why}
+{text}");
+        }
+        let g = ui.painter().layout(text, reg(12.0), pal().header_secondary, foot.width());
+        mark(ui, "buy:blocker", Rect::from_min_size(pos2(foot.left(), y), g.size()));
+        ui.painter().galley(pos2(foot.left(), y), g, pal().header_secondary);
+    }
     let paint = ui.painter().clone();
     let go = |text: &str| paint.layout_no_wrap(text.into(), medium(14.0), Color32::WHITE).size().x + 2.0 * SPACE_24;
     let right = |text: &str, x: f32| Rect::from_min_size(pos2(x - go(text), y), vec2(go(text), h));
@@ -547,7 +548,13 @@ fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
                 acts.push(Act::Close);
             }
         }
-        Step::Sending | Step::Confirming { .. } => {}
+        Step::Sending => {}
+        Step::Confirming { .. } => {
+            let r = right("Close", x);
+            if button(ui, r, "Close", Color32::TRANSPARENT, pal().header_primary, true, "close") {
+                acts.push(Act::Close);
+            }
+        }
         Step::Done(_) => {
             let r = right("Done", x);
             if button(ui, r, "Done", BLURPLE, Color32::WHITE, true, "done") {

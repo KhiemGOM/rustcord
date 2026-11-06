@@ -173,7 +173,7 @@ impl Api {
     /// One request that spends money: never retried, and the reply is kept whole, so the caller
     /// can tell a refusal from a result it never saw (`Err`).
     pub async fn charge(&self, m: Method, path: &str, body: &Value) -> Result<Value, String> {
-        let res = self.build(m, path).json(body).send().await.map_err(|e| e.to_string())?;
+        let res = self.build(m, path).json(body).timeout(Duration::from_secs(60)).send().await.map_err(|e| e.to_string())?;
         let status = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
         Ok(json!({ "status": status, "body": serde_json::from_str::<Value>(&text).unwrap_or(Value::Null) }))

@@ -58,6 +58,19 @@ impl Run {
         true
     }
 
+    /// Like `tap`, but a control under the dialog's pinned footer is scrolled into view first.
+    fn reach(&mut self, ctx: &egui::Context, key: &str) -> bool {
+        let Some(r) = Self::at(ctx, key) else { return false };
+        let screen = ctx.content_rect();
+        if r.bottom() > screen.bottom() - 32.0 - 176.0 - 8.0 {
+            self.queue.push_back(vec![Event::PointerMoved(screen.center())]);
+            self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -150.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+            self.wait = Instant::now() + Duration::from_millis(300);
+            return false;
+        }
+        self.tap(ctx, key)
+    }
+
     /// The server's own count of charges that reached it, against what this step expects.
     fn charges(&mut self, app: &mut App, attempts: u64, accepted: u64, mark: &str) -> bool {
         let Some((a, b, _)) = mock_read(app) else { return false };
@@ -337,17 +350,15 @@ impl Run {
                 self.next(700);
             }
             4129 => {
-                if !shown("buy:friend:101") {
+                if !self.reach(ctx, "buy:friend:101") {
                     return;
                 }
-                self.tap(ctx, "buy:friend:101");
                 self.next(300);
             }
             4130 => {
-                if !shown("buy:style:5") {
+                if !self.reach(ctx, "buy:style:5") {
                     return;
                 }
-                self.tap(ctx, "buy:style:5");
                 if let Some(b) = app.buy.as_mut() {
                     b.message = "Happy birthday".into();
                 }
@@ -388,10 +399,9 @@ impl Run {
                 self.next(800);
             }
             4135 => {
-                if !shown("buy:friend:102") {
+                if !self.reach(ctx, "buy:friend:102") {
                     return;
                 }
-                self.tap(ctx, "buy:friend:102");
                 self.next(900);
             }
             4136 => {
@@ -674,10 +684,9 @@ impl Run {
                 self.next(900);
             }
             4169 => {
-                if !shown("buy:source:9503") {
+                if !self.reach(ctx, "buy:source:9503") {
                     return;
                 }
-                self.tap(ctx, "buy:source:9503");
                 self.next(900);
             }
             4170 => {

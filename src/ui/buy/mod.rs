@@ -145,7 +145,10 @@ impl App {
         get(self, "sources", "/users/@me/billing/payment-sources".into());
         match &what {
             What::Shop(p) if shop_orbs(p).is_some() => get(self, "orbs", "/users/@me/virtual-currency/balance".into()),
-            What::Nitro(_) => get(self, "subs", "/users/@me/billing/subscriptions?sync_level=1".into()),
+            What::Nitro(_) => {
+                get(self, "subs", "/users/@me/billing/subscriptions?sync_level=1".into());
+                get(self, "plans0", format!("/store/published-listings/skus/{}/subscription-plans?revenue_surface=0", crate::ui::settings::billing::NITRO_SKU));
+            }
             What::NitroGift => {
                 for (i, sku) in [crate::ui::settings::billing::NITRO_SKU, req::BASIC_SKU].into_iter().enumerate() {
                     get(self, ["plans0", "plans1"][i], format!("/store/published-listings/skus/{sku}/subscription-plans?revenue_surface=0"));

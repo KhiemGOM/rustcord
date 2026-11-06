@@ -100,7 +100,9 @@ pub fn preview(line: &Line, gift: bool, source: Option<&str>, currency: &str, lo
             if let Some(p) = plan {
                 q.push(format!("sku_subscription_plan_id={p}"));
             }
-            q.push(format!("currency={currency}"));
+            if !currency.is_empty() {
+                q.push(format!("currency={currency}"));
+            }
             q.push(format!("load_id={load}"));
             Call { method: "GET", path: format!("/store/skus/{sku}/purchase?{}", q.join("&")), body: None }
         }
