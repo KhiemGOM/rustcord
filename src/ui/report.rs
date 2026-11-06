@@ -145,7 +145,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut submit = false;
     let store = &app.store;
     let preview = store.find_msg(r.ch, r.msg).cloned();
-    let modal = egui::Modal::new("report".into())
+    let modal = crate::ui::motion::Modal::new("report".into())
         .frame(Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(0))
         .show(ctx, |ui| {
             ui.set_width(440.0);
@@ -167,7 +167,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.set_width(392.0);
                     match &r.err {
                         Some(e) => ui.label(RichText::new(e).font(reg(14.0)).color(pal().critical)),
-                        None => ui.add(egui::Spinner::new()),
+                        None => crate::ui::motion::spinner(ui, 24.0, pal().text_muted),
                     };
                 });
                 return;
@@ -213,9 +213,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                     let on = picked.iter().any(|p| p == id);
                                     let (rect, resp) = ui.allocate_exact_size(vec2(392.0, if opt[2].is_string() { 52.0 } else { 40.0 }), Sense::click());
                                     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("report_check{n}"))), rect));
-                                    if resp.hovered() {
-                                        ui.painter().rect_filled(rect, CornerRadius::same(4), MENU_HOVER);
-                                    }
+                                    crate::ui::motion::wash(ui, &resp, rect, CornerRadius::same(4), MENU_HOVER, 0.05);
                                     let b = egui::Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0));
                                     if on {
                                         ui.painter().rect_filled(b, 4, BLURPLE);
@@ -277,9 +275,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                 let d = &e["data"];
                                 if let Some(url) = d["url"].as_str() {
                                     let (rect, resp) = ui.allocate_exact_size(vec2(392.0, 40.0), Sense::click());
-                                    if resp.hovered() {
-                                        ui.painter().rect_filled(rect, CornerRadius::same(4), MENU_HOVER);
-                                    }
+                                    crate::ui::motion::wash(ui, &resp, rect, CornerRadius::same(4), MENU_HOVER, 0.05);
                                     super::text::paint(ui.painter(), egui::pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, d["link_text"].as_str().unwrap_or(url), medium(14.0), pal().link, 340.0);
                                     icons::draw(ui.painter(), Icon::LinkExternal, egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), vec2(16.0, 16.0)), pal().header_secondary);
                                     if resp.clicked() {
@@ -294,9 +290,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         let label = c[0].as_str().unwrap_or("");
                         let (rect, resp) = ui.allocate_exact_size(vec2(392.0, 44.0), Sense::click());
                         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("report_child{n}"))), rect));
-                        if resp.hovered() {
-                            ui.painter().rect_filled(rect, CornerRadius::same(4), MENU_HOVER);
-                        }
+                        crate::ui::motion::wash(ui, &resp, rect, CornerRadius::same(4), MENU_HOVER, 0.05);
                         super::text::paint(ui.painter(), egui::pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, label, reg(16.0), pal().header_primary, 340.0);
                         icons::draw(ui.painter(), Icon::ChevronRight, egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), vec2(20.0, 20.0)), pal().header_secondary);
                         if resp.clicked() {

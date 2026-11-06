@@ -51,7 +51,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     });
     form::line(ui);
     let Some(list) = app.server_data("template", format!("/guilds/{gid}/templates")).cloned() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let tpl = list.as_array().and_then(|l| l.first()).cloned();

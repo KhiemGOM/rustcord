@@ -482,6 +482,25 @@ pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) 
     }
 }
 
+/// `draw`, turned by `angle` radians (clockwise) about its centre.
+pub fn draw_turned(p: &Painter, icon: Icon, rect: Rect, c: Color32, angle: f32) {
+    if angle != 0.0
+        && let Some((uri, bytes)) = discord(icon)
+    {
+        let side = rect.width().min(rect.height());
+        let r = Rect::from_center_size(rect.center(), vec2(side, side));
+        let src = egui::ImageSource::Bytes { uri: uri.into(), bytes: egui::load::Bytes::Static(bytes) };
+        if let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src).load_for_size(p.ctx(), r.size()) {
+            let mut m = egui::Mesh::with_texture(texture.id);
+            m.add_rect_with_uv(r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), c);
+            m.rotate(egui::emath::Rot2::from_angle(angle), r.center());
+            p.add(Shape::mesh(m));
+            return;
+        }
+    }
+    draw(p, icon, rect, c);
+}
+
 pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
     if let Some(s) = discord(icon)
         && paint_svg(p, s, rect, c)

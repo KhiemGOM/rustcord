@@ -161,7 +161,7 @@ fn hover_button(ui: &Ui, r: Rect, on: bool, cost: &str) -> egui::Response {
     let resp = ui.interact(b, ui.id().with(("perk_btn", r.left() as i32, r.top() as i32)), Sense::click());
     super::settings::mark(ui, "perk_btn", b);
     let p = ui.painter();
-    p.rect(b, 8, if resp.hovered() { Color32::from_rgb(0x47, 0x52, 0xc4) } else { BLURPLE }, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    p.rect(b, 8, crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     if on {
         p.text(b.center(), Align2::CENTER_CENTER, "Configure", medium(16.0), Color32::WHITE);
     } else {
@@ -196,7 +196,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(info) = app.boost_info.get(&gid) else { return };
     if info.loaded & 3 != 3 {
         ui.add_space(40.0);
-        ui.centered_and_justified(|ui| ui.spinner());
+        ui.centered_and_justified(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         return;
     }
     let mut rects = Vec::new();
@@ -344,7 +344,7 @@ fn side(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.add_space(8.0);
             let (b, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());
             let p = ui.painter();
-            p.rect_filled(b, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { Color32::from_rgba_unmultiplied(151, 151, 159, 20) });
+            p.rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 20), pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             p.rect_stroke(b, CornerRadius::same(8), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
             let g = p.layout_no_wrap("Boost This Server".into(), medium(14.0), pal().text_normal);
             let x = b.center().x - (g.size().x + 20.0) / 2.0;

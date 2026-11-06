@@ -349,7 +349,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.add_space(12.0);
                 let Some(list) = list else {
                     ui.add_space(80.0);
-                    ui.vertical_centered(|ui| ui.add(egui::Spinner::new().color(pal().text_muted)));
+                    ui.vertical_centered(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
                     return;
                 };
                 let mut shown: Vec<&Value> = list.iter().filter(|q| tab == 1 || !cur_hide[kind(q) as usize]).collect();

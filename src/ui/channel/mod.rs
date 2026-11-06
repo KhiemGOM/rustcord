@@ -161,14 +161,14 @@ fn same_perms(a: &[Overwrite], b: &[Overwrite]) -> bool {
 fn modal(ctx: &egui::Context, id: &'static str, title: &str, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
-    let r = egui::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let r = crate::ui::motion::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(432.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (r, _) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::hover());
         ui.painter().text(pos2(r.left(), r.top() + 2.0), Align2::LEFT_TOP, title, semi(20.0), pal().header_primary);
         let x = Rect::from_center_size(pos2(r.right() + 6.0, r.center().y - 4.0), vec2(40.0, 40.0));
         let resp = ui.interact(x, ui.id().with("close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
         close = resp.clicked();
         ui.add_space(16.0);
         add(ui);
@@ -193,7 +193,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let area = Rect::from_min_max(pos2(screen.left(), screen.top() + 32.0), screen.max);
     let (mut goto, mut close, mut delete) = (None, false, false);
-    egui::Area::new("chan_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min).show(ctx, |ui| {
+    crate::ui::motion::layer(ctx, egui::Area::new("chan_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min), area).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
         let side_right = area.center().x - 280.0;
@@ -253,7 +253,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
         let esc = Rect::from_center_size(pos2(area.right() - 56.0, area.top() + 64.0), vec2(36.0, 36.0));
         let er = ui.interact(esc, ui.id().with("chan_esc"), Sense::click());
-        let ink = if er.hovered() { pal().header_primary } else { pal().header_secondary };
+        let ink = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er));
         ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, ink));
         icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), ink);
         ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);

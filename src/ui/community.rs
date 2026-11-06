@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use super::App;
 use super::icons::{self, Icon};
+use super::motion;
 use crate::net::Tag;
 use crate::state::{Channel, Id, sid, snowflake_ms};
 use crate::theme::*;
@@ -167,13 +168,17 @@ fn button(ui: &mut Ui, icon: Option<Icon>, text: &str, ink: Color32) -> egui::Re
     resp
 }
 
-fn checkbox(ui: &Ui, r: Rect, on: bool, hot: bool) {
-    if on {
-        ui.painter().rect_filled(r, 4, BLURPLE);
+fn checkbox(ui: &Ui, id: egui::Id, r: Rect, on: bool, hot: bool) {
+    let ctx = ui.ctx();
+    let k = motion::tween(ctx, id.with("fill"), on, 0.15, motion::EASE);
+    let edge = Stroke::new(1.0, faint(if hot { 200 } else { 163 }).gamma_multiply(1.0 - k));
+    ui.painter().rect(r, 4, motion::mix(Color32::from_black_alpha(20), BLURPLE, k), edge, egui::StrokeKind::Inside);
+    let u = motion::tween(ctx, id.with("tick"), on, 0.3, motion::Curve::Bezier(0.65, 0.0, 0.83, 0.83));
+    if u > 0.25 {
+        let s = motion::keys(&[(0.0, 0.7), (0.25, 0.7), (0.75, 1.1), (1.0, 1.0)], u);
         let c = r.center();
-        ui.painter().add(egui::Shape::line(vec![c + vec2(-5.0, 0.0), c + vec2(-1.5, 3.5), c + vec2(5.0, -3.5)], Stroke::new(2.0, Color32::WHITE)));
-    } else {
-        ui.painter().rect(r, 4, Color32::from_black_alpha(20), Stroke::new(1.0, faint(if hot { 200 } else { 163 })), egui::StrokeKind::Inside);
+        let p = |x: f32, y: f32| c + vec2(x, y) * s;
+        ui.painter().add(egui::Shape::line(vec![p(-5.0, 0.0), p(-1.5, 3.5), p(5.0, -3.5)], Stroke::new(2.0, Color32::WHITE)));
     }
 }
 
@@ -285,7 +290,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
     let all = !list.is_empty() && list.iter().all(|m| tb.picked.contains(&sid(&m["member"]["user"]["id"])));
     let cb = Rect::from_min_size(pos2(table.left() + 16.0, hr.center().y - 10.0), vec2(20.0, 20.0));
     let cr = cu.interact(cb, cu.id().with("pick_all"), Sense::click());
-    checkbox(&cu, cb, all, cr.hovered());
+    checkbox(&cu, cr.id, cb, all, cr.hovered());
     if cr.clicked() {
         if all {
             tb.picked.clear();
@@ -319,7 +324,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
         ui.spacing_mut().item_spacing.y = 0.0;
         if tb.list.is_none() {
             ui.add_space(24.0);
-            ui.spinner();
+            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         }
         for m in &list {
             let mem = &m["member"];
@@ -331,16 +336,14 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
             }
             let uid = sid(&u["id"]);
             let (r, resp) = ui.allocate_exact_size(vec2(outer.width(), 60.0), Sense::click());
-            if resp.hovered() {
-                ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 8, faint(20));
-            }
+            crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, faint(20), 0.05);
             ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
             let y = r.center().y;
             let cb = Rect::from_min_size(pos2(table.left() + 16.0, y - 10.0), vec2(20.0, 20.0));
             let on = tb.picked.contains(&uid);
             let c = ui.interact(cb, ui.id().with(("pick", uid)), Sense::click());
             if uid != me {
-                checkbox(ui, cb, on, c.hovered());
+                checkbox(ui, c.id, cb, on, c.hovered());
                 if c.clicked() {
                     picks.push((uid, !on));
                 }
@@ -426,7 +429,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
             if resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0))) {
                 let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
                 let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
-                icons::draw(ui.painter(), Icon::CirclePlus, plus, if pr.hovered() { pal().header_primary } else { pal().header_secondary });
+                icons::draw(ui.painter(), Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
                 egui::Popup::menu(&pr).show(|ui| {
                     super::menu_body(ui, |ui| {
                         let mut left: Vec<&(Id, String, u32, i32)> = roles.iter().filter(|r| r.0 != gid && !mine.iter().any(|m| m.0 == r.0)).collect();
@@ -594,7 +597,7 @@ fn channels(app: &mut App, ui: &mut Ui, gid: Id, tab: u8) {
 fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
     let Some(h) = app.home.as_mut() else { return };
     let Some(ob) = h.onboarding.clone() else {
-        ui.spinner();
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     let mut chosen: Vec<Id> = ob["responses"].as_array().into_iter().flatten().map(sid).collect();
@@ -624,7 +627,7 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
                             let label = format!("{}{title}", emoji.map(|e| format!("{e} ")).unwrap_or_default());
                             let g = super::text::layout_em(ui.ctx(), &label, medium(16.0), pal().text_normal, f32::INFINITY, 1.0);
                             let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 40.0).max(270.0), 48.0), Sense::click());
-                            ui.painter().rect(r, 8, if resp.hovered() { faint(31) } else { Color32::from_black_alpha(31) }, Stroke::new(if on { 2.0 } else { 1.0 }, if on { BLURPLE } else { faint(61) }), egui::StrokeKind::Inside);
+                            ui.painter().rect(r, 8, crate::ui::motion::mix(Color32::from_black_alpha(31), faint(31), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(if on { 2.0 } else { 1.0 }, if on { BLURPLE } else { faint(61) }), egui::StrokeKind::Inside);
                             g.paint(ui.painter(), pos2(r.left() + 20.0, r.center().y - g.size().y / 2.0));
                             if on {
                                 let c = pos2(r.right(), r.top());
@@ -746,9 +749,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
             let followed = !opt_in || app.store.opted.contains(&cat.id);
             let sw = Rect::from_min_size(pos2(hr.right() - 48.0, hr.center().y - 12.0), vec2(48.0, 24.0));
             let sr = ui.interact(sw, ui.id().with(("follow", cat.id)), Sense::click());
-            let t = ui.ctx().animate_bool_with_time(sr.id, followed, 0.12);
-            ui.painter().rect_filled(sw, 12, if followed { BLURPLE } else { faint(61) });
-            ui.painter().circle_filled(pos2(egui::lerp(sw.left() + 13.0..=sw.right() - 13.0, t), sw.center().y), 9.0, Color32::WHITE);
+            super::settings::paint_switch(ui, sw, &sr, followed);
             ui.painter().text(pos2(sw.left() - 16.0, hr.center().y), Align2::RIGHT_CENTER, "Follow Category", medium(16.0), pal().header_primary);
             app.rects.insert(format!("browse:follow:{}", cat.id), sw);
             if sr.clicked() && opt_in {
@@ -762,9 +763,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
             let n = chans.len();
             for (i, c) in chans.into_iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(w, 67.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, 8, faint(20));
-                }
+                crate::ui::motion::wash(ui, &resp, r, 8, faint(20), 0.05);
                 if i + 1 < n {
                     ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(41)));
                 }
@@ -775,7 +774,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 }
                 let on = app.store.listed(c);
                 let cb = Rect::from_center_size(pos2(r.right() - 28.0, r.center().y), vec2(20.0, 20.0));
-                checkbox(ui, cb, on, resp.hovered());
+                checkbox(ui, resp.id, cb, on, resp.hovered());
                 app.rects.insert(format!("browse:chan:{}", c.id), cb);
                 if resp.clicked() {
                     let on_box = resp.interact_pointer_pos().is_some_and(|p| cb.expand(6.0).contains(p));

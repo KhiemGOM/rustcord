@@ -99,6 +99,7 @@ pub fn launcher(app: &mut App, ctx: &egui::Context) {
     let anchor = app.rects.get("composer").copied().unwrap_or(Rect::from_min_size(pos2(400.0, 600.0), vec2(600.0, 56.0)));
     let mut picked: Option<String> = None;
     let mut keep = true;
+    super::motion::slide(ctx, egui::LayerId::new(egui::Order::Foreground, "launcher".into()), vec2(0.0, 1.0));
     let area = egui::Area::new("launcher".into())
         .order(egui::Order::Foreground)
         .pivot(Align2::RIGHT_BOTTOM)
@@ -196,7 +197,7 @@ pub fn launcher(app: &mut App, ctx: &egui::Context) {
                         head(ui, "Apps in this Server", Some(&mut l.more));
                         for e in all.iter().take(if l.more { 100 } else { 4 }) {
                             let (r, resp) = ui.allocate_exact_size(vec2(468.0, 64.0), Sense::click());
-                            ui.painter().rect_filled(r, 0, if resp.hovered() { pal().control_hover } else { pal().bg_secondary });
+                            ui.painter().rect_filled(r, 0, crate::ui::motion::mix(pal().bg_secondary, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                             icon(ui, Rect::from_center_size(pos2(r.left() + 28.0, r.center().y), vec2(40.0, 40.0)), e);
                             ui.painter().text(pos2(r.left() + 60.0, r.center().y - 11.0), Align2::LEFT_CENTER, &e.name, semi(16.0), pal().header_primary);
                             text::paint(ui.painter(), pos2(r.left() + 60.0, r.center().y + 11.0), Align2::LEFT_CENTER, &e.blurb, reg(14.0), pal().header_secondary, 390.0);

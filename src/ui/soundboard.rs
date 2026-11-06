@@ -12,9 +12,9 @@ use crate::theme::*;
 
 pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
     let Some((guild, slot)) = app.soundboard.clone() else { return };
-    let resp = egui::Area::new(egui::Id::new("soundboard_pop"))
+    let resp = super::motion::popout(ui.ctx(), egui::Area::new(egui::Id::new("soundboard_pop"))
         .order(egui::Order::Foreground)
-        .fixed_pos(pos2(anchor.center().x - 180.0, anchor.top() - 236.0))
+        .fixed_pos(pos2(anchor.center().x - 180.0, anchor.top() - 236.0)), vec2(0.0, -1.0))
         .show(ui.ctx(), |ui| {
             Frame::new()
                 .fill(pal().bg_floating)
@@ -40,7 +40,7 @@ pub fn popout(app: &mut App, ui: &mut Ui, anchor: Rect) {
                                     for s in sounds {
                                         let (r, resp) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::click());
                                         app.rects.insert(format!("sound:{}", s.id), r);
-                                        ui.painter().rect(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                                        ui.painter().rect(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                                         let er = Rect::from_center_size(pos2(r.center().x, r.top() + 26.0), vec2(24.0, 24.0));
                                         match &s.emoji {
                                             Some(e) if e.id != 0 => super::text::image(ui.painter(), &super::chat::emoji_url(e), er),

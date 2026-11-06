@@ -552,7 +552,7 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
     }
     let _ = role;
     let Some(list) = e.links.clone() else {
-        ui.add(egui::Spinner::new().color(pal().text_muted));
+        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
         return;
     };
     ui.label(RichText::new("CREATE LINKED ROLE").font(bold(12.0)).color(pal().header_secondary));
@@ -570,7 +570,7 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
         ui.painter().rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
         ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Must connect {name}"), medium(16.0), pal().header_primary);
         let x = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(24.0, 24.0));
-        icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), if resp.hovered() { RED } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), crate::ui::motion::mix(pal().header_secondary, RED, crate::ui::motion::hot(ui.ctx(), &resp)));
         if resp.clicked() && members == 0 {
             next.remove(i);
             break;
@@ -632,9 +632,7 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, members: &[Id], rol
     let mut remove = None;
     for (u, name) in &shown {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
-        if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-        }
+        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
         let user = app.store.user(*u).cloned();
         if let Some(us) = &user {
             crate::ui::avatar(ui, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(24.0, 24.0)), &us.avatar_url());
@@ -645,7 +643,7 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, members: &[Id], rol
         }
         let x = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(28.0, 28.0));
         let xr = ui.interact(x, ui.id().with(("role_rm", *u)), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), if xr.hovered() { RED } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), crate::ui::motion::mix(pal().header_secondary, RED, crate::ui::motion::hot(ui.ctx(), &xr)));
         if xr.on_hover_text("Remove member").clicked() {
             remove = Some((*u, name.clone()));
         }
@@ -677,7 +675,7 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
     let Some((q, picked)) = e.add.as_mut() else { return };
     let mut done = false;
     let mut submit = false;
-    let m = egui::Modal::new(egui::Id::new("role_add_members")).show(ui.ctx(), |ui| {
+    let m = crate::ui::motion::Modal::new(egui::Id::new("role_add_members")).show(ui.ctx(), |ui| {
         ui.set_width(440.0);
         ui.label(RichText::new("Add Members").font(bold(20.0)).color(pal().header_primary));
         ui.label(RichText::new(role.name.clone()).font(reg(14.0)).color(pal().header_secondary));
@@ -690,9 +688,7 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             for (u, name) in list.into_iter().take(200) {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
-                }
+                crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                 let on = picked.contains(&u);
                 let cb = Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(20.0, 20.0));
                 if on {

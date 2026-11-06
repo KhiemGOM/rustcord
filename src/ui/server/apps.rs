@@ -126,7 +126,7 @@ fn bots(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         let aid = sid(&a["id"]);
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 96.0), Sense::click());
-        ui.painter().rect(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+        ui.painter().rect(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
         if let Some(ic) = a["icon"].as_str() {
             egui::Image::from_uri(format!("{}/app-icons/{aid}/{ic}.png?size=96", crate::api::cdn())).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 16.0), vec2(64.0, 64.0)));
         } else {
@@ -225,7 +225,7 @@ fn webhook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
     let channel = sid(&h["channel_id"]);
     let cname = app.store.channels.get(&channel).map(|c| format!("#{}", c.name)).unwrap_or_default();
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
-    ui.painter().rect(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_secondary }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
     let av = Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 12.0), vec2(40.0, 40.0));
     match h["avatar"].as_str() {
         Some(a) => crate::ui::avatar(ui, av, &format!("{}/avatars/{id}/{a}.png?size=64", crate::api::cdn())),
@@ -236,7 +236,7 @@ fn webhook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
     }
     ui.painter().text(pos2(r.left() + 72.0, r.center().y - 9.0), Align2::LEFT_CENTER, &name, semi(16.0), pal().header_primary);
     ui.painter().text(pos2(r.left() + 72.0, r.center().y + 11.0), Align2::LEFT_CENTER, &cname, reg(12.0), pal().header_secondary);
-    icons::draw(ui.painter(), if open { Icon::ChevronDown } else { Icon::ChevronRight }, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+    crate::ui::motion::chevron(ui, resp.id, open, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
     if resp.clicked() {
         if let Some(s) = &mut app.server {
             let k = &mut s.pages.apps.hook;
