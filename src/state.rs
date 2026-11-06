@@ -2310,6 +2310,11 @@ impl Store {
                 let uid = self.upsert_user(&d["user"]);
                 self.upsert_member(sid(&d["guild_id"]), uid, d);
             }
+            "GUILD_MEMBER_REMOVE" => {
+                if let Some(m) = self.members.get_mut(&sid(&d["guild_id"])) {
+                    m.remove(&sid(&d["user"]["id"]));
+                }
+            }
             "GUILD_STICKERS_UPDATE" => {
                 if let Some(g) = self.guilds.get_mut(&sid(&d["guild_id"])) {
                     g.stickers = d["stickers"]

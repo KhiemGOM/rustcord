@@ -2172,7 +2172,9 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                go = button(ui, "Timeout", BLURPLE, 212.0).clicked();
+                let t = button(ui, "Timeout", BLURPLE, 212.0);
+                super::settings::mark(ui, "timeout:go", t.rect);
+                go = t.clicked();
             });
         });
     go |= super::enter_submits(ctx, false);

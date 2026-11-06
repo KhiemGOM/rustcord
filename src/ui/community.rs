@@ -246,8 +246,12 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
     let mut row = cu.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(head.left() + 200.0, head.top() + 8.0), pos2(head.right() - 12.0, head.bottom() - 8.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
     row.spacing_mut().item_spacing.x = 8.0;
     if picked > 0 {
-        bulk_ban = button(&mut row, None, "Ban", pal().critical).clicked();
-        bulk_kick = button(&mut row, None, "Kick", pal().critical).clicked();
+        let b = button(&mut row, None, "Ban", pal().critical);
+        app.rects.insert("members:bulk:Ban".into(), b.rect);
+        bulk_ban = b.clicked();
+        let k = button(&mut row, None, "Kick", pal().critical);
+        app.rects.insert("members:bulk:Kick".into(), k.rect);
+        bulk_kick = k.clicked();
     } else {
         let pr = button(&mut row, None, "Prune", pal().critical);
         app.rects.insert("members:prune".into(), pr.rect);
@@ -325,6 +329,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
         let all = !list.is_empty() && list.iter().all(|m| tb.picked.contains(&sid(&m["member"]["user"]["id"])));
         let cb = Rect::from_min_size(pos2(table.left() + CELL, hr.center().y - 10.0), vec2(20.0, 20.0));
         let cr = cu.interact(cb, cu.id().with("pick_all"), Sense::click());
+        app.rects.insert("members:pick_all".into(), cb);
         checkbox(cu, cr.id, cb, all, cr.hovered());
         if cr.clicked() {
             if all {
@@ -341,6 +346,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
         let sig_text = cu.painter().layout_no_wrap("SIGNALS".into(), bold(12.0), pal().text_normal).size().x;
         let sig = Rect::from_center_size(pos2(col(5) + sig_text + 16.0, hr.center().y), vec2(24.0, 24.0));
         let sr = cu.interact(sig, cu.id().with("signal_filter"), Sense::click());
+        app.rects.insert("members:signal".into(), sig);
         icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { BLURPLE } else { pal().text_normal });
         egui::Popup::menu(&sr.on_hover_text("Filter based on safety info, such as timed out or engaging in unusual DM activity.")).show(|ui| {
             super::menu_body(ui, |ui| {
@@ -374,6 +380,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 let cb = Rect::from_min_size(pos2(table.left() + CELL, y - 10.0), vec2(20.0, 20.0));
                 let on = tb.picked.contains(&uid);
                 let c = ui.interact(cb, ui.id().with(("pick", uid)), Sense::click());
+                app.rects.insert(format!("members:pick:{uid}"), cb);
                 if uid != me {
                     checkbox(ui, c.id, cb, on, c.hovered());
                     if c.clicked() {
@@ -444,6 +451,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                     p.rect_filled(chip, 4, Color32::from_rgba_unmultiplied(rc.r(), rc.g(), rc.b(), 39));
                     let dot = Rect::from_center_size(pos2(chip.left() + 14.0, y), vec2(12.0, 12.0));
                     let dr = ui.interact(dot.expand(2.0), ui.id().with(("role_dot", uid)), Sense::click());
+                    app.rects.insert(format!("members:role_dot:{uid}"), dot);
                     p.circle_filled(dot.center(), 6.0, rc);
                     if dr.hovered() {
                         icons::draw(&p, Icon::Close, dot.shrink(2.0), Color32::BLACK);
@@ -466,6 +474,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 if x + 16.0 <= end(4) && (resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0)))) {
                     let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
                     let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
+                    app.rects.insert(format!("members:add_role:{uid}"), plus);
                     icons::draw(&p, Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
                     egui::Popup::menu(&pr).show(|ui| {
                         super::menu_body(ui, |ui| {
@@ -493,6 +502,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 for (k, (icon, tip)) in [(Icon::People, "Open Mod View"), (Icon::More, "More Options")].into_iter().enumerate() {
                     let b = Rect::from_center_size(pos2(starts[6] + CELL + 14.0 + k as f32 * 36.0, y), vec2(28.0, 28.0));
                     let br = ui.interact(b, ui.id().with(("member_btn", uid, k)), Sense::click());
+                    app.rects.insert(format!("members:btn:{uid}:{k}"), b);
                     if br.hovered() {
                         ui.painter().circle_filled(b.center(), 14.0, faint(41));
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -565,7 +575,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
 }
 
 /// Asks the table again, after something in it changed.
-fn refresh(app: &mut App) {
+pub fn refresh(app: &mut App) {
     for m in tables(app) {
         m.sent = None;
     }
