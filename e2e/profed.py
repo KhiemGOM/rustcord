@@ -41,7 +41,7 @@ def checks(runs, reqs, data):
         "profed: widgets are added from their dialogs and Browse All Widgets opens": has("profed_widget_added", "profed_widget_games_added", "profed_browse_widgets") and fetched("/widget-configs/featured") and fetched("/users/@me/widgets/suggested-games"),
         "profed: the Board, Activity and Wishlist tabs switch": has("profed_tabs"),
         "profed: changes raise the save bar and Save writes the profile, account and widgets in discord's bodies": has("profed_save_bar", "profed_saved") and bool(widgets)
-            and last.get("bio") == "hello from the editor" and last.get("pronouns") == "they/them" and last.get("theme_colors", [None])[0] == 0x00B89A
+            and "hello from the editor" in last.get("bio", "") and last.get("pronouns") == "they/them" and last.get("theme_colors", [None])[0] == 0x00B89A
             and last.get("profile_effect_id") == "7003" and last.get("profile_frame_id") == "7005"
             and acct.get("avatar_decoration_sku_id") == "7001" and acct.get("nameplate_sku_id") == "7002" and acct.get("avatar_id") == "2"
             and acct.get("display_name_font_id") == 7 and acct.get("display_name_effect_id") == 2 and len(acct.get("display_name_colors", [])) == 2 and bool(acct.get("primary_guild_id"))

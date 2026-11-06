@@ -137,20 +137,25 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
     let screen = ctx.content_rect();
     let w = 980.0f32.min(screen.width() - 48.0);
     let two = w >= 760.0;
+    let left_w0 = if two { w * 0.5 } else { w };
+    let tw0 = ((left_w0 - 64.0 - 8.0 * 3.0) / 4.0).min(104.0);
+    let content = 72.0 + 32.0 + 3.0 * (tw0 * 0.75 + 8.0) + 16.0 + 32.0 + 2.0 * (tw0 * 0.5 + 8.0) + 16.0 + e.wants() as f32 * 92.0 + 84.0;
+    let dh = content.min(screen.height() - 48.0);
     let m = motion::Modal::new("profed_style".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(w);
+        ui.set_height(dh);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let area = ui.max_rect();
         let left_w = if two { w * 0.5 } else { w };
-        let mut y = area.top() + 24.0;
+        let y = area.top() + 24.0;
         let x = area.left() + 32.0;
         ui.painter().text(pos2(x, y + 12.0), Align2::LEFT_CENTER, "Change Display Name Style", semi(20.0), pal().header_primary);
         let c = Rect::from_min_size(pos2(area.right() - 56.0, area.top() + 16.0), vec2(32.0, 32.0));
         if round_icon(ui, c, Icon::Close, "Close", false).clicked() {
             cancel = true;
         }
-        y += 48.0;
-        let cols = if two { 4 } else { 4 };
+        let _ = y;
+        let cols = 4;
         let gap = 8.0;
         let tw = ((left_w - 64.0 - gap * (cols as f32 - 1.0)) / cols as f32).min(104.0);
         let section = |ui: &Ui, y: &mut f32, s: &str| {
@@ -158,6 +163,10 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
             icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(r.right() + 14.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
             *y += 32.0;
         };
+        let list = Rect::from_min_max(pos2(area.left(), area.top() + 72.0), pos2(area.left() + left_w, area.bottom() - 76.0));
+        let mut sc = ui.new_child(egui::UiBuilder::new().max_rect(list));
+        egui::ScrollArea::vertical().id_salt("style_scroll").auto_shrink([false, false]).show(&mut sc, |ui| {
+        let mut y = ui.cursor().top();
         section(ui, &mut y, "Choose Font");
         for (i, f) in FONTS.iter().enumerate() {
             let r = Rect::from_min_size(pos2(x + (i % cols) as f32 * (tw + gap), y + (i / cols) as f32 * (tw * 0.75 + gap)), vec2(tw, tw * 0.75));
@@ -217,12 +226,14 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
             }
             y += sw + 20.0;
         }
-        let side = if two { Rect::from_min_max(pos2(area.left() + left_w, area.top() + 72.0), pos2(area.right() - 24.0, y)) } else { Rect::NOTHING };
+        ui.allocate_rect(Rect::from_min_max(pos2(area.left(), ui.cursor().top()), pos2(area.left() + left_w, y)), Sense::hover());
+        });
+        let side = if two { Rect::from_min_max(pos2(area.left() + left_w, area.top() + 72.0), pos2(area.right() - 24.0, area.bottom() - 84.0)) } else { Rect::NOTHING };
         if two {
-            ui.painter().rect_filled(Rect::from_min_max(pos2(area.left() + left_w, area.top()), pos2(area.right(), y + 76.0)), CornerRadius { nw: 0, ne: 12, sw: 0, se: 0 }, pal().bg_primary);
+            ui.painter().rect_filled(Rect::from_min_max(pos2(area.left() + left_w, area.top()), pos2(area.right(), area.bottom() - 76.0)), CornerRadius { nw: 0, ne: 12, sw: 0, se: 0 }, pal().bg_primary);
             preview(ui, side, &name, e, user);
         }
-        let foot = y + 8.0;
+        let foot = area.bottom() - 76.0;
         ui.painter().hline(area.x_range(), foot, Stroke::new(1.0, faint(31)));
         let by = foot + 16.0;
         let ap = Rect::from_min_size(pos2(area.right() - 24.0 - 162.0, by), vec2(162.0, 44.0));
@@ -242,7 +253,6 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         apply = resp.clicked();
-        ui.allocate_rect(Rect::from_min_max(area.min, pos2(area.right(), by + 44.0 + 24.0)), Sense::hover());
     });
     let _ = app;
     if apply {

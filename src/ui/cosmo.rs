@@ -1,7 +1,7 @@
 //! The shop's profile cosmetics: what each avatar decoration, profile effect, profile frame and
 //! nameplate is, where its pictures live, and how an effect's layers play over a profile.
 
-use egui::{Rect, Ui, pos2};
+use egui::{Rect, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::App;
@@ -37,6 +37,8 @@ pub struct Layer {
     pub start: u64,
     pub delay: u64,
     pub z: i64,
+    // a frame is stretched over its card; an effect keeps its shape, as wide as the card, from the top
+    pub fill: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -72,6 +74,7 @@ impl Item {
                 start: l["start"].as_u64().unwrap_or(0),
                 delay: l["loopDelay"].as_u64().unwrap_or(0),
                 z: l["zIndex"].as_i64().unwrap_or(0),
+                fill: kind == Kind::Frame,
             })
             .collect();
         Some(Item {
@@ -193,11 +196,9 @@ pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
         let uri = crate::gif::uri_at(ui.ctx(), &l.src, t, !l.looped);
         let poll = egui::Image::new(uri).load_for_size(ui.ctx(), rect.size());
         if let Ok(egui::load::TexturePoll::Ready { texture }) = poll {
-            let (w, h) = (texture.size.x, texture.size.y);
-            let fit = (rect.width() / w).max(rect.height() / h);
-            let (iw, ih) = (w * fit, h * fit);
-            let uv = Rect::from_min_max(pos2((1.0 - rect.width() / iw) / 2.0, 0.0), pos2(1.0 - (1.0 - rect.width() / iw) / 2.0, (rect.height() / ih).min(1.0)));
-            ui.painter().with_clip_rect(rect).image(texture.id, rect, uv, egui::Color32::WHITE);
+            let p = ui.painter().with_clip_rect(rect);
+            let at = if l.fill { rect } else { Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * texture.size.y / texture.size.x.max(1.0))) };
+            p.image(texture.id, at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
     }
     if live {

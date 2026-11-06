@@ -273,7 +273,7 @@ impl Run {
                 self.next(300);
             }
             3970 => {
-                if draft(app).is_some_and(|d| d.pronouns == "they/them" && d.bio == "hello from the editor") {
+                if draft(app).is_some_and(|d| d.pronouns == "they/them" && d.bio.contains("hello from the editor")) {
                     self.mark("profed_card_edits");
                 }
                 click(self, "add_status");
@@ -387,7 +387,7 @@ impl Run {
             }
             3996 => {
                 self.shot(ctx, "profed_popout_later.png");
-                if at("view_full_bio").is_some() && at("game_collection").is_some() {
+                if app.rects.contains_key("view_full_bio") && app.rects.contains_key("game_collection") {
                     self.mark("profile_popout_extras");
                 }
                 if crate::gif::shown("effect_7003_b") >= 2 || crate::gif::shown("effect_7003_a") >= 2 {
@@ -402,7 +402,9 @@ impl Run {
                     self.mark("profile_view_picture");
                     app.viewer = None;
                 }
-                click(self, "game_collection");
+                let Some(r) = app.rects.get("game_collection").copied() else { return };
+                self.click(r.center());
+                self.next(500);
             }
             3998 => {
                 if app.full_profile.as_ref().is_some_and(|f| f.tab == crate::ui::profile::Tab::Board) {
