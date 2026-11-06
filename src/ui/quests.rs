@@ -123,6 +123,7 @@ enum Act {
     Claim(String),
     Copy(String),
     Open(&'static str),
+    Shop,
 }
 
 fn plate(ui: &mut Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
@@ -238,7 +239,7 @@ fn hero(ui: &mut Ui, acts: &mut Vec<Act>) {
     ui.painter().text(pos2(x, r.bottom() - 100.0), Align2::LEFT_CENTER, "Reward Your Play. Earn through Quests. Spend in the Shop.", reg(18.0), Color32::from_rgb(0xdc, 0xdc, 0xdf));
     let a = Rect::from_min_size(pos2(x, r.bottom() - 74.0), vec2(190.0, 46.0));
     if white(ui, a, "Explore Orbs Exclusives", true) {
-        acts.push(Act::Open("https://discord.com/shop"));
+        acts.push(Act::Shop);
     }
     let b = Rect::from_min_size(pos2(a.right() + 12.0, a.top()), vec2(160.0, 46.0));
     if white(ui, b, "Discord Orbs Terms", false) {
@@ -419,6 +420,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 app.toast("Link copied to clipboard.");
             }
             Act::Open(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+            Act::Shop => app.open_shop(),
         }
     }
 }
@@ -434,4 +436,10 @@ fn chip(ui: &mut Ui, r: Rect, label: &str, caret: bool, key: &'static str) -> eg
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
+}
+
+impl App {
+    pub fn open_shop(&mut self) {
+        crate::webwin::checkout("/shop");
+    }
 }
