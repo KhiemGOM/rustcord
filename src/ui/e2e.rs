@@ -286,7 +286,8 @@ impl Run {
                 raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
             }
         }
-        if self.bench.is_none() {
+        // an event every frame is a frame drawn every vsync, which a measurement mustn't have
+        if self.bench.is_none() && std::env::var_os("RUSTCORD_E2E_HOLD").is_none() {
             raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
         }
         if let Some(batch) = self.queue.pop_front() {
@@ -450,7 +451,20 @@ impl Run {
             self.finish(ctx);
             return;
         }
-        ctx.request_repaint();
+        // holding still to be measured, only what the app itself asks for gets drawn, and who asked is written down
+        if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() {
+            for c in ctx.repaint_causes() {
+                *self.causes.entry(format!("{}:{}", c.file.rsplit(['/', '\\']).next().unwrap_or(c.file), c.line)).or_default() += 1;
+            }
+            let mut top: Vec<_> = self.causes.iter().collect();
+            top.sort_by_key(|c| std::cmp::Reverse(*c.1));
+            top.truncate(14);
+            let _ = std::fs::write(self.dir.join("hold"), format!("{} {:?}", self.frames.len(), top));
+        }
+        match self.wait.checked_duration_since(Instant::now()).filter(|_| std::env::var_os("RUSTCORD_E2E_HOLD").is_some()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => ctx.request_repaint(),
+        }
         // layout snapshot for alignment checks against discord's metrics
         for k in ["composer", "composer_text", "gear", "search", "friends"] {
             if let Some(r) = app.rects.get(k) {
@@ -1079,6 +1093,11 @@ impl Run {
                 }
             }
             63 => {
+                // measuring a stream on its own: no camera going out beside it
+                if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() {
+                    self.step = 65;
+                    return;
+                }
                 let Some(r) = app.rects.get("voice:camera").copied() else { return };
                 self.click(r.center());
                 self.step = 2819;
