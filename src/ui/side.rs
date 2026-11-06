@@ -539,16 +539,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
 /// Out of onboarding's pick-your-channels list, or back into it; the unread bits of the
 /// server's flags stay as they were.
 fn show_all_channels(app: &mut App, gid: Id) {
-    let opt_in = !app.store.opt_in.remove(&gid);
-    let unreads = match app.store.unreads.get(&gid) {
-        Some(true) => 2048,
-        Some(false) => 4096,
-        None => 0,
-    };
-    let flags = unreads | if opt_in { 1u64 << 14 } else { 0 };
-    if opt_in {
+    if !app.store.opt_in.remove(&gid) {
         app.store.opt_in.insert(gid);
     }
+    let flags = app.guild_flags(gid);
     app.rest("PATCH", format!("/users/@me/guilds/{gid}/settings"), Some(serde_json::json!({ "flags": flags })), crate::net::Tag::Quiet);
 }
 
