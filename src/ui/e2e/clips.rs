@@ -233,6 +233,9 @@ impl Run {
                 if toast(app, "You captured clips during your recent") {
                     self.mark("clips_reminder");
                 }
+                if app.settings.keybinds.iter().filter(|(a, _)| crate::ui::clips::is_save_clip(a)).count() == 1 {
+                    self.mark("clips_keybind_once");
+                }
                 app.settings.clips = false;
                 app.save_settings(ctx);
                 self.next(300);

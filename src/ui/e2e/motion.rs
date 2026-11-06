@@ -41,7 +41,7 @@ impl Run {
                 app.settings.sync_motion = true;
                 app.apply_settings(ctx);
                 app.settings_page = None;
-                self.step = 99;
+                self.step = 2900;
             }
             _ => self.step = 99,
         }
