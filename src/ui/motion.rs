@@ -355,7 +355,8 @@ impl Modal {
         let outside = |p: Option<egui::Pos2>| p.is_some_and(|p| !out.response.rect.contains(p));
         let key = self.id.with("press");
         if ctx.input(|i| i.pointer.any_pressed()) {
-            ctx.data_mut(|d| d.insert_temp(key, ctx.input(|i| outside(i.pointer.interact_pos()))));
+            let began = ctx.input(|i| outside(i.pointer.interact_pos()));
+            ctx.data_mut(|d| d.insert_temp(key, began));
         }
         let pressed_out = ctx.input(|i| i.pointer.any_released()) && {
             let began = ctx.data_mut(|d| d.remove_temp::<bool>(key)).unwrap_or(false);
@@ -370,6 +371,21 @@ impl Modal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pressing_with_a_modal_open_does_not_hang() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let ctx = Context::default();
+            let press = egui::Event::PointerButton { pos: egui::pos2(1.0, 1.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
+            let raw = egui::RawInput { events: vec![press], ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                Modal::new(Id::new("m")).show(ui.ctx(), |_| {});
+            });
+            let _ = tx.send(());
+        });
+        assert!(rx.recv_timeout(Duration::from_secs(30)).is_ok());
+    }
 
     fn close(a: f32, b: f32, tol: f32) -> bool {
         (a - b).abs() < tol
