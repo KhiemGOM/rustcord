@@ -303,7 +303,6 @@ pub struct App {
     info_asked: Set<Id>,
     // the taskbar badge's count, and when unreads were last looked over for its dot
     badge: Option<i32>,
-    badge_at: Option<Instant>,
     // when the activity feed is next fetched
     feed_at: Option<Instant>,
     synced: Option<crate::proto::Account>,
@@ -508,7 +507,6 @@ impl App {
             shared: (None, 0),
             info_asked: Default::default(),
             badge: None,
-            badge_at: None,
             feed_at: None,
             synced: None,
             textures,
@@ -1224,22 +1222,10 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(t));
         }
         // discord's taskbar badge: the count, or with nothing mentioning you and the unread badge
-        // on, a dot while anything's unread. Unreads take a walk over every channel, so once a second.
+        // on, a dot while anything's unread
         let mut badge = n.min(i32::MAX as u32) as i32;
-        if badge == 0 && self.settings.badge {
-            let wait = self.badge_at.map_or(Duration::ZERO, |t| Duration::from_secs(1).saturating_sub(t.elapsed()));
-            badge = match (wait.is_zero(), self.badge) {
-                (false, Some(b)) => {
-                    ctx.request_repaint_after(wait);
-                    b.min(0)
-                }
-                _ => {
-                    self.badge_at = Some(Instant::now());
-                    let s = &self.store;
-                    let any = s.channels.values().any(|c| c.is_text() && !s.muted.contains(&c.guild) && !s.is_muted(c) && s.unread(c) && s.can_view(c));
-                    if any { -1 } else { 0 }
-                }
-            };
+        if badge == 0 && self.settings.badge && self.store.any_unread() {
+            badge = -1;
         }
         if self.badge != Some(badge) && self.store.me != 0 {
             crate::winsys::set_badge(badge);

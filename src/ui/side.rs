@@ -258,15 +258,10 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             if let Some(g) = store.guilds.get(&gid).filter(|g| g.boost_bar) {
                 boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some());
             }
-            let mut threads: Vec<&Channel> = store
-                .channels
-                .values()
-                .filter(|c| c.guild == gid && c.is_thread() && c.joined && !c.archived)
-                .collect();
-            threads.sort_by_key(|t| t.id);
+            let threads: Vec<&Channel> = store.threads_in(gid).filter(|c| c.joined && !c.archived).collect();
             // discord's "N New" on forums: open posts started since you last looked
             let mut fresh: std::collections::HashMap<Id, usize> = Default::default();
-            for t in store.channels.values().filter(|t| t.guild == gid && t.is_thread() && !t.archived) {
+            for t in store.threads_in(gid).filter(|t| !t.archived) {
                 if store.channels.get(&t.parent).is_some_and(|f| f.is_forum()) && store.reads.get(&t.parent).is_some_and(|r| t.id > r.last_acked) {
                     *fresh.entry(t.parent).or_default() += 1;
                 }
