@@ -491,7 +491,9 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
         a
     };
     let mut m = msg(early(0), MEDIA, 102, "a video with sound");
-    m["attachments"] = json!([file("clip.mp4", 19_785, "video/mp4", 320, 180)]);
+    // MOCK_CLIP_HD: a real video's file, in place of the tiny one, to measure the player with
+    let hd = std::env::var("MOCK_CLIP_HD").is_ok();
+    m["attachments"] = json!([file("clip.mp4", 19_785, "video/mp4", if hd { 1920 } else { 320 }, if hd { 1080 } else { 180 })]);
     out.push(m);
     let mut m = msg(early(1), MEDIA, 101, "an mp3");
     m["attachments"] = json!([file("tone.mp3", 12_347, "audio/mpeg", 0, 0)]);
@@ -2009,7 +2011,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
         ("GET", ["cdn", "media", "clip.mp4"]) if query(path, "width").is_some() => (200, "image/png", png(320, 180, 5, false)),
-        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
+        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", std::env::var("MOCK_CLIP_HD").ok().and_then(|f| std::fs::read(f).ok()).unwrap_or_else(|| include_bytes!("fixtures/clip.mp4").to_vec())),
         ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
