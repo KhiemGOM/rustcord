@@ -70,13 +70,12 @@ impl Curve {
 
     /// Progress for `u` in 0..=1 of the curve's length.
     pub fn at(self, u: f32) -> f32 {
-        let u = u.clamp(0.0, 1.0);
+        if u <= 0.0 || u >= 1.0 {
+            return u.clamp(0.0, 1.0);
+        }
         match self {
             Curve::Bezier(a, b, c, d) => bezier(a, b, c, d, u),
             Curve::Spring { k, c, m, clamp } => {
-                if u >= 1.0 {
-                    return 1.0;
-                }
                 let x = spring(k, c, m, u * self.duration(0.0));
                 if clamp { x.min(1.0) } else { x }
             }
