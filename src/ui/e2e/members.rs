@@ -32,14 +32,24 @@ fn menu(ctx: &egui::Context, label: &str) -> Option<Rect> {
 }
 
 impl Run {
-    /// Clicks a row of the user menu once it has stopped moving: its note loads in and shifts the rest down.
+    /// Clicks a row of the user menu: scrolled down first, since the rows past its end are the moderation ones, and
+    /// once it has stopped moving, since its note loads in and shifts the rest.
     fn settled_menu_click(&mut self, ctx: &egui::Context, label: &str, then: u64) {
         let Some(r) = menu(ctx, label) else { return };
+        if self.loaded == 0 {
+            let at = menu(ctx, "Profile").map_or(r.center(), |p| p.center());
+            self.queue.push_back(vec![Event::PointerMoved(at)]);
+            self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -1000.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+            self.loaded = 1;
+            self.wait = std::time::Instant::now() + Duration::from_millis(700);
+            return;
+        }
         if self.steady != Some(r) {
             self.steady = Some(r);
             return;
         }
         self.steady = None;
+        self.loaded = 0;
         self.rects.insert(format!("menu:{label}"), serde_json::json!([r.min.x, r.min.y, r.width(), r.height()]));
         self.shot(ctx, &format!("members_menu_{}.png", label.split(' ').next().unwrap_or_default().to_lowercase()));
         self.click(r.center());
@@ -225,14 +235,20 @@ impl Run {
             3135 => {
                 let Some(r) = at(app, "members:btn:102:1") else { return };
                 self.click(r.center());
-                self.next(1200);
+                self.next(3000);
             }
             3136 => {
                 let name = app.store.name_in(gid, 102);
                 self.settled_menu_click(ctx, &format!("Timeout {name}"), 500);
             }
             3137 => {
-                let Some(r) = Self::at(ctx, "timeout:go") else { return };
+                let Some(r) = Self::at(ctx, "timeout:go") else {
+                    if self.step_at.elapsed() > Duration::from_secs(3) && !self.marks.iter().any(|(n, _)| n == "mm_timeout_shot") {
+                        self.mark("mm_timeout_shot");
+                        self.shot(ctx, "members_after_timeout_click.png");
+                    }
+                    return;
+                };
                 self.click(r.center());
                 self.next(1500);
             }
@@ -248,7 +264,7 @@ impl Run {
             3139 => {
                 let Some(r) = at(app, "members:btn:105:1") else { return };
                 self.click(r.center());
-                self.next(1200);
+                self.next(3000);
             }
             3140 => {
                 let name = app.store.name_in(gid, 105);
@@ -270,7 +286,7 @@ impl Run {
             3143 => {
                 let Some(r) = at(app, "members:btn:104:1") else { return };
                 self.click(r.center());
-                self.next(1200);
+                self.next(3000);
             }
             3144 => {
                 let name = app.store.name_in(gid, 104);

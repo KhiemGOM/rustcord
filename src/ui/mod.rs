@@ -2426,6 +2426,7 @@ pub fn menu_closing(ctx: &egui::Context) -> egui::PopupCloseBehavior {
 /// Long menus scroll rather than run off a small window.
 pub fn menu_body(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     let h = ui.ctx().content_rect().height() - 32.0;
+    ui.set_max_height(h);
     let out = egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         content(ui)
