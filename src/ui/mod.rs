@@ -219,6 +219,7 @@ pub struct App {
     pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
     pub add_friend: String,
+    pub add_friend_note: Option<(bool, String)>,
     pub post: Option<(String, String)>,
     pub scroll_to: Option<(Id, Id)>,
     pub scroll_tries: u8,
@@ -442,6 +443,7 @@ impl App {
             quests: None,
             friends_tab: 0,
             add_friend: String::new(),
+            add_friend_note: None,
             post: None,
             scroll_to: None,
             scroll_tries: 0,
@@ -1330,6 +1332,10 @@ impl App {
                     Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
                     Tag::Quests(k) => quests::loaded(self, k, &serde_json::json!({})),
                     Tag::Follow => follow::done(self, false),
+                    Tag::AddFriend(_) => {
+                        let why = if e.contains("DiscordTag") { "No one with that name could be found." } else { "Hm, didn’t work. Double check that the username is correct." };
+                        return self.add_friend_note = Some((false, why.into()));
+                    }
                     _ => {}
                 }
                 return self.error_toast(e);
@@ -1481,6 +1487,7 @@ impl App {
                 }
             }
             Tag::Friend => self.toast("Friend request sent."),
+            Tag::AddFriend(name) => self.add_friend_note = Some((true, format!("Success! Your friend request to **{name}** was sent."))),
             Tag::Commands(scope) => self.set_commands(scope, &v),
             Tag::Gifs(q) => self.set_gifs(q, &v),
             Tag::GifCats => self.set_gif_cats(&v),

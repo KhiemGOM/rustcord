@@ -68,6 +68,8 @@ pub enum Tag {
     // the note you keep on someone
     Note(Id),
     Friend,
+    // a request typed into Add Friend: the name, to say how it went under the box
+    AddFriend(String),
     Commands(Id),
     Gifs(String),
     GifCats,
