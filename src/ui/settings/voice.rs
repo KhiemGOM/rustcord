@@ -579,7 +579,7 @@ fn entrance(app: &mut App, ui: &mut Ui) -> bool {
 
 fn push(app: &mut App, bytes: Vec<u8>) {
     let settings = base64::engine::general_purpose::STANDARD.encode(bytes);
-    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": settings })), Tag::Quiet);
+    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": settings })), Tag::fail(crate::ui::SAVE_FAILED));
 }
 
 fn push_voice(app: &mut App) {

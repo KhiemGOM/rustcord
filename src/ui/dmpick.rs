@@ -135,7 +135,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         match p.base.and_then(|c| app.store.channels.get(&c).map(|c| (c.id, c.kind, c.recipients.clone()))) {
             Some((c, 3, _)) => {
                 for u in &p.picked {
-                    app.rest("PUT", format!("/channels/{c}/recipients/{u}"), None, Tag::Quiet);
+                    app.rest("PUT", format!("/channels/{c}/recipients/{u}"), None, Tag::fail("Failed to add user to the group"));
                 }
             }
             other => {

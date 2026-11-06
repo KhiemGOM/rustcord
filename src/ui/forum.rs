@@ -146,7 +146,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
     if let Some((title, body)) = submit {
         if !title.is_empty() {
             let payload = json!({ "name": title, "message": { "content": body }, "applied_tags": [] });
-            app.rest("POST", format!("/channels/{}/threads", forum.id), Some(payload), Tag::Quiet);
+            app.rest("POST", format!("/channels/{}/threads", forum.id), Some(payload), Tag::reason());
         }
         app.post = None;
     }

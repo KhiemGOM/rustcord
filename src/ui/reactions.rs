@@ -66,7 +66,12 @@ impl App {
     /// Remove Reactions for one emoji, asking first unless shift is held.
     pub fn clear_emoji(&mut self, ch: Id, msg: Id, em: ReactEmoji, ask: bool) {
         if !ask {
-            self.rest("DELETE", format!("/channels/{ch}/messages/{msg}/reactions/{}", crate::api::esc(&em.api_name())), None, Tag::Quiet);
+            let kept = self.store.find_msg(ch, msg).map(|m| m.reactions.clone()).unwrap_or_default();
+            self.rest("DELETE", format!("/channels/{ch}/messages/{msg}/reactions/{}", crate::api::esc(&em.api_name())), None, Tag::undo("Failed to remove reactions", move |app: &mut App| {
+                if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == msg)) {
+                    m.reactions = kept.clone();
+                }
+            }));
             if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == msg)) {
                 m.reactions.retain(|r| r.emoji != em);
             }
@@ -78,7 +83,7 @@ impl App {
 
     fn remove_reactor(&mut self, ch: Id, msg: Id, em: &ReactEmoji, burst: bool, user: Id) {
         let path = format!("/channels/{ch}/messages/{msg}/reactions/{}/{}/{user}?location=Message&burst={burst}", crate::api::esc(&em.api_name()), burst as u8);
-        self.rest("DELETE", path, None, Tag::Quiet);
+        self.rest("DELETE", path, None, Tag::reason());
         if let Some(e) = self.store.reactors.get_mut(&(msg, em.api_name(), burst)) {
             e.0 = e.0.saturating_sub(1);
             if let Some(l) = &mut e.1 {

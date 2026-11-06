@@ -22,7 +22,11 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
 
     let mut on = g.boost_bar;
     if super::super::settings::toggle(ui, &mut on, "Show Boost progress bar", "Servers with the Boost progress bar enabled get more Boosts. This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).") {
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "premium_progress_bar_enabled": on })), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "premium_progress_bar_enabled": on })), Tag::rollback(move |app: &mut App| {
+            if let Some(g) = app.store.guilds.get_mut(&gid) {
+                g.boost_bar = !on;
+            }
+        }));
         if let Some(g) = app.store.guilds.get_mut(&gid) {
             g.boost_bar = on;
         }
@@ -77,7 +81,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     if let Some((field, path)) = upload
         && let Some(uri) = form::data_uri(&path)
     {
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ (field): uri })), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ (field): uri })), Tag::reason());
     }
 }
 

@@ -22,6 +22,7 @@ mod discover;
 mod e2e;
 mod events;
 mod favs;
+pub mod failed;
 mod folders;
 mod follow;
 mod forum;
@@ -32,6 +33,7 @@ pub mod icons;
 mod keys;
 #[cfg(test)]
 mod locks;
+mod live;
 mod lurk;
 mod links;
 mod login;
@@ -105,6 +107,9 @@ pub enum Pick {
     // the emoji of an answer in the poll being made
     Poll(usize),
 }
+
+const SAVE_FAILED: &str = "Failed to update your settings. Please try again.";
+pub const SEND_FAILED: &str = "Your message failed to send!";
 
 pub struct App {
     pub net: Net,
@@ -612,7 +617,8 @@ impl App {
         } else {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
             let e = self.store.msgs.entry(ch).or_default();
-            if !e.fresh && !e.loading && !jumping {
+            if (!e.fresh || e.failed.is_some()) && !e.loading && !jumping {
+                e.failed = None;
                 e.loading = true;
                 self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
             }
@@ -695,6 +701,13 @@ impl App {
             e.loading = true;
             self.net.send(Cmd::Messages { channel: ch, page: Page::Around(id) });
         }
+    }
+
+    pub fn retry_messages(&mut self, ch: Id) {
+        let Some(e) = self.store.msgs.get_mut(&ch) else { return };
+        let page = e.failed.take().map_or(Page::Latest, |f| f.0);
+        e.loading = true;
+        self.net.send(Cmd::Messages { channel: ch, page });
     }
 
     pub fn jump_to_present(&mut self, ch: Id) {
@@ -799,7 +812,16 @@ impl App {
             self.ui.quick.truncate(3);
             self.used(em.clone());
         }
-        self.net.send(Cmd::React { channel: ch, id: msg, emoji: em.api_name(), add });
+        let e = crate::api::esc(&em.api_name());
+        let path = if add {
+            format!("/channels/{ch}/messages/{msg}/reactions/{e}/@me?location=Message&type=0")
+        } else {
+            format!("/channels/{ch}/messages/{msg}/reactions/{e}/0/@me?location=Message&burst=false")
+        };
+        let back = em.clone();
+        self.rest(if add { "PUT" } else { "DELETE" }, path, None, Tag::undo("Reaction failed to send", move |app: &mut App| {
+            app.store.react_local(ch, msg, back.clone(), !add);
+        }));
         self.store.react_local(ch, msg, em, add);
     }
 
@@ -814,16 +836,16 @@ impl App {
 
     /// Notification settings the way discord saves them: servers go in the bulk route keyed by
     /// id, direct messages on their own.
-    pub fn guild_settings(&self, gid: Id, body: serde_json::Value) {
+    pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
         if gid == 0 {
-            self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), Tag::Quiet);
+            self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), tag);
         } else {
-            self.rest("PATCH", "/users/@me/guilds/settings".into(), Some(json!({ "guilds": { gid.to_string(): body } })), Tag::Quiet);
+            self.rest("PATCH", "/users/@me/guilds/settings".into(), Some(json!({ "guilds": { gid.to_string(): body } })), tag);
         }
     }
 
-    pub fn audit(&self, method: &'static str, path: String, body: Option<serde_json::Value>, reason: &str) {
-        self.net.send(Cmd::Audit { method, path, body, reason: reason.trim().to_string() });
+    pub fn audit(&self, method: &'static str, path: String, body: Option<serde_json::Value>, reason: &str, tag: Tag) {
+        self.net.send(Cmd::Audit { method, path, body, reason: reason.trim().to_string(), tag });
     }
 
     pub fn mark_read(&mut self, chans: &[Id]) {
@@ -852,17 +874,25 @@ impl App {
             Some(s) if muted => json!({ "selected_time_window": s, "end_time": (chrono::Utc::now() + chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true) }),
             _ => json!({ "selected_time_window": -1, "end_time": null }),
         };
+        let was = self.store.muted.contains(&id);
+        let back = move |app: &mut App| {
+            if was {
+                app.store.muted.insert(id);
+            } else {
+                app.store.muted.remove(&id);
+            }
+        };
         if muted {
             self.store.muted.insert(id);
         } else {
             self.store.muted.remove(&id);
         }
         if guild {
-            self.guild_settings(id, if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) });
+            self.guild_settings(id, if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) }, Tag::undo(SAVE_FAILED, back));
         } else {
             let g = self.store.channels.get(&id).map(|c| c.guild).unwrap_or(0);
             let over = if muted { json!({ "muted": true, "mute_config": cfg }) } else { json!({ "muted": false }) };
-            self.guild_settings(g, json!({ "channel_overrides": { id.to_string(): over } }));
+            self.guild_settings(g, json!({ "channel_overrides": { id.to_string(): over } }), Tag::undo(SAVE_FAILED, back));
         }
     }
 
@@ -870,6 +900,7 @@ impl App {
     /// only lists picked channels, 2048 pinned to the top, 1024 and 512 the unread setting.
     pub fn chan_flag(&mut self, ch: Id, bit: u64, on: bool) {
         let Some(g) = self.store.channels.get(&ch).map(|c| c.guild) else { return };
+        let (was_flags, was_opted) = (self.store.chan_flags.get(&ch).copied(), self.store.opted.contains(&ch));
         let flags = self.store.chan_flags.entry(ch).or_default();
         if on {
             *flags |= bit;
@@ -885,7 +916,17 @@ impl App {
             }
         }
         let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
-        self.guild_settings(g, body);
+        self.guild_settings(g, body, Tag::undo(SAVE_FAILED, move |app: &mut App| {
+            match was_flags {
+                Some(f) => app.store.chan_flags.insert(ch, f),
+                None => app.store.chan_flags.remove(&ch),
+            };
+            if was_opted {
+                app.store.opted.insert(ch);
+            } else {
+                app.store.opted.remove(&ch);
+            }
+        }));
     }
 
     /// Edit Per-server Profile: Settings > Profiles on that server.
@@ -903,11 +944,18 @@ impl App {
     /// A channel's notification level, as Discord's bell menu sets it; None goes back to the
     /// category or server default.
     pub fn set_level(&mut self, ch: Id, level: Option<u8>) {
+        let was = self.store.levels.get(&ch).copied();
+        let back = move |app: &mut App| {
+            match was {
+                Some(n) => app.store.levels.insert(ch, n),
+                None => app.store.levels.remove(&ch),
+            };
+        };
         if self.store.guilds.contains_key(&ch) {
             if let Some(n) = level {
                 self.store.levels.insert(ch, n);
             }
-            self.guild_settings(ch, json!({ "message_notifications": level.unwrap_or(3) }));
+            self.guild_settings(ch, json!({ "message_notifications": level.unwrap_or(3) }), Tag::undo(SAVE_FAILED, back));
             return;
         }
         match level {
@@ -916,7 +964,7 @@ impl App {
         };
         let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
         let body = json!({ "channel_overrides": { ch.to_string(): { "message_notifications": level.unwrap_or(3) } } });
-        self.guild_settings(g, body);
+        self.guild_settings(g, body, Tag::undo(SAVE_FAILED, back));
     }
 
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
@@ -1341,6 +1389,9 @@ impl App {
         if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
             return settings::on_remote(self, k, Err(e.clone()));
         }
+        if let Tag::Act(a) = &tag {
+            return self.acted(a, res.map(drop));
+        }
         let v = match res {
             Ok(v) => v,
             Err(e) => {
@@ -1498,7 +1549,7 @@ impl App {
             Tag::InviteDm(link) => {
                 self.store.apply("CHANNEL_CREATE", &v);
                 let id = crate::state::sid(&v["id"]);
-                self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::Quiet);
+                self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::fail(SEND_FAILED));
             }
             Tag::CallDm => {
                 self.store.apply("CHANNEL_CREATE", &v);
@@ -1553,7 +1604,7 @@ impl App {
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Activity(k) => activity::on_rest(self, &k, v),
-            Tag::Quiet => {}
+            Tag::Quiet | Tag::Act(_) => {}
         }
     }
 
@@ -1593,11 +1644,13 @@ impl App {
 
     pub fn error_toast(&mut self, e: String) {
         let detail = self.fail.take().map_or_else(|| e.clone(), |f| f.1);
+        if e == crate::api::RATE_LIMITED || e.starts_with("Oh no, it looks like the Discord servers") {
+            return self.toast(e);
+        }
         if e.is_empty() || crate::api::offline(&e) {
             self.toast("Something went wrong. Shift Click this notification to see error details.");
         } else {
-            self.toast(format!("{}
-Shift Click this notification to see error details.", e.trim_end()));
+            self.toast(format!("{}\nShift Click this notification to see error details.", e.trim_end()));
         }
         self.toast_detail = Some(detail);
     }
@@ -1684,6 +1737,7 @@ Shift Click this notification to see error details.", e.trim_end()));
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
+                    self.live(&t, &d);
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
                         self.sync_account(ctx);
                     }
@@ -1723,10 +1777,11 @@ Shift Click this notification to see error details.", e.trim_end()));
                         self.scroll_fix = Some((channel, off + est));
                     }
                 }
-                Ev::MessagesFailed { channel } => {
+                Ev::MessagesFailed { channel, page, err } => {
                     if let Some(m) = self.store.msgs.get_mut(&channel) {
                         m.loading = false;
                         m.fresh = true;
+                        m.failed = Some((page, err));
                     }
                 }
                 Ev::SendFailed { channel, nonce, err, again } => {

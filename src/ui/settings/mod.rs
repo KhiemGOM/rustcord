@@ -36,6 +36,11 @@ pub fn guarded(app: &mut App, method: &'static str, path: &str, body: Option<ser
     modals::send(app, modals::Done::Toast, method, path, body);
 }
 
+/// `guarded` for a change shown before the answer: a refusal drops `key` from the open server page so it reads again.
+pub fn guarded_or(app: &mut App, key: &'static str, method: &'static str, path: &str, body: Option<serde_json::Value>) {
+    modals::send(app, modals::Done::Stale(key), method, path, body);
+}
+
 pub fn verify(app: &mut App, ctx: &egui::Context) {
     if app.settings_page.is_none() {
         modals::verify_modal(app, ctx);

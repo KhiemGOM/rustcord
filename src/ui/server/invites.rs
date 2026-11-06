@@ -78,7 +78,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some(c) = revoke {
         app.confirm = Some(crate::ui::Confirm::new("Delete Invite Link", format!("Are you sure you want to revoke **{c}**? This cannot be undone."), "Revoke", move |app: &mut App| {
-            app.rest("DELETE", format!("/invites/{c}"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/invites/{c}"), None, Tag::rollback(crate::ui::failed::stale("invites")));
             if let Some(s) = &mut app.server {
                 if let Some(Value::Array(a)) = s.data.get_mut("invites") {
                     a.retain(|i| i["code"].as_str() != Some(c.as_str()));
@@ -90,7 +90,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         let dms = app.store.guilds.get(&gid).is_some_and(|g| g.dms_paused());
         let until = (chrono::Utc::now() + chrono::Duration::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let body = json!({ "invites_disabled_until": (!paused).then_some(&until), "dms_disabled_until": dms.then_some(&until), "lockdown_duration_hours": (!paused || dms).then_some(24) });
-        app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::Quiet);
+        app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::reason());
     }
     if create && let Some(ch) = first {
         app.invite_people(ch);

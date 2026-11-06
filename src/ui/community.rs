@@ -31,6 +31,21 @@ pub struct Members {
     pub picked: HashSet<Id>,
 }
 
+impl Members {
+    pub fn stale(&mut self) {
+        self.sent = None;
+    }
+
+    pub fn drop_user(&mut self, uid: Id) {
+        if let Some(l) = &mut self.list {
+            let n = l.len();
+            l.retain(|m| sid(&m["member"]["user"]["id"]) != uid);
+            self.total = self.total.saturating_sub((n - l.len()) as u64);
+        }
+        self.picked.remove(&uid);
+    }
+}
+
 pub struct Home {
     pub guild: Id,
     pub page: Page,
@@ -75,7 +90,7 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
             let n = v["pruned"].as_u64().unwrap_or(0);
             let body = format!("**{n}** member{} who haven't been seen in **7 days** and have no roles will be kicked. They can rejoin with a new invite.", if n == 1 { "" } else { "s" });
             app.confirm = Some(super::Confirm::new("Prune Members", body, "Prune", move |app: &mut App| {
-                app.rest("POST", format!("/guilds/{gid}/prune"), Some(json!({ "days": 7, "compute_prune_count": false })), Tag::Quiet);
+                app.rest("POST", format!("/guilds/{gid}/prune"), Some(json!({ "days": 7, "compute_prune_count": false })), Tag::reason());
             }));
         }
         _ => {}
@@ -495,11 +510,11 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
         }
     }
     if let Some((u, r)) = role_add {
-        app.rest("PUT", format!("/guilds/{gid}/members/{u}/roles/{r}"), Some(json!({})), Tag::Quiet);
+        app.rest("PUT", format!("/guilds/{gid}/members/{u}/roles/{r}"), Some(json!({})), Tag::rollback(|app: &mut App| refresh(app)));
         refresh(app);
     }
     if let Some((u, r)) = role_drop {
-        app.rest("DELETE", format!("/guilds/{gid}/members/{u}/roles/{r}"), None, Tag::Quiet);
+        app.rest("DELETE", format!("/guilds/{gid}/members/{u}/roles/{r}"), None, Tag::rollback(|app: &mut App| refresh(app)));
         refresh(app);
     }
     if prune {
@@ -512,10 +527,10 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
         app.confirm = Some(super::Confirm::new(title, body, if bulk_ban { "Ban" } else { "Kick" }, move |app: &mut App| {
             if bulk_ban {
                 let ids: Vec<String> = chosen.iter().take(200).map(|u| u.to_string()).collect();
-                app.rest("POST", format!("/guilds/{gid}/bulk-ban/v2"), Some(json!({ "user_ids": ids, "delete_message_seconds": 0 })), Tag::Quiet);
+                app.rest("POST", format!("/guilds/{gid}/bulk-ban/v2"), Some(json!({ "user_ids": ids, "delete_message_seconds": 0 })), Tag::reason());
             } else {
                 for u in &chosen {
-                    app.rest("DELETE", format!("/guilds/{gid}/members/{u}"), None, Tag::Quiet);
+                    app.rest("DELETE", format!("/guilds/{gid}/members/{u}"), None, Tag::fail(format!("Whoops... {} could not be kicked.  Please try again!", app.store.name_in(gid, *u))));
                 }
             }
             for t in tables(app) {
@@ -698,7 +713,7 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
         let seen: serde_json::Map<String, Value> = ob["prompts"].as_array().into_iter().flatten().map(|p| (sid(&p["id"]).to_string(), json!(now))).collect();
         let picked: serde_json::Map<String, Value> = chosen.iter().map(|c| (c.to_string(), json!(now))).collect();
         let body = json!({ "onboarding_responses": chosen.iter().map(|c| c.to_string()).collect::<Vec<_>>(), "onboarding_prompts_seen": seen, "onboarding_responses_seen": picked });
-        app.rest("PUT", format!("/guilds/{gid}/onboarding-responses"), Some(body), Tag::Quiet);
+        app.rest("PUT", format!("/guilds/{gid}/onboarding-responses"), Some(body), Tag::reason());
         if let Some(h) = &mut app.home
             && let Some(ob) = &mut h.onboarding
         {
