@@ -760,19 +760,16 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
     }
     ui.add_space(23.0);
     let origin = ui.cursor().min;
-    let (area, _) = ui.allocate_exact_size(vec2(width, 56.0), Sense::hover());
+    let (area, _) = ui.allocate_exact_size(vec2((width - 47.0).max(60.0), 56.0), Sense::hover());
     let top = origin.y;
     let clip = ui.painter().with_clip_rect(area);
     let label = app.slash[&ch].label();
     let lg = clip.layout_no_wrap(format!("/{label}"), semi(16.0), pal().text_normal);
-    let mut x = area.left();
-    clip.galley(pos2(x, top + 28.0 - lg.size().y / 2.0), lg.clone(), pal().text_normal);
-    x += lg.size().x + 8.0;
     let vis = app.slash[&ch].visible();
     let active = app.slash[&ch].active;
     let draft = app.drafts.get(&ch).cloned().unwrap_or_default();
-    // where the active pill's right edge falls, so a long row scrolls to keep it in view
-    let mut shift = 0.0;
+    let hidden = app.slash[&ch].hidden().len();
+    let more = clip.layout_no_wrap(format!("+{hidden} optional"), reg(14.0), pal().header_secondary);
     let widths: Vec<f32> = vis
         .iter()
         .map(|i| {
@@ -783,14 +780,18 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
             kw + 8.0 + vw.max(if *i == active { 24.0 } else { 0.0 }) + 9.0 + 2.0
         })
         .collect();
-    let mut end = x;
+    // the row scrolls to keep the active pill, and the "+N optional" after the last, in view
+    let mut shift = 0.0;
+    let mut end = lg.size().x + 8.0;
     for (n, i) in vis.iter().enumerate() {
         if *i == active {
-            shift = (end + widths[n] - area.right()).max(0.0);
+            let tail = if n + 1 == vis.len() && hidden > 0 { more.size().x + 12.0 } else { 0.0 };
+            shift = (end + widths[n] + tail - area.width()).max(0.0);
         }
         end += widths[n] + 8.0;
     }
-    x -= shift;
+    clip.galley(pos2(area.left() - shift, top + 28.0 - lg.size().y / 2.0), lg.clone(), pal().text_normal);
+    let mut x = area.left() - shift + lg.size().x + 8.0;
     let mut click = None;
     for (n, i) in vis.iter().enumerate() {
         let (pw, is_active) = (widths[n], *i == active);
@@ -809,7 +810,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
         let border = if err.is_some() { RED } else if is_active { Color32::from_rgb(0, 120, 212) } else { Color32::TRANSPARENT };
         clip.rect_stroke(pill, CornerRadius::same(4), Stroke::new(1.0, border), egui::StrokeKind::Inside);
         app.rects.insert(format!("slash_pill:{key}"), pill);
-        let resp = ui.interact(pill, egui::Id::new(("slash_pill", ch, *i)), Sense::CLICK);
+        let resp = ui.interact(pill.intersect(area), egui::Id::new(("slash_pill", ch, *i)), Sense::CLICK);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
         }
@@ -824,9 +825,9 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
                 }
                 ui.memory_mut(|m| m.request_focus(tid));
                 let mut sink = String::new();
-                ui.put(Rect::from_min_size(vr.min, vec2(1.0, 1.0)), egui::TextEdit::singleline(&mut sink).id(tid).frame(Frame::NONE).margin(Margin::ZERO).desired_width(1.0));
+                ui.put(Rect::from_min_size(vr.min, vec2(1.0, 1.0)), egui::TextEdit::singleline(&mut sink).id(tid).event_filter(egui::EventFilter { tab: true, escape: true, horizontal_arrows: true, vertical_arrows: true }).frame(Frame::NONE).margin(Margin::ZERO).desired_width(1.0));
             } else {
-                let edit = egui::TextEdit::singleline(draft_ref).id(tid).frame(Frame::NONE).margin(Margin::ZERO).font(reg(16.0)).text_color(pal().text_normal).interactive(!off).desired_width(vr.width());
+                let edit = egui::TextEdit::singleline(draft_ref).id(tid).event_filter(egui::EventFilter { tab: true, escape: true, horizontal_arrows: true, vertical_arrows: true }).frame(Frame::NONE).margin(Margin::ZERO).font(reg(16.0)).text_color(pal().text_normal).interactive(!off).desired_width(vr.width());
                 ui.put(Rect::from_min_size(pos2(vr.left(), top + 17.0), vec2(vr.width() + 2.0, 22.0)), edit);
             }
         } else {
@@ -842,15 +843,13 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
     }
     if vis.is_empty() {
         let mut sink = String::new();
-        ui.put(Rect::from_min_size(pos2(x, top + 17.0), vec2(1.0, 22.0)), egui::TextEdit::singleline(&mut sink).id(tid).frame(Frame::NONE).margin(Margin::ZERO).desired_width(1.0));
+        ui.put(Rect::from_min_size(pos2(x, top + 17.0), vec2(1.0, 22.0)), egui::TextEdit::singleline(&mut sink).id(tid).event_filter(egui::EventFilter { tab: true, escape: true, horizontal_arrows: true, vertical_arrows: true }).frame(Frame::NONE).margin(Margin::ZERO).desired_width(1.0));
         ui.memory_mut(|m| m.request_focus(tid));
     }
-    let hidden = app.slash[&ch].hidden().len();
     if hidden > 0 {
-        let g = clip.layout_no_wrap(format!("+{hidden} optional"), reg(14.0), pal().header_secondary);
-        let r = Rect::from_min_size(pos2(x + 4.0, top + 28.0 - g.size().y / 2.0), g.size());
-        clip.galley(r.min, g, pal().header_secondary);
-        let resp = ui.interact(r.expand(4.0), egui::Id::new(("slash_optional", ch)), Sense::CLICK);
+        let r = Rect::from_min_size(pos2(x + 4.0, top + 28.0 - more.size().y / 2.0), more.size());
+        clip.galley(r.min, more.clone(), pal().header_secondary);
+        let resp = ui.interact(r.expand(4.0).intersect(area), egui::Id::new(("slash_optional", ch)), Sense::CLICK);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }

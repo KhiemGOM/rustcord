@@ -115,6 +115,7 @@ pub struct Run {
     live_at: Option<Instant>,
     samples: Vec<serde_json::Value>,
     local: local::State,
+    local_log: Option<String>,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -187,6 +188,7 @@ impl Run {
             live_at: None,
             samples: Vec::new(),
             local: Default::default(),
+            local_log: None,
         })
     }
 
