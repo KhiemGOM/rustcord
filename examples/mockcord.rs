@@ -958,6 +958,44 @@ fn member_list() -> Value {
     })
 }
 
+/// An effect layer: sparkles orbiting on nothing, so a profile shows through it.
+fn fx_gif(w: u32, h: u32, hue: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut enc = image::codecs::gif::GifEncoder::new(&mut out);
+        enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+        let frames = (0..8u32).map(|f| {
+            let spin = f as f32 / 8.0 * std::f32::consts::TAU;
+            let tint = [(255, 230, 120), (160, 220, 255), (255, 170, 220)][(hue % 3) as usize];
+            let img = image::RgbaImage::from_fn(w, h, |x, y| {
+                let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+                for k in 0..6u32 {
+                    let a = spin + k as f32 * std::f32::consts::TAU / 6.0;
+                    let (cx, cy) = (0.5 + 0.38 * a.cos(), 0.5 + 0.42 * a.sin());
+                    if ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() < 0.04 {
+                        return image::Rgba([tint.0, tint.1, tint.2, 235]);
+                    }
+                }
+                image::Rgba([0, 0, 0, 0])
+            });
+            image::Frame::from_parts(img, 0, 0, image::Delay::from_numer_denom_ms(100, 1))
+        });
+        enc.encode_frames(frames).unwrap();
+    }
+    out
+}
+
+/// A profile frame: a coloured border round a clear middle.
+fn fx_frame(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let edge = x.min(w - 1 - x).min(y.min(h - 1 - y));
+        if edge < 8 { image::Rgba([0xfa, 0xa6, 0x1a, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
 fn png(w: u32, h: u32, seed: u64, round: bool) -> Vec<u8> {
     let hues = [(0x58, 0x65, 0xf2), (0x3b, 0xa5, 0x5c), (0xfa, 0xa6, 0x1a), (0xed, 0x42, 0x45), (0xeb, 0x45, 0x9e), (0x1a, 0xbc, 0x9c)];
     let (r, g, b) = hues[(seed % hues.len() as u64) as usize];
@@ -2028,6 +2066,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
+        ("GET", ["cdn", "media", f]) if f.starts_with("effect_") && f.ends_with(".gif") => (200, "image/gif", fx_gif(300, 400, f.len() as u32)),
+        ("GET", ["cdn", "media", f]) if f.starts_with("frame_") && f.ends_with("_a.png") => (200, "image/png", fx_frame(300, 400)),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
         ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
