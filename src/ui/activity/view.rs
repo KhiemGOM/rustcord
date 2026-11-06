@@ -10,7 +10,7 @@ use crate::webwin::child::Status;
 
 pub const STRIP: f32 = 128.0;
 
-fn overlaid(app: &App, ctx: &Context) -> bool {
+pub fn overlaid(app: &App, ctx: &Context) -> bool {
     app.modal_open() || app.layered(ctx) || app.activity.shelf.is_some() || app.activity.consent.is_some() || app.soundboard.is_some() || egui::Popup::is_any_open(ctx) || ctx.memory(|m| m.top_modal_layer().is_some())
 }
 

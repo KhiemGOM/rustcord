@@ -77,20 +77,6 @@ pub fn commands() -> Vec<Value> {
     ]
 }
 
-pub fn upload_slots(body: &[u8], port: u16) -> Value {
-    let b: Value = serde_json::from_slice(body).unwrap_or_default();
-    let slots: Vec<Value> = b["files"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|f| {
-            let name = f["filename"].as_str().unwrap_or("file");
-            json!({ "id": f["id"], "upload_url": format!("http://127.0.0.1:{port}/mock-upload/{name}"), "upload_filename": format!("mock/{}/{name}", fresh()) })
-        })
-        .collect();
-    json!({ "attachments": slots })
-}
-
 pub fn index() -> Value {
     json!({ "applications": applications(), "application_commands": commands() })
 }

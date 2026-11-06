@@ -242,6 +242,17 @@ unsafe fn print(h: HWND) -> Option<ColorImage> {
     }
 }
 
+/// The screen's pixels in this rectangle, as they are composed right now.
+pub fn screen(x: i32, y: i32, w: usize, h: usize) -> Option<ColorImage> {
+    unsafe {
+        let c = Canvas::new(w, h)?;
+        let dc = GetDC(std::ptr::null_mut());
+        let ok = BitBlt(c.dc, 0, 0, w as i32, h as i32, dc, x, y, SRCCOPY | CAPTUREBLT) != 0;
+        ReleaseDC(std::ptr::null_mut(), dc);
+        ok.then(|| ColorImage::new([w, h], c.pixels().chunks_exact(4).map(|p| Color32::from_rgb(p[2], p[1], p[0])).collect()))
+    }
+}
+
 unsafe extern "system" fn each_monitor(m: HMONITOR, _: HDC, r: *mut RECT, l: LPARAM) -> i32 {
     unsafe { (*(l as *mut Vec<(HMONITOR, RECT)>)).push((m, *r)) };
     1

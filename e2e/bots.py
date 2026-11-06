@@ -42,7 +42,7 @@ def checks(runs, reqs, data):
         and len(atts) == 1 and atts[0].get("filename") == "bot_upload.txt" and bool(atts[0].get("uploaded_filename")) and "path" not in atts[0]
     )
     stage = [r for r in reqs if r.get("method") == "POST" and r.get("path", "").endswith("/channels/2011/attachments")]
-    puts = [r for r in reqs if r.get("method") == "PUT" and "/mock-upload/bot_upload.txt" in r.get("path", "")]
+    puts = [r for r in reqs if r.get("method") == "PUT" and r.get("path", "").startswith("/upload/") and r.get("path", "").endswith("/bot_upload.txt")]
 
     auto = of(4)
     ber = [b for b in auto if any(o.get("focused") and o.get("value") == "ber" for o in b["data"]["options"])]
