@@ -27,6 +27,12 @@ const REGION_W: f32 = 960.0;
 const DIALOG_H: f32 = 800.0;
 const CARD_W: f32 = 400.0;
 const PAD: f32 = 48.0;
+// all.css, the dbba93 module: the column beside the form is gone at this viewport width and below
+const ONE_COLUMN: f32 = 1024.0;
+
+pub(self) fn one_column(ctx: &egui::Context) -> bool {
+    ctx.content_rect().width() <= ONE_COLUMN
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -76,6 +82,7 @@ pub struct Editor {
     pub anchor: Rect,
     pub eyedrop: Option<std::sync::Arc<egui::ColorImage>>,
     pub style_back: Option<style::Edit>,
+    pub to_shop: bool,
 }
 
 pub const BIO_PROMPTS: [&str; 6] = [
@@ -115,6 +122,7 @@ pub fn open(app: &mut App, guild: Option<Id>) {
         anchor: Rect::NOTHING,
         eyedrop: None,
         style_back: None,
+        to_shop: false,
     });
     for k in ["me_profile", "owned", "avatars"] {
         refetch(app, k);
@@ -259,6 +267,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     });
     let nested = !matches!(ed.dlg, Dlg::None) || ed.menu.is_some();
     pick::dialogs(app, &mut ed, ctx, &user);
+    if ed.to_shop {
+        app.settings_page = None;
+        return app.open_shop(super::shop::Page::Shop);
+    }
     if close || (modal.should_close() && !nested) {
         return;
     }
@@ -521,9 +533,9 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
     let pad = PAD.min(region.width() * 0.08);
     let inner = region.shrink2(vec2(pad, pad));
     let card_w = CARD_W.min(inner.width());
-    let side_by_side = inner.width() >= CARD_W + 32.0 + 2.0 * board::CELL_MIN + 16.0;
+    let side_by_side = !one_column(ui.ctx()) && inner.width() >= CARD_W + 32.0 + 2.0 * board::CELL_MIN + 16.0;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(region.left(), region.top() + pad), pos2(region.right(), region.bottom() - 8.0))));
-    egui::ScrollArea::vertical().id_salt("profed_region").auto_shrink([false, false]).show(&mut scroll, |ui| {
+    let out = egui::ScrollArea::vertical().id_salt("profed_region").auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let origin = pos2(inner.left(), ui.cursor().top());
         let card_rect = Rect::from_min_size(origin, vec2(card_w, 0.0));
@@ -537,6 +549,7 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
         let bottom = if side_by_side { origin.y + ch.max(bh) } else { board_rect.top() + bh };
         ui.allocate_rect(Rect::from_min_max(pos2(origin.x, ui.cursor().top()), pos2(inner.right(), bottom + 24.0)), Sense::hover());
     });
+    crate::ui::e2e::scrolled(ui.ctx(), &out);
     if dirty(ed) {
         save_bar(app, ed, ui, region);
     }

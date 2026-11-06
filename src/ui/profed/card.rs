@@ -193,7 +193,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             if i == 1 && resp.on_hover_text("Shop").clicked() {
-                crate::ui::settings::open_web("/shop");
+                ed.to_shop = true;
             }
         }
     }
