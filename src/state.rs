@@ -1623,7 +1623,7 @@ impl Store {
         Some((None, verb.to_string(), a.name.clone()))
     }
 
-    fn upsert_user(&mut self, v: &Value) -> Id {
+    pub fn upsert_user(&mut self, v: &Value) -> Id {
         let mut u = User::parse(v);
         let id = u.id;
         if id == 0 {
@@ -2040,6 +2040,12 @@ impl Store {
             ..Default::default()
         };
         self.msgs.entry(channel).or_default().list.push(m);
+    }
+
+    pub fn drop_pending(&mut self, channel: Id, nonce: &str) {
+        if let Some(e) = self.msgs.get_mut(&channel) {
+            e.list.retain(|m| m.nonce.as_deref() != Some(nonce));
+        }
     }
 
     pub fn fail_pending(&mut self, channel: Id, nonce: &str) {

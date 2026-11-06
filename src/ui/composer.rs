@@ -669,7 +669,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         super::attach::card_keys(app, ui.ctx(), i);
     }
     if attach && let Some(files) = rfd::FileDialog::new().pick_files() {
-        app.files.extend(files.into_iter().map(Upload::new));
+        app.attach_files(files);
     }
 
     if gift_click {
@@ -1385,7 +1385,7 @@ impl App {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("message.txt");
         if std::fs::write(&path, text).is_ok() {
-            self.files.push(Upload::new(path));
+            self.attach_files(vec![path]);
         }
     }
 
