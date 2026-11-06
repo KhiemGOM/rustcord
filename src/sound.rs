@@ -16,7 +16,7 @@ use crate::{api, cache};
 /// (sound, asset): the sounds the client plays, with the asset each had in the build these
 /// were read from. Asset names change with every discord deploy; they only save the lookup
 /// while they're current.
-const CLASSIC: [(&str, &str); 27] = [
+const CLASSIC: [(&str, &str); 29] = [
     ("message1", "3ed22d14f3c30bc4"), ("deafen", "529ff198eac567af"), ("undeafen", "b150f03c89944403"), ("mute", "2d3b4ba32c34c862"),
     ("unmute", "e74c4a06134a20e4"), ("disconnect", "dd0911025fe00b2e"), ("ptt_start", "f5c8ec31889c5317"), ("ptt_stop", "34b5969be3a063ba"),
     ("user_join", "b135ff6c8e091b43"), ("user_leave", "7b9a183742515fc2"), ("user_moved", "4003230e4086b680"), ("call_calling", "5146737af413d88e"),
@@ -24,7 +24,8 @@ const CLASSIC: [(&str, &str); 27] = [
     ("stream_started", "abe52a3c92953edb"), ("stream_ended", "cbff07b5a83e0321"), ("stream_user_joined", "3d2af2764581bb2e"),
     ("stream_user_left", "24ae9dc0184bd570"), ("reconnect", "7dfc49b36dea3a6c"), ("camera_on", "855607d0932ea396"),
     ("camera_off", "b1dd204729fe78b4"), ("discodo", "cb85be48267eb1b4"), ("activity_launch", "a71f183dc4de32a3"), ("activity_end", "878f7e7f2b3bf972"),
-    ("activity_user_join", "31d2551c00b7c91e"), ("activity_user_left", "9f34f40112215f5e"),
+    ("activity_user_join", "31d2551c00b7c91e"), ("activity_user_left", "9f34f40112215f5e"), ("clip_save", "fece0a7646748c01"),
+    ("clip_error", "a95d4944eee85a14"),
 ];
 
 const HALLOWEEN: [(&str, &str); 10] = [
@@ -70,6 +71,7 @@ pub const VOICE_EVENTS: [(&str, &str); 22] = [
 
 /// Volume discord plays its sounds at before the speaker volume scales it.
 const LEVEL: f32 = 0.4;
+const CLIP_LEVEL: f32 = 0.5;
 
 struct Config {
     on: bool,
@@ -219,7 +221,7 @@ fn spawn(cue: String, stop: Option<Arc<AtomicBool>>) {
             (file_of(&cue, &c, if cue == "call_ringing" { dice() } else { 0 }), c.speaker.clone(), c.volume)
         };
         let (clip, gain) = match load(&file) {
-            Some(c) => (c, (volume * LEVEL).min(1.0)),
+            Some(c) => (c, (volume * if cue.starts_with("clip_") { CLIP_LEVEL } else { LEVEL }).min(1.0)),
             None => (Arc::new(synth(&cue, 48_000)), volume.min(1.0)),
         };
         if clip.pcm.is_empty() {
@@ -460,6 +462,8 @@ fn notes(name: &str) -> &'static [(f32, f32)] {
         "activity_user_join" => &[(880.0, 0.05), (1174.7, 0.1)],
         "activity_user_left" => &[(1174.7, 0.05), (880.0, 0.1)],
         "reconnect" => &[(784.0, 0.07), (987.8, 0.12)],
+        "clip_save" => &[(1318.5, 0.05), (1760.0, 0.11)],
+        "clip_error" => &[(392.0, 0.08), (311.1, 0.16)],
         "discodo" => &[(523.3, 0.07), (659.3, 0.07), (784.0, 0.07), (1046.5, 0.07), (784.0, 0.07), (1046.5, 0.18)],
         "call_ringing" => &[(659.3, 0.18), (0.0, 0.08), (784.0, 0.18), (0.0, 0.3), (659.3, 0.18), (0.0, 0.08), (784.0, 0.18)],
         _ => &[],
