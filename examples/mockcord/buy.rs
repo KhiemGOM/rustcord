@@ -92,13 +92,13 @@ fn invoice(sub: i64, drift: i64) -> Value {
             "invoice_items": [], "subscription_period_start": "2026-11-06T00:00:00+00:00", "subscription_period_end": "2026-12-06T00:00:00+00:00" })
 }
 
-fn items_price(items: &[Value], renewal: bool) -> Option<i64> {
+fn items_price(items: &[Value], renewal: bool, delta: bool) -> Option<i64> {
     let mut sum = 0;
     for i in items {
         let q = i["quantity"].as_i64().filter(|q| *q >= 1)?;
         let p = plan_price(i["plan_id"].as_str()?)?;
         let boost = i["plan_id"].as_str()?.starts_with("5906655");
-        if renewal || boost {
+        if renewal || boost || !delta {
             sum += p * q;
         }
     }
@@ -169,8 +169,8 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
         ("GET", ["api", "v9", "guilds", _, "products", "listings"]) => {
             let at = "2026-10-01T00:00:00+00:00";
             Some((200, json!({ "listings": [
-                { "id": "6101", "name": "Wumpus Sticker Pack", "description": "Twelve stickers for the whole server to use.", "price_tier": 49000, "published_at": at },
-                { "id": "6102", "name": "Design Club Mug", "description": "Digital mug art, full resolution.", "price_tier": 99000, "published_at": at },
+                { "id": "6101", "name": "Wumpus Sticker Pack", "description": "Twelve stickers for the whole server to use.", "price_tier": 499, "published_at": at },
+                { "id": "6102", "name": "Design Club Mug", "description": "Digital mug art, full resolution.", "price_tier": 999, "published_at": at },
                 { "id": "6103", "name": "Unpublished", "description": "", "price_tier": 1000, "published_at": null },
             ] })))
         }
@@ -190,9 +190,10 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
                 return Some(e);
             }
             let items = b["items"].as_array()?;
-            let main = items_price(items, false)?;
+            let delta = method == "PATCH";
+            let main = items_price(items, false, delta)?;
             if b["renewal"] == true {
-                return Some((200, invoice(items_price(items, true)?, 0)));
+                return Some((200, invoice(items_price(items, true, delta)?, 0)));
             }
             Some((200, invoice(main, st.shift)))
         }
@@ -213,6 +214,7 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
             st.orbs -= cost;
             st.owned.push(sku.to_string());
             st.accepted += 1;
+            st.shift = 0;
             log(w, "accepted");
             Some((200, json!([{ "id": "8800", "sku_id": sku, "type": 1 }])))
         }
@@ -270,6 +272,7 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
                 st.owned.push(sku.to_string());
             }
             st.accepted += 1;
+            st.shift = 0;
             log(w, "accepted");
             Some((200, json!({ "entitlements": [{ "id": "8801", "sku_id": sku }], "gift_code": if gift { json!("mockgiftcode") } else { Value::Null } })))
         }
@@ -284,8 +287,8 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
                 return bad(50035, "purchase_token required");
             }
             let items = b["items"].as_array()?.clone();
-            let main = items_price(&items, false)?;
-            let renewal = items_price(&items, true)?;
+            let main = items_price(&items, false, method == "PATCH")?;
+            let renewal = items_price(&items, true, false)?;
             let (due, again) = (main + tax(main) + st.drift + st.shift, renewal + tax(renewal));
             let ok = |k: &str, want: i64| b[k]["amount"].as_i64() == Some(want) && b[k]["currency"] == "vnd";
             if !ok("expected_invoice_price", due) || !ok("expected_renewal_price", again) {
@@ -309,6 +312,7 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
                 }
             }
             st.accepted += 1;
+            st.shift = 0;
             log(w, "accepted");
             Some((200, json!({ "id": "9601", "type": 1, "status": 1, "items": items })))
         }

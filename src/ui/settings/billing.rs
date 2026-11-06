@@ -289,7 +289,7 @@ const FEATURES: [(&str, &str, &str); 20] = [
     ("Keep Quest avatar decorations rewards longer", "Not included", "Included"),
 ];
 
-const NITRO_PERKS: [(Icon, &str); 6] = [
+pub const NITRO_PERKS: [(Icon, &str); 6] = [
     (Icon::Upload, "1GB uploads"),
     (Icon::Smile, "Custom emoji anywhere"),
     (Icon::AddReaction, "Unlimited Super Reactions"),
@@ -298,7 +298,7 @@ const NITRO_PERKS: [(Icon, &str); 6] = [
     (Icon::UserProfile, "Custom profiles and more!"),
 ];
 
-const BASIC_PERKS: [(Icon, &str); 4] = [
+pub const BASIC_PERKS: [(Icon, &str); 4] = [
     (Icon::Upload, "50MB uploads"),
     (Icon::Smile, "Custom emoji anywhere"),
     (Icon::Sticker, "Custom stickers anywhere"),

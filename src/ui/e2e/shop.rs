@@ -172,7 +172,8 @@ impl Run {
                         self.fail("a collectible purchase opened the checkout window".into());
                     }
                     self.key(Key::Escape);
-                    self.next(0);
+                    self.next(300);
+                    self.key(Key::Escape);
                 }
             }
             3217 => {
