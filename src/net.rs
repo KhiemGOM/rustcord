@@ -167,6 +167,13 @@ impl Tx {
         self.ctx.request_repaint();
     }
 
+    /// For a video frame: one frame drawn for it. `request_repaint` draws two, the second with
+    /// nothing new in it, which at a stream's rate is half of all the work on the main thread.
+    pub fn send_frame(&self, e: Ev) {
+        let _ = self.tx.send(e);
+        self.ctx.request_repaint_after(std::time::Duration::from_millis(1));
+    }
+
     /// For what's rarely on screen (presences, typing and messages elsewhere): taken in by the
     /// next frame, which comes a quarter second later at most.
     pub fn send_soon(&self, e: Ev) {

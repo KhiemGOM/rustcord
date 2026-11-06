@@ -69,7 +69,7 @@ pub fn start(ctx: egui::Context) -> Receiver<Msg> {
     std::thread::Builder::new()
         .name("rpc".into())
         .spawn(|| {
-            let Ok(rt) = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build() else { return };
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
             rt.block_on(async {
                 tokio::spawn(web::serve());
                 tokio::spawn(link::serve());

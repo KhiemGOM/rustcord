@@ -8,6 +8,7 @@ mod conn;
 mod dsp;
 mod duck;
 pub mod effects;
+pub mod hwdec;
 mod hwenc;
 mod log;
 pub mod preview;
@@ -18,7 +19,7 @@ pub mod stage;
 mod video;
 
 pub use capture::cameras;
-pub use video::{Quality, Source};
+pub use video::{Quality, Source, shown};
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};

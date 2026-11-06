@@ -22,7 +22,7 @@ fn ago(ms: i64) -> String {
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(gid) = app.active_threads else { return };
     let s = &app.store;
-    let mut threads: Vec<&crate::state::Channel> = s.channels.values().filter(|c| c.guild == gid && c.is_thread() && !c.archived && s.can_view(c)).collect();
+    let mut threads: Vec<&crate::state::Channel> = s.threads_in(gid).filter(|c| !c.archived && s.can_view(c)).collect();
     threads.sort_by_key(|t| std::cmp::Reverse(t.last_msg.max(t.id)));
     let rows: Vec<(Id, String, String, String, Option<String>)> = threads
         .iter()

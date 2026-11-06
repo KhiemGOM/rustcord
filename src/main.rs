@@ -67,6 +67,7 @@ fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport,
         centered: true,
+        wgpu_options: gpu(),
         ..Default::default()
     };
     eframe::run_native(
@@ -74,4 +75,21 @@ fn main() -> eframe::Result {
         opts,
         Box::new(move |cc| Ok(Box::new(ui::App::new(cc, t0, snap)))),
     )
+}
+
+/// Vulkan where there is one, else Direct3D 12: Vulkan's driver keeps far less in the process.
+fn gpu() -> eframe::egui_wgpu::WgpuConfiguration {
+    use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
+    use eframe::wgpu::{Backend, Backends, DeviceType};
+    let mut setup = WgpuSetupCreateNew::without_display_handle();
+    setup.instance_descriptor.backends = Backends::from_env().unwrap_or(Backends::VULKAN | Backends::DX12);
+    setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, surface| {
+        let usable = |a: &&eframe::wgpu::Adapter| surface.is_none_or(|s| a.is_surface_supported(s));
+        let rank = |a: &eframe::wgpu::Adapter| {
+            let i = a.get_info();
+            (i.backend != Backend::Vulkan, i.device_type == DeviceType::Cpu)
+        };
+        adapters.iter().filter(usable).min_by_key(|a| rank(a)).cloned().ok_or_else(|| "no gpu adapter".into())
+    }));
+    eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: WgpuSetup::CreateNew(setup), ..Default::default() }
 }
