@@ -23,7 +23,7 @@ mod expression;
 mod invites;
 mod members;
 mod moderation;
-mod perms;
+pub(super) mod perms;
 mod role_edit;
 mod roles;
 mod safety;

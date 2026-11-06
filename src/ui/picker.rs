@@ -496,6 +496,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             s.page = super::server::Page::Emoji;
         }
         app.picker = None;
+        return;
     }
     ctx.data_mut(|d| {
         d.insert_temp(shut_id, shut);

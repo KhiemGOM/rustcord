@@ -1413,7 +1413,14 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
         ui.add_space(3.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
-            let mut r = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::hover()).rect;
+            let copy = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::click());
+            if copy.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if copy.clicked() {
+                ui.ctx().copy_text(user.username.clone());
+            }
+            let mut r = copy.on_hover_text("Copy Username").rect;
             if let Some(pr) = pronouns {
                 ui.painter().circle_filled(pos2(r.right() + 9.0, r.center().y), 2.0, pal().header_primary);
                 ui.add_space(18.0);
@@ -1434,6 +1441,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
 
 enum AccountAct {
     Status(&'static str),
+    StatusFor(&'static str, Option<i64>),
     Edit,
     Custom,
     CopyId,
@@ -1519,11 +1527,22 @@ pub fn account(app: &mut App, ui: &mut Ui) {
                     ("dnd", "Do Not Disturb", Some("You will not receive desktop notifications"), Status::Dnd),
                     ("invisible", "Invisible", Some("You will appear offline"), Status::Offline),
                 ] {
-                    let (resp, lead) = super::menu_row_at(ui, true, label, sub, false, super::Trail::None);
+                    let timed = key != "online";
+                    let (resp, lead) = super::menu_row_at(ui, true, label, sub, false, if timed { super::Trail::Caret } else { super::Trail::None });
                     let c = lead.center();
                     super::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), st, pal().bg_floating);
-                    if resp.clicked() {
+                    if !timed && resp.clicked() {
                         act = Some(AccountAct::Status(key));
+                    }
+                    if timed {
+                        egui::containers::menu::SubMenu::new().show(ui, &resp, |ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            for (name, secs) in super::cstatus::STATUS_FOR {
+                                if super::menu_item(ui, None, name, false) {
+                                    act = Some(AccountAct::StatusFor(key, secs));
+                                }
+                            }
+                        });
                     }
                     if key == "online" {
                         super::menu_sep(ui);
@@ -1559,7 +1578,8 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     });
     theme_wash(ui, wash, app.profiles.get(&me), ui.min_rect());
     match act {
-        Some(AccountAct::Status(s)) => app.set_status(s),
+        Some(AccountAct::Status(s)) => app.set_status_for(s, None),
+        Some(AccountAct::StatusFor(s, secs)) => app.set_status_for(s, secs),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
         Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(app.store.custom_status.as_ref())),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),

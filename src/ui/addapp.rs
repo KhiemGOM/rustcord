@@ -140,7 +140,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             check(ui, scope_line(s));
         }
         if bot && a.perms != 0 {
-            for (_, perms) in super::server::SECTIONS {
+            for (_, perms) in super::server::perms::SECTIONS {
                 for (_, name, _) in perms.iter().filter(|(b, _, _)| a.perms & b != 0) {
                     check(ui, name);
                 }
