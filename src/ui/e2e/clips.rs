@@ -32,7 +32,7 @@ impl Run {
                     return;
                 }
                 if std::env::var_os("RUSTCORD_FAKE_VIDEO").is_none() {
-                    self.step = 99;
+                    self.step = 3800;
                     return;
                 }
                 app.settings.clips = true;
