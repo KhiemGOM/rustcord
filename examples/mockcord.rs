@@ -836,7 +836,7 @@ fn ready(last_general: u64) -> Value {
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
     guilds[1]["owner_id"] = json!(ME.to_string());
-    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS"]);
+    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS", "GUILD_SERVER_GUIDE"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
     guilds[1]["threads"] = json!([thread_b()]);
     guilds[1]["guild_scheduled_events"] = json!(events_base("1001"));
@@ -1220,7 +1220,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body).or_else(|| prefs::install(method, &parts, path, body))) {
+    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body).or_else(|| prefs::install(method, &parts, path, body)).or_else(|| prefs::guide(method, &parts))) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     match (method, parts.as_slice()) {
