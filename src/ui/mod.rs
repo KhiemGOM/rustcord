@@ -223,6 +223,7 @@ pub struct App {
     pub quests: Option<quests::Quests>,
     pub friends_tab: u8,
     pub add_friend: String,
+    pub status_until: Option<i64>,
     pub add_app: Option<addapp::AddApp>,
     pub add_friend_note: Option<(bool, String)>,
     pub post: Option<(String, String)>,
@@ -449,6 +450,7 @@ impl App {
             quests: None,
             friends_tab: 0,
             add_friend: String::new(),
+            status_until: None,
             add_app: None,
             add_friend_note: None,
             post: None,
@@ -1914,6 +1916,7 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.pump(ctx);
+        self.status_expiry(ctx);
         activity::logic(self, ctx);
         self.os_settings(ctx, frame);
         if self.away(ctx) {
