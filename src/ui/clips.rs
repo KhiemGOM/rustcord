@@ -8,13 +8,16 @@ use super::{App, menu_item};
 use crate::clips::{self, Clip, Context, Outcome};
 use crate::state::Id;
 use crate::theme::*;
-use crate::voice::{self, Ctl};
+use crate::voice;
+
+pub fn is_save_clip(action: &str) -> bool {
+    action.trim_start_matches('!') == "save_clip"
+}
 
 #[derive(Default)]
 pub struct State {
     live: bool,
     streaming: bool,
-    sent: Option<u32>,
     warned: Option<Id>,
     session: (String, u32),
     pub list: Option<Vec<Clip>>,
@@ -75,15 +78,10 @@ impl App {
     fn clip_flags(&mut self) {
         let stage = self.voice.chan.and_then(|c| self.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
         clips::set_stage(stage);
-        let connected = self.voice.state == voice::State::Connected && self.voice.chan.is_some();
-        if !connected {
-            self.clips.sent = None;
-            return;
-        }
         let f = if self.settings.clips { clips::CLIPS_ENABLED } else { 0 } | if self.settings.clips_voice { clips::ALLOW_VOICE_RECORDING } else { 0 };
-        if self.clips.sent != Some(f) {
-            self.clips.sent = Some(f);
-            self.net.send(crate::net::Cmd::Voice(voice::Cmd::Ctl(Ctl::Flags(f))));
+        self.voice.set_clip_flags(&self.net, f);
+        if self.voice.state != voice::State::Connected || self.voice.chan.is_none() {
+            return;
         }
         if self.clips.warned.is_some() && self.clips.warned != self.voice.chan {
             self.clips.warned = None;
