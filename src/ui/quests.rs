@@ -33,6 +33,7 @@ impl App {
         self.ui.guild = None;
         self.directory = None;
         self.friends = false;
+        self.shop = None;
         self.fetch_quests();
     }
 

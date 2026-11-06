@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 use super::{LOGOUT, Look, card, danger, end, faint, input, lead, link, loading, mark, primary, refetch, remote, secondary, section};
 use crate::net::Tag;
 use crate::theme::*;
-use crate::webwin::checkout;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
 
@@ -19,8 +18,8 @@ pub use gifts::gifts;
 type Step = (&'static str, String, Option<Value>);
 
 const KEYS: [&str; 9] = ["subs", "sources", "payments", "slots", "cooldown", "credits", "gifts", "gift_codes", "badge"];
-const NITRO_SKU: &str = "521842831262875670";
-const BASIC_SKU: &str = "978380692553465865";
+pub const NITRO_SKU: &str = "521842831262875670";
+pub const BASIC_SKU: &str = "978380692553465865";
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const COUNTRIES: [(&str, &str); 36] = [
     ("US", "United States"), ("GB", "United Kingdom"), ("VN", "Vietnam"), ("CA", "Canada"), ("AU", "Australia"), ("DE", "Germany"),
@@ -259,8 +258,8 @@ fn plan_price(plan: &Value) -> String {
 
 fn subscribe(plans: &[Value]) {
     match plans.iter().find(|p| p["interval"] == 1 && p["interval_count"] == 1).and_then(|p| p["id"].as_str()) {
-        Some(id) => checkout(&format!("/billing/premium/subscribe?plan_id={id}")),
-        None => checkout("/settings/premium"),
+        Some(id) => crate::webwin::subscribe(id, false),
+        None => {}
     }
 }
 
@@ -437,7 +436,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
         });
         end(ui, 16.0);
         if primary(ui, "Select Friends").clicked() {
-            checkout("/settings/premium");
+            super::open_web("/settings/premium");
         }
     }
     if tier != 0 {
@@ -506,11 +505,11 @@ pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 if ending {
                     if primary(ui, "Resubscribe").clicked() {
-                        checkout("/billing/premium/manage");
+                        crate::webwin::manage();
                     }
                 } else {
                     if secondary(ui, "Change Payment Method").clicked() {
-                        checkout("/billing/premium/manage");
+                        crate::webwin::manage();
                     }
                     if danger(ui, "Cancel Subscription", false).clicked() {
                         cancel = Some((id.to_string(), ends.clone()));
@@ -752,7 +751,7 @@ pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
     ui.add_space(24.0);
     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
         if primary(ui, "Add Payment Method").clicked() {
-            checkout("/billing/payment-sources/create");
+            crate::webwin::add_card();
         }
     });
     edit_source(app, ui, &sources);
