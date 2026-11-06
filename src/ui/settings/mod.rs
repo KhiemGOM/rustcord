@@ -295,6 +295,16 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
             icons::draw(ui.painter(), Icon::SideLogout, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), LOGOUT);
             ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, "Log Out", medium(16.0), LOGOUT);
             logout = resp.clicked();
+            ui.add_space(12.0);
+            let version = format!("Rustcord {}", env!("CARGO_PKG_VERSION"));
+            let (vr, vresp) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::click());
+            ui.painter().text(pos2(vr.left() + 10.0, vr.center().y), Align2::LEFT_CENTER, &version, reg(12.0), pal().text_muted);
+            if vresp.hovered() {
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if vresp.on_hover_text("Click to copy version").clicked() {
+                ctx.copy_text(version);
+            }
             ui.add_space(20.0);
         }
     });
