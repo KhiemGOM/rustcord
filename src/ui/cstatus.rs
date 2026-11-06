@@ -107,7 +107,6 @@ impl App {
 pub const STATUS_FOR: [(&str, Option<i64>); 6] = [("For 15 Minutes", Some(900)), ("For 1 Hour", Some(3600)), ("For 8 Hours", Some(28_800)), ("For 24 Hours", Some(86_400)), ("For 3 Days", Some(259_200)), ("Forever", None)];
 
 impl App {
-    /// A status that wears off after `secs`, or stays until changed.
     pub fn set_status_for(&mut self, status: &str, secs: Option<i64>) {
         self.set_status(status);
         self.status_until = secs.filter(|_| status != "online").map(|s| chrono::Utc::now().timestamp() + s);
@@ -115,7 +114,6 @@ impl App {
         self.rest("PATCH", "/users/@me/settings".into(), Some(json!({ "status": status, "status_expires_at": until })), Tag::Quiet);
     }
 
-    /// Back to online once a timed status has run out.
     pub fn status_expiry(&mut self, ctx: &egui::Context) {
         let Some(at) = self.status_until else { return };
         let left = at - chrono::Utc::now().timestamp();

@@ -153,7 +153,6 @@ pub struct App {
     pub report: Option<report::Report>,
     // the server guide's new member actions, per server: (their channels, the ones done)
     pub guides: Map<Id, (Vec<Id>, Set<Id>)>,
-    // what the welcome request answered, for the guide page
     pub guide_raw: Map<Id, serde_json::Value>,
     pub guild_notifs: Option<Id>,
     pub bar: Option<(Id, Rect)>,

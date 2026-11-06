@@ -180,7 +180,6 @@ pub struct Settings {
     pub voice_switch_ok: bool,
     // what each person in a call is played at on this device
     pub peers: Map<Id, Peer>,
-    // servers where the community activity alerts are off: in the app, and as push
     pub alerts_off: Map<Id, [bool; 2]>,
     // the call's More Options: names on the tiles, and tiles for people without video
     pub hide_call_names: bool,

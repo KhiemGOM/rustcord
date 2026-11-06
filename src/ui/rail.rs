@@ -562,7 +562,6 @@ fn tip(r: egui::Response, name: &str) -> egui::Response {
     })
 }
 
-/// A tooltip to the right of the widget, centred on it, with the arrow pointing back at it.
 fn beside(r: egui::Response, content: impl FnOnce(&mut Ui)) -> egui::Response {
     if !r.hovered() || r.dragged() {
         return r;

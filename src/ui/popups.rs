@@ -876,8 +876,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
     sel = sel.min(hits.len().saturating_sub(1));
     let mut pick = ctx.input(|i| i.key_pressed(Key::Enter)).then_some(sel);
 
-    // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule; the
-    // title over the box has to clear the title bar, so a short window gets a shorter list
+    // discord's: a 638 wide, 70 tall input, a fixed results area, the protip under a rule
     let rows_h = (ctx.content_rect().height() - 2.0 * (super::titlebar::HEIGHT + 41.0 + 4.0) - 155.0).clamp(80.0, 236.0);
     let typed = !q.is_empty();
     let modal = crate::ui::motion::Modal::new("switcher".into())

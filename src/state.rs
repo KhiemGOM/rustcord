@@ -928,8 +928,6 @@ impl Poll {
     }
 }
 
-/// A server's notification settings beyond mutes and levels: what the Notification Settings
-/// dialog shows.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GuildPrefs {
     pub suppress_everyone: bool,
@@ -1385,7 +1383,6 @@ impl Store {
         (last + c.rate as i64 * 1000 - now).max(0)
     }
 
-    /// Whether @everyone can't see the channel at all.
     pub fn limited(&self, c: &Channel) -> bool {
         let Some(g) = self.guilds.get(&c.guild) else { return false };
         let mut p = g.roles.get(&g.id).map_or(0, |r| r.perms);
@@ -1395,7 +1392,6 @@ impl Store {
         p & VIEW_CHANNEL == 0
     }
 
-    /// Whether a voice channel has as many people in it as its limit allows.
     pub fn full(&self, c: &Channel) -> bool {
         c.user_limit > 0 && self.guilds.get(&c.guild).is_some_and(|g| g.voice.values().filter(|ch| **ch == c.id).count() >= c.user_limit as usize)
     }
