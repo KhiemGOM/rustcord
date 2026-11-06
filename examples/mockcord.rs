@@ -923,6 +923,9 @@ fn channel(w: &W, id: &str) -> Option<Value> {
         return Some(thread_b());
     }
     let r = ready(0);
+    if let Some(c) = r["private_channels"].as_array().and_then(|l| l.iter().find(|c| c["id"] == id)) {
+        return Some(c.clone());
+    }
     let (g, c) = r["guilds"].as_array()?.iter().find_map(|g| g["channels"].as_array()?.iter().find(|c| c["id"] == id).map(|c| (g["id"].clone(), c.clone())))?;
     let mut c = c;
     c["guild_id"] = g;
