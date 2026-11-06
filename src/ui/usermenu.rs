@@ -236,7 +236,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         if !me && dm.is_none() && !bot && row(ui, "Start a Call", None, false, Trail::None) {
             act = Some(Act::Call);
         }
-        if !me {
+        if !me && !crate::theme::view().hide_personal {
             let (label, sub) = match note {
                 None => ("Loading Note", Some("Only visible to you")),
                 Some(true) => ("Edit Note", Some("Only visible to you")),

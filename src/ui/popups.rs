@@ -1055,7 +1055,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                         }
                         role_act = profile::roles_row(ui, store, gid, uid, &roles, 268.0, 2);
                     }
-                    if uid != me && note_open {
+                    if uid != me && note_open && !crate::theme::view().hide_personal {
                         ui.add_space(16.0);
                         ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
                         ui.add_space(4.0);
@@ -1267,10 +1267,12 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
             ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
-            ui.add_space(24.0);
-            ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
-            ui.add_space(4.0);
-            save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
+            if !crate::theme::view().hide_personal {
+                ui.add_space(24.0);
+                ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
+                ui.add_space(4.0);
+                save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
+            }
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
