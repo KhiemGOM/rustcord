@@ -14,6 +14,7 @@ mod clips_gallery;
 mod clips_trim;
 mod composer;
 mod create;
+mod cosmo;
 mod cstatus;
 mod crop;
 mod directory;
@@ -46,6 +47,7 @@ mod plus;
 mod poll;
 mod invitecard;
 mod popups;
+mod profed;
 mod presence;
 mod reactions;
 mod report;
@@ -247,6 +249,9 @@ pub struct App {
     pub bookmarks: Set<Id>,
     // the notes you keep on people, by user, once fetched
     pub notes: Map<Id, String>,
+    pub cosmo: cosmo::Store,
+    pub keyed: Map<String, Option<Result<serde_json::Value, String>>>,
+    pub profed: Option<profed::Editor>,
     pub new_thread: Option<popups::NewThread>,
     pub poll: Option<poll::Draft>,
     pub launcher: Option<plus::Launcher>,
@@ -463,6 +468,9 @@ impl App {
             caret_end: false,
             bookmarks: Set::default(),
             notes: Map::default(),
+            cosmo: Default::default(),
+            keyed: Map::default(),
+            profed: None,
             new_thread: None,
             poll: None,
             launcher: None,
@@ -863,8 +871,6 @@ impl App {
     /// Edit Per-server Profile: Settings > Profiles on that server.
     pub fn edit_server_profile(&mut self, gid: Id) {
         self.sform.profile_guild = Some(gid);
-        self.sform.profile = None;
-        self.sform.profile_base = None;
         self.settings_page = Some(settings::Page::Profiles);
     }
 
@@ -1298,7 +1304,11 @@ impl App {
                     Tag::Report(_) => return self.report_failed(e),
                     Tag::Inbox => self.inbox = None,
                     // the feed is a nicety; when it fails there's just no activity section
-                    Tag::Feed | Tag::AppIcons(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
+                    Tag::Keyed(k) => {
+                        self.keyed.insert(k, Some(Err(e)));
+                        return;
+                    }
+                    Tag::Feed | Tag::AppIcons(_) | Tag::Product(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -1493,6 +1503,10 @@ impl App {
                 self.guides.entry(g).or_default().1 = done.filter_map(|(c, _)| c.parse().ok()).collect();
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
+            Tag::Product(_) => self.product_loaded(&v),
+            Tag::Keyed(k) => {
+                self.keyed.insert(k, Some(Ok(v)));
+            }
             Tag::Activity(k) => activity::on_rest(self, &k, v),
             Tag::Quiet => {}
         }

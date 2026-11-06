@@ -123,18 +123,47 @@ pub fn paint_still(ui: &egui::Ui, url: &str, rect: egui::Rect, radius: egui::Cor
 }
 
 fn frame_at(ctx: &egui::Context, url: &str) -> usize {
+    let t = (ctx.input(|i| i.time) * 1000.0) as u128;
+    frame_for(ctx, url, t, true)
+}
+
+fn frame_for(ctx: &egui::Context, url: &str, t: u128, wake: bool) -> usize {
     let Some(durs) = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))) else { return 0 };
     let total = durs.all().map(|d| d.as_millis()).sum::<u128>().max(1);
-    let t = (ctx.input(|i| i.time) * 1000.0) as u128 % total;
+    let t = t % total;
     let mut end = 0;
     for (i, d) in durs.all().enumerate() {
         end += d.as_millis();
         if t < end {
-            ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
+            if wake {
+                ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
+            }
             return i;
         }
     }
     0
+}
+
+/// `uri` for an animation that has been running `ms` since it was started, rather than since
+/// the app was: the frame for that moment, and the last one once a single play is over.
+pub fn uri_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> String {
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return url.to_string() };
+    if kind(&bytes).is_none() {
+        return url.to_string();
+    }
+    let total = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).map_or(0, |d| d.all().map(|d| d.as_millis()).sum::<u128>());
+    let i = if once && total > 0 && ms >= total { last_frame(ctx, url) } else { frame_for(ctx, url, ms, false) };
+    if TRACE.load(Relaxed) {
+        let mut shown = SHOWN.lock();
+        let e = shown.entry(url.to_string()).or_default();
+        e.0.insert(i);
+        e.1 = i;
+    }
+    format!("{url}{SEP}{i}")
+}
+
+fn last_frame(ctx: &egui::Context, url: &str) -> usize {
+    ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).map_or(0, |d| d.all().count().saturating_sub(1))
 }
 
 // the e2e run asks which frames of an animation actually reached the screen

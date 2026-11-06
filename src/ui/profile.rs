@@ -448,6 +448,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         return;
     };
     let me = app.store.me;
+    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let layers = super::cosmo::layers_of(app, worn.as_ref());
+    let fx_since = super::cosmo::since(ctx, ("full", uid));
     let p = app.profiles.get(&uid).filter(|p| !p.is_null());
     let name = app.store.name_in(gid, uid);
     let status = app.store.status(uid);
@@ -584,6 +587,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             note_rect = notes.get("full_note").copied().unwrap_or(Rect::NOTHING);
         }
         popups::theme_wash(ui, wash, p, panel);
+        super::cosmo::paint_layers(ui, panel, &layers, fx_since);
 
         let rx = area.left() + 481.0;
         let tabs: Vec<(Tab, String)> = if uid == me || user.bot {
@@ -707,6 +711,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     if m.should_close() {
         app.full_profile = None;
+    }
+    if matches!(act, Some(Do::Close)) || app.full_profile.is_none() {
+        super::cosmo::forget(ctx, ("full", uid));
     }
     match act {
         Some(Do::Close) => app.full_profile = None,

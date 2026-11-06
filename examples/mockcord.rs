@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/profiles.rs"]
+mod profiles;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 
@@ -833,6 +835,9 @@ fn ready(last_general: u64) -> Value {
     ]);
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
+    if let Some(f) = guilds[0]["features"].as_array_mut() {
+        f.push(json!("GUILD_TAGS"));
+    }
     guilds[1]["owner_id"] = json!(ME.to_string());
     guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
@@ -1215,6 +1220,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
+    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1436,10 +1445,22 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "users", id, "profile"]) => {
             let id: u64 = id.parse().unwrap_or(0);
+            let mut prof = json!({ "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" });
+            if id == 101 {
+                prof["profile_effect"] = json!({ "id": "7003", "expires_at": null });
+                prof["profile_frame"] = json!({ "id": "7005" });
+                prof["theme_colors"] = json!([0x1b6b5a, 0x0b3a52]);
+            }
+            let widgets = if id == 101 { json!([
+                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
+                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
+            ]) } else { json!([]) };
             ok(json!({
-                "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" },
-                "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" }],
-                "connected_accounts": [],
+                "user": user(id), "user_profile": prof, "widgets": widgets,
+                "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
+                           { "id": "hypesquad_house_2", "description": "HypeSquad Brilliance", "icon": "011940fd013da3f7fb926e4a1cd2e618", "link": "https://support.discord.com/hc/en-us/articles/360035962891" },
+                           { "id": "quest_completed", "description": "Completed a Quest", "icon": "7d9ae358c8c5e118768335dbe68b4fb8", "link": "https://discord.com/quests" }],
+                "connected_accounts": [{ "type": "github", "id": "9", "name": "alice-codes", "verified": true }],
                 "mutual_friends": [user(102), user(103)], "mutual_friends_count": 2,
                 "mutual_guilds": [{ "id": "1000", "nick": null }, { "id": "1001", "nick": null }],
                 "guild_member": { "roles": member(id)["roles"], "joined_at": "2025-06-01T10:00:00+00:00", "premium_since": null },
