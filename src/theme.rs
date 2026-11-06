@@ -893,6 +893,7 @@ pub fn style(ctx: &egui::Context) {
     style.spacing.item_spacing = egui::vec2(8.0, 0.0);
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    style.spacing.default_area_size = egui::vec2(600.0, 4096.0);
     style.spacing.scroll = egui::style::ScrollStyle {
         bar_width: 4.0,
         bar_outer_margin: 2.0,
