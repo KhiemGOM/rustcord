@@ -30,6 +30,8 @@ mod guildmodal;
 mod friends;
 pub mod icons;
 mod keys;
+#[cfg(test)]
+mod locks;
 mod lurk;
 mod links;
 mod login;
