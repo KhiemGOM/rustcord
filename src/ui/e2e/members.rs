@@ -14,6 +14,8 @@ use crate::ui::App;
 use crate::ui::server::Page;
 
 const ROLE_ADDED: &str = "Contributor";
+// the server of the mock that the account owns, so every moderation action is on offer
+const OWNED: Id = 1001;
 
 fn ids(app: &App) -> Vec<Id> {
     let rows = app.server.as_ref().and_then(|s| s.pages.members.list.as_ref());
@@ -30,8 +32,22 @@ fn menu(ctx: &egui::Context, label: &str) -> Option<Rect> {
 }
 
 impl Run {
+    /// Clicks a row of the user menu once it has stopped moving: its note loads in and shifts the rest down.
+    fn settled_menu_click(&mut self, ctx: &egui::Context, label: &str, then: u64) {
+        let Some(r) = menu(ctx, label) else { return };
+        if self.steady != Some(r) {
+            self.steady = Some(r);
+            return;
+        }
+        self.steady = None;
+        self.rects.insert(format!("menu:{label}"), serde_json::json!([r.min.x, r.min.y, r.width(), r.height()]));
+        self.shot(ctx, &format!("members_menu_{}.png", label.split(' ').next().unwrap_or_default().to_lowercase()));
+        self.click(r.center());
+        self.next(then);
+    }
+
     pub(super) fn members_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        let gid = self.target.0;
+        let gid = OWNED;
         let at = |app: &App, k: &str| app.rects.get(k).copied();
         let stuck = self.step_at.elapsed() > Duration::from_secs(12);
         let ok = |run: &mut Self, what: &str| {
@@ -209,16 +225,14 @@ impl Run {
             3135 => {
                 let Some(r) = at(app, "members:btn:102:1") else { return };
                 self.click(r.center());
-                self.next(500);
+                self.next(1200);
             }
             3136 => {
                 let name = app.store.name_in(gid, 102);
-                let Some(r) = menu(ctx, &format!("Timeout {name}")) else { return };
-                self.click(r.center());
-                self.next(500);
+                self.settled_menu_click(ctx, &format!("Timeout {name}"), 500);
             }
             3137 => {
-                let Some(r) = at(app, "timeout:go") else { return };
+                let Some(r) = Self::at(ctx, "timeout:go") else { return };
                 self.click(r.center());
                 self.next(1500);
             }
@@ -234,13 +248,11 @@ impl Run {
             3139 => {
                 let Some(r) = at(app, "members:btn:105:1") else { return };
                 self.click(r.center());
-                self.next(500);
+                self.next(1200);
             }
             3140 => {
                 let name = app.store.name_in(gid, 105);
-                let Some(r) = menu(ctx, &format!("Kick {name}")) else { return };
-                self.click(r.center());
-                self.next(600);
+                self.settled_menu_click(ctx, &format!("Kick {name}"), 600);
             }
             3141 => {
                 if app.confirm.is_some() {
@@ -258,13 +270,11 @@ impl Run {
             3143 => {
                 let Some(r) = at(app, "members:btn:104:1") else { return };
                 self.click(r.center());
-                self.next(500);
+                self.next(1200);
             }
             3144 => {
                 let name = app.store.name_in(gid, 104);
-                let Some(r) = menu(ctx, &format!("Ban {name}")) else { return };
-                self.click(r.center());
-                self.next(600);
+                self.settled_menu_click(ctx, &format!("Ban {name}"), 600);
             }
             3145 => {
                 if app.confirm.is_some() {

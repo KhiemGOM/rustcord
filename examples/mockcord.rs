@@ -836,6 +836,10 @@ fn ready(last_general: u64) -> Value {
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
     guilds[1]["owner_id"] = json!(ME.to_string());
+    // the roles the members table shows, which only the first server has otherwise
+    let mut roles = guilds[0]["roles"].as_array().cloned().unwrap_or_default();
+    roles[0]["id"] = json!("1001");
+    guilds[1]["roles"] = json!(roles);
     guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
     guilds[1]["threads"] = json!([thread_b()]);
