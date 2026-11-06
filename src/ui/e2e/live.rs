@@ -299,9 +299,14 @@ impl Run {
                 if detail_is(app, "Missing Permissions") {
                     self.mark("fail_kick_reason");
                 }
+                self.next(500);
+                self.step = 3650;
+            }
+            3650 => {
                 self.shot(ctx, "fail_kick.png");
                 refuse(app, "DELETE", "/messages/", 429);
                 self.next(200);
+                self.step = 3632;
             }
             3632 => {
                 app.delete_msg(ch, self.fx.msg, false);
@@ -329,7 +334,7 @@ impl Run {
                 };
                 self.fx.msg = other;
                 app.rest("POST", "/mock/fail".into(), Some(json!({ "method": "GET", "path": format!("/channels/{other}/messages"), "status": 500 })), crate::net::Tag::Quiet);
-                self.next(300);
+                self.next(4800);
             }
             3636 => {
                 app.open(self.fx.msg);
