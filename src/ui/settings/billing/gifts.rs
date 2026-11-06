@@ -1,7 +1,7 @@
 use egui::{Align, Align2, Color32, Key, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::{Look, KEYS, act, checkout, card, confirm, end, faint, fetch, get, input, lead, mark, pill, put, refetch, remote, section, settle, small, solid};
+use super::{Look, KEYS, act, card, confirm, end, faint, fetch, get, input, lead, mark, pill, put, refetch, remote, section, settle, small, solid};
 use crate::net::Tag;
 use crate::theme::*;
 use crate::ui::App;
@@ -126,7 +126,7 @@ fn badge(app: &mut App, ui: &mut Ui) {
     }
     p.text(pos2(r.center().x, r.top() + 262.0), Align2::CENTER_CENTER, "Your badge progresses as you gift. Exceptions include when a gift is refunded or when fraud is detected.", reg(12.0), pal().header_secondary);
     if solid(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 304.0), vec2(140.0, 40.0)), "Send a Gift", BLURPLE, Color32::WHITE) {
-        checkout("/settings/premium");
+        crate::webwin::gift_nitro();
     }
     end(ui, 24.0);
 }
@@ -171,7 +171,7 @@ pub fn gifts(app: &mut App, ui: &mut Ui) -> bool {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new("Feeling generous? Give someone the gift of").font(reg(14.0)).color(pal().header_secondary));
                 if super::link(ui, "Nitro").clicked() {
-                    checkout("/settings/premium");
+                    crate::webwin::gift_nitro();
                 }
                 ui.label(RichText::new("and make their day!").font(reg(14.0)).color(pal().header_secondary));
             });

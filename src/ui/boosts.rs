@@ -304,7 +304,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
                 s.page = if name == "Enhanced Role Styles" { super::server::Page::Roles } else { super::server::Page::Tag };
             }
         }
-        Some((_, false)) => crate::webwin::checkout(&format!("/channels/{gid}/boosts")),
+        Some((_, false)) => crate::webwin::boost(gid),
         None => {}
     }
 }
@@ -373,7 +373,7 @@ fn side(app: &mut App, ui: &mut Ui, gid: Id) {
         });
     });
     if boost {
-        crate::webwin::checkout(&format!("/channels/{gid}/boosts"));
+        crate::webwin::boost(gid);
     }
 }
 
