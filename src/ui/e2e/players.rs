@@ -40,7 +40,8 @@ impl Run {
             1800 => {
                 app.select_guild(Some(self.target.0));
                 app.open(MEDIA);
-                self.next(800);
+                // RUSTCORD_E2E_HOLD=ms waits past the startup trim and then holds playback, to read its memory
+                self.next(if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() { 16_000 } else { 800 });
             }
             1801 => {
                 let Some(id) = msg_with(app, VIDEO).filter(|_| ready) else { return };
@@ -61,7 +62,7 @@ impl Run {
                     self.mark("player_video_plays");
                     self.rects.insert("player_video_info".into(), json!({ "w": v.info.w, "h": v.info.h, "dur": v.info.dur, "fps": v.info.fps }));
                     self.shot(ctx, "player_t0.png");
-                    self.next(0);
+                    self.next(std::env::var("RUSTCORD_E2E_HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
                 }
             }
             1804 => {

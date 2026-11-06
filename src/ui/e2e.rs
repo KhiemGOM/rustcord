@@ -1098,7 +1098,7 @@ impl Run {
             66 => {
                 if app.voice.stream.as_ref().is_some_and(|l| !l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_in");
-                    self.next(500);
+                    self.next(std::env::var("RUSTCORD_E2E_HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(500));
                 }
             }
             67 => {

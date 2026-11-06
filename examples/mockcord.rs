@@ -2695,7 +2695,8 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>, cssrc: u32) {
         let Some(to) = to else { continue };
         let (assrc, vssrc) = if kind == Kind::Voice { (SPEAKER_SSRC, SPEAKER_SSRC + 1) } else { (SPEAKER_SSRC + 100, SPEAKER_SSRC + 101) };
         if i % 3 == 0 {
-            let (wd, ht) = (320usize, 180usize);
+            // MOCK_STREAM_HD: a Go Live the size of a real one, to measure watching it
+            let (wd, ht) = if kind != Kind::Voice && std::env::var_os("MOCK_STREAM_HD").is_some() { (1920usize, 1080usize) } else { (320, 180) };
             let shift = (i / 3) as usize * 4;
             let rgb: Vec<u8> = (0..wd * ht)
                 .flat_map(|p| {
