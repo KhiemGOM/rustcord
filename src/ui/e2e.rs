@@ -4,6 +4,7 @@
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, ViewportCommand, pos2, vec2};
 use serde_json::json;
 use std::collections::VecDeque;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,9 @@ mod composer;
 mod motion;
 mod login;
 mod camera;
+mod watchdog;
+
+pub use watchdog::beat;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -129,6 +133,7 @@ impl Run {
         let dir = PathBuf::from(std::env::var_os("RUSTCORD_E2E").or_else(|| std::env::var_os("RUSTCORD_TOUR")).or_else(|| std::env::var_os("RUSTCORD_BENCH"))?);
         let _ = std::fs::create_dir_all(&dir);
         crate::gif::trace();
+        watchdog::start(dir.clone());
         Some(Run {
             dir,
             t0,
@@ -201,6 +206,9 @@ impl Run {
     pub fn mark(&mut self, name: &str) {
         let t = self.ms();
         self.marks.push((name.to_string(), t));
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("marks.log")) {
+            let _ = writeln!(f, "{name}\t{t:.1}");
+        }
         if name == "first_frame" {
             let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
             let _ = std::fs::write(self.dir.join("first_frame_epoch_ms"), epoch.as_millis().to_string());
