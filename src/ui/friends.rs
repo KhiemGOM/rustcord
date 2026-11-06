@@ -111,6 +111,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
             }
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 send = true;
+                r.request_focus();
             }
             if button(ui, "Send Friend Request", BLURPLE, 180.0).clicked() {
                 send = true;
