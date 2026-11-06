@@ -78,21 +78,29 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
     let Some(h) = &mut app.home else { return };
     match key {
         "members" => {
-            let users = fill(&mut h.members, &v);
-            for u in users {
-                app.store.apply("USER_UPDATE", &u);
-            }
+            let gid = h.guild;
+            let rows = fill(&mut h.members, &v);
+            remember(app, gid, rows);
         }
         "onboarding" => h.onboarding = Some(v),
         _ => {}
     }
 }
 
-/// Stores a members-search answer in the table, handing back the users in it.
+/// Stores a members-search answer in the table, handing back the members in it.
 pub fn fill(m: &mut Members, v: &Value) -> Vec<Value> {
     m.total = v["total_result_count"].as_u64().unwrap_or(0);
     m.list = Some(v["members"].as_array().cloned().unwrap_or_default());
-    v["members"].as_array().into_iter().flatten().map(|m| m["member"]["user"].clone()).collect()
+    v["members"].as_array().into_iter().flatten().map(|m| m["member"].clone()).collect()
+}
+
+/// What the table learned about each member goes where the row's menu looks for their roles.
+pub fn remember(app: &mut App, gid: Id, rows: Vec<Value>) {
+    for mut m in rows {
+        app.store.apply("USER_UPDATE", &m["user"].clone());
+        m["guild_id"] = json!(gid.to_string());
+        app.store.apply("GUILD_MEMBER_UPDATE", &m);
+    }
 }
 
 /// "5 days ago", "1 month ago": the member table's way of putting it.

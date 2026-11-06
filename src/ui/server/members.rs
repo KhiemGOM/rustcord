@@ -12,9 +12,9 @@ const FEATURE: &str = "ENABLED_MODERATION_EXPERIENCE_FOR_NON_COMMUNITY";
 
 pub fn loaded(app: &mut App, v: Value) {
     let Some(s) = &mut app.server else { return };
-    for u in super::super::community::fill(&mut s.pages.members, &v) {
-        app.store.apply("USER_UPDATE", &u);
-    }
+    let gid = s.guild;
+    let rows = super::super::community::fill(&mut s.pages.members, &v);
+    super::super::community::remember(app, gid, rows);
 }
 
 pub fn list_toggle(app: &mut App, ui: &mut Ui, gid: Id, label: &str) -> bool {
