@@ -47,6 +47,8 @@ enum Target {
     User(&'static str),
     Server(ServerPage, &'static str),
     Role(u8),
+    // the unsaved-changes bar over a page, with an error toast up as well
+    Bar(&'static str),
     Chan(ChanPage, &'static str),
 }
 
@@ -56,6 +58,7 @@ impl Target {
         match self {
             Target::User(l) => format!("settings_{i:02}_{}", slug(l)),
             Target::Server(_, s) => format!("server_{i:02}_{s}"),
+            Target::Bar(k) => format!("{k}_{i:02}_unsaved_bar"),
             Target::Role(t) => format!("server_{i:02}_role_{}", if *t == 0 { "display" } else { "permissions" }),
             Target::Chan(_, s) => format!("chan_{i:02}_{s}"),
         }
@@ -69,6 +72,7 @@ pub struct State {
     part: usize,
     offset: f32,
     ready: bool,
+    stage: u8,
     skipped: Vec<String>,
 }
 
@@ -106,9 +110,10 @@ impl Run {
                 self.rects.insert("screen_points".into(), serde_json::json!([screen.width(), screen.height()]));
                 self.rects.insert("pixels_per_point".into(), serde_json::json!(ctx.pixels_per_point()));
                 let mut t: Vec<Target> = USER.iter().map(|l| Target::User(l)).collect();
+                t.push(Target::Bar("settings"));
                 if std::env::var_os("RUSTCORD_TOUR_SERVER").is_some() {
                     t.extend(SERVER.iter().map(|(p, s)| Target::Server(*p, s)));
-                    t.extend([Target::Role(0), Target::Role(1)]);
+                    t.extend([Target::Role(0), Target::Role(1), Target::Bar("server")]);
                     t.extend(CHAN.iter().map(|(p, s)| Target::Chan(*p, s)));
                 }
                 self.sweep.targets = t;
@@ -149,6 +154,7 @@ impl Run {
                 if end || view == egui::Rect::NOTHING {
                     self.sweep.i += 1;
                     self.sweep.ready = false;
+                    self.sweep.stage = 0;
                     self.step = 3101;
                     self.step_at = Instant::now();
                     self.wait = Instant::now() + Duration::from_millis(300);
@@ -214,6 +220,47 @@ impl Run {
                     return false;
                 }
                 self.sweep.ready
+            }
+            Target::Bar(kind) => {
+                let user = kind == "settings";
+                if user && app.settings_page != Some(crate::ui::settings::Page::Profiles) {
+                    self.go(app, ctx, Target::User("Profiles"));
+                    return false;
+                }
+                if !user && app.settings_page.is_some() {
+                    self.key(Key::Escape);
+                    self.wait = Instant::now() + Duration::from_millis(600);
+                    return false;
+                }
+                if !user && app.server.is_none() {
+                    app.open_server_settings(guild);
+                    self.wait = Instant::now() + Duration::from_millis(2500);
+                    return false;
+                }
+                if let Some(s) = &mut app.server
+                    && s.page != ServerPage::Profile
+                {
+                    s.page = ServerPage::Profile;
+                    self.wait = Instant::now() + Duration::from_millis(2500);
+                    return false;
+                }
+                match self.sweep.stage {
+                    0 => {
+                        let key = if user { "profile:pronouns" } else { "server_profile:name" };
+                        let Some(r) = Self::at(ctx, key) else { return false };
+                        self.click(r.center());
+                        self.queue.push_back(vec![Event::Text("x".into())]);
+                        self.sweep.stage = 1;
+                        self.wait = Instant::now() + Duration::from_millis(800);
+                        false
+                    }
+                    _ => {
+                        app.toast("Something went wrong. Shift Click this notification to see error details.");
+                        self.wait = Instant::now() + Duration::from_millis(700);
+                        self.sweep.stage = 0;
+                        true
+                    }
+                }
             }
             Target::Role(tab) => {
                 self.sweep.ready = false;

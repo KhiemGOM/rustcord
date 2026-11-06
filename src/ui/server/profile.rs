@@ -78,6 +78,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     super::super::settings::h5(ui, "Name");
     let mut name = d["name"].as_str().unwrap_or_default().to_string();
     let r = super::super::settings::input(ui, &mut name, "", false);
+    super::super::settings::mark(ui, "server_profile:name", r.rect);
     super::super::settings::mark(ui, "field:server_name", r.rect);
     d["name"] = json!(name);
 

@@ -471,10 +471,18 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                     mr.on_hover_text(names.join("\n"));
                     x = more.right() + 8.0;
                 }
-                if x + 16.0 <= end(4) && (resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0)))) {
+                let adding = egui::Id::new(("add_role_open", uid));
+                let open = egui::Popup::is_any_open(ui.ctx()) && ui.data(|d| d.get_temp::<bool>(adding)).unwrap_or(false);
+                if !open {
+                    ui.data_mut(|d| d.remove::<bool>(adding));
+                }
+                if x + 16.0 <= end(4) && (open || resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0)))) {
                     let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
                     let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
                     app.rects.insert(format!("members:add_role:{uid}"), plus);
+                    if pr.clicked() {
+                        ui.data_mut(|d| d.insert_temp(adding, true));
+                    }
                     icons::draw(&p, Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
                     egui::Popup::menu(&pr).show(|ui| {
                         super::menu_body(ui, |ui| {
