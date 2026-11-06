@@ -227,7 +227,7 @@ pub fn menus() -> Value {
         text_row("Pick a person", 5, "pick_user"),
         text_row("Pick a role", 6, "pick_role"),
         { "type": 1, "components": [{ "type": 8, "custom_id": "pick_channel", "placeholder": "Pick a text channel", "channel_types": [0] }] },
-        { "type": 1, "components": [{ "type": 7, "custom_id": "pick_either", "placeholder": "Pick a person or a role", "min_values": 1, "max_values": 3 }] },
+        { "type": 1, "components": [{ "type": 7, "custom_id": "pick_either", "placeholder": "Pick a person or a role", "min_values": 2, "max_values": 3 }] },
         { "type": 1, "components": [{ "type": 3, "custom_id": "pick_off", "placeholder": "Not for you", "disabled": true, "options": [{ "label": "Nope", "value": "n" }] }] },
         { "type": 1, "components": [
             { "type": 2, "style": 1, "label": "Slow", "custom_id": "slow_btn" },

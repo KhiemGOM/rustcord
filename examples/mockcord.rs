@@ -1272,6 +1272,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
+            if let Some(rid) = b["message_reference"]["message_id"].as_str() {
+                m["type"] = json!(19);
+                m["message_reference"] = b["message_reference"].clone();
+                m["referenced_message"] = w.lock().unwrap().msgs.iter().find(|x| x["id"] == rid).cloned().unwrap_or(Value::Null);
+            }
             if let Some(p) = b["poll"].as_object() {
                 let answers: Vec<Value> = p["answers"].as_array().into_iter().flatten().enumerate().map(|(i, a)| json!({ "answer_id": i + 1, "poll_media": a["poll_media"] })).collect();
                 let hours = p["duration"].as_u64().unwrap_or(24);
