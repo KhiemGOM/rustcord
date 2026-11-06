@@ -11,12 +11,29 @@ use super::Run;
 use crate::ui::App;
 use crate::ui::channel::Page as ChanPage;
 use crate::ui::server::{Page as ServerPage, Probe};
+use crate::ui::settings::Page as SettingsPage;
 use crate::ui::side;
 
-const USER: [&str; 19] = [
-    "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Clips", "Nitro", "Server Boost", "Subscriptions",
-    "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy",
-    "Connected Apps", "Developer",
+const USER: [SettingsPage; 19] = [
+    SettingsPage::Account,
+    SettingsPage::Profiles,
+    SettingsPage::Privacy,
+    SettingsPage::Messaging,
+    SettingsPage::Notifications,
+    SettingsPage::Clips,
+    SettingsPage::Nitro,
+    SettingsPage::Boost,
+    SettingsPage::Subscriptions,
+    SettingsPage::Gifts,
+    SettingsPage::Billing,
+    SettingsPage::Voice,
+    SettingsPage::Appearance,
+    SettingsPage::Accessibility,
+    SettingsPage::System,
+    SettingsPage::Language,
+    SettingsPage::Activity,
+    SettingsPage::Apps,
+    SettingsPage::Developer,
 ];
 
 const SERVER: [(ServerPage, &str); 18] = [
@@ -44,7 +61,7 @@ const CHAN: [(ChanPage, &str); 4] = [(ChanPage::Overview, "overview"), (ChanPage
 
 #[derive(Clone, Copy)]
 enum Target {
-    User(&'static str),
+    User(SettingsPage),
     Server(ServerPage, &'static str),
     Role(u8),
     // the unsaved-changes bar over a page, with an error toast up as well
@@ -56,7 +73,7 @@ impl Target {
     fn name(&self, i: usize) -> String {
         let slug = |s: &str| -> String { s.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect() };
         match self {
-            Target::User(l) => format!("settings_{i:02}_{}", slug(l)),
+            Target::User(p) => format!("settings_{i:02}_{}", slug(crate::ui::settings::label(*p))),
             Target::Server(_, s) => format!("server_{i:02}_{s}"),
             Target::Bar(k) => format!("{k}_{i:02}_unsaved_bar"),
             Target::Role(t) => format!("server_{i:02}_role_{}", if *t == 0 { "display" } else { "permissions" }),
@@ -109,7 +126,7 @@ impl Run {
                 let screen = ctx.content_rect();
                 self.rects.insert("screen_points".into(), serde_json::json!([screen.width(), screen.height()]));
                 self.rects.insert("pixels_per_point".into(), serde_json::json!(ctx.pixels_per_point()));
-                let mut t: Vec<Target> = USER.iter().map(|l| Target::User(l)).collect();
+                let mut t: Vec<Target> = USER.iter().map(|p| Target::User(*p)).collect();
                 t.push(Target::Bar("settings"));
                 if std::env::var_os("RUSTCORD_TOUR_SERVER").is_some() {
                     t.extend(SERVER.iter().map(|(p, s)| Target::Server(*p, s)));
@@ -173,7 +190,7 @@ impl Run {
     fn go(&mut self, app: &mut App, ctx: &egui::Context, t: Target) -> bool {
         let guild = self.target.0;
         match t {
-            Target::User(label) => {
+            Target::User(page) => {
                 if app.server.is_some() || app.chan_settings.is_some() {
                     app.server = None;
                     app.chan_settings = None;
@@ -185,24 +202,23 @@ impl Run {
                     }
                     return false;
                 }
-                if !self.sweep.ready {
-                    if self.open_page(app, label) {
-                        self.sweep.ready = true;
-                        self.wait = Instant::now() + Duration::from_millis(2500);
-                        if label == "Voice & Video" {
-                            for key in ["advanced", "sounds", "diagnostics"] {
-                                ctx.data_mut(|d| d.insert_temp(egui::Id::new(("voice_open", key)), true));
-                            }
+                if app.settings_page != Some(page) {
+                    app.settings_page = Some(page);
+                    self.sweep.ready = true;
+                    self.wait = Instant::now() + Duration::from_millis(2500);
+                    if page == SettingsPage::Voice {
+                        for key in ["advanced", "sounds", "diagnostics"] {
+                            ctx.data_mut(|d| d.insert_temp(egui::Id::new(("voice_open", key)), true));
                         }
                     }
                     return false;
                 }
-                let here = app.settings_page.map(crate::ui::settings::label) == Some(label);
-                if !here {
-                    self.sweep.ready = false;
-                    self.wait = Instant::now() + Duration::from_millis(500);
+                if !self.sweep.ready {
+                    self.sweep.ready = true;
+                    self.wait = Instant::now() + Duration::from_millis(1500);
+                    return false;
                 }
-                here
+                true
             }
             Target::Server(page, _) => {
                 if app.settings_page.is_some() {
@@ -229,7 +245,7 @@ impl Run {
             Target::Bar(kind) => {
                 let user = kind == "settings";
                 if user && app.settings_page != Some(crate::ui::settings::Page::Profiles) {
-                    self.go(app, ctx, Target::User("Profiles"));
+                    self.go(app, ctx, Target::User(SettingsPage::Profiles));
                     return false;
                 }
                 if !user && app.settings_page.is_some() {
