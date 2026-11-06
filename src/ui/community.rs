@@ -617,6 +617,9 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
     };
     let mut chosen: Vec<Id> = ob["responses"].as_array().into_iter().flatten().map(sid).collect();
     let mut changed = false;
+    let mut add: Vec<Id> = Vec::new();
+    let mut remove: Vec<Id> = Vec::new();
+    let fresh = fresh(app, gid);
     let w = ui.available_width();
     let side = 300.0;
     ui.horizontal_top(|ui| {
@@ -654,12 +657,22 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
                             }
                             app.rects.insert(format!("home:option:{title}"), r);
                             if resp.clicked() {
+                                let channels = |o: &Value| -> Vec<Id> { o["channel_ids"].as_array().into_iter().flatten().map(sid).collect() };
+                                let picked: Vec<&Value> = prompt["options"].as_array().into_iter().flatten().filter(|p| chosen.contains(&sid(&p["id"]))).collect();
+                                let mine = channels(o);
                                 if on {
+                                    let kept: Vec<Id> = picked.iter().filter(|p| sid(&p["id"]) != id).flat_map(|p| channels(p)).collect();
+                                    remove.extend(picked.iter().flat_map(|p| channels(p)).filter(|c| !kept.contains(c)));
                                     chosen.retain(|c| *c != id);
                                 } else {
                                     if single {
+                                        let before = picked.first().map(|p| channels(p)).unwrap_or_default();
+                                        add.extend(mine.iter().filter(|c| !before.contains(c)));
+                                        remove.extend(before.iter().filter(|c| !mine.contains(c)));
                                         let ids: Vec<Id> = prompt["options"].as_array().into_iter().flatten().map(|o| sid(&o["id"])).collect();
                                         chosen.retain(|c| !ids.contains(c));
+                                    } else {
+                                        add.extend(mine);
                                     }
                                     chosen.push(id);
                                 }
@@ -714,6 +727,29 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
         let picked: serde_json::Map<String, Value> = chosen.iter().map(|c| (c.to_string(), json!(now))).collect();
         let body = json!({ "onboarding_responses": chosen.iter().map(|c| c.to_string()).collect::<Vec<_>>(), "onboarding_prompts_seen": seen, "onboarding_responses_seen": picked });
         app.rest("PUT", format!("/guilds/{gid}/onboarding-responses"), Some(body), Tag::reason());
+        if fresh && let Some(ob) = app.home.as_ref().and_then(|h| h.onboarding.as_ref()).filter(|o| o["enabled"].as_bool() == Some(true)) {
+            add.extend(ob["default_channel_ids"].as_array().into_iter().flatten().map(sid));
+        }
+        if !add.is_empty() || !remove.is_empty() {
+            let mut overrides = serde_json::Map::new();
+            for (ids, on) in [(&remove, false), (&add, true)] {
+                for id in ids {
+                    let flags = app.store.chan_flags.entry(*id).or_default();
+                    if on {
+                        *flags |= super::OPTED;
+                    } else {
+                        *flags &= !super::OPTED;
+                    }
+                    overrides.insert(id.to_string(), json!({ "flags": *flags }));
+                    if on {
+                        app.store.opted.insert(*id);
+                    } else {
+                        app.store.opted.remove(id);
+                    }
+                }
+            }
+            app.guild_settings(gid, json!({ "channel_overrides": overrides }), Tag::Quiet);
+        }
         if let Some(h) = &mut app.home
             && let Some(ob) = &mut h.onboarding
         {
@@ -722,8 +758,41 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
     }
 }
 
+const COMPLETED_ONBOARDING: u64 = 2;
+
+fn follow(app: &mut App, gid: Id, id: Id, cat: bool, fresh: bool, listed: &[Channel]) {
+    let on = app.store.opted.contains(&id);
+    if !on && let Some(c) = app.store.channels.get(&id).map(|c| if cat { id } else { c.parent }) {
+        app.ui.collapsed.remove(&c);
+    }
+    if !fresh {
+        if on {
+            app.opt_out(id);
+        } else {
+            app.opt_in(id);
+        }
+        return;
+    }
+    let mut ids: Vec<Id> = listed.iter().filter(|c| cat || c.id != id).map(|c| c.id).collect();
+    if cat {
+        ids.push(id);
+    }
+    if let Some(ob) = app.home.as_ref().and_then(|h| h.onboarding.as_ref()).filter(|o| o["enabled"].as_bool() == Some(true)) {
+        ids.extend(ob["default_channel_ids"].as_array().into_iter().flatten().map(sid));
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    app.opt_in_many(gid, &ids);
+}
+
+fn fresh(app: &App, gid: Id) -> bool {
+    !app.store.opt_in.contains(&gid)
+        && app.store.guilds.get(&gid).is_some_and(|g| g.my_flags & COMPLETED_ONBOARDING == 0)
+        && !app.store.opted.iter().any(|id| app.store.channels.get(id).is_some_and(|c| c.guild == gid))
+}
+
 fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
-    let opt_in = app.store.opt_in.contains(&gid);
+    let fresh = fresh(app, gid);
     let mut create = false;
     let Some(h) = app.home.as_mut() else { return };
     let w = ui.available_width();
@@ -746,7 +815,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
     });
     let q = h.browse.trim().to_lowercase();
     ui.add_space(16.0);
-    let mut toggle: Vec<(Id, bool)> = Vec::new();
+    let mut toggle: Option<(Id, bool)> = None;
     let mut open: Option<Id> = None;
     let mut groups: Vec<(Id, Vec<&Channel>)> = Vec::new();
     for c in listed.iter().filter(|c| q.is_empty() || c.name.to_lowercase().contains(&q)) {
@@ -761,16 +830,17 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
         let title = cat.map_or("Uncategorized".to_string(), |c| c.name.clone());
         super::text::paint_em(ui.painter(), pos2(hr.left(), hr.center().y), Align2::LEFT_CENTER, &title, semi(20.0), pal().header_primary, w - 240.0, 1.0);
         if let Some(cat) = cat {
-            let followed = !opt_in || app.store.opted.contains(&cat.id);
+            let followed = app.store.opted.contains(&cat.id);
             let sw = Rect::from_min_size(pos2(hr.right() - 48.0, hr.center().y - 12.0), vec2(48.0, 24.0));
             let sr = ui.interact(sw, ui.id().with(("follow", cat.id)), Sense::click());
             super::settings::paint_switch(ui, sw, &sr, followed);
             ui.painter().text(pos2(sw.left() - 16.0, hr.center().y), Align2::RIGHT_CENTER, "Follow Category", medium(16.0), pal().header_primary);
             app.rects.insert(format!("browse:follow:{}", cat.id), sw);
-            if sr.clicked() && opt_in {
-                toggle.push((cat.id, !followed));
+            if sr.clicked() {
+                toggle = Some((cat.id, true));
             }
         }
+        let locked = app.store.opted.contains(&parent);
         ui.add_space(4.0);
         Frame::new().stroke(Stroke::new(1.0, faint(41))).corner_radius(8).show(ui, |ui| {
             ui.set_width(w);
@@ -778,29 +848,45 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
             let n = chans.len();
             for (i, c) in chans.into_iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(w, 67.0), Sense::click());
-                crate::ui::motion::wash(ui, &resp, r, 8, faint(20), 0.05);
+                let hot = resp.contains_pointer();
+                if !locked {
+                    crate::ui::motion::wash(ui, &resp, r, 8, faint(20), 0.05);
+                }
                 if i + 1 < n {
                     ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(41)));
                 }
+                let name = if locked { pal().text_muted } else { pal().header_primary };
                 super::side::chan_icon(&app.store, ui.painter(), c, Rect::from_center_size(pos2(r.left() + 26.0, r.top() + 22.0), vec2(20.0, 20.0)), pal().channel_default);
-                super::text::paint_em(ui.painter(), pos2(r.left() + 46.0, r.top() + 22.0), Align2::LEFT_CENTER, &c.name, medium(16.0), pal().header_primary, w - 120.0, 1.0);
+                super::text::paint_em(ui.painter(), pos2(r.left() + 46.0, r.top() + 22.0), Align2::LEFT_CENTER, &c.name, medium(16.0), name, w - 240.0, 1.0);
                 if c.last_msg != 0 {
                     ui.painter().text(pos2(r.left() + 16.0, r.top() + 47.0), Align2::LEFT_CENTER, format!("Active {}", moment(snowflake_ms(c.last_msg))), medium(12.0), pal().text_normal);
                 }
-                let on = app.store.listed(c);
+                let on = fresh || app.store.opted.contains(&c.id) || locked;
                 let cb = Rect::from_center_size(pos2(r.right() - 28.0, r.center().y), vec2(20.0, 20.0));
-                checkbox(ui, resp.id, cb, on, resp.hovered());
+                checkbox(ui, resp.id, cb, on, hot && !locked);
                 app.rects.insert(format!("browse:chan:{}", c.id), cb);
-                if resp.clicked() {
-                    let on_box = resp.interact_pointer_pos().is_some_and(|p| cb.expand(6.0).contains(p));
-                    if opt_in && (on_box || ui.input(|i| i.modifiers.shift)) {
-                        toggle.push((c.id, !on));
+                let label = if c.is_forum() { "Open" } else if c.is_voice() { "Join" } else { "View" };
+                let g = ui.painter().layout_no_wrap(label.into(), semi(14.0), Color32::BLACK);
+                let btn = Rect::from_center_size(pos2(cb.left() - 16.0 - (g.size().x + 24.0).max(60.0) / 2.0, r.center().y), vec2((g.size().x + 24.0).max(60.0), 30.0));
+                let br = ui.interact(btn, resp.id.with("open"), Sense::click());
+                if hot {
+                    let fill = if br.hovered() { Color32::from_rgb(0xe0, 0xe0, 0xe3) } else { Color32::WHITE };
+                    ui.painter().rect_filled(btn, 8, fill);
+                    ui.painter().galley(pos2(btn.center().x - g.size().x / 2.0, btn.center().y - g.size().y / 2.0), g, Color32::from_rgb(6, 6, 7));
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    app.rects.insert(format!("browse:open:{}", c.id), btn);
+                }
+                if br.clicked() {
+                    if c.is_voice() {
+                        app.join_voice(c.id, true);
                     } else {
                         open = Some(c.id);
                     }
+                } else if resp.clicked() && !locked {
+                    toggle = Some((c.id, false));
                 }
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                if locked && hot {
+                    resp.on_hover_text("You must unfollow this category to add or remove specific channels.");
                 }
             }
         });
@@ -809,23 +895,8 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
     if let Some(id) = open {
         app.open(id);
     }
-    for (id, on) in toggle {
-        let cat = app.store.channels.get(&id).is_some_and(|c| c.kind == 4);
-        if on {
-            app.opt_in(id);
-        } else {
-            app.opt_out(id);
-            // a channel listed through its category: the category goes, its other channels stay
-            if !cat
-                && let Some(p) = app.store.channels.get(&id).map(|c| c.parent).filter(|p| app.store.opted.contains(p))
-            {
-                app.opt_out(p);
-                let sibs: Vec<Id> = listed.iter().filter(|c| c.parent == p && c.id != id).map(|c| c.id).collect();
-                for s in sibs {
-                    app.opt_in(s);
-                }
-            }
-        }
+    if let Some((id, cat)) = toggle {
+        follow(app, gid, id, cat, fresh, listed);
     }
     if create {
         app.create = Some(super::create::Form::new(super::create::Kind::Channel, gid, None));

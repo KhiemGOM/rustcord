@@ -409,6 +409,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::follow::show(app, ctx);
     super::dmpick::show(app, ctx);
     super::topic::show(app, ctx);
+    super::feedabout::show(app, ctx);
     super::plus::launcher(app, ctx);
 }
 

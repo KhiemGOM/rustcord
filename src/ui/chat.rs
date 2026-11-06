@@ -227,20 +227,24 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     } else if chan.kind == 1 && !app.ui.hide_dm_profile && room >= 320.0 + 420.0 {
         if let Some(&uid) = chan.recipients.first() {
-            egui::Panel::right("dm_profile")
+            let r = egui::Panel::right("dm_profile")
                 .exact_size(320.0)
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(Frame::new().fill(pal().bg_primary).inner_margin(8))
                 .show(ui, |ui| super::popups::dm_profile(app, ui, uid));
+            let pr = r.response.rect;
+            ui.painter().vline(pr.left() + 0.5, pr.y_range(), Stroke::new(1.0, pal().border_subtle));
         }
     } else if chan.kind == 3 && !app.ui.hide_members && room >= members_w + 420.0 {
-        egui::Panel::right("group_members")
+        let r = egui::Panel::right("group_members")
             .exact_size(members_w)
             .resizable(false)
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::members::group(app, ui, &chan));
+        let gr = r.response.rect;
+        ui.painter().vline(gr.left() + 0.5, gr.y_range(), Stroke::new(1.0, pal().border_subtle));
     } else if chan.guild != 0 && side.is_none() && !app.ui.hide_members && room >= members_w + 420.0 {
         let r = egui::Panel::right("members")
             .default_size(members_w)

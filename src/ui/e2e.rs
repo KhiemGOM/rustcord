@@ -14,6 +14,7 @@ mod web;
 mod stage;
 mod clips;
 mod composer;
+mod fixes;
 mod motion;
 mod login;
 mod camera;
@@ -1375,6 +1376,7 @@ impl Run {
             2900..=2959 => self.clips_steps(app, ctx),
             4000..=4099 => self.gallery_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
+            3000..=3099 => self.fixes_steps(app, ctx),
             1720..=1739 => self.discover_steps(app, ctx),
             1500..=1599 => self.login_steps(app, ctx),
             1800..=1899 => self.player_steps(app, ctx),
