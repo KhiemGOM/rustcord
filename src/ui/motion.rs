@@ -378,9 +378,10 @@ mod tests {
             let ctx = Context::default();
             let press = egui::Event::PointerButton { pos: egui::pos2(1.0, 1.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
             let raw = egui::RawInput { events: vec![press], ..Default::default() };
-            let _ = ctx.run_ui(raw, |ui| {
+            let mut out = ctx.run_ui(raw, |ui| {
                 Modal::new(Id::new("m")).show(ui.ctx(), |_| {});
             });
+            out.textures_delta.clear();
             let _ = tx.send(());
         });
         assert!(rx.recv_timeout(Duration::from_secs(30)).is_ok());
@@ -426,11 +427,12 @@ mod tests {
 
     fn at(ctx: &Context, time: f64, draw: bool) -> f32 {
         let mut out = 0.0;
-        let _ = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| {
+        let mut full = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| {
             if draw {
                 out = enter(ui.ctx(), Id::new("probe"), 0.2, EASE);
             }
         });
+        full.textures_delta.clear();
         out
     }
 
