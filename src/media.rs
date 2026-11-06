@@ -458,6 +458,9 @@ unsafe fn init() {
 /// Lets the reader decode and scale on the graphics card, where its surfaces don't count against us.
 unsafe fn gpu_manager() -> windows::core::Result<IMFDXGIDeviceManager> {
     unsafe {
+        if std::env::var_os("RUSTCORD_NO_CARD_DECODE").is_some() {
+            return Err(windows::core::Error::empty());
+        }
         let mut dev = None;
         D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, HMODULE::default(), D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT, None, D3D11_SDK_VERSION, Some(&mut dev), None, None)?;
         let dev = dev.ok_or_else(windows::core::Error::empty)?;
@@ -516,7 +519,7 @@ unsafe fn video_type(r: &IMFSourceReader) -> windows::core::Result<Pic> {
 }
 
 /// The smallest size of the picture that still covers `want` pixels.
-fn fit((w, h): (usize, usize), want: (usize, usize)) -> (usize, usize) {
+pub fn fit((w, h): (usize, usize), want: (usize, usize)) -> (usize, usize) {
     let k = SCALES.into_iter().find(|k| w as f32 * k >= want.0 as f32 && h as f32 * k >= want.1 as f32).unwrap_or(1.0);
     (((w as f32 * k) as usize & !1).max(2), ((h as f32 * k) as usize & !1).max(2))
 }
@@ -834,7 +837,7 @@ mod tests {
     fn first_video_frame_is_the_right_way_up() {
         unsafe {
             init();
-            let (r, info, pic) = open_video(&fixture("clip.mp4")).unwrap();
+            let VideoReader { r, info, pic, .. } = open_video(&fixture("clip.mp4"), false, (0, 0)).unwrap();
             assert_eq!((info.w, info.h), (320, 180));
             assert!(info.dur > 3.5 && info.dur < 4.5, "duration {}", info.dur);
             let (mut flags, mut sample) = (0u32, None);
@@ -870,7 +873,7 @@ mod tests {
         let tick = |secs: f64| {
             let (t, up, cpu) = (Instant::now(), uploads(), cpu_secs());
             while t.elapsed().as_secs_f64() < secs {
-                s.frame(&ctx);
+                s.frame(&ctx, egui::vec2(320.0, 180.0));
                 std::thread::sleep(Duration::from_millis(16));
             }
             let w = t.elapsed().as_secs_f64();

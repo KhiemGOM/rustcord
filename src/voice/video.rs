@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use super::capture;
+use super::hwdec::{Gpu, HwDec};
 use super::hwenc::{self, Convert, HwEnc};
 use super::{Ev, Kind, Shared};
 use crate::net::{self, Tx};
@@ -202,9 +203,26 @@ fn shrink(src: &[u8], (w, h): (usize, usize), f: usize, [r, g, b]: [usize; 3]) -
     ColorImage::new([nw, nh], px)
 }
 
-/// Decodes on its own thread so a 1080p keyframe never stalls the media loop. Every frame has to go
-/// through the decoder, but only what's on screen becomes a picture, at the size it's on screen:
-/// off screen one a second, small, which is what puts it there in the first place.
+enum Dec {
+    Card(Box<HwDec>),
+    Soft(Decoder),
+}
+
+// a decoder that's had this many frames and shown nothing isn't going to
+const STARVED: u32 = 90;
+
+/// The size to make a picture this frame, if any. What's on screen comes at its size; what isn't
+/// comes once a second, small, which is what gets it on screen in the first place.
+fn picture_size(user: Id, ssrc: u32, last: &HashMap<u32, Instant>, (w, h): (usize, usize)) -> Option<(usize, usize)> {
+    match on_screen(user) {
+        Some(px) => Some(px),
+        None if last.get(&ssrc).is_some_and(|t| t.elapsed() < Duration::from_secs(1)) => None,
+        None => Some((w / 4, h / 4)),
+    }
+}
+
+/// Decodes on its own thread so a 1080p keyframe never stalls the media loop, on the card if it
+/// can. Every frame has to go through the decoder, but only what's on screen becomes a picture.
 pub struct Decode {
     tx: smpsc::Sender<(u32, Id, Vec<u8>)>,
 }
@@ -213,7 +231,8 @@ impl Decode {
     pub fn start(tag: u64, out: Tx, shared: Arc<Shared>, pli: mpsc::UnboundedSender<u32>) -> Decode {
         let (tx, rx) = smpsc::channel::<(u32, Id, Vec<u8>)>();
         let _ = std::thread::Builder::new().name("video-decode".into()).spawn(move || {
-            let mut decs: HashMap<u32, Decoder> = HashMap::new();
+            let mut decs: HashMap<u32, Dec> = HashMap::new();
+            let mut gpu: Option<Option<Gpu>> = None;
             let mut rgba = Vec::new();
             let mut last: HashMap<u32, Instant> = HashMap::new();
             let mut settle = None;
@@ -222,36 +241,66 @@ impl Decode {
                     crate::winsys::trim();
                     settle = Some(Instant::now() + Duration::from_secs(3600));
                 }
-                let dec = match decs.get_mut(&ssrc) {
-                    Some(d) => d,
-                    None => match SOFT.load(Relaxed).then(Decoder::new) {
-                        Some(Ok(d)) => decs.entry(ssrc).or_insert(d),
-                        _ => continue,
+                if !decs.contains_key(&ssrc) {
+                    let card = HW.load(Relaxed).then(|| gpu.get_or_insert_with(|| Gpu::new().ok()).as_ref().and_then(|g| HwDec::new(g).ok())).flatten();
+                    let dec = match card {
+                        Some(d) => Dec::Card(Box::new(d)),
+                        None => match SOFT.load(Relaxed).then(Decoder::new) {
+                            Some(Ok(d)) => Dec::Soft(d),
+                            _ => continue,
+                        },
+                    };
+                    decs.insert(ssrc, dec);
+                }
+                let Some(dec) = decs.get_mut(&ssrc) else { continue };
+                let img = match dec {
+                    Dec::Card(d) => {
+                        let shown = d.decode(&frame).and_then(|new| {
+                            if !new {
+                                return Ok(None);
+                            }
+                            shared.video_in.fetch_add(1, Relaxed);
+                            let size = d.size();
+                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| d.picture(crate::media::fit(size, want)))
+                        });
+                        match shown {
+                            Ok(img) if d.starved < STARVED => img,
+                            // the card gave out, or never started: carry on in software from a keyframe
+                            _ => {
+                                decs.remove(&ssrc);
+                                if let Some(Ok(d)) = SOFT.load(Relaxed).then(Decoder::new) {
+                                    decs.insert(ssrc, Dec::Soft(d));
+                                }
+                                let _ = pli.send(ssrc);
+                                None
+                            }
+                        }
+                    }
+                    Dec::Soft(d) => match d.decode(&frame) {
+                        Ok(Some(yuv)) => {
+                            let (w, h) = yuv.dimensions();
+                            shared.video_in.fetch_add(1, Relaxed);
+                            picture_size(user, ssrc, &last, (w, h)).map(|(tw, th)| {
+                                rgba.resize(w * h * 4, 0);
+                                yuv.write_rgba8(&mut rgba);
+                                let f = (w / tw.max(1)).min(h / th.max(1)).clamp(1, 8);
+                                if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) }
+                            })
+                        }
+                        Ok(None) => None,
+                        Err(_) => {
+                            let _ = pli.send(ssrc);
+                            None
+                        }
                     },
                 };
-                match dec.decode(&frame) {
-                    Ok(Some(yuv)) => {
-                        let (w, h) = yuv.dimensions();
-                        shared.video_in.fetch_add(1, Relaxed);
-                        let want = on_screen(user);
-                        if want.is_none() && last.get(&ssrc).is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
-                            continue;
-                        }
-                        last.insert(ssrc, Instant::now());
-                        settle.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));
-                        rgba.resize(w * h * 4, 0);
-                        yuv.write_rgba8(&mut rgba);
-                        let f = want.map_or(4, |(tw, th)| (w / tw.max(1)).min(h / th.max(1))).clamp(1, 8);
-                        let img = if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) };
-                        out.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, Arc::new(img)) }));
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        let _ = pli.send(ssrc);
-                    }
+                if let Some(img) = img {
+                    last.insert(ssrc, Instant::now());
+                    settle.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));
+                    out.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, Arc::new(img)) }));
                 }
             }
-            drop((decs, rgba));
+            drop((decs, rgba, gpu));
             crate::winsys::trim();
         });
         Decode { tx }
