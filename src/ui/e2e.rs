@@ -1815,6 +1815,7 @@ impl Run {
         match self.step {
             2000 => {
                 app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
+                app.remote.clear();
                 self.step = 2009;
                 self.next(400);
             }
@@ -5506,6 +5507,10 @@ impl Run {
             }
             2501 => {
                 clear(ctx, &VOICE);
+                // the only server we can invite from is ours, and the activity steps met Alice there
+                if let Some(den) = app.store.members.get_mut(&1008) {
+                    den.remove(&101);
+                }
                 app.user_menu = Some((101, self.target.0, None, at));
                 app.menu_from = Origin::Voice(2021);
                 self.next(600);
