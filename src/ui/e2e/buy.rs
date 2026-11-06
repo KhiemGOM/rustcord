@@ -183,11 +183,11 @@ impl Run {
                 }
                 self.mark("buy_done");
                 self.shot(ctx, "buy_done.png");
-                self.tap(ctx, "buy:done");
-                self.next(500);
+                self.next(700);
             }
             4110 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 app.shop.as_mut().map(|s| s.product = None);
@@ -379,11 +379,12 @@ impl Run {
                 if !self.charges(app, 5, 4, "buy_gift_item_done") {
                     return;
                 }
-                self.tap(ctx, "buy:done");
-                self.next(500);
+                self.shot(ctx, "buy_done_gift.png");
+                self.next(700);
             }
             4133 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);
