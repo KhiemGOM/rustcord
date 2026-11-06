@@ -91,6 +91,7 @@ pub struct Settings {
     pub send_button: bool,
     pub md_preview: bool,
     pub sticker_suggestions: bool,
+    pub hide_activity_cards: bool,
     pub search_all_dms: bool,
     // chat
     pub embeds: bool,
@@ -315,6 +316,7 @@ impl Default for Settings {
             send_button: false,
             md_preview: true,
             sticker_suggestions: false,
+            hide_activity_cards: false,
             search_all_dms: false,
             embeds: true,
             inline_links: true,
