@@ -21,6 +21,7 @@ mod dmpick;
 mod discover;
 mod e2e;
 mod events;
+mod feedabout;
 mod folders;
 mod follow;
 mod forum;
@@ -256,6 +257,7 @@ pub struct App {
     pub modify: Option<attach::Modify>,
     pub group_pick: Option<dmpick::Pick>,
     pub topic: Option<Id>,
+    pub feed_about: bool,
     // a DM whose call was started with video: the camera goes on once it's connected
     pub cam_on_join: Option<Id>,
     // what Discord told us alone about a send it refused: the channel and the words
@@ -474,6 +476,7 @@ impl App {
             modify: None,
             group_pick: None,
             topic: None,
+            feed_about: false,
             cam_on_join: None,
             notice: None,
             crop: None,

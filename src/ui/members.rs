@@ -51,15 +51,17 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
         &g.list
     };
 
-    let mut gear = false;
+    let mut feed = None;
+    let hidden = app.settings.hide_activity_cards;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // discord's rows sit flush; a group header is 20 above, 18 tall, 4 over its first row
         ui.spacing_mut().item_spacing.y = 0.0;
         if thread.is_none()
-            && let Some(a) = activity(ui, store, gid, &mut named)
+            && let Some(a) = activity(ui, store, gid, hidden, &mut named)
         {
             match a {
-                Pick::Gear => gear = true,
+                Pick::Hide => feed = Some(false),
+                Pick::About => feed = Some(true),
                 Pick::Card(u, r) => clicked = Some((u, r.left_top() - vec2(310.0, 0.0))),
             }
         }
@@ -197,8 +199,13 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
         app.rects.insert(format!("boost:{u}"), r);
     }
     app.rects.extend(named);
-    if gear {
-        app.settings_page = Some(super::settings::Page::Activity);
+    match feed {
+        Some(true) => app.feed_about = true,
+        Some(false) => {
+            app.settings.hide_activity_cards = !app.settings.hide_activity_cards;
+            app.save_settings(ui.ctx());
+        }
+        None => {}
     }
     if let Some((u, at)) = clicked {
         app.open_profile(u, gid, at);
@@ -231,13 +238,14 @@ fn name_in(ui: &Ui, store: &Store, gid: Id, uid: Id, name: &str, face: egui::Fon
 }
 
 enum Pick {
-    Gear,
+    Hide,
+    About,
     Card(Id, Rect),
 }
 
 /// Discord's "Activity" section over the member list: what people in this server have been
 /// playing and listening to, from the activity feed. Three cards, or all of them opened up.
-fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>) -> Option<Pick> {
+fn activity(ui: &mut Ui, store: &Store, gid: Id, hidden: bool, named: &mut Vec<(String, Rect)>) -> Option<Pick> {
     let members = store.members.get(&gid)?;
     let cards: Vec<&FeedEntry> = store.feed.iter().filter(|e| e.author != store.me && members.contains_key(&e.author)).collect();
     if cards.is_empty() {
@@ -256,18 +264,34 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>
     let t = p.text(pos2(head.left(), r.center().y), Align2::LEFT_CENTER, format!("Activity — {}", cards.len()), medium(14.0), pal().channel_default);
     named.push((format!("activity:{}", cards.len()), head));
     let gr = Rect::from_min_size(pos2(t.right(), r.center().y - 12.0), vec2(24.0, 24.0));
-    let g = ui.interact(gr, ui.id().with("activity_gear"), Sense::click()).on_hover_text("Activity Settings");
-    icons::draw(p, Icon::Gear, Rect::from_center_size(gr.center(), vec2(12.0, 12.0)), crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &g)));
+    let g = ui.interact(gr, ui.id().with("activity_gear"), Sense::click());
+    named.push(("activity:gear".into(), gr));
+    let ink = crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &g));
+    icons::draw(ui.painter(), Icon::Gear, Rect::from_center_size(gr.center(), vec2(12.0, 12.0)), ink);
+    let hot = crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
+    let foldable = hidden || cards.len() > 3;
     let chev = Rect::from_center_size(pos2(head.right() - 12.0, r.center().y), vec2(12.0, 12.0));
-    super::motion::chevron(ui, resp.id, open, chev, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
-    if g.clicked() {
-        pick = Some(Pick::Gear);
-    } else if resp.clicked() {
-        open = !open;
-        ui.data_mut(|d| d.insert_temp(open_id, open));
+    if hidden {
+        icons::draw(ui.painter(), Icon::EyeOff, chev, hot);
+    } else if foldable {
+        super::motion::chevron(ui, resp.id, open, chev, hot);
     }
-    if resp.hovered() || g.hovered() {
+    if foldable && resp.clicked() && !g.hovered() {
+        if hidden {
+            pick = Some(Pick::Hide);
+        } else {
+            open = !open;
+            ui.data_mut(|d| d.insert_temp(open_id, open));
+        }
+    }
+    if foldable && (resp.hovered() || g.hovered()) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let g = g.on_hover_text("Member List Recent Activity Settings");
+    egui::Popup::menu(&g).align(egui::RectAlign::BOTTOM_END).show(|ui| feed_menu(ui, hidden, &mut pick));
+    egui::Popup::context_menu(&resp).show(|ui| feed_menu(ui, hidden, &mut pick));
+    if hidden {
+        return pick;
     }
 
     ui.add_space(4.0);
@@ -323,6 +347,19 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, named: &mut Vec<(String, Rect)>
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
     pick
+}
+
+fn feed_menu(ui: &mut Ui, hidden: bool, pick: &mut Option<Pick>) {
+    super::menu_body(ui, |ui| {
+        if super::menu_row(ui, Some(Icon::Help), "About Recent Activity", None, false, super::Trail::None).clicked() {
+            *pick = Some(Pick::About);
+            ui.close();
+        }
+        if super::menu_row(ui, Some(Icon::EyeOff), "Hide Activity Cards", None, false, super::Trail::Check(hidden)).clicked() {
+            *pick = Some(Pick::Hide);
+            ui.close();
+        }
+    });
 }
 
 /// A card's line of badges, in discord's order: how long ago (or a live timer), then whatever
