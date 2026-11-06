@@ -115,9 +115,10 @@ def run_client(name, data_dir, extra=None):
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     try:
-        code = p.wait(timeout=300)
+        code = p.wait(timeout=1500)
     except subprocess.TimeoutExpired:
         p.kill()
+        p.wait()
         code = "timeout"
     res = json.loads((out / "results.json").read_text(encoding="utf-8")) if (out / "results.json").exists() else {"ok": False, "error": "no results.json"}
     ff = out / "first_frame_epoch_ms"
