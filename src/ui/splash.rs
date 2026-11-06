@@ -6,12 +6,35 @@ use egui::{Align2, Color32, Frame, Rect, Sense, Ui, pos2, vec2};
 use super::icons::{self, Icon};
 use crate::theme::*;
 
-const TIPS: [&str; 5] = [
-    "Press Ctrl+K to jump to any server, channel or DM.",
-    "Shift+Enter starts a new line without sending your message.",
-    "Right-click a message and pick Mark Unread to come back to it later.",
-    "Type @ in the quick switcher to search only people.",
-    "Hold Shift when you click Delete Message to skip the confirmation.",
+const TIPS: [&str; 28] = [
+    "You can use Streamer Mode to hide personal details while streaming",
+    "Group DMs can have up to ten members",
+    "Click the compass in your server list to find new servers",
+    "Drag and drop servers on top of each other to create server folders",
+    "Type /gif + anything to find a GIF for that topic!",
+    "Share what you're playing by using the game activity settings",
+    "Highlight text in your chat bar to bold, use italics and more",
+    "Hide muted channels in a server by right-clicking the server name",
+    "Customise Discord's appearance in the user settings menu",
+    "Link your favourite social media accounts in the connections settings",
+    "You can create channel categories to group and organise your channels",
+    "You can type /tableflip and /unflip to spice up your messages",
+    "You can join up to 100 servers, and up to 200 servers with Nitro!",
+    "You can drag and drop files onto Discord to upload them",
+    "Change each participant's volume by right-clicking them in a call",
+    "Right click to pin messages in a channel or DM to save them for later",
+    "Type a plus sign before an emoji name to turn it into a reaction",
+    "You can type /nick to quickly change your nickname in a server",
+    "You can type / to view bot commands and other built-in commands",
+    "Characters like @, #, ! and * will narrow Quick Switcher results",
+    "Click a server name in the emoji picker to hide that server's emojis",
+    "Hover a GIF and click the star to save it to your favourites",
+    "The top-most role for a user defines that user's colour",
+    "A red mic icon means that person has been muted by a server admin",
+    "You can temporarily mute a server or channel by right-clicking it",
+    "Click your avatar in the lower-left corner to set a custom status.",
+    "There's a very small chance you can get a secret ringtone when calling someone",
+    "There are a bunch of hidden Easter Eggs in the app that happen when you click certain things",
 ];
 
 pub fn waiting(app: &super::App) -> bool {
