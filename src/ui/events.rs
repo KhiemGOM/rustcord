@@ -356,7 +356,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     ev.users.remove(&id);
                 }
-                app.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/scheduled-events/{id}/users/@me"), None, Tag::Quiet);
+                app.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/scheduled-events/{id}/users/@me"), on.then(|| json!({ "response": 1 })), Tag::Quiet);
                 if app.events.as_ref().is_some_and(|e| e.detail == Some(id)) {
                     open_detail = Some(id);
                 }

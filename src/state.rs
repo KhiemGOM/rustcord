@@ -398,6 +398,10 @@ pub struct Guild {
     pub joined: i64,
     #[serde(default)]
     pub my_timeout: i64,
+    #[serde(default)]
+    pub invites_until: i64,
+    #[serde(default)]
+    pub dms_until: i64,
     #[serde(skip)]
     pub voice: Map<Id, Id>,
     #[serde(skip)]
@@ -405,6 +409,15 @@ pub struct Guild {
 }
 
 impl Guild {
+    /// Invites are paused by the old feature flag or by a lockdown that hasn't run out.
+    pub fn dms_paused(&self) -> bool {
+        self.dms_until > chrono::Utc::now().timestamp()
+    }
+
+    pub fn invites_paused(&self) -> bool {
+        self.features.iter().any(|f| f == "INVITES_DISABLED") || self.invites_until > chrono::Utc::now().timestamp()
+    }
+
     /// Discord keeps the "Get Started" checklist for members who joined in the last month and
     /// haven't finished it: started home actions, not completed.
     pub fn new_member(&self) -> bool {
@@ -1737,6 +1750,11 @@ impl Store {
         }
         if let Some(f) = v["features"].as_array() {
             g.features = f.iter().filter_map(|x| x.as_str()).map(str::to_string).collect();
+        }
+        if let Some(i) = p.get("incidents_data") {
+            let secs = |k: &str| i[k].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
+            g.invites_until = secs("invites_disabled_until");
+            g.dms_until = secs("dms_disabled_until");
         }
         if let Some(list) = v["stickers"].as_array() {
             g.stickers = list.iter().map(|s| (sid(&s["id"]), st(&s["name"]), s["format_type"].as_u64().unwrap_or(1) as u8)).collect();

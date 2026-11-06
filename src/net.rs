@@ -29,6 +29,8 @@ pub enum Ev {
     SendFailed { channel: Id, nonce: String, err: String, again: bool },
     Auth(auth::Ev),
     Error(String),
+    // the field errors and raw answer of the refusal that comes next
+    Fail { req: String, fields: Vec<(String, String)>, raw: String },
     Toast(String),
     Rest { tag: Tag, res: Result<Value, String> },
     Voice(voice::Ev),
@@ -131,6 +133,8 @@ pub enum Cmd {
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
+    /// A moderation write whose reason rides in X-Audit-Log-Reason.
+    Audit { method: &'static str, path: String, body: Option<Value>, reason: String },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     /// A GET with an app's own access token instead of ours.
@@ -150,7 +154,7 @@ fn allowed(c: &Cmd) -> bool {
         Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
         Cmd::Rest { method, .. } => *method == "GET",
-        Cmd::Sticker { .. } => false,
+        Cmd::Sticker { .. } | Cmd::Audit { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
@@ -240,6 +244,13 @@ async fn sender(mut rx: mpsc::UnboundedReceiver<(Arc<Api>, Outgoing)>, tx: Tx) {
     }
 }
 
+fn fail(tx: &Tx, m: &reqwest::Method, path: &str, f: crate::api::Failure) -> String {
+    if !f.raw.is_empty() {
+        tx.send(Ev::Fail { req: format!("{m} {path}"), fields: f.fields, raw: f.raw });
+    }
+    f.message
+}
+
 async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let http = api::http();
     let mut api = Arc::new(Api::new(http.clone(), String::new()));
@@ -324,11 +335,19 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Rest { method, path, body, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.call(m, &path, body).await;
+                    let res = a.try_call(m.clone(), &path, body, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
                         _ => tx.send(Ev::Rest { tag, res }),
+                    }
+                });
+            }
+            Cmd::Audit { method, path, body, reason } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+                    if let Err(f) = a.try_call(m.clone(), &path, body, None, Some(&reason)).await {
+                        tx.send(Ev::Error(fail(&tx, &m, &path, f)));
                     }
                 });
             }
@@ -342,7 +361,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Sudo { method, path, body, mfa, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.call_mfa(m, &path, body, mfa.as_deref()).await;
+                    let res = a.try_call(m.clone(), &path, body, mfa.as_deref(), None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
                 });
             }

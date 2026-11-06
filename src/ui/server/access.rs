@@ -133,6 +133,10 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         if c.keys().all(|k| k == "age") {
             return;
         }
+        if base["join"] == "discover" && d["join"] != "discover" {
+            let feats: Vec<&String> = app.store.guilds.get(&gid).into_iter().flat_map(|g| g.features.iter()).filter(|f| *f != "DISCOVERABLE").collect();
+            app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": feats })), Tag::Server("guild"));
+        }
         let rules: Vec<String> = d["rules"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect();
         let body = if d["join"] == "apply" {
             let qs: Vec<Value> = d["questions"].as_array().into_iter().flatten().filter(|q| q["label"].as_str().is_some_and(|l| !l.trim().is_empty())).map(|q| json!({ "field_type": q["field_type"], "label": q["label"], "required": q["required"], "values": null })).collect();

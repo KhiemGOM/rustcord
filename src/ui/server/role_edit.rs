@@ -540,7 +540,7 @@ fn permissions(_app: &mut App, ui: &mut Ui, e: &mut Edit, role: &Role) {
 
 fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members: usize) {
     let key = "role_links";
-    let path = format!("/guilds/{gid}/roles/{}/connection-configurations", e.id);
+    let path = format!("/guilds/{gid}/roles/{}/connections/configuration", e.id);
     if app.server.as_ref().is_some_and(|s| !s.data.contains_key(key)) {
         app.server_data(key, path.clone());
     }

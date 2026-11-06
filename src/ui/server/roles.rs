@@ -242,7 +242,7 @@ fn reorder(app: &mut App, gid: Id, order: Vec<Id>) {
 
 fn duplicate(app: &mut App, gid: Id, id: Id) {
     let Some(r) = app.store.guilds.get(&gid).and_then(|g| g.roles.get(&id)).cloned() else { return };
-    let body = json!({ "name": format!("{} (copy)", r.name), "color": r.color, "hoist": r.hoist, "mentionable": r.mentionable, "permissions": r.perms.to_string() });
+    let body = json!({ "name": format!("{} copy", r.name), "color": r.color, "hoist": r.hoist, "mentionable": r.mentionable, "permissions": r.perms.to_string() });
     app.rest("POST", format!("/guilds/{gid}/roles"), Some(body), Tag::Server("role_new"));
 }
 

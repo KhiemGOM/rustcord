@@ -31,6 +31,8 @@ mod cdn_shape;
 mod frecency;
 #[path = "mockcord/gallery.rs"]
 mod gallery;
+#[path = "mockcord/rules.rs"]
+mod rules;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 
@@ -1094,7 +1096,7 @@ fn profile_full(w: &W, gid: &str) -> Option<Value> {
     let g = guild_full(w, gid)?;
     let mut p = json!({ "id": gid, "name": g["name"], "description": "", "icon_hash": g["icon"], "brand_color_primary": null, "visibility": 1, "traits": [],
                         "game_application_ids": ["7100"], "games": [{ "id": "7100", "name": "Mockcord Quest" }], "member_count": g["member_count"], "online_count": 3,
-                        "tag": "", "badge": 6, "badge_color_primary": "#816bee", "badge_color_secondary": "#b79cf8" });
+                        "tag": "", "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
     if let Some(e) = w.lock().unwrap().edits.get(&format!("p:{gid}")).and_then(|e| e.as_object()) {
         for (k, v) in e {
             p[k] = v.clone();
@@ -1544,7 +1546,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         })),
         ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("PATCH", ["api", "v9", "users", "@me", "guilds", _, "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "guilds", "@me", "settings"]) | ("PATCH", ["api", "v9", "users", "@me", "guilds", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let mut u = user(ME);
@@ -1792,8 +1794,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
         ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
-        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(json!([])),
-        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connection-configurations"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(json!([])),
+        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "guilds", "1000", "roles", _, "members"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "guilds", "1000", "roles"]) => {
             let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -2012,7 +2014,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             guild_update(w, g);
             ok(guild_full(w, g).unwrap())
         }
-        ("DELETE", ["api", "v9", "guilds", g]) => {
+        ("POST", ["api", "v9", "guilds", _, "bulk-ban", "v2"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            ok(json!({ "banned_users": b["user_ids"], "failed_users": [] }))
+        }
+        ("POST", ["api", "v9", "guilds", g, "delete"]) => {
             let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_DELETE", "d": { "id": g } }));
             (204, "application/json", Vec::new())
         }
@@ -2020,6 +2026,12 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("PATCH", ["api", "v9", "guilds", g, "profile"]) => {
             keep(w, format!("p:{g}"), body);
             ok(profile_full(w, g).unwrap_or_default())
+        }
+        ("PUT", ["api", "v9", "guilds", g, "incident-actions"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            keep(w, format!("g:{g}"), json!({ "incidents_data": { "invites_disabled_until": b["invites_disabled_until"], "dms_disabled_until": b["dms_disabled_until"] } }).to_string().as_bytes());
+            guild_update(w, g);
+            ok(guild_full(w, g).unwrap_or_default()["incidents_data"].clone())
         }
         ("GET", ["api", "v9", "guilds", g, "widget"]) => ok(w.lock().unwrap().edits.get(&format!("w:{g}")).cloned().unwrap_or(json!({ "enabled": false, "channel_id": null }))),
         ("PATCH", ["api", "v9", "guilds", g, "widget"]) => {
@@ -2195,13 +2207,18 @@ async fn http_conn(mut s: TcpStream, w: W) {
         {
             let mut wl = w.lock().unwrap();
             let text: String = String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization") });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
-        let (code, ctype, out) = match account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user) {
-            Some((code, v)) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
-            None => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
+        let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
+        let (code, ctype, out) = match (rules::check(&method, &parts, &body), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
+            (Some(refusal), _) => {
+                log(&w, json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "refused": refusal }));
+                (400, "application/json", refusal.to_string().into_bytes())
+            }
+            (None, Some((code, v))) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
+            (None, None) => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
         };
         if code >= 400 && path.starts_with("/cdn/") {
             log(&w, json!({ "t": now_ms(), "cdn_refused": path, "code": code }));

@@ -47,6 +47,7 @@ import web
 import sound
 import activity
 import clips
+import refusals
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -358,7 +359,7 @@ def main():
         "name fonts: a nitro display name font was fetched and the user's name uses it": all("name_font" in r.get("marks_ms", {}) for r in (cold, warm)),
         "profile: the avatar on a server profile opens the main one, and its \"...\" opens the menu with the profile still up": all("profile_more" in r.get("marks_ms", {}) for r in (cold, warm)),
         "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
-            and sum('"flags":4096' in r.get("body", "") and '"2101"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) >= 2,
+            and sum('"flags":4096' in r.get("body", "") and '"2101"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/settings") and '{"guilds":{"1001"' in r.get("body", "")) >= 2,
         "poll: rendered in #general, an answer picked and Vote pressed": all("home_poll" in r.get("marks_ms", {}) for r in (cold, warm)),
         "poll: the vote was PUT to discord's poll answers endpoint": any(
             r.get("method") == "PUT" and "/polls/" in r.get("path", "") and r.get("path", "").endswith("/answers/@me") for r in reqs),
@@ -440,7 +441,7 @@ def main():
         "server settings: editing the profile raised the unsaved bar, and Save sent the name to the profile": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("server_bar", "server_profile_saved"))
             and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and ' X"' in r.get("body", "") for r in reqs),
         "server settings: Server Tag saved the tag and badge to the profile": all("server_tag" in r.get("marks_ms", {}) for r in (cold, warm))
-            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and '"tag":"RUST"' in r.get("body", "") and '"badge":0' in r.get("body", "") for r in reqs),
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and '"tag":"RUST"' in r.get("body", "") and '"badge":0' in r.get("body", "") and '"badge_color_primary":"#8a43ff"' in r.get("body", "") for r in reqs),
         "server settings: Engagement saved the system message flags": all("server_engagement" in r.get("marks_ms", {}) for r in (cold, warm))
             and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001") and '"system_channel_flags":4' in r.get("body", "") for r in reqs),
         "server settings: Boost Perks toggled the progress bar": all("server_perks" in r.get("marks_ms", {}) for r in (cold, warm))
@@ -461,7 +462,7 @@ def main():
         "events: the interested users were fetched": any("/guilds/1001/scheduled-events/6200/users" in r.get("path", "") for r in reqs),
         "events: start and cancel went to discord": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/scheduled-events/6201") and '"status":2' in r.get("body", "") for r in reqs)
             and any(r.get("method") == "DELETE" and r.get("path", "").endswith("/guilds/1001/scheduled-events/6200") for r in reqs),
-        "events: muting new events was saved to the server's settings": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/1001/settings") and '"mute_scheduled_events":true' in r.get("body", "") for r in reqs),
+        "events: muting new events was saved to the server's settings": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/settings") and '{"guilds":{"1001":{"mute_scheduled_events":true' in r.get("body", "") for r in reqs),
         "announcements: the follow went to the channel's followers with the picked channel": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/followers") and '"webhook_channel_id":"2100"' in r.get("body", "") for r in reqs),
         "announcements: Publish crossposted the message": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/messages/1/crosspost") for r in reqs),
         "quests: accept and claim went to discord": any(r.get("method") == "POST" and r.get("path", "").endswith("/quests/9002/enroll") for r in reqs)
@@ -548,6 +549,7 @@ def main():
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
         **clips.checks({"cold": cold, "warm": warm}, reqs, data),
+        **refusals.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
