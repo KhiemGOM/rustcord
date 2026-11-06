@@ -72,7 +72,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     };
     let orig = norm(&raw);
     let mut d = form::take(app, "profile", &orig);
-    ui.set_max_width(560.0);
+    ui.set_max_width(form_width(ui.ctx(), ui.available_width()));
     title(ui, "Server Profile", "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages");
 
     super::super::settings::h5(ui, "Name");
@@ -342,18 +342,38 @@ fn detectable() -> Arc<Vec<(Snow, String, Option<String>)>> {
     Arc::new(out)
 }
 
+const FORM_MAX: f32 = 560.0;
+const PREVIEW: f32 = 300.0;
+const GAP: f32 = 40.0;
+// the preview column goes at this viewport width and below (@media (max-width: 1024px))
+const PREVIEW_HIDDEN: f32 = 1024.0;
+
+fn has_preview(ctx: &egui::Context) -> bool {
+    ctx.content_rect().width() > PREVIEW_HIDDEN
+}
+
+/// The form column: it fills what the preview leaves, up to its max.
+fn form_width(ctx: &egui::Context, row: f32) -> f32 {
+    let taken = if has_preview(ctx) { PREVIEW + GAP } else { 0.0 };
+    (row - taken).clamp(0.0, FORM_MAX)
+}
+
 /// The invite card, held in place at the right of the page while it scrolls.
 fn preview(ctx: &egui::Context, g: &crate::state::Guild, d: &Value, raw: &Value) {
     let Some(area) = ctx.data(|m| m.get_temp::<Rect>(Id::new("server_area"))) else { return };
-    let at = pos2(area.center().x - 228.0 + 600.0, area.top() + 44.0);
+    let Some((left, right)) = ctx.data(|m| m.get_temp::<(f32, f32)>(Id::new("server_col"))) else { return };
+    if !has_preview(ctx) {
+        return;
+    }
+    let at = pos2(left + form_width(ctx, right - left) + GAP, area.top() + 44.0);
     let name = d["name"].as_str().unwrap_or_default();
     let color = d["brand_color_primary"].as_str().and_then(|c| BANNERS.iter().find(|b| b.1.eq_ignore_ascii_case(c))).map(|b| (b.2, b.3)).unwrap_or(([0x1c, 0x1c, 0x1f], [0x48, 0x48, 0x4c]));
     let bytes = ctx.data(|m| m.get_temp::<Arc<[u8]>>(Id::new("server_icon_bytes")));
     let picked = d["icon"].as_str().is_some_and(|i| i.starts_with("data:"));
     let shown = egui::Area::new(Id::new("server_preview")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).show(ui, |ui| {
-            ui.set_width(300.0);
-            let (top, _) = ui.allocate_exact_size(vec2(300.0, 120.0), Sense::hover());
+            ui.set_width(PREVIEW);
+            let (top, _) = ui.allocate_exact_size(vec2(PREVIEW, 120.0), Sense::hover());
             swatch(ui, top, color.0, color.1);
             Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                 let ir = Rect::from_min_size(pos2(ui.max_rect().left(), top.bottom() - 40.0), vec2(80.0, 80.0));

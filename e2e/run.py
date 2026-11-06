@@ -90,7 +90,7 @@ def prime():
         p.wait()
 
 
-def run_client(name, data_dir, extra=None):
+def run_client(name, data_dir, extra=None, timeout=300):
     out = ART / name
     out.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -111,11 +111,11 @@ def run_client(name, data_dir, extra=None):
     })
     env.update(extra or {})
     env = {k: v for k, v in env.items() if v is not None}
-    exe = ROOT / "target" / "release" / "rustcord.exe"
+    exe = Path(os.environ.get("RUSTCORD_EXE") or ROOT / "target" / "release" / "rustcord.exe")
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
     try:
-        code = p.wait(timeout=300)
+        code = p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         p.kill()
         code = "timeout"
