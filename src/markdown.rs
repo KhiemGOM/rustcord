@@ -376,10 +376,25 @@ pub fn hm() -> &'static str {
     if CLOCK24.load(Ordering::Relaxed) { "%H:%M" } else { "%-I:%M %p" }
 }
 
+/// A time in the local zone. Asking chrono means asking Windows for the zone, on every message of
+/// every frame, so each quarter hour keeps its offset for a minute.
+pub fn local(ms: i64) -> chrono::DateTime<chrono::FixedOffset> {
+    thread_local! {
+        static OFFSETS: std::cell::RefCell<(std::time::Instant, crate::state::Map<i64, chrono::FixedOffset>)> = std::cell::RefCell::new((std::time::Instant::now(), Default::default()));
+    }
+    let utc = chrono::DateTime::from_timestamp_millis(ms).unwrap_or_default();
+    let offset = OFFSETS.with_borrow_mut(|(at, seen)| {
+        if at.elapsed().as_secs() >= 60 {
+            *at = std::time::Instant::now();
+            seen.clear();
+        }
+        *seen.entry(ms.div_euclid(900_000)).or_insert_with(|| Local.offset_from_utc_datetime(&utc.naive_utc()))
+    });
+    utc.with_timezone(&offset)
+}
+
 pub fn fmt_ts(secs: i64, style: char) -> String {
-    let Some(dt) = Local.timestamp_opt(secs, 0).single() else {
-        return String::new();
-    };
+    let dt = local(secs.saturating_mul(1000));
     let numeric = short_date("%Y", true);
     let f = match style {
         't' => hm(),
@@ -388,7 +403,7 @@ pub fn fmt_ts(secs: i64, style: char) -> String {
         'D' => "%B %-d, %Y",
         'F' => return format!("{} {}", dt.format("%A, %B %-d, %Y"), dt.format(hm())),
         'R' => {
-            let d = secs - Local::now().timestamp();
+            let d = secs - chrono::Utc::now().timestamp();
             let a = d.abs();
             let (n, unit) = match a {
                 0..60 => (a, "second"),
