@@ -83,8 +83,9 @@ pub fn bar_with(app: &mut App, ctx: &egui::Context, key: &'static str, orig: &Va
     }
     let saving = s.saving;
     let said = s.errors.first().map(|e| e.1.clone());
-    let size = vec2(700.0, 53.0);
-    let at = pos2(area.center().x - 228.0 - 20.0 + off, area.bottom() - 20.0 - size.y);
+    let (left, width) = ctx.data(|d| d.get_temp::<(f32, f32)>(Id::new("notice"))).unwrap_or((area.left(), area.width()));
+    let size = vec2(width, 53.0);
+    let at = pos2(left + off, area.bottom() - super::super::sidebar_view::NOTICE_PAD - size.y);
     let (mut reset, mut save) = (false, false);
     let shown = egui::Area::new(Id::new(("server_bar", key))).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         let (r, _) = ui.allocate_exact_size(size, Sense::hover());

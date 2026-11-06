@@ -29,6 +29,7 @@ mod roles;
 mod safety;
 
 use super::App;
+use super::sidebar_view;
 use super::icons::{self, Icon};
 use crate::net::Tag;
 use crate::state::Id;
@@ -228,9 +229,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     crate::ui::motion::layer(ctx, egui::Area::new("server_settings".into()).order(egui::Order::Foreground).fixed_pos(area.min), area).show(ctx, |ui| {
         ui.set_min_size(area.size());
         ui.painter().rect_filled(area, 0, pal().bg_primary);
-        // discord's layer: the sidebar ends a little left of the middle, the page starts just after it
-        let side_right = area.center().x - 280.0;
-        let content_left = area.center().x - 228.0;
+        let kind = if matches!(page, Page::Members | Page::Profile) { sidebar_view::Kind::Fill } else { sidebar_view::Kind::Default };
+        let col = sidebar_view::column(area.left(), area.width(), sidebar_view::SIDEBAR, kind, true);
+        let side_right = col.region - 12.0;
+        ui.data_mut(|d| {
+            d.insert_temp(egui::Id::new("server_col"), (col.left, col.right));
+            d.insert_temp(egui::Id::new("notice"), col.notice);
+        });
         let side = Rect::from_min_max(pos2(area.left(), area.top()), pos2(side_right + 6.0, area.bottom()));
         ui.painter().rect_filled(side, 0, pal().bg_secondary_alt);
         let mut sc = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(side_right - 239.0, area.top()), pos2(side_right, area.bottom()))));
@@ -317,16 +322,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.add_space(60.0);
         });
         // the round ESC button off to the right
-        let esc = Rect::from_center_size(pos2(area.right() - 56.0, area.top() + 78.0 - 32.0 + 18.0), vec2(36.0, 36.0));
+        let esc = Rect::from_center_size(pos2(col.tools + 18.0, area.top() + 78.0 - 32.0 + 18.0), vec2(36.0, 36.0));
         let er = ui.interact(esc, ui.id().with("esc"), Sense::click());
         ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er))));
         icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er)));
         ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);
         close = er.clicked();
-        let body = Rect::from_min_max(pos2(content_left, area.top()), pos2((content_left + 900.0).min(esc.left() - 40.0), area.bottom()));
+        let gutter = (col.tools - col.right).min(16.0);
+        let body = Rect::from_min_max(pos2(col.left, area.top()), pos2(col.right + gutter, area.bottom()));
         let mut bc = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        egui::ScrollArea::vertical().id_salt(("server_page", page as u8, depth)).auto_shrink([false, false]).show(&mut bc, |ui| {
-            Frame::new().inner_margin(Margin { left: 0, right: 16, top: 46, bottom: 80 }).show(ui, |ui| match page {
+        let out = egui::ScrollArea::vertical().id_salt(("server_page", page as u8, depth)).auto_shrink([false, false]).show(&mut bc, |ui| {
+            Frame::new().inner_margin(Margin { left: 0, right: gutter as i8, top: 46, bottom: 80 }).show(ui, |ui| match page {
                 Page::Profile => profile::show(app, ui, gid),
                 Page::Tag => tag::show(app, ui, gid),
                 Page::Engagement => engage::show(app, ui, gid),
@@ -348,6 +354,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 _ => elsewhere(ui, gid, page),
             });
         });
+        crate::ui::e2e::scrolled(ui.ctx(), &out);
     });
     sound::modal_form(app, ctx);
     community::modal(app, ctx);

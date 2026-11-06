@@ -445,6 +445,10 @@ fn mute_rows(ui: &mut Ui, what: &str, muted: bool, act: &mut Option<Act>) {
 /// The menu popup, held open through clicks inside it so sliders and ticks don't close it.
 fn open(ctx: &egui::Context, at: Pos2, content: impl FnOnce(&mut Ui)) -> bool {
     let mut open = true;
+    // as tall as its rows need, held inside the window: a menu opened low on the screen moves up instead of being cut off
+    let screen = ctx.content_rect();
+    let h = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("menu_h"))).unwrap_or(0.0).min(screen.height() - 32.0);
+    let at = pos2(at.x, at.y.min(screen.bottom() - h - 16.0).max(screen.top() + 16.0));
     egui::Popup::new(egui::Id::new("user_menu"), ctx.clone(), egui::PopupAnchor::Position(at), egui::LayerId::background())
         .kind(egui::PopupKind::Menu)
         .layout(egui::Layout::top_down_justified(egui::Align::Min))

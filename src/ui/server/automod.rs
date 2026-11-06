@@ -254,7 +254,7 @@ fn area(ui: &mut Ui, text: &mut String, hint: &str) {
 
 fn picker(ui: &mut Ui, label: &str, items: &[(Id, String)], set: &mut HashSet<Id>) {
     let shown = if set.is_empty() { format!("Select {}", label.to_lowercase()) } else { format!("{} selected", set.len()) };
-    settings::dropdown(ui, ui.available_width().min(480.0), None, &shown, |ui| {
+    settings::dropdown(ui, ui.available_width(), None, &shown, |ui| {
         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
             for (id, n) in items {
                 let on = set.contains(id);
@@ -331,7 +331,7 @@ fn edit(app: &mut App, ui: &mut Ui, gid: Id) {
     if f.alert != 0 {
         ui.add_space(8.0);
         let shown = chans.iter().find(|c| c.0 == f.alert).map(|c| format!("#{}", c.1)).unwrap_or_default();
-        settings::dropdown(ui, ui.available_width().min(480.0), Some(Icon::Hash), &shown, |ui| {
+        settings::dropdown(ui, ui.available_width(), Some(Icon::Hash), &shown, |ui| {
             crate::ui::menu_body(ui, |ui| {
                 for (c, n) in &chans {
                     if crate::ui::menu_item(ui, (*c == f.alert).then_some(Icon::Check), n, false) {

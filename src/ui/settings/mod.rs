@@ -121,6 +121,7 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Developer, "Developer", Icon::SideDev, &[]),
 ];
 
+const SIDE: f32 = 253.0;
 const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
 pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
@@ -166,8 +167,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         ui.set_max_size(size - vec2(2.0, 2.0));
         let area = ui.max_rect();
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        logout = sidebar(app, ui, Rect::from_min_size(area.min, vec2(253.0, area.height())), page);
-        changed = body(app, ui, Rect::from_min_max(pos2(area.left() + 253.0, area.top()), area.max), page);
+        logout = sidebar(app, ui, Rect::from_min_size(area.min, vec2(SIDE, area.height())), page);
+        changed = body(app, ui, Rect::from_min_max(pos2(area.left() + SIDE, area.top()), area.max), page);
     });
     modals::modals(app, &ctx);
     if changed {
@@ -339,11 +340,13 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     }
 
     let view = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
+    let cols = super::sidebar_view::column(area.left() - SIDE, area.width() + SIDE, SIDE, super::sidebar_view::Kind::Wide, false);
+    ui.ctx().data_mut(|d| d.insert_temp(Id::new("notice"), cols.notice));
     let mut changed = false;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(view));
-    egui::ScrollArea::vertical().id_salt(("settings_page", app.sform.visit)).auto_shrink([false, false]).show(&mut scroll, |ui| {
+    let out = egui::ScrollArea::vertical().id_salt(("settings_page", app.sform.visit)).auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.add_space(64.0);
-        let col = Rect::from_x_y_ranges(view.center().x - 348.0..=view.center().x + 348.0, ui.cursor().top()..=f32::INFINITY);
+        let col = Rect::from_x_y_ranges(cols.left..=cols.right, ui.cursor().top()..=f32::INFINITY);
         ui.scope_builder(UiBuilder::new().max_rect(col), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             // dropdowns the way discord draws them in settings
@@ -381,6 +384,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
         });
         ui.add_space(96.0);
     });
+    crate::ui::e2e::scrolled(ui.ctx(), &out);
     profiles::save_bar(app, ui, view);
     changed
 }
@@ -548,7 +552,8 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
     for (v, label, desc) in options {
         lead(ui);
         let on = *value == *v;
-        let h = if desc.is_empty() { 24.0 } else { 43.0 };
+        let text = (!desc.is_empty()).then(|| ui.painter().layout(desc.to_string(), reg(14.0), pal().header_secondary, (ui.available_width() - 32.0).max(0.0)));
+        let h = text.as_ref().map_or(24.0, |g| (25.0 + g.size().y).max(43.0));
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         mark(ui, &format!("radio:{label}"), r);
         let c = pos2(r.left() + 11.0, r.top() + 10.5);
@@ -563,8 +568,8 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
             ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary.gamma_multiply(1.0 - u)));
         }
         ui.painter().text(pos2(r.left() + 32.0, r.top()), Align2::LEFT_TOP, *label, reg(16.0), pal().text_normal);
-        if !desc.is_empty() {
-            ui.painter().text(pos2(r.left() + 32.0, r.top() + 25.0), Align2::LEFT_TOP, *desc, reg(14.0), pal().header_secondary);
+        if let Some(g) = text {
+            ui.painter().galley(pos2(r.left() + 32.0, r.top() + 25.0), g, pal().header_secondary);
         }
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
