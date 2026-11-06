@@ -96,6 +96,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     let badge = egui::Rect::from_center_size(r.right_top() + vec2(-6.0, 10.0), vec2(28.0, 28.0));
                     ui.painter().circle_filled(badge.center(), 14.0, pal().bg_floating);
                     super::icons::draw(ui.painter(), Icon::Pencil, badge.shrink(6.0), pal().header_primary);
+                    let resp = resp.on_hover_text("Edit Group Icon");
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
