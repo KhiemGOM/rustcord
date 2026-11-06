@@ -18,6 +18,7 @@ pub struct Gallery {
     pub pick: Option<Id>,
     pub share: Option<Share>,
     pub edit: Option<super::clips_trim::Trim>,
+    pub playing: Option<Clip>,
 }
 
 #[derive(Default)]
@@ -138,6 +139,9 @@ fn load(app: &mut App) {
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
+    if app.media_fs.is_some() {
+        return;
+    }
     let Some(mut g) = app.clips.gallery.take() else { return };
     load(app);
     let mut close = false;
@@ -256,9 +260,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut again = true;
     for a in acts {
         match a {
-            Act::Play(c) => {
-                let _ = open::that(&c.path);
-            }
+            Act::Play(c) => play(app, ctx, &mut g, c),
             Act::Edit(c) => g.edit = Some(super::clips_trim::Trim::new(&c)),
             Act::Share(ids) if ids.len() > SHARE_MAX => app.toast("You can only share 10 clips at a time."),
             Act::Share(ids) => g.share = Some(Share { ids, ..Default::default() }),
@@ -303,11 +305,55 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     super::clips_trim::show(app, ctx, &mut g);
     share(app, ctx, &mut g);
+    player(app, ctx, &mut g);
     if close {
         again = false;
     }
     if again {
         app.clips.gallery = Some(g);
+    }
+}
+
+pub fn clip_url(c: &Clip) -> String {
+    format!("file:///{}", c.path.display())
+}
+
+pub fn play(app: &mut App, ctx: &egui::Context, g: &mut Gallery, c: Clip) {
+    let (key, url) = (clip_url(&c), clip_url(&c));
+    super::player::apply(app, ctx, super::player::Do::Open { key, url, video: true });
+    g.playing = Some(c);
+}
+
+fn player(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
+    let Some(c) = g.playing.clone() else { return };
+    let url = clip_url(&c);
+    let a = crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: c.name(), size: c.size, w: 0, h: 0, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new(), description: String::new() };
+    let poster = format!("file:///{}", c.thumb().display().to_string().replace('\\', "/"));
+    let info = crate::media::current(&url).map(|s| s.view().info);
+    let screen = ctx.content_rect();
+    let w = (screen.width() - 160.0).clamp(320.0, 960.0);
+    let h = info.filter(|i| i.w > 0).map_or(w * 9.0 / 16.0, |i| w * i.h as f32 / i.w as f32).min(screen.height() - 200.0);
+    let mut out = Vec::new();
+    let mut close = false;
+    let modal = crate::ui::motion::Modal::new("clips_play".into())
+        .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(16))
+        .show(ctx, |ui| {
+            ui.set_width(w);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(c.name()).font(semi(20.0)).color(pal().header_primary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked());
+            });
+            ui.add_space(12.0);
+            let r = super::player::video(ui, &a, vec2(w, h), &poster, &mut out);
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("clip_player_rect"), r));
+        });
+    for d in out {
+        super::player::apply(app, ctx, d);
+    }
+    if close || modal.should_close() {
+        g.playing = None;
+        crate::media::stop();
     }
 }
 
