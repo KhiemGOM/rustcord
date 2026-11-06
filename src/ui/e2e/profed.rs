@@ -449,10 +449,10 @@ impl Run {
                     self.mark("profed_server_saved");
                     app.profed = None;
                     app.settings_page = None;
-                    self.step = 99;
+                    self.step = 4100;
                 }
             }
-            _ => self.step = 99,
+            _ => self.step = 4100,
         }
     }
 }

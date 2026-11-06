@@ -395,9 +395,9 @@ impl Run {
                 }
                 app.directory = None;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
-                self.step = 3110;
+                self.step = 3900;
             }
-            _ => self.step = 3110,
+            _ => self.step = 3900,
         }
     }
 }

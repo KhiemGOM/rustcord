@@ -222,9 +222,9 @@ impl Run {
                 if !app.feed_about {
                     self.mark("fixes_feed_about_closed");
                 }
-                self.step = 3600;
+                self.step = 3300;
             }
-            _ => self.step = 3600,
+            _ => self.step = 3300,
         }
     }
 }

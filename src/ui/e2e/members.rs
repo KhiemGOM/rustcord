@@ -67,7 +67,7 @@ impl Run {
         match self.step {
             3110 => {
                 if std::env::var_os("RUSTCORD_E2E_MEMBERS").is_none() {
-                    self.step = 3000;
+                    self.step = 99;
                     return;
                 }
                 if app.server.is_none() {
@@ -360,7 +360,7 @@ impl Run {
                     self.fail(format!("bulk kick of bob and carol left {:?}", ids(app)));
                 }
             }
-            _ => self.step = 3000,
+            _ => self.step = 99,
         }
     }
 }
