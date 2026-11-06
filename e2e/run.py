@@ -53,6 +53,7 @@ import refusals
 import live
 import members
 import chatx
+import bots
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -210,7 +211,7 @@ def main():
             return None
 
     sent_bodies = [content(r["body"]) for r in sends]
-    interactions = [r for r in reqs if r.get("path", "").endswith("/interactions")]
+    interactions = [r for r in reqs if r.get("path", "").endswith("/interactions") and ('"name":"remind"' in r.get("body", "") or '"custom_id":"snooze"' in r.get("body", ""))]
     uploads = [r for r in sends if '"filename":"image.png"' in r.get("body", "")]
     acks = [r for r in reqs if "/ack" in r.get("path", "")]
     history = [r for r in reqs if "before=" in r.get("path", "")]
@@ -560,6 +561,7 @@ def main():
         **live.checks({"cold": cold, "warm": warm}, reqs, data),
         **members.checks({"cold": cold, "warm": warm}, reqs, data),
         **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
+        **bots.checks({"cold": cold, "warm": warm}, reqs, data),
         **call.checks({"cold": cold, "warm": warm}, reqs, data),
         **messages.checks({"cold": cold, "warm": warm}, reqs, data),
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
