@@ -275,7 +275,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
     let (tw, th, cols) = dims(kind);
     let gap = 12.0;
     let grid_w = tw * cols as f32 + gap * (cols as f32 - 1.0);
-    let wide = kind != Kind::Nameplate || screen.width() > 760.0;
+    let wide = !super::one_column(ctx);
     let w = (grid_w + 48.0 + if wide { 24.0 + 320.0 } else { 0.0 }).min(screen.width() - 48.0);
     let max_h = (screen.height() - 120.0).clamp(280.0, 560.0);
     let m = motion::Modal::new("profed_pick".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame()).show(ctx, |ui| {
@@ -362,9 +362,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
     {
         *s = c;
     }
-    if shop_open {
-        crate::ui::settings::open_web("/shop");
-    }
+    ed.to_shop |= shop_open;
     if apply {
         let it = selected.clone();
         if it.as_ref().is_none_or(&can_use) {
@@ -377,7 +375,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
             ed.since = ctx.input(|i| i.time);
             ed.dlg = Dlg::None;
         } else {
-            crate::ui::settings::open_web("/shop");
+            ed.to_shop = true;
         }
     } else if cancel || m.should_close() {
         ed.dlg = Dlg::None;

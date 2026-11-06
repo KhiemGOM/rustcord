@@ -187,13 +187,30 @@ impl Run {
         }
     }
 
+    fn editor_up(&mut self, app: &mut App) -> bool {
+        if app.profed.as_ref().is_some_and(|e| e.ready) {
+            return true;
+        }
+        if app.profed.is_none() {
+            app.settings_page = Some(SettingsPage::Profiles);
+            self.wait = Instant::now() + Duration::from_millis(1500);
+        }
+        false
+    }
+
     fn go(&mut self, app: &mut App, ctx: &egui::Context, t: Target) -> bool {
         let guild = self.target.0;
+        if !matches!(t, Target::User(SettingsPage::Profiles) | Target::Bar("settings")) {
+            app.profed = None;
+        }
         match t {
             Target::User(page) => {
                 if app.server.is_some() || app.chan_settings.is_some() {
                     app.server = None;
                     app.chan_settings = None;
+                }
+                if page == SettingsPage::Profiles {
+                    return self.editor_up(app);
                 }
                 if app.settings_page.is_none() {
                     if let Some(r) = app.rects.get("gear").copied() {
@@ -244,8 +261,7 @@ impl Run {
             }
             Target::Bar(kind) => {
                 let user = kind == "settings";
-                if user && app.settings_page != Some(crate::ui::settings::Page::Profiles) {
-                    self.go(app, ctx, Target::User(SettingsPage::Profiles));
+                if user && !self.editor_up(app) {
                     return false;
                 }
                 if !user && app.settings_page.is_some() {
