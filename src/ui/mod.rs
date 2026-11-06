@@ -1620,6 +1620,9 @@ impl App {
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
+                    if matches!(t.as_str(), "GUILD_MEMBER_REMOVE" | "GUILD_MEMBER_UPDATE" | "GUILD_BAN_ADD" | "GUILD_BAN_REMOVE") {
+                        community::refresh(self);
+                    }
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
                         self.sync_account(ctx);
                     }

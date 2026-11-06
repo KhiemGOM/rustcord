@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/members.rs"]
+mod members;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 
@@ -1215,6 +1217,13 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
+    let base = members::Base { user, member, iso, now: now_ms() };
+    if let Some((code, v, event)) = members::route(method, &parts, path.split_once('?').map(|q| q.1), body, &base) {
+        if let Some((t, d)) = event {
+            let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+        }
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1453,7 +1462,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             "id": id, "name": "Rustaceans", "icon_hash": null, "description": "Crabs only.", "member_count": 4200, "online_count": 321,
             "tag": "RUST", "badge_hash": "", "premium_tier": 2, "premium_subscription_count": 14, "game_application_ids": [], "brand_color_primary": "#e67e22",
         })),
-        ("PUT" | "DELETE", ["api", "v9", "guilds", _, "members", _, "roles", _]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "users", "@me", "mentions"]) => {
             let w = w.lock().unwrap();
             let list: Vec<&Value> = w.msgs.iter().rev().filter(|m| m["mentions"].as_array().is_some_and(|u| !u.is_empty())).take(25).collect();
@@ -1742,8 +1750,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["api", "v9", "guilds", "1000"]) => ok(json!({ "id": "1000", "verification_level": 1, "explicit_content_filter": 0, "mfa_level": 0, "owner_id": "102", "safety_alerts_channel_id": null })),
         ("PATCH", ["api", "v9", "guilds", "1000"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("POST", ["api", "v9", "guilds", "1000", "mfa"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("GET", ["api", "v9", "guilds", "1000", "bans"]) => ok(json!([{ "user": user(104), "reason": "spamming links" }])),
-        ("DELETE", ["api", "v9", "guilds", "1000", "bans", _]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "guilds", "1000", "audit-logs"]) => ok(json!({
             "users": [user(102), user(103)],
             "audit_log_entries": [
@@ -1856,24 +1862,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
             "application_commands": [{ "id": "9101", "application_id": "104", "version": "1", "type": 2, "name": "Warn User", "options": [] }],
         })),
-        // the members table: everyone, or the usernames asked for, newest first
-        ("POST", ["api", "v9", "guilds", g, "members-search"]) => {
-            let b: Value = serde_json::from_slice(body).unwrap_or_default();
-            let words: Vec<String> = b["and_query"]["usernames"]["or_query"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_lowercase)).collect();
-            let list: Vec<Value> = [101u64, 102, 103, 104, 105]
-                .iter()
-                .enumerate()
-                .filter(|(_, id)| words.is_empty() || words.iter().any(|w| user(**id)["username"].as_str().unwrap_or("").contains(w.as_str())))
-                .map(|(i, id)| {
-                    let mut m = member(*id);
-                    m["user"] = user(*id);
-                    m["joined_at"] = json!(iso(now_ms() - (i as u64 + 1) * 5 * 86_400_000));
-                    let code = (*id != 104).then_some("e2eInv1");
-                    json!({ "member": m, "source_invite_code": code, "join_source_type": if code.is_some() { 5 } else { 1 }, "inviter_id": code.map(|_| "102") })
-                })
-                .collect();
-            ok(json!({ "guild_id": g, "members": list, "page_result_count": list.len(), "total_result_count": list.len() }))
-        }
         ("GET", ["api", "v9", "guilds", "1001", "onboarding"]) => ok(json!({
             "guild_id": "1001", "enabled": true, "mode": 0, "default_channel_ids": ["2100"], "responses": ["7101"],
             "prompts": [{ "id": "7001", "title": "What do you play?", "single_select": false, "required": false, "in_onboarding": true, "type": 0, "options": [
@@ -1882,7 +1870,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ] }],
         })),
         ("PUT", ["api", "v9", "guilds", _, "onboarding-responses"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("GET", ["api", "v9", "guilds", _, "prune"]) => ok(json!({ "pruned": 2 })),
         ("GET", ["api", "v9", "guilds", _, "regions"]) => ok(json!([
             { "id": "us-east", "name": "US East", "optimal": true, "deprecated": false },
             { "id": "rotterdam", "name": "Rotterdam", "optimal": false, "deprecated": false },
