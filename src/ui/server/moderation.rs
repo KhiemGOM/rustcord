@@ -325,8 +325,9 @@ pub fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
     if entries.is_empty() {
         ui.vertical_centered(|ui| {
             ui.add_space(24.0);
-            ui.label(RichText::new("No logs found").font(semi(20.0)).color(pal().header_primary));
-            ui.label(RichText::new("There are no audit log entries that match your filters.").font(reg(14.0)).color(pal().header_secondary));
+            let filtered = user != 0 || action != 0;
+            ui.label(RichText::new(if filtered { "No logs found" } else { "No Logs Yet" }).font(semi(20.0)).color(pal().header_primary));
+            ui.label(RichText::new(if filtered { "There are no audit log entries that match your filters." } else { "Once moderators begin moderating, you can moderate the moderation here." }).font(reg(14.0)).color(pal().header_secondary));
         });
         return;
     }
