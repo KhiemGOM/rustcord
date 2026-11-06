@@ -134,6 +134,7 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     let owned = remote(app, "owned", "/users/@me/collectibles-purchases").cloned();
     let Some(draft) = &mut app.sform.profile else { return false };
     let mut act = Act::None;
+    super::lead(ui);
     let top = ui.cursor().min;
     let mut form = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(top, vec2(form_w, f32::INFINITY))));
     {

@@ -36,8 +36,8 @@ const PAGES_BELOW: [&str; 10] = [
 ];
 
 // the settings sidebar top to bottom
-const SIDEBAR: [&str; 18] = [
-    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
+const SIDEBAR: [&str; 19] = [
+    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Clips", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
     "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy", "Connected Apps",
     "Developer", "Log Out",
 ];
