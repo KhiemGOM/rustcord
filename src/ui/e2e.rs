@@ -657,7 +657,7 @@ impl Run {
             16 => {
                 self.shot(ctx, "forum.png");
                 let g = self.target.0;
-                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined).map(|c| c.id);
+                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.name == "release planning").map(|c| c.id);
                 let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
                     return self.fail("no joined thread in the sidebar".into());
                 };
@@ -1359,6 +1359,25 @@ impl Run {
     }
 
     /// Click a settings sidebar entry, scrolling the sidebar first if it's below the fold.
+    /// Marks are kept for rows scrolled out of the settings window, where a click would miss.
+    fn click_mark(&mut self, ctx: &egui::Context, key: &str, pause: u64) {
+        let window = ctx.content_rect().shrink2(egui::vec2(0.0, 80.0));
+        let Some(r) = Self::at(ctx, key) else { return };
+        if !window.contains_rect(r) {
+            self.queue.push_back(vec![Event::PointerMoved(window.center())]);
+            self.queue.push_back(vec![Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, if r.top() > window.top() { -200.0 } else { 200.0 }),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            }]);
+            self.wait = Instant::now() + Duration::from_millis(250);
+            return;
+        }
+        self.click(r.center());
+        self.next(pause);
+    }
+
     fn open_page(&mut self, app: &App, label: &str) -> bool {
         let key = if label == "Profiles" { "Edit Profiles" } else { label };
         if let Some(r) = app.rects.get(&format!("settings:{key}")).copied() {
@@ -1603,10 +1622,8 @@ impl Run {
                 self.next(800);
             }
             129 => {
-                let Some(r) = Self::at(ctx, "house:Bravery") else { return };
                 self.shot(ctx, "settings_account_family.png");
-                self.click(r.center());
-                self.next(600);
+                self.click_mark(ctx, "house:Bravery", 600);
             }
             130 => {
                 self.mark("hypesquad");
@@ -1788,24 +1805,7 @@ impl Run {
     /// the blob back.
     fn account_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let mfa_on = app.store.me_raw["mfa_enabled"].as_bool() == Some(true);
-        // marks are kept for rows scrolled out of the settings window, where a click would miss
-        let window = ctx.content_rect().shrink2(egui::vec2(0.0, 80.0));
-        let click_at = |this: &mut Self, key: &str, pause: u64| {
-            let Some(r) = Self::at(ctx, key) else { return };
-            if !window.contains_rect(r) {
-                this.queue.push_back(vec![Event::PointerMoved(window.center())]);
-                this.queue.push_back(vec![Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(0.0, if r.top() > window.top() { -200.0 } else { 200.0 }),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: Modifiers::NONE,
-                }]);
-                this.wait = Instant::now() + Duration::from_millis(250);
-                return;
-            }
-            this.click(r.center());
-            this.next(pause);
-        };
+        let click_at = |this: &mut Self, key: &str, pause: u64| this.click_mark(ctx, key, pause);
         let typed = |this: &mut Self, key: &str, text: &str| {
             let Some(r) = Self::at(ctx, key) else { return };
             this.click(r.center());
