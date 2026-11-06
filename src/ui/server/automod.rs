@@ -222,7 +222,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.add_space(24.0);
     }
     if let Some((id, on)) = toggle {
-        app.rest("PATCH", format!("/guilds/{gid}/auto-moderation/rules/{id}"), Some(json!({ "enabled": on })), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}/auto-moderation/rules/{id}"), Some(json!({ "enabled": on })), Tag::rollback(crate::ui::failed::stale("automod")));
         if let Some(Value::Array(a)) = app.server.as_mut().and_then(|s| s.data.get_mut("automod")) {
             for r in a.iter_mut().filter(|r| sid(&r["id"]) == id) {
                 r["enabled"] = json!(on);
@@ -396,7 +396,7 @@ fn edit(app: &mut App, ui: &mut Ui, gid: Id) {
     if delete {
         let (id, name) = (f.id, f.name.clone());
         app.confirm = Some(crate::ui::Confirm::new("Delete Rule", format!("Are you sure you want to delete **{name}**? This cannot be undone."), "Delete", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/auto-moderation/rules/{id}"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/guilds/{gid}/auto-moderation/rules/{id}"), None, Tag::rollback(crate::ui::failed::stale("automod")));
             if let Some(s) = &mut app.server {
                 s.pages.automod.form = None;
                 if let Some(Value::Array(a)) = s.data.get_mut("automod") {

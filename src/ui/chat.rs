@@ -834,12 +834,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let text = app.convert_emoji(guild, text.trim());
                 if text.is_empty() {
                     app.delete_msg(ch, id, true);
-                } else if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
-                    if m.content != text {
-                        m.content = text.clone();
-                        m.edited = true;
-                        app.net.send(Cmd::Edit { channel: ch, id, content: text });
-                    }
+                } else if app.store.find_msg(ch, id).is_some_and(|m| m.content != text) {
+                    app.edit_msg(ch, id, text);
                 }
                 app.focus_composer = true;
             }

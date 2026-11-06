@@ -21,6 +21,7 @@ mod dmpick;
 mod discover;
 mod e2e;
 mod events;
+pub mod failed;
 mod folders;
 mod follow;
 mod forum;
@@ -29,6 +30,7 @@ mod guildmodal;
 mod friends;
 pub mod icons;
 mod keys;
+mod live;
 mod lurk;
 mod links;
 mod login;
@@ -102,6 +104,9 @@ pub enum Pick {
     // the emoji of an answer in the poll being made
     Poll(usize),
 }
+
+const SAVE_FAILED: &str = "Failed to update your settings. Please try again.";
+pub const SEND_FAILED: &str = "Your message failed to send!";
 
 pub struct App {
     pub net: Net,
@@ -782,7 +787,11 @@ impl App {
             self.ui.quick.truncate(3);
             self.used(em.clone());
         }
-        self.net.send(Cmd::React { channel: ch, id: msg, emoji: em.api_name(), add });
+        let path = format!("/channels/{ch}/messages/{msg}/reactions/{}/@me?location=Message&type=0", crate::api::esc(&em.api_name()));
+        let back = em.clone();
+        self.rest(if add { "PUT" } else { "DELETE" }, path, None, Tag::undo("Reaction failed to send", move |app: &mut App| {
+            app.store.react_local(ch, msg, back.clone(), !add);
+        }));
         self.store.react_local(ch, msg, em, add);
     }
 
@@ -823,18 +832,26 @@ impl App {
             Some(s) if muted => json!({ "selected_time_window": s, "end_time": (chrono::Utc::now() + chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true) }),
             _ => json!({ "selected_time_window": -1, "end_time": null }),
         };
+        let was = self.store.muted.contains(&id);
+        let back = move |app: &mut App| {
+            if was {
+                app.store.muted.insert(id);
+            } else {
+                app.store.muted.remove(&id);
+            }
+        };
         if muted {
             self.store.muted.insert(id);
         } else {
             self.store.muted.remove(&id);
         }
         if guild {
-            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted, "mute_config": cfg })), Tag::Quiet);
+            self.rest("PATCH", format!("/users/@me/guilds/{id}/settings"), Some(json!({ "muted": muted, "mute_config": cfg })), Tag::undo(SAVE_FAILED, back));
         } else {
             let g = self.store.channels.get(&id).map(|c| c.guild).unwrap_or(0);
             let path = if g == 0 { "@me".to_string() } else { g.to_string() };
             let body = json!({ "channel_overrides": { id.to_string(): { "muted": muted, "mute_config": cfg } } });
-            self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::Quiet);
+            self.rest("PATCH", format!("/users/@me/guilds/{path}/settings"), Some(body), Tag::undo(SAVE_FAILED, back));
         }
     }
 
@@ -842,6 +859,7 @@ impl App {
     /// only lists picked channels, 2048 pinned to the top, 1024 and 512 the unread setting.
     pub fn chan_flag(&mut self, ch: Id, bit: u64, on: bool) {
         let Some(g) = self.store.channels.get(&ch).map(|c| c.guild) else { return };
+        let (was_flags, was_opted) = (self.store.chan_flags.get(&ch).copied(), self.store.opted.contains(&ch));
         let flags = self.store.chan_flags.entry(ch).or_default();
         if on {
             *flags |= bit;
@@ -857,7 +875,17 @@ impl App {
             }
         }
         let body = json!({ "channel_overrides": { ch.to_string(): { "flags": flags } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::undo(SAVE_FAILED, move |app: &mut App| {
+            match was_flags {
+                Some(f) => app.store.chan_flags.insert(ch, f),
+                None => app.store.chan_flags.remove(&ch),
+            };
+            if was_opted {
+                app.store.opted.insert(ch);
+            } else {
+                app.store.opted.remove(&ch);
+            }
+        }));
     }
 
     /// Edit Per-server Profile: Settings > Profiles on that server.
@@ -875,11 +903,18 @@ impl App {
     /// A channel's notification level, as Discord's bell menu sets it; None goes back to the
     /// category or server default.
     pub fn set_level(&mut self, ch: Id, level: Option<u8>) {
+        let was = self.store.levels.get(&ch).copied();
+        let back = move |app: &mut App| {
+            match was {
+                Some(n) => app.store.levels.insert(ch, n),
+                None => app.store.levels.remove(&ch),
+            };
+        };
         if self.store.guilds.contains_key(&ch) {
             if let Some(n) = level {
                 self.store.levels.insert(ch, n);
             }
-            self.rest("PATCH", format!("/users/@me/guilds/{ch}/settings"), Some(json!({ "message_notifications": level.unwrap_or(3) })), Tag::Quiet);
+            self.rest("PATCH", format!("/users/@me/guilds/{ch}/settings"), Some(json!({ "message_notifications": level.unwrap_or(3) })), Tag::undo(SAVE_FAILED, back));
             return;
         }
         match level {
@@ -888,7 +923,7 @@ impl App {
         };
         let g = self.store.channels.get(&ch).map(|c| c.guild).unwrap_or(0);
         let body = json!({ "channel_overrides": { ch.to_string(): { "message_notifications": level.unwrap_or(3) } } });
-        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::Quiet);
+        self.rest("PATCH", format!("/users/@me/guilds/{g}/settings"), Some(body), Tag::undo(SAVE_FAILED, back));
     }
 
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
@@ -1288,6 +1323,9 @@ impl App {
         if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
             return settings::on_remote(self, k, Err(e.clone()));
         }
+        if let Tag::Act(a) = &tag {
+            return self.acted(a, res.map(drop));
+        }
         let v = match res {
             Ok(v) => v,
             Err(e) => {
@@ -1440,7 +1478,7 @@ impl App {
             Tag::InviteDm(link) => {
                 self.store.apply("CHANNEL_CREATE", &v);
                 let id = crate::state::sid(&v["id"]);
-                self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::Quiet);
+                self.rest("POST", format!("/channels/{id}/messages"), Some(json!({ "content": link })), Tag::fail(SEND_FAILED));
             }
             Tag::CallDm => {
                 self.store.apply("CHANNEL_CREATE", &v);
@@ -1494,7 +1532,7 @@ impl App {
             }
             Tag::Remote(k) => settings::on_remote(self, k, Ok(v)),
             Tag::Activity(k) => activity::on_rest(self, &k, v),
-            Tag::Quiet => {}
+            Tag::Quiet | Tag::Act(_) => {}
         }
     }
 
@@ -1619,6 +1657,7 @@ impl App {
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
                     self.store.apply(&t, &d);
+                    self.live(&t, &d);
                     if t == "READY" || t == "USER_SETTINGS_PROTO_UPDATE" {
                         self.sync_account(ctx);
                     }

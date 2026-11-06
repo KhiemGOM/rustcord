@@ -231,16 +231,20 @@ fn list(app: &mut App, ui: &mut Ui) {
             let name = app.store.name_in(0, u);
             let body = format!("Are you sure you want to remove {name} from your friends?");
             app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
-                app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet)
+                app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::reason())
             }));
         }
         Some((u, "accept")) => {
             app.store.relationships.insert(u, FRIEND);
-            app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::Quiet);
+            app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::rollback(move |app: &mut App| drop(app.store.relationships.remove(&u))));
         }
         Some((u, _)) => {
-            app.store.relationships.remove(&u);
-            app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet);
+            let was = app.store.relationships.remove(&u);
+            app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::rollback(move |app: &mut App| {
+                if let Some(t) = was {
+                    app.store.relationships.insert(u, t);
+                }
+            }));
         }
         None => {}
     }

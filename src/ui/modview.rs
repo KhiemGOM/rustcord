@@ -262,7 +262,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Some(Do::Close) => app.mod_view = None,
         Some(Do::Role(r)) => profile::do_role(app, gid, uid, r),
         Some(Do::Timeout) => app.open_timeout(gid, uid),
-        Some(Do::Untimeout) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "communication_disabled_until": null })), Tag::Quiet),
+        Some(Do::Untimeout) => app.rest("PATCH", format!("/guilds/{gid}/members/{uid}"), Some(json!({ "communication_disabled_until": null })), Tag::reason()),
         Some(Do::Kick) => app.kick(gid, uid),
         Some(Do::Ban) => app.ban(gid, uid),
         Some(Do::Jump(c, mid)) => {

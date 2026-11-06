@@ -647,11 +647,15 @@ fn friend_requests(ui: &mut Ui, app: &mut App) {
     }
     if let Some(u) = accept {
         app.store.relationships.insert(u, crate::state::FRIEND);
-        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), Tag::Quiet);
+        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), Tag::rollback(move |app: &mut App| drop(app.store.relationships.remove(&u))));
     }
     if let Some(u) = ignore {
-        app.store.relationships.remove(&u);
-        app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::Quiet);
+        let was = app.store.relationships.remove(&u);
+        app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::rollback(move |app: &mut App| {
+            if let Some(t) = was {
+                app.store.relationships.insert(u, t);
+            }
+        }));
     }
 }
 

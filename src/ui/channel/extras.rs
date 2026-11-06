@@ -103,7 +103,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
         }
     }
     if let Some(code) = revoke {
-        app.rest("DELETE", format!("/invites/{code}"), None, Tag::Quiet);
+        app.rest("DELETE", format!("/invites/{code}"), None, Tag::reason());
         if let Some(s) = &mut app.chan_settings {
             s.data.remove("invites");
         }
@@ -149,7 +149,7 @@ pub fn pause_modal(app: &mut App, ctx: &egui::Context) {
         let until = (chrono::Utc::now() + chrono::Duration::hours(hours as i64)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let any = invites || dms;
         let body = json!({ "invites_disabled_until": invites.then_some(&until), "dms_disabled_until": dms.then_some(&until), "lockdown_duration_hours": any.then_some(hours) });
-        app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::Quiet);
+        app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::reason());
     }
     if close || save || cancel {
         if let Some(s) = &mut app.chan_settings {

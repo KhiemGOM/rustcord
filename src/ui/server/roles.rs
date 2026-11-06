@@ -226,6 +226,7 @@ fn list(app: &mut App, ui: &mut Ui, gid: Id) {
 fn reorder(app: &mut App, gid: Id, order: Vec<Id>) {
     let n = order.len() as i32;
     let mut body = Vec::new();
+    let before: Vec<(Id, i32)> = app.store.guilds.get(&gid).map(|g| g.roles.values().map(|r| (r.id, r.position)).collect()).unwrap_or_default();
     if let Some(g) = app.store.guilds.get_mut(&gid) {
         for (i, id) in order.iter().enumerate() {
             let pos = n - i as i32;
@@ -236,7 +237,15 @@ fn reorder(app: &mut App, gid: Id, order: Vec<Id>) {
         }
     }
     if !body.is_empty() {
-        app.rest("PATCH", format!("/guilds/{gid}/roles"), Some(Value::Array(body)), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}/roles"), Some(Value::Array(body)), Tag::rollback(move |app: &mut App| {
+            if let Some(g) = app.store.guilds.get_mut(&gid) {
+                for (id, position) in &before {
+                    if let Some(r) = g.roles.get_mut(id) {
+                        r.position = *position;
+                    }
+                }
+            }
+        }));
     }
 }
 
@@ -249,7 +258,12 @@ fn duplicate(app: &mut App, gid: Id, id: Id) {
 fn delete(app: &mut App, gid: Id, id: Id) {
     let Some(name) = app.store.guilds.get(&gid).and_then(|g| g.roles.get(&id)).map(|r| r.name.clone()) else { return };
     app.confirm = Some(crate::ui::Confirm::new("Delete Role", format!("Are you sure you want to delete **{name}**? This cannot be undone."), "Delete", move |app: &mut App| {
-        app.rest("DELETE", format!("/guilds/{gid}/roles/{id}"), None, Tag::Quiet);
+        let kept = app.store.guilds.get(&gid).and_then(|g| g.roles.get(&id)).cloned();
+        app.rest("DELETE", format!("/guilds/{gid}/roles/{id}"), None, Tag::rollback(move |app: &mut App| {
+            if let (Some(r), Some(g)) = (&kept, app.store.guilds.get_mut(&gid)) {
+                g.roles.insert(id, r.clone());
+            }
+        }));
         app.store.apply("GUILD_ROLE_DELETE", &json!({ "guild_id": gid.to_string(), "role_id": id.to_string() }));
         if let Some(s) = &mut app.server {
             s.pages.roles.edit = None;

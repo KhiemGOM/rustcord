@@ -106,7 +106,10 @@ pub enum Tag {
     Reactors(Id, Id, String, bool),
     // report message: false the menu, true the submission
     Report(bool),
+    // nothing is said of this one, whether it works or not: acks, previews, settings synced behind the scenes
     Quiet,
+    // something the user did that can fail: what to say, and how to undo what the click showed
+    Act(crate::ui::failed::Act),
     // a guild's soundboard sounds, for the call popout
     Soundboard(Id),
     // the activity shelf, launching one and the oauth steps its page asks for, by step
@@ -122,9 +125,6 @@ pub enum Cmd {
     Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
-    Edit { channel: Id, id: Id, content: String },
-    Delete { channel: Id, id: Id },
-    React { channel: Id, id: Id, emoji: String, add: bool },
     Ack { channel: Id, id: Id },
     Typing { channel: Id },
     Gateway(Value),
@@ -145,7 +145,7 @@ pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 
 fn allowed(c: &Cmd) -> bool {
     match c {
-        Cmd::Send { .. } | Cmd::Interact(_) | Cmd::Edit { .. } | Cmd::Delete { .. } | Cmd::React { .. } => false,
+        Cmd::Send { .. } | Cmd::Interact(_) => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
         Cmd::Rest { method, .. } => *method == "GET",
         Cmd::Sticker { .. } => false,
@@ -286,27 +286,6 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Send { channel, content, nonce, reply, files, stickers, tts } => {
                 let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
             }
-            Cmd::Edit { channel, id, content } => {
-                tokio::spawn(async move {
-                    if let Err(e) = a.edit(channel, id, &content).await {
-                        tx.send(Ev::Error(e));
-                    }
-                });
-            }
-            Cmd::Delete { channel, id } => {
-                tokio::spawn(async move {
-                    if let Err(e) = a.delete(channel, id).await {
-                        tx.send(Ev::Error(e));
-                    }
-                });
-            }
-            Cmd::React { channel, id, emoji, add } => {
-                tokio::spawn(async move {
-                    if let Err(e) = a.react(channel, id, &emoji, add).await {
-                        tx.send(Ev::Error(e));
-                    }
-                });
-            }
             Cmd::Ack { channel, id } => {
                 tokio::spawn(async move {
                     let _ = a.ack(channel, id).await;
@@ -318,7 +297,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     let res = a.call(m, &path, body).await;
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
-                        (Tag::Quiet, Err(e)) => tx.send(Ev::Error(e.clone())),
+                        (Tag::Quiet, Err(_)) => {}
                         _ => tx.send(Ev::Rest { tag, res }),
                     }
                 });

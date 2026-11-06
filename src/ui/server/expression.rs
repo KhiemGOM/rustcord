@@ -45,7 +45,7 @@ fn upload(app: &mut App, gid: Id, files: Vec<PathBuf>) {
     for path in files {
         let name: String = path.file_stem().map(|s| s.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()).unwrap_or_else(|| "emoji".into());
         if let Some(image) = data_uri(&path) {
-            app.rest("POST", format!("/guilds/{gid}/emojis"), Some(json!({ "name": name, "image": image })), Tag::Quiet);
+            app.rest("POST", format!("/guilds/{gid}/emojis"), Some(json!({ "name": name, "image": image })), Tag::reason());
         }
     }
 }
@@ -142,14 +142,24 @@ pub fn emoji(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.add_space(24.0);
     }
     if let Some((id, name)) = rename {
-        app.rest("PATCH", format!("/guilds/{gid}/emojis/{id}"), Some(json!({ "name": name })), Tag::Quiet);
+        let was = app.store.guilds.get(&gid).and_then(|g| g.emojis.iter().find(|e| e.id == id)).map(|e| e.name.clone()).unwrap_or_default();
+        app.rest("PATCH", format!("/guilds/{gid}/emojis/{id}"), Some(json!({ "name": name })), Tag::rollback(move |app: &mut App| {
+            if let Some(e) = app.store.guilds.get_mut(&gid).and_then(|g| g.emojis.iter_mut().find(|e| e.id == id)) {
+                e.name = was.clone();
+            }
+        }));
         if let Some(e) = app.store.guilds.get_mut(&gid).and_then(|g| g.emojis.iter_mut().find(|e| e.id == id)) {
             e.name = name;
         }
     }
     if let Some((id, name)) = delete {
         app.confirm = Some(crate::ui::Confirm::new("Delete Emoji", format!("Are you sure you want to delete :{name}:?"), "Delete", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/emojis/{id}"), None, Tag::Quiet);
+            let kept = app.store.guilds.get(&gid).map(|g| g.emojis.clone()).unwrap_or_default();
+            app.rest("DELETE", format!("/guilds/{gid}/emojis/{id}"), None, Tag::rollback(move |app: &mut App| {
+                if let Some(g) = app.store.guilds.get_mut(&gid) {
+                    g.emojis = kept.clone();
+                }
+            }));
             if let Some(g) = app.store.guilds.get_mut(&gid) {
                 g.emojis.retain(|e| e.id != id);
             }
@@ -259,7 +269,7 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
         Some((_, st)) => {
             let (id, name) = (sid(&st["id"]), st["name"].as_str().unwrap_or_default().to_string());
             app.confirm = Some(crate::ui::Confirm::new("Delete Sticker", format!("Are you sure you want to delete **{name}**? This cannot be undone."), "Delete", move |app: &mut App| {
-                app.rest("DELETE", format!("/guilds/{gid}/stickers/{id}"), None, Tag::Quiet);
+                app.rest("DELETE", format!("/guilds/{gid}/stickers/{id}"), None, Tag::rollback(crate::ui::failed::stale("stickers")));
                 if let Some(s) = &mut app.server {
                     s.data.remove("stickers");
                 }
@@ -323,7 +333,7 @@ fn sticker_form(app: &mut App, ui: &mut Ui, gid: Id) {
             }
         } else {
             let body = json!({ "name": f.name.trim(), "tags": f.tags.trim(), "description": f.description.trim() });
-            app.rest("PATCH", format!("/guilds/{gid}/stickers/{}", f.id), Some(body.clone()), Tag::Quiet);
+            app.rest("PATCH", format!("/guilds/{gid}/stickers/{}", f.id), Some(body.clone()), Tag::rollback(crate::ui::failed::stale("stickers")));
             if let Some(Value::Array(a)) = app.server.as_mut().and_then(|s| s.data.get_mut("stickers")) {
                 for st in a.iter_mut().filter(|st| sid(&st["id"]) == f.id) {
                     for k in ["name", "tags", "description"] {

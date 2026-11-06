@@ -1262,13 +1262,12 @@ impl App {
         }
         let new = new.strip_suffix('/').unwrap_or(new);
         let me = self.store.me;
-        let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().rev().find(|m| m.author == me && !m.pending)) else { return false };
+        let Some(m) = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.author == me && !m.pending)) else { return false };
         if let Some(at) = m.content.find(old) {
             let mut text = m.content.clone();
             text.replace_range(at..at + old.len(), new);
-            m.content = text.clone();
-            m.edited = true;
-            self.net.send(Cmd::Edit { channel: ch, id: m.id, content: text });
+            let id = m.id;
+            self.edit_msg(ch, id, text);
         }
         self.drafts.remove(&ch);
         true
@@ -1337,23 +1336,21 @@ impl App {
             "tts" => say(self, text("message"), true),
             "nick" => {
                 let nick = text("new_nick");
-                self.rest("PATCH", format!("/guilds/{g}/members/@me"), Some(json!({ "nick": nick })), Tag::Quiet);
-                self.toast(if nick.is_empty() { "Your nickname on this server has been reset.".to_string() } else { format!("Your nickname on this server has been changed to {nick}.") });
+                let ok = if nick.is_empty() { "Your nickname on this server has been reset.".to_string() } else { format!("Your nickname on this server has been changed to {nick}.") };
+                self.rest("PATCH", format!("/guilds/{g}/members/@me"), Some(json!({ "nick": nick })), Tag::ok(ok));
             }
             "thread" => {
                 self.rest("POST", format!("/channels/{ch}/threads"), Some(json!({ "name": text("name"), "type": 11, "auto_archive_duration": 4320 })), Tag::Thread(text("message")));
             }
             "kick" => {
                 if let Some(u) = user {
-                    self.rest("DELETE", format!("/guilds/{g}/members/{u}"), None, Tag::Quiet);
-                    self.toast(format!("{who} was kicked from the server."));
+                    self.rest("DELETE", format!("/guilds/{g}/members/{u}"), None, Tag::done(format!("{who} was kicked from the server."), format!("Whoops... {who} could not be kicked.  Please try again!")));
                 }
             }
             "ban" => {
                 if let Some(u) = user {
                     let secs = get("delete_messages").and_then(|v| v.as_i64()).unwrap_or(0);
-                    self.rest("PUT", format!("/guilds/{g}/bans/{u}"), Some(json!({ "delete_message_seconds": secs })), Tag::Quiet);
-                    self.toast(format!("{who} was banned from the server."));
+                    self.rest("PUT", format!("/guilds/{g}/bans/{u}"), Some(json!({ "delete_message_seconds": secs })), Tag::done(format!("{who} was banned from the server."), format!("Whoops... {who} could not be banned.  Please try again!")));
                 }
             }
             "timeout" => {
@@ -1370,7 +1367,13 @@ impl App {
             }
             "leave" => {
                 let silent = get("silent").and_then(|v| v.as_bool()).unwrap_or(false);
-                self.rest("DELETE", format!("/channels/{ch}?silent={silent}"), None, Tag::Quiet);
+                let at = self.store.dms.iter().position(|d| *d == ch);
+                self.rest("DELETE", format!("/channels/{ch}?silent={silent}"), None, Tag::undo("Failed to close direct message", move |app: &mut App| {
+                    if let Some(at) = at {
+                        let n = app.store.dms.len();
+                        app.store.dms.insert(at.min(n), ch);
+                    }
+                }));
                 self.store.dms.retain(|d| *d != ch);
                 self.friends = true;
             }
@@ -1418,7 +1421,7 @@ impl App {
     /// A member timed out until `secs` from now.
     pub fn time_out(&mut self, guild: Id, user: Id, secs: i64) {
         let until = (chrono::Utc::now() + chrono::Duration::seconds(secs)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        self.rest("PATCH", format!("/guilds/{guild}/members/{user}"), Some(json!({ "communication_disabled_until": until })), Tag::Quiet);
+        self.rest("PATCH", format!("/guilds/{guild}/members/{user}"), Some(json!({ "communication_disabled_until": until })), Tag::reason());
     }
 
     pub fn resolve_aliases(&self, ch: Id, text: &str) -> String {

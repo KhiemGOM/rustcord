@@ -175,12 +175,24 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let reset = matches!(done, Done::Reset);
     match d {
         Dialog::Note { uid, text } => {
-            app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": text })), Tag::Quiet);
+            let was = app.notes.get(&uid).cloned();
+            app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": text })), Tag::rollback(move |app: &mut App| {
+                match &was {
+                    Some(n) => app.notes.insert(uid, n.clone()),
+                    None => app.notes.remove(&uid),
+                };
+            }));
             app.notes.insert(uid, text);
         }
         Dialog::Nick { gid: 0, uid, text, .. } => {
             let text = if reset { String::new() } else { text.trim().to_string() };
-            app.rest("PATCH", format!("/users/@me/relationships/{uid}"), Some(json!({ "nickname": (!text.is_empty()).then_some(&text) })), Tag::Quiet);
+            let was = app.store.nicks.get(&uid).cloned();
+            app.rest("PATCH", format!("/users/@me/relationships/{uid}"), Some(json!({ "nickname": (!text.is_empty()).then_some(&text) })), Tag::rollback(move |app: &mut App| {
+                match &was {
+                    Some(n) => app.store.nicks.insert(uid, n.clone()),
+                    None => app.store.nicks.remove(&uid),
+                };
+            }));
             if text.is_empty() {
                 app.store.nicks.remove(&uid);
             } else {
@@ -190,14 +202,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Dialog::Nick { gid, uid, text, .. } => {
             let text = if reset { String::new() } else { text.trim().to_string() };
             let who = if uid == me { "@me".to_string() } else { uid.to_string() };
-            app.rest("PATCH", format!("/guilds/{gid}/members/{who}"), Some(json!({ "nick": (!text.is_empty()).then_some(&text) })), Tag::Quiet);
+            app.rest("PATCH", format!("/guilds/{gid}/members/{who}"), Some(json!({ "nick": (!text.is_empty()).then_some(&text) })), Tag::reason());
         }
         Dialog::Group { ch, text, icon } => {
             let mut body = json!({ "name": text.trim() });
             if let Some(i) = icon {
                 body["icon"] = json!(i);
             }
-            app.rest("PATCH", format!("/channels/{ch}"), Some(body), Tag::Quiet);
+            app.rest("PATCH", format!("/channels/{ch}"), Some(body), Tag::reason());
         }
         Dialog::Cleanup { .. } | Dialog::Accounts => {}
     }

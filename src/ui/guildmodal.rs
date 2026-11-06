@@ -42,11 +42,12 @@ fn pause(app: &mut App, gid: Id, invites: bool, dms: bool) {
         "dms_disabled_until": dms.then_some(&until),
         "lockdown_duration_hours": (invites || dms).then_some(24),
     });
-    app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::Quiet);
+    app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::reason());
 }
 
 pub fn privacy_set(app: &mut App, gid: Id, field: u64, off: bool) {
     let list = app.store.privacy.entry(field).or_default();
+    let was = list.contains(&gid);
     if off {
         list.insert(gid);
     } else {
@@ -56,7 +57,14 @@ pub fn privacy_set(app: &mut App, gid: Id, field: u64, off: bool) {
     let raw = crate::proto::privacy_update(field, &ids);
     use base64::Engine;
     let body = json!({ "settings": base64::engine::general_purpose::STANDARD.encode(raw) });
-    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(body), Tag::Quiet);
+    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(body), Tag::undo(super::SAVE_FAILED, move |app: &mut App| {
+        let list = app.store.privacy.entry(field).or_default();
+        if was {
+            list.insert(gid);
+        } else {
+            list.remove(&gid);
+        }
+    }));
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -110,7 +118,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 act = plate(ui, Rect::from_min_size(pos2(r.right() - 140.0, r.top()), vec2(140.0, 40.0)), "Report Raid", true, true);
             });
             if act {
-                app.rest("POST", format!("/guilds/{gid}/auto-moderation/report-raid"), None, Tag::Quiet);
+                app.rest("POST", format!("/guilds/{gid}/auto-moderation/report-raid"), None, Tag::reason());
                 app.toast("Raid report submitted");
             }
         }
@@ -130,7 +138,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 act = plate(ui, Rect::from_min_size(pos2(r.right() - 140.0, r.top()), vec2(140.0, 40.0)), if mine { "Remove Tag" } else { "Adopt Tag" }, true, true);
             });
             if act {
-                app.rest("PUT", "/users/@me/clan".into(), Some(json!({ "identity_guild_id": gid.to_string(), "identity_enabled": !mine })), Tag::Quiet);
+                app.rest("PUT", "/users/@me/clan".into(), Some(json!({ "identity_guild_id": gid.to_string(), "identity_enabled": !mine })), Tag::reason());
             }
         }
     }
