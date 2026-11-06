@@ -1714,8 +1714,14 @@ impl Run {
             }
             135 => {
                 let (Some(r), Some(p)) = (Self::at(ctx, "modal_input"), Self::at(ctx, "modal_password")) else { return };
-                self.click(r.right_center() - vec2(4.0, 0.0));
-                self.queue.push_back(vec![Event::Text("_".into())]);
+                if self.sub == 0 {
+                    self.click(r.right_center() - vec2(4.0, 0.0));
+                    self.queue.push_back(vec![Event::Text("_".into())]);
+                    self.sub = 1;
+                    self.wait = Instant::now() + Duration::from_millis(800);
+                    return;
+                }
+                self.sub = 0;
                 self.click(p.center());
                 self.queue.push_back(vec![Event::Text("hunter2".into())]);
                 self.next(400);
@@ -1966,7 +1972,11 @@ impl Run {
             2041 => click_at(self, "tile:decoration", 500),
             2042 => click_at(self, "collectible:7001", 300),
             2043 => click_at(self, "pick:apply", 300),
-            2044 => click_at(self, "save_changes", 0),
+            2044 => {
+                let Some(r) = Self::at(ctx, "save_changes") else { return };
+                self.click(r.center());
+                self.next(0);
+            }
             2045 => {
                 if app.store.user(app.store.me).and_then(|u| u.decoration.as_deref()) == Some("a_deco7001") {
                     self.mark("profile_decoration");
