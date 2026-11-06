@@ -27,6 +27,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 mod account;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
+#[path = "mockcord/prefs.rs"]
+mod prefs;
 
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -1217,6 +1219,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v)) = prefs::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
     }
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {

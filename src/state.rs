@@ -925,6 +925,22 @@ impl Poll {
     }
 }
 
+/// A server's notification settings beyond mutes and levels: what the Notification Settings
+/// dialog shows.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GuildPrefs {
+    pub suppress_everyone: bool,
+    pub suppress_roles: bool,
+    pub highlights_off: bool,
+    pub mobile_push: bool,
+}
+
+impl Default for GuildPrefs {
+    fn default() -> Self {
+        Self { suppress_everyone: false, suppress_roles: false, highlights_off: false, mobile_push: true }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct ReadState {
     pub last_acked: Id,
@@ -1118,6 +1134,8 @@ pub struct Store {
     // servers whose new events are muted, and how far you've read their event notifications
     #[serde(default)]
     pub events_muted: Set<Id>,
+    #[serde(default)]
+    pub gprefs: Map<Id, GuildPrefs>,
     #[serde(default)]
     pub event_reads: Map<Id, ReadState>,
     // servers that only list the channels picked in onboarding or browse channels, and the picks
@@ -1470,6 +1488,11 @@ impl Store {
         } else {
             self.events_muted.remove(&gid);
         }
+        let prefs = self.gprefs.entry(gid).or_default();
+        prefs.suppress_everyone = s["suppress_everyone"].as_bool() == Some(true);
+        prefs.suppress_roles = s["suppress_roles"].as_bool() == Some(true);
+        prefs.highlights_off = s["notify_highlights"].as_u64() == Some(2);
+        prefs.mobile_push = s["mobile_push"].as_bool() != Some(false);
         if let Some(all) = unreads(s, 2048, 4096) {
             self.unreads.insert(gid, all);
         }
@@ -1814,6 +1837,7 @@ impl Store {
         };
         self.muted.clear();
         self.events_muted.clear();
+        self.gprefs.clear();
         self.unreads.clear();
         self.levels.clear();
         self.opt_in.clear();

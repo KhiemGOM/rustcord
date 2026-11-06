@@ -35,6 +35,7 @@ mod login;
 mod mdpreview;
 mod members;
 mod modview;
+mod notifs;
 mod now;
 mod motion;
 mod palette;
@@ -1794,44 +1795,7 @@ impl App {
         }
         self.confirm_modal(&ctx);
         settings::camera::frame(self, &ctx);
-        if let Some(gid) = self.guild_notifs {
-            let name = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-            let default = self.store.guilds.get(&gid).map(|g| g.default_notif).unwrap_or(0);
-            let level = self.store.levels.get(&gid).copied().unwrap_or(default);
-            let muted = self.store.muted.contains(&gid);
-            let (mut pick, mut mute) = (None, None);
-            let modal = crate::ui::motion::Modal::new("guild_notifs".into())
-                .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16))
-                .show(&ctx, |ui| {
-                    ui.set_width(440.0);
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    ui.label(egui::RichText::new("Notification Settings").font(semi(20.0)).color(pal().header_primary));
-                    ui.label(egui::RichText::new(&name).font(reg(14.0)).color(pal().header_secondary));
-                    ui.add_space(16.0);
-                    if menu_row(ui, None, &format!("Mute {name}"), None, false, Trail::Check(muted)).clicked() {
-                        mute = Some(!muted);
-                    }
-                    ui.add_space(16.0);
-                    ui.label(egui::RichText::new("Server Notification Settings").font(medium(14.0)).color(pal().header_secondary));
-                    ui.add_space(8.0);
-                    for (label, v) in [("All Messages", 0), ("Only @mentions", 1), ("Nothing", 2)] {
-                        if menu_row(ui, None, label, None, false, Trail::Radio(level == v)).clicked() {
-                            pick = Some(v);
-                        }
-                    }
-                    });
-                });
-            if let Some(m) = mute {
-                self.set_muted(gid, true, m);
-            }
-            if let Some(v) = pick {
-                self.set_level(gid, Some(v));
-            }
-            if modal.should_close() {
-                self.guild_notifs = None;
-            }
-        }
+        notifs::show(self, &ctx);
         crop::show(self, &ctx);
         cstatus::show(self, &ctx);
         picker::show(self, &ctx);
