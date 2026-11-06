@@ -859,6 +859,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
             let s = app.slash.get_mut(&ch).unwrap();
             s.optional_open = !s.optional_open;
             s.sel = 0;
+            app.focus_composer = true;
         }
     }
     if let Some(i) = click {
@@ -963,6 +964,7 @@ pub fn list(app: &mut App, ctx: &egui::Context, chan: &Channel, composer: Rect) 
     }
     if picked.is_some() {
         app.slash_pick(chan);
+        app.focus_composer = true;
     }
 }
 
