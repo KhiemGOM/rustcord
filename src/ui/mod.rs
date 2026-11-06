@@ -63,6 +63,7 @@ mod soundboard;
 mod stage;
 mod tile;
 mod side;
+mod sidebar_view;
 mod tagpop;
 mod textfile;
 mod thread;

@@ -8,10 +8,11 @@ wire, so the mock's request log is checked for that too.
     python e2e/tour.py 1280x720@150          # WxH in points, @zoom percent
     python e2e/tour.py --sheets 1280x720     # also contact sheets of each run's shots
 
-Needs target/release built. Shots land in a temp dir printed at the end, one folder per size.
+Needs target/release built; RUSTCORD_EXE and RUSTCORD_MOCK point at other builds. Shots land in a temp dir printed at the end, one folder per size.
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from pathlib import Path
 import run
 
 DEFAULT = ["1280x720", "940x500", "1707x913"]
+MOCK = Path(os.environ.get("RUSTCORD_MOCK") or run.ROOT / "target" / "release" / "examples" / "mockcord.exe")
 
 
 def sweep(art, spec):
@@ -30,10 +32,10 @@ def sweep(art, spec):
     extra = {"RUSTCORD_TOUR": str(out), "RUSTCORD_TOUR_SIZE": size, "RUSTCORD_TOUR_ZOOM": zoom or "100", "RUSTCORD_READONLY": None if "--writable" in sys.argv else "1", "RUSTCORD_TOUR_SERVER": "1",
              "RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_CAM": "1", "RUSTCORD_SILENT": "1"}
     log = art / f"{name}.jsonl"
-    mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE)])
+    mock = subprocess.Popen([str(MOCK), str(run.HTTP), str(run.WS), str(log), str(run.VOICE)])
     time.sleep(0.5)
     try:
-        res = run.run_client(name, art / f"{name}_data", extra)
+        res = run.run_client(name, art / f"{name}_data", extra, timeout=3600)
     finally:
         mock.kill()
     sent = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()] if log.exists() else []

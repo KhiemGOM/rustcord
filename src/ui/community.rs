@@ -39,6 +39,9 @@ pub struct Home {
     pub browse: String,
 }
 
+// .headerCell's padding-inline, and each cell's
+const CELL: f32 = 8.0;
+
 const SORTS: [(u8, &str); 4] = [(1, "Member Since (Newest first)"), (2, "Member Since (Oldest first)"), (3, "Joined Discord (Newest first)"), (4, "Joined Discord (Oldest first)")];
 
 impl App {
@@ -184,14 +187,14 @@ fn checkbox(ui: &Ui, id: egui::Id, r: Rect, on: bool, hot: bool) {
 
 fn members(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(mut m) = app.home.as_mut().map(|h| std::mem::take(&mut h.members)) else { return };
-    table(app, ui, gid, &mut m, Tag::Home("members"));
+    table(app, ui, gid, &mut m, Tag::Home("members"), 16.0);
     if let Some(h) = &mut app.home {
         h.members = m;
     }
 }
 
 /// The member table, drawn from `m`; the search answer comes back under `tag`.
-pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
+pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, inset: f32) {
     // the search goes out once typing pauses, and again whenever the sort changes
     let now = ui.input(|i| i.time);
     let mut ask = None;
@@ -226,7 +229,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
     let mut role_add: Option<(Id, Id)> = None;
     let mut role_drop: Option<(Id, Id)> = None;
     let (mut prune, mut bulk_kick, mut bulk_ban) = (false, false, false);
-    let outer = ui.max_rect().shrink(16.0);
+    let outer = ui.max_rect().shrink(inset);
     let mut cu = ui.new_child(egui::UiBuilder::new().max_rect(outer));
     let card_top = outer.top();
     // the card's frame goes in under everything once its height is known
@@ -281,195 +284,230 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag) {
             tb.edited = now;
         }
     }
-    // column starts, as discord spreads them over the table
-    let table = Rect::from_min_max(pos2(outer.left() + 1.0, head.bottom()), pos2(outer.right() - 1.0, outer.bottom()));
-    let tw = table.width();
-    let col = |f: f32| table.left() + tw * f;
-    let (hr, _) = cu.allocate_exact_size(vec2(outer.width(), 57.0), Sense::hover());
-    cu.painter().hline(hr.x_range(), hr.top() + 0.5, Stroke::new(1.0, pal().border_subtle));
-    let all = !list.is_empty() && list.iter().all(|m| tb.picked.contains(&sid(&m["member"]["user"]["id"])));
-    let cb = Rect::from_min_size(pos2(table.left() + 16.0, hr.center().y - 10.0), vec2(20.0, 20.0));
-    let cr = cu.interact(cb, cu.id().with("pick_all"), Sense::click());
-    checkbox(&cu, cr.id, cb, all, cr.hovered());
-    if cr.clicked() {
-        if all {
-            tb.picked.clear();
-        } else {
-            tb.picked = list.iter().map(|m| sid(&m["member"]["user"]["id"])).filter(|u| *u != me).collect();
+    let flags = |m: &Value| {
+        let mem = &m["member"];
+        let timed = mem["communication_disabled_until"].as_str().is_some_and(|t| chrono::DateTime::parse_from_rfc3339(t).is_ok_and(|t| t.timestamp() > chrono::Utc::now().timestamp()));
+        (timed, mem["unusual_dm_activity_until"].is_string())
+    };
+    // the table is auto layout, 100% wide: the date, join method and signals columns ask for 11% of it, roles 22%,
+    // and the name column takes what's left of it, none going under what its content needs (.smallCol, .mediumCol)
+    let word = |t: &str, f: egui::FontId| cu.painter().layout_no_wrap(t.into(), f, pal().text_normal).size().x;
+    let inner = outer.width() - 2.0 - 2.0 * CELL;
+    let code = list.iter().filter_map(|m| m["source_invite_code"].as_str()).max_by_key(|c| c.chars().count()).unwrap_or("");
+    let flagged = list.iter().any(|m| flags(m) != (false, false));
+    let mins = [
+        32.0 + 8.0 + 24.0 + 2.0 * CELL,
+        word("months", medium(14.0)) + 2.0 * CELL,
+        word("months", medium(14.0)) + 2.0 * CELL,
+        word(code, medium(14.0)) + 24.0 + 2.0 * CELL,
+        40.0 + 28.0 + 2.0 * CELL,
+        if flagged { word("Unusual DMs", medium(12.0)) + 16.0 + 2.0 * CELL } else { 2.0 * CELL },
+    ];
+    let share = [0.0, 0.11, 0.11, 0.11, 0.22, 0.11];
+    let mut w: [f32; 6] = std::array::from_fn(|i| (share[i] * inner).max(mins[i]));
+    let (check_w, act_w) = (20.0 + 2.0 * CELL, 28.0 * 2.0 + 8.0 + 2.0 * CELL);
+    w[0] = (inner - check_w - act_w - w[1..].iter().sum::<f32>()).max(mins[0]);
+    let want = (check_w + act_w + w.iter().sum::<f32>() + 2.0 + 2.0 * CELL).max(outer.width());
+    let rows_h = (outer.bottom() - head.bottom() - 57.0 - 64.0).max(60.0);
+    let mut picks: Vec<(Id, bool)> = Vec::new();
+    egui::ScrollArea::horizontal().id_salt(("members_wide", gid)).auto_shrink([false, true]).show(&mut cu, |cu| {
+        cu.set_min_width(want);
+        let table = Rect::from_min_size(pos2(outer.left() + 1.0 + CELL, head.bottom()), vec2(want - 2.0 - 2.0 * CELL, 0.0));
+        let mut starts = [0.0; 7];
+        starts[0] = table.left() + check_w;
+        for i in 0..6 {
+            starts[i + 1] = starts[i] + w[i];
         }
-    }
-    // each heading wraps inside its column, as "Joined Discord" does in a narrow window
-    let heads = [(0.04, "NAME"), (0.252, "MEMBER SINCE"), (0.359, "JOINED DISCORD"), (0.465, "JOIN METHOD"), (0.573, "ROLES"), (0.785, "SIGNALS")];
-    for (i, (f, t)) in heads.iter().enumerate() {
-        let room = heads.get(i + 1).map_or(tw * 0.15, |(n, _)| col(*n) - col(*f) - 12.0);
-        let g = cu.painter().layout(t.to_string(), bold(12.0), pal().text_normal, room);
-        let at = pos2(col(*f), hr.center().y - g.size().y / 2.0);
-        cu.painter().galley(at, g, pal().text_normal);
-    }
-    let sig = Rect::from_center_size(pos2(col(0.785) + 74.0, hr.center().y), vec2(24.0, 24.0));
-    let sr = cu.interact(sig, cu.id().with("signal_filter"), Sense::click());
-    icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { BLURPLE } else { pal().text_normal });
-    egui::Popup::menu(&sr.on_hover_text("Filter based on safety info, such as timed out or engaging in unusual DM activity.")).show(|ui| {
-        super::menu_body(ui, |ui| {
-            for (v, l) in [(0, "All members"), (1, "Timed out"), (2, "Unusual DM activity")] {
-                if super::menu_item(ui, (tb.signal == v).then_some(Icon::Check), l, false) {
-                    tb.signal = v;
+        let col = |i: usize| starts[i] + CELL;
+        let end = |i: usize| starts[i] + w[i] - CELL;
+        let (hr, _) = cu.allocate_exact_size(vec2(want, 57.0), Sense::hover());
+        cu.painter().hline(hr.x_range(), hr.top() + 0.5, Stroke::new(1.0, pal().border_subtle));
+        let all = !list.is_empty() && list.iter().all(|m| tb.picked.contains(&sid(&m["member"]["user"]["id"])));
+        let cb = Rect::from_min_size(pos2(table.left() + CELL, hr.center().y - 10.0), vec2(20.0, 20.0));
+        let cr = cu.interact(cb, cu.id().with("pick_all"), Sense::click());
+        checkbox(cu, cr.id, cb, all, cr.hovered());
+        if cr.clicked() {
+            if all {
+                tb.picked.clear();
+            } else {
+                tb.picked = list.iter().map(|m| sid(&m["member"]["user"]["id"])).filter(|u| *u != me).collect();
+            }
+        }
+        for (i, t) in ["NAME", "MEMBER SINCE", "JOINED DISCORD", "JOIN METHOD", "ROLES", "SIGNALS"].iter().enumerate() {
+            let g = cu.painter().layout(t.to_string(), bold(12.0), pal().text_normal, (end(i) - col(i)).max(20.0));
+            let at = pos2(col(i), hr.center().y - g.size().y / 2.0);
+            cu.painter().galley(at, g, pal().text_normal);
+        }
+        let sig_text = cu.painter().layout_no_wrap("SIGNALS".into(), bold(12.0), pal().text_normal).size().x;
+        let sig = Rect::from_center_size(pos2(col(5) + sig_text + 16.0, hr.center().y), vec2(24.0, 24.0));
+        let sr = cu.interact(sig, cu.id().with("signal_filter"), Sense::click());
+        icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { BLURPLE } else { pal().text_normal });
+        egui::Popup::menu(&sr.on_hover_text("Filter based on safety info, such as timed out or engaging in unusual DM activity.")).show(|ui| {
+            super::menu_body(ui, |ui| {
+                for (v, l) in [(0, "All members"), (1, "Timed out"), (2, "Unusual DM activity")] {
+                    if super::menu_item(ui, (tb.signal == v).then_some(Icon::Check), l, false) {
+                        tb.signal = v;
+                    }
+                }
+            });
+        });
+        egui::ScrollArea::vertical().id_salt(("members_table", gid)).max_height(rows_h).auto_shrink([false, true]).show(cu, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            if tb.list.is_none() {
+                ui.add_space(24.0);
+                crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
+            }
+            for m in &list {
+                let mem = &m["member"];
+                let u = &mem["user"];
+                let (timed, unusual) = flags(m);
+                if (tb.signal == 1 && !timed) || (tb.signal == 2 && !unusual) {
+                    continue;
+                }
+                let uid = sid(&u["id"]);
+                let (r, resp) = ui.allocate_exact_size(vec2(want, 60.0), Sense::click());
+                crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, faint(20), 0.05);
+                ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
+                let y = r.center().y;
+                let cell = |i: usize| ui.painter().with_clip_rect(Rect::from_min_max(pos2(col(i), r.top()), pos2(end(i), r.bottom())));
+                let room = |i: usize| (end(i) - col(i)).max(0.0);
+                let cb = Rect::from_min_size(pos2(table.left() + CELL, y - 10.0), vec2(20.0, 20.0));
+                let on = tb.picked.contains(&uid);
+                let c = ui.interact(cb, ui.id().with(("pick", uid)), Sense::click());
+                if uid != me {
+                    checkbox(ui, c.id, cb, on, c.hovered());
+                    if c.clicked() {
+                        picks.push((uid, !on));
+                    }
+                }
+                let user = app.store.user(uid).cloned();
+                let av = Rect::from_min_size(pos2(col(0), y - 16.0), vec2(32.0, 32.0));
+                if let Some(user) = &user {
+                    super::avatar(ui, av, &user.avatar_url());
+                }
+                let mine: Vec<&(Id, String, u32, i32)> = {
+                    let ids: Vec<Id> = mem["roles"].as_array().into_iter().flatten().map(sid).collect();
+                    let mut v: Vec<_> = roles.iter().filter(|r| ids.contains(&r.0)).collect();
+                    v.sort_by_key(|r| std::cmp::Reverse(r.3));
+                    v
+                };
+                let ink = mine.iter().find(|r| r.2 != 0).map_or(pal().header_primary, |r| role_color(r.2));
+                let name = mem["nick"].as_str().or(u["global_name"].as_str()).or(u["username"].as_str()).unwrap_or_default().to_string();
+                let text_w = (room(0) - 40.0).max(0.0);
+                let p = cell(0);
+                let n = super::text::paint_em(&p, pos2(av.right() + 8.0, y - 9.0), Align2::LEFT_CENTER, &name, medium(14.0), ink, (text_w - 62.0).max(text_w * 0.6), 1.0);
+                if let Some(user) = &user {
+                    super::tag_chip(&p, user, pos2(n.right() + 4.0, y - 9.0), 1.0);
+                }
+                super::text::paint(&p, pos2(av.right() + 8.0, y + 10.0), Align2::LEFT_CENTER, u["username"].as_str().unwrap_or_default(), reg(12.0), pal().text_normal, text_w);
+                let joined = mem["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis());
+                for (i, ms) in [(1, joined), (2, Some(snowflake_ms(uid)))] {
+                    if let Some(ms) = ms {
+                        let g = ui.painter().layout(ago(ms), medium(14.0), pal().text_normal, room(i));
+                        ui.painter().galley(pos2(col(i), y - g.size().y / 2.0), g, pal().text_normal);
+                    }
+                }
+                let p = cell(3);
+                match m["source_invite_code"].as_str() {
+                    Some(code) => {
+                        let inviter = sid(&m["inviter_id"]);
+                        let top = if inviter != 0 { y - 17.0 } else { y - 9.0 };
+                        let w = (room(3) - 4.0).max(24.0);
+                        let g = p.layout_no_wrap(code.to_string(), medium(14.0), pal().text_normal);
+                        let chip = Rect::from_min_size(pos2(col(3), top), vec2((g.size().x + 24.0).min(w), 18.0));
+                        p.rect_filled(chip, 4, faint(31));
+                        icons::draw(&p, Icon::Link, Rect::from_min_size(pos2(chip.left() + 4.0, chip.center().y - 6.0), vec2(12.0, 12.0)), pal().text_normal);
+                        super::text::paint(&p, pos2(chip.left() + 20.0, chip.center().y), Align2::LEFT_CENTER, code, medium(14.0), pal().text_normal, (chip.width() - 24.0).max(0.0));
+                        if inviter != 0 {
+                            let t = p.text(pos2(col(3), y + 10.0), Align2::LEFT_CENTER, "Invited by", medium(12.0), pal().text_normal);
+                            let mut x = t.right() + 4.0;
+                            if let Some(iu) = app.store.user(inviter) {
+                                super::avatar(ui, Rect::from_min_size(pos2(x, y + 2.0), vec2(16.0, 16.0)), &iu.avatar_url());
+                                x += 20.0;
+                            }
+                            let ik = app.store.role_color(gid, inviter).map(role_color).unwrap_or(pal().header_primary);
+                            super::text::paint(&p, pos2(x, y + 10.0), Align2::LEFT_CENTER, &app.store.name_in(gid, inviter), medium(12.0), ik, (end(3) - x).max(0.0));
+                        }
+                    }
+                    None => {
+                        p.text(pos2(col(3), y), Align2::LEFT_CENTER, "Unknown", medium(14.0), pal().text_muted);
+                    }
+                }
+                let p = cell(4);
+                let mut x = col(4);
+                let more_w = if mine.len() > 1 { 28.0 } else { 0.0 };
+                if let Some(top) = mine.first() {
+                    let g = p.layout_no_wrap(top.1.clone(), medium(12.0), pal().text_normal);
+                    let w = (g.size().x + 28.0).min((room(4) - more_w - 24.0).max(40.0));
+                    let chip = Rect::from_min_size(pos2(x, y - 12.0), vec2(w, 24.0));
+                    let rc = if top.2 == 0 { Color32::from_rgb(196, 201, 206) } else { role_color(top.2) };
+                    p.rect_filled(chip, 4, Color32::from_rgba_unmultiplied(rc.r(), rc.g(), rc.b(), 39));
+                    let dot = Rect::from_center_size(pos2(chip.left() + 14.0, y), vec2(12.0, 12.0));
+                    let dr = ui.interact(dot.expand(2.0), ui.id().with(("role_dot", uid)), Sense::click());
+                    p.circle_filled(dot.center(), 6.0, rc);
+                    if dr.hovered() {
+                        icons::draw(&p, Icon::Close, dot.shrink(2.0), Color32::BLACK);
+                    }
+                    if dr.on_hover_text(format!("Remove role {}", top.1)).clicked() {
+                        role_drop = Some((uid, top.0));
+                    }
+                    super::text::paint(&p, pos2(chip.left() + 24.0, y), Align2::LEFT_CENTER, &top.1, medium(12.0), pal().text_normal, (w - 28.0).max(0.0));
+                    x = chip.right() + 4.0;
+                }
+                if mine.len() > 1 {
+                    let more = Rect::from_min_size(pos2(x, y - 12.0), vec2(24.0, 24.0));
+                    p.rect_filled(more, 4, Color32::BLACK);
+                    p.text(more.center(), Align2::CENTER_CENTER, format!("+{}", mine.len() - 1), medium(12.0), pal().header_primary);
+                    let mr = ui.interact(more, ui.id().with(("more_roles", uid)), Sense::click());
+                    let names: Vec<String> = mine.iter().map(|r| r.1.clone()).collect();
+                    mr.on_hover_text(names.join("\n"));
+                    x = more.right() + 8.0;
+                }
+                if x + 16.0 <= end(4) && (resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0)))) {
+                    let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
+                    let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
+                    icons::draw(&p, Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
+                    egui::Popup::menu(&pr).show(|ui| {
+                        super::menu_body(ui, |ui| {
+                            let mut left: Vec<&(Id, String, u32, i32)> = roles.iter().filter(|r| r.0 != gid && !mine.iter().any(|m| m.0 == r.0)).collect();
+                            left.sort_by_key(|r| std::cmp::Reverse(r.3));
+                            for r in left {
+                                if super::menu_item(ui, None, &r.1, false) {
+                                    role_add = Some((uid, r.0));
+                                }
+                            }
+                        });
+                    });
+                }
+                let p = cell(5);
+                let mut sx = col(5);
+                for (on, label) in [(timed, "Timed out"), (unusual, "Unusual DMs")] {
+                    if on {
+                        let g = p.layout_no_wrap(label.into(), medium(12.0), pal().text_normal);
+                        let chip = Rect::from_min_size(pos2(sx, y - 11.0), vec2(g.size().x + 16.0, 22.0));
+                        p.rect_filled(chip, 4, faint(31));
+                        p.galley(pos2(chip.left() + 8.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
+                        sx = chip.right() + 4.0;
+                    }
+                }
+                for (k, (icon, tip)) in [(Icon::People, "Open Mod View"), (Icon::More, "More Options")].into_iter().enumerate() {
+                    let b = Rect::from_center_size(pos2(starts[6] + CELL + 14.0 + k as f32 * 36.0, y), vec2(28.0, 28.0));
+                    let br = ui.interact(b, ui.id().with(("member_btn", uid, k)), Sense::click());
+                    if br.hovered() {
+                        ui.painter().circle_filled(b.center(), 14.0, faint(41));
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(18.0, 18.0)), pal().header_secondary);
+                    if br.on_hover_text(tip).clicked() {
+                        acts.push((if k == 0 { "mod" } else { "menu" }, uid, b.left_bottom()));
+                    }
+                }
+                app.rects.insert(format!("members:row:{uid}"), r);
+                if resp.clicked() {
+                    acts.push(("profile", uid, pos2(col(0), r.top())));
                 }
             }
         });
-    });
-    let rows_h = (outer.bottom() - hr.bottom() - 64.0).max(60.0);
-    let mut picks: Vec<(Id, bool)> = Vec::new();
-    egui::ScrollArea::vertical().id_salt(("members_table", gid)).max_height(rows_h).auto_shrink([false, true]).show(&mut cu, |ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        if tb.list.is_none() {
-            ui.add_space(24.0);
-            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
-        }
-        for m in &list {
-            let mem = &m["member"];
-            let u = &mem["user"];
-            let timed = mem["communication_disabled_until"].as_str().is_some_and(|t| chrono::DateTime::parse_from_rfc3339(t).is_ok_and(|t| t.timestamp() > chrono::Utc::now().timestamp()));
-            let unusual = mem["unusual_dm_activity_until"].is_string();
-            if (tb.signal == 1 && !timed) || (tb.signal == 2 && !unusual) {
-                continue;
-            }
-            let uid = sid(&u["id"]);
-            let (r, resp) = ui.allocate_exact_size(vec2(outer.width(), 60.0), Sense::click());
-            crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, faint(20), 0.05);
-            ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
-            let y = r.center().y;
-            let cb = Rect::from_min_size(pos2(table.left() + 16.0, y - 10.0), vec2(20.0, 20.0));
-            let on = tb.picked.contains(&uid);
-            let c = ui.interact(cb, ui.id().with(("pick", uid)), Sense::click());
-            if uid != me {
-                checkbox(ui, c.id, cb, on, c.hovered());
-                if c.clicked() {
-                    picks.push((uid, !on));
-                }
-            }
-            let user = app.store.user(uid).cloned();
-            let av = Rect::from_min_size(pos2(col(0.04), y - 16.0), vec2(32.0, 32.0));
-            if let Some(user) = &user {
-                super::avatar(ui, av, &user.avatar_url());
-            }
-            let mine: Vec<&(Id, String, u32, i32)> = {
-                let ids: Vec<Id> = mem["roles"].as_array().into_iter().flatten().map(sid).collect();
-                let mut v: Vec<_> = roles.iter().filter(|r| ids.contains(&r.0)).collect();
-                v.sort_by_key(|r| std::cmp::Reverse(r.3));
-                v
-            };
-            let ink = mine.iter().find(|r| r.2 != 0).map_or(pal().header_primary, |r| role_color(r.2));
-            let name = mem["nick"].as_str().or(u["global_name"].as_str()).or(u["username"].as_str()).unwrap_or_default().to_string();
-            let p = ui.painter();
-            let n = super::text::paint_em(p, pos2(av.right() + 8.0, y - 9.0), Align2::LEFT_CENTER, &name, medium(14.0), ink, col(0.25) - av.right() - 70.0, 1.0);
-            if let Some(user) = &user {
-                super::tag_chip(p, user, pos2(n.right() + 4.0, y - 9.0), 1.0);
-            }
-            p.text(pos2(av.right() + 8.0, y + 10.0), Align2::LEFT_CENTER, u["username"].as_str().unwrap_or_default(), reg(12.0), pal().text_normal);
-            let joined = mem["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis());
-            if let Some(j) = joined {
-                p.text(pos2(col(0.252), y), Align2::LEFT_CENTER, ago(j), medium(14.0), pal().text_normal);
-            }
-            p.text(pos2(col(0.359), y), Align2::LEFT_CENTER, ago(snowflake_ms(uid)), medium(14.0), pal().text_normal);
-            match m["source_invite_code"].as_str() {
-                Some(code) => {
-                    let g = p.layout_no_wrap(code.to_string(), medium(14.0), pal().text_normal);
-                    let inviter = sid(&m["inviter_id"]);
-                    let top = if inviter != 0 { y - 17.0 } else { y - 9.0 };
-                    let chip = Rect::from_min_size(pos2(col(0.465), top), vec2(g.size().x + 24.0, 18.0));
-                    p.rect_filled(chip, 4, faint(31));
-                    icons::draw(p, Icon::Link, Rect::from_min_size(pos2(chip.left() + 4.0, chip.center().y - 6.0), vec2(12.0, 12.0)), pal().text_normal);
-                    p.galley(pos2(chip.left() + 20.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
-                    if inviter != 0 {
-                        let t = p.text(pos2(col(0.465), y + 10.0), Align2::LEFT_CENTER, "Invited by", medium(12.0), pal().text_normal);
-                        let mut x = t.right() + 4.0;
-                        if let Some(iu) = app.store.user(inviter) {
-                            super::avatar(ui, Rect::from_min_size(pos2(x, y + 2.0), vec2(16.0, 16.0)), &iu.avatar_url());
-                            x += 20.0;
-                        }
-                        let ik = app.store.role_color(gid, inviter).map(role_color).unwrap_or(pal().header_primary);
-                        ui.painter().text(pos2(x, y + 10.0), Align2::LEFT_CENTER, app.store.name_in(gid, inviter), medium(12.0), ik);
-                    }
-                }
-                None => {
-                    p.text(pos2(col(0.465), y), Align2::LEFT_CENTER, "Unknown", medium(14.0), pal().text_muted);
-                }
-            }
-            // the highest role, how many more, and the plus to give one
-            let mut x = col(0.573);
-            if let Some(top) = mine.first() {
-                let g = ui.painter().layout_no_wrap(top.1.clone(), medium(12.0), pal().text_normal);
-                let chip = Rect::from_min_size(pos2(x, y - 12.0), vec2(g.size().x + 28.0, 24.0));
-                let rc = if top.2 == 0 { Color32::from_rgb(196, 201, 206) } else { role_color(top.2) };
-                ui.painter().rect_filled(chip, 4, Color32::from_rgba_unmultiplied(rc.r(), rc.g(), rc.b(), 39));
-                let dot = Rect::from_center_size(pos2(chip.left() + 14.0, y), vec2(12.0, 12.0));
-                let dr = ui.interact(dot.expand(2.0), ui.id().with(("role_dot", uid)), Sense::click());
-                if dr.hovered() {
-                    ui.painter().circle_filled(dot.center(), 6.0, rc);
-                    icons::draw(ui.painter(), Icon::Close, dot.shrink(2.0), Color32::BLACK);
-                } else {
-                    ui.painter().circle_filled(dot.center(), 6.0, rc);
-                }
-                if dr.on_hover_text(format!("Remove role {}", top.1)).clicked() {
-                    role_drop = Some((uid, top.0));
-                }
-                ui.painter().galley(pos2(chip.left() + 24.0, y - g.size().y / 2.0), g, pal().text_normal);
-                x = chip.right() + 4.0;
-            }
-            if mine.len() > 1 {
-                let more = Rect::from_min_size(pos2(x, y - 12.0), vec2(24.0, 24.0));
-                ui.painter().rect_filled(more, 4, Color32::BLACK);
-                ui.painter().text(more.center(), Align2::CENTER_CENTER, format!("+{}", mine.len() - 1), medium(12.0), pal().header_primary);
-                let mr = ui.interact(more, ui.id().with(("more_roles", uid)), Sense::click());
-                let names: Vec<String> = mine.iter().map(|r| r.1.clone()).collect();
-                mr.on_hover_text(names.join("\n"));
-                x = more.right() + 8.0;
-            }
-            if resp.hovered() || ui.rect_contains_pointer(Rect::from_min_size(pos2(x, y - 10.0), vec2(20.0, 20.0))) {
-                let plus = Rect::from_min_size(pos2(x, y - 8.0), vec2(16.0, 16.0));
-                let pr = ui.interact(plus, ui.id().with(("add_role", uid)), Sense::click());
-                icons::draw(ui.painter(), Icon::CirclePlus, plus, crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &pr)));
-                egui::Popup::menu(&pr).show(|ui| {
-                    super::menu_body(ui, |ui| {
-                        let mut left: Vec<&(Id, String, u32, i32)> = roles.iter().filter(|r| r.0 != gid && !mine.iter().any(|m| m.0 == r.0)).collect();
-                        left.sort_by_key(|r| std::cmp::Reverse(r.3));
-                        for r in left {
-                            if super::menu_item(ui, None, &r.1, false) {
-                                role_add = Some((uid, r.0));
-                            }
-                        }
-                    });
-                });
-            }
-            let mut sx = col(0.785);
-            for (on, label) in [(timed, "Timed out"), (unusual, "Unusual DMs")] {
-                if on {
-                    let g = ui.painter().layout_no_wrap(label.into(), medium(12.0), pal().text_normal);
-                    let chip = Rect::from_min_size(pos2(sx, y - 11.0), vec2(g.size().x + 16.0, 22.0));
-                    ui.painter().rect_filled(chip, 4, faint(31));
-                    ui.painter().galley(pos2(chip.left() + 8.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
-                    sx = chip.right() + 4.0;
-                }
-            }
-            // open mod view, more
-            for (k, (icon, tip)) in [(Icon::People, "Open Mod View"), (Icon::More, "More Options")].into_iter().enumerate() {
-                let b = Rect::from_center_size(pos2(table.right() - 82.0 + k as f32 * 36.0, y), vec2(28.0, 28.0));
-                let br = ui.interact(b, ui.id().with(("member_btn", uid, k)), Sense::click());
-                if br.hovered() {
-                    ui.painter().circle_filled(b.center(), 14.0, faint(41));
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(18.0, 18.0)), pal().header_secondary);
-                if br.on_hover_text(tip).clicked() {
-                    acts.push((if k == 0 { "mod" } else { "menu" }, uid, b.left_bottom()));
-                }
-            }
-            app.rects.insert(format!("members:row:{uid}"), r);
-            if resp.clicked() {
-                acts.push(("profile", uid, pos2(col(0.25), r.top())));
-            }
-        }
     });
     let shown = list.len() as u64;
     cu.add_space(16.0);

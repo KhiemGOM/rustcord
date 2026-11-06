@@ -78,13 +78,13 @@ fn pick_image() -> Option<Vec<u8>> {
     std::fs::read(p).ok()
 }
 
-fn tabs(app: &mut App, ui: &mut Ui) {
+fn tabs(app: &mut App, ui: &mut Ui, w: f32) {
     let guilds: Vec<(Id, String)> = app.store.guild_order.iter().filter_map(|g| app.store.guilds.get(g).map(|x| (*g, x.name.clone()))).collect();
     let cur = app.sform.profile_guild;
     let shown = cur.and_then(|g| guilds.iter().find(|x| x.0 == g)).map_or("Main Profile".to_string(), |g| g.1.clone());
     let mut pick = None;
     super::lead(ui);
-    let r = dropdown(ui, 320.0, None, &shown, |ui| {
+    let r = dropdown(ui, w, None, &shown, |ui| {
         if ui.selectable_label(cur.is_none(), "Main Profile").clicked() {
             pick = Some(None);
         }
@@ -104,9 +104,19 @@ fn tabs(app: &mut App, ui: &mut Ui) {
     }
 }
 
+// the profile editor's columns (all.css, the dbba93 module): the form fills what the preview
+// leaves up to its max, the preview is a fixed column and goes at this viewport width and below
+const FORM_MAX: f32 = 560.0;
+const PREVIEW: f32 = 300.0;
+const GAP: f32 = 40.0;
+const PREVIEW_HIDDEN: f32 = 1024.0;
+
 pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     super::section(ui, "Profiles");
-    tabs(app, ui);
+    let row = ui.available_width();
+    let preview_on = ui.ctx().content_rect().width() > PREVIEW_HIDDEN;
+    let form_w = (row - if preview_on { PREVIEW + GAP } else { 0.0 }).clamp(0.0, FORM_MAX);
+    tabs(app, ui, form_w);
     let me = app.store.me;
     let user = app.store.user(me).cloned().unwrap_or_default();
     let guild = app.sform.profile_guild;
@@ -124,9 +134,10 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     let owned = remote(app, "owned", "/users/@me/collectibles-purchases").cloned();
     let Some(draft) = &mut app.sform.profile else { return false };
     let mut act = Act::None;
-    ui.spacing_mut().item_spacing.x = 24.0;
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
+    let top = ui.cursor().min;
+    let mut form = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(top, vec2(form_w, f32::INFINITY))));
+    {
+        let ui = &mut form;
         ui.spacing_mut().item_spacing.y = 6.0;
         h5(ui, if guild.is_some() { "Server Nickname" } else { "Display Name" });
         let hint = if guild.is_some() { user.display().to_string() } else { user.username.clone() };
@@ -233,11 +244,16 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
             );
         });
         ui.label(RichText::new(format!("{}", 190 - draft.bio.chars().count())).font(reg(12.0)).color(pal().text_muted));
-
-        let ui = &mut cols[1];
-        h5(ui, "Preview");
-        preview(ui, &user, draft);
-    });
+    }
+    let mut bottom = form.min_rect().bottom();
+    if preview_on {
+        let at = pos2(top.x + form_w + GAP, top.y.max(ui.clip_rect().top() + 12.0));
+        let mut side = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(at, vec2(PREVIEW, f32::INFINITY))));
+        h5(&mut side, "Preview");
+        preview(&mut side, &user, draft);
+        bottom = bottom.max(top.y + side.min_rect().height());
+    }
+    ui.allocate_rect(Rect::from_min_max(top, pos2(top.x + row, bottom)), Sense::hover());
     match act {
         Act::Avatar => {
             if let Some(b) = pick_image() {
@@ -375,8 +391,8 @@ fn picker(app: &mut App, ctx: &egui::Context, owned: Option<Result<Value, String
 
 fn preview(ui: &mut Ui, user: &crate::state::User, d: &Profile) {
     Frame::new().fill(pal().bg_tertiary).corner_radius(8).show(ui, |ui| {
-        ui.set_width(300.0);
-        let (banner, _) = ui.allocate_exact_size(vec2(300.0, 105.0), Sense::hover());
+        ui.set_width(PREVIEW);
+        let (banner, _) = ui.allocate_exact_size(vec2(PREVIEW, 105.0), Sense::hover());
         let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
         ui.painter().rect_filled(banner, cr, role_color(d.accent.or(d.theme[0]).unwrap_or(0x5865f2)));
         if let Some(uri) = d.banner.as_ref().filter(|_| !d.remove_banner) {
@@ -438,7 +454,8 @@ pub fn save_bar(app: &mut App, ui: &mut Ui, area: Rect) {
     if !dirty {
         return;
     }
-    let r = Rect::from_center_size(pos2(area.center().x, area.bottom() - 40.0), vec2(area.width().min(700.0) - 40.0, 52.0));
+    let (left, width) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(egui::Id::new("notice"))).unwrap_or((area.left(), area.width()));
+    let r = Rect::from_min_size(pos2(left, area.bottom() - crate::ui::sidebar_view::NOTICE_PAD - 52.0), vec2(width, 52.0));
     ui.painter().rect_filled(r, CornerRadius::same(5), pal().bg_floating);
     ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful — you have unsaved changes!", semi(16.0), pal().header_primary);
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(12.0, 7.0))).layout(Layout::right_to_left(Align::Center)));
