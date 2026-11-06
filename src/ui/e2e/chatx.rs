@@ -194,15 +194,23 @@ impl Run {
                 self.next(600);
             }
             3722 => {
-                if at("source_pop:join").is_none() {
+                let loaded = app.sources.get(&(false, 9999)).is_some_and(|v| !v.is_null());
+                if !app.source_pop.as_ref().is_some_and(|p| !p.sticker && p.id == 9999) || !loaded {
                     return;
                 }
-                self.mark("chatx_emoji_popout");
-                self.shot(ctx, "chatx_emoji_popout.png");
-                self.key(Key::Escape);
                 self.next(400);
             }
             3723 => {
+                self.mark("chatx_emoji_popout");
+                self.shot(ctx, "chatx_emoji_popout.png");
+                self.next(500);
+            }
+            3724 => {
+                self.key(Key::Escape);
+                self.next(400);
+                self.step = 3726;
+            }
+            3726 => {
                 if app.source_pop.is_some() {
                     return;
                 }
@@ -210,7 +218,7 @@ impl Run {
                 app.scroll_to = Some((CH, id));
                 self.next(500);
             }
-            3724 => {
+            3727 => {
                 let Some(id) = id_of(app, "quiet please") else { return };
                 let Some(r) = app.rects.get(&format!("silent:{id}")).copied() else { return };
                 if app.scroll_to.is_some() {
@@ -220,36 +228,36 @@ impl Run {
                 self.queue.push_back(vec![Event::PointerMoved(r.center())]);
                 self.next(900);
             }
-            3725 => {
+            3728 => {
                 self.shot(ctx, "chatx_silent.png");
                 let Some(id) = id_of(app, "quiet please") else { return };
                 app.menu = Some((CH, id, pos2(420.0, 160.0)));
                 self.next(500);
             }
-            3726 => {
+            3729 => {
                 let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Create Reminder")))) else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            3727 => {
+            3730 => {
                 let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Custom...")))) else { return };
                 self.shot(ctx, "chatx_reminder_menu.png");
                 self.click(r.center());
                 self.next(500);
             }
-            3728 => {
+            3731 => {
                 let Some(r) = at("remind_custom:input") else { return };
                 self.click(r.center());
                 self.queue.push_back(vec![Event::Text("in 2 hours".into())]);
                 self.next(500);
             }
-            3729 => {
+            3732 => {
                 let Some(r) = at("remind_custom:set") else { return };
                 self.shot(ctx, "chatx_remind_custom.png");
                 self.click(r.center());
                 self.next(500);
             }
-            3730 => {
+            3733 => {
                 if app.remind_custom.is_some() {
                     return;
                 }
@@ -257,25 +265,32 @@ impl Run {
                 app.picker = Some((Pick::Composer, pos2(700.0, 440.0)));
                 self.next(800);
             }
-            3731 => {
+            3734 => {
                 if app.top_emojis.get(&self.target.0).is_none_or(|t| t.len() != 2) || at("picker:top").is_none() {
                     return;
                 }
                 self.mark("chatx_top_emojis");
                 self.shot(ctx, "chatx_top_emojis.png");
+                self.next(600);
+            }
+            3735 => {
                 app.picker = None;
                 self.next(300);
+                self.step = 3737;
             }
-            3732 => {
-                app.open(2031);
+            3737 => {
+                app.open_thread(2031, false, false);
                 self.next(900);
             }
-            3733 => {
+            3738 => {
                 if app.cur() != Some(2031) || app.rects.get("op_chip").is_none() {
                     return;
                 }
                 self.mark("chatx_op_chip");
                 self.shot(ctx, "chatx_op_chip.png");
+                self.next(500);
+            }
+            3739 => {
                 app.open(CH);
                 self.next(600);
                 self.step = 3740;

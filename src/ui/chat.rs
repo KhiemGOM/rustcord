@@ -94,6 +94,8 @@ struct D<'a> {
     bookmarks: &'a Set<Id>,
     invites: &'a mut super::chatinvite::Cache,
     unblocked: &'a Set<Id>,
+    // a right click landed on a picture, whose own menu opens instead of the message's
+    image_menu: bool,
 }
 
 impl D<'_> {
@@ -648,6 +650,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         bookmarks: &app.bookmarks,
         invites: &mut app.chat_invites,
         unblocked: &app.unblocked,
+        image_menu: false,
     };
     let mut focus_at = None;
     if d.flash.is_some() {
@@ -1142,6 +1145,7 @@ fn divider(ui: &Ui, y: f32, text: &str, unread: bool) {
 }
 
 fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: bool) {
+    d.image_menu = false;
     if m.kind == 21 && let Some(r) = m.reply.and_then(|r| d.store.refs.get(&r)) {
         return message(ui, d, r, None, true);
     }
@@ -1447,6 +1451,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         }
         if ui.input(|i| i.pointer.secondary_clicked())
             && !d.acts.iter().any(|a| matches!(a, Act::UserMenu(..)))
+            && !std::mem::take(&mut d.image_menu)
             && let Some(p) = ui.ctx().pointer_interact_pos()
         {
             d.acts.push(Act::Menu(m.id, p));
@@ -1997,6 +2002,7 @@ fn alt_badge(ui: &Ui, image: &egui::Response, text: &str) {
 /// `poster` is a still drawn underneath while the animation downloads and decodes.
 fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: Option<&str>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    d.image_menu |= resp.secondary_clicked();
     resp.context_menu(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         if super::menu_item(ui, None, "Copy Image", false) {
@@ -3246,6 +3252,7 @@ pub fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response {
         bookmarks: &none,
         invites: &mut invites,
         unblocked: &none,
+        image_menu: false,
     };
     // discord's cards: a raised fill and a hairline, the reply it answers above the author
     let r = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 12, right: 16, top: 12, bottom: 16 }).show(ui, |ui| {
