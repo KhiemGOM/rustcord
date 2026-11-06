@@ -22,6 +22,10 @@ enum Load {
 
 static TEXTS: LazyLock<Mutex<HashMap<String, Load>>> = LazyLock::new(Default::default);
 
+pub fn forget() {
+    TEXTS.lock().unwrap().clear();
+}
+
 pub fn fetch(app: &mut App, ctx: &Context, url: String) {
     let (ctx, http) = (ctx.clone(), crate::api::http());
     app.net.rt.spawn(async move {

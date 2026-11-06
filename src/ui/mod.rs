@@ -1268,12 +1268,18 @@ impl App {
             ctx.request_repaint_after(due - now);
             return;
         }
+        let settled = self.quiet.is_some_and(|(at, done)| !done && at.elapsed() >= wait);
+        if settled {
+            crate::sound::forget();
+            textfile::forget();
+            if away {
+                self.spell.release();
+            }
+        }
         crate::winsys::trim();
         self.trimmed_startup |= self.born.elapsed() >= Duration::from_secs(30);
-        if let Some((at, false)) = self.quiet
-            && at.elapsed() >= wait
-        {
-            self.quiet = Some((at, true));
+        if settled {
+            self.quiet = self.quiet.map(|(at, _)| (at, true));
         }
     }
 
