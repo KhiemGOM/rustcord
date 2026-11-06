@@ -80,7 +80,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if let Some(c) = revoke {
         app.confirm = Some(crate::ui::Confirm::new("Delete Invite Link", format!("Are you sure you want to revoke **{c}**? This cannot be undone."), "Revoke", move |app: &mut App| {
-            app.rest("DELETE", format!("/invites/{c}"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/invites/{c}"), None, Tag::rollback(crate::ui::failed::stale("invites")));
             if let Some(s) = &mut app.server {
                 if let Some(Value::Array(a)) = s.data.get_mut("invites") {
                     a.retain(|i| i["code"].as_str() != Some(c.as_str()));
@@ -94,10 +94,15 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         if !paused {
             feats.push(PAUSED.into());
         }
+        let before = app.store.guilds.get(&gid).map(|g| g.features.clone()).unwrap_or_default();
         if let Some(g) = app.store.guilds.get_mut(&gid) {
             g.features = feats.clone();
         }
-        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": feats })), Tag::Quiet);
+        app.rest("PATCH", format!("/guilds/{gid}"), Some(json!({ "features": feats })), Tag::rollback(move |app: &mut App| {
+            if let Some(g) = app.store.guilds.get_mut(&gid) {
+                g.features = before.clone();
+            }
+        }));
     }
     if create && let Some(ch) = first {
         app.invite_people(ch);

@@ -184,7 +184,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         app.picker = Some((Pick::Poll(i), at - vec2(0.0, 360.0)));
     }
     if post && let Some(d) = app.poll.take() {
-        app.rest("POST", format!("/channels/{}/messages", d.ch), Some(d.body()), Tag::Quiet);
+        app.rest("POST", format!("/channels/{}/messages", d.ch), Some(d.body()), Tag::fail(super::SEND_FAILED));
         app.jump_to_present(d.ch);
     } else if (close || modal.should_close()) && app.picker.is_none() {
         app.poll = None;

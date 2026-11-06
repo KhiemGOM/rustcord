@@ -601,7 +601,7 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
             next.iter().map(|t| json!([{ "connection_type": t }])).collect()
         };
         let body = if next.is_empty() { json!([]) } else { Value::Array(groups) };
-        app.rest("PUT", path, Some(body), Tag::Quiet);
+        app.rest("PUT", path, Some(body), Tag::reason());
         e.links = Some(next);
     }
 }
@@ -651,7 +651,15 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, members: &[Id], rol
     if let Some((u, name)) = remove {
         let role_name = role.name.clone();
         let go = move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/members/{u}/roles/{rid}"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/guilds/{gid}/members/{u}/roles/{rid}"), None, Tag::rollback(move |app: &mut App| {
+                if let Some(m) = app.store.members.get_mut(&gid).and_then(|m| m.get_mut(&u)) {
+                    m.roles.push(rid);
+                }
+                if let Some(s) = &mut app.server {
+                    s.data.remove("role_members");
+                    s.data.remove("role_counts");
+                }
+            }));
             if let Some(m) = app.store.members.get_mut(&gid).and_then(|m| m.get_mut(&u)) {
                 m.roles.retain(|r| *r != rid);
             }
@@ -725,7 +733,18 @@ fn add_modal(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, have: &[Id], rol
         let ids: Vec<Id> = picked.iter().copied().collect();
         let rid = e.id;
         let body = json!({ "member_ids": ids.iter().map(|u| u.to_string()).collect::<Vec<_>>() });
-        app.rest("PATCH", format!("/guilds/{gid}/roles/{rid}/members"), Some(body), Tag::Quiet);
+        let added = ids.clone();
+        app.rest("PATCH", format!("/guilds/{gid}/roles/{rid}/members"), Some(body), Tag::rollback(move |app: &mut App| {
+            for u in &added {
+                if let Some(m) = app.store.members.get_mut(&gid).and_then(|m| m.get_mut(u)) {
+                    m.roles.retain(|r| *r != rid);
+                }
+            }
+            if let Some(s) = &mut app.server {
+                s.data.remove("role_members");
+                s.data.remove("role_counts");
+            }
+        }));
         for u in &ids {
             if let Some(m) = app.store.members.get_mut(&gid).and_then(|m| m.get_mut(u)) {
                 m.roles.push(rid);

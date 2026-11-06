@@ -25,7 +25,7 @@ pub fn is_mod(app: &App, chan: &Channel) -> bool {
 
 impl App {
     fn stage_state(&mut self, chan: &Channel, who: &str, body: Value) {
-        self.rest("PATCH", format!("/guilds/{}/voice-states/{who}", chan.guild), Some(body), Tag::Quiet);
+        self.rest("PATCH", format!("/guilds/{}/voice-states/{who}", chan.guild), Some(body), Tag::reason());
     }
 
     pub fn request_to_speak(&mut self, chan: &Channel, on: bool) {
@@ -46,7 +46,7 @@ impl App {
     }
 
     fn end_stage(&mut self, ch: Id) {
-        self.rest("DELETE", format!("/stage-instances/{ch}"), None, Tag::Quiet);
+        self.rest("DELETE", format!("/stage-instances/{ch}"), None, Tag::reason());
     }
 }
 
@@ -495,9 +495,9 @@ fn start(app: &mut App, ctx: &egui::Context) {
         let f = app.call.start.take().unwrap();
         let ch = f.chan;
         if f.edit {
-            app.rest("PATCH", format!("/stage-instances/{ch}"), Some(json!({ "topic": f.topic.trim() })), Tag::Quiet);
+            app.rest("PATCH", format!("/stage-instances/{ch}"), Some(json!({ "topic": f.topic.trim() })), Tag::reason());
         } else {
-            app.rest("POST", "/stage-instances".into(), Some(json!({ "channel_id": ch.to_string(), "topic": f.topic.trim(), "privacy_level": 2, "send_start_notification": f.notify })), Tag::Quiet);
+            app.rest("POST", "/stage-instances".into(), Some(json!({ "channel_id": ch.to_string(), "topic": f.topic.trim(), "privacy_level": 2, "send_start_notification": f.notify })), Tag::reason());
             app.call.started = Some(ch);
             app.join_voice(ch, true);
         }

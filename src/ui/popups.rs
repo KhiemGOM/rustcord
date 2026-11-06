@@ -95,7 +95,7 @@ impl App {
         let server = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
         let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
         self.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::Quiet)
+            app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::fail(format!("Whoops... {} could not be kicked.  Please try again!", app.store.name_in(gid, uid))))
         }));
     }
 
@@ -104,7 +104,7 @@ impl App {
         let server = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
         let body = format!("Are you sure you want to ban @{name} from {server}?");
         self.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
-            app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::Quiet)
+            app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::fail(format!("Whoops... {} could not be banned.  Please try again!", app.store.name_in(gid, uid))))
         }));
     }
 
@@ -671,7 +671,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
     if let (Some(p), Some(l)) = (send, link) {
         let key = match p {
             Pick::Chan(c) => {
-                app.rest("POST", format!("/channels/{c}/messages"), Some(json!({ "content": l })), Tag::Quiet);
+                app.rest("POST", format!("/channels/{c}/messages"), Some(json!({ "content": l })), Tag::fail(super::SEND_FAILED));
                 c
             }
             Pick::Friend(u) => {
@@ -729,7 +729,7 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
     if save {
         let c = *ch;
         let status = text.trim().to_string();
-        app.rest("PUT", format!("/channels/{c}/voice-status"), Some(json!({ "status": status })), Tag::Quiet);
+        app.rest("PUT", format!("/channels/{c}/voice-status"), Some(json!({ "status": status })), Tag::reason());
         close = true;
     }
     if close || modal.should_close() {
@@ -1103,8 +1103,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
         profile::do_role(app, gid, uid, r);
     }
     if let Some(n) = note_save {
-        app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": n })), Tag::Quiet);
-        app.notes.insert(uid, n);
+        app.save_note(uid, n);
     }
     if let Some(u) = open_url {
         ctx.open_url(egui::OpenUrl::new_tab(u));
@@ -1286,8 +1285,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
     }
     if let Some(n) = save_note {
-        app.rest("PUT", format!("/users/@me/notes/{uid}"), Some(json!({ "note": n })), Tag::Quiet);
-        app.notes.insert(uid, n);
+        app.save_note(uid, n);
     }
     if let Some(t) = tab {
         app.open_full(uid, 0, t);
@@ -2194,7 +2192,13 @@ pub fn leave_dm(app: &mut App, c: Id) {
 }
 
 pub fn close_dm(app: &mut App, c: Id) {
-    app.rest("DELETE", format!("/channels/{c}"), None, Tag::Quiet);
+    let at = app.store.dms.iter().position(|d| *d == c);
+    app.rest("DELETE", format!("/channels/{c}"), None, Tag::undo("Failed to close direct message", move |app: &mut App| {
+        if let Some(at) = at {
+            let n = app.store.dms.len();
+            app.store.dms.insert(at.min(n), c);
+        }
+    }));
     app.store.dms.retain(|d| *d != c);
     if app.cur() == Some(c) {
         app.friends = true;
@@ -2379,9 +2383,9 @@ fn forward(app: &mut App, ctx: &egui::Context) {
             if guild != 0 {
                 reference["guild_id"] = json!(guild.to_string());
             }
-            app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": "", "message_reference": reference })), Tag::Quiet);
+            app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": "", "message_reference": reference })), Tag::fail(super::SEND_FAILED));
             if !f.note.trim().is_empty() {
-                app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": f.note.trim() })), Tag::Quiet);
+                app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": f.note.trim() })), Tag::fail(super::SEND_FAILED));
             }
         }
         app.toast("Message forwarded.");

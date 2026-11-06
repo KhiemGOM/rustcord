@@ -146,10 +146,9 @@ fn tag(app: &mut App, ctx: &egui::Context) {
         if member {
             app.ui.guild = Some(gid);
         } else if p["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "MEMBER_VERIFICATION_GATE_ENABLED")) {
-            app.rest("PUT", format!("/guilds/{gid}/requests/@me"), Some(json!({ "form_fields": [] })), Tag::Quiet);
-            app.toast("Application sent.");
+            app.rest("PUT", format!("/guilds/{gid}/requests/@me"), Some(json!({ "form_fields": [] })), Tag::ok("Application sent."));
         } else {
-            app.rest("PUT", format!("/guilds/{gid}/members/@me"), Some(json!({})), Tag::Quiet);
+            app.rest("PUT", format!("/guilds/{gid}/members/@me"), Some(json!({})), Tag::reason());
         }
     } else if popups::dismissed(ctx, &area.response) {
         app.tag_pop = None;

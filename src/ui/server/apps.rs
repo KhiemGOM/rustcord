@@ -97,7 +97,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.add_space(8.0);
     }
     if let Some(id) = unfollow {
-        app.rest("DELETE", format!("/webhooks/{id}"), None, Tag::Quiet);
+        app.rest("DELETE", format!("/webhooks/{id}"), None, Tag::rollback(crate::ui::failed::stale("webhooks")));
         if let Some(s) = &mut app.server {
             s.data.remove("webhooks");
         }
@@ -208,7 +208,7 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         if bot != 0 && settings::danger(ui, "Remove App", false).clicked() {
             app.confirm = Some(crate::ui::Confirm::new(format!("Remove {name}"), format!("Are you sure you want to remove **{name}** from this server? Its commands and role will go with it."), "Remove", move |app: &mut App| {
-                app.rest("DELETE", format!("/guilds/{gid}/members/{bot}"), None, Tag::Quiet);
+                app.rest("DELETE", format!("/guilds/{gid}/members/{bot}"), None, Tag::rollback(crate::ui::failed::stale("integrations")));
                 if let Some(s) = &mut app.server {
                     s.pages.apps.manage = None;
                     s.data.remove("integrations");
@@ -315,7 +315,7 @@ fn edit_hook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
         if let Some(a) = &k.avatar {
             body["avatar"] = json!(a);
         }
-        app.rest("PATCH", format!("/webhooks/{id}"), Some(body), Tag::Quiet);
+        app.rest("PATCH", format!("/webhooks/{id}"), Some(body), Tag::rollback(crate::ui::failed::stale("webhooks")));
         if let Some(s) = &mut app.server {
             s.data.remove("webhooks");
         }
@@ -324,7 +324,7 @@ fn edit_hook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
     if delete {
         let name = orig_name.clone();
         app.confirm = Some(crate::ui::Confirm::new("Delete Webhook", format!("Are you sure you want to delete **{name}**? This cannot be undone."), "Delete", move |app: &mut App| {
-            app.rest("DELETE", format!("/webhooks/{id}"), None, Tag::Quiet);
+            app.rest("DELETE", format!("/webhooks/{id}"), None, Tag::rollback(crate::ui::failed::stale("webhooks")));
             if let Some(s) = &mut app.server {
                 s.pages.apps.hook = None;
                 s.data.remove("webhooks");

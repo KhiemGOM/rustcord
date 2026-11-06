@@ -63,6 +63,7 @@ pub fn move_to(app: &mut App, ch: Id, parent: Id, index: Option<usize>) {
     if body.is_empty() {
         return;
     }
+    let before: Vec<(Id, i32, Id)> = order.iter().filter_map(|id| app.store.channels.get(id).map(|x| (*id, x.position, x.parent))).collect();
     for (i, id) in order.iter().enumerate() {
         if let Some(x) = app.store.channels.get_mut(id) {
             x.position = i as i32;
@@ -71,7 +72,14 @@ pub fn move_to(app: &mut App, ch: Id, parent: Id, index: Option<usize>) {
             }
         }
     }
-    app.rest("PATCH", format!("/guilds/{gid}/channels"), Some(json!(body)), Tag::Quiet);
+    app.rest("PATCH", format!("/guilds/{gid}/channels"), Some(json!(body)), Tag::rollback(move |app: &mut App| {
+        for (id, position, parent) in &before {
+            if let Some(x) = app.store.channels.get_mut(id) {
+                x.position = *position;
+                x.parent = *parent;
+            }
+        }
+    }));
 }
 
 pub fn grab(ctx: &egui::Context, r: &egui::Response, id: Id) {

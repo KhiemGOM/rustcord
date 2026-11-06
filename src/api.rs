@@ -74,6 +74,42 @@ fn super_props() -> &'static str {
     V.get_or_init(|| base64::engine::general_purpose::STANDARD.encode(props().to_string()))
 }
 
+pub const RATE_LIMITED: &str = "You are being rate limited.";
+pub const UNAUTHORIZED: &str = "401: Unauthorized";
+
+/// What a refused request says, the way discord's client words it: the field errors of a 400, else
+/// the body's message, else a line for the status.
+pub fn explain(status: u16, v: &Value) -> String {
+    let mut fields = Vec::new();
+    collect_errors(&v["errors"], &mut fields);
+    if !fields.is_empty() {
+        return fields.join(" ");
+    }
+    if let Some(m) = v["message"].as_str().filter(|m| !m.is_empty()) {
+        return m.to_string();
+    }
+    match status {
+        400 => "A bad network request has occurred, please try again.",
+        403 => "A forbidden network request has occurred, please try again.",
+        429 => RATE_LIMITED,
+        500 => "An internal server error has occurred, please try again.",
+        502..=504 => "Oh no, it looks like the Discord servers are having issues. Please try again in a little bit.",
+        _ => "A network error has occurred. Please check your connection and try again.",
+    }
+    .to_string()
+}
+
+fn collect_errors(v: &Value, out: &mut Vec<String>) {
+    let Some(o) = v.as_object() else { return };
+    for (k, x) in o {
+        if k == "_errors" {
+            out.extend(x.as_array().into_iter().flatten().filter_map(|e| e["message"].as_str().map(str::to_string)));
+        } else {
+            collect_errors(x, out);
+        }
+    }
+}
+
 /// Whether an error means discord couldn't be reached at all, rather than that it said no.
 pub fn offline(err: &str) -> bool {
     err.starts_with("error sending request")
@@ -152,7 +188,10 @@ impl Api {
             if status == StatusCode::TOO_MANY_REQUESTS {
                 let v: Value = res.json().await.unwrap_or_default();
                 let wait = v["retry_after"].as_f64().unwrap_or(1.0);
-                tokio::time::sleep(Duration::from_secs_f64(wait.min(30.0))).await;
+                if wait > 5.0 {
+                    return Err(RATE_LIMITED.into());
+                }
+                tokio::time::sleep(Duration::from_secs_f64(wait)).await;
                 continue;
             }
             if status == StatusCode::NO_CONTENT {
@@ -165,16 +204,16 @@ impl Api {
             if v["code"].as_u64() == Some(60003) && v["mfa"].is_object() {
                 return Err(format!("mfa:{}", v["mfa"]));
             }
-            return Err(v["message"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string()));
+            return Err(explain(status.as_u16(), &v));
         }
-        Err("rate limited".into())
+        Err(RATE_LIMITED.into())
     }
 
     pub async fn bearer(&self, path: &str, token: &str) -> Result<Value, String> {
         let res = self.http.get(format!("{}{}", base(), path)).header("Authorization", format!("Bearer {token}")).send().await.map_err(|e| e.to_string())?;
         let status = res.status();
         let v: Value = res.json().await.unwrap_or(Value::Null);
-        if status.is_success() { Ok(v) } else { Err(v["message"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string())) }
+        if status.is_success() { Ok(v) } else { Err(explain(status.as_u16(), &v)) }
     }
 
     pub async fn messages(&self, ch: Id, page: Page) -> Result<Value, String> {
@@ -239,9 +278,9 @@ impl Api {
             .send()
             .await
             .map_err(|e| e.to_string())?;
-        let ok = res.status().is_success();
+        let status = res.status();
         let v: Value = res.json().await.unwrap_or_default();
-        if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
+        if status.is_success() { Ok(v) } else { Err(explain(status.as_u16(), &v)) }
     }
 
     pub async fn sticker(&self, gid: Id, fields: [(&'static str, String); 3], file: PathBuf) -> Result<Value, String> {
@@ -258,34 +297,21 @@ impl Api {
         }
         form = form.part("file", multipart::Part::bytes(bytes).file_name(name).mime_str(mime).map_err(|e| e.to_string())?);
         let res = self.build(Method::POST, &format!("/guilds/{gid}/stickers")).multipart(form).send().await.map_err(|e| e.to_string())?;
-        let ok = res.status().is_success();
+        let status = res.status();
         let v: Value = res.json().await.unwrap_or_default();
-        if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
+        if status.is_success() { Ok(v) } else { Err(explain(status.as_u16(), &v)) }
     }
 
     // the official client posts interactions as multipart with a payload_json part
     pub async fn interact(&self, payload: Value) -> Result<Value, String> {
         let form = multipart::Form::new().text("payload_json", payload.to_string());
         let res = self.build(Method::POST, "/interactions").multipart(form).send().await.map_err(|e| e.to_string())?;
-        if res.status().is_success() {
+        let status = res.status();
+        if status.is_success() {
             return Ok(Value::Null);
         }
         let v: Value = res.json().await.unwrap_or_default();
-        Err(v["message"].as_str().unwrap_or("the application did not respond").to_string())
-    }
-
-    pub async fn edit(&self, ch: Id, id: Id, content: &str) -> Result<Value, String> {
-        self.call(Method::PATCH, &format!("/channels/{ch}/messages/{id}"), Some(json!({ "content": content })))
-            .await
-    }
-
-    pub async fn delete(&self, ch: Id, id: Id) -> Result<Value, String> {
-        self.call(Method::DELETE, &format!("/channels/{ch}/messages/{id}"), None).await
-    }
-
-    pub async fn react(&self, ch: Id, id: Id, emoji: &str, add: bool) -> Result<Value, String> {
-        let p = format!("/channels/{ch}/messages/{id}/reactions/{}/@me?location=Message&type=0", esc(emoji));
-        self.call(if add { Method::PUT } else { Method::DELETE }, &p, None).await
+        Err(explain(status.as_u16(), &v))
     }
 
     pub async fn ack(&self, ch: Id, id: Id) -> Result<Value, String> {

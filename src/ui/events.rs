@@ -44,7 +44,7 @@ impl App {
         self.rest("POST", "/read-states/ack-bulk".into(), Some(json!({ "read_states": [state] })), Tag::Quiet);
     }
 
-    fn event_users(&mut self, gid: Id, id: Id) {
+    pub(super) fn event_users(&mut self, gid: Id, id: Id) {
         if let Some(e) = &mut self.events {
             e.detail = Some(id);
             if e.users.contains_key(&id) {
@@ -356,7 +356,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     ev.users.remove(&id);
                 }
-                app.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/scheduled-events/{id}/users/@me"), None, Tag::Quiet);
+                app.rest(if on { "PUT" } else { "DELETE" }, format!("/guilds/{gid}/scheduled-events/{id}/users/@me"), None, Tag::rollback(move |app: &mut App| {
+                    if let Some(ev) = &mut app.events {
+                        if on {
+                            ev.rsvp.remove(&id);
+                        } else {
+                            ev.rsvp.insert(id);
+                        }
+                        if let Some(e) = ev.list.as_mut().and_then(|l| l.iter_mut().find(|e| sid(&e["id"]) == id)) {
+                            let n = e["user_count"].as_u64().unwrap_or(0);
+                            e["user_count"] = serde_json::json!(if on { n.saturating_sub(1) } else { n + 1 });
+                        }
+                        ev.users.remove(&id);
+                    }
+                }));
                 if app.events.as_ref().is_some_and(|e| e.detail == Some(id)) {
                     open_detail = Some(id);
                 }

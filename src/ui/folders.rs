@@ -113,7 +113,7 @@ pub fn save(app: &mut App, folders: Vec<Folder>) {
     let seen = app.store.guild_order.clone();
     app.store.arrange(folders, &seen);
     let body = json!({ "settings": base64::engine::general_purpose::STANDARD.encode(raw) });
-    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(body), Tag::Quiet);
+    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(body), Tag::fail("Something went wrong while trying to save your server folder. Please try again later."));
 }
 
 pub fn move_folder(app: &mut App, id: Id, last: bool) {
