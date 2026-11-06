@@ -324,6 +324,7 @@ impl App {
         t0: Instant,
         snap: std::thread::JoinHandle<Option<(Store, UiState)>>,
     ) -> Self {
+        crate::winsys::show_early_over();
         let ctx = cc.egui_ctx.clone();
         // egui's own ctrl +/- zoom goes by 10%; ours steps through discord's levels
         ctx.options_mut(|o| {
@@ -2259,7 +2260,8 @@ impl eframe::App for App {
             cache::save(&self.store, &self.ui, true);
         }
         if let Some(w) = self.win {
-            cache::set_window(w);
+            let [r, g, b, _] = pal().bg_primary.to_array();
+            cache::set_window(w, [r, g, b]);
         }
     }
 }
