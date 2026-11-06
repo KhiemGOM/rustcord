@@ -72,7 +72,7 @@ impl Run {
     }
 
     fn exits(&mut self) {
-        self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3700 };
+        self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3400 };
     }
 
     pub(super) fn embed_steps(&mut self, app: &mut App, ctx: &egui::Context) {
@@ -202,8 +202,19 @@ impl Run {
                 if app.embed.is_some() && probe(app).is_some_and(|p| !p.0) {
                     self.mark("embed_frame_hidden_off_screen");
                 }
+                self.scroll_by(side(clip), clip.top() + 30.0 - full.top());
+                self.step = 3330;
+                self.wait = std::time::Instant::now() + std::time::Duration::from_millis(1200);
+            }
+            3330 => {
+                if !probe(app).is_some_and(|p| p.0) {
+                    return;
+                }
+                let Some((_, clip)) = frame_rects(app, a) else { return };
+                self.mark("embed_frame_back_in_view");
                 self.scroll_by(side(clip), 3000.0);
-                self.next(900);
+                self.step = 3311;
+                self.wait = std::time::Instant::now() + std::time::Duration::from_millis(900);
             }
             3311 => {
                 if app.embed.is_some() {

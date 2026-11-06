@@ -18,6 +18,8 @@ const AUTOPLAY: &str = "--autoplay-policy=no-user-gesture-required";
 const HOST: &str = "discord.com";
 const INBOX: usize = 512;
 const MESSAGE: usize = 1 << 20;
+const PAUSE: &str = "window.__hushed=[...document.querySelectorAll('video,audio')].filter(m=>!m.paused);window.__hushed.forEach(m=>m.pause());";
+const RESUME: &str = "(window.__hushed||[]).forEach(m=>m.play());window.__hushed=[];";
 
 pub struct Cfg {
     pub src: String,
@@ -40,6 +42,7 @@ pub enum Status {
 
 struct Inner {
     ctl: RefCell<Option<ICoreWebView2Controller>>,
+    frames: RefCell<Vec<ICoreWebView2Frame2>>,
     want: Cell<Want>,
     done: Cell<Want>,
     inbox: RefCell<VecDeque<Value>>,
@@ -92,6 +95,7 @@ impl Host {
         let page = format!("https://{HOST}/index.html");
         let s = Rc::new(Inner {
             ctl: RefCell::new(None),
+            frames: RefCell::new(Vec::new()),
             want: Cell::new(Want { parent, ..Want::default() }),
             done: Cell::new(Want::default()),
             inbox: RefCell::new(VecDeque::new()),
@@ -143,6 +147,20 @@ impl Host {
         let w = self.s.done.get().parent;
         if w != 0 {
             unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus(w as HWND) };
+        }
+    }
+
+    /// The page sits in a cross-origin iframe, so only a script run in that frame reaches its
+    /// players; the mute covers what the script can't see.
+    pub fn hush(&self, on: bool) {
+        let script = HSTRING::from(if on { PAUSE } else { RESUME });
+        for f in self.s.frames.borrow().iter() {
+            let _ = unsafe { f.ExecuteScript(&script, None::<&ICoreWebView2ExecuteScriptCompletedHandler>) };
+        }
+        if let Some(wv) = self.s.ctl.borrow().as_ref().and_then(|c| unsafe { c.CoreWebView2() }.ok())
+            && let Ok(wv) = wv.cast::<ICoreWebView2_8>()
+        {
+            let _ = unsafe { wv.SetIsMuted(on) };
         }
     }
 
@@ -310,6 +328,18 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
             &DownloadStartingEventHandler::create(Box::new(|_, args| {
                 if let Some(args) = args {
                     args.SetCancel(true)?;
+                }
+                Ok(())
+            })),
+            &mut t,
+        )?;
+        let w = weak.clone();
+        wv.cast::<ICoreWebView2_4>()?.add_FrameCreated(
+            &FrameCreatedEventHandler::create(Box::new(move |_, args| {
+                if let (Some(s), Some(args)) = (w.upgrade(), args)
+                    && s.embed
+                {
+                    s.frames.borrow_mut().push(args.Frame()?.cast()?);
                 }
                 Ok(())
             })),

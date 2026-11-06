@@ -112,6 +112,7 @@ pub fn place(app: &mut App, ctx: &Context) {
     let ppp = ctx.pixels_per_point();
     let Some(p) = &app.embed else { return };
     p.frame.place(px(full, ppp), px(clip, ppp), !covered);
+    p.frame.hush(!seen.is_positive());
     if pressed {
         p.frame.blur();
     }

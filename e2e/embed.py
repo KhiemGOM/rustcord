@@ -37,6 +37,7 @@ def checks(runs, reqs, data):
         "embeds: scrolled half under the composer it was clipped to the chat's viewport": both("embed_frame_clipped_bottom"),
         "embeds: scrolled half under the header it was clipped to the chat's viewport": both("embed_frame_clipped_top"),
         "embeds: scrolled just out of view it was hidden, and far out of view it was gone": both("embed_frame_hidden_off_screen") and both("embed_frame_gone_scrolled"),
+        "embeds: out of view it paused, and came back playing when scrolled to": both("embed_frame_back_in_view") and len(said("paused")) >= n and len(said("resumed")) >= n,
         "embeds: playing another one replaced the first, only one at a time": both("embed_one_at_a_time"),
         "embeds: a dialog hid it and closing the dialog showed it again": both("embed_frame_hides_for_dialog") and both("embed_frame_returns_after_dialog"),
         "embeds: switching channel took it away": both("embed_frame_gone_channel"),
