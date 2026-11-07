@@ -258,14 +258,14 @@ mod tests {
         assert_eq!(account(&Patch::new().flag(6, 16, true).bytes(), false).tts_command, Some(true));
         assert_eq!(account(&Patch::new().num(13, 9, 2).bytes(), false).hour_cycle, Some(2));
         assert_eq!(account(&Patch::new().flag(6, 7, true).bytes(), false).image_descriptions, Some(true));
-        assert_eq!(account(&Patch::new().sub(6, 15, &[(1, 2)]).bytes(), false).stickers, Some(Animate::Never));
-        assert_eq!(account(&Patch::new().sub(6, 15, &[(1, 0)]).bytes(), false).stickers, Some(Animate::Always));
+        assert!(account(&Patch::new().sub(6, 15, &[(1, 2)]).bytes(), false).stickers == Some(Animate::Never));
+        assert!(account(&Patch::new().sub(6, 15, &[(1, 0)]).bytes(), false).stickers == Some(Animate::Always));
         assert_eq!(account(&Patch::new().flag(6, 36, true).bytes(), false).search_all_dms, Some(true));
-        assert_eq!(account(&Patch::new().num(13, 12, 2).bytes(), false).density, Some(Density::Spacious));
-        assert_eq!(account(&Patch::new().num(13, 12, 4).bytes(), false).density, Some(Density::Default));
+        assert!(account(&Patch::new().num(13, 12, 2).bytes(), false).density == Some(Density::Spacious));
+        assert!(account(&Patch::new().num(13, 12, 4).bytes(), false).density == Some(Density::Default));
         assert_eq!(account(&Patch::new().flag(5, 5, true).bytes(), false).preview_video, Some(true));
-        assert_eq!(account(&Patch::new().sub(5, 1, &[(1, 1)]).bytes(), false).video_bg, Some(VideoBg::Blur));
-        assert_eq!(account(&Patch::new().sub(5, 1, &[(1, 0)]).bytes(), false).video_bg, Some(VideoBg::None));
-        assert_eq!(account(&Patch::new().num(5, 2, 3).bytes(), false).video_bg, Some(VideoBg::Preset(3)));
+        assert!(account(&Patch::new().sub(5, 1, &[(1, 1)]).bytes(), false).video_bg == Some(VideoBg::Blur));
+        assert!(account(&Patch::new().sub(5, 1, &[(1, 0)]).bytes(), false).video_bg == Some(VideoBg::None));
+        assert!(account(&Patch::new().num(5, 2, 3).bytes(), false).video_bg == Some(VideoBg::Preset(3)));
     }
 }
