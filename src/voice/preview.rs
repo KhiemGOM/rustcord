@@ -5,6 +5,7 @@
 use egui::ColorImage;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::capture::Grab;
@@ -14,6 +15,7 @@ const HEIGHT: usize = 360;
 const IDLE: Duration = Duration::from_millis(1500);
 
 pub static RUNNING: AtomicU32 = AtomicU32::new(0);
+static GONE: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
 
 #[derive(Default)]
 struct Out {
@@ -25,7 +27,13 @@ struct Out {
 
 pub struct Preview {
     out: Arc<Out>,
-    th: Option<std::thread::JoinHandle<()>>,
+    th: Option<JoinHandle<()>>,
+}
+
+/// Waits for dropped previews to let go of the camera, so the next opener doesn't find it busy.
+pub fn settle() {
+    let before = std::mem::take(&mut *GONE.lock().unwrap());
+    before.into_iter().for_each(|t| _ = t.join());
 }
 
 fn now() -> u64 {
@@ -66,7 +74,9 @@ impl Drop for Preview {
     fn drop(&mut self) {
         self.out.asked.store(0, Relaxed);
         if let Some(t) = self.th.take() {
-            let _ = t.join();
+            let mut gone = GONE.lock().unwrap();
+            gone.retain(|t| !t.is_finished());
+            gone.push(t);
         }
     }
 }
