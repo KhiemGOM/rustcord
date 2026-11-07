@@ -2001,10 +2001,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             w.lock().unwrap().edits.insert(format!("quest:{id}"), status.clone());
             ok(json!({ "claimed_at": status["claimed_at"], "entitlements": [], "errors": [] }))
         }
-        ("GET", ["api", "v9", "users", "@me", "virtual-currency", "balance"]) => {
-            let claimed = quest_list(w).iter().filter(|q| q["user_status"]["claimed_at"].is_string() && q["id"] == "9003").count() as u64;
-            ok(json!({ "balance": 1500 + 840 * claimed }))
-        }
         ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
         // the mock itself is the running game the client should spot
         ("GET", ["api", "v9", "applications", "detectable"]) => ok(json!([
