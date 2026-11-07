@@ -225,10 +225,20 @@ fn group(ui: &mut Ui, rows: &[(&str, &[&[&str]])]) {
     super::end(ui, 32.0);
 }
 
+const DRAG: [(&str, &[&[&str]]); 4] = [("Start Drag and Drop", &[&["ctrl", "d"]]), ("Move", &[&["↑"], &["↓"]]), ("Drop item", &[&["spacebar"], &["enter"]]), ("Cancel", &[&["esc"]])];
+
 pub fn defaults(ui: &mut Ui) {
     section(ui, "Default Keybinds");
     group(ui, &[("Show Keyboard Shortcuts List", &[&["ctrl", "/"]])]);
-    for (title, sub, rows) in SHEET.iter() {
+    let order = ["Messages", "Navigation", "Drag and Drop", "Chat", "Voice and Video", "Miscellaneous"];
+    for name in order {
+        if name == "Drag and Drop" {
+            super::sub(ui, name);
+            super::note(ui, "These shortcuts work when focused on a draggable item");
+            group(ui, &DRAG);
+            continue;
+        }
+        let Some((title, sub, rows)) = SHEET.iter().find(|s| s.0 == name) else { continue };
         super::sub(ui, title);
         if let Some(s) = sub {
             super::note(ui, s);
