@@ -322,6 +322,26 @@ impl Run {
                 app.server = None;
                 self.next(300);
             }
+            4436 => {
+                app.open_server_settings(OWNED);
+                if let Some(s) = &mut app.server {
+                    s.page = Page::Safety;
+                }
+                self.next(1000);
+            }
+            4437 => {
+                let Some(r) = Self::at(ctx, "safety:DM and Spam Protection") else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            4438 => {
+                self.shot(ctx, "safety_dm.png");
+                self.next(500);
+            }
+            4439 => {
+                app.server = None;
+                self.next(300);
+            }
             _ => self.step = 3110,
         }
     }
