@@ -73,6 +73,7 @@ impl Chain {
             *x *= gain;
         }
         if real && self.shared.agc.load(Relaxed) {
+            self.agc.hold = echo && self.aec.far_only;
             self.agc.frame(pcm);
         }
         for x in pcm.iter_mut() {
@@ -90,7 +91,7 @@ impl Chain {
             }
             return;
         }
-        let behind = far.slots().saturating_sub(BLOCK * 8);
+        let behind = far.slots().saturating_sub(BLOCK * 3);
         if behind > 0
             && let Ok(c) = far.read_chunk(behind)
         {
@@ -121,6 +122,7 @@ fn soft_clip(x: f32) -> f32 {
 #[derive(Default)]
 struct Agc {
     db: f32,
+    hold: bool,
 }
 
 impl Agc {
@@ -128,7 +130,7 @@ impl Agc {
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
         let level = 20.0 * (rms + 1e-9).log10();
         let from = self.db;
-        if level > -50.0 {
+        if level > -50.0 && !self.hold {
             let want = (-20.0 - level).clamp(-12.0, 30.0);
             let rate = if want < self.db { 0.35 } else { 0.03 };
             self.db += (want - self.db) * rate;
@@ -293,6 +295,48 @@ mod tests {
                 amp * ((s >> 8) as f32 / (1 << 23) as f32 - 1.0)
             })
             .collect()
+    }
+
+    // the speakers open before the mic, then the mix and the mic run in step; what the mix
+    // pushed reaches the mic `latency` samples later, at `level` of what was played
+    fn speakers_into_mic(latency: usize, level: f32, agc: bool) -> (Vec<f32>, Vec<f32>, Chain) {
+        let far = noise(0.3, 48_000 * 10, 7);
+        let shared = Arc::new(Shared::default());
+        shared.noise.store(NOISE_NONE, Relaxed);
+        shared.agc.store(agc, Relaxed);
+        let (mut p, c) = rtrb::RingBuffer::<f32>::new(48_000);
+        let mut chain = Chain::new(shared, Some(c));
+        let head_start = BLOCK * 15;
+        far[..head_start].iter().for_each(|x| p.push(*x).unwrap());
+        let (mut near, mut out) = (Vec::new(), Vec::new());
+        for f in far[head_start..].chunks_exact(FRAME).enumerate() {
+            f.1.iter().for_each(|x| p.push(*x).unwrap());
+            let end = head_start + (f.0 + 1) * FRAME;
+            let mut pcm: Vec<f32> = (end - FRAME..end).map(|i| if i >= latency { level * far[i - latency] } else { 0.0 }).collect();
+            near.extend_from_slice(&pcm);
+            chain.run(&mut pcm);
+            out.extend_from_slice(&pcm);
+        }
+        (near, out, chain)
+    }
+
+    #[test]
+    fn cancels_the_echo_at_any_real_latency() {
+        let taken: Vec<(usize, f32)> = [15, 25, 40, 60, 120, 240]
+            .into_iter()
+            .map(|ms| {
+                let (near, out, _) = speakers_into_mic(ms * 48, 0.5, false);
+                let tail = near.len() - 48_000 * 3;
+                (ms, 20.0 * (rms(&near[tail..]) / rms(&out[tail..])).log10())
+            })
+            .collect();
+        assert!(taken.iter().all(|(_, db)| *db > 15.0), "ms and dB taken off: {taken:?}");
+    }
+
+    #[test]
+    fn agc_does_not_turn_up_an_echo() {
+        let (_, _, chain) = speakers_into_mic(30 * 48, 0.02, true);
+        assert!(chain.agc.db.abs() < 1.0, "agc climbed to {} dB", chain.agc.db);
     }
 
     #[test]

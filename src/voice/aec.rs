@@ -7,7 +7,7 @@ use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use std::sync::Arc;
 
 pub const BLOCK: usize = 480;
-const PARTS: usize = 20;
+const PARTS: usize = 30;
 const BINS: usize = BLOCK + 1;
 const MU: f32 = 0.6;
 
@@ -26,6 +26,7 @@ pub struct Aec {
     spec: Spec,
     acc: Spec,
     gain: f32,
+    pub far_only: bool,
 }
 
 impl Aec {
@@ -44,6 +45,7 @@ impl Aec {
             spec: vec![Complex::default(); BINS],
             acc: vec![Complex::default(); BINS],
             gain: 1.0,
+            far_only: false,
         }
     }
 
@@ -87,6 +89,7 @@ impl Aec {
 
         let far_peak = self.far_rms.iter().cloned().fold(0.0, f32::max);
         let talking_over = d_rms > 0.7 * far_peak;
+        self.far_only = far_peak > 1e-3 && !talking_over;
         if x_rms > 1e-3 && !talking_over {
             self.time[..BLOCK].fill(0.0);
             self.time[BLOCK..].copy_from_slice(&err);
