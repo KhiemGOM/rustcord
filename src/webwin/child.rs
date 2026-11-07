@@ -48,6 +48,7 @@ struct Inner {
     inbox: RefCell<VecDeque<Value>>,
     out: RefCell<Vec<String>>,
     up: Cell<bool>,
+    full: Cell<bool>,
     failed: RefCell<Option<String>>,
     page: String,
     origin: String,
@@ -101,6 +102,7 @@ impl Host {
             inbox: RefCell::new(VecDeque::new()),
             out: RefCell::new(Vec::new()),
             up: Cell::new(false),
+            full: Cell::new(false),
             failed: RefCell::new(None),
             page,
             origin: origin.clone(),
@@ -136,6 +138,19 @@ impl Host {
     pub fn place(&self, parent: isize, r: [i32; 4], show: bool) {
         self.s.want.set(Want { parent, r, show });
         apply(&self.s);
+    }
+
+    pub fn fullscreen(&self) -> bool {
+        self.s.full.get()
+    }
+
+    /// A real click inside the page, for the e2e: only a trusted one lets a page ask for fullscreen.
+    pub fn press(&self, x: i32, y: i32) {
+        let Some(wv) = self.s.ctl.borrow().as_ref().and_then(|c| unsafe { c.CoreWebView2() }.ok()) else { return };
+        for kind in ["mousePressed", "mouseReleased"] {
+            let args = HSTRING::from(json!({ "type": kind, "x": x, "y": y, "button": "left", "clickCount": 1 }).to_string());
+            let _ = unsafe { wv.CallDevToolsProtocolMethod(&HSTRING::from("Input.dispatchMouseEvent"), &args, None::<&ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>) };
+        }
     }
 
     pub fn placed(&self) -> ([i32; 4], bool) {
@@ -340,6 +355,19 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
                     && s.embed
                 {
                     s.frames.borrow_mut().push(args.Frame()?.cast()?);
+                }
+                Ok(())
+            })),
+            &mut t,
+        )?;
+        let w = weak.clone();
+        wv.add_ContainsFullScreenElementChanged(
+            &ContainsFullScreenElementChangedEventHandler::create(Box::new(move |wv, _| {
+                if let (Some(s), Some(wv)) = (w.upgrade(), wv) {
+                    let mut on = Default::default();
+                    wv.ContainsFullScreenElement(&mut on)?;
+                    s.full.set(on.as_bool());
+                    s.ctx.request_repaint();
                 }
                 Ok(())
             })),

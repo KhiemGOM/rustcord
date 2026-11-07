@@ -98,6 +98,12 @@ pub fn px(r: Rect, ppp: f32) -> [i32; 4] {
 pub fn place(app: &mut App, ctx: &Context) {
     let at = app.embed_at.take();
     let Some(p) = &mut app.embed else { return };
+    if p.frame.fullscreen() {
+        let all = px(ctx.content_rect(), ctx.pixels_per_point());
+        p.fresh = false;
+        p.frame.place(all, all, true);
+        return;
+    }
     let Some((_, full, clip)) = at.filter(|(k, ..)| *k == p.key) else {
         if std::mem::take(&mut p.fresh) {
             return;
