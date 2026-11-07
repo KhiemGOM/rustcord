@@ -278,6 +278,38 @@ pub fn keys(frames: &[(f32, f32)], u: f32) -> f32 {
     frames.last().map_or(0.0, |f| f.1)
 }
 
+/// A CSS keyframe animation as a browser plays it: the timing function runs over each gap between
+/// keyframes, not once over the whole animation.
+pub fn keys_eased(frames: &[(f32, f32)], u: f32, curve: Curve) -> f32 {
+    let u = u.clamp(0.0, 1.0);
+    for w in frames.windows(2) {
+        let ((a, va), (b, vb)) = (w[0], w[1]);
+        if u <= b {
+            let t = if b == a { 1.0 } else { (u - a) / (b - a) };
+            return va + (vb - va) * curve.at(t);
+        }
+    }
+    frames.last().map_or(0.0, |f| f.1)
+}
+
+/// How far along a CSS animation is that runs for `secs_on` once `on` turns true and `secs_off`
+/// once it turns false: 0 to 1 for the one running, and 1 when it has finished or never started.
+pub fn flip(ctx: &Context, id: Id, on: bool, secs_on: f32, secs_off: f32) -> f32 {
+    let now = ctx.input(|i| i.time);
+    let stored = ctx.data(|d| d.get_temp::<(bool, f64)>(id));
+    let (was, since) = stored.unwrap_or((on, now - 1e3));
+    let since = if was == on { since } else { now };
+    if stored != Some((on, since)) {
+        ctx.data_mut(|d| d.insert_temp(id, (on, since)));
+    }
+    let secs = anim(if on { secs_on } else { secs_off });
+    let u = if secs == 0.0 { 1.0 } else { ((now - since) as f32 / secs).clamp(0.0, 1.0) };
+    if u < 1.0 {
+        ctx.request_repaint();
+    }
+    u
+}
+
 /// Discord's modal: a dimmed backdrop that fades and a card that scales up from the middle,
 /// in place of `egui::Modal`, which can only fade both together.
 pub struct Modal {
@@ -537,6 +569,32 @@ mod tests {
         }
         assert!(seen > 30, "only found {seen} dialogs");
         assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    #[test]
+    fn keyframes_ease_within_each_gap() {
+        let fill = Curve::Bezier(0.33, 0.0, 0.67, 1.0);
+        let frames = [(0.0, 0.0), (0.35, 0.33), (0.4, 1.15), (1.0, 1.0)];
+        assert!(close(keys_eased(&frames, 0.35, fill), 0.33, 1e-4) && close(keys_eased(&frames, 0.4, fill), 1.15, 1e-4));
+        assert!(close(keys_eased(&frames, 0.375, fill), 0.74, 1e-3), "{}", keys_eased(&frames, 0.375, fill));
+        let dot = Curve::Bezier(0.26, 0.21, 0.67, 1.0);
+        assert!(close(keys_eased(&[(0.0, 0.0), (0.4, 1.2), (0.75, 1.0), (1.0, 1.0)], 0.2, dot), 0.734, 5e-3));
+    }
+
+    #[test]
+    fn flip_runs_each_way_for_its_own_time_and_rests_at_one() {
+        let ctx = Context::default();
+        let at = |time: f64, on: bool| {
+            let mut out = 0.0;
+            let _ = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| out = flip(ui.ctx(), Id::new("probe"), on, 0.4, 0.2));
+            out
+        };
+        assert!(close(at(0.0, true), 1.0, 1e-6));
+        assert!(close(at(1.0, false), 0.0, 1e-3));
+        assert!(close(at(1.1, false), 0.5, 1e-3));
+        assert!(close(at(1.3, false), 1.0, 1e-6));
+        assert!(close(at(2.0, true), 0.0, 1e-3));
+        assert!(close(at(2.2, true), 0.5, 1e-3));
     }
 
     #[test]

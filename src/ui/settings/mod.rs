@@ -599,15 +599,25 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         mark(ui, &format!("radio:{label}"), r);
         let c = pos2(r.left() + 11.0, r.top() + 10.5);
-        let u = motion::tween(ui.ctx(), resp.id, on, 0.333, motion::Curve::Bezier(0.26, 0.21, 0.67, 1.0));
-        if u > 0.0 {
-            let fill = motion::keys(&[(0.0, 0.0), (0.35, 0.33), (0.4, 1.15), (1.0, 1.0)], u);
-            let dot = motion::keys(&[(0.0, 0.0), (0.4, 1.2), (0.75, 1.0), (1.0, 1.0)], u);
+        let fill_curve = motion::Curve::Bezier(0.33, 0.0, 0.67, 1.0);
+        let (fu, du) = (motion::flip(ui.ctx(), resp.id.with("fill"), on, 0.225, 0.16), motion::flip(ui.ctx(), resp.id.with("dot"), on, 0.333, 0.25));
+        let (fill, dot) = if on {
+            (
+                motion::keys_eased(&[(0.0, 0.0), (0.35, 0.33), (0.4, 1.15), (1.0, 1.0)], fu, fill_curve),
+                motion::keys_eased(&[(0.0, 0.0), (0.4, 1.2), (0.75, 1.0), (1.0, 1.0)], du, motion::Curve::Bezier(0.26, 0.21, 0.67, 1.0)),
+            )
+        } else {
+            (
+                if fu < 0.99 { motion::keys_eased(&[(0.0, 1.0), (1.0, 0.0)], fu, fill_curve) } else { 0.0 },
+                motion::keys_eased(&[(0.0, 1.0), (0.4, 1.0), (1.0, 0.0)], du, motion::Curve::Bezier(0.33, 0.0, 0.25, 1.0)),
+            )
+        };
+        ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));
+        if fill > 0.0 {
             ui.painter().circle_filled(c, 11.0 * fill, BLURPLE);
-            ui.painter().circle_filled(c, 4.5 * dot, Color32::WHITE);
         }
-        if u < 1.0 {
-            ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary.gamma_multiply(1.0 - u)));
+        if dot > 0.0 {
+            ui.painter().circle_filled(c, 4.5 * dot, Color32::WHITE);
         }
         ui.painter().text(pos2(r.left() + 32.0, r.top()), Align2::LEFT_TOP, *label, reg(16.0), pal().text_normal);
         if let Some(g) = text {
