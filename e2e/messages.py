@@ -71,6 +71,7 @@ def checks(runs, reqs, data):
         "messages: the search sort menu re-runs the search oldest first": both("msg_search_sort") and sum("sort_order=asc" in r.get("path", "") and "sort_by=timestamp" in r.get("path", "") for r in sent("GET", "/messages/search")) == 2,
         "messages: the inbox Filter button drops role mentions from the mentions": both("msg_inbox_filter") and sum("roles=false" in r.get("path", "") for r in sent("GET", "/users/@me/mentions")) == 2,
         "messages: the inbox's View Friend Requests shows the requests": both("msg_inbox_friends"),
+        "messages: the inbox's Unreads tab showed Stay up to date with latest messages! once, and Got it! dismissed it for good": both("inbox_tip_dismissed"),
         "messages: Configure on a join message opens Engagement settings": both("msg_configure"),
     }
     return out

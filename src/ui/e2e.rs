@@ -3105,7 +3105,16 @@ impl Run {
                 self.next(500);
             }
             274 => {
-                self.shot(ctx, "inbox_unreads.png");
+                if let Some(tip) = app.rects.get("inbox:tip").copied().filter(|_| !app.settings.inbox_tip) {
+                    self.shot(ctx, "inbox_unreads.png");
+                    self.click(tip.center());
+                    self.wait = Instant::now() + Duration::from_millis(500);
+                    return;
+                }
+                if app.settings.inbox_tip {
+                    self.mark("inbox_tip_dismissed");
+                }
+                self.shot(ctx, "inbox_unreads_after_tip.png");
                 let Some(r) = app.rects.get("inbox:mentions").copied() else { return };
                 self.click(r.center());
                 self.next(400);
