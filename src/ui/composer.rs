@@ -54,6 +54,8 @@ enum Item {
     Role(Id, String, u32),
     Everyone(&'static str),
     AtTime,
+    AtGame,
+    Game(Id, String, Option<String>),
     When(i64, char),
     Channel(Id, String),
     Emoji(Em),
@@ -136,6 +138,12 @@ fn token(draft: &str, cursor: usize) -> Option<(usize, char, String)> {
     {
         return Some((i, 'T', before[i + 6..].to_string()));
     }
+    if let Some(i) = before.rfind("@game ")
+        && before[..i].chars().next_back().is_none_or(char::is_whitespace)
+        && !before[i..].contains('\n')
+    {
+        return Some((i, 'G', before[i + 6..].to_string()));
+    }
     let start = before.rfind(|c: char| c.is_whitespace()).map(|i| i + 1).unwrap_or(0);
     let word = &before[start..];
     let first = word.chars().next()?;
@@ -178,6 +186,9 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     out.push((s as u16, Item::User(u, name, user.username.clone())));
                 }
             }
+            if app.settings.game_suggestions && "game".starts_with(&q) {
+                out.push((2, Item::AtGame));
+            }
             if "time".starts_with(&q) {
                 out.push((2, Item::AtTime));
             }
@@ -194,6 +205,17 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                         }
                     }
                 }
+            }
+        }
+        'G' if app.settings.game_suggestions => {
+            let q = game_query(&q);
+            let q = q.as_str();
+            let hits = (1..=q.len()).rev().filter(|n| q.is_char_boundary(*n)).find_map(|n| match app.keyed.get(&format!("games:{}", &q[..n])) {
+                Some(Some(Ok(v))) => Some(v.clone()),
+                _ => None,
+            });
+            for g in hits.iter().flat_map(|v| v.as_array()).flatten() {
+                out.push((0, Item::Game(sid(&g["id"]), g["name"].as_str().unwrap_or_default().to_string(), g["icon"].as_str().map(str::to_string))));
             }
         }
         'T' => {
@@ -397,6 +419,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if matches!(&tok, Some((_, ':', _))) && app.settings.sticker_suggestions {
         app.load_packs();
     }
+    if let Some((_, 'G', q)) = &tok
+        && app.settings.game_suggestions
+    {
+        game_search(app, ui.ctx(), &game_query(q));
+    }
     let items = tok.as_ref().map(|(_, k, q)| candidates(app, chan, *k, q)).unwrap_or_default();
     let open = !items.is_empty() && (focused || typed);
     app.ac_open = open;
@@ -502,12 +529,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let colon = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == ":")));
     let before = draft_now.len();
     let radius = CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 };
+    // below 450 discord folds the gif, sticker and emoji buttons into one
+    let wide = ui.available_width() > 450.0;
     let r = Frame::new()
         .fill(pal().bg_input)
         .inner_margin(1)
         .corner_radius(radius)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            let inside = ui.max_rect();
             if !app.files.is_empty() {
                 Frame::new().inner_margin(Margin { left: 10, right: 10, top: 20, bottom: 10 }).show(ui, |ui| {
                     egui::ScrollArea::horizontal().id_salt(("uploads", side)).show(ui, |ui| {
@@ -537,9 +567,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let slashing = app.slash.contains_key(&ch);
-                    // the text stops short of the buttons: five 40 wide, six with the send button
-                    let buttons = if off { 0.0 } else if app.settings.send_button { 240.0 } else { 200.0 };
-                    let w = (ui.available_width() - buttons - 8.0).max(60.0);
+                    let row_left = ui.cursor().left();
+                    // the text stops short of the buttons, 40 wide each, and gives way to them first
+                    let slots = if off { 0 } else { (if wide { 5 } else { 3 }) + usize::from(app.settings.send_button) };
+                    let buttons = slots as f32 * 40.0;
+                    let w = (ui.available_width() - buttons - 8.0).max(8.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     if slashing {
                         slash::row(app, ui, chan, tid, w, off);
@@ -600,8 +632,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         app.save_settings(ui.ctx());
     }
     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
-                    // discord's row, right to left: apps, emoji, sticker, gif, gift; 20px icons 40 apart
-                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    // discord's row: gift, gif, sticker, emoji, apps; 20px icons 40 apart. It sits flush right
+                    // when it fits and runs off the box's edge, clipped, when it doesn't
+                    let x0 = (ui.max_rect().right() - buttons).max(row_left + if slashing { 0.0 } else { 24.0 + 23.0 } + 8.0);
+                    let strip = Rect::from_min_size(pos2(x0, ui.min_rect().top()), vec2(buttons, 56.0));
+                    app.rects.insert("composer:buttons".into(), strip);
+                    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(strip).layout(Layout::left_to_right(Align::Min)));
+                    row.set_clip_rect(ui.clip_rect().intersect(inside));
+                    {
+                        let ui = &mut row;
                         if off {
                             return;
                         }
@@ -614,6 +653,34 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             }
                             resp.on_hover_text(tip)
                         };
+                        gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
+                        if wide {
+                            let gr = slot(ui, Icon::Gif, "Open GIF picker");
+                            gif_rect = Some(gr.rect);
+                            if gr.clicked() {
+                                tab = Some(super::picker::Tab::Gifs);
+                            }
+                            let sr = slot(ui, Icon::Sticker, "Open sticker picker");
+                            app.rects.insert("sticker_button".into(), sr.rect);
+                            if sr.clicked() {
+                                tab = Some(super::picker::Tab::Stickers);
+                            }
+                            let er = slot(ui, Icon::Smile, "Select emoji");
+                            app.rects.insert("emoji_button".into(), er.rect);
+                            if er.clicked() {
+                                tab = Some(super::picker::Tab::Emoji);
+                            }
+                        } else {
+                            let xr = slot(ui, Icon::Smile, "Open expression picker");
+                            app.rects.insert("expression_button".into(), xr.rect);
+                            gif_rect = Some(xr.rect);
+                            if xr.clicked() {
+                                tab = Some(super::picker::Tab::Emoji);
+                            }
+                        }
+                        let ar = slot(ui, Icon::Apps, "Apps");
+                        app.rects.insert("apps_button".into(), ar.rect);
+                        apps_click = ar.clicked();
                         if app.settings.send_button {
                             let (sr, sresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
                             let col = crate::ui::motion::mix(pal().header_secondary, BLURPLE, crate::ui::motion::hot(ui.ctx(), &sresp));
@@ -622,26 +689,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 send_click = true;
                             }
                         }
-                        let ar = slot(ui, Icon::Apps, "Apps");
-                        app.rects.insert("apps_button".into(), ar.rect);
-                        apps_click = ar.clicked();
-                        let er = slot(ui, Icon::Smile, "Select emoji");
-                        app.rects.insert("emoji_button".into(), er.rect);
-                        if er.clicked() {
-                            tab = Some(super::picker::Tab::Emoji);
-                        }
-                        let sr = slot(ui, Icon::Sticker, "Open sticker picker");
-                        app.rects.insert("sticker_button".into(), sr.rect);
-                        if sr.clicked() {
-                            tab = Some(super::picker::Tab::Stickers);
-                        }
-                        let gr = slot(ui, Icon::Gif, "Open GIF picker");
-                        gif_rect = Some(gr.rect);
-                        if gr.clicked() {
-                            tab = Some(super::picker::Tab::Gifs);
-                        }
-                        gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
-                    });
+                    }
                 });
             });
         });
@@ -835,6 +883,7 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
         '#' => "Text Channels".to_string(),
         ':' => "Emoji Matching".to_string(),
         'T' => "Time".to_string(),
+        'G' => "Games".to_string(),
         _ => "Commands".to_string(),
     };
     let row_h = if kind == '/' { 52.0 } else { 34.0 };
@@ -893,6 +942,20 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), pal().header_primary);
             let note = if *e == "here" { "Notify everyone online in this channel." } else { "Notify everyone who has permission to view this channel." };
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
+        }
+        Item::AtGame => {
+            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@game", semi(15.0), pal().header_primary);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Mention a game", reg(13.0), pal().header_secondary);
+        }
+        Item::Game(id, name, icon) => {
+            let ir = Rect::from_center_size(pos2(x + 12.0, y), vec2(24.0, 24.0));
+            match icon {
+                Some(h) => avatar(ui, ir, &format!("{}/app-icons/{id}/{h}.png?size=64", crate::api::cdn())),
+                None => {
+                    p.rect_filled(ir, CornerRadius::same(6), pal().bg_tertiary);
+                }
+            }
+            text::paint(p, pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary, r.width() - 48.0);
         }
         Item::AtTime => {
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@time", semi(15.0), pal().header_primary);
@@ -1039,7 +1102,6 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
                     crate::ui::motion::wash(ui, &resp, r, 4, pal().control_hover, 0.05);
                     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "format", tip)), r));
                     if resp.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
                         pick = Some(mark);
                     }
@@ -1052,6 +1114,31 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
 }
 
 /// Replace the token with the chosen completion, returning the new cursor (in chars).
+/// The query as discord sends it: trimmed, lowercase, underscores as spaces, 100 characters at most.
+fn game_query(q: &str) -> String {
+    q.trim().to_lowercase().replace('_', " ").chars().take(100).collect()
+}
+
+/// Discord asks for games a typed query at a time, no faster than every 200ms.
+fn game_search(app: &mut App, ctx: &egui::Context, q: &str) {
+    let key = format!("games:{q}");
+    if q.is_empty() || app.keyed.contains_key(&key) {
+        return;
+    }
+    let id = egui::Id::new("game_query");
+    let now = ctx.input(|i| i.time);
+    let (last, since) = ctx.data(|d| d.get_temp::<(String, f64)>(id)).unwrap_or_default();
+    if last != q {
+        ctx.data_mut(|d| d.insert_temp(id, (q.to_string(), now)));
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    } else if now - since < 0.2 {
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    } else {
+        app.keyed.insert(key.clone(), None);
+        app.rest("GET", format!("/games/autocomplete?q={}&filter_group=default", super::directory::urlencode(q)), None, Tag::Keyed(key));
+    }
+}
+
 fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usize) -> Option<usize> {
     let ch = chan.id;
     let draft = app.drafts.entry(ch).or_default();
@@ -1061,6 +1148,11 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         Item::Role(id, name, _) => (format!("@{name}"), format!("<@&{id}>")),
         Item::Everyone(e) => (format!("@{e}"), format!("@{e}")),
         Item::AtTime => ("@time".into(), "@time".into()),
+        Item::AtGame => ("@game".into(), "@game".into()),
+        Item::Game(id, name, _) => {
+            app.store.game_names.insert(*id, name.clone());
+            (format!("@{name}"), format!("<@${id}>"))
+        }
         Item::When(secs, st) => {
             let raw = format!("<t:{secs}:{st}>");
             (raw.clone(), raw)

@@ -276,7 +276,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         keys(app, &ctx);
     }
     let (mark, title) = place(app);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "title")), title.clone()));
+    crate::ui::settings::said(&ctx, "title", &title);
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
     egui::Panel::top("titlebar")
         .exact_size(HEIGHT)
@@ -682,6 +682,20 @@ fn empty(ui: &mut Ui, what: &str) {
     ui.add_space(24.0);
 }
 
+/// How many of a channel's mentions its card shows before "Load more messages".
+const CARD_SHOWN: usize = 3;
+
+fn card_button(ui: &mut Ui, r: Rect, icon: Icon, tip: &str, mark: &str) -> bool {
+    let resp = ui.interact(r, ui.id().with(mark), egui::Sense::click());
+    ui.painter().rect(r, 8, if resp.hovered() { NAV_HOVER } else { HOVER }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
+    super::settings::mark(ui, mark, r);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.on_hover_text(tip).clicked()
+}
+
 fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.mentions.as_ref()) else {
         ui.add_space(24.0);
@@ -695,38 +709,90 @@ fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
     }
     let s = &app.store;
     let mut jump = None;
+    let mut read = None;
+    let mut order: Vec<Id> = Vec::new();
     for m in list {
-        let c = s.channels.get(&m.channel);
-        Frame::new().fill(pal().bg_floating).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(12).show(ui, |ui| {
+        if !order.contains(&m.channel) {
+            order.push(m.channel);
+        }
+    }
+    for ch in order {
+        let c = s.channels.get(&ch);
+        let msgs: Vec<&Message> = list.iter().filter(|m| m.channel == ch).collect();
+        let more_id = egui::Id::new(("inbox_more", ch));
+        let all = ui.data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
+        let shown = if all { msgs.len() } else { msgs.len().min(CARD_SHOWN) };
+        Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                let g = c.map(|c| c.guild).unwrap_or(0);
-                if g != 0 {
-                    let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
-                    guild_mark(ui, s, g, r);
-                }
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    let name = match c {
-                        Some(c) if c.guild != 0 => format!("# {}", c.name),
-                        Some(c) => super::channel_title(s, c.id),
-                        None => "Unknown channel".into(),
-                    };
-                    ui.label(RichText::new(name).font(semi(16.0)).color(pal().header_primary));
-                    if let Some(g) = s.guilds.get(&g) {
-                        ui.label(RichText::new(&g.name).font(reg(12.0)).color(pal().header_secondary));
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 60.0), Sense::hover());
+            let g = c.map(|c| c.guild).unwrap_or(0);
+            let p = ui.painter();
+            let icon = Rect::from_min_size(hr.left_top() + vec2(12.0, 14.0), vec2(32.0, 32.0));
+            if g != 0 {
+                guild_mark(ui, s, g, icon);
+            } else {
+                icons::draw(ui.painter(), Icon::People, icon.shrink(4.0), pal().header_secondary);
+            }
+            icons::draw(p, Icon::ChevronRight, Rect::from_center_size(hr.left_top() + vec2(58.0, 24.0), vec2(12.0, 12.0)), pal().header_secondary);
+            let (name, hash) = match c {
+                Some(c) if c.guild != 0 => (c.name.clone(), true),
+                Some(c) => (super::channel_title(s, c.id), false),
+                None => ("Unknown channel".into(), false),
+            };
+            let mut x = hr.left() + 72.0;
+            if hash {
+                icons::draw(p, Icon::Hash, Rect::from_center_size(pos2(x + 6.0, hr.top() + 22.0), vec2(12.0, 12.0)), pal().channel_default);
+                x += 16.0;
+            }
+            let room = hr.width() - (x - hr.left()) - 100.0;
+            text::paint(p, pos2(x, hr.top() + 22.0), Align2::LEFT_CENTER, &name, semi(16.0), pal().header_primary, room);
+            let sub = match (s.guilds.get(&g), c.and_then(|c| s.channels.get(&c.parent))) {
+                (Some(g), Some(cat)) if cat.kind == 4 => format!("{} \u{203a} {}", g.name, cat.name),
+                (Some(g), _) => g.name.clone(),
+                _ => String::new(),
+            };
+            text::paint(p, pos2(hr.left() + 72.0, hr.top() + 41.0), Align2::LEFT_CENTER, &sub, reg(12.0), pal().header_secondary, hr.width() - 172.0);
+            let done = Rect::from_min_size(pos2(hr.right() - 12.0 - 32.0, hr.top() + 14.0), vec2(32.0, 32.0));
+            let go = done.translate(vec2(-40.0, 0.0));
+            if card_button(ui, go, Icon::Jump, "Jump to Message", &format!("inbox:jump:{ch}")) {
+                jump = msgs.first().map(|m| (m.channel, m.id));
+            }
+            if card_button(ui, done, Icon::Check, "Mark As Read", &format!("inbox:read:{ch}")) {
+                read = Some(ch);
+            }
+            ui.painter().hline(hr.x_range(), hr.bottom() - 0.5, egui::Stroke::new(1.0, pal().border_subtle));
+            for m in &msgs[..shown] {
+                Frame::new().inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    let r = chat::preview(ui, s, m);
+                    app.rects.insert(format!("inbox:mention:{}", m.id), r.rect);
+                    if r.clicked() {
+                        jump = Some((m.channel, m.id));
                     }
                 });
-            });
-            ui.add_space(8.0);
-            let r = chat::preview(ui, s, m);
-            app.rects.insert(format!("inbox:mention:{}", m.id), r.rect);
-            if r.clicked() {
-                jump = Some((m.channel, m.id));
+            }
+            if shown < msgs.len() {
+                let (br, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                ui.painter().hline(br.x_range(), br.top() + 0.5, egui::Stroke::new(1.0, pal().border_subtle));
+                let col = if resp.hovered() { pal().header_primary } else { pal().link };
+                ui.painter().text(br.center(), Align2::CENTER_CENTER, "Load more messages", medium(14.0), col);
+                super::settings::mark(ui, &format!("inbox:more:{ch}"), br);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    ui.data_mut(|d| d.insert_temp(more_id, true));
+                }
             }
         });
         ui.add_space(16.0);
+    }
+    if let Some(ch) = read {
+        app.mark_read(&[ch]);
+        if let Some(l) = app.inbox.as_mut().and_then(|i| i.mentions.as_mut()) {
+            l.retain(|m| m.channel != ch);
+        }
     }
     jump
 }

@@ -605,6 +605,11 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
         pill(b, &name, Some(Link::Role(id)), fg, bg);
         return Some(n);
     }
+    if let Some(id) = inner.strip_prefix("@$").and_then(|x| x.parse::<Id>().ok()) {
+        let name = b.cx.store.game_names.get(&id).map_or_else(|| "@game".to_string(), |n| format!("@{n}"));
+        pill(b, &name, None, pal().mention_fg, pal().mention_bg);
+        return Some(n);
+    }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
         let known = b.cx.store.users.contains_key(&id) || b.cx.store.members.get(&b.cx.guild).is_some_and(|m| m.contains_key(&id));
         let name = if b.cx.embed && !known { format!("<@{id}>") } else { format!("@{}", b.cx.store.name_in(b.cx.guild, id)) };

@@ -362,7 +362,51 @@ impl Run {
                     self.mark("bot_choices_picked");
                 }
                 self.next(200);
-                self.step = 3526;
+                self.step = 3594;
+            }
+            3594..=3596 => {
+                let file = std::env::temp_dir().join("rustcord_modal_upload.txt");
+                let put = |app: &mut App| {
+                    let _ = std::fs::write(&file, "from the e2e run");
+                    if let Some(crate::ui::botmodal::Field::Files(f)) = app.interactions.modal.as_mut().and_then(|m| m.fields.iter_mut().find(|f| matches!(f, crate::ui::botmodal::Field::Files(f) if f.custom_id == "shot"))) {
+                        f.picked = vec![file.clone()];
+                    }
+                };
+                let count = |app: &App| app.interactions.modal.as_ref().and_then(|m| m.fields.iter().find_map(|f| match f {
+                    crate::ui::botmodal::Field::Files(f) if f.custom_id == "shot" => Some(f.picked.len()),
+                    _ => None,
+                }));
+                match self.step {
+                    3594 => {
+                        put(app);
+                        self.next(400);
+                    }
+                    3595 => {
+                        let (Some(r), Some(view)) = (rect("bot_file_x:shot:0"), rect("bot_modal:scroll")) else {
+                            if late {
+                                self.fail("the uploaded file never showed in the modal".into());
+                            }
+                            return;
+                        };
+                        if !view.shrink(12.0).contains(r.center()) {
+                            self.queue.push_back(vec![Event::PointerMoved(view.center())]);
+                            self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -160.0), phase: egui::TouchPhase::Move, modifiers: egui::Modifiers::NONE }]);
+                            self.wait = Instant::now() + Duration::from_millis(350);
+                            return;
+                        }
+                        self.shot(ctx, "bot_modal_file.png");
+                        self.click(r.center());
+                        self.next(400);
+                    }
+                    _ => {
+                        if count(app) == Some(0) {
+                            self.mark("bot_file_removed");
+                        }
+                        put(app);
+                        self.next(200);
+                        self.step = 3526;
+                    }
+                }
             }
             3526 => {
                 self.shot(ctx, "bot_modal_filled.png");
