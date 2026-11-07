@@ -195,7 +195,7 @@ fn landing(app: &mut App, ui: &mut Ui, chan: &Channel, r: Rect, speakers: &[Id],
         }
     }
     if pill(ui, b, "Invite", Color32::from_rgba_unmultiplied(151, 151, 159, 31), Color32::WHITE, medium(16.0)).clicked() {
-        app.invite_people(chan.id);
+        app.invite_people(chan.id, "Stage Channel");
     }
 }
 

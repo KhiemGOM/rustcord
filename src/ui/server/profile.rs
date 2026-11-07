@@ -274,6 +274,10 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
         list
     });
     let mut ids: Vec<String> = d["game_application_ids"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+    let gid = app.server.as_ref().map_or(0, |s| s.guild);
+    let top: Vec<String> = app.server_data("top_games", format!("/guilds/{gid}/top-games")).and_then(|v| v["top_games"].as_array()).map(|a| a.iter().filter_map(|g| g["game_application_id"].as_str().map(str::to_string)).collect()).unwrap_or_default();
+    let mut shown = ids.clone();
+    shown.extend(top.into_iter().filter(|t| !ids.contains(t)));
     let q = {
         let s = app.server.as_mut().unwrap();
         let r = super::super::settings::input(ui, &mut s.search, "Search for a game...", false);
@@ -304,7 +308,7 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
             }
         });
     }
-    if !ids.is_empty() {
+    if !shown.is_empty() {
         ui.add_space(8.0);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
         ui.painter().rect_filled(r, 0, faint(51));
@@ -312,9 +316,11 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
         ui.label(RichText::new("Your Members Play").font(bold(12.0)).color(pal().header_secondary));
         ui.add_space(8.0);
         let mut drop = None;
+        let mut take = None;
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
-            for id in &ids {
+            for id in &shown {
+                let on = ids.contains(id);
                 let name = known.iter().find(|(k, _, _)| k.to_string() == *id).map(|(_, n, _)| n.clone()).or_else(|| raw["games"].as_array().into_iter().flatten().find(|g| g["id"].as_str() == Some(id)).and_then(|g| g["name"].as_str().map(str::to_string))).unwrap_or_default();
                 let icon = known.iter().find(|(k, _, _)| k.to_string() == *id).and_then(|(_, _, i)| i.clone());
                 ui.vertical(|ui| {
@@ -324,13 +330,20 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
                     if let Some(i) = icon {
                         super::super::text::image(ui.painter(), &format!("{}/app-icons/{id}/{i}.png?size=256", crate::api::cdn()), r);
                     }
+                    if !on {
+                        ui.painter().rect_filled(r, CornerRadius::same(4), Color32::from_black_alpha(96));
+                    }
                     if resp.hovered() {
                         let x = Rect::from_center_size(pos2(r.right() - 14.0, r.top() + 14.0), vec2(20.0, 20.0));
-                        ui.painter().circle_filled(x.center(), 10.0, RED);
-                        icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), Color32::WHITE);
+                        ui.painter().circle_filled(x.center(), 10.0, if on { RED } else { GREEN });
+                        icons::draw(ui.painter(), if on { Icon::Close } else { Icon::Check }, x.shrink(4.0), Color32::WHITE);
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        if resp.clicked() {
+                    }
+                    if resp.clicked() {
+                        if on {
                             drop = Some(id.clone());
+                        } else {
+                            take = Some(id.clone());
                         }
                     }
                     ui.label(RichText::new(name).font(reg(12.0)).color(pal().header_secondary));
@@ -340,6 +353,7 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
         if let Some(id) = drop {
             ids.retain(|i| *i != id);
         }
+        ids.extend(take);
     }
     d["game_application_ids"] = json!(ids);
 }

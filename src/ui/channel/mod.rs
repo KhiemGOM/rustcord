@@ -340,11 +340,11 @@ fn save_bar(app: &mut App, ui: &mut Ui, area: Rect) {
             reqs.push((format!("/webhooks/{}", h.id), body, Tag::Chan("hook_saved")));
         }
         if !changed.is_empty() || perms_changed {
-            let mut body = Value::Object(changed);
-            if perms_changed {
-                body["permission_overwrites"] = s.perms.iter().map(|o| json!({ "id": o.id.to_string(), "type": o.kind, "allow": o.allow.to_string(), "deny": o.deny.to_string() })).collect();
-            }
-            reqs.push((format!("/channels/{}", s.chan), body, Tag::Chan("saved")));
+            let was = parse_overwrites(&s.base);
+            let put = s.perms.iter().filter(|o| !was.iter().any(|w| (w.id, w.allow, w.deny) == (o.id, o.allow, o.deny))).map(|o| json!({ "id": o.id.to_string(), "type": o.kind, "allow": o.allow.to_string(), "deny": o.deny.to_string() })).collect();
+            let clear = was.iter().filter(|w| !s.perms.iter().any(|o| o.id == w.id)).map(|w| w.id).collect();
+            let patch = (!changed.is_empty()).then(|| Value::Object(changed));
+            app.net.send(crate::net::Cmd::Channel { channel: s.chan, patch, put, clear, tag: Tag::Chan("saved") });
         }
         for (path, body, tag) in reqs {
             app.rest("PATCH", path, Some(body), tag);

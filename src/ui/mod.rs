@@ -1,4 +1,5 @@
 mod accounts;
+pub mod applications;
 mod actions;
 mod attach;
 mod active;
@@ -66,6 +67,7 @@ mod blocked;
 mod pollvotes;
 mod remind;
 mod sourcepop;
+pub mod viewas;
 mod uploading;
 mod chatinvite;
 mod invitecard;
@@ -263,6 +265,7 @@ pub struct App {
     pub embed: Option<embedplay::Play>,
     pub embed_at: Option<(embedplay::Key, egui::Rect, egui::Rect)>,
     pub events: Option<events::Events>,
+    pub joins: applications::Joins,
     pub quests: Option<quests::Quests>,
     pub shop: Option<shop::Shop>,
     pub friends_tab: u8,
@@ -523,6 +526,7 @@ impl App {
             embed: None,
             embed_at: None,
             events: None,
+            joins: Default::default(),
             quests: None,
             shop: None,
             buy: None,
@@ -917,6 +921,10 @@ impl App {
         self.net.send(Cmd::Rest { method, path, body, tag });
     }
 
+    pub fn rest_in(&self, method: &'static str, path: String, body: Option<serde_json::Value>, location: &str, tag: Tag) {
+        self.net.send(Cmd::Located { method, path, body, context: json!({ "location": location }), tag });
+    }
+
     /// Notification settings the way discord saves them: servers go in the bulk route keyed by
     /// id, direct messages on their own.
     pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
@@ -929,6 +937,11 @@ impl App {
 
     pub fn audit(&self, method: &'static str, path: String, body: Option<serde_json::Value>, reason: &str, tag: Tag) {
         self.net.send(Cmd::Audit { method, path, body, reason: reason.trim().to_string(), tag });
+    }
+
+    pub fn proto_patch(&self, bytes: Vec<u8>, tag: Tag) {
+        use base64::Engine;
+        self.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(bytes) })), tag);
     }
 
     pub fn mark_read(&mut self, chans: &[Id]) {
@@ -1081,10 +1094,14 @@ impl App {
     }
 
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
-        // ack the message before this one so it shows as the first unread
-        let prev = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
+        let (prev, mentions) = {
+            let list = self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default();
+            let prev = list.iter().rev().find(|m| m.id < id).map(|m| m.id).unwrap_or(((id >> 22) - 1) << 22);
+            let mentions = list.iter().filter(|m| m.id > prev && m.author != self.store.me && self.store.mentions_me(m)).count();
+            (prev, mentions)
+        };
         self.store.reads.entry(ch).or_default().last_acked = prev;
-        self.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(json!({ "manual": true, "token": null })), Tag::Quiet);
+        self.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(json!({ "manual": true, "mention_count": mentions })), Tag::Quiet);
         self.marker = Some((ch, prev));
         self.marker_bar = true;
         self.hold_ack = Some(ch);
@@ -1567,6 +1584,9 @@ impl App {
                     Tag::Chan(k) if k != "channel" => channel::loaded(self, k, serde_json::json!([])),
                     Tag::Home("members") => community::loaded(self, "members", serde_json::json!({ "members": [] })),
                     Tag::Events(g, k) => events::loaded(self, g, k, &serde_json::json!([])),
+                    Tag::Joins(g, i) => applications::failed(self, g, i),
+                    Tag::JoinsFor(..) => {}
+                    Tag::JoinsAct(g) => applications::done(self, g, false, &serde_json::Value::Null),
                     Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
                     Tag::Quests(k) => quests::loaded(self, k, &serde_json::json!({})),
                     Tag::Follow => follow::done(self, false),
@@ -1651,6 +1671,9 @@ impl App {
             Tag::Chan(k) => channel::loaded(self, k, v),
             Tag::Home(k) => community::loaded(self, k, v),
             Tag::Events(g, k) => events::loaded(self, g, k, &v),
+            Tag::Joins(g, i) => applications::loaded(self, g, i, &v),
+            Tag::JoinsFor(g, u) => applications::others(self, g, u, &v),
+            Tag::JoinsAct(g) => applications::done(self, g, true, &v),
             Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &v),
             Tag::Quests(k) => quests::loaded(self, k, &v),
             Tag::Follow => follow::done(self, true),
@@ -2038,7 +2061,7 @@ impl App {
                 }
                 self.hold_ack = None;
             }
-            let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { continue };
+            let Some((last, flags)) = self.store.channels.get(&ch).map(|c| (c.last_msg, if c.is_thread() { 2 } else { (c.guild != 0) as u8 })) else { continue };
             let (acked, mentions) = self.store.reads.get(&ch).map_or((0, 0), |r| (r.last_acked, r.mentions));
             if last <= acked && mentions == 0 {
                 continue;
@@ -2047,7 +2070,10 @@ impl App {
             r.last_acked = last.max(r.last_acked);
             r.mentions = 0;
             if last != 0 {
-                self.net.send(Cmd::Ack { channel: ch, id: last });
+                let flags = (r.flags != Some(flags)).then_some(flags);
+                r.flags = r.flags.or(flags);
+                let last_viewed = ((chrono::Utc::now().timestamp_millis() - 1_420_070_400_000) as f64 / 86_400_000.0).ceil() as u64;
+                self.net.send(Cmd::Ack { channel: ch, id: last, last_viewed, flags });
             }
         }
     }
@@ -2063,6 +2089,7 @@ impl App {
         server::show(self, &ctx);
         channel::show(self, &ctx);
         events::show(self, &ctx);
+        applications::modals(self, &ctx);
         stage::modals(self, &ctx);
         settings::verify(self, &ctx);
         share::show(self, &ctx);
@@ -2295,6 +2322,7 @@ impl eframe::App for App {
             splash::show(ui);
         } else {
             self.streamer_banner(ui);
+            viewas::bar(self, ui);
             // a modal over the app; shown first so it takes ESC before the chat does
             let settings_open = self.settings_page.is_some();
             if settings_open {

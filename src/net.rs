@@ -113,6 +113,10 @@ pub enum Tag {
     Events(Id, u8),
     // who is interested in an event: its server and the event
     EventUsers(Id, Id),
+    // a server's member applications: its list for a status, one person's earlier ones, an approve or reject
+    Joins(Id, u8),
+    JoinsFor(Id, Id),
+    JoinsAct(Id),
     // the quests hub: 0 on offer, 1 claimed, 2 the Orbs balance, 3 an accept or claim went through
     Quests(u8),
     // a follow of an announcement channel, from its dialog
@@ -149,16 +153,21 @@ pub enum Cmd {
     Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
-    Ack { channel: Id, id: Id },
+    Ack { channel: Id, id: Id, last_viewed: u64, flags: Option<u8> },
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
+    /// Channel settings the way discord saves them: the changed fields in a PATCH, then one PUT
+    /// per overwrite that changed and one DELETE per overwrite that went, then the channel again.
+    Channel { channel: Id, patch: Option<Value>, put: Vec<Value>, clear: Vec<Id>, tag: Tag },
     /// A moderation write whose reason rides in X-Audit-Log-Reason.
     Audit { method: &'static str, path: String, body: Option<Value>, reason: String, tag: Tag },
     /// A purchase: sent once, never retried, and only when `charge_barred` says nothing stands in the way.
     Charge { method: &'static str, path: String, body: Value, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
+    /// A write that says where in the app it came from, in X-Context-Properties.
+    Located { method: &'static str, path: String, body: Option<Value>, context: Value, tag: Tag },
     /// A GET with an app's own access token instead of ours.
     Bearer { path: String, token: String, tag: Tag },
     Voice(voice::Cmd),
@@ -174,9 +183,9 @@ pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 fn allowed(c: &Cmd) -> bool {
     match c {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
-        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
+        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
-        Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } => false,
+        Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
@@ -369,15 +378,15 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 }
                 let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
             }
-            Cmd::Ack { channel, id } => {
+            Cmd::Ack { channel, id, last_viewed, flags } => {
                 tokio::spawn(async move {
-                    let _ = a.ack(channel, id).await;
+                    let _ = a.ack(channel, id, last_viewed, flags).await;
                 });
             }
             Cmd::Rest { method, path, body, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
+                    let res = a.try_call(m.clone(), &path, body, None, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(_)) => {}
@@ -385,10 +394,31 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     }
                 });
             }
+            Cmd::Channel { channel, patch, put, clear, tag } => {
+                tokio::spawn(async move {
+                    use reqwest::Method;
+                    let chan = format!("/channels/{channel}");
+                    let mut writes: Vec<(Method, String, Option<Value>)> = Vec::new();
+                    writes.extend(patch.map(|b| (Method::PATCH, chan.clone(), Some(b))));
+                    writes.extend(put.into_iter().map(|o| (Method::PUT, format!("{chan}/permissions/{}", o["id"].as_str().unwrap_or_default()), Some(o))));
+                    writes.extend(clear.into_iter().map(|id| (Method::DELETE, format!("{chan}/permissions/{id}"), None)));
+                    let mut failed = None;
+                    for (m, path, body) in writes {
+                        if let Err(f) = a.try_call(m.clone(), &path, body, None, None, None).await {
+                            failed.get_or_insert(fail(&tx, &m, &path, f));
+                        }
+                    }
+                    let res = match failed {
+                        Some(e) => Err(e),
+                        None => a.try_call(Method::GET, &chan, None, None, None, None).await.map_err(|f| fail(&tx, &Method::GET, &chan, f)),
+                    };
+                    tx.send(Ev::Rest { tag, res });
+                });
+            }
             Cmd::Audit { method, path, body, reason, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason)).await.map_err(|f| fail(&tx, &m, &path, f));
+                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason), None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
                 });
             }
@@ -409,8 +439,18 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Sudo { method, path, body, mfa, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, mfa.as_deref(), None).await.map_err(|f| fail(&tx, &m, &path, f));
+                    let res = a.try_call(m.clone(), &path, body, mfa.as_deref(), None, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
+                });
+            }
+            Cmd::Located { method, path, body, context, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
+                    let res = a.try_call(m.clone(), &path, body, None, None, Some(&context)).await.map_err(|f| fail(&tx, &m, &path, f));
+                    match (&tag, &res) {
+                        (Tag::Quiet, _) => {}
+                        _ => tx.send(Ev::Rest { tag, res }),
+                    }
                 });
             }
             Cmd::Bearer { path, token, tag } => {

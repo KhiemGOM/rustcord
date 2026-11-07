@@ -184,7 +184,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         return;
     }
     if guild != 0 && corner(ui, "call_invite", bar.left() + 40.0, cy, Icon::PersonAdd, "Invite").clicked() {
-        app.invite_people(ch);
+        app.invite_people(ch, "");
     }
     let full = app.call.full;
     if corner(ui, "call_full", bar.right() - 16.0, cy, Icon::Fullscreen, if full { "Exit Full Screen" } else { "Full Screen" }).clicked() {

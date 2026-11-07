@@ -278,7 +278,7 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             app.mark_read(&chans);
         }
         Some(Act::Invite(c)) => {
-            app.invite_people(c);
+            app.invite_people(c, "Guild Context Menu");
         }
         Some(Act::Mute(m, secs)) => app.mute_for(gid, true, m, secs),
         Some(Act::Notifs) => app.guild_notifs = Some(gid),

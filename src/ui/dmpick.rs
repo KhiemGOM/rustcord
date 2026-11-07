@@ -158,14 +158,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
     }
     if link && let Some(c) = app.group_pick.take().and_then(|p| p.base) {
-        app.invite_people(c);
+        app.invite_people(c, "Group DM Invite Create");
         return;
     }
     if go && let Some(p) = app.group_pick.take() {
         match p.base.and_then(|c| app.store.channels.get(&c).map(|c| (c.id, c.kind, c.recipients.clone()))) {
             Some((c, 3, _)) => {
                 for u in &p.picked {
-                    app.rest("PUT", format!("/channels/{c}/recipients/{u}"), None, Tag::fail("Failed to add user to the group"));
+                    app.rest_in("PUT", format!("/channels/{c}/recipients/{u}"), None, "Add Friends to DM", Tag::fail("Failed to add user to the group"));
                 }
             }
             other => {

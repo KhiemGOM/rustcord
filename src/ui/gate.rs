@@ -89,7 +89,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
     ui.add_space(8.0);
     if hit {
         match bar {
-            Bar::Blocked(u) => app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::reason()),
+            Bar::Blocked(u) => app.rest_in("DELETE", format!("/users/@me/relationships/{u}"), None, "DM Channel", Tag::reason()),
             Bar::Follow => app.follow = app.cur().map(super::follow::Follow::new),
         }
     }

@@ -514,7 +514,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
         let code = super::invitecard::code_of(&t);
         if !code.is_empty() {
             let session = app.store.session.clone();
-            app.rest("POST", format!("/invites/{code}"), Some(json!({ "session_id": session })), Tag::Invite);
+            app.rest_in("POST", format!("/invites/{code}"), Some(json!({ "session_id": session })), "Join Guild", Tag::Invite);
         }
         close = true;
     }
@@ -539,9 +539,14 @@ enum Pick {
 
 impl App {
     /// Invite People: a fresh link to the channel, good for 30 days like the official client's.
-    pub fn invite_people(&mut self, ch: Id) {
+    pub fn invite_people(&mut self, ch: Id, source: &str) {
         self.made_invite = Some(MadeInvite { ch, code: None, query: String::new(), sent: Default::default() });
-        self.rest("POST", format!("/channels/{ch}/invites"), Some(json!({ "max_age": 2_592_000, "max_uses": 0, "temporary": false })), Tag::MadeInvite);
+        let body = Some(json!({ "max_age": 2_592_000, "max_uses": 0, "temporary": false }));
+        if source.is_empty() {
+            self.rest("POST", format!("/channels/{ch}/invites"), body, Tag::MadeInvite);
+        } else {
+            self.rest_in("POST", format!("/channels/{ch}/invites"), body, source, Tag::MadeInvite);
+        }
     }
 }
 
@@ -634,7 +639,12 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
             let room = (ui.ctx().content_rect().height() - 330.0).clamp(144.0, 480.0);
             egui::ScrollArea::vertical().max_height(room).auto_shrink([false, true]).show(ui, |ui| {
                 Frame::new().inner_margin(Margin::symmetric(24, 0)).show(ui, |ui| {
-                    for &p in &rows {
+                    if link.is_none() {
+                        ui.add_space(24.0);
+                        ui.label(RichText::new("Fetching your friends list...").font(semi(16.0)).color(pal().header_primary));
+                        ui.add_space(24.0);
+                    }
+                    for &p in rows.iter().filter(|_| link.is_some()) {
                         let (key, ch) = match p {
                             Pick::Chan(c) => (c, store.channels.get(&c)),
                             Pick::Friend(u) => (u, None),
@@ -687,7 +697,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
                             send = Some(p);
                         }
                     }
-                    if rows.is_empty() {
+                    if rows.is_empty() && link.is_some() {
                         ui.add_space(24.0);
                         ui.vertical_centered(|ui| ui.label(RichText::new("No results found").color(pal().header_secondary)));
                         ui.add_space(24.0);

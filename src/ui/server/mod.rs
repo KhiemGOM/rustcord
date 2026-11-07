@@ -22,6 +22,8 @@ mod automod;
 mod bar;
 mod expression;
 mod invites;
+mod linked;
+mod listing;
 mod members;
 mod moderation;
 pub(super) mod perms;
@@ -139,6 +141,14 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
         "members" => return members::loaded(app, v),
         "audit_more" => return moderation::more(app, v),
         "automod_saved" => return automod::saved(app, v),
+        "automod_regex" => {
+            if !v.is_array()
+                && let Some(s) = &mut app.server
+            {
+                s.errors.retain(|e| !e.0.starts_with("trigger_metadata.regex_patterns"));
+            }
+            return;
+        }
         "webhook_new" => return apps::created(app, v),
         _ => {}
     }

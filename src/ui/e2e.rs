@@ -43,6 +43,7 @@ mod more;
 mod players;
 mod perms;
 mod themes;
+mod serverx;
 mod refusals;
 mod live;
 mod local;
@@ -1413,6 +1414,7 @@ impl Run {
             4320..=4339 => self.sticker_steps(app, ctx),
             4400..=4499 => self.perms_steps(app, ctx),
             4500..=4599 => self.themes_steps(app, ctx),
+            4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
             3110..=3189 => self.members_steps(app, ctx),
@@ -3683,7 +3685,7 @@ impl Run {
             // Invite People on a server none of our friends are known to be in: the dms and
             // friends list under the search, and Invite on a friend with no dm makes one first
             437 => {
-                app.invite_people(2400);
+                app.invite_people(2400, "Guild Context Menu");
                 self.next(800);
             }
             438 => {

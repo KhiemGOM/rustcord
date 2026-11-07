@@ -33,6 +33,8 @@ struct Form {
     roles: HashSet<Id>,
     chans: HashSet<Id>,
     enabled: bool,
+    checked: String,
+    edited: f64,
 }
 
 const KINDS: [(u8, &str, &str, &str); 5] = [
@@ -282,7 +284,26 @@ fn edit(app: &mut App, ui: &mut Ui, gid: Id) {
             area(ui, &mut f.words, "Words to block");
             ui.add_space(16.0);
             field(ui, "Regex patterns", "Optional. Block text matching these patterns, one per line.");
+            let before = f.regex.clone();
             area(ui, &mut f.regex, "^spam.*$");
+            let now = ui.input(|i| i.time);
+            if f.regex != before {
+                f.edited = now;
+            }
+            if f.regex.trim().is_empty() {
+                f.checked.clear();
+                if let Some(s) = &mut app.server {
+                    s.errors.retain(|e| !e.0.starts_with("trigger_metadata.regex_patterns"));
+                }
+            } else if f.regex != f.checked && now - f.edited > 0.5 {
+                f.checked = f.regex.clone();
+                app.rest("POST", format!("/guilds/{gid}/auto-moderation/rules/validate"), Some(f.body()), Tag::Server("automod_regex"));
+            } else if f.regex != f.checked {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(550));
+            }
+            for (path, why) in app.server.iter().flat_map(|s| s.errors.iter()).filter(|e| e.0.starts_with("trigger_metadata.regex_patterns.")) {
+                ui.label(RichText::new(format!("{}: {why}", path.trim_start_matches("trigger_metadata.regex_patterns."))).font(reg(12.0)).color(pal().critical));
+            }
             ui.add_space(16.0);
             field(ui, "Exempt words", "Words that should never be blocked by this rule.");
             area(ui, &mut f.allow, "Allowed words");

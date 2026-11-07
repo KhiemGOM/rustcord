@@ -3,6 +3,8 @@ is a mark, what it sent is read from the mock's request log."""
 
 import json
 
+import protowire
+
 
 def checks(runs, reqs, data):
     both = lambda m: all(m in r.get("marks_ms", {}) for r in runs.values())
@@ -13,7 +15,7 @@ def checks(runs, reqs, data):
     searches = [r.get("path", "") for r in sent("GET", "/guilds/1000/messages/search")]
     installs = [body(r) for r in sent("POST", "/oauth2/authorize") if "client_id=9101" in r.get("path", "")]
     threads = [body(r) for r in sent("POST", "/channels/2100/threads")]
-    statuses = [body(r) for r in sent("PATCH", "/users/@me/settings")]
+    statuses = protowire.status_writes(reqs)
     return {
         "menus: Log Out asked first and Escape kept the session": both("logout_asks_first") and both("logout_cancel_stays_in"),
         "menus: the Ctrl+/ sheet sat inside the window, at the default size and a short one": both("combos_fits") and both("combos_fits_short"),
@@ -31,6 +33,6 @@ def checks(runs, reqs, data):
         "menus: the title bar said Discover and Quests": both("title_says_discover") and both("title_says_quests"),
         "menus: streamer mode kept the note out of the profile popout": both("streamer_hides_note"),
         "menus: a search with pinned, before and has went out as ids and params": any("pinned=true" in p and "max_id=" in p and "has=image" in p for p in searches),
-        "menus: a timed status sent its expiry": any(s.get("status") == "idle" and s.get("status_expires_at") for s in statuses),
+        "menus: a timed status sent its expiry": any(s.get("status") == "idle" and s.get("expires") and s.get("created") for s in statuses),
         "menus: Create Your Server and Notification Settings fit a short window": both("new_server_fits_short") and both("notifs_fits_short"),
     }

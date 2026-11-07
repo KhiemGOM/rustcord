@@ -580,7 +580,7 @@ impl Run {
                     self.next(500);
                 }
             }
-            _ => self.step = 3110,
+            _ => self.step = 4800,
         }
     }
 }

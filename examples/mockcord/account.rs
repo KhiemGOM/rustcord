@@ -128,6 +128,29 @@ fn guarded(a: &mut Acct, method: &str, p: &[&str], body: &Value, token: Option<&
     Some((401, json!({ "message": "Two factor is required for this operation", "code": 60003, "mfa": { "ticket": ticket, "methods": methods } })))
 }
 
+/// What discord refuses in the status settings (11): a status that isn't one of the four, and a
+/// custom status longer than 128 characters.
+fn status_refusal(patch: &[u8]) -> Option<&'static str> {
+    let text = |n: &wire::Node| match n {
+        wire::Node::Bytes(b) => wire::decode(b).into_iter().find_map(|(f, v)| match (f, v) {
+            (1, wire::Node::Bytes(s)) => Some(String::from_utf8_lossy(&s).into_owned()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    for (g, n) in wire::decode(patch) {
+        let (11, wire::Node::Bytes(group)) = (g, n) else { continue };
+        for (f, n) in wire::decode(&group) {
+            match f {
+                1 if !text(&n).is_some_and(|s| ["online", "idle", "dnd", "invisible"].contains(&s.as_str())) => return Some("Status must be online, idle, dnd or invisible."),
+                2 if text(&n).is_some_and(|s| s.chars().count() > 128) => return Some("Custom status is too long."),
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
 fn challenge() -> String {
     json!({ "publicKey": { "challenge": "bW9jay1jaGFsbGVuZ2U", "rpId": "discord.com", "allowCredentials": [{ "type": "public-key", "id": "AQID" }], "userVerification": "preferred", "timeout": 60000 } }).to_string()
 }
@@ -160,6 +183,9 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
         ("GET", ["users", "@me", "settings-proto", "1"]) => ok(json!({ "settings": b64(&a.settings) })),
         ("PATCH", ["users", "@me", "settings-proto", "1"]) => {
             let patch = base64::engine::general_purpose::STANDARD.decode(b["settings"].as_str().unwrap_or("")).unwrap_or_default();
+            if let Some(why) = status_refusal(&patch) {
+                return Some(err(400, why));
+            }
             a.settings = wire::merge(&a.settings, &patch);
             ok(json!({ "settings": b64(&a.settings) }))
         }
