@@ -529,11 +529,26 @@ fn fit((w, h): (usize, usize), want: (usize, usize)) -> (usize, usize) {
     (((w as f32 * k) as usize & !1).max(2), ((h as f32 * k) as usize & !1).max(2))
 }
 
+/// The picture as it's seen: wide pixels widened and a rotated one turned on its side. The
+/// converter keeps the source's shape inside whatever frame it is given, with black bars to make
+/// up the difference, so the frame has to be asked for in that shape.
+unsafe fn display(t: &IMFMediaType, (w, h): (usize, usize)) -> (usize, usize) {
+    unsafe {
+        let (pn, pd) = t.GetUINT64(&MF_MT_PIXEL_ASPECT_RATIO).map_or((1, 1), |p| ((p >> 32) as usize, (p & 0xffff_ffff) as usize));
+        let (w, h) = if pn == 0 || pd == 0 { (w, h) } else if pn >= pd { (w * pn / pd, h) } else { (w, h * pd / pn) };
+        match t.GetUINT32(&MF_MT_VIDEO_ROTATION) {
+            Ok(90 | 270) => (h, w),
+            _ => (w, h),
+        }
+    }
+}
+
 unsafe fn output(r: &IMFSourceReader, (w, h): (usize, usize), native: u64) -> windows::core::Result<()> {
     unsafe {
         let mt = MFCreateMediaType()?;
         mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
         mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
+        mt.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, 1 << 32 | 1)?;
         let size = (w as u64) << 32 | h as u64;
         if size != native {
             mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
@@ -584,7 +599,7 @@ unsafe fn open_video(path: &std::path::Path, gpu: bool, want: (usize, usize)) ->
         r.SetStreamSelection(VIDEO, true)?;
         let native = r.GetNativeMediaType(VIDEO, 0)?;
         let size = native.GetUINT64(&MF_MT_FRAME_SIZE)?;
-        let (nw, nh) = ((size >> 32) as usize, (size & 0xffff_ffff) as usize);
+        let (nw, nh) = display(&native, ((size >> 32) as usize, (size & 0xffff_ffff) as usize));
         let rate = native.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(30 << 32 | 1);
         let fps = (rate >> 32) as f32 / (rate & 0xffff_ffff).max(1) as f32;
         let k = (MAX_W as f32 / nw as f32).min(MAX_H as f32 / nh as f32).min(1.0);
