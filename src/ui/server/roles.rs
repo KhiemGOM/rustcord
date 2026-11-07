@@ -153,6 +153,7 @@ fn list(app: &mut App, ui: &mut Ui, gid: Id) {
             let b = Rect::from_center_size(pos2(x, r.center().y), vec2(36.0, 36.0));
             x -= 44.0;
             let br = ui.interact(b, ui.id().with(("role_btn", role.id, i)), Sense::click());
+            app.rects.insert(format!("role:{}:{}", if i == 0 { "more" } else { "edit" }, role.id), b);
             ui.painter().rect(b, CornerRadius::same(8), crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &br)), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
             icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(18.0, 18.0)), pal().header_primary);
             if br.hovered() {
@@ -166,6 +167,9 @@ fn list(app: &mut App, ui: &mut Ui, gid: Id) {
                 let rid = role.id;
                 egui::Popup::menu(&br).show(|ui| {
                     crate::ui::menu_body(ui, |ui| {
+                        if crate::ui::viewas::can(app, gid, rid) && crate::ui::menu_item(ui, Some(Icon::Eye), "View Server as Role", false) {
+                            act = Some(("view", rid, 0));
+                        }
                         if crate::ui::menu_item(ui, Some(Icon::Copy), "Duplicate Role", false) {
                             act = Some(("dup", rid, 0));
                         }
@@ -217,6 +221,7 @@ fn list(app: &mut App, ui: &mut Ui, gid: Id) {
     match act {
         Some(("edit", id, tab)) => open(app, gid, id, tab),
         Some(("id", id, _)) => ui.ctx().copy_text(id.to_string()),
+        Some(("view", id, _)) => crate::ui::viewas::start(app, gid, id),
         Some(("dup", id, _)) => duplicate(app, gid, id),
         Some(("delete", id, _)) => delete(app, gid, id),
         _ => {}

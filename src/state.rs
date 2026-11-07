@@ -1224,6 +1224,9 @@ impl Tracked {
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     pub me: Id,
+    /// View Server as Role: the server and the roles its channels and permissions are worked out from instead of ours
+    #[serde(skip)]
+    pub viewing: Option<(Id, Vec<Id>)>,
     pub users: Map<Id, User>,
     pub guilds: Map<Id, Guild>,
     pub guild_order: Vec<Id>,
@@ -1426,11 +1429,12 @@ impl Store {
     /// Server-wide permissions, before any channel overwrites.
     pub fn my_perms(&self, gid: Id) -> u64 {
         let Some(g) = self.guilds.get(&gid) else { return 0 };
-        if g.owner == self.me {
+        let (owner, roles) = self.roles_in(g);
+        if owner {
             return u64::MAX;
         }
         let mut p = g.roles.get(&g.id).map(|r| r.perms).unwrap_or(0);
-        for r in &g.my_roles {
+        for r in roles {
             if let Some(r) = g.roles.get(r) {
                 p |= r.perms;
             }
@@ -1447,11 +1451,12 @@ impl Store {
         let Some(g) = self.guilds.get(&c.guild) else {
             return u64::MAX;
         };
-        if g.owner == self.me {
+        let (owner, roles) = self.roles_in(g);
+        if owner {
             return u64::MAX;
         }
         let mut p = g.roles.get(&g.id).map(|r| r.perms).unwrap_or(0);
-        for r in &g.my_roles {
+        for r in roles {
             if let Some(r) = g.roles.get(r) {
                 p |= r.perms;
             }
@@ -1464,17 +1469,27 @@ impl Store {
             p = (p & !o.deny) | o.allow;
         }
         let (mut allow, mut deny) = (0, 0);
-        for r in &g.my_roles {
+        for r in roles {
             if let Some(o) = c.overwrites.iter().find(|o| o.id == *r && o.kind == 0) {
                 allow |= o.allow;
                 deny |= o.deny;
             }
         }
         p = (p & !deny) | allow;
-        if let Some(o) = c.overwrites.iter().find(|o| o.id == self.me && o.kind == 1) {
+        if self.viewing.as_ref().is_none_or(|v| v.0 != g.id)
+            && let Some(o) = c.overwrites.iter().find(|o| o.id == self.me && o.kind == 1)
+        {
             p = (p & !o.deny) | o.allow;
         }
         p
+    }
+
+    /// Whether we own the server and the roles we have in it, or the roles we're viewing it as.
+    fn roles_in<'a>(&'a self, g: &'a Guild) -> (bool, &'a [Id]) {
+        match &self.viewing {
+            Some((gid, roles)) if *gid == g.id => (false, roles),
+            _ => (g.owner == self.me, &g.my_roles),
+        }
     }
 
     /// Seconds left of our own timeout in a server, 0 when we aren't in one.
@@ -1972,6 +1987,7 @@ impl Store {
                 last_acked: sid(&r["last_message_id"]),
                 mentions: r["mention_count"].as_u64().unwrap_or(0) as u32,
                 last_pin: iso_ms(&r["last_pin_timestamp"]),
+                flags: r["flags"].as_u64().map(|f| f as u8),
             };
             match r["read_state_type"].as_u64().unwrap_or(0) {
                 0 => self.reads.insert(sid(&r["id"]), state),
@@ -1987,7 +2003,6 @@ impl Store {
         };
         self.muted.clear();
         self.events_muted.clear();
-                flags: r["flags"].as_u64().map(|f| f as u8),
         self.gprefs.clear();
         self.unreads.clear();
         self.levels.clear();
