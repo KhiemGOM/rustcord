@@ -1486,6 +1486,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 })
                 .response
                 .interact(Sense::click());
+            super::settings::mark(&cui, &format!("thread_card:{}", t.id), r.rect);
             if r.hovered() {
                 cui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }

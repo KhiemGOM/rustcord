@@ -23,7 +23,7 @@ fn rows(app: &App, i: usize) -> usize {
 }
 
 fn menu(ctx: &egui::Context, label: &str) -> Option<Rect> {
-    ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("menu_row", label))))
+    Run::at(ctx, &format!("menu_row:{}", label))
 }
 
 fn first_row(app: &App) -> Option<Rect> {

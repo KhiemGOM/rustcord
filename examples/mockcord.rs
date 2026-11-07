@@ -903,6 +903,11 @@ fn ready(last_general: u64) -> Value {
     let mut help = ch(2012, 0, "help", 1, Some(2010));
     help["last_message_id"] = json!(snow(now_ms() - 60_000).to_string());
     let mut forum = ch(FORUM, 15, "ideas", 4, Some(2010));
+    forum["topic"] = json!("- Make sure to explain your suggestions in-depth.
+- Suggest one feature/idea per post.
+- Do not have general discussions within the posts.
+
+If you'd like to upvote a suggestion, use the reaction!");
     forum["available_tags"] = json!([{ "id": "1", "name": "feature", "emoji_name": "✨" }, { "id": "2", "name": "ux" }]);
     let mut slow = ch(2015, 0, "slow", 6, Some(2010));
     slow["rate_limit_per_user"] = json!(30);
@@ -1022,6 +1027,8 @@ fn ready(last_general: u64) -> Value {
             { "id": "3001", "type": 3, "name": "", "recipient_ids": ["102", "103"], "last_message_id": snow(now_ms() - 7_200_000).to_string() },
             // muted below: its messages mustn't ping or pop up in the rail
             { "id": "3002", "type": 1, "recipient_ids": ["105"], "last_message_id": snow(now_ms() - 9_000_000).to_string() },
+            // a friend's dm opened a day ago with nothing said in it: the Wave button
+            { "id": snow(now_ms() - 86_400_000).to_string(), "type": 1, "recipient_ids": ["102"], "last_message_id": null },
         ],
         "read_state": { "entries": reads, "partial": false, "version": 1 },
         "user_guild_settings": { "entries": [

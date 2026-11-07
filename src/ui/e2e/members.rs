@@ -28,7 +28,7 @@ fn row_of(app: &App, uid: Id) -> Option<serde_json::Value> {
 }
 
 fn menu(ctx: &egui::Context, label: &str) -> Option<Rect> {
-    ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("menu_row", label))))
+    Run::at(ctx, &format!("menu_row:{}", label))
 }
 
 impl Run {

@@ -663,7 +663,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                 });
             });
         });
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "combos:panel")), modal.response.rect));
+    super::settings::mark_in(ctx, "combos:panel", modal.response.rect);
     if lit.iter().flatten().any(|t| t.elapsed() < Duration::from_millis(300)) {
         ctx.request_repaint();
     }

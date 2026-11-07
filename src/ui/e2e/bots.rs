@@ -56,7 +56,7 @@ impl Run {
         let Some(chan) = chan else { return };
         let menus = bot_msg(app, general, |m| !m.components.is_empty()).map_or(0, |m| m.id);
         let late = self.step_at.elapsed() > Duration::from_secs(12);
-        let rect = |key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("e2e", key))));
+        let rect = |key: &str| Self::at(ctx, key);
         let info = app.slash_info(&chan);
         let at = |app: &App, key: &str| app.rects.get(key).copied();
         macro_rules! when {

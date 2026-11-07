@@ -20,7 +20,7 @@ impl Run {
     pub(super) fn clips_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let me = app.store.me;
         let dir = self.dir.join("clips");
-        let rect = |key: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", key))));
+        let rect = |key: &str| Self::at(ctx, key);
         let mp4s = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
             std::fs::read_dir(dir).into_iter().flatten().filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "mp4")).collect()
         };

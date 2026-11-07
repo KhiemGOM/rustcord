@@ -148,7 +148,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             });
             ui.add_space(16.0);
             let (frame, resp) = ui.allocate_exact_size(view, Sense::drag());
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "crop_view")), frame));
+            super::settings::mark(ui, "crop_view", frame);
             if resp.dragged() {
                 c.off += resp.drag_delta();
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -195,7 +195,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 close |= grey_button(ui, "Cancel", (VIEW_W - 8.0) / 2.0).clicked();
                 ui.add_enabled_ui(!busy, |ui| {
                     let b = button(ui, if busy { "Applying…" } else { "Apply" }, BLURPLE, (VIEW_W - 8.0) / 2.0);
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "crop_apply")), b.rect));
+                    super::settings::mark(ui, "crop_apply", b.rect);
                     apply |= b.clicked();
                 });
             });

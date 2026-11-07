@@ -46,14 +46,14 @@ fn product(app: &App, sku: &str) -> Option<Value> {
 impl Run {
     fn wipe(ctx: &egui::Context) {
         for k in KEYS {
-            ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", k))));
+            ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", k))));
         }
     }
 
     /// Click a marked control once the dialog has settled, then forget the mark.
     fn tap(&mut self, ctx: &egui::Context, key: &str) -> bool {
         let Some(r) = Self::at(ctx, key) else { return false };
-        ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", key))));
+        ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", key))));
         self.click(r.center());
         true
     }

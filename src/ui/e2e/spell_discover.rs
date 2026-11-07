@@ -6,7 +6,7 @@ use super::*;
 impl Run {
     pub(super) fn spell_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let general = self.target.1;
-        let row = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         let menu = egui::Popup::is_any_open(ctx);
         let flagged = app.spell.flagged(&app.settings);
         match self.step {

@@ -252,7 +252,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
     if let Some((x, row, _)) = it.next() {
         let pill = Rect::from_min_size(pos2(r.left() + x, r.top() + row as f32 * 28.0), vec2(24.0, 24.0));
         let resp = ui.interact(pill, ui.id().with("role_add"), Sense::click());
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "role_add")), pill));
+        super::settings::mark(ui, "role_add", pill);
         let p = ui.painter();
         p.rect_stroke(pill, CornerRadius::same(8), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         icons::draw(p, Icon::Plus, Rect::from_center_size(pill.center(), vec2(12.0, 12.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
@@ -308,7 +308,7 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
                 egui::ScrollArea::vertical().max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {
                     for (id, name, color) in list.iter().filter(|(_, n, _)| n.to_lowercase().contains(&q)) {
                         let (r, resp) = ui.allocate_exact_size(vec2(204.0, 32.0), Sense::click());
-                        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "role_pick")), r));
+                        super::settings::mark(ui, "role_pick", r);
                         if resp.hovered() {
                             ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_hover);
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -717,7 +717,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     for a in &live {
                         let icon = icons_by_app.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
-                        match presence::card(ui, a, 432.0, &icon, spotify) {
+                        match presence::card(ui, a, 432.0, &icon, spotify, &name, true) {
                             Some(Act::Play(u)) => act = Some(Do::Play(u)),
                             Some(Act::Connect) => act = Some(Do::Play("https://discord.com/settings/connections".into())),
                             _ => {}

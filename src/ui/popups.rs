@@ -1178,7 +1178,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
                     for a in &live {
                         ui.add_space(12.0);
                         let icon = app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
-                        match presence::card(ui, a, 268.0, &icon, spotify) {
+                        match presence::card(ui, a, 268.0, &icon, spotify, &name, false) {
                             Some(presence::Act::Play(u)) => open_url = Some(u),
                             Some(presence::Act::Connect) => open_url = Some("https://discord.com/settings/connections".into()),
                             None => {}
@@ -1866,7 +1866,7 @@ pub fn search_panel(app: &mut App, ui: &mut Ui) {
                 }
                 let label = ["Newest", "Oldest", "Most Relevant"][s.sort as usize % 3];
                 let b = sort_button(ui);
-                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "search_sort")), b.rect));
+                super::settings::mark(ui, "search_sort", b.rect);
                 let frame = Frame::menu(&ui.ctx().global_style());
                 egui::Popup::menu(&b).align(egui::RectAlign::BOTTOM_END).gap(4.0).frame(frame).show(|ui| {
                     ui.set_width(148.0);
