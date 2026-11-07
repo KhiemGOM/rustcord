@@ -2890,7 +2890,7 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     let (r, resp) = ui.allocate_at_least(vec2(w, h), Sense::click());
     list_row(label, resp.id);
     // menus have no app to report to; the e2e driver finds rows here by label
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
+    settings::mark(ui, &format!("menu_row:{label}"), r);
     let p = ui.painter();
     if resp.has_focus() {
         p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });

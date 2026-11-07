@@ -117,6 +117,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                     });
                 }
             }
+            guidelines(ui, forum, &mut rects);
             ui.add_space(16.0);
             filters(ui, forum, &mut v);
             ui.add_space(20.0);
@@ -190,6 +191,48 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
         let shift = ui.input(|i| i.modifiers.shift);
         app.open_thread(p, false, shift);
     }
+}
+
+/// The forum's topic as a card under the post box, until it's closed.
+fn guidelines(ui: &mut Ui, forum: &Channel, rects: &mut Vec<(String, Rect)>) {
+    let Some(topic) = forum.topic.as_ref().filter(|t| !t.trim().is_empty()) else { return };
+    let hidden = egui::Id::new(("forum_guidelines_closed", forum.id));
+    if ui.data(|d| d.get_temp::<bool>(hidden)).unwrap_or(false) {
+        return;
+    }
+    let body: String = topic
+        .lines()
+        .map(|l| match l.trim_start().strip_prefix("- ").or_else(|| l.trim_start().strip_prefix("* ")) {
+            Some(item) => format!("•  {item}"),
+            None => l.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("
+");
+    ui.add_space(16.0);
+    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_muted)).inner_margin(16).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+        icons::draw(ui.painter(), Icon::Forum, Rect::from_center_size(pos2(head.left() + 10.0, head.center().y), vec2(20.0, 20.0)), pal().header_primary);
+        ui.painter().text(pos2(head.left() + 32.0, head.center().y), Align2::LEFT_CENTER, "Post Guidelines", semi(20.0), pal().header_primary);
+        let x = Rect::from_center_size(pos2(head.right() - 8.0, head.center().y), vec2(16.0, 16.0));
+        let resp = ui.interact(x.expand(6.0), ui.id().with("guidelines_close"), Sense::click());
+        icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+        rects.push(("forum:guidelines_close".into(), x));
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if resp.on_hover_text("Close").clicked() {
+            ui.data_mut(|d| d.insert_temp(hidden, true));
+        }
+        ui.add_space(8.0);
+        Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let r = ui.add(egui::Label::new(RichText::new(body).font(reg(14.0)).color(pal().text_normal)));
+            rects.push(("forum:guidelines".into(), r.rect));
+        });
+    });
 }
 
 /// The bar over the posts: a search that narrows them by title, New Post at its right end

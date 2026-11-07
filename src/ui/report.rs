@@ -212,7 +212,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                     let label = opt[1].as_str().unwrap_or("");
                                     let on = picked.iter().any(|p| p == id);
                                     let (rect, resp) = ui.allocate_exact_size(vec2(392.0, if opt[2].is_string() { 52.0 } else { 40.0 }), Sense::click());
-                                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("report_check{n}"))), rect));
+                                    super::settings::mark(ui, &format!("report_check{n}"), rect);
                                     crate::ui::motion::wash(ui, &resp, rect, CornerRadius::same(4), MENU_HOVER, 0.05);
                                     let b = egui::Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0));
                                     if on {
@@ -289,7 +289,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     for (n, c) in node["children"].as_array().into_iter().flatten().enumerate() {
                         let label = c[0].as_str().unwrap_or("");
                         let (rect, resp) = ui.allocate_exact_size(vec2(392.0, 44.0), Sense::click());
-                        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", format!("report_child{n}"))), rect));
+                        super::settings::mark(ui, &format!("report_child{n}"), rect);
                         crate::ui::motion::wash(ui, &resp, rect, CornerRadius::same(4), MENU_HOVER, 0.05);
                         super::text::paint(ui.painter(), egui::pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, label, reg(16.0), pal().header_primary, 340.0);
                         icons::draw(ui.painter(), Icon::ChevronRight, egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), vec2(20.0, 20.0)), pal().header_secondary);
@@ -324,7 +324,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         });
                         if !kind.is_empty() {
                             let b = button(ui, &label, if kind == "cancel" { pal().bg_accent } else { BLURPLE }, 96.0);
-                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "report_button")), b.rect));
+                            super::settings::mark(ui, "report_button", b.rect);
                             if b.clicked() && required && !r.busy {
                                 match kind {
                                     "next" => go = node["button"]["target"].as_str().map(str::to_string),

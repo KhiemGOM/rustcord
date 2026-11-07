@@ -10,7 +10,7 @@ impl Run {
         let at = |k: &str| Self::at(ctx, k);
         let forget = |keys: &[&str]| {
             for k in keys {
-                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", *k))));
+                ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", *k))));
             }
         };
         let page = app.shop.as_ref().map(|s| s.page);

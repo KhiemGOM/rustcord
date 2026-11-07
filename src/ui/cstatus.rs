@@ -64,7 +64,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 close |= grey_button(ui, "Cancel", if had { 120.0 } else { 192.0 }).clicked();
                 let b = button(ui, "Save", BLURPLE, if had { 136.0 } else { 192.0 });
-                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "cstatus_save")), b.rect));
+                settings::mark(ui, "cstatus_save", b.rect);
                 save |= b.clicked();
             });
         });
