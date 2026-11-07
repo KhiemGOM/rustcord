@@ -1567,7 +1567,7 @@ impl App {
         match tag {
             Tag::Link(_) | Tag::Buy(..) => {}
             Tag::Pins(ch) => {
-                let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
+                let list: Vec<Message> = v["items"].as_array().into_iter().flatten().map(|p| self.store.parse_message(&p["message"])).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
                     self.pins = Some((ch, Some(list)));
                 }
