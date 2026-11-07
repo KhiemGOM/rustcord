@@ -30,6 +30,7 @@ def checks(runs, reqs, data):
     refused = [r for r in reqs if r.get("refused") and ("/ack" in r.get("path", "") or "/permissions/" in r.get("path", "") or "/requests/" in r.get("path", ""))]
     located = lambda method, part, loc: any(r.get("method") == method and part in r.get("path", "") and (context(r) or {}).get("location") == loc for r in reqs)
     patches = [body(r) for r in sent("PATCH", "/guilds/1001/requests/")]
+    meta = [body(r) for r in sent("PATCH", "/guilds/1001/discovery-metadata")]
     puts = [body(r) for r in sent("PUT", "/channels/2102/permissions/")]
     links = [e for r in sent("PUT", "/guilds/1001/roles/4800/connections/configuration") for g in body(r) for e in g]
     return {
@@ -46,4 +47,5 @@ def checks(runs, reqs, data):
             "serverx: a linked role's Steam requirement saved with its Games field, operator and value": both("linked_fields")
             and any(e.get("connection_type") == "steam" and "connection_metadata_field" not in e for e in links)
             and any(e.get("connection_metadata_field") == "game_count" and e.get("operator") == 4 and e.get("value") == "0" for e in links),
+            "serverx: a discoverable server's tags were added and saved to its discovery metadata": both("discovery_listing") and any(b.get("keywords") == ["rust"] for b in meta),
     }

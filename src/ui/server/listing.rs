@@ -40,15 +40,18 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     super::super::settings::h5(ui, "Tags");
     form::small(ui, "In Server Discovery, you can search by name, description, and tags. You can add up to 10.");
     ui.add_space(8.0);
-    let mut add = String::new();
+    let typed = egui::Id::new(("discovery_tag", gid));
+    let mut add: String = ui.data_mut(|d| d.get_temp(typed)).unwrap_or_default();
     let r = super::super::settings::input(ui, &mut add, "Add a tag", false);
     super::super::settings::mark(ui, "field:discovery_tag", r.rect);
     if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         let t = add.trim();
         if !t.is_empty() && t.chars().count() <= 32 && keywords.len() < 10 && !keywords.iter().any(|k| k.eq_ignore_ascii_case(t)) {
             keywords.push(t.to_string());
+            add.clear();
         }
     }
+    ui.data_mut(|d| d.insert_temp(typed, add));
     ui.add_space(8.0);
     let mut drop = None;
     ui.horizontal_wrapped(|ui| {
@@ -72,7 +75,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     let saved: Vec<String> = meta["keywords"].as_array().into_iter().flatten().filter_map(|k| k.as_str().map(str::to_string)).collect();
     let dirty = primary != meta["primary_category_id"].as_u64() || saved != keywords;
     let body = d.clone();
-    if ui.add_enabled_ui(dirty, |ui| form::button(ui, "Save Changes", true)).inner.clicked() {
+    let save = ui.add_enabled_ui(dirty, |ui| form::button(ui, "Save Changes", true)).inner;
+    super::super::settings::mark(ui, "discovery:save", save.rect);
+    if save.clicked() {
         s.draft.remove("discovery_meta");
         app.rest("PATCH", format!("/guilds/{gid}/discovery-metadata"), Some(body), Tag::Server("discovery_meta"));
     }

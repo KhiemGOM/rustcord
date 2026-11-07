@@ -277,6 +277,52 @@ impl Run {
                 app.server = None;
                 self.next(300);
             }
+            4830 => {
+                if let Some(g) = app.store.guilds.get_mut(&OWNED)
+                    && !g.features.iter().any(|f| f == "DISCOVERABLE")
+                {
+                    g.features.push("DISCOVERABLE".into());
+                }
+                app.open_server_settings(OWNED);
+                if let Some(s) = &mut app.server {
+                    s.page = crate::ui::server::Page::Discovery;
+                }
+                self.next(900);
+            }
+            4831 => {
+                let Some(r) = Self::at(ctx, "field:discovery_tag") else {
+                    if stuck {
+                        self.fail("the discovery page had no tag field".into());
+                    }
+                    return;
+                };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("rust".into())]);
+                self.next(400);
+            }
+            4832 => {
+                self.key(egui::Key::Enter);
+                self.next(500);
+            }
+            4833 => {
+                let Some(r) = Self::at(ctx, "discovery:save") else { return };
+                self.shot(ctx, "discovery_listing.png");
+                self.click(r.center());
+                self.next(900);
+            }
+            4834 => {
+                let saved = app.server.as_ref().and_then(|s| s.data.get("discovery_meta")).is_some_and(|m| m["keywords"] == serde_json::json!(["rust"]));
+                if saved {
+                    self.mark("discovery_listing");
+                    if let Some(g) = app.store.guilds.get_mut(&OWNED) {
+                        g.features.retain(|f| f != "DISCOVERABLE");
+                    }
+                    app.server = None;
+                    self.next(300);
+                } else if stuck {
+                    self.fail("saving the discovery tags did not come back".into());
+                }
+            }
             _ => self.step = 3110,
         }
     }
