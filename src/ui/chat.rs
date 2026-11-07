@@ -1468,16 +1468,20 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if let Some(t) = m.thread.and_then(|t| d.store.channels.get(&t)) {
             cui.add_space(acc);
             acc = 4.0;
+            let line = thread_line(d.store, t, d.guild);
             let r = Frame::new()
                 .fill(pal().bg_secondary)
+                .stroke(Stroke::new(1.0, pal().border_subtle))
                 .corner_radius(4)
-                .inner_margin(Margin::symmetric(12, 8))
+                .inner_margin(8)
                 .show(&mut cui, |ui| {
                     ui.set_max_width(400.0);
+                    ui.spacing_mut().item_spacing = vec2(8.0, 2.0);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&t.name).font(semi(14.0)).color(pal().header_primary));
                         ui.label(RichText::new(format!("{} Messages ›", t.msg_count)).font(semi(14.0)).color(pal().link));
                     });
+                    ui.add(Label::new(RichText::new(line).font(reg(14.0)).color(pal().text_normal)).truncate());
                 })
                 .response
                 .interact(Sense::click());
