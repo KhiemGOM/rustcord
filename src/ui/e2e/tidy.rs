@@ -1,9 +1,9 @@
 //! Steps 4700 to 4799: what the web view of a video embed does beyond following its poster. A page
 //! asking for fullscreen through a real click in it (the mock's player has a button), the window
-//! then covering the whole client area and giving it back; and the message toolbar, which egui
-//! draws, showing over the embed's native window. `python e2e/from_step.py 4700` runs this group.
+//! then covering the whole client area and giving it back; and the member list at 940 wide.
+//! `python e2e/from_step.py 4700` runs this group.
 
-use egui::{Event, vec2};
+use egui::vec2;
 
 use super::Run;
 use super::embed::{frame_rects, msg_of, near, playing, poster, side};
@@ -89,38 +89,11 @@ impl Run {
                 self.next(0);
             }
             4707 => {
-                let Some((full, clip)) = frame_rects(app, b) else { return };
-                let at = egui::pos2(full.right().min(clip.right() - 40.0) - 60.0, full.bottom() + 28.0);
-                self.queue.push_back(vec![Event::PointerMoved(at)]);
-                self.next(500);
-            }
-            4708 => {
-                let Some((full, _)) = frame_rects(app, b) else { return };
-                let (Some((_, bar)), Some(p)) = (app.bar, &app.embed) else { return };
-                let over = bar.intersect(full);
-                if !over.is_positive() {
-                    self.shot(ctx, "embed_toolbar_apart.png");
-                    return self.fail(format!("the message toolbar {bar:?} never reached the embed {full:?}"));
-                }
-                let (_, win, _) = p.frame.probe();
-                let hole = embedplay::px(over, ppp);
-                let local = [hole[0] - win[0], hole[1] - win[1], hole[2], hole[3]];
-                if p.frame.hole().is_some_and(|h| h.iter().zip(local).all(|(x, y)| near(*x, y))) {
-                    self.mark("embed_window_leaves_toolbar_hole");
-                }
-                self.window_shot("embed_toolbar.png");
-                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(10.0, 10.0))]);
-                self.next(400);
-            }
-            4709 => {
-                if app.bar.is_none() && app.embed.as_ref().is_some_and(|p| p.frame.hole().is_none()) {
-                    self.mark("embed_window_whole_again");
-                }
                 app.rects.retain(|k, _| !k.starts_with("member:"));
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(940.0, 500.0)));
                 self.next(1200);
             }
-            4710 => {
+            4708 => {
                 if app.cur() != Some(EMBEDS) {
                     return;
                 }

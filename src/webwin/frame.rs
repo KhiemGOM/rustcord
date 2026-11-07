@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 use windows_sys::Win32::Foundation::{HWND, RECT};
-use windows_sys::Win32::Graphics::Gdi::{BLACK_BRUSH, ClientToScreen, CombineRgn, CreateRectRgn, DeleteObject, GetStockObject, RGN_DIFF, SetWindowRgn};
+use windows_sys::Win32::Graphics::Gdi::{BLACK_BRUSH, ClientToScreen, GetStockObject};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -19,7 +19,6 @@ pub struct Frame {
     win: HWND,
     main: HWND,
     hushed: std::cell::Cell<bool>,
-    hole: std::cell::Cell<(Option<[i32; 4]>, [i32; 2])>,
 }
 
 fn meet(a: [i32; 4], b: [i32; 4]) -> Option<[i32; 4]> {
@@ -42,21 +41,19 @@ impl Frame {
             CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 0, 0, main as HWND, std::ptr::null_mut(), inst, std::ptr::null())
         };
         let host = Host::open(ctx, win as isize, Cfg { src, hello: Value::Null, embed: true });
-        Frame { host: Some(host), win, main: main as HWND, hushed: Default::default(), hole: Default::default() }
+        Frame { host: Some(host), win, main: main as HWND, hushed: Default::default() }
     }
 
     pub fn status(&self) -> Status {
         self.host.as_ref().map_or(Status::Failed, Host::status)
     }
 
-    /// `over` is something egui draws over the embed, which the window leaves a hole for.
-    pub fn place(&self, full: [i32; 4], clip: [i32; 4], show: bool, over: Option<[i32; 4]>) {
+    pub fn place(&self, full: [i32; 4], clip: [i32; 4], show: bool) {
         let Some(host) = &self.host else { return };
         let seen = meet(full, clip).filter(|_| show);
         match seen {
             Some(v) => {
                 unsafe { SetWindowPos(self.win, std::ptr::null_mut(), v[0], v[1], v[2], v[3], SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW) };
-                self.carve(over.and_then(|h| meet(h, v)).map(|h| [h[0] - v[0], h[1] - v[1], h[2], h[3]]), [v[2], v[3]]);
                 host.place(self.win as isize, [full[0] - v[0], full[1] - v[1], full[2], full[3]], true);
             }
             None => {
@@ -64,29 +61,6 @@ impl Frame {
                 host.place(self.win as isize, [0, 0, full[2], full[3]], false);
             }
         }
-    }
-
-    fn carve(&self, hole: Option<[i32; 4]>, size: [i32; 2]) {
-        if self.hole.replace((hole, size)) == (hole, size) {
-            return;
-        }
-        unsafe {
-            let rgn = match hole {
-                Some([x, y, w, h]) => {
-                    let (all, cut) = (CreateRectRgn(0, 0, size[0], size[1]), CreateRectRgn(x, y, x + w, y + h));
-                    CombineRgn(all, all, cut, RGN_DIFF);
-                    DeleteObject(cut);
-                    all
-                }
-                None => std::ptr::null_mut(),
-            };
-            SetWindowRgn(self.win, rgn, 1);
-        }
-    }
-
-    /// The hole the window has now, in its own pixels.
-    pub fn hole(&self) -> Option<[i32; 4]> {
-        self.hole.get().0
     }
 
     pub fn fullscreen(&self) -> bool {
