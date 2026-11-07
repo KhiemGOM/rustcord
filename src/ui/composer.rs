@@ -502,12 +502,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let colon = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == ":")));
     let before = draft_now.len();
     let radius = CornerRadius { nw: top_r, ne: top_r, sw: 8, se: 8 };
+    // below 450 discord folds the gif, sticker and emoji buttons into one
+    let wide = ui.available_width() > 450.0;
     let r = Frame::new()
         .fill(pal().bg_input)
         .inner_margin(1)
         .corner_radius(radius)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            let inside = ui.max_rect();
             if !app.files.is_empty() {
                 Frame::new().inner_margin(Margin { left: 10, right: 10, top: 20, bottom: 10 }).show(ui, |ui| {
                     egui::ScrollArea::horizontal().id_salt(("uploads", side)).show(ui, |ui| {
@@ -537,9 +540,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let slashing = app.slash.contains_key(&ch);
-                    // the text stops short of the buttons: five 40 wide, six with the send button
-                    let buttons = if off { 0.0 } else if app.settings.send_button { 240.0 } else { 200.0 };
-                    let w = (ui.available_width() - buttons - 8.0).max(60.0);
+                    let row_left = ui.cursor().left();
+                    // the text stops short of the buttons, 40 wide each, and gives way to them first
+                    let slots = if off { 0 } else { (if wide { 5 } else { 3 }) + usize::from(app.settings.send_button) };
+                    let buttons = slots as f32 * 40.0;
+                    let w = (ui.available_width() - buttons - 8.0).max(8.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     if slashing {
                         slash::row(app, ui, chan, tid, w, off);
@@ -600,8 +605,15 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         app.save_settings(ui.ctx());
     }
     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
-                    // discord's row, right to left: apps, emoji, sticker, gif, gift; 20px icons 40 apart
-                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    // discord's row: gift, gif, sticker, emoji, apps; 20px icons 40 apart. It sits flush right
+                    // when it fits and runs off the box's edge, clipped, when it doesn't
+                    let x0 = (ui.max_rect().right() - buttons).max(row_left + if slashing { 0.0 } else { 24.0 + 23.0 } + 8.0);
+                    let strip = Rect::from_min_size(pos2(x0, ui.min_rect().top()), vec2(buttons, 56.0));
+                    app.rects.insert("composer:buttons".into(), strip);
+                    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(strip).layout(Layout::left_to_right(Align::Min)));
+                    row.set_clip_rect(ui.clip_rect().intersect(inside));
+                    {
+                        let ui = &mut row;
                         if off {
                             return;
                         }
@@ -614,6 +626,34 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             }
                             resp.on_hover_text(tip)
                         };
+                        gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
+                        if wide {
+                            let gr = slot(ui, Icon::Gif, "Open GIF picker");
+                            gif_rect = Some(gr.rect);
+                            if gr.clicked() {
+                                tab = Some(super::picker::Tab::Gifs);
+                            }
+                            let sr = slot(ui, Icon::Sticker, "Open sticker picker");
+                            app.rects.insert("sticker_button".into(), sr.rect);
+                            if sr.clicked() {
+                                tab = Some(super::picker::Tab::Stickers);
+                            }
+                            let er = slot(ui, Icon::Smile, "Select emoji");
+                            app.rects.insert("emoji_button".into(), er.rect);
+                            if er.clicked() {
+                                tab = Some(super::picker::Tab::Emoji);
+                            }
+                        } else {
+                            let xr = slot(ui, Icon::Smile, "Open expression picker");
+                            app.rects.insert("expression_button".into(), xr.rect);
+                            gif_rect = Some(xr.rect);
+                            if xr.clicked() {
+                                tab = Some(super::picker::Tab::Emoji);
+                            }
+                        }
+                        let ar = slot(ui, Icon::Apps, "Apps");
+                        app.rects.insert("apps_button".into(), ar.rect);
+                        apps_click = ar.clicked();
                         if app.settings.send_button {
                             let (sr, sresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
                             let col = crate::ui::motion::mix(pal().header_secondary, BLURPLE, crate::ui::motion::hot(ui.ctx(), &sresp));
@@ -622,26 +662,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 send_click = true;
                             }
                         }
-                        let ar = slot(ui, Icon::Apps, "Apps");
-                        app.rects.insert("apps_button".into(), ar.rect);
-                        apps_click = ar.clicked();
-                        let er = slot(ui, Icon::Smile, "Select emoji");
-                        app.rects.insert("emoji_button".into(), er.rect);
-                        if er.clicked() {
-                            tab = Some(super::picker::Tab::Emoji);
-                        }
-                        let sr = slot(ui, Icon::Sticker, "Open sticker picker");
-                        app.rects.insert("sticker_button".into(), sr.rect);
-                        if sr.clicked() {
-                            tab = Some(super::picker::Tab::Stickers);
-                        }
-                        let gr = slot(ui, Icon::Gif, "Open GIF picker");
-                        gif_rect = Some(gr.rect);
-                        if gr.clicked() {
-                            tab = Some(super::picker::Tab::Gifs);
-                        }
-                        gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
-                    });
+                    }
                 });
             });
         });
@@ -893,10 +914,6 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), pal().header_primary);
             let note = if *e == "here" { "Notify everyone online in this channel." } else { "Notify everyone who has permission to view this channel." };
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
-        }
-        Item::AtTime => {
-            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@time", semi(15.0), pal().header_primary);
-            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Refer to a time dynamically in the viewer's time zone", reg(13.0), pal().header_secondary);
         }
         Item::When(secs, st) => {
             text::paint(p, pos2(x + 4.0, y), Align2::LEFT_CENTER, &crate::markdown::fmt_ts(*secs, *st), semi(15.0), pal().header_primary, r.width() * 0.7);

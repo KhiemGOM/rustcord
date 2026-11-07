@@ -27,17 +27,30 @@ const CHANGES: [Change; 8] = [
 impl Run {
     /// Scrolls the mark into the window and clicks it; true once the click is queued.
     fn scroll_click(&mut self, ctx: &egui::Context, key: &str) -> bool {
-        let window = ctx.content_rect().shrink2(vec2(0.0, 80.0));
+        let window = ctx.content_rect().shrink2(vec2(0.0, 150.0));
         let Some(r) = Self::at(ctx, key) else { return false };
+        let seen = Id::new(("p4b_seen", key));
+        let still = ctx.data(|d| d.get_temp::<egui::Rect>(seen)) == Some(r);
+        ctx.data_mut(|d| d.insert_temp(seen, r));
         if window.contains_rect(r) {
-            self.click(r.center());
-            return true;
+            if still {
+                self.click(r.center());
+            }
+            return still;
         }
         self.queue.push_back(vec![Event::PointerMoved(window.center())]);
         let dy = if r.top() > window.top() { -200.0 } else { 200.0 };
         self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
         self.wait = Instant::now() + Duration::from_millis(250);
         false
+    }
+
+    fn record(&mut self, app: &App, tag: &str) {
+        for k in ["header:name", "search", "composer", "composer:buttons"] {
+            if let Some(r) = app.rects.get(k) {
+                self.rects.insert(format!("p4b_{tag}_{k}"), serde_json::json!([r.left(), r.top(), r.width(), r.height()]));
+            }
+        }
     }
 
     pub(super) fn p4b_steps(&mut self, app: &mut App, ctx: &egui::Context) {
@@ -78,6 +91,12 @@ impl Run {
                     }
                 } else {
                     if got(&app.settings) == restore {
+                        if stuck && !ctx.data(|d| d.get_temp::<bool>(Id::new("p4b_shot"))).unwrap_or(false) {
+                            ctx.data_mut(|d| d.insert_temp(Id::new("p4b_shot"), true));
+                            self.shot(ctx, "p4b_stuck.png");
+                            self.wait = Instant::now() + Duration::from_millis(1500);
+                            return;
+                        }
                         if stuck {
                             self.fail(format!("clicking {key} did not {} the setting", if restore { "put back" } else { "change" }));
                         }
@@ -99,6 +118,70 @@ impl Run {
                 app.settings_page = None;
                 self.next(300);
             }
+            5005 => {
+                app.settings.zoom = 1.5;
+                app.save_settings(ctx);
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(940.0, 500.0)));
+                app.select_guild(Some(self.target.0));
+                app.open(self.target.1);
+                self.next(1500);
+            }
+            5006 => {
+                self.shot(ctx, "chat_940x500_150_plain.png");
+                self.record(app, "plain");
+                self.next(400);
+            }
+            5007 => {
+                crate::ui::themes::open_themes(app, ctx, None);
+                self.next(1000);
+            }
+            5008 => {
+                if app.themes.panel != Some(crate::ui::themes::Panel::Themes) {
+                    return;
+                }
+                self.shot(ctx, "chat_940x500_150_themes.png");
+                self.record(app, "themes");
+                let Some(r) = Self::at(ctx, "themes:Exit Preview") else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            5009 => {
+                app.settings_page = None;
+                app.start_search(self.target.1, "hello".into());
+                self.next(1200);
+            }
+            5010 => {
+                self.shot(ctx, "chat_940x500_150_search.png");
+                self.record(app, "search");
+                self.next(400);
+            }
+            5011 => {
+                app.search = None;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
+                app.settings.zoom = 1.0;
+                app.save_settings(ctx);
+                self.next(1800);
+            }
+            5012 => {
+                self.shot(ctx, "chat_1280x720_wide.png");
+                self.record(app, "wide");
+                self.next(400);
+            }
+            5013 => {
+                app.start_search(self.target.1, "hello".into());
+                self.next(1200);
+            }
+            5014 => {
+                self.shot(ctx, "chat_1280x720_search.png");
+                self.record(app, "wide_search");
+                self.mark("p4b_chat_column");
+                self.next(400);
+            }
+            5015 => {
+                app.search = None;
+                self.step = 5020;
+            }
+            5030 => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
             5040 => {
                 if app.conn != crate::ui::Conn::Online || app.synced.is_none() {
                     return;
@@ -110,7 +193,7 @@ impl Run {
                 self.mark("p4b_stuck");
                 self.step = 9999;
             }
-            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
+            _ => self.step = 5030,
         }
     }
 }
