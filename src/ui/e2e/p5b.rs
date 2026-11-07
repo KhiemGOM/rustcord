@@ -348,6 +348,50 @@ impl Run {
                 app.store.me_raw["premium_type"] = json!(2);
                 app.settings_page = None;
                 self.next(400);
+                self.step = 5170;
+            }
+            5170 => {
+                app.shop = None;
+                crate::ui::shop::wish::open(app);
+                self.next(1500);
+            }
+            5171 => {
+                let Some(r) = Self::at(ctx, "wish:suggest:0") else {
+                    if stuck {
+                        self.shot(ctx, "wish_suggested_missing.png");
+                        self.fail("the editor's Wishlist tab drew no Suggested items for you".into());
+                    }
+                    return;
+                };
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(400);
+            }
+            5172 => {
+                let Some(h) = Self::at(ctx, "wish:suggest_heart:0") else {
+                    if stuck {
+                        self.fail("hovering a suggested item showed no heart".into());
+                    }
+                    return;
+                };
+                self.shot(ctx, "wish_suggested.png");
+                self.click(h.center());
+                self.next(1200);
+            }
+            5173 => {
+                if Self::at(ctx, "wish:0").is_none() {
+                    if stuck {
+                        self.shot(ctx, "wish_suggested_after.png");
+                        self.fail("hearting a suggested item did not put it on the wishlist".into());
+                    }
+                    return;
+                }
+                self.mark("wish_suggested_added");
+                self.shot(ctx, "wish_suggested_added.png");
+                self.next(600);
+            }
+            5174 => {
+                app.profed = None;
+                self.next(300);
             }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
         }

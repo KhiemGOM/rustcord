@@ -6,6 +6,7 @@ mod card;
 mod draft;
 mod pick;
 mod style;
+mod suggest;
 
 pub use draft::{Pic, Slot, widgets_of};
 pub use pick::gif_arrived;

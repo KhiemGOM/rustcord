@@ -80,10 +80,13 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect) -> f32 {
         Tab::Board => board(app, ed, ui, body) + 48.0,
         Tab::Activity => activity(app, ui, body) + 48.0,
         Tab::Wishlist => {
+            super::suggest::settle(app);
             let w = wish(app, app.store.me);
             let (h, go) = paint_wishlist(ui, body, &w, Color32::WHITE);
             ed.to_shop |= go;
-            h + 48.0
+            let wished = w.skus.clone();
+            let more = super::suggest::show(app, ui, body, body.top() + h + 24.0, &wished);
+            h + 48.0 + if more > 0.0 { more + 24.0 } else { 0.0 }
         }
     }
 }
@@ -109,12 +112,13 @@ fn activity(app: &mut App, ui: &mut Ui, r: Rect) -> f32 {
 pub struct Wish {
     pub loading: bool,
     pub rows: Vec<(String, String)>,
+    pub skus: Vec<String>,
 }
 
 /// What's on someone's wishlist: its id is in their profile, and each product's picture comes with it.
 pub fn wish(app: &mut App, uid: crate::state::Id) -> Wish {
-    let Some(list) = crate::ui::shop::wish::id_of(app, uid) else { return Wish { loading: true, rows: Vec::new() } };
-    let Some(list) = list else { return Wish { loading: false, rows: Vec::new() } };
+    let Some(list) = crate::ui::shop::wish::id_of(app, uid) else { return Wish { loading: true, rows: Vec::new(), skus: Vec::new() } };
+    let Some(list) = list else { return Wish { loading: false, rows: Vec::new(), skus: Vec::new() } };
     let key = format!("wishlist:{list}");
     if !app.keyed.contains_key(&key) {
         app.keyed.insert(key.clone(), None);
@@ -126,7 +130,7 @@ pub fn wish(app: &mut App, uid: crate::state::Id) -> Wish {
         _ => Vec::new(),
     };
     let rows = skus.iter().filter_map(|s| app.product(s)).map(|p| (p.name.clone(), p.still())).collect();
-    Wish { loading: got.is_none(), rows }
+    Wish { loading: got.is_none(), rows, skus }
 }
 
 /// A wishlist in `r` from its top, as tall as it comes out, and whether Explore the Shop was clicked.
