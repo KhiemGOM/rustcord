@@ -3681,7 +3681,7 @@ impl Run {
             // Invite People on a server none of our friends are known to be in: the dms and
             // friends list under the search, and Invite on a friend with no dm makes one first
             437 => {
-                app.invite_people(2400);
+                app.invite_people(2400, "Guild Context Menu");
                 self.next(800);
             }
             438 => {

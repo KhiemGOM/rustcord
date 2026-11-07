@@ -215,7 +215,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         None => {}
     }
     if invite && let Some(c) = app.cur() {
-        app.invite_people(c);
+        app.invite_people(c, "Guild Header");
     }
 
     // the server guide's checklist, fetched the first time the server is shown
@@ -231,7 +231,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut toggle: Option<Id> = None;
     let mut menu: Option<(Id, ChanAct)> = None;
     let mut person: Option<(Id, Id, bool, egui::Pos2)> = None;
-    let mut make_invite: Option<Id> = None;
+    let mut make_invite: Option<(Id, &str)> = None;
     let mut set_status: Option<Id> = None;
     let mut boost_page = false;
     let mut shop_page = false;
@@ -379,7 +379,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         ui.ctx().data_mut(|d| d.insert_temp(revealed, c.id));
                     }
                     if invite {
-                        make_invite = Some(c.id);
+                        make_invite = Some((c.id, "Guild Channels"));
                     }
                     if edit {
                         menu = Some((c.id, ChanAct::Edit));
@@ -437,7 +437,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         Some((c, ChanAct::Mute(m, secs))) => app.mute_for(c, false, m, secs),
         Some((c, ChanAct::Level(l))) => app.set_level(c, l),
-        Some((c, ChanAct::Invite)) => make_invite = Some(c),
+        Some((c, ChanAct::Invite)) => make_invite = Some((c, "Context Menu")),
         Some((c, ChanAct::Link)) => ui.ctx().copy_text(format!("https://discord.com/channels/{gid}/{c}")),
         Some((c, ChanAct::CopyId)) => ui.ctx().copy_text(c.to_string()),
         Some((c, ChanAct::Edit)) => app.open_chan_settings(c),
@@ -528,8 +528,8 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     if let Some(c) = set_status {
         app.status_edit = Some((c, String::new()));
     }
-    if let Some(c) = make_invite {
-        app.invite_people(c);
+    if let Some((c, source)) = make_invite {
+        app.invite_people(c, source);
     }
     if let Some((c, a)) = join_act {
         super::activity::join_from_list(app, c, a);

@@ -917,6 +917,10 @@ impl App {
     /// id, direct messages on their own.
     pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
         if gid == 0 {
+    pub fn rest_in(&self, method: &'static str, path: String, body: Option<serde_json::Value>, location: &str, tag: Tag) {
+        self.net.send(Cmd::Located { method, path, body, context: json!({ "location": location }), tag });
+    }
+
             self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), tag);
         } else {
             self.rest("PATCH", "/users/@me/guilds/settings".into(), Some(json!({ "guilds": { gid.to_string(): body } })), tag);

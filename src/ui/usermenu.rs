@@ -505,7 +505,7 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         Act::Note => app.user_dialog = Some(super::userdlg::Dialog::note(app, uid)),
         Act::FriendNick => app.user_dialog = Some(super::userdlg::Dialog::nick(&app.store, 0, uid)),
         Act::Nick => app.user_dialog = Some(super::userdlg::Dialog::nick(&app.store, gid, uid)),
-        Act::Invite(c) => app.rest("POST", format!("/channels/{c}/invites"), Some(json!({ "max_uses": 1, "unique": true })), Tag::InviteTo(uid)),
+        Act::Invite(c) => app.rest_in("POST", format!("/channels/{c}/invites"), Some(json!({ "max_uses": 1, "unique": true })), "User Invite Context Menu", Tag::InviteTo(uid)),
         Act::Command(cmd) => app.user_command(dm.or(vch), gid, &cmd, uid),
         Act::ManageApp => {
             app.open_server_settings(gid);
@@ -515,31 +515,31 @@ fn run(app: &mut App, ctx: &egui::Context, act: Option<Act>, uid: Id, gid: Id, d
         }
         Act::EditProfile => app.settings_page = Some(super::settings::Page::Profiles),
         Act::Close | Act::Leave => super::popups::leave_dm(app, chan),
-        Act::AddFriend => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
+        Act::AddFriend => app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "ContextMenu", Tag::Friend),
         Act::RemoveFriend => {
             let body = format!("Are you sure you want to remove {name} from your friends?");
             app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
-                app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::reason())
+                app.rest_in("DELETE", format!("/users/@me/relationships/{uid}"), None, "ContextMenu", Tag::reason())
             }));
         }
         Act::Ignore(true) => {
             let body = "You won't see their messages unless you choose to, and they won't know you ignored them.";
             app.confirm = Some(super::Confirm::new(format!("Ignore {name}?"), body, "Ignore", move |app: &mut App| {
                 app.store.ignored.insert(uid);
-                app.rest("PUT", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| { app.store.ignored.remove(&uid); }))
+                app.rest_in("PUT", format!("/users/@me/relationships/{uid}/ignore"), None, "ContextMenu", Tag::rollback(move |app: &mut App| { app.store.ignored.remove(&uid); }))
             }));
         }
         Act::Ignore(false) => {
             app.store.ignored.remove(&uid);
-            app.rest("DELETE", format!("/users/@me/relationships/{uid}/ignore"), None, Tag::rollback(move |app: &mut App| { app.store.ignored.insert(uid); }));
+            app.rest_in("DELETE", format!("/users/@me/relationships/{uid}/ignore"), None, "ContextMenu", Tag::rollback(move |app: &mut App| { app.store.ignored.insert(uid); }));
         }
         Act::Block => {
             let body = "They won't be able to message you, and you won't see their messages unless you choose to.";
             app.confirm = Some(super::Confirm::new(format!("Block {name}?"), body, "Block", move |app: &mut App| {
-                app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), Tag::reason())
+                app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({ "type": 2 })), "ContextMenu", Tag::reason())
             }));
         }
-        Act::Unblock => app.rest("DELETE", format!("/users/@me/relationships/{uid}"), None, Tag::reason()),
+        Act::Unblock => app.rest_in("DELETE", format!("/users/@me/relationships/{uid}"), None, "ContextMenu", Tag::reason()),
         Act::Mute(m, secs) => app.mute_for(chan, false, m, secs),
         Act::PersonMute(on) => person(app, uid, |p| p.muted = on),
         Act::Soundboard(on) => person(app, uid, |p| p.soundboard_muted = on),

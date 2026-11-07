@@ -116,7 +116,8 @@ impl App {
             Go::Ask(code) => self.rest("GET", format!("/invites/{code}?with_counts=true&with_expiration=true&with_permissions=true"), None, Tag::ChatInvite(code)),
             Go::Join(code) => {
                 self.chat_invites.joining(&code);
-                self.rest("POST", format!("/invites/{code}"), Some(serde_json::json!({})), Tag::ChatJoin(code));
+                let session = self.store.session.clone();
+                self.rest_in("POST", format!("/invites/{code}"), Some(serde_json::json!({ "session_id": session })), "Invite Button Embed", Tag::ChatJoin(code));
             }
             Go::Open(g) => self.select_guild(Some(g)),
         }

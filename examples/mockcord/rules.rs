@@ -95,6 +95,16 @@ fn extra(method: &str, parts: &[&str], b: &Value) -> Option<Value> {
     None
 }
 
+/// X-Context-Properties is base64 of a JSON object that says where the request came from.
+pub fn context(raw: &str) -> Option<Value> {
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::STANDARD.decode(raw).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+    match decoded {
+        Some(c) if c["location"].as_str().is_some_and(|l| !l.is_empty()) => None,
+        _ => Some(refuse("X-Context-Properties", "BASE_TYPE_BAD", "Must be base64 of a JSON object with a location.")),
+    }
+}
+
 /// The refusal for a write whose body breaks its route's rules, if the route has rules.
 pub fn check(method: &str, parts: &[&str], body: &[u8]) -> Option<Value> {
     let spec = spec_for(method, parts.get(2..)?)?;
