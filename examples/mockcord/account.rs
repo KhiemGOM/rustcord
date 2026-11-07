@@ -495,6 +495,7 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             if !a.guild_profile.is_empty() {
                 out["guild_member_profile"] = json!(a.guild_profile);
             }
+            out["wishlist_settings"] = json!({ "7700": { "visibility": 1, "updated_at": "2026-11-01T10:00:00+00:00" } });
             ok(out)
         }
         _ => None,

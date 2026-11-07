@@ -936,6 +936,13 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
                 ui.label(RichText::new("Start searches with @ # ! * $ to narrow results.").font(reg(14.0)).color(pal().header_secondary));
+                let learn = ui.add(egui::Label::new(RichText::new("Learn more").font(reg(14.0)).color(pal().link)).sense(Sense::click()));
+                if learn.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if learn.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/115000070311"));
+                }
             });
         });
     // the title and arrows sit on the backdrop around the box
@@ -1279,7 +1286,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     } else if let Some(at) = banner.friend {
         app.user_menu = Some((uid, gid, None, at));
     } else if banner.add {
-        app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
+        app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend);
     } else if banner.mod_view {
         app.open_mod_view(gid, uid);
     } else if dismissed(ctx, &area.response) && app.user_menu.is_none() && app.role_add.is_none() && app.tag_pop.is_none() {
@@ -1443,7 +1450,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         app.user_menu = Some((uid, 0, None, at));
     }
     if banner.add {
-        app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
+        app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend);
     }
     if let Some(n) = save_note {
         app.save_note(uid, n);

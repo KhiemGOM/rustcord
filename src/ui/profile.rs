@@ -502,6 +502,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let h = (screen.height() - 100.0).clamp(480.0, 800.0);
     let mut act = None;
+    let mut explore = false;
     let mut note_rect = Rect::NOTHING;
     let store = &app.store;
     let notes = &mut app.rects;
@@ -707,8 +708,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Tab::Wishlist => {
                     if let Some(w) = &wish {
                         let r = Rect::from_min_size(ui.cursor().min, vec2(432.0, 0.0));
-                        let h = super::profed::board::paint_wishlist(ui, r, w, pal().header_primary);
+                        let (h, go) = super::profed::board::paint_wishlist(ui, r, w, pal().header_primary);
                         ui.allocate_exact_size(vec2(432.0, h), Sense::hover());
+                        explore |= go;
                     }
                 }
                 Tab::Activity => {
@@ -788,10 +790,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if matches!(act, Some(Do::Close)) || app.full_profile.is_none() {
         super::cosmo::forget(ctx, ("full", uid));
     }
+    if explore {
+        super::profed::board::explore(app);
+    }
     match act {
         Some(Do::Close) => app.full_profile = None,
         Some(Do::Tab(t)) => app.full_profile = Some(Full { uid, gid, tab: t }),
-        Some(Do::Add) => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
+        Some(Do::Add) => app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend),
         Some(Do::Message) => {
             app.full_profile = None;
             app.open_dm(uid);

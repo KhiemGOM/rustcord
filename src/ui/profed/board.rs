@@ -81,7 +81,9 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect) -> f32 {
         Tab::Activity => activity(app, ui, body) + 48.0,
         Tab::Wishlist => {
             let w = wish(app, app.store.me);
-            paint_wishlist(ui, body, &w, Color32::WHITE) + 48.0
+            let (h, go) = paint_wishlist(ui, body, &w, Color32::WHITE);
+            ed.to_shop |= go;
+            h + 48.0
         }
     }
 }
@@ -109,32 +111,48 @@ pub struct Wish {
     pub rows: Vec<(String, String)>,
 }
 
-/// What's on someone's wishlist, asking for it the first time and for each product's picture.
+/// What's on someone's wishlist: its id is in their profile, and each product's picture comes with it.
 pub fn wish(app: &mut App, uid: crate::state::Id) -> Wish {
-    let key = format!("wishlist:{uid}");
+    let Some(list) = crate::ui::shop::wish::id_of(app, uid) else { return Wish { loading: true, rows: Vec::new() } };
+    let Some(list) = list else { return Wish { loading: false, rows: Vec::new() } };
+    let key = format!("wishlist:{list}");
     if !app.keyed.contains_key(&key) {
         app.keyed.insert(key.clone(), None);
-        app.rest("GET", format!("/wishlists/{uid}"), None, crate::net::Tag::Keyed(key.clone()));
+        app.rest("GET", format!("/wishlists/{list}?source=user_profile"), None, crate::net::Tag::Keyed(key.clone()));
     }
-    let list = app.keyed.get(&key).cloned().flatten();
-    let skus: Vec<String> = match &list {
-        Some(Ok(v)) => v["items"].as_array().or(v.as_array()).into_iter().flatten().filter_map(|i| i["sku_id"].as_str().map(str::to_string)).collect(),
+    let got = app.keyed.get(&key).cloned().flatten();
+    let skus: Vec<String> = match &got {
+        Some(Ok(v)) => crate::ui::shop::wish::skus(v),
         _ => Vec::new(),
     };
     let rows = skus.iter().filter_map(|s| app.product(s)).map(|p| (p.name.clone(), p.still())).collect();
-    Wish { loading: list.is_none(), rows }
+    Wish { loading: got.is_none(), rows }
 }
 
-/// A wishlist in `r` from its top, as tall as it comes out.
-pub fn paint_wishlist(ui: &mut Ui, r: Rect, w: &Wish, ink: Color32) -> f32 {
+/// A wishlist in `r` from its top, as tall as it comes out, and whether Explore the Shop was clicked.
+pub fn paint_wishlist(ui: &mut Ui, r: Rect, w: &Wish, ink: Color32) -> (f32, bool) {
     if w.loading {
         motion::spinner(&mut ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(r.center().x - 12.0, r.top() + 24.0), vec2(24.0, 24.0)))), 24.0, ink);
-        return 80.0;
+        return (80.0, false);
     }
     if w.rows.is_empty() {
-        ui.painter().text(pos2(r.center().x, r.top() + 60.0), Align2::CENTER_CENTER, "Nothing on the wishlist yet", semi(16.0), ink);
-        ui.painter().text(pos2(r.center().x, r.top() + 86.0), Align2::CENTER_CENTER, "Items added from the Shop show up here.", reg(14.0), ink.gamma_multiply(0.76));
-        return 120.0;
+        let c = r.center().x;
+        text::paint(ui.painter(), pos2(c, r.top() + 72.0), Align2::CENTER_CENTER, "No hearts yet \u{1F494}", semi(16.0), ink, r.width());
+        let g = ui.painter().layout("Browse the Shop and heart the items you love to add them here.".into(), reg(14.0), ink, (r.width() - 32.0).min(380.0));
+        let gh = g.size().y;
+        ui.painter().galley(pos2(c - g.size().x / 2.0, r.top() + 96.0), g.clone(), ink);
+        let label = "Explore the Shop";
+        let lw = ui.painter().layout_no_wrap(label.into(), medium(14.0), Color32::WHITE).size().x;
+        let b = Rect::from_center_size(pos2(c, r.top() + 96.0 + gh + 36.0), vec2(lw + 56.0, 36.0));
+        let resp = ui.interact(b, ui.id().with("wish_explore"), Sense::click());
+        ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { crate::theme::GREEN.gamma_multiply(0.85) } else { crate::theme::GREEN });
+        icons::draw(ui.painter(), Icon::Shop, Rect::from_center_size(pos2(b.left() + 22.0, b.center().y), vec2(16.0, 16.0)), Color32::WHITE);
+        ui.painter().text(pos2(b.left() + 38.0, b.center().y), Align2::LEFT_CENTER, label, medium(14.0), Color32::WHITE);
+        mark(ui, "wish:explore", b);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        return (96.0 + gh + 72.0, resp.clicked());
     }
     let cw = ((r.width() - 12.0) / 2.0).max(120.0);
     for (i, (name, still)) in w.rows.iter().enumerate() {
@@ -144,7 +162,14 @@ pub fn paint_wishlist(ui: &mut Ui, r: Rect, w: &Wish, ink: Color32) -> f32 {
         text::paint(ui.painter(), pos2(c.left() + 100.0, c.top() + 24.0), Align2::LEFT_CENTER, name, medium(14.0), ink, cw - 108.0);
         mark(ui, &format!("wish:{i}"), c);
     }
-    w.rows.len().div_ceil(2) as f32 * 112.0
+    (w.rows.len().div_ceil(2) as f32 * 112.0, false)
+}
+
+/// Explore the Shop: out of the profile and into the Shop.
+pub fn explore(app: &mut App) {
+    app.profed = None;
+    app.full_profile = None;
+    app.open_shop(crate::ui::shop::Page::Shop);
 }
 
 pub fn game_ids(ws: &[Widget]) -> Vec<String> {

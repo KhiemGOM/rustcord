@@ -1447,7 +1447,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = perms::route(w, method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    if let Some((code, mut v)) = shop::route(method, &parts, body) {
+    if let Some((code, mut v)) = shop::route(method, &parts, path.split_once('?').map_or("", |q| q.1), body) {
         // one catalog: the shop's pages and the profile editor's pickers read the same list
         if parts.ends_with(&["collectibles-categories", "v2"])
             && let (Some((_, more)), Some(list)) = (profiles::route(method, &parts, &Value::Null, &cdn), v["categories"].as_array_mut())
@@ -1773,6 +1773,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ]) } else { json!([]) };
             ok(json!({
                 "user": user(id), "user_profile": prof, "widgets": widgets,
+                "wishlist_settings": if id == 101 { json!({ "101": { "visibility": 1, "updated_at": "2026-11-01T10:00:00+00:00" } }) } else { json!({}) },
                 "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
                            { "id": "hypesquad_house_2", "description": "HypeSquad Brilliance", "icon": "011940fd013da3f7fb926e4a1cd2e618", "link": "https://support.discord.com/hc/en-us/articles/360035962891" },
                            { "id": "quest_completed", "description": "Completed a Quest", "icon": "7d9ae358c8c5e118768335dbe68b4fb8", "link": "https://discord.com/quests" }],

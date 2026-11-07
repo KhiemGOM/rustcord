@@ -205,6 +205,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             grid(ui, &apps, &cat_name, &mut pick);
                             ui.add_space(40.0);
                         }
+                        help_card(ui);
                     }
                     Some(v) => {
                         let apps: Vec<(Value, bool)> = v["results"].as_array().into_iter().flatten().map(|r| (r["data"].clone(), false)).collect();
@@ -288,6 +289,28 @@ pub fn urlencode(s: &str) -> String {
 }
 
 /// The blue banner over the featured collections.
+/// The Apps page's last card: where to read how apps are found and added.
+fn help_card(ui: &mut Ui) {
+    let w = ui.available_width();
+    let (r, _) = ui.allocate_exact_size(vec2(w, 88.0), Sense::hover());
+    ui.painter().rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    ui.painter().text(pos2(r.left() + 24.0, r.top() + 28.0), Align2::LEFT_CENTER, "Have Questions?", bold(20.0), pal().header_primary);
+    ui.painter().text(pos2(r.left() + 24.0, r.top() + 58.0), Align2::LEFT_CENTER, "Visit our help center to learn more about using and discovering apps on Discord.", reg(12.0), pal().text_normal);
+    let label = "Learn More";
+    let bw = ui.painter().layout_no_wrap(label.into(), medium(14.0), egui::Color32::WHITE).size().x + 32.0;
+    let b = Rect::from_center_size(pos2(r.right() - 24.0 - bw / 2.0, r.center().y), vec2(bw, 36.0));
+    let resp = ui.interact(b, ui.id().with("apps_learn_more"), Sense::click());
+    ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { egui::Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+    ui.painter().text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), egui::Color32::WHITE);
+    super::settings::mark(ui, "apps:learn_more", b);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/26592957841303-How-to-Discover-and-Add-Apps"));
+    }
+}
+
 fn hero(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 350.0), Sense::hover());
     let mut m = egui::Mesh::default();
