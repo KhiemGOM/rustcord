@@ -9,6 +9,124 @@ const CONFIRM: &str = r#"<title>Confirm payment</title><style>body{background:#1
 
 static WISH: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+const POPULAR: [&str; 8] = ["5104", "5101", "5201", "5103", "5102", "5202", "5203", "5204"];
+
+fn tags(sku: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match sku {
+        "5101" | "5102" => (&["PURPLE"], &["FANTASY", "DARK_MOODY"]),
+        "5103" => (&["GREEN"], &["ANIME"]),
+        "5104" => (&["PURPLE", "BLUE"], &["DARK_MOODY", "FANTASY"]),
+        "5201" => (&["ORANGE"], &["ANIMALS_PETS", "CUTE_COZY"]),
+        "5202" => (&["PINK"], &["CUTE_COZY"]),
+        "5203" => (&["BLACK", "WHITE"], &["ANIMALS_PETS"]),
+        "5204" => (&["RED"], &["GAMING"]),
+        _ => (&[], &[]),
+    }
+}
+
+fn wishlist() -> Value {
+    let list: Vec<Value> = WISH.lock().unwrap().iter().map(|s| json!({ "sku": { "id": s }, "sku_id": s })).collect();
+    json!({ "id": "7700", "user_id": "100", "visibility": 1, "wishlist_items": list })
+}
+
+fn decode(s: &str) -> String {
+    let b = s.replace('+', " ");
+    let raw = b.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        match b.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            Some(h) if raw[i] == b'%' => {
+                out.push(h);
+                i += 3;
+            }
+            _ => {
+                out.push(raw[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn list_price(p: &Value) -> i64 {
+    p["prices"]["0"]["country_prices"]["prices"][0]["amount"].as_i64().unwrap_or(0)
+}
+
+fn bad(field: &str, message: &str) -> Option<(u16, Value)> {
+    Some((400, json!({ "message": "Invalid Form Body", "code": 50035, "errors": { field: { "_errors": [{ "code": "BASE_TYPE_CHOICES", "message": message }] } } })))
+}
+
+fn search(query: &str) -> Option<(u16, Value)> {
+    let all = |k: &str| -> Vec<String> { query.split('&').filter_map(|kv| kv.split_once('=')).filter(|(a, _)| *a == k).map(|(_, v)| decode(v)).collect() };
+    let one = |k: &str| all(k).into_iter().next();
+    let types = all("item_types");
+    for t in &types {
+        if !["AVATAR_DECORATION", "PROFILE_EFFECT", "NAMEPLATE", "PROFILE_FRAME", "BUNDLE"].contains(&t.as_str()) {
+            return bad("item_types", "Value must be one of the item types.");
+        }
+    }
+    let colors = all("colors");
+    if colors.iter().any(|c| !c.starts_with("COLLECTIBLES_COLOR_")) {
+        return bad("colors", "Value must be one of the colors.");
+    }
+    let themes = all("themes");
+    if themes.iter().any(|c| !c.starts_with("COLLECTIBLES_THEME_")) {
+        return bad("themes", "Value must be one of the themes.");
+    }
+    let kind = one("sort_type").unwrap_or_else(|| "recency".into());
+    if !["price", "alphabetical", "recency", "popularity", "relevance"].contains(&kind.as_str()) {
+        return bad("sort_type", "Value must be one of price, alphabetical, recency, popularity, relevance.");
+    }
+    let dir = one("sort_direction").unwrap_or_else(|| "desc".into());
+    if !["asc", "desc"].contains(&dir.as_str()) {
+        return bad("sort_direction", "Value must be one of asc, desc.");
+    }
+    let num = |k: &str, d: usize| one(k).and_then(|v| v.parse::<usize>().ok()).unwrap_or(d);
+    let (offset, limit) = (num("offset", 0), num("limit", 15));
+    if limit == 0 || limit > 100 {
+        return bad("limit", "Value must be between 1 and 100.");
+    }
+    let text = one("search").unwrap_or_default().to_lowercase();
+    let orbs = one("orbs_eligible").as_deref() == Some("true");
+    let collabs = one("is_first_party").as_deref() == Some("false");
+    let mut hits: Vec<Value> = categories()
+        .iter()
+        .flat_map(|c| c["products"].as_array().cloned().unwrap_or_default())
+        .filter(|p| {
+            let sku = p["sku_id"].as_str().unwrap_or("");
+            let (c, t) = tags(sku);
+            let ty = match p["type"].as_u64() {
+                Some(0) => "AVATAR_DECORATION",
+                Some(1) => "PROFILE_EFFECT",
+                Some(2) => "NAMEPLATE",
+                Some(3) => "PROFILE_FRAME",
+                Some(1000) => "BUNDLE",
+                _ => "OTHER",
+            };
+            (types.is_empty() || types.iter().any(|x| x == ty))
+                && (colors.is_empty() || colors.iter().any(|x| c.iter().any(|y| x.ends_with(y))))
+                && (themes.is_empty() || themes.iter().any(|x| t.iter().any(|y| x.ends_with(y))))
+                && (!orbs || p["prices"]["0"]["country_prices"]["prices"].as_array().is_some_and(|l| l.iter().any(|x| x["currency"] == "discord_orb")))
+                && (!collabs || p["is_first_party"] == false)
+                && (text.is_empty() || p["name"].as_str().unwrap_or("").to_lowercase().contains(&text))
+        })
+        .collect();
+    let rank = |p: &Value| POPULAR.iter().position(|s| p["sku_id"] == *s).unwrap_or(99);
+    match kind.as_str() {
+        "price" => hits.sort_by_key(list_price),
+        "popularity" | "relevance" => hits.sort_by_key(rank),
+        "alphabetical" => hits.sort_by_key(|p| p["name"].as_str().unwrap_or("").to_string()),
+        _ => hits.sort_by_key(|p| std::cmp::Reverse(p["sku_id"].as_str().unwrap_or("").to_string())),
+    }
+    if (kind == "price" || kind == "alphabetical") && dir == "desc" {
+        hits.reverse();
+    }
+    let total = hits.len();
+    let skus: Vec<Value> = hits.iter().skip(offset).take(limit).map(|p| p["sku_id"].clone()).collect();
+    Some((200, json!({ "skus": skus, "pagination": { "total": total, "has_more": offset + limit < total, "offset": offset, "limit": limit } })))
+}
+
 fn cdn() -> String {
     format!("http://127.0.0.1:{}/cdn", crate::PORT.load(std::sync::atomic::Ordering::Relaxed))
 }
@@ -48,11 +166,13 @@ fn categories() -> Vec<Value> {
     bundle["bundled_products"] = json!([hat, dust]);
     let fox = product("5201", "Fox Ears", "Give your avatar a new look.", 0, json!([{ "type": 0, "sku_id": "5201", "asset": "a_mockfox", "label": "Fox ears." }]), prices(79000, 66000, None), "5002");
     let bunny = product("5202", "Bunny Babe", "Make your name stand out in servers and chats.", 2, json!([{ "type": 2, "sku_id": "5202", "asset": "nameplates/all_ears/5202/", "label": "Bunny.", "palette": "bubble_gum" }]), prices(79000, 66000, None), "5002");
+    let mut cape = product("5204", "Collab Cape", "A cape from another world.", 0, json!([{ "type": 0, "sku_id": "5204", "asset": "a_mockcape", "label": "A cape." }]), prices(99000, 79000, None), "5002");
+    cape["is_first_party"] = json!(false);
     let orb = product("5203", "Panda Companion", "Give your avatar a new look.", 2000, json!([]), prices(79000, 66000, Some(4100)), "5002");
     vec![
         json!({ "sku_id": "5001", "name": "Cauldron Chaos", "summary": " ", "store_listing_id": "5001", "styles": styles(), "hero_ranking": ["5104", "5101"], "products": [bundle, hat, dust, fx],
             "hero_banner_url": media("hero-5001"), "hero_logo_url": media("logo-5001"), "catalog_banner_url": media("banner-5001"), "logo_url": media("logo-5001") }),
-        json!({ "sku_id": "5002", "name": "All Ears", "summary": " ", "store_listing_id": "5002", "styles": styles(), "hero_ranking": ["5201"], "products": [fox, bunny, orb],
+        json!({ "sku_id": "5002", "name": "All Ears", "summary": " ", "store_listing_id": "5002", "styles": styles(), "hero_ranking": ["5201"], "products": [fox, bunny, orb, cape],
             "hero_banner_url": media("hero-5002"), "hero_logo_url": media("logo-5002"), "catalog_banner_url": media("banner-5002"), "logo_url": media("logo-5002") }),
     ]
 }
@@ -66,15 +186,28 @@ fn home() -> Value {
                 { "type": 0, "category_sku_id": "5001", "category_store_listing_id": "5001", "name": "Cauldron Chaos", "unpublished_at": null, "asset_url": media("tile-5001") },
                 { "type": 0, "category_sku_id": "5002", "category_store_listing_id": "5002", "name": "All Ears", "unpublished_at": null, "asset_url": media("tile-5002") } ] },
             { "type": 4, "name": "Fresh Drops", "ranked_sku_ids": ["5201", "5202", "5203"], "category_sku_id": "5002", "show_button": true, "button_text": "Shop all" },
+            { "type": 2, "ranked_sku_ids": POPULAR, "sorted_sku_ids": { "popular": POPULAR, "recommended": [] } },
         ],
         "categories": categories(),
     })
 }
 
-pub fn route(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
+fn orbs_home() -> Value {
+    json!({ "shop_blocks": [
+        { "type": 3, "title": "Introducing Discord Orbs", "body": "Reward Your Play. Earn through Quests. Spend in the Shop.", "wide_banner_url": media("orbs-banner"),
+          "cta_text": "Go to Quest Home", "cta_route": "/quest-home", "category_store_listing_id": "5002" },
+        { "type": 2, "ranked_sku_ids": POPULAR, "sorted_sku_ids": { "popular": POPULAR, "recommended": [] } },
+    ], "categories": categories() })
+}
+
+pub fn route(method: &str, parts: &[&str], query: &str, body: &[u8]) -> Option<(u16, Value)> {
     let missing = |what: &str| Some((400, json!({ "message": "Invalid Form Body", "code": 50035, "errors": { what: { "_errors": [{ "code": "BASE_TYPE_REQUIRED", "message": "This field is required" }] } } })));
     match (method, parts) {
+        ("GET", ["api", "v9", "collectibles-shop"]) if query.contains("tab=orbs") => Some((200, orbs_home())),
         ("GET", ["api", "v9", "collectibles-shop"]) => Some((200, home())),
+        ("GET", ["api", "v9", "shop", "search"]) => search(query),
+        ("GET", ["api", "v9", "collectibles-products", sku]) => categories().iter().flat_map(|c| c["products"].as_array().cloned().unwrap_or_default()).find(|p| p["sku_id"] == *sku).map(|p| (200, p)),
+        ("GET", ["api", "v9", "wishlists", "7700"]) => Some((200, wishlist())),
         ("GET", ["api", "v9", "collectibles-categories", "v2"]) => Some((200, json!({ "categories": categories(), "collections": [] }))),
         ("POST", ["api", "v9", "users", "@me", "wishlist", "items"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -86,11 +219,12 @@ pub fn route(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> 
             if !w.iter().any(|s| s == sku) {
                 w.push(sku.to_string());
             }
-            Some((200, json!({ "id": "7700", "items": w.iter().map(|s| json!({ "sku_id": s })).collect::<Vec<_>>() })))
+            drop(w);
+            Some((200, wishlist()))
         }
         ("DELETE", ["api", "v9", "users", "@me", "wishlists", "7700", "items", sku]) => {
             WISH.lock().unwrap().retain(|s| s != sku);
-            Some((204, Value::Null))
+            Some((200, wishlist()))
         }
         ("DELETE", ["api", "v9", "users", "@me", "wishlists", ..]) => Some((404, json!({ "message": "Unknown Wishlist", "code": 10000 }))),
         _ => None,
