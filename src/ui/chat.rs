@@ -1476,13 +1476,13 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 .corner_radius(4)
                 .inner_margin(8)
                 .show(&mut cui, |ui| {
-                    ui.set_max_width(400.0);
+                    ui.set_max_width(ui.available_width().min(400.0));
                     ui.spacing_mut().item_spacing = vec2(8.0, 2.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(&t.name).font(semi(14.0)).color(pal().header_primary));
-                        ui.label(RichText::new(format!("{} Messages ›", t.msg_count)).font(semi(14.0)).color(pal().link));
+                        ui.add(Label::new(RichText::new(&t.name).font(semi(14.0)).color(pal().header_primary)).selectable(false));
+                        ui.add(Label::new(RichText::new(format!("{} Messages ›", t.msg_count)).font(semi(14.0)).color(pal().link)).selectable(false));
                     });
-                    ui.add(Label::new(RichText::new(line).font(reg(14.0)).color(pal().text_normal)).truncate());
+                    ui.add(Label::new(RichText::new(line).font(reg(14.0)).color(pal().text_normal)).truncate().selectable(false));
                 })
                 .response
                 .interact(Sense::click());

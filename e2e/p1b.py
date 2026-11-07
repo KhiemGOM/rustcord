@@ -26,6 +26,8 @@ def checks(runs, reqs, data):
         "dms: a friend's new empty dm had a Wave button with a Wave to tooltip, and no other dm did": both("wave_only_new_dm") and both("wave_tooltip"),
         "dms: Wave sent the Wave sticker to that dm and the button went away": both("wave_sent") and len(waves) >= 2 and all(not r["path"].endswith("/3000/messages") for r in waves),
         "profile: a song's popout card had a Listen Along button with a Listen along with tooltip, and a click did something": both("listen_along_tip") and both("listen_along_click"),
+        "friends: a friend streaming from voice got a stream row in Active Now saying Sharing their screen with a LIVE pill": both("sharing_their_screen"),
+        "call: with the camera on the connection status said Video Connected and, hovered, Video Details": both("video_connected_text") and both("video_details_hover"),
         "composer: a built-in command became a pill, took its option and sent what discord sends": both("builtin_pill") and both("builtin_pill_sent") and len(shrugs) >= 2,
         "composer: /gif as a pill opened the gif picker on its query": both("builtin_gif_pill"),
     }

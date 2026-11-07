@@ -337,11 +337,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             });
     }
 
+    if !app.slash.contains_key(&ch) {
+        app.slash_from_draft(chan);
+    }
     let slashing = app.slash.contains_key(&ch);
     if slashing {
         slash::bar(app, ui, chan);
-    } else {
-        app.slash_from_draft(chan);
     }
     let focused = ui.memory(|m| m.has_focus(tid));
     let nothing_focused = ui.memory(|m| m.focused().is_none());

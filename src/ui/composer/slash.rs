@@ -246,6 +246,7 @@ impl App {
         let mut s = Slash::new(cmd, path);
         if let Some(sl) = s.slots.get_mut(s.active) {
             sl.text = text.to_string();
+            sl.shown |= !text.is_empty();
         }
         self.drafts.insert(chan.id, text.to_string());
         self.slash.insert(chan.id, s);

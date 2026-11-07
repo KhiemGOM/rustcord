@@ -15,12 +15,12 @@ impl Run {
     pub(super) fn p1b_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let general = self.target.1;
         match self.step {
-            4360 => {
+            4365 => {
                 app.select_guild(Some(self.target.0));
                 app.open(FORUM);
                 self.next(1200);
             }
-            4361 => {
+            4366 => {
                 let Some(card) = app.rects.get("forum:guidelines").copied() else { return };
                 let Some(x) = app.rects.get("forum:guidelines_close").copied() else { return };
                 self.mark("forum_guidelines_card");
@@ -29,7 +29,7 @@ impl Run {
                 self.click(x.center());
                 self.next(500);
             }
-            4362 => {
+            4367 => {
                 if app.rects.contains_key("forum:guidelines") {
                     return;
                 }
@@ -75,28 +75,37 @@ impl Run {
                 self.step = 4375;
             }
             4375 => {
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(2500);
+            }
+            4376 => {
                 let now = chrono::Utc::now().timestamp_millis();
                 app.store.apply("PRESENCE_UPDATE", &json!({ "user": { "id": SINGER.to_string() }, "status": "online", "activities": [
                     { "type": 2, "name": "Spotify", "details": "Farewell", "state": "marQ", "sync_id": "abc", "timestamps": { "start": now - 99000, "end": now + 14000 }, "assets": { "large_image": "spotify:xyz" } },
                 ] }));
-                app.friends = false;
-                app.select_guild(Some(self.target.0));
-                app.open(general);
                 app.open_profile(SINGER, self.target.0, pos2(300.0, 160.0));
                 self.next(1200);
             }
-            4376 => {
+            4377 => {
                 if app.profiles.get(&SINGER).is_none_or(|p| p.is_null()) {
                     return;
                 }
-                let Some(b) = Self::at(ctx, "spotify:listen") else { return };
+                let Some(b) = Self::at(ctx, "spotify:listen") else {
+                    if self.step_at.elapsed() > Duration::from_secs(10) {
+                        let acts = app.store.activities.get(&SINGER).map(|a| a.iter().map(|a| (a.kind, a.name.clone())).collect::<Vec<_>>());
+                        self.fail(format!("no Listen Along button in the popout: activities={acts:?}"));
+                    }
+                    return;
+                };
                 self.shot(ctx, "listen_along_popout.png");
                 self.loaded = self.opened.len();
                 self.queue.push_back(vec![Event::PointerMoved(b.center() + vec2(1.0, 0.0))]);
                 self.queue.push_back(vec![Event::PointerMoved(b.center())]);
                 self.next(1100);
             }
-            4377 => {
+            4378 => {
                 let Some(b) = Self::at(ctx, "spotify:listen") else { return };
                 if Self::said(ctx, "listen_tip").is_some_and(|t| t.starts_with("Listen along with ")) && Self::tooltip_near(ctx, b) {
                     self.mark("listen_along_tip");
@@ -105,7 +114,7 @@ impl Run {
                 self.click(b.center());
                 self.next(600);
             }
-            4378 => {
+            4379 => {
                 if self.opened.len() > self.loaded {
                     self.mark("listen_along_click");
                 }
@@ -114,6 +123,7 @@ impl Run {
                 self.step = 4380;
             }
             4380 => {
+                app.side_thread = None;
                 app.open(general);
                 self.next(700);
             }
@@ -176,6 +186,28 @@ impl Run {
                 self.shot(ctx, "builtin_gif_pill.png");
                 self.key(Key::Escape);
                 self.next(400);
+            }
+            4389 => self.step = 4390,
+            4390 => {
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": "2021", "self_stream": true }));
+                app.select_guild(None);
+                app.friends = true;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
+                self.next(1300);
+            }
+            4391 => {
+                let Some(shot) = Self::at(ctx, "now_stream:103") else { return };
+                if Self::said(ctx, "now_stream:103").as_deref() == Some("Sharing their screen") {
+                    self.mark("sharing_their_screen");
+                }
+                self.rects.insert("now_stream".into(), json!([shot.min.x, shot.min.y, shot.width(), shot.height()]));
+                self.shot(ctx, "active_now_stream.png");
+                self.next(400);
+            }
+            4392 => {
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": null }));
+                self.next(600);
             }
             _ => self.step = 4400,
         }
