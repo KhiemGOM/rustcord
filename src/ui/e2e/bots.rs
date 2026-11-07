@@ -308,7 +308,7 @@ impl Run {
                     }
                 }
             }),
-            3522 => when!(app.interactions.modal.as_ref().is_some_and(|m| m.invalid() == 2), {
+            3522 => when!(app.interactions.modal.as_ref().is_some_and(|m| m.invalid() == 3), {
                 self.mark("bot_modal_validation");
                 self.shot(ctx, "bot_modal_errors.png");
                 let r = rect("bot_input:subject").unwrap_or(Rect::ZERO);
@@ -332,7 +332,38 @@ impl Run {
                 let r = rect("select_opt:great").unwrap();
                 self.click(r.center());
                 self.next(400);
+                self.step = 3590;
             }),
+            3590..=3592 => {
+                let key = ["bot_choice:contact:email", "bot_choice:topics:bugs", "bot_choice:newsletter:true"][self.step as usize - 3590];
+                let (Some(r), Some(view)) = (rect(key), rect("bot_modal:scroll")) else {
+                    if late {
+                        self.next(0);
+                    }
+                    return;
+                };
+                if !view.shrink(12.0).contains(r.center()) {
+                    let dy = if r.center().y > view.center().y { -160.0 } else { 160.0 };
+                    self.queue.push_back(vec![Event::PointerMoved(view.center())]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: egui::Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(350);
+                    return;
+                }
+                self.click(r.center());
+                self.next(300);
+            }
+            3593 => {
+                self.shot(ctx, "bot_modal_choices.png");
+                let picked = |id: &str| app.interactions.modal.as_ref().and_then(|m| m.fields.iter().find_map(|f| match f {
+                    crate::ui::botmodal::Field::Choice(c) if c.custom_id == id => Some(c.picked.clone()),
+                    _ => None,
+                }));
+                if picked("contact") == Some(vec!["email".into()]) && picked("topics") == Some(vec!["bugs".into()]) && picked("newsletter") == Some(vec!["true".into()]) {
+                    self.mark("bot_choices_picked");
+                }
+                self.next(200);
+                self.step = 3526;
+            }
             3526 => {
                 self.shot(ctx, "bot_modal_filled.png");
                 let r = rect("bot_modal:submit").unwrap_or(Rect::ZERO);
