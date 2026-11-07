@@ -117,7 +117,7 @@ impl Run {
                 self.next(400);
             }
             3210 => {
-                if !app.shop.as_ref().is_some_and(|s| s.only[1]) {
+                if !app.shop.as_ref().is_some_and(|s| s.browse.types[1]) {
                     return;
                 }
                 forget(&["shop:card:5101", "shop:card:5102"]);
@@ -225,17 +225,19 @@ impl Run {
                 self.next(400);
             }
             3222 => {
-                if tab != 3 {
+                if app.profed.as_ref().is_none_or(|e| e.tab != crate::ui::profed::Tab::Wishlist) {
                     return;
                 }
-                forget(&["shop:card:5101", "shop:card:5102"]);
-                self.next(300);
+                forget(&["wish:0"]);
+                self.next(600);
                 self.step = 3232;
             }
             3232 => {
-                if at("shop:card:5101").is_some() && at("shop:card:5102").is_none() {
+                if at("wish:0").is_some() {
                     self.mark("shop_wishlist");
-                    self.next(0);
+                    self.shot(ctx, "shop_wishlist.png");
+                    app.profed = None;
+                    self.next(300);
                     self.step = 3223;
                 }
             }
@@ -281,7 +283,7 @@ impl Run {
             _ => {
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
                 app.shop = None;
-                self.step = 4200;
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 4200 };
             }
         }
     }

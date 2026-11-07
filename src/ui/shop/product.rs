@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Id, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::Value;
 
-use super::{CARD_MIN, PLATE, RADIUS_LG, RADIUS_SM, SPACE_12, SPACE_16, SPACE_20, SPACE_24, SPACE_32, SPACE_8, button, pic, shade};
+use super::{CARD_MIN, PLATE, RADIUS_LG, RADIUS_SM, SPACE_12, SPACE_16, SPACE_20, SPACE_24, SPACE_32, SPACE_8, button, pic, round_button, shade};
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings::{billing, mark};
@@ -49,6 +49,30 @@ pub fn price(p: &Value, member: bool) -> Price {
     };
     let was = off.and(base.as_ref()).map(|(a, c)| billing::money(*a, c));
     Price { money: shown.map_or(String::new(), |(a, c)| billing::money(a, &c)), orbs: mine_orbs.or(base_orbs), off, was }
+}
+
+pub fn amount(p: &Value, member: bool) -> i64 {
+    let pr = price(p, member);
+    let (money, orbs) = amounts(p, if member { "4" } else { "0" });
+    money.map(|m| m.0).or(orbs.map(|o| o as i64)).or(pr.orbs.map(|o| o as i64)).unwrap_or(i64::MAX)
+}
+
+pub fn slides(p: &Value) -> Vec<Value> {
+    if kind(p) != 1000 {
+        return Vec::new();
+    }
+    let items = p["items"].as_array();
+    p["bundled_products"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(i, b)| {
+            let item = items.and_then(|a| a.get(i)).cloned().unwrap_or_else(|| b["items"][0].clone());
+            let ty = if b["type"].is_u64() { b["type"].clone() } else { item["type"].clone() };
+            serde_json::json!({ "sku_id": b["sku_id"], "name": b["name"], "type": ty, "items": [item], "styles": p["styles"] })
+        })
+        .collect()
 }
 
 pub fn orbs_only(p: &Value) -> bool {
@@ -137,10 +161,18 @@ pub fn preview(ui: &Ui, r: Rect, p: &Value, avatar: &str) {
     }
 }
 
-fn price_row(ui: &Ui, at: Pos2, p: &Price, size: f32) {
+fn price_row(ui: &Ui, at: Pos2, p: &Price, size: f32, orbs: bool) {
     let painter = ui.painter();
-    icons::draw(painter, Icon::Nitro, Rect::from_center_size(pos2(at.x + 8.0, at.y), vec2(16.0, 16.0)), Color32::WHITE);
-    let text = if p.money.is_empty() { p.orbs.map_or(String::new(), |o| format!("{o} Orbs")) } else { p.money.clone() };
+    let by_orbs = orbs && p.orbs.is_some();
+    let icon = if by_orbs { Icon::Gem } else { Icon::Nitro };
+    icons::draw(painter, icon, Rect::from_center_size(pos2(at.x + 8.0, at.y), vec2(16.0, 16.0)), Color32::WHITE);
+    let text = if by_orbs {
+        p.orbs.map_or(String::new(), |o| o.to_string())
+    } else if p.money.is_empty() {
+        p.orbs.map_or(String::new(), |o| format!("{o} Orbs"))
+    } else {
+        p.money.clone()
+    };
     let t = painter.text(pos2(at.x + 24.0, at.y), Align2::LEFT_CENTER, text, bold(size), Color32::WHITE);
     if let Some(off) = p.off {
         painter.text(pos2(t.right() + 6.0, at.y), Align2::LEFT_CENTER, format!("(-{off}%)"), bold(size), GREEN);
@@ -157,7 +189,7 @@ const FOOTER_LIFT: f32 = 56.0;
 const FOOTER_SHADE: f32 = 146.0;
 const BUNDLE_SHADE: f32 = 100.0;
 
-pub fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, member: bool, wished: bool, avatar: &str) -> Option<Hit> {
+pub fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, member: bool, wished: bool, avatar: &str, orbs: bool) -> Option<Hit> {
     let id = sku(p).to_string();
     let resp = ui.interact(r, Id::new(("shop_card", salt, &id)), Sense::click());
     let (a, b) = backdrop(p);
@@ -172,7 +204,10 @@ pub fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, member: bool, wished: b
     shade(ui, Rect::from_min_max(pos2(inner.left(), inner.bottom() - tall), inner.max), Color32::BLACK, 0, 150);
     let price_y = inner.bottom() - SPACE_12 - 10.0;
     clip.text(pos2(inner.left() + SPACE_12, price_y - 26.0), Align2::LEFT_CENTER, p["name"].as_str().unwrap_or_default(), medium(16.0), Color32::WHITE);
-    price_row(ui, pos2(inner.left() + SPACE_12, price_y), &price(p, member), 16.0);
+    price_row(ui, pos2(inner.left() + SPACE_12, price_y), &price(p, member), 16.0, orbs);
+    if orbs {
+        badge(ui, pos2(inner.left() + SPACE_16, inner.top() + SPACE_16));
+    }
     let edge = if resp.hovered() { Color32::from_white_alpha(46) } else { Color32::from_white_alpha(22) };
     ui.painter().rect_stroke(r, CornerRadius::same(RADIUS_SM), Stroke::new(BORDER, edge), egui::StrokeKind::Inside);
     mark(ui, &format!("shop:card:{id}"), r);
@@ -195,19 +230,32 @@ pub fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, member: bool, wished: b
     resp.clicked().then_some(Hit::Open)
 }
 
+fn badge(ui: &Ui, at: Pos2) {
+    let label = "ORBS EXCLUSIVE";
+    let g = ui.painter().layout_no_wrap(label.into(), bold(12.0), Color32::BLACK);
+    let r = Rect::from_min_size(at, vec2(g.size().x + 32.0, 22.0));
+    ui.painter().rect_filled(r, CornerRadius::same(11), Color32::WHITE);
+    icons::draw(ui.painter(), Icon::Gem, Rect::from_center_size(pos2(r.left() + 13.0, r.center().y), vec2(14.0, 14.0)), Color32::BLACK);
+    ui.painter().galley(pos2(r.left() + 24.0, r.center().y - g.size().y / 2.0), g, Color32::BLACK);
+}
+
 pub enum Act {
     Close,
     Buy,
     Wish,
+    Collection,
+    Pick(usize),
 }
 
-pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar: &str) -> Option<Act> {
+pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar: &str, collection: Option<&str>, slide: usize) -> Option<Act> {
     let mut out = None;
     let screen = ctx.content_rect();
     let side = (0.455 * screen.width()).clamp(300.0, 400.0);
     let avail = screen.width() - 2.0 * SPACE_32;
     let wide = avail >= side + SPACE_32 + CARD_MIN + 2.0 * SPACE_24;
     let w = if wide { (2.0 * side + SPACE_32 + 2.0 * SPACE_24).min(avail) } else { avail.min(side + 2.0 * SPACE_24) };
+    let slides = slides(p);
+    let cur = slide.min(slides.len().saturating_sub(1));
     let shown = crate::ui::motion::Modal::new(Id::new("shop_detail")).frame(egui::Frame::new().fill(pal().bg_secondary).corner_radius(RADIUS_LG)).show(ctx, |ui| {
         ui.set_width(w);
         let pad = SPACE_24;
@@ -216,7 +264,32 @@ pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar
         let left = Rect::from_min_size(box_.min + vec2(pad, pad), pv);
         let (a, b) = backdrop(p);
         ui.painter().rect_filled(left, CornerRadius::same(RADIUS_LG), a.lerp_to_gamma(b, 0.5));
-        preview(ui, left, p, avatar);
+        let current = slides.get(cur).unwrap_or(p);
+        preview(ui, left, current, avatar);
+        if let Some(name) = collection {
+            let g = ui.painter().layout_no_wrap(name.to_string(), medium(14.0), Color32::WHITE);
+            let r = Rect::from_min_size(left.min + vec2(SPACE_12, SPACE_12), vec2(g.size().x + 2.0 * SPACE_12, 32.0));
+            let resp = ui.interact(r, Id::new("shop_go_collection"), Sense::click());
+            ui.painter().rect_filled(r, CornerRadius::same(RADIUS_SM), Color32::from_black_alpha(if resp.hovered() { 170 } else { 143 }));
+            ui.painter().galley(pos2(r.left() + SPACE_12, r.center().y - g.size().y / 2.0), g, Color32::WHITE);
+            mark(ui, "shop:go_collection", r);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            let resp = resp.on_hover_text("Go to collection");
+            if resp.clicked() {
+                out = Some(Act::Collection);
+            }
+        }
+        if slides.len() > 1 {
+            let n = slides.len();
+            for (dx, step, key, icon) in [(left.left() + SPACE_12 + 16.0, n - 1, "slide_prev", Icon::ArrowLeft), (left.right() - SPACE_12 - 16.0, 1, "slide_next", Icon::ArrowRight)] {
+                let r = Rect::from_center_size(pos2(dx, left.center().y), vec2(32.0, 32.0));
+                if round_button(ui, r, icon, Color32::WHITE, key) {
+                    out = Some(Act::Pick((cur + step) % n));
+                }
+            }
+        }
         let x = if wide { left.right() + SPACE_32 } else { left.left() };
         let mut y = if wide { left.top() } else { left.bottom() + SPACE_16 };
         let tw = box_.right() - pad - x;
@@ -229,16 +302,32 @@ pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar
         let gh = g.size().y;
         painter.galley(pos2(x, y), g, pal().header_secondary);
         y += gh + SPACE_12;
-        if let Some(items) = p["bundled_products"].as_array() {
-            for it in items.iter().take(6) {
-                painter.text(pos2(x, y), Align2::LEFT_TOP, format!("•  {}  ·  {}", it["name"].as_str().unwrap_or_default(), label(it)), reg(14.0), pal().header_secondary);
-                y += SPACE_20;
+        if !slides.is_empty() {
+            let chip = 56.0;
+            let per = (((tw + SPACE_8) / (chip + SPACE_8)) as usize).max(1);
+            for (i, sp) in slides.iter().enumerate() {
+                let r = Rect::from_min_size(pos2(x + (i % per) as f32 * (chip + SPACE_8), y + (i / per) as f32 * (chip + SPACE_8)), vec2(chip, chip));
+                let resp = ui.interact(r, Id::new(("shop_slide", i)), Sense::click());
+                let (ca, cb) = backdrop(sp);
+                painter.rect_filled(r, CornerRadius::same(RADIUS_SM), ca.lerp_to_gamma(cb, 0.5));
+                preview(ui, r, sp, avatar);
+                painter.rect_stroke(r, CornerRadius::same(RADIUS_SM), Stroke::new(2.0, if i == cur { Color32::WHITE } else { Color32::TRANSPARENT }), egui::StrokeKind::Inside);
+                mark(ui, &format!("shop:slide:{i}"), r);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    out = Some(Act::Pick(i));
+                }
             }
+            y += slides.len().div_ceil(per) as f32 * (chip + SPACE_8);
+            painter.text(pos2(x, y), Align2::LEFT_TOP, format!("{} - {}", current["name"].as_str().unwrap_or_default(), label(current)), reg(14.0), pal().header_secondary);
+            y += SPACE_20;
         }
         let pr = price(p, member);
         let foot = 40.0 + SPACE_8 + 20.0 + SPACE_12;
-        let bottom = if wide { left.bottom() } else { y + SPACE_16 + foot };
-        price_row(ui, pos2(x, bottom - foot - 8.0), &pr, 20.0);
+        let bottom = if wide { left.bottom().max(y + foot) } else { y + SPACE_16 + foot };
+        price_row(ui, pos2(x, bottom - foot - 8.0), &pr, 20.0, false);
         if let Some(was) = &pr.was {
             painter.text(pos2(x + 24.0, bottom - foot + 14.0), Align2::LEFT_CENTER, format!("was {was}"), reg(12.0), pal().text_muted);
         }

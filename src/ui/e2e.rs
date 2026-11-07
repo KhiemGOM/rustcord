@@ -44,6 +44,7 @@ mod players;
 mod perms;
 mod themes;
 mod serverx;
+mod shopx;
 mod refusals;
 mod live;
 mod local;
@@ -1414,6 +1415,7 @@ impl Run {
             4320..=4339 => self.sticker_steps(app, ctx),
             4400..=4499 => self.perms_steps(app, ctx),
             4500..=4599 => self.themes_steps(app, ctx),
+            4650..=4699 => self.shopx_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),

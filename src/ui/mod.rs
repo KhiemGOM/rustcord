@@ -2327,6 +2327,8 @@ impl eframe::App for App {
             let settings_open = self.settings_page.is_some();
             if settings_open {
                 settings::show(self, ui);
+            } else if self.profed.is_some() {
+                profed::show(self, &ctx);
             }
             let w = ctx.content_rect().width();
             if (w - self.heights_w).abs() > 0.5 {

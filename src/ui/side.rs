@@ -1429,8 +1429,9 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                    icons::draw(ui.painter(), Icon::Speaker, r, GREEN);
-                    ui.add(egui::Label::new(egui::RichText::new("In voice").font(medium(12.0)).color(pal().header_secondary)).selectable(false));
+                    let stage = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
+                    icons::draw(ui.painter(), if stage { Icon::Stage } else { Icon::Speaker }, r, GREEN);
+                    ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().header_secondary)).selectable(false));
                 });
             } else {
                 ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));
