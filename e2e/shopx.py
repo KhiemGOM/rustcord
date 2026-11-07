@@ -24,5 +24,6 @@ def checks(runs, reqs, data):
         "shopx: Orbs Exclusives has its hero and Go to Quest Home opens Quests": both("shop_orbs_hero") and both("shop_quest_home"),
         "shopx: the feed's Shuffle and sort change the order": both("shop_shuffle") and both("shop_feed_sort"),
         "shopx: the hero strip's scroll arrow scrolls it": both("shop_scroll_right"),
+        "shopx: the Apps page ends with Have Questions? and its Learn More": both("discover_help_card"),
         "shopx: a profile's effect was shot on its popout and its full profile": both("profile_effect_popout_shots") and both("profile_effect_full_shot"),
     }

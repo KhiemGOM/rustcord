@@ -495,10 +495,49 @@ impl Run {
                 self.step = 4699;
             }
             _ => {
-                app.full_profile = None;
-                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
-                app.shop = None;
-                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
+                let key = egui::Id::new("shopx_tail");
+                let phase: u8 = ctx.data(|d| d.get_temp(key)).unwrap_or(0);
+                let go = |this: &mut Run, n: u8, ms: u64| {
+                    ctx.data_mut(|d| d.insert_temp(key, n));
+                    this.next(ms);
+                    this.step -= 1;
+                };
+                match phase {
+                    0 => {
+                        app.full_profile = None;
+                        app.shop = None;
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(940.0, 500.0)));
+                        app.open_directory();
+                        go(self, 1, 1500);
+                    }
+                    1 => {
+                        self.shot(ctx, "discover_apps_small.png");
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
+                        go(self, 2, 900);
+                    }
+                    2 => {
+                        if at("apps:learn_more").is_some() {
+                            self.mark("discover_help_card");
+                        }
+                        self.shot(ctx, "discover_apps.png");
+                        go(self, 3, 300);
+                    }
+                    3 => {
+                        app.open_quests();
+                        go(self, 4, 1500);
+                    }
+                    4 => {
+                        self.shot(ctx, "quests_buttons.png");
+                        go(self, 5, 300);
+                    }
+                    _ => {
+                        ctx.data_mut(|d| d.remove::<u8>(key));
+                        app.quests = None;
+                        app.directory = None;
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
+                        self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
+                    }
+                }
             }
         }
     }
