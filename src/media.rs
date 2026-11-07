@@ -868,6 +868,30 @@ mod tests {
         }
     }
 
+    fn lit(img: &ColorImage, x: usize, y: usize) -> bool {
+        let [r, g, b, _] = img.pixels[y * img.size[0] + x].to_array();
+        r.max(g).max(b) > 200 && r.min(g).min(b) > 150
+    }
+
+    #[test]
+    fn wide_pixels_and_turned_clips_fill_their_frame() {
+        unsafe {
+            init();
+            for (name, size) in [("wide.mp4", (360, 180)), ("turned.mp4", (320, 180))] {
+                let VideoReader { r, info, pic, .. } = open_video(&fixture(name), false, size).unwrap();
+                assert_eq!((info.w, info.h), size, "{name}");
+                let (mut flags, mut sample) = (0u32, None);
+                r.ReadSample(VIDEO, 0, None, Some(&mut flags), None, Some(&mut sample)).unwrap();
+                let img = to_image(&sample.unwrap(), &pic).unwrap();
+                let [w, h] = img.size;
+                assert_eq!((w, h), size, "{name}");
+                for (x, y) in [(w / 2, 1), (w / 2, h - 2), (1, h / 2), (w - 2, h / 2)] {
+                    assert!(lit(&img, x, y), "{name}: the white border is missing at {x},{y}");
+                }
+            }
+        }
+    }
+
     fn cpu_secs() -> f64 {
         use windows_sys::Win32::Foundation::FILETIME;
         use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
