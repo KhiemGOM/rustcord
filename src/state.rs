@@ -393,6 +393,8 @@ pub struct Guild {
     pub stickers: Vec<(Id, String, u8)>,
     #[serde(default)]
     pub features: Vec<String>,
+    #[serde(skip)]
+    pub theme: Option<crate::theme::Fill>,
     pub channels: Vec<Id>,
     pub my_roles: Vec<Id>,
     pub member_count: u32,
@@ -1884,6 +1886,9 @@ impl Store {
         if let Some(f) = v["features"].as_array() {
             g.features = f.iter().filter_map(|x| x.as_str()).map(str::to_string).collect();
         }
+        if let Some(t) = v.get("theme") {
+            g.theme = guild_theme(t);
+        }
         if let Some(i) = p.get("incidents_data") {
             let secs = |k: &str| i[k].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
             g.invites_until = secs("invites_disabled_until");
@@ -2876,6 +2881,22 @@ impl Store {
             !v.is_empty()
         });
     }
+}
+
+/// A server's own theme: a preset, or one colour (a theme with more is ignored, as the client does).
+fn guild_theme(t: &Value) -> Option<crate::theme::Fill> {
+    use crate::theme::{Custom, Fill};
+    if t["enabled"].as_bool() != Some(true) {
+        return None;
+    }
+    let c = &t["custom_user_theme_settings"];
+    if let Some([col]) = c["colors"].as_array().map(Vec::as_slice)
+        && c["gradient_color_stops"].as_array().is_none_or(|s| s.is_empty())
+    {
+        let rgb = u32::from_str_radix(col.as_str()?.trim_start_matches('#'), 16).ok()?;
+        return Some(Fill::Custom(Custom { colors: vec![rgb], angle: c["gradient_angle"].as_i64().unwrap_or(0) as i32, mix: c["base_mix"].as_i64().unwrap_or(0) as i32, light: false }));
+    }
+    Fill::from_id(t["preset_id"].as_u64()? as u32)
 }
 
 fn parse_role(r: &Value) -> Role {

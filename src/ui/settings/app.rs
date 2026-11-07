@@ -1,6 +1,6 @@
 use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
-use super::{Page, caption, dropdown, markers, note, radio, section, sub, toggle};
+use super::{Page, caption, dropdown, markers, radio, section, sub, toggle};
 use crate::cache::{Animate, Density, RoleColors, Spoilers};
 use crate::theme::*;
 use crate::ui::App;
@@ -8,76 +8,6 @@ use crate::ui::icons::{self, Icon};
 
 pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     let mut changed = false;
-    section(ui, "Theme");
-    let mut sync = app.settings.theme == Theme::Sync;
-    if toggle(ui, &mut sync, "Same as Device Theme", "Match your device's light or dark mode.") {
-        app.settings.theme = if sync { Theme::Sync } else { Theme::Dark };
-        app.settings.custom_theme = None;
-        changed = true;
-    }
-    super::end(ui, 32.0);
-    sub(ui, "Default Themes");
-    let themes = [
-        (Theme::Light, "Light", Color32::WHITE),
-        (Theme::Ash, "Ash", Color32::from_rgb(50, 51, 57)),
-        (Theme::Dark, "Dark", Color32::from_rgb(29, 29, 33)),
-        (Theme::Onyx, "Onyx", Color32::BLACK),
-        (Theme::Sync, "Sync with computer", Color32::WHITE),
-    ];
-    super::lead(ui);
-    let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
-    for (i, (t, name, fill)) in themes.into_iter().enumerate() {
-        let r = Rect::from_min_size(strip.min + vec2(56.0 * i as f32, 0.0), vec2(48.0, 48.0));
-        let on = app.settings.theme == t && app.settings.custom_theme.is_none();
-        ui.painter().rect_filled(r, CornerRadius::same(8), fill);
-        if t == Theme::Sync {
-            let half = Rect::from_min_max(pos2(r.center().x, r.top()), r.max);
-            ui.painter().rect_filled(half, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, Color32::from_rgb(29, 29, 33));
-        }
-        if tile(app, ui, name, r, on) {
-            app.settings.theme = t;
-            app.settings.custom_theme = None;
-            changed = true;
-        }
-    }
-
-    ui.add_space(40.0);
-    super::lead(ui);
-    let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-    let title = ui.painter().text(head.left_center(), Align2::LEFT_CENTER, "Color Themes", semi(16.0), pal().text_normal);
-    icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(title.right() + 12.0, head.center().y), vec2(16.0, 16.0)), pal().header_primary);
-    ui.add_space(4.0);
-    ui.add(egui::Label::new(RichText::new("Make Discord yours. Only with Nitro.").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
-    ui.add_space(20.0);
-    let per_row = ((ui.available_width() + 10.0) / 66.0).floor().max(1.0) as usize;
-    let rows = PRESETS.len().div_ceil(per_row);
-    let (grid, _) = ui.allocate_exact_size(vec2(ui.available_width(), rows as f32 * 66.0 - 10.0), Sense::hover());
-    for (i, preset) in PRESETS.iter().enumerate() {
-        let r = Rect::from_min_size(grid.min + vec2((i % per_row) as f32 * 66.0, (i / per_row) as f32 * 66.0), vec2(56.0, 56.0));
-        ui.painter().add(egui::Shape::mesh(rounded_gradient(preset, r, 8.0)));
-        let on = app.settings.custom_theme == Some(i as u8);
-        if tile(app, ui, preset.name, r, on) {
-            app.settings.custom_theme = Some(i as u8);
-            changed = true;
-        }
-    }
-    super::end(ui, 32.0);
-    let s = &mut app.settings;
-    changed |= toggle(ui, &mut s.sync_theme, "Sync theme across my devices", "");
-    changed |= toggle(ui, &mut s.own_theme_on_profiles, "Apply theme to other users' profiles", "");
-    related(app, ui, Page::Accessibility, "Accessibility", "Change saturation of colors, enable high-contrast mode, and more");
-
-    section(ui, "App Icon");
-    note(ui, "Change the Discord in-app icon, only with Nitro.");
-    super::lead(ui);
-    let (r, _) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::hover());
-    let logo = Rect::from_center_size(r.center(), vec2(40.0, 40.0));
-    ui.painter().rect_filled(r, CornerRadius::same(8), BLURPLE);
-    egui::Image::new(egui::include_image!("../../../assets/discord.png")).paint_at(ui, logo);
-    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
-    ui.add_space(8.0);
-    ui.add(egui::Label::new(RichText::new("Blurple (Default)").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
-
     section(ui, "Messages");
     let s = &mut app.settings;
     sub(ui, "Show images, videos, and lolcats...");
@@ -157,8 +87,8 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     changed | chat | streamer
 }
 
-/// A theme swatch's ring, tick and click; true when it was clicked and isn't the one on.
-fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
+/// A theme swatch's ring, tick and click; true when it was clicked.
+pub(super) fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
     let resp = ui.interact(r, egui::Id::new(("theme", name)), Sense::click());
     let ring = if on { BLURPLE } else { crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 61), pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
@@ -171,11 +101,11 @@ fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     app.rects.insert(format!("theme:{name}"), r);
-    resp.clicked() && !on
+    resp.clicked()
 }
 
 /// The link row to a neighbouring page: its icon, a name, one line, a chevron.
-fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: &str) {
+pub(super) fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: &str) {
     super::lead(ui);
     ui.add_space(24.0);
     ui.add(egui::Label::new(RichText::new("Related Settings").font(semi(16.0)).color(pal().text_normal)).selectable(false));
