@@ -81,7 +81,6 @@ fn super_props() -> &'static str {
 }
 
 pub const RATE_LIMITED: &str = "You are being rate limited.";
-pub const UNAUTHORIZED: &str = "401: Unauthorized";
 
 pub fn explain(status: u16, v: &Value) -> String {
     let mut fields = Vec::new();
@@ -507,6 +506,6 @@ mod tests {
     fn a_bare_status_gets_a_line_of_its_own() {
         assert!(explain(502, &Value::Null).starts_with("Oh no, it looks like the Discord servers"));
         assert_eq!(explain(429, &Value::Null), RATE_LIMITED);
-        assert_eq!(explain(401, &json!({ "message": "401: Unauthorized", "code": 0 })), UNAUTHORIZED);
+        assert_eq!(explain(401, &json!({ "message": "401: Unauthorized", "code": 0 })), "401: Unauthorized");
     }
 }
