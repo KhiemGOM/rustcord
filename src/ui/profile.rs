@@ -796,7 +796,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     match act {
         Some(Do::Close) => app.full_profile = None,
         Some(Do::Tab(t)) => app.full_profile = Some(Full { uid, gid, tab: t }),
-        Some(Do::Add) => app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend),
+        Some(Do::Add) => app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend),
         Some(Do::Message) => {
             app.full_profile = None;
             app.open_dm(uid);

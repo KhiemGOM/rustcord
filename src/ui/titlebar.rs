@@ -664,11 +664,11 @@ fn friend_requests(ui: &mut Ui, app: &mut App) {
     }
     if let Some(u) = accept {
         app.store.relationships.insert(u, crate::state::FRIEND);
-        app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), Tag::rollback(move |app: &mut App| { app.store.relationships.remove(&u); }));
+        app.rest_in("PUT", format!("/users/@me/relationships/{u}"), Some(serde_json::json!({})), "friends-popout", Tag::rollback(move |app: &mut App| { app.store.relationships.remove(&u); }));
     }
     if let Some(u) = ignore {
         let was = app.store.relationships.remove(&u);
-        app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::rollback(move |app: &mut App| {
+        app.rest_in("DELETE", format!("/users/@me/relationships/{u}"), None, "friends-popout", Tag::rollback(move |app: &mut App| {
             if let Some(t) = was {
                 app.store.relationships.insert(u, t);
             }

@@ -381,7 +381,7 @@ fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts: &mut Vec<A
                 if i == 1 {
                     let c = Rect::from_min_size(pos2(label.right(), tr.top()), vec2(chev, 48.0));
                     let cr = ui.interact(c, ui.id().with("shop_browse_menu"), Sense::click());
-                    crate::ui::motion::chevron(ui, ui.id().with("shop_browse_chev"), false, Rect::from_center_size(pos2(c.left() + 12.0, c.center().y), vec2(20.0, 20.0)), col);
+                    crate::ui::motion::chevron(ui, ui.id().with("shop_browse_chev"), true, Rect::from_center_size(pos2(c.left() + 12.0, c.center().y), vec2(20.0, 20.0)), col);
                     mark(ui, "shop:browse_menu", c);
                     if cr.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
