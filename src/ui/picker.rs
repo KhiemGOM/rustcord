@@ -562,15 +562,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let mut act = None;
         let open = super::float_menu(ctx, "picker_menu", at, |ui| {
             if super::menu_item(ui, Some(super::icons::Icon::Star), if fav { "Unfavorite Emoji" } else { "Favorite Emoji" }, false) {
-                act = Some(true);
+                act = Some(0);
             }
             if em.id != 0 && super::menu_item(ui, Some(super::icons::Icon::Id), "Copy Emoji ID", false) {
-                act = Some(false);
+                act = Some(1);
+            }
+            if em.id != 0 && super::menu_item(ui, Some(super::icons::Icon::Link), "Copy Emoji Image Link", false) {
+                act = Some(2);
             }
         });
         match act {
-            Some(true) => toggle_fav(app, ctx, em),
-            Some(false) => ctx.copy_text(em.id.to_string()),
+            Some(0) => toggle_fav(app, ctx, em),
+            Some(1) => ctx.copy_text(em.id.to_string()),
+            Some(_) => ctx.copy_text(format!("{}/emojis/{}.webp?size=32{}", crate::api::cdn(), em.id, if em.animated { "&animated=true" } else { "" })),
             None => {}
         }
         if act.is_some() || !open {
