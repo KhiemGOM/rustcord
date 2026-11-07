@@ -10,7 +10,7 @@ use super::App;
 use super::icons::{self, Icon};
 use super::motion;
 use crate::net::Tag;
-use crate::state::{ADMINISTRATOR, Id, KICK_MEMBERS, sid, snowflake_ms};
+use crate::state::{ADMINISTRATOR, BAN_MEMBERS, Id, KICK_MEMBERS, sid, snowflake_ms};
 use crate::theme::*;
 
 const PAGE: usize = 100;
@@ -250,6 +250,8 @@ fn table(app: &mut App, ui: &mut Ui, gid: Id, i: usize) {
     let selected = app.book(gid).selected.clone();
     let mut pick = None;
     let mut flip = false;
+    let mut menu_act: Option<(&str, Id)> = None;
+    let (can_mod, perms) = (super::modview::allowed(&app.store, gid), app.store.my_perms(gid));
     Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
         let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
         let date_x = h.right() - 360.0;
@@ -290,6 +292,32 @@ fn table(app: &mut App, ui: &mut Ui, gid: Id, i: usize) {
                 ui.painter().text(pos2(av.right() + 12.0, row.center().y + 9.0), Align2::LEFT_CENTER, user, reg(12.0), pal().text_normal);
                 let at = if i == 0 { when(sid(&r["join_request_id"]), false) } else { when(sid(&r["actioned_at"]), false) };
                 ui.painter().text(pos2(date_x + 8.0, row.center().y), Align2::LEFT_CENTER, at, reg(14.0), pal().text_normal);
+                let more = (i == 0).then(|| {
+                    let b = Rect::from_center_size(pos2(row.right() - 28.0, row.center().y), vec2(28.0, 28.0));
+                    let br = ui.interact(b, ui.id().with(("join_more", rid(r))), Sense::click());
+                    app.rects.insert(format!("joins:more:{}", rid(r)), b);
+                    if br.hovered() {
+                        ui.painter().circle_filled(b.center(), 14.0, faint(41));
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    icons::draw(ui.painter(), Icon::More, Rect::from_center_size(b.center(), vec2(18.0, 18.0)), pal().header_secondary);
+                    br.on_hover_text("More Options")
+                });
+                if let Some(br) = &more {
+                    let outranks = uid != app.store.me && super::usermenu::rank(&app.store, gid, app.store.me) > super::usermenu::rank(&app.store, gid, uid);
+                    egui::Popup::menu(br).width(220.0).show(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        if can_mod && super::menu_item(ui, None, "Open in Mod View", false) {
+                            menu_act = Some(("mod", uid));
+                        }
+                        if outranks && perms & BAN_MEMBERS != 0 && super::menu_item(ui, None, "Ban User", true) {
+                            menu_act = Some(("ban", uid));
+                        }
+                        if super::menu_item(ui, None, "Copy User ID", false) {
+                            menu_act = Some(("copy", uid));
+                        }
+                    });
+                }
                 if resp.clicked() {
                     pick = Some(rid(r));
                 }
@@ -300,6 +328,12 @@ fn table(app: &mut App, ui: &mut Ui, gid: Id, i: usize) {
             fetch(app, gid, i);
         }
     });
+    match menu_act {
+        Some(("mod", u)) => app.open_mod_view(gid, u),
+        Some(("ban", u)) => app.ban(gid, u),
+        Some((_, u)) => ui.ctx().copy_text(u.to_string()),
+        None => {}
+    }
     if flip {
         let b = app.book(gid);
         b.oldest = !b.oldest;

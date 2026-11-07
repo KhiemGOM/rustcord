@@ -180,6 +180,8 @@ pub struct VoiceUi {
     /// muted, server muted, deafened, server deafened, for whoever is any of them
     pub muted: HashMap<Id, [bool; 4]>,
     pub stream: Option<Live>,
+    /// a stream to start watching once the call we're joining connects: (channel, streamer, asked at)
+    pub watch_next: Option<(Id, Id, std::time::Instant)>,
     pub stage: stage::Stage,
     pub suppressed: bool,
     /// a video call was asked for: the camera goes on once the call connects
@@ -280,6 +282,7 @@ impl VoiceUi {
         self.tex.clear();
         self.viewers.clear();
         self.chan = None;
+        self.watch_next = None;
         self.state = State::Idle;
         self.session = None;
         self.server = None;
@@ -510,6 +513,12 @@ impl VoiceUi {
                 }
                 self.session = d["session_id"].as_str().map(str::to_string);
                 self.connect(net, me);
+                if let Some((c, u, at)) = self.watch_next.take()
+                    && c == ch
+                    && at.elapsed().as_secs() < 30
+                {
+                    self.watch(net, u);
+                }
             }
             "VOICE_SERVER_UPDATE" => {
                 let Some(ch) = self.chan else { return };

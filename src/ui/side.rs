@@ -1450,6 +1450,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                 crate::net::Conn::Online if app.store.custom_emoji.as_ref().is_some_and(|e| e.id == 0) => {
                     format!("{} {}", app.store.custom_emoji.as_ref().map_or("", |e| e.name.as_str()), app.store.custom_status.as_deref().unwrap_or_default()).trim().to_string()
                 }
+                crate::net::Conn::Online if app.store.custom_emoji.as_ref().is_some_and(|e| e.id != 0) => app.store.custom_status.clone().unwrap_or_default(),
                 crate::net::Conn::Online => app.store.custom_status.clone().unwrap_or_else(|| {
                     match status {
                         Status::Online => "Online",
@@ -1472,6 +1473,14 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                     let stage = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
                     icons::draw(ui.painter(), if stage { Icon::Stage } else { Icon::Speaker }, r, GREEN);
                     ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().header_secondary)).selectable(false));
+                });
+            } else if let Some(e) = app.store.custom_emoji.clone().filter(|e| e.id != 0 && matches!(app.conn, crate::net::Conn::Online) && !hot && !app.settings.hiding_personal()) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                    egui::Image::from_uri(crate::markdown::emoji_url(e.id, e.animated)).show_loading_spinner(false).paint_at(ui, r);
+                    app.rects.insert("side:status_emoji".into(), r);
+                    ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));
                 });
             } else {
                 ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));

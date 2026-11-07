@@ -6,6 +6,7 @@ mod card;
 mod draft;
 mod pick;
 mod style;
+mod suggest;
 
 pub use draft::{Pic, Slot, widgets_of};
 pub use pick::gif_arrived;
@@ -354,10 +355,33 @@ fn panel_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, panel: Rect, user: &cra
             *y += 26.0;
         };
         if ed.ready {
+            if ed.guild.is_some() && !app.settings.profed_notice {
+                notice(app, ui, x, w, &mut y);
+            }
             panel_tiles(app, ed, ui, x, w, &mut y, user, &head);
         }
         ui.allocate_rect(Rect::from_min_max(pos2(x, ui.cursor().top()), pos2(x + w, y + 24.0)), Sense::hover());
     });
+}
+
+fn notice(app: &mut App, ui: &mut Ui, x: f32, w: f32, y: &mut f32) {
+    let g = ui.painter().layout("You can customize styles, display name, pronouns, and bio for each server.".into(), reg(14.0), pal().text_normal, w - 52.0);
+    let r = Rect::from_min_size(pos2(x, *y), vec2(w, g.size().y + 20.0));
+    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(88, 101, 242, 12));
+    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, BLURPLE), egui::StrokeKind::Inside);
+    ui.painter().galley(r.min + vec2(10.0, 10.0), g, pal().text_normal);
+    let b = Rect::from_center_size(pos2(r.right() - 20.0, r.top() + 20.0), vec2(20.0, 20.0));
+    let resp = ui.interact(b, ui.id().with("profed_notice_x"), Sense::click());
+    icons::draw(ui.painter(), Icon::Close, b, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+    mark(ui, "profed_notice_x", b);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.on_hover_text("Dismiss notice").clicked() {
+        app.settings.profed_notice = true;
+        crate::cache::set_settings(&app.settings);
+    }
+    *y += r.height() + 16.0;
 }
 
 fn profile_menu(ui: &mut Ui, under: Rect, cur: Option<Id>, guilds: &[(Id, String)]) -> Option<Option<Id>> {

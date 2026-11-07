@@ -206,6 +206,8 @@ pub struct Settings {
     pub recent_activities: Vec<Id>,
     // the first-visit modal on a stage channel
     pub stage_welcome: bool,
+    // the per-server profile notice in the profile editor, dismissed
+    pub profed_notice: bool,
     // Mute Music in a stage's tray, kept on this device
     pub stage_music_muted: bool,
     // emoji and gifs starred in the pickers
@@ -430,6 +432,7 @@ impl Default for Settings {
             hide_idle_tiles: false,
             recent_activities: Vec::new(),
             stage_welcome: false,
+            profed_notice: false,
             stage_music_muted: false,
             fav_emoji: Vec::new(),
             fav_gifs: Vec::new(),

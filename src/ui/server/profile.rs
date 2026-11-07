@@ -326,6 +326,7 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     let (r, resp) = ui.allocate_exact_size(vec2(134.0, 134.0), Sense::click());
+                    super::super::settings::mark(ui, &format!("game:tile:{id}"), r);
                     ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_secondary);
                     if let Some(i) = icon {
                         super::super::text::image(ui.painter(), &format!("{}/app-icons/{id}/{i}.png?size=256", crate::api::cdn()), r);
