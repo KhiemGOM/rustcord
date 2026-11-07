@@ -139,6 +139,10 @@ pub fn make(options: &str) -> Result<String, String> {
 }
 
 pub fn get(options: &str) -> Result<String, String> {
+    if let Ok(fake) = std::env::var("RUSTCORD_FAKE_PASSKEY") {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        return if fake == "cancel" { Err("Cancelled.".into()) } else { Ok(fake) };
+    }
     let root: Value = serde_json::from_str(options).map_err(|e| e.to_string())?;
     let o = &root["publicKey"];
     let challenge = o["challenge"].as_str().unwrap_or("");

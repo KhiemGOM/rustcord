@@ -36,6 +36,8 @@ pub enum Cmd {
     Mfa { kind: &'static str, ticket: String, code: String },
     Sms(String),
     Register(Register),
+    Key { ticket: String, options: String },
+    Passkey,
     Name(String),
     Forgot(String),
 }
@@ -117,6 +119,25 @@ where
         cap = Some(Captcha { key, rqtoken: r.body["captcha_rqtoken"].as_str().map(str::to_string) });
     }
     Err("The captcha failed. Please try again.".into())
+fn key_options(challenge: &str) -> String {
+    match serde_json::from_str::<Value>(challenge) {
+        Ok(v) if v.get("publicKey").is_some() => challenge.to_string(),
+        Ok(v) if v.is_object() => json!({ "publicKey": v }).to_string(),
+        _ => json!({ "publicKey": { "challenge": challenge } }).to_string(),
+    }
+}
+
+async fn assertion(options: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || crate::webauthn::get(&options)).await.map_err(|e| e.to_string())?
+}
+
+async fn passkey(api: &Api) -> Result<Reply, String> {
+    let start = api.passwordless_start().await?;
+    let (Some(challenge), Some(ticket)) = (start.body["challenge"].as_str(), start.body["ticket"].as_str()) else { return Ok(start) };
+    let credential = assertion(key_options(challenge)).await?;
+    api.passwordless_finish(ticket, &credential).await
+}
+
 }
 
 fn reply(tx: &Tx, r: Result<Reply, String>, ok: impl FnOnce(&Reply) -> Option<Ev>) {
@@ -148,6 +169,14 @@ pub async fn run(cmd: Cmd, api: Arc<Api>, tx: Tx) {
                 }
                 token(r)
             });
+        Cmd::Key { ticket, options } => {
+            let r = match assertion(options).await {
+                Ok(code) => api.mfa("webauthn", &ticket, &code).await,
+                Err(e) => Err(e),
+            };
+            reply(&tx, r, token);
+        }
+        Cmd::Passkey => reply(&tx, passkey(&api).await, token),
         }
         Cmd::Mfa { kind, ticket, code } => reply(&tx, api.mfa(kind, &ticket, &code).await, token),
         Cmd::Sms(ticket) => {
