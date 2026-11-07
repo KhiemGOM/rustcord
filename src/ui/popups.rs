@@ -101,21 +101,11 @@ impl App {
     }
 
     pub fn kick(&mut self, gid: Id, uid: Id) {
-        let name = self.store.name_in(gid, uid);
-        let server = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-        let body = format!("Are you sure you want to kick @{name} from the server? They will be able to rejoin again with a new invite.");
-        self.confirm = Some(super::Confirm::new(format!("Kick '{name}' from {server}"), body, "Kick", move |app: &mut App| {
-            app.rest("DELETE", format!("/guilds/{gid}/members/{uid}"), None, Tag::fail(format!("Whoops... {} could not be kicked.  Please try again!", app.store.name_in(gid, uid))))
-        }));
+        self.kickban = Some(super::kickban::Dialog::new(gid, uid, false));
     }
 
     pub fn ban(&mut self, gid: Id, uid: Id) {
-        let name = self.store.name_in(gid, uid);
-        let server = self.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-        let body = format!("Are you sure you want to ban @{name} from {server}?");
-        self.confirm = Some(super::Confirm::new(format!("Ban '{name}'"), body, "Ban", move |app: &mut App| {
-            app.rest("PUT", format!("/guilds/{gid}/bans/{uid}"), Some(json!({ "delete_message_seconds": 0 })), Tag::fail(format!("Whoops... {} could not be banned.  Please try again!", app.store.name_in(gid, uid))))
-        }));
+        self.kickban = Some(super::kickban::Dialog::new(gid, uid, true));
     }
 
     pub fn open_dm(&mut self, user: Id) {
@@ -416,6 +406,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     leaving(app, ctx);
     super::sourcepop::show(app, ctx);
     timeout(app, ctx);
+    super::kickban::show(app, ctx);
+    super::prune::show(app, ctx);
     super::poll::show(app, ctx);
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
