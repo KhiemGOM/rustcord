@@ -1072,6 +1072,13 @@ impl Run {
                     return self.fail("no voice channel".into());
                 };
                 let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                let covered = ["game:panel", "userpanel"].iter().filter_map(|k| app.rects.get(*k)).map(|p| p.top()).fold(ctx.content_rect().bottom(), f32::min);
+                if r.bottom() > covered {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, covered - 100.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
                 self.call = vc;
                 self.click(r.center());
                 self.mark("voice_click");
