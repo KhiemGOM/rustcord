@@ -56,7 +56,7 @@ fn key(e: &ReactEmoji) -> Option<String> {
     if e.id != 0 {
         return Some(e.id.to_string());
     }
-    emojis::get(&e.name).and_then(|u| u.shortcode()).map(str::to_string)
+    crate::emoji_names::primary(&e.name).or_else(|| emojis::get(&e.name).and_then(|u| u.shortcode())).map(str::to_string)
 }
 
 fn resolve(app: &App, k: &str) -> Option<ReactEmoji> {
@@ -64,8 +64,8 @@ fn resolve(app: &App, k: &str) -> Option<ReactEmoji> {
         let e = app.store.guilds.values().flat_map(|g| &g.emojis).find(|e| e.id == id)?;
         return Some(ReactEmoji { id, name: e.name.clone(), animated: e.animated });
     }
-    let u = emojis::get_by_shortcode(k)?;
-    Some(ReactEmoji { id: 0, name: u.as_str().to_string(), animated: false })
+    let name = crate::emoji_names::unicode(k).or_else(|| emojis::get_by_shortcode(k).map(|e| e.as_str()))?;
+    Some(ReactEmoji { id: 0, name: name.to_string(), animated: false })
 }
 
 fn local_gifs(list: &[Gif]) -> Vec<LocalGif> {

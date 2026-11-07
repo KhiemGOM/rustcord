@@ -25,8 +25,12 @@ pub fn colon_name(e: &ReactEmoji) -> String {
     if e.id != 0 {
         format!(":{}:", e.name)
     } else {
-        format!(":{}:", emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name))
+        format!(":{}:", unicode_name(&e.name))
     }
+}
+
+pub fn unicode_name(s: &str) -> &str {
+    crate::emoji_names::primary(s).or_else(|| emojis::get(s).and_then(|x| x.shortcode())).unwrap_or(s)
 }
 
 /// "reacted by A, B and 4 others", from the people loaded so far
@@ -219,5 +223,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Some(_) if close => app.reactors = None,
         Some(w) => w.sel = sel,
         None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unicode_name;
+
+    #[test]
+    fn unicode_emoji_carry_discords_names() {
+        assert_eq!(unicode_name("👍"), "thumbsup");
+        assert_eq!(unicode_name("❤️"), "heart");
+        assert_eq!(unicode_name("🇺🇸"), "flag_us");
+        assert_eq!(crate::emoji_names::unicode("thumbsup"), Some("👍"));
+        assert_eq!(crate::emoji_names::unicode("heart"), Some("❤️"));
     }
 }

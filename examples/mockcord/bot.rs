@@ -236,6 +236,11 @@ fn modal(nonce: &str, ch: u64, iid: u64) -> Value {
             { "type": 18, "label": "Details", "description": "Say as much as you like", "component": { "type": 4, "custom_id": "details", "style": 2, "max_length": 400, "required": false, "placeholder": "Tell us more" } },
             { "type": 18, "label": "How did it feel?", "component": { "type": 3, "custom_id": "mood", "placeholder": "Choose one", "required": true,
                 "options": [{ "label": "Great", "value": "great" }, { "label": "Fine", "value": "fine" }, { "label": "Poor", "value": "poor" }] } },
+            { "type": 18, "label": "Preferred contact", "description": "How should we reach you?", "component": { "type": 21, "custom_id": "contact", "required": true,
+                "options": [{ "label": "Email", "value": "email", "description": "Slow, but we always read it" }, { "label": "Phone", "value": "phone" }] } },
+            { "type": 18, "label": "Topics", "component": { "type": 22, "custom_id": "topics", "min_values": 0, "max_values": 2,
+                "options": [{ "label": "Bugs", "value": "bugs" }, { "label": "Ideas", "value": "ideas" }, { "label": "Praise", "value": "praise" }] } },
+            { "type": 18, "label": "Send me the newsletter", "component": { "type": 23, "custom_id": "newsletter", "default": false } },
         ],
     } })
 }
@@ -415,12 +420,24 @@ pub fn handle(w: &W, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
                         Some(v) => out.push(format!("{}={}", c["custom_id"].as_str().unwrap_or(""), v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("+"))),
                         None => *ok = false,
                     },
+                    Some(21) => match c["value"].as_str() {
+                        Some(v) => out.push(format!("{}={v}", c["custom_id"].as_str().unwrap_or(""))),
+                        None => *ok = false,
+                    },
+                    Some(22) => match c["values"].as_array() {
+                        Some(v) => out.push(format!("{}={}", c["custom_id"].as_str().unwrap_or(""), v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("+"))),
+                        None => *ok = false,
+                    },
+                    Some(23) => match c["value"].as_bool() {
+                        Some(v) => out.push(format!("{}={v}", c["custom_id"].as_str().unwrap_or(""))),
+                        None => *ok = false,
+                    },
                     _ => {}
                 }
             }
             rows.iter().for_each(|r| walk(r, &mut out, &mut ok));
             if !ok {
-                return bad(400, "a text input needs a value and a select needs values", "components");
+                return bad(400, "a text input needs a value, a select or checkbox group values, a radio group a value and a checkbox a boolean", "components");
             }
             let w2 = w.clone();
             let text = format!("Thanks for the feedback: {}", out.join("; "));

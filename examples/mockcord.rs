@@ -337,6 +337,7 @@ fn chatx_msgs(cdn: &str) -> Vec<Value> {
         m["attachments"] = json!([{ "id": "11", "filename": "copy-me.png", "size": 4096, "url": format!("{cdn}/attachments/2085/11/copy-me.png"),
             "proxy_url": format!("{cdn}/attachments/2085/11/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
     });
+    add(103, "a sticker from a default pack", &|m| m["sticker_items"] = json!([{ "id": "8103", "name": "Sleepy", "format_type": 3 }]));
     add(102, "a sticker from elsewhere", &|m| m["sticker_items"] = json!([{ "id": "7777", "name": "Monkey Think", "format_type": 1 }]));
     add(103, "a faraway <:CRose:9999> emoji", &|_| {});
     add(101, "quiet please", &|m| m["flags"] = json!(4096));
@@ -2178,9 +2179,24 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         // a thread from a message or from nothing: the new channel back, and over the gateway
         ("POST", ["api", "v9", "channels", ch, "messages", _, "threads"]) | ("POST", ["api", "v9", "channels", ch, "threads"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let parent = channel(w, ch);
+            let mut applied = Vec::new();
+            if parent.as_ref().is_some_and(|p| p["type"] == 15) {
+                let tags: Vec<Value> = b["applied_tags"].as_array().cloned().unwrap_or_default();
+                let known = parent.as_ref().and_then(|p| p["available_tags"].as_array()).cloned().unwrap_or_default();
+                let required = parent.as_ref().is_some_and(|p| p["flags"].as_u64().unwrap_or(0) & 16 != 0);
+                let refuse = |code: u64, message: &str| (400, "application/json", json!({ "code": code, "message": message }).to_string().into_bytes());
+                if required && tags.is_empty() {
+                    return refuse(40067, "A tag is required to create a forum post in this channel");
+                }
+                if tags.len() > 5 || tags.iter().any(|t| !t.is_string() || !known.iter().any(|k| k["id"] == *t)) {
+                    return refuse(50035, "Invalid Form Body");
+                }
+                applied = tags;
+            }
             let t = json!({ "id": snow(now_ms()).to_string(), "type": 11, "guild_id": "1000", "parent_id": ch, "name": b["name"],
-                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null,
-                            "thread_metadata": { "archived": false, "auto_archive_duration": 4320 }, "member": { "user_id": ME.to_string() } });
+                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null, "applied_tags": applied,
+                            "thread_metadata": { "archived": false, "auto_archive_duration": b["auto_archive_duration"] }, "member": { "user_id": ME.to_string() } });
             let _ = w.lock().unwrap().events.send(json!({ "t": "THREAD_CREATE", "d": t.clone() }));
             ok(t)
         }
@@ -2265,6 +2281,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let _ = w.events.send(json!({ "t": if thread { "THREAD_UPDATE" } else { "CHANNEL_UPDATE" }, "d": c.clone() }));
             ok(c)
         }
+        ("PUT" | "DELETE", ["api", "v9", "channels", _, "thread-members", "@me"]) => (204, "application/json", Vec::new()),
         ("DELETE", ["api", "v9", "channels", ch]) => {
             let Some(c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
             let mut w = w.lock().unwrap();
@@ -2468,7 +2485,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
         }
         ("GET", ["cdn", "stickers", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(160, 160, f.len() as u32)),
-        ("GET", ["cdn", "stickers", f]) if f.ends_with(".json") => (200, "application/json", b"{}".to_vec()),
+        ("GET", ["cdn", "stickers", f]) if f.ends_with(".json") => (200, "application/json", include_bytes!("fixtures/sticker.json").to_vec()),
         ("GET", ["cdn", "stickers", f]) => (200, "image/png", png(160, 160, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {

@@ -262,7 +262,7 @@ impl Run {
                 self.key(Key::Escape);
                 self.next(400);
             }
-            _ => self.step = 4400,
+            _ => self.step = 4300,
         }
     }
 }

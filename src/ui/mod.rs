@@ -32,6 +32,7 @@ mod feedabout;
 mod folders;
 mod follow;
 mod forum;
+mod forumbar;
 mod gate;
 mod guide;
 mod guildmodal;
@@ -267,7 +268,7 @@ pub struct App {
     pub status_until: Option<i64>,
     pub add_app: Option<addapp::AddApp>,
     pub add_friend_note: Option<(bool, String)>,
-    pub post: Option<(String, String)>,
+    pub post: Option<forum::Post>,
     pub scroll_to: Option<(Id, Id)>,
     pub scroll_tries: u8,
     pub flash: Option<(Id, Instant)>,

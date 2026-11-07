@@ -73,6 +73,9 @@ def checks(runs, reqs, data):
         and comps[0]["type"] == 1 and comps[0]["components"][0]["type"] == 4 and comps[1]["type"] == 18 and comps[1]["component"]["type"] == 4
         and flat.get("subject", {}).get("value") == "Great app" and flat.get("details", {}).get("value") == "it opens forms now"
         and flat.get("mood", {}).get("type") == 3 and flat.get("mood", {}).get("values") == ["great"]
+        and flat.get("contact", {}).get("type") == 21 and flat.get("contact", {}).get("value") == "email"
+        and flat.get("topics", {}).get("type") == 22 and flat.get("topics", {}).get("values") == ["bugs"]
+        and flat.get("newsletter", {}).get("type") == 23 and flat.get("newsletter", {}).get("value") is True
     )
 
     comp = of(3)
@@ -93,8 +96,8 @@ def checks(runs, reqs, data):
             auto_ok and has("bot_autocomplete"),
         "bots: an autocomplete that failed said 'Loading options failed', and the X in the bar dropped the command":
             has("bot_autocomplete_failed", "bot_slash_closed") and any(any(o.get("value") == "fail" for o in b["data"]["options"]) for b in lookup),
-        "bots: a command's modal opened, refused empty required fields, and submitted as type 5 with the text inputs and the select":
-            has("bot_modal_open", "bot_modal_validation", "bot_modal_submit") and modal_ok,
+        "bots: a command's modal opened, refused empty required fields, and submitted as type 5 with the text inputs, the select, a radio group, a checkbox group and a checkbox":
+            has("bot_modal_open", "bot_modal_validation", "bot_choices_picked", "bot_modal_submit") and modal_ok,
         "bots: 'Sending command...', then '{app} is thinking...', then the deferred message (flag 128), then its edit": has("bot_sending", "bot_thinking", "bot_deferred", "bot_deferred_edit"),
         "bots: a failed interaction said so, and after three seconds said the application did not respond": has("bot_failed", "bot_timed_out"),
         "bots: a rate-limited command failed with the cooldown message": has("bot_cooldown") and len(named(2, "cooldown")) == 2 * runs_n,
