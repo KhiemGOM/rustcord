@@ -244,7 +244,14 @@ impl Run {
             }
             return;
         }
-        let Some((pings, title)) = self.hidden else { return };
+        let Some((pings, title)) = self.hidden else {
+            // minimized from outside, by something at the machine: step() would never run again
+            if ctx.input(|i| i.viewport().minimized == Some(true)) {
+                self.rects.insert("minimized_from_outside".into(), json!(self.step));
+                crate::winsys::show_quietly(false);
+            }
+            return;
+        };
         let n = app.title_count.unwrap_or(0) as i32;
         let left = Duration::from_secs(8).saturating_sub(self.step_at.elapsed());
         if self.pings.len() > pings && n > title && crate::winsys::badge() == n {
