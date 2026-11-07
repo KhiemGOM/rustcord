@@ -198,7 +198,7 @@ def main():
         # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
         real_video = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_SILENT": "1", **cam}
         warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
-        signin = run_client("login", ART / "login_data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", **fake})
+        signin = run_client("login", ART / "login_data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", "RUSTCORD_FAKE_PASSKEY": "mock-assertion", **fake})
     finally:
         mock.kill()
 

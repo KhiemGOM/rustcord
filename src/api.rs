@@ -471,6 +471,14 @@ impl Api {
         self.auth_post(&format!("/auth/mfa/{kind}"), json!({ "code": code, "ticket": ticket }), None).await
     }
 
+    pub async fn passwordless_start(&self) -> Result<Reply, String> {
+        self.auth_post("/auth/passwordless/start", json!({}), None).await
+    }
+
+    pub async fn passwordless_finish(&self, ticket: &str, credential: &str) -> Result<Reply, String> {
+        self.auth_post("/auth/conditional/finish", json!({ "ticket": ticket, "credential": credential }), None).await
+    }
+
     pub async fn sms(&self, ticket: &str) -> Result<Reply, String> {
         self.auth_post("/auth/mfa/sms/send", json!({ "ticket": ticket }), None).await
     }

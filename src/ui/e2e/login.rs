@@ -267,11 +267,42 @@ impl Run {
                 self.shot(ctx, "qr_ticket.png");
                 self.next(200);
             }
-            1552 if app.token.as_deref() == Some("mock-token") => {
-                self.mark("qr_login");
-                self.next(200);
+            1552 => {
+                self.signed_in(app, "qr_login");
             }
-            1553 if self.pending_shots == 0 => self.finish(ctx),
+            1553 if on_login(app) && self.press(app, "passkey") => self.next(500),
+            1554 if app.login.busy => {
+                self.mark("passkey_ui_alive");
+                self.shot(ctx, "passkey_busy.png");
+                self.next(100);
+            }
+            1555 => {
+                self.signed_in(app, "passkey_login");
+            }
+            1556 if on_login(app) => {
+                unsafe { std::env::set_var("RUSTCORD_FAKE_PASSKEY", "cancel") };
+                self.press(app, "passkey");
+                self.next(2200);
+            }
+            1557 if app.login.err.as_deref() == Some("Cancelled.") => {
+                unsafe { std::env::set_var("RUSTCORD_FAKE_PASSKEY", "mock-assertion") };
+                self.mark("passkey_cancelled");
+                self.shot(ctx, "passkey_cancelled.png");
+                self.next(100);
+            }
+            1558 if on_login(app) => {
+                self.sign_in_as(app, "key@mock.test");
+                self.next(300);
+            }
+            1559 if on_mfa(app) && app.login.mfa.kind == "webauthn" && self.press(app, "webauthn") => self.next(500),
+            1560 if app.login.mfa.busy => {
+                self.mark("mfa_key_ui_alive");
+                self.next(100);
+            }
+            1561 => {
+                self.signed_in(app, "mfa_key");
+            }
+            1562 if self.pending_shots == 0 => self.finish(ctx),
             _ => {}
         }
     }

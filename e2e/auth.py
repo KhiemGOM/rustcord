@@ -46,3 +46,7 @@ def checks(run, reqs):
         "qr: the gateway handshake drew a code, showed who scanned it, and exchanged the ticket for a token": ok("qr_shown") and ok("qr_ticket") and ok("qr_login")
             and len(sent("/users/@me/remote-auth/login")) >= 1,
     }
+        "login: the passkey link ran the assertion off the UI thread, then signed in with the mock's ticket": ok("passkey_ui_alive") and ok("passkey_login")
+            and any(b.get("ticket") == "passkey-ticket" and b.get("credential") == "mock-assertion" for b in sent("/auth/conditional/finish")),
+        "login: a cancelled passkey prompt put its message on the login card and sent nothing": ok("passkey_cancelled") and len(sent("/auth/conditional/finish")) == 1,
+        "login: the security key method kept the UI alive while it waited, then signed in": ok("mfa_key_ui_alive") and ok("mfa_key") and [b.get("code") for b in mfa("webauthn")] == ["mock-assertion"],
