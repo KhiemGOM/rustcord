@@ -5,6 +5,7 @@
 //! `python e2e/from_step.py 4700` runs this group.
 
 use egui::vec2;
+use serde_json::json;
 
 use super::Run;
 use super::embed::{frame_rects, msg_of, near, playing, side};
@@ -78,7 +79,9 @@ impl Run {
             4705 => {
                 let all = embedplay::px(ctx.content_rect(), ppp);
                 let Some((shown, win, bounds)) = probe(app) else { return };
-                if app.embed.as_ref().is_some_and(|p| p.frame.fullscreen()) && shown && win.iter().zip(all).all(|(x, y)| near(*x, y)) && bounds[2] == win[2] && bounds[3] == win[3] {
+                let entered = app.embed.as_ref().is_some_and(|p| p.frame.fullscreen());
+                self.rects.insert("embed_entered_fullscreen".into(), json!(entered));
+                if entered && shown && win.iter().zip(all).all(|(x, y)| near(*x, y)) && bounds[2] == win[2] && bounds[3] == win[3] {
                     self.mark(if ppp > 1.4 { "embed_fullscreen_covers_window_150" } else { "embed_fullscreen_covers_window" });
                 }
                 self.window_shot(if ppp > 1.4 { "embed_fullscreen_150.png" } else { "embed_fullscreen.png" });
@@ -91,7 +94,8 @@ impl Run {
                 let Some((full, clip)) = frame_rects(app, b) else { return };
                 let (Some((shown, win, bounds)), Some(p)) = (probe(app), &app.embed) else { return };
                 let want = embedplay::px(full.intersect(clip), ppp);
-                if !p.frame.fullscreen() && shown && win.iter().zip(want).all(|(x, y)| near(*x, y)) && bounds[2] == win[2] {
+                let entered = self.rects.get("embed_entered_fullscreen").and_then(|v| v.as_bool()).unwrap_or(false);
+                if entered && !p.frame.fullscreen() && shown && win.iter().zip(want).all(|(x, y)| near(*x, y)) && bounds[2] == win[2] {
                     self.mark(if ppp > 1.4 { "embed_fullscreen_exit_returns_150" } else { "embed_fullscreen_exit_returns" });
                 }
                 self.next(0);
