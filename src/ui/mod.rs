@@ -32,6 +32,7 @@ mod feedabout;
 mod folders;
 mod follow;
 mod forum;
+mod forumbar;
 mod gate;
 mod guide;
 mod guildmodal;

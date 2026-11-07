@@ -27,6 +27,7 @@ enum Act {
     Delete(Id),
     React(Id, ReactEmoji, bool),
     Picker(Id, Pos2),
+    Post(super::forumbar::Do),
     Menu(Id, Pos2),
     Url(String),
     // the poster of a video embed clicked: which one, and the address of its player
@@ -696,6 +697,10 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // last frame's height says how much room to leave above it
     let fill_id = egui::Id::new(("chat_fill", ch));
     let natural: f32 = ctx.data(|d| d.get_temp(fill_id)).unwrap_or(f32::MAX);
+    let post_forum = d.store.channels.get(&chan.parent).filter(|f| chan.is_thread() && f.is_forum());
+    let copied_id = egui::Id::new(("post_copied", ch));
+    let copied = ctx.data(|s| s.get_temp::<std::time::Instant>(copied_id)).is_some_and(|t| t.elapsed().as_secs() < 2);
+    let mut op_bottom = None;
     let out = crate::theme::auto_scroll(ui, |ui| sa.show_viewport(ui, |ui, vp| {
         if nudge != 0.0 {
             ui.scroll_with_delta_animation(vec2(0.0, nudge), egui::style::ScrollAnimation::none());
@@ -745,6 +750,15 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 }
                 if !folded {
                     message(ui, &mut d, m, prev, start);
+                    if let Some(f) = post_forum.filter(|_| m.id == ch) {
+                        ui.add_space(8.0);
+                        let a = super::forumbar::show(ui, chan, f, Some(m), false, copied);
+                        d.acts.extend(a.map(Act::Post));
+                        ui.add_space(8.0);
+                    }
+                }
+                if m.id == ch {
+                    op_bottom = Some(y + h);
                 }
                 let real = ui.cursor().top() - top;
                 if known.is_none_or(|k| (k - real).abs() > 0.5) {
@@ -766,6 +780,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
     }));
 
+    let stuck = post_forum.is_some() && op_bottom.map_or(!list.is_empty() && !at_start, |b| b <= out.state.offset.y);
+    ctx.data_mut(|s| s.insert_temp(egui::Id::new(("op_stuck", ch)), stuck));
     let D { acts, bar, rects, frame_at, .. } = d;
     app.bar = bar;
     if frame_at.is_some() {
@@ -882,6 +898,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 }
             }
             Act::Reactors(id, em, burst, n) => app.ask_reactors(ch, id, &em, burst, n),
+            Act::Post(a) => post_do(app, ui.ctx(), chan, a),
             Act::System(go, at) => match go {
                 system::Go::Profile(u) => app.open_profile(u, chan.guild, at),
                 system::Go::Message(c, id) => app.jump_to(c, id),
@@ -1033,8 +1050,52 @@ fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 }
 
+/// The thread card's bottom line: the last message in it, or why there's none to show.
+fn thread_line(store: &Store, t: &Channel, guild: Id) -> String {
+    if t.archived {
+        return "There are no recent messages in this thread.".into();
+    }
+    if t.msg_count == 0 {
+        return "There are no messages in this thread yet.".into();
+    }
+    match store.msgs.get(&t.id).and_then(|e| e.list.last()) {
+        Some(m) => format!("{}: {}", store.name_in(guild, m.author), markdown::plain(&m.content, store, guild)),
+        None => "There are no recent messages in this thread.".into(),
+    }
+}
+
+fn post_do(app: &mut App, ctx: &egui::Context, post: &Channel, a: super::forumbar::Do) {
+    use super::forumbar::Do;
+    let ch = post.id;
+    match a {
+        Do::React(em, add) => app.react(ch, ch, em, add),
+        Do::Picker(at) => app.picker = Some((Pick::React(ch, ch), at)),
+        Do::Follow(on) => app.follow_thread(ch, on),
+        Do::Link => {
+            ctx.copy_text(format!("https://discord.com/channels/{}/{ch}", post.guild));
+            ctx.data_mut(|s| s.insert_temp(egui::Id::new(("post_copied", ch)), std::time::Instant::now()));
+            ctx.request_repaint_after(std::time::Duration::from_secs(2));
+        }
+        Do::Top => app.thread_top(ch),
+    }
+}
+
 /// The "N new messages" strip on top and the "Jump To Present" strip at the bottom.
 fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: f32) {
+    if ui.ctx().data(|s| s.get_temp::<bool>(egui::Id::new(("op_stuck", ch)))).unwrap_or(false)
+        && let Some(post) = app.store.channels.get(&ch).cloned()
+        && let Some(forum) = app.store.channels.get(&post.parent).cloned()
+    {
+        let r = Rect::from_min_size(area.min, vec2(area.width(), 48.0));
+        ui.painter().rect_filled(r, 0, pal().bg_primary);
+        let first = app.store.msgs.get(&ch).and_then(|e| e.list.iter().find(|m| m.id == ch)).cloned();
+        let copied = ui.ctx().data(|s| s.get_temp::<std::time::Instant>(egui::Id::new(("post_copied", ch)))).is_some_and(|t| t.elapsed().as_secs() < 2);
+        let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(0.0, 8.0))));
+        let act = super::forumbar::show(&mut bar, &post, &forum, first.as_ref(), true, copied);
+        if let Some(a) = act {
+            post_do(app, ui.ctx(), &post, a);
+        }
+    }
     let detached = app.store.msgs.get(&ch).is_some_and(|e| e.detached);
     if let Some(after) = app.marker.filter(|(c, _)| *c == ch && app.marker_bar).map(|(_, m)| m) {
         let list = app.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default();

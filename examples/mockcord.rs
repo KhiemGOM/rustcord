@@ -2279,6 +2279,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let _ = w.events.send(json!({ "t": if thread { "THREAD_UPDATE" } else { "CHANNEL_UPDATE" }, "d": c.clone() }));
             ok(c)
         }
+        ("PUT" | "DELETE", ["api", "v9", "channels", _, "thread-members", "@me"]) => (204, "application/json", Vec::new()),
         ("DELETE", ["api", "v9", "channels", ch]) => {
             let Some(c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
             let mut w = w.lock().unwrap();
