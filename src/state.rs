@@ -432,6 +432,8 @@ pub struct Guild {
     #[serde(skip)]
     pub voice: Map<Id, Id>,
     #[serde(skip)]
+    pub streaming: Set<Id>,
+    #[serde(skip)]
     pub list: Vec<ListItem>,
 }
 
@@ -1916,6 +1918,9 @@ impl Store {
         }
         for vs in v["voice_states"].as_array().into_iter().flatten() {
             g.voice.insert(sid(&vs["user_id"]), sid(&vs["channel_id"]));
+            if vs["self_stream"] == true {
+                g.streaming.insert(sid(&vs["user_id"]));
+            }
         }
         self.guilds.insert(id, g);
         if let Some(chs) = v["channels"].as_array() {
@@ -2118,6 +2123,9 @@ impl Store {
             if let Some(guild) = self.guilds.get_mut(&gid) {
                 for vs in g["voice_states"].as_array().into_iter().flatten() {
                     guild.voice.insert(sid(&vs["user_id"]), sid(&vs["channel_id"]));
+                    if vs["self_stream"] == true {
+                        guild.streaming.insert(sid(&vs["user_id"]));
+                    }
                 }
             }
         }
@@ -2698,8 +2706,14 @@ impl Store {
                     let ch = sid(&d["channel_id"]);
                     if ch == 0 {
                         g.voice.remove(&uid);
+                        g.streaming.remove(&uid);
                     } else {
                         g.voice.insert(uid, ch);
+                        if d["self_stream"] == true {
+                            g.streaming.insert(uid);
+                        } else {
+                            g.streaming.remove(&uid);
+                        }
                     }
                 }
             }

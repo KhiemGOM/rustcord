@@ -5,12 +5,17 @@
 use super::*;
 
 const COPIED: &str = "not copied yet";
+const LONG: &str = "the changelog is long so this last message in the thread keeps going past the end of the card to see where it gets cut off and whether the card is as wide as discord draws it";
 
 impl Run {
     pub(super) fn tooltip_near(ctx: &egui::Context, r: egui::Rect) -> bool {
         ctx.memory(|m| {
             m.layer_ids().filter(|l| l.order == egui::Order::Tooltip && m.areas().is_visible(l)).filter_map(|l| m.area_rect(l.id)).any(|t| t.expand(8.0).intersects(r) && t.height() < 80.0)
         })
+    }
+
+    fn thread_message(app: &App, ch: Id) -> Option<(Id, Id)> {
+        app.store.msgs.get(&ch)?.list.iter().find_map(|m| m.thread.filter(|t| app.store.channels.get(t).is_some_and(|c| c.name == "release planning")).map(|t| (m.id, t)))
     }
 
     pub(super) fn chat_check_steps(&mut self, app: &mut App, ctx: &egui::Context) {
@@ -147,18 +152,69 @@ impl Run {
                 self.next(500);
             }
             4357 => {
-                let Some(id) = app.store.msgs.get(&general).and_then(|e| e.list.iter().find(|m| m.thread.is_some())).map(|m| m.id) else { return };
+                let Some(id) = Self::thread_message(app, general).map(|m| m.0) else { return };
                 app.jump_to(general, id);
                 self.next(900);
             }
             4358 => {
-                let Some(card) = app.store.msgs.get(&general).and_then(|e| e.list.iter().find_map(|m| m.thread)).and_then(|t| Self::at(ctx, &format!("thread_card:{t}"))) else { return };
+                let composer = app.rects.get("composer").copied().unwrap_or(egui::Rect::NOTHING);
+                let on_screen = |r: egui::Rect| r.top() > 100.0 && r.bottom() < composer.top() - 4.0;
+                let Some(card) = Self::thread_message(app, general).and_then(|m| Self::at(ctx, &format!("thread_card:{}", m.1))).filter(|r| on_screen(*r)) else {
+                    if let Some(c) = app.rects.get("composer").copied() {
+                        let wheel = Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -40.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
+                        self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, c.top() - 200.0)), wheel]);
+                    }
+                    return;
+                };
+                self.queue.clear();
                 self.rects.insert("thread_card".into(), json!([card.min.x, card.min.y, card.width(), card.height()]));
+                self.next(1200);
+            }
+            4359 => {
+                let Some((_, t)) = Self::thread_message(app, general) else { return };
+                let Some(card) = Self::at(ctx, &format!("thread_card:{t}")) else { return };
                 self.shot(ctx, "thread_card_short.png");
                 self.click(card.center());
                 self.next(900);
             }
-            _ => self.step = 4360,
+            4360 => {
+                let Some((_, t)) = Self::thread_message(app, general) else { return };
+                if app.side_thread != Some(t) || !app.store.msgs.get(&t).is_some_and(|e| !e.list.is_empty()) {
+                    if self.step_at.elapsed() > Duration::from_secs(8) {
+                        self.fail(format!("clicking the thread card: cur={:?} side={:?}", app.cur(), app.side_thread));
+                    }
+                    return;
+                }
+                self.mark("thread_card_opens");
+                self.shot(ctx, "thread_card_opened.png");
+                app.send_text(t, LONG.into());
+                self.next(1000);
+            }
+            4361 => {
+                let Some((_, t)) = Self::thread_message(app, general) else { return };
+                if !app.store.msgs.get(&t).is_some_and(|e| e.list.iter().any(|m| m.content == LONG)) {
+                    return;
+                }
+                self.next(900);
+            }
+            4362 => self.next(900),
+            4363 => {
+                let Some((_, t)) = Self::thread_message(app, general) else { return };
+                let composer = app.rects.get("composer").copied().unwrap_or(egui::Rect::NOTHING);
+                let Some(card) = Self::at(ctx, &format!("thread_card:{t}")).filter(|r| r.top() > 100.0 && r.bottom() < composer.top() - 4.0) else {
+                    let wheel = Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -40.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
+                    self.queue.push_back(vec![Event::PointerMoved(pos2(composer.center().x, composer.top() - 200.0)), wheel]);
+                    return;
+                };
+                let short = self.rects.get("thread_card").and_then(|v| v[2].as_f64()).unwrap_or(0.0) as f32;
+                if card.width() > short {
+                    self.mark("thread_card_grows");
+                }
+                self.rects.insert("thread_card_long".into(), json!([card.min.x, card.min.y, card.width(), card.height()]));
+                self.shot(ctx, "thread_card_long.png");
+                self.next(300);
+            }
+            _ => self.step = 4365,
         }
     }
 }

@@ -1317,7 +1317,7 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
     }
     let mut act = None;
     if wave_here(store, c) {
-        let w = ui.painter().layout_no_wrap("👋 Wave".into(), medium(14.0), pal().text_normal).size().x;
+        let w = text::layout(ui.ctx(), "👋 Wave", medium(14.0), pal().text_normal, 400.0).size().x;
         let b = Rect::from_min_size(pos2(row.right() - 13.0 - w - 24.0, row.center().y - 16.0), vec2(w + 24.0, 32.0));
         let hit = ui.interact(b, ui.id().with(("dm_wave", c.id)), Sense::click());
         super::settings::mark(ui, &format!("dm_wave:{}", c.id), b);
