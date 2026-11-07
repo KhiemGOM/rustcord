@@ -1,5 +1,6 @@
 use egui::{Align, Frame, Key, Layout, Margin, RichText, Sense, Stroke, Ui, vec2};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 
 use super::icons::Icon;
 use super::selectmenu::{self, Opt, Spec};
@@ -24,6 +25,7 @@ pub enum Field {
     Input(Input),
     Select(Select),
     Choice(Choice),
+    Files(Files),
 }
 
 /// A radio group (21), a checkbox group (22) or a lone checkbox (23): rows you tick.
@@ -37,6 +39,18 @@ pub struct Choice {
     pub max: usize,
     pub required: bool,
     pub picked: Vec<String>,
+}
+
+/// A file upload (19): the files picked here go up with the interaction, listed under `attachments`.
+pub struct Files {
+    pub label: String,
+    pub desc: Option<String>,
+    pub custom_id: String,
+    pub min: usize,
+    pub max: usize,
+    pub required: bool,
+    pub types: Vec<String>,
+    pub picked: Vec<PathBuf>,
 }
 
 pub struct Input {
@@ -110,6 +124,16 @@ fn leaf(c: &Value, label: String, desc: Option<String>, wrapped: bool) -> Option
                 types: c["channel_types"].as_array().into_iter().flatten().filter_map(|t| t.as_u64().map(|t| t as u8)).collect(),
             }))
         }
+        19 => Some(Field::Files(Files {
+            label,
+            desc,
+            custom_id: text_of(c, "custom_id"),
+            min: count(c, "min_values", 1),
+            max: count(c, "max_values", 1),
+            required: c["required"].as_bool().unwrap_or(false),
+            types: c["file_types"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect(),
+            picked: Vec::new(),
+        })),
         k @ (21..=23) => {
             let options: Vec<Opt> = if k == 23 {
                 vec![Opt { label: label.clone(), value: "true".into(), desc: None, lead: selectmenu::Lead::None }]
@@ -174,6 +198,18 @@ impl Modal {
         })
     }
 
+    /// A file dropped on the window while the form is up: the first upload that has room takes it.
+    pub fn drop_file(&mut self, path: &std::path::Path) -> bool {
+        let slot = self.fields.iter_mut().find_map(|f| match f {
+            Field::Files(f) if f.picked.len() < f.max => Some(f),
+            _ => None,
+        });
+        slot.is_some_and(|f| {
+            f.picked.push(path.to_path_buf());
+            true
+        })
+    }
+
     pub fn invalid(&self) -> usize {
         if self.tried { self.errors().iter().flatten().count() } else { 0 }
     }
@@ -208,12 +244,18 @@ impl Modal {
                 Field::Choice(c) if c.picked.is_empty() && !c.required => None,
                 Field::Choice(c) if c.kind == 21 => c.picked.is_empty().then(|| "This field is required.".to_string()),
                 Field::Choice(c) => selectmenu::validate(c.picked.len(), c.min, c.max),
+                Field::Files(f) if f.picked.is_empty() => f.required.then(|| "This field is required.".to_string()),
+                Field::Files(f) if f.picked.len() < f.min => Some(format!("Upload at least {} files.", f.min)),
+                Field::Files(f) => (f.picked.len() > f.max).then(|| format!("Upload at most {} files.", f.max)),
             })
             .collect()
     }
 
-    fn components(&self) -> Vec<Value> {
-        self.fields
+    /// The components as they go out, and the files they refer to by index.
+    fn components(&self) -> (Vec<Value>, Vec<Value>) {
+        let mut files = Vec::new();
+        let comps = self
+            .fields
             .iter()
             .map(|f| match f {
                 Field::Text(_) => json!({ "type": 10 }),
@@ -233,8 +275,22 @@ impl Modal {
                     };
                     json!({ "type": 18, "component": inner })
                 }
+                Field::Files(f) => {
+                    let ids: Vec<String> = f
+                        .picked
+                        .iter()
+                        .map(|p| {
+                            let id = files.len().to_string();
+                            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                            files.push(json!({ "id": id, "filename": name, "path": p.to_string_lossy() }));
+                            id
+                        })
+                        .collect();
+                    json!({ "type": 18, "component": { "type": 19, "custom_id": f.custom_id, "values": ids } })
+                }
             })
-            .collect()
+            .collect();
+        (comps, files)
     }
 }
 
@@ -312,6 +368,58 @@ fn field(ui: &mut Ui, store: &crate::state::Store, guild: Id, m_channel: Id, i: 
                 mark: &format!("bot_select:{}", s.custom_id),
             };
             selectmenu::show(ui, store, id, &spec, &mut s.picked);
+            error_line(ui, shown);
+        }
+        Field::Files(f) => {
+            label(ui, &f.label, f.required, &f.desc);
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
+            super::settings::mark(ui, &format!("bot_files:{}", f.custom_id), r);
+            let over = ui.rect_contains_pointer(r);
+            ui.painter().rect(r, 8, pal().input_bg, Stroke::new(1.0, if shown.is_some() { RED } else if over { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            super::icons::draw(ui.painter(), Icon::Upload, egui::Rect::from_center_size(egui::pos2(r.center().x, r.top() + 24.0), vec2(20.0, 20.0)), pal().header_secondary);
+            let hint = match f.types.as_slice() {
+                [] => "Drag and drop or click to upload file".to_string(),
+                t => format!("Drag and drop or click to upload {} file", t.iter().map(|t| t.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", ")),
+            };
+            ui.painter().text(egui::pos2(r.center().x, r.top() + 50.0), egui::Align2::CENTER_CENTER, hint, reg(14.0), pal().header_secondary);
+            if over {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            let mut added: Vec<PathBuf> = Vec::new();
+            if resp.clicked() && f.picked.len() < f.max {
+                let mut dialog = rfd::FileDialog::new();
+                let exts: Vec<&str> = f.types.iter().map(|t| t.trim_start_matches('.')).filter(|t| t.chars().all(|c| c.is_ascii_alphanumeric())).collect();
+                if !exts.is_empty() {
+                    dialog = dialog.add_filter("Files", &exts);
+                }
+                added.extend(if f.max > 1 { dialog.pick_files().unwrap_or_default() } else { dialog.pick_file().into_iter().collect() });
+            }
+            for p in added {
+                if f.picked.len() < f.max && !f.picked.contains(&p) {
+                    f.picked.push(p);
+                }
+            }
+            let mut gone = None;
+            for (n, p) in f.picked.iter().enumerate() {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    super::icons::draw(ui.painter(), Icon::File, egui::Rect::from_min_size(ui.cursor().min, vec2(20.0, 20.0)), pal().header_secondary);
+                    ui.add_space(24.0);
+                    let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    ui.label(RichText::new(name).font(reg(14.0)).color(pal().text_normal));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let x = icon_button(ui, Icon::Close, 24.0, "Remove");
+                        super::settings::mark(ui, &format!("bot_file_x:{}:{n}", f.custom_id), x.rect);
+                        if x.clicked() {
+                            gone = Some(n);
+                        }
+                    });
+                });
+            }
+            if let Some(n) = gone {
+                f.picked.remove(n);
+            }
             error_line(ui, shown);
         }
         Field::Choice(c) => {
@@ -414,11 +522,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         m.error = None;
         if errors.iter().all(Option::is_none) {
             let nonce = make_nonce();
+            let (components, attachments) = m.components();
+            let mut data = json!({ "id": m.id, "custom_id": m.custom_id, "components": components });
+            if !attachments.is_empty() {
+                data["attachments"] = json!(attachments);
+            }
             let mut payload = json!({
                 "type": 5,
                 "application_id": m.app.to_string(),
                 "channel_id": m.channel.to_string(),
-                "data": { "id": m.id, "custom_id": m.custom_id, "components": m.components() },
+                "data": data,
                 "session_id": app.store.session,
                 "nonce": nonce,
             });
