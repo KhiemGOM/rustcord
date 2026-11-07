@@ -67,7 +67,6 @@ pub fn messages(cdn: &str) -> Vec<Value> {
     add(101, "", &|m| m["sticker_items"] = sticker("754108890559176735", "Wumpus Hi", 2));
     add(103, "a gif sticker with words", &|m| m["sticker_items"] = sticker("749053689419006003", "Dancing", 4));
     add(101, "", &|m| m["sticker_items"] = sticker("819128354317312000", "Pixel Cat", 1));
-    add(102, "a sticker from a default pack", &|m| m["sticker_items"] = sticker("8103", "Sleepy", 3));
 
     let original = snow(now_ms() - 26 * 3_600_000);
     let snapshot = |content: &str, attachments: Value, embeds: Value| {

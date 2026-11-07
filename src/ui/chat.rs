@@ -1432,6 +1432,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
                 ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
             });
             d.card("sticker", &cui, r.rect);
+            d.card(&format!("sticker:{id}"), &cui, r.rect);
             if r.clicked() {
                 d.acts.push(Act::Sticker(*id, name.clone(), *fmt, r.rect.right_top() + vec2(8.0, 0.0)));
             }

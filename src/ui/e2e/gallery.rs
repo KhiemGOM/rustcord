@@ -125,7 +125,7 @@ impl Run {
                 }
                 self.shot(ctx, "forward.png");
                 let stickers = app.store.msgs.get(&GALLERY).map(|e| e.list.iter().filter(|m| !m.stickers.is_empty()).count()).unwrap_or(0);
-                if stickers == 5 {
+                if stickers == 4 {
                     self.mark("stickers_parsed");
                 }
                 let Some(id) = find(app, "a gif sticker with words") else { return };

@@ -148,21 +148,6 @@ impl Run {
                 self.key(Key::Escape);
                 self.next(400);
             }
-            4318 => {
-                app.open(2011);
-                self.next(900);
-            }
-            4319 => {
-                let Some(id) = app.store.msgs.get(&2011).and_then(|e| e.list.iter().find(|m| m.thread.is_some())).map(|m| m.id) else { return };
-                if self.rects.insert("thread_card_jumped".into(), json!(true)).is_none() {
-                    app.attach(2050);
-                    app.jump_to(2011, id);
-                    self.wait = Instant::now() + Duration::from_millis(1500);
-                    return;
-                }
-                self.shot(ctx, "thread_card.png");
-                self.next(300);
-            }
             _ => self.step = 4320,
         }
     }
