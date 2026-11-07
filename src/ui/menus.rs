@@ -66,7 +66,7 @@ fn tag_row(ui: &mut Ui, wearer: &crate::state::User) -> bool {
 
 /// The menu under the server name.
 pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, dev: bool) -> Option<GuildAct> {
-    use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, VIEW_GUILD_INSIGHTS};
+    use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, SETTINGS_ACCESS, VIEW_GUILD_INSIGHTS};
     let g = store.guilds.get(&gid)?;
     let perms = store.my_perms(gid);
     let owner = g.owner == store.me;
@@ -87,7 +87,7 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     if can_invite && menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
         act = Some(GuildAct::Invite);
     }
-    if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Gear), "Server Settings", false) {
+    if perms & SETTINGS_ACCESS != 0 && menu_item(ui, Some(Icon::Gear), "Server Settings", false) {
         act = Some(GuildAct::Settings);
     }
     if community && perms & VIEW_GUILD_INSIGHTS != 0 && menu_item(ui, Some(Icon::Insights), "Server Insights", false) {
