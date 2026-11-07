@@ -23,8 +23,8 @@ def checks(runs, reqs, data):
     app_pages = [r.get("path") for r in reqs if r.get("method") == "GET" and r.get("path", "").split("?")[0].startswith(("/store", "/shop", "/channels", "/settings"))]
     return {
         "web: a purchase opened its billing page in the checkout window": both("web_open"),
-        "web: the page ran signed in, with the token in place before its scripts": signed("/billing/premium/subscribe?plan_id=511651880837840896&gift=false") >= len(runs),
-        "web: a second purchase moved the open window to its page, still signed in": both("web_navigate") and signed("/billing/guild-subscriptions/purchase?guild_id=1000") == len(runs),
+        "web: the page ran signed in, with the token in place before its scripts": signed("/billing/payment-sources/create") >= len(runs),
+        "web: a second purchase moved the open window to its page, still signed in": both("web_navigate") and signed("/billing/premium/manage") == len(runs),
         "web: Escape closed the checkout window": both("web_closed") and both("web_escape"),
         "web: the window's temporary profile folder existed while open and was deleted on close": both("web_profile_made") and both("web_profile_gone"),
         "web: no run asked for the web app's own pages (/store, /shop, /channels, /settings)": not app_pages,

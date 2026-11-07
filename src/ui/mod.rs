@@ -7,6 +7,7 @@ pub mod activity;
 mod autoscroll;
 mod boosts;
 mod botmodal;
+pub mod buy;
 mod call;
 mod callbar;
 mod callfx;
@@ -234,6 +235,8 @@ pub struct App {
     pub friends: bool,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
+    pub buy: Option<buy::Buy>,
+    pub server_shop: Option<buy::server_shop::ServerShop>,
     pub boost_info: Map<Id, boosts::Info>,
     // the server menu's modals and pages: create, active threads, the app directory, settings
     pub create: Option<create::Form>,
@@ -513,6 +516,8 @@ impl App {
             events: None,
             quests: None,
             shop: None,
+            buy: None,
+            server_shop: None,
             friends_tab: 0,
             add_friend: String::new(),
             status_until: None,
@@ -625,6 +630,7 @@ impl App {
         }
         self.ui.guild = g;
         self.boosts = None;
+        self.server_shop = None;
         self.home = None;
         self.directory = None;
         let ch = match self.cur() {
@@ -642,6 +648,7 @@ impl App {
     pub fn open(&mut self, ch: Id) {
         let Some(c) = self.store.channels.get(&ch) else { return };
         self.boosts = None;
+        self.server_shop = None;
         self.home = None;
         let guild = c.guild;
         let forum = c.is_forum();
@@ -1482,6 +1489,9 @@ impl App {
         if let Tag::Link(k) = tag {
             return self.on_link_rest(k, res);
         }
+        if let Tag::Buy(k, g) = tag {
+            return buy::reply(self, k, g, res);
+        }
         if let (Tag::Remote(k), Err(e)) = (&tag, &res) {
             return settings::on_remote(self, k, Err(e.clone()));
         }
@@ -1555,7 +1565,7 @@ impl App {
             }
         };
         match tag {
-            Tag::Link(_) => {}
+            Tag::Link(_) | Tag::Buy(..) => {}
             Tag::Pins(ch) => {
                 let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
@@ -2089,6 +2099,7 @@ impl App {
         usermenu::user_menu(self, &ctx);
         userdlg::show(self, &ctx);
         popups::show(self, &ctx);
+        buy::show(self, &ctx);
         attach::dragging(self, &ctx);
         links::show(self, &ctx);
         botmodal::show(self, &ctx);

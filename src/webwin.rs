@@ -1,4 +1,4 @@
-//! Purchases open here: a small WebView2 window owned by the main window, on discord.com with
+//! Adding a card, managing a subscription and confirming a payment open here: a small WebView2 window owned by the main window, on discord.com with
 //! the account signed in, so a checkout never leaves the app for the browser. One window at a
 //! time, on its own thread; it keeps no profile on disk. It loads only Discord's standalone
 //! billing pages and the payment providers they use. The account's token is put in place by a
@@ -46,8 +46,7 @@ const BROWSER_EXIT_MS: u32 = 15_000;
 const CLIENT: (i32, i32) = (PAYMENT_STEP_WIDTH + 2 * SPACE_24, PAYMENT_STEP_MIN_HEIGHT);
 const SURFACE: u32 = 0x0022_1f1e;
 const INK: u32 = 0x00f5_f3f2;
-pub const NITRO_MONTHLY: &str = "511651880837840896";
-const SMALL: [&str; 4] = ["/billing/premium/subscribe", "/billing/premium/manage", "/billing/payment-sources/create", "/billing/guild-subscriptions/purchase"];
+const SMALL: [&str; 2] = ["/billing/premium/manage", "/billing/payment-sources/create"];
 const HOSTS: [&str; 7] = ["discord.com", "stripe.com", "adyen.com", "paypal.com", "braintreegateway.com", "venmo.com", "cash.app"];
 
 static OPEN: AtomicIsize = AtomicIsize::new(0);
@@ -75,20 +74,6 @@ fn base() -> String {
     std::env::var("RUSTCORD_WEB").unwrap_or_else(|_| "https://discord.com".into())
 }
 
-pub fn subscribe(plan_id: &str, gift: bool) {
-    if !plan_id.is_empty() && plan_id.bytes().all(|b| b.is_ascii_digit()) {
-        open(&format!("/billing/premium/subscribe?plan_id={plan_id}&gift={gift}"));
-    }
-}
-
-pub fn gift_nitro() {
-    subscribe(NITRO_MONTHLY, true);
-}
-
-pub fn boost(guild: u64) {
-    open(&format!("/billing/guild-subscriptions/purchase?guild_id={guild}"));
-}
-
 pub fn manage() {
     open("/billing/premium/manage");
 }
@@ -102,10 +87,23 @@ fn small(path: &str) -> bool {
 }
 
 fn open(path: &str) {
-    if !small(path) {
-        return;
+    if small(path) {
+        go(format!("{}{path}", base()));
     }
-    *NEXT.lock().unwrap() = Some(format!("{}{path}", base()));
+}
+
+/// A payment provider's page for a purchase that needs confirming, if it's one the window is
+/// allowed to load. Only Discord's own pages ever see the account's token.
+pub fn pay_page(url: &str) -> bool {
+    let ok = url != "about:blank" && allowed(url, &base());
+    if ok {
+        go(url.to_string());
+    }
+    ok
+}
+
+fn go(url: String) {
+    *NEXT.lock().unwrap() = Some(url);
     if BUSY.swap(true, Relaxed) {
         let w = OPEN.load(Relaxed);
         if w != 0 {
@@ -576,11 +574,11 @@ mod tests {
 
     #[test]
     fn only_standalone_billing_pages_open_the_window() {
-        for p in ["/billing/premium/subscribe?plan_id=1&gift=true", "/billing/premium/manage", "/billing/payment-sources/create", "/billing/guild-subscriptions/purchase?guild_id=5"] {
+        for p in ["/billing/premium/manage", "/billing/payment-sources/create"] {
             assert!(small(p), "{p}");
             assert!(allowed(&format!("{B}{p}"), B), "{p}");
         }
-        for p in ["/store", "/shop", "/channels/1/shop", "/channels/1/boosts", "/settings/premium", "/billing/premium"] {
+        for p in ["/store", "/shop", "/channels/1/shop", "/channels/1/boosts", "/settings/premium", "/billing/premium", "/billing/premium/subscribe?plan_id=1&gift=true", "/billing/guild-subscriptions/purchase?guild_id=5"] {
             assert!(!small(p), "{p}");
         }
     }

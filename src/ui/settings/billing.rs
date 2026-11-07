@@ -17,7 +17,7 @@ pub use gifts::gifts;
 
 type Step = (&'static str, String, Option<Value>);
 
-const KEYS: [&str; 9] = ["subs", "sources", "payments", "slots", "cooldown", "credits", "gifts", "gift_codes", "badge"];
+pub const KEYS: [&str; 9] = ["subs", "sources", "payments", "slots", "cooldown", "credits", "gifts", "gift_codes", "badge"];
 pub const NITRO_SKU: &str = "521842831262875670";
 pub const BASIC_SKU: &str = "978380692553465865";
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -92,7 +92,7 @@ fn country(code: &str) -> String {
     COUNTRIES.iter().find(|(c, _)| c.eq_ignore_ascii_case(code)).map_or(code.to_string(), |(_, n)| n.to_string())
 }
 
-fn plan_name(id: &str) -> &'static str {
+pub fn plan_name(id: &str) -> &'static str {
     match id {
         "511651871736201216" => "Nitro Classic Monthly",
         "511651876987469824" => "Nitro Classic Yearly",
@@ -234,7 +234,7 @@ fn gradient(ui: &Ui, r: Rect, a: Color32, b: Color32, radius: u8) {
     }
 }
 
-fn brand_tile(p: &egui::Painter, r: Rect, brand: &str) {
+pub fn brand_tile(p: &egui::Painter, r: Rect, brand: &str) {
     let fill = match brand.to_lowercase().as_str() {
         "visa" => Color32::from_rgb(0x1a, 0x1f, 0x71),
         "mastercard" => Color32::from_rgb(0xeb, 0x00, 0x1b),
@@ -256,10 +256,9 @@ fn plan_price(plan: &Value) -> String {
     format!("{}/{each}", money(plan["price"].as_i64().unwrap_or(0), plan["currency"].as_str().unwrap_or("usd")))
 }
 
-fn subscribe(plans: &[Value]) {
-    match plans.iter().find(|p| p["interval"] == 1 && p["interval_count"] == 1).and_then(|p| p["id"].as_str()) {
-        Some(id) => crate::webwin::subscribe(id, false),
-        None => {}
+fn subscribe(app: &mut App, plans: &[Value]) {
+    if let Some(id) = plans.iter().find(|p| p["interval"] == 1 && p["interval_count"] == 1).and_then(|p| p["id"].as_str()) {
+        app.open_buy(crate::ui::buy::What::Nitro(id.to_string()));
     }
 }
 
@@ -290,7 +289,7 @@ const FEATURES: [(&str, &str, &str); 20] = [
     ("Keep Quest avatar decorations rewards longer", "Not included", "Included"),
 ];
 
-const NITRO_PERKS: [(Icon, &str); 6] = [
+pub const NITRO_PERKS: [(Icon, &str); 6] = [
     (Icon::Upload, "1GB uploads"),
     (Icon::Smile, "Custom emoji anywhere"),
     (Icon::AddReaction, "Unlimited Super Reactions"),
@@ -299,7 +298,7 @@ const NITRO_PERKS: [(Icon, &str); 6] = [
     (Icon::UserProfile, "Custom profiles and more!"),
 ];
 
-const BASIC_PERKS: [(Icon, &str); 4] = [
+pub const BASIC_PERKS: [(Icon, &str); 4] = [
     (Icon::Upload, "50MB uploads"),
     (Icon::Smile, "Custom emoji anywhere"),
     (Icon::Sticker, "Custom stickers anywhere"),
@@ -336,7 +335,7 @@ fn hero(ui: &mut Ui, name: &str, price: &str, perks: &[(Icon, &str)], buttons: &
     hit
 }
 
-fn features(ui: &mut Ui, basic_plans: &[Value], nitro_plans: &[Value], buy: bool) {
+fn features(app: &mut App, ui: &mut Ui, basic_plans: &[Value], nitro_plans: &[Value], buy: bool) {
     let (basic, nitro) = (monthly(basic_plans), monthly(nitro_plans));
     lead(ui);
     let w = ui.available_width();
@@ -371,7 +370,7 @@ fn features(ui: &mut Ui, basic_plans: &[Value], nitro_plans: &[Value], buy: bool
         for (x, label, plans) in [(cols[0], "Nitro Basic", basic_plans), (cols[1], "Nitro", nitro_plans)] {
             let b = Rect::from_center_size(pos2(r.left() + x + 80.0, r.center().y), vec2(144.0, 40.0));
             if solid(ui, b, &format!("Subscribe to {label}"), BLURPLE, Color32::WHITE) {
-                subscribe(plans);
+                subscribe(app, plans);
             }
         }
     }
@@ -392,7 +391,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
     if tier == 0 {
         let hit = hero(ui, "NITRO", &format!("{} / month", monthly(&nitro_plans).trim_end_matches("/month")), &NITRO_PERKS, &[("Subscribe", Color32::WHITE, Color32::from_rgb(0x2e, 0x33, 0x38))]);
         if hit == Some(0) {
-            subscribe(&nitro_plans);
+            subscribe(app, &nitro_plans);
         }
     } else {
         let name = ["", "NITRO CLASSIC", "NITRO", "NITRO BASIC"][tier.min(3) as usize];
@@ -442,11 +441,11 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
     if tier != 0 {
         section(ui, "What You’ve Got");
     }
-    features(ui, &basic_plans, &nitro_plans, tier == 0);
+    features(app, ui, &basic_plans, &nitro_plans, tier == 0);
     false
 }
 
-fn pay_label(s: &Value) -> String {
+pub fn pay_label(s: &Value) -> String {
     if s["type"] == 2 {
         return format!("PayPal {}", s["email"].as_str().unwrap_or(""));
     }
@@ -455,7 +454,7 @@ fn pay_label(s: &Value) -> String {
     format!("{brand} ending in {}", s["last_4"].as_str().unwrap_or(""))
 }
 
-fn expires(s: &Value) -> String {
+pub fn expires(s: &Value) -> String {
     match (s["expires_month"].as_u64(), s["expires_year"].as_u64()) {
         (Some(m @ 1..=12), Some(y)) => format!("Expires {} {y}", MONTHS[m as usize - 1]),
         _ => String::new(),

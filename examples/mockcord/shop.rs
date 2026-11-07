@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 use std::sync::Mutex;
 
-const PLANS: [&str; 4] = ["511651880837840896", "511651885459963904", "978380692553465866", "1024422698568122368"];
+const CONFIRM: &str = r#"<title>Confirm payment</title><style>body{background:#1e1f22;color:#f2f3f5;font:16px sans-serif;padding:32px}</style><h2>Confirm your payment</h2><p>Mock bank page.</p><script>setTimeout(()=>fetch("/api/v9/mock/pay/__ID__/complete",{method:"POST"}),1500)</script>"#;
 
 static WISH: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -103,27 +103,11 @@ fn page(title: &str) -> (u16, &'static str, Vec<u8>) {
     (200, "text/html", PAGE.replace("__TITLE__", title).into_bytes())
 }
 
-fn param(path: &str, key: &str) -> Option<String> {
-    let q = path.split_once('?')?.1;
-    q.split('&').find_map(|kv| kv.strip_prefix(&format!("{key}="))).map(str::to_string)
-}
-
-pub fn billing_page(parts: &[&str], path: &str) -> Option<(u16, &'static str, Vec<u8>)> {
-    let bad = |m: &str| Some((400, "text/plain", m.as_bytes().to_vec()));
+pub fn billing_page(parts: &[&str]) -> Option<(u16, &'static str, Vec<u8>)> {
     match parts {
-        ["billing", "premium", "subscribe"] => {
-            let Some(plan) = param(path, "plan_id").filter(|p| PLANS.contains(&p.as_str())) else { return bad("unknown plan") };
-            if !matches!(param(path, "gift").as_deref(), Some("true" | "false")) {
-                return bad("gift must be true or false");
-            }
-            Some(page(&format!("Subscribe to plan {plan}")))
-        }
         ["billing", "premium", "manage"] => Some(page("Manage subscription")),
         ["billing", "payment-sources", "create"] => Some(page("Add a payment method")),
-        ["billing", "guild-subscriptions", "purchase"] => {
-            let Some(g) = param(path, "guild_id").filter(|g| !g.is_empty() && g.bytes().all(|b| b.is_ascii_digit())) else { return bad("guild_id required") };
-            Some(page(&format!("Boost server {g}")))
-        }
+        ["billing", "mock-confirm", id] => Some((200, "text/html", CONFIRM.replace("__ID__", id).into_bytes())),
         ["billing", ..] => Some((404, "text/plain", b"no such billing page".to_vec())),
         _ => None,
     }

@@ -417,8 +417,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     });
     for a in acts {
         match a {
-            Act::Subscribe(id) => crate::webwin::subscribe(&id, false),
-            Act::Gift => crate::webwin::gift_nitro(),
+            Act::Subscribe(id) => app.open_buy(crate::ui::buy::What::Nitro(id)),
+            Act::Gift => app.open_buy(crate::ui::buy::What::NitroGift),
             Act::Settings(s) => app.settings_page = Some(s),
             Act::Quests => app.open_quests(),
             Act::Shop => app.open_shop(super::Page::Shop),
