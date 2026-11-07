@@ -62,6 +62,7 @@ import bots
 import embed
 import profed
 import protowire
+import serverx
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -582,6 +583,7 @@ def main():
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
         **gallery.checks({"cold": cold, "warm": warm}, reqs, data),
         **perms.checks({"cold": cold, "warm": warm}, reqs, data),
+        **serverx.checks({"cold": cold, "warm": warm}, reqs, data),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
