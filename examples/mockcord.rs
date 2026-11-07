@@ -824,7 +824,7 @@ fn side_guilds() -> Vec<Value> {
         json!({ "id": id.to_string(), "type": kind, "name": name, "position": pos, "parent_id": parent.map(|p| p.to_string()),
                 "permission_overwrites": [], "last_message_id": snow(now_ms() - 90_000).to_string() })
     };
-    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" });
+    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "4296018944" });
     let guild = |id: u64, name: &str, chans: Vec<Value>| {
         json!({ "id": id.to_string(), "name": name, "icon": null, "owner_id": "102", "roles": [everyone(id)], "emojis": [], "channels": chans })
     };
@@ -1650,6 +1650,25 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let proto = settings_proto(b["theme"].as_u64().unwrap_or(1), b["compact_avatars"].as_bool().unwrap_or(false));
             let tx = w.lock().unwrap().events.clone();
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
+            ok(json!({}))
+        }
+        // another device of the account changing what it plays people at: {"users":[{"id":102,"volume":35.0,"muted":true}]}
+        ("POST", ["api", "v9", "mock", "peers"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut group = Vec::new();
+            for u in b["users"].as_array().into_iter().flatten() {
+                let mut setting = Vec::new();
+                if u["muted"].as_bool().unwrap_or(false) {
+                    setting.extend(pb_int(1, 1));
+                }
+                setting.extend([varint(2 << 3 | 5), (u["volume"].as_f64().unwrap_or(100.0) as f32).to_le_bytes().to_vec()].concat());
+                let entry = [varint(1 << 3 | 1), u["id"].as_u64().unwrap_or(0).to_le_bytes().to_vec(), pb_len(2, &setting)].concat();
+                group.extend(pb_len(1, &entry));
+            }
+            let proto = base64::engine::general_purpose::STANDARD.encode(pb_len(16, &group));
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": true } }));
             ok(json!({}))
         }
         ("GET", ["api", "v9", "users", "@me", "settings-proto", "2"]) => {

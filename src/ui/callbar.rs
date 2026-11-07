@@ -22,6 +22,8 @@ pub struct CallUi {
     pub activities: (Option<Id>, usize, Option<usize>),
     pub started: Option<Id>,
     pub audience_shut: bool,
+    // the channel Unmute Music was pressed in: its music plays whatever the stage is doing
+    pub music_forced: Option<Id>,
 }
 
 fn hit(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, r: Rect) -> Response {
@@ -236,11 +238,11 @@ pub fn popped(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     }
 }
 
-fn frame() -> Frame {
+pub(super) fn frame() -> Frame {
     Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(8)
 }
 
-fn audio_popup(app: &mut App, at: &Response, output: bool) {
+pub(super) fn audio_popup(app: &mut App, at: &Response, output: bool) {
     let mut changed = false;
     let mut voice_settings = false;
     egui::Popup::menu(at).align(egui::RectAlign::TOP).gap(8.0).frame(frame()).show(|ui| {
@@ -354,7 +356,7 @@ fn camera_popup(app: &mut App, at: &Response) {
     }
 }
 
-fn more_popup(app: &mut App, at: &Response) {
+pub(super) fn more_popup(app: &mut App, at: &Response) {
     let mut changed = false;
     egui::Popup::menu(at).align(egui::RectAlign::TOP).gap(8.0).frame(frame()).show(|ui| {
         ui.set_min_width(222.0);

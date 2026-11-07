@@ -565,6 +565,14 @@ impl Run {
                 }
             }
             4566 => {
+                // the Escape that closed the test mode dialog took the settings window with it
+                if app.settings_page.is_none() {
+                    if let Some(r) = app.rects.get("gear").copied().filter(|_| std::time::Instant::now() >= self.wait) {
+                        self.click(r.center());
+                        self.wait = std::time::Instant::now() + Duration::from_millis(900);
+                    }
+                    return;
+                }
                 if !self.open_page(app, "Connected Apps") {
                     return;
                 }

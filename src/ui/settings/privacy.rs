@@ -29,8 +29,11 @@ pub fn blob(app: &mut App, ui: &mut Ui) -> Option<Vec<u8>> {
 
 /// Apply `patch` here at once and send it; the server's answer replaces our copy.
 pub fn write(app: &mut App, patch: Patch) {
+    send(app, patch.bytes());
+}
+
+pub fn send(app: &mut App, bytes: Vec<u8>) {
     use base64::Engine;
-    let bytes = patch.bytes();
     if let Some(Some(Ok(cur))) = app.remote.get_mut("proto") {
         let old = base64::engine::general_purpose::STANDARD.decode(cur["settings"].as_str().unwrap_or("")).unwrap_or_default();
         cur["settings"] = json!(b64(&wire::merge(&old, &bytes)));

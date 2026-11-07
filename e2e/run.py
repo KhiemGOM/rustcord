@@ -69,6 +69,7 @@ import shopx
 import p3b
 import p4b
 import tidy
+import p4c
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -597,6 +598,7 @@ def main():
         **p3b.checks({"cold": cold, "warm": warm}, reqs),
         **p4b.checks({"cold": cold, "warm": warm}, reqs),
         **tidy.checks({"cold": cold, "warm": warm}, reqs, data),
+        **p4c.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),

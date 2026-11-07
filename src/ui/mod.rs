@@ -12,6 +12,8 @@ pub mod buy;
 mod call;
 mod callbar;
 mod callfx;
+mod stagebar;
+mod stagemusic;
 mod chat;
 mod clips;
 mod clips_gallery;

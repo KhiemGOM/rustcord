@@ -355,8 +355,12 @@ pub fn backfill(app: &mut App) {
             VideoBg::None | VideoBg::Custom => {}
         }
     }
+    let peers = (a.peers.is_none() && !s.peers.is_empty()).then(|| crate::proto::peers_patch(&s.peers, 0));
     if !patch.is_empty() {
         write(app, patch);
+    }
+    if let Some(bytes) = peers {
+        super::privacy::send(app, bytes);
     }
 }
 

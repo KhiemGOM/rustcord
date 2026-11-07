@@ -36,10 +36,10 @@ impl Run {
         let at = |k: &str| Self::at(ctx, k);
         let forget = |keys: &[&str]| {
             for k in keys {
-                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", *k))));
+                ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", *k))));
             }
         };
-        let menu = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let menu = |label: &str| Self::at(ctx, &format!("menu_row:{label}"));
         let stuck = self.step_at.elapsed() > std::time::Duration::from_secs(12);
         let tab = app.shop.as_ref().map_or(9, |s| s.tab);
         if self.step_at.elapsed() > std::time::Duration::from_secs(10) {
