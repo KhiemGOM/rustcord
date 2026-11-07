@@ -25,9 +25,10 @@ impl Run {
             if app.conn != crate::net::Conn::Online || !app.store.channels.contains_key(&EMBEDS) {
                 return;
             }
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
             app.select_guild(Some(GUILD));
             app.open(EMBEDS);
-            return self.next(800);
+            return self.next(1500);
         }
         let Some(b) = msg_of(app, "mock2") else { return };
         let probe = |app: &App| app.embed.as_ref().map(|p| p.frame.probe());
@@ -59,8 +60,7 @@ impl Run {
                 let target = clip.top() + 30.0;
                 if (full.top() - target).abs() > 6.0 {
                     self.scroll_by(side(clip), target - full.top());
-                    self.next(500);
-                    self.step -= 1;
+                    self.wait = std::time::Instant::now() + std::time::Duration::from_millis(500);
                     return;
                 }
                 let want = embedplay::px(full.intersect(clip), ppp);
