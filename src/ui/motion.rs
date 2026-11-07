@@ -329,6 +329,9 @@ impl Modal {
         let screen = ctx.content_rect();
         let area = egui::Modal::default_area(self.id).fade_in(false);
         let layer = area.layer();
+        if !ctx.memory(|m| m.areas().visible_last_frame(&layer)) {
+            ctx.move_to_top(layer);
+        }
         let top = ctx.memory_mut(|m| {
             m.set_modal_layer(layer);
             m.top_modal_layer() == Some(layer)

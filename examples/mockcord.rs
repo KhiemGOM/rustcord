@@ -1871,7 +1871,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 return ok(json!({ "location": format!("https://127.0.0.1/activity-redirect?code=mock-code&state={state}") }));
             }
             let token = query_str(path, "response_type") == "token";
-            let location = if token { "https://localhost/#access_token=mock-token&token_type=Bearer&expires_in=604800&scope=identify" } else { "https://localhost/?code=mock-code" };
+            let location = if token { "https://localhost/#access_token=mock-rpc-token&token_type=Bearer&expires_in=604800&scope=identify" } else { "https://localhost/?code=mock-code" };
             ok(json!({ "location": location }))
         }
         ("GET", ["api", "v9", "oauth2", "@me"]) if auth.contains("mock-access-token") => {

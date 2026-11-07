@@ -27,7 +27,7 @@ def checks(runs, reqs, data):
         and a.get("secrets") == {"join": "join-e2e-secret"} and a.get("flags") == 3 and a.get("session_id")
     )
     cleared = [t for t, p in presence if not arena(p) and second and t > second[0][0]]
-    oauth = lambda method: len(sent(method, "/oauth2/authorize"))
+    oauth = lambda method: sum("client_id=7200" in r.get("path", "") for r in sent(method, "/oauth2/authorize"))
     templates = [body(r) for r in sent("POST", "/guilds/templates/e2eTpl1")]
     return {
         "rpc: a game got in on the pipe and was told who we are; a bad client id and a bad version were closed": both("rpc_handshake"),

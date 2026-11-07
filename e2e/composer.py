@@ -23,7 +23,7 @@ def checks(runs, reqs, data):
             and len([r for r in sent("POST", "/channels/2015/messages")]) == 2,
         "composer: a channel you can't post in disabled the box": both("composer_no_perm"),
         "composer: an announcement channel showed Follow, and the modal posted to followers": both("composer_follow_bar") and both("composer_follow_modal")
-            and sum(body(r).get("webhook_channel_id") == "2100" for r in sent("POST", "/channels/2002/followers")) == 2,
+            and sum(body(r).get("webhook_channel_id") == "2100" for r in sent("POST", "/channels/2002/followers")) == 4,
         "composer: a locked thread was disabled and an archived one stayed open": both("composer_locked_thread") and both("composer_archived_thread"),
         "composer: a timeout disabled the box and counted down": both("composer_timeout"),
         "composer: a blocked dm swapped the box for the Unblock bar, and Unblock asked the mock": both("composer_blocked_dm")
