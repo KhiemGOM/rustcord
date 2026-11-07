@@ -145,17 +145,17 @@ fn consent_game(s: Arc<Shared>, name: String, me: String) {
     set(&s, "other_app", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7100", "scopes": ["identify"] }))));
     set(&s, "implicit", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"], "response_type": "token" }))));
     set(&s, "code", cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify", "email"] }))["data"]["code"].clone());
-    let au = cmd(&mut a, "AUTHENTICATE", None, json!({ "access_token": "mock-token" }));
+    let au = cmd(&mut a, "AUTHENTICATE", None, json!({ "access_token": "mock-rpc-token" }));
     set(&s, "authenticate", json!(au["data"]["user"]["id"] == me.as_str() && au["data"]["application"]["id"] == "7200" && au["data"]["scopes"] == json!(["identify"])));
     set(&s, "again", code(&cmd(&mut a, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"] }))));
     let Some(mut b) = join(&name, "7200") else { return };
     set(&s, "denied", code(&cmd(&mut b, "AUTHORIZE", None, json!({ "client_id": "7200", "scopes": ["identify"] }))));
     set(&s, "denied_again", code(&cmd(&mut b, "AUTHENTICATE", None, json!({}))));
     let Some(mut c) = join(&name, "7100") else { return };
-    set(&s, "wrong_app_token", code(&cmd(&mut c, "AUTHENTICATE", None, json!({ "access_token": "mock-token" }))));
+    set(&s, "wrong_app_token", code(&cmd(&mut c, "AUTHENTICATE", None, json!({ "access_token": "mock-rpc-token" }))));
     let Some(mut d) = join(&name, "7200") else { return };
     let au = cmd(&mut d, "AUTHENTICATE", None, json!({}));
-    set(&s, "implicit_flow", json!(au["data"]["access_token"] == "mock-token" && au["data"]["user"]["id"] == me.as_str()));
+    set(&s, "implicit_flow", json!(au["data"]["access_token"] == "mock-rpc-token" && au["data"]["user"]["id"] == me.as_str()));
     set(&s, "done", json!(true));
 }
 
