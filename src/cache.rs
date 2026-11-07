@@ -206,6 +206,8 @@ pub struct Settings {
     pub recent_activities: Vec<Id>,
     // the first-visit modal on a stage channel
     pub stage_welcome: bool,
+    // Mute Music in a stage's tray, kept on this device
+    pub stage_music_muted: bool,
     // emoji and gifs starred in the pickers
     pub fav_emoji: Vec<crate::state::ReactEmoji>,
     pub fav_gifs: Vec<(String, String, f32, f32)>,
@@ -215,17 +217,18 @@ pub struct Settings {
     pub halloween_sounds: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(default)]
 pub struct Peer {
     pub volume: f32,
     pub muted: bool,
     pub soundboard_muted: bool,
+    pub modified: u64,
 }
 
 impl Default for Peer {
     fn default() -> Self {
-        Peer { volume: 100.0, muted: false, soundboard_muted: false }
+        Peer { volume: 100.0, muted: false, soundboard_muted: false, modified: 0 }
     }
 }
 
@@ -427,6 +430,7 @@ impl Default for Settings {
             hide_idle_tiles: false,
             recent_activities: Vec::new(),
             stage_welcome: false,
+            stage_music_muted: false,
             fav_emoji: Vec::new(),
             fav_gifs: Vec::new(),
             discodo: false,

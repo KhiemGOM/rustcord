@@ -14,13 +14,24 @@ impl Run {
         match self.step {
             4320 => {
                 app.rects.remove(TILE);
-                app.open(CH);
+                let row = app.store.msgs.get(&CH).and_then(|e| e.list.iter().find(|m| m.content == "a sticker from a default pack")).map(|m| m.id);
+                match row {
+                    Some(id) => app.jump_to(CH, id),
+                    None => app.open(CH),
+                }
                 self.next(1200);
             }
             4321 => {
-                if app.rects.get(TILE).is_none() || crate::gif::shown(PACK_STICKER) < 4 {
+                let (tile, frames) = (app.rects.get(TILE).is_some(), crate::gif::shown(PACK_STICKER));
+                if !tile || frames < 4 {
                     if self.step_at.elapsed() > Duration::from_secs(12) {
-                        self.fail(format!("the Lottie sticker drew {} frames in 12s", crate::gif::shown(PACK_STICKER)));
+                        self.shot(ctx, "lottie_fail.png");
+                        let why = if frames < 4 {
+                            format!("the Lottie sticker drew {frames} frames in 12s")
+                        } else {
+                            format!("the Lottie sticker played ({frames} frames) but its tile was never marked: channel {:?}, scroll {:?}", app.cur(), app.offsets.get(&CH))
+                        };
+                        self.fail(why);
                     }
                     return;
                 }

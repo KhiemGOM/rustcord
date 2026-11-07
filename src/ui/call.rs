@@ -74,7 +74,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     }
     hangup(ui, b.center(), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &leave)));
     app.rects.insert("voice:disconnect".into(), b);
-    super::callbar::krisp(app, ui, pos2(r.right() - 52.0, y));
+    if !super::stagemusic::panel(app, ui, pos2(r.right() - 52.0, y)) {
+        super::callbar::krisp(app, ui, pos2(r.right() - 52.0, y));
+    }
     if leave.on_hover_text("Disconnect").clicked() {
         app.voice.leave(&app.net);
     }

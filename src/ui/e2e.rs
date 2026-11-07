@@ -46,6 +46,7 @@ mod players;
 mod perms;
 mod p3b;
 mod p4b;
+mod p4c;
 mod themes;
 mod serverx;
 mod shopx;
@@ -608,6 +609,10 @@ impl Run {
                     self.next(1500);
                     if let Some(from) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
                         self.step = from;
+                        // the step that sends a message is skipped, and alice's reply to it is what the toast steps read
+                        if from > 5 {
+                            app.rest("POST", "/mock/dm".into(), Some(json!({ "channel": 3000, "from": 101, "text": "hey, saw your message — got a sec?", "after_ms": 500 })), crate::net::Tag::Quiet);
+                        }
                     }
                 }
             }
@@ -1426,6 +1431,7 @@ impl Run {
             4650..=4699 => self.shopx_steps(app, ctx),
             5000..=5049 => self.p4b_steps(app, ctx),
             4700..=4799 => self.tidy_steps(app, ctx),
+            5050..=5099 => self.p4c_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
@@ -4347,6 +4353,10 @@ impl Run {
         let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.author == app.store.me && m.content == text));
         match self.step {
             520 => {
+                // alice only sits in the lounge once an earlier step has put her there, server muted
+                let d = json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true });
+                app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
+                app.store.apply("VOICE_STATE_UPDATE", &d);
                 app.select_guild(Some(self.target.0));
                 app.open(general);
                 self.next(1200);
@@ -4354,6 +4364,12 @@ impl Run {
             // carol muted and deafened herself, alice was muted by the server
             521 => {
                 let seen = ["voice_state:103:Muted", "voice_state:103:Deafened", "voice_state:101:Server Muted"].iter().all(|k| Self::at(ctx, k).is_some());
+                if !seen && self.step_at.elapsed() > Duration::from_secs(2) && Instant::now() >= self.wait {
+                    // the voice rows sit under the text channels: bring the sidebar down to them
+                    self.queue.push_back(vec![Event::PointerMoved(pos2(150.0, 400.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                }
                 if seen {
                     self.mark("home_voice_states");
                     self.shot(ctx, "home_voice_states.png");

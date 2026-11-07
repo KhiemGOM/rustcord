@@ -5,8 +5,8 @@
 
 pub mod frecency;
 
-use crate::cache::{Animate, Density, Settings, Spoilers, VideoBg};
-use crate::state::{Folder, Id, ReactEmoji};
+use crate::cache::{Animate, Density, Peer, Settings, Spoilers, VideoBg};
+use crate::state::{Folder, Id, Map, ReactEmoji};
 use crate::theme::{Custom, Fill, Theme};
 
 enum Val<'a> {
@@ -307,6 +307,7 @@ account! {
     density: Density,
     preview_video: bool,
     video_bg: VideoBg,
+    peers: Map<Id, Peer>,
 }
 
 fn flag(w: &[u8]) -> bool {
@@ -449,6 +450,37 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                     }
                 }
             }
+            16 => {
+                let (mut peers, mut listed) = (Map::default(), false);
+                for (n, v) in fields(b) {
+                    let (1, Val::Bytes(entry)) = (n, v) else { continue };
+                    listed = true;
+                    let (mut user, mut p) = (0, Peer { volume: 0.0, ..Peer::default() });
+                    for (n, v) in fields(entry) {
+                        match (n, v) {
+                            (1, Val::Fixed(u)) => user = u as Id,
+                            (2, Val::Bytes(setting)) => {
+                                for (n, v) in fields(setting) {
+                                    match (n, v) {
+                                        (1, Val::Int(m)) => p.muted = m != 0,
+                                        (2, Val::Float(f)) => p.volume = f,
+                                        (3, Val::Fixed(t)) => p.modified = t,
+                                        (4, Val::Int(m)) => p.soundboard_muted = m != 0,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if user != 0 && (p.muted || p.soundboard_muted || p.volume != 100.0) {
+                        peers.insert(user, p);
+                    }
+                }
+                if full || listed || b.is_empty() {
+                    a.peers = Some(peers);
+                }
+            }
             19 => {
                 for (n, v) in fields(b) {
                     if let (1, Val::Bytes(w)) = (n, v) {
@@ -566,6 +598,44 @@ pub fn voice_patch(soundboard_volume: f32, stream_previews: bool) -> Vec<u8> {
     message(&mut vv, 10, &off);
     let mut out = Vec::new();
     message(&mut out, 5, &vv);
+    out
+}
+
+/// An update to what each person in a call is played at (audio_context_settings 16, user map). An
+/// emptied map is sent as one entry at the defaults for `last`, since a patch can't name an empty field.
+pub fn peers_patch(peers: &Map<Id, Peer>, last: Id) -> Vec<u8> {
+    let mut list: Vec<(Id, Peer)> = peers.iter().map(|(u, p)| (*u, *p)).collect();
+    if list.is_empty() {
+        list.push((last, Peer::default()));
+    }
+    list.sort_by_key(|(u, _)| *u);
+    let mut group = Vec::new();
+    for (user, p) in list {
+        let mut setting = Vec::new();
+        if p.muted {
+            tag(&mut setting, 1, 0);
+            put(&mut setting, 1);
+        }
+        if p.volume != 0.0 {
+            tag(&mut setting, 2, 5);
+            setting.extend_from_slice(&p.volume.to_le_bytes());
+        }
+        if p.modified != 0 {
+            tag(&mut setting, 3, 1);
+            setting.extend_from_slice(&p.modified.to_le_bytes());
+        }
+        if p.soundboard_muted {
+            tag(&mut setting, 4, 0);
+            put(&mut setting, 1);
+        }
+        let mut entry = Vec::new();
+        tag(&mut entry, 1, 1);
+        entry.extend_from_slice(&(user as u64).to_le_bytes());
+        message(&mut entry, 2, &setting);
+        message(&mut group, 1, &entry);
+    }
+    let mut out = Vec::new();
+    message(&mut out, 16, &group);
     out
 }
 
