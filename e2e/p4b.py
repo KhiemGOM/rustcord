@@ -56,5 +56,6 @@ def checks(runs, reqs):
             room(r, t) and (rect(r, f"p4b_{t}_composer:buttons") or [0, 0, 0])[2] == (200 if t.startswith("wide") else 120) for r in runs.values() for t in tags),
         "p4b: @game listed Mention a game, asked /games/autocomplete once for the query, and sent <@$id>": both("at_game_row") and both("at_game_results") and len(sent) == 2
             and len(asked) == 2 and all("q=mock&filter_group=default" in r["path"] for r in asked),
+        "p4b: the Inbox mentions came as one card per channel (jump, mark as read, Load more messages) and the card's check cleared its mentions": both("inbox_load_more") and both("inbox_card_read"),
         "p4b: with Show games in autocomplete results off, @gam offered nothing": both("at_game_gated"),
     }

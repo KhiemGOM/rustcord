@@ -230,7 +230,59 @@ impl Run {
                 app.drafts.remove(&self.target.1);
                 self.next(300);
             }
-            5030 => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
+            5025 => {
+                let Some(r) = app.rects.get("title:inbox").copied() else { return };
+                self.click(r.center());
+                self.next(900);
+            }
+            5026 => {
+                let Some(l) = app.inbox.as_mut().and_then(|i| i.mentions.as_mut()).filter(|l| !l.is_empty()) else { return };
+                let first = l[0].clone();
+                for n in 0..4 {
+                    let mut extra = first.clone();
+                    extra.id += 1 + n;
+                    l.push(extra);
+                }
+                self.next(700);
+            }
+            5027 => {
+                let ch = app.inbox.as_ref().and_then(|i| i.mentions.as_ref()).and_then(|l| l.first()).map_or(0, |m| m.channel);
+                let Some(r) = Self::at(ctx, &format!("inbox:more:{ch}")) else {
+                    if stuck {
+                        self.fail("the mentions card had no Load more messages".into());
+                    }
+                    return;
+                };
+                self.shot(ctx, "inbox_card_more.png");
+                self.click(r.center());
+                self.next(700);
+            }
+            5028 => {
+                let ch = app.inbox.as_ref().and_then(|i| i.mentions.as_ref()).and_then(|l| l.first()).map_or(0, |m| m.channel);
+                if Self::at(ctx, &format!("inbox:more:{ch}")).is_some() {
+                    if stuck {
+                        self.fail("Load more messages left its button up".into());
+                    }
+                    return;
+                }
+                self.mark("inbox_load_more");
+                self.shot(ctx, "inbox_card_all.png");
+                let Some(r) = Self::at(ctx, &format!("inbox:read:{ch}")) else { return };
+                self.click(r.center());
+                self.next(900);
+            }
+            5029 => {
+                if app.inbox.as_ref().and_then(|i| i.mentions.as_ref()).is_some_and(|l| !l.is_empty()) {
+                    if stuck {
+                        self.fail("Mark As Read on the card left its mentions in the list".into());
+                    }
+                    return;
+                }
+                self.mark("inbox_card_read");
+                app.inbox = None;
+                self.next(300);
+            }
+            5031 => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
             5040 => {
                 if app.conn != crate::ui::Conn::Online || app.synced.is_none() {
                     return;
@@ -242,7 +294,7 @@ impl Run {
                 self.mark("p4b_stuck");
                 self.step = 9999;
             }
-            _ => self.step = 5030,
+            _ => self.step = 5031,
         }
     }
 }
