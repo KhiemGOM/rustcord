@@ -40,6 +40,7 @@ impl App {
                 self.reload(gid, "command_index", format!("/guilds/{gid}/application-command-index"));
             }
             "GUILD_AUDIT_LOG_ENTRY_CREATE" => super::server::audit_changed(self, gid),
+            "GUILD_JOIN_REQUEST_CREATE" | "GUILD_JOIN_REQUEST_UPDATE" | "GUILD_JOIN_REQUEST_DELETE" => super::applications::event(self, t, d),
             "INVITE_CREATE" | "INVITE_DELETE" => self.reload(gid, "invites", format!("/guilds/{gid}/invites")),
             "USER_SETTINGS_UPDATE" => {
                 let me = self.store.me;

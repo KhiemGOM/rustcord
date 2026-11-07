@@ -1,4 +1,5 @@
 mod accounts;
+pub mod applications;
 mod actions;
 mod attach;
 mod active;
@@ -262,6 +263,7 @@ pub struct App {
     pub embed: Option<embedplay::Play>,
     pub embed_at: Option<(embedplay::Key, egui::Rect, egui::Rect)>,
     pub events: Option<events::Events>,
+    pub joins: applications::Joins,
     pub quests: Option<quests::Quests>,
     pub shop: Option<shop::Shop>,
     pub friends_tab: u8,
@@ -1574,6 +1576,9 @@ impl App {
                     Tag::Home("members") => community::loaded(self, "members", serde_json::json!({ "members": [] })),
                     Tag::Events(g, k) => events::loaded(self, g, k, &serde_json::json!([])),
                     Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
+                    Tag::Joins(g, i) => applications::failed(self, g, i),
+                    Tag::JoinsFor(..) => {}
+                    Tag::JoinsAct(g) => applications::done(self, g, false, &serde_json::Value::Null),
                     Tag::Quests(k) => quests::loaded(self, k, &serde_json::json!({})),
                     Tag::Follow => follow::done(self, false),
                     Tag::AddFriend(_) => {
@@ -1658,6 +1663,9 @@ impl App {
             Tag::Home(k) => community::loaded(self, k, v),
             Tag::Events(g, k) => events::loaded(self, g, k, &v),
             Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &v),
+            Tag::Joins(g, i) => applications::loaded(self, g, i, &v),
+            Tag::JoinsFor(g, u) => applications::others(self, g, u, &v),
+            Tag::JoinsAct(g) => applications::done(self, g, true, &v),
             Tag::Quests(k) => quests::loaded(self, k, &v),
             Tag::Follow => follow::done(self, true),
             Tag::Feed => {
@@ -2073,6 +2081,7 @@ impl App {
         channel::show(self, &ctx);
         events::show(self, &ctx);
         stage::modals(self, &ctx);
+        applications::modals(self, &ctx);
         settings::verify(self, &ctx);
         share::show(self, &ctx);
         let mut show_detail = false;

@@ -113,6 +113,10 @@ pub enum Tag {
     Events(Id, u8),
     // who is interested in an event: its server and the event
     EventUsers(Id, Id),
+    // a server's member applications: its list for a status, one person's earlier ones, an approve or reject
+    Joins(Id, u8),
+    JoinsFor(Id, Id),
+    JoinsAct(Id),
     // the quests hub: 0 on offer, 1 claimed, 2 the Orbs balance, 3 an accept or claim went through
     Quests(u8),
     // a follow of an announcement channel, from its dialog

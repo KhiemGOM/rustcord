@@ -41,6 +41,8 @@ mod members;
 mod perms;
 #[path = "mockcord/bot.rs"]
 mod bot;
+#[path = "mockcord/joins.rs"]
+mod joins;
 #[path = "mockcord/buy.rs"]
 mod buy;
 #[path = "mockcord/shop.rs"]
@@ -1435,6 +1437,12 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
     if let Some((code, mut v)) = shop::route(method, &parts, body) {
         // one catalog: the shop's pages and the profile editor's pickers read the same list
+    if let Some((code, v, event)) = joins::route(method, &parts, path.split_once('?').map(|q| q.1), body, user, iso, now_ms()) {
+        if let Some((t, d)) = event {
+            let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+        }
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
         if parts.ends_with(&["collectibles-categories", "v2"])
             && let (Some((_, more)), Some(list)) = (profiles::route(method, &parts, &Value::Null, &cdn), v["categories"].as_array_mut())
     if let Some((code, v)) = acks::route(method, &parts, body) {
