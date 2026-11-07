@@ -294,6 +294,10 @@ account! {
     push_delay: u32,
     tts_command: bool,
     clips_voice: bool,
+    legacy_input: bool,
+    game_suggestions: bool,
+    sticker_suggestions: bool,
+    md_preview: bool,
 }
 
 fn flag(w: &[u8]) -> bool {
@@ -328,6 +332,10 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         a.push_delay = Some(60);
         a.tts_command = Some(true);
         a.hour_cycle = Some(0);
+        a.legacy_input = Some(false);
+        a.game_suggestions = Some(true);
+        a.sticker_suggestions = Some(false);
+        a.md_preview = Some(true);
     }
     for (n, v) in fields(settings) {
         let Val::Bytes(b) = v else { continue };
@@ -393,6 +401,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                 for (n, v) in fields(b) {
                     let Val::Bytes(w) = v else { continue };
                     match n {
+                        2 => a.md_preview = Some(flag(w)),
                         3 => a.thread_sidebar = Some(flag(w)),
                         4 => {
                             a.spoilers = match text(w).as_deref() {
@@ -411,6 +420,9 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                         16 => a.tts_command = Some(flag(w)),
                         17 => a.compact = Some(flag(w)),
                         21 => a.emoticons = Some(flag(w)),
+                        24 => a.legacy_input = Some(flag(w)),
+                        28 => a.sticker_suggestions = Some(flag(w)),
+                        39 => a.game_suggestions = Some(flag(w)),
                         41 => a.compact_avatars = Some(flag(w)),
                         _ => {}
                     }

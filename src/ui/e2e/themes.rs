@@ -489,33 +489,24 @@ impl Run {
                     return;
                 }
                 self.mark("a11y_custom_cursor_row");
-                let Some(r) = self.scroll_to(ctx, at("dropdown:Default"), false) else { return };
-                self.click(r.center());
-                self.next(400);
-            }
-            4556 => {
-                let Some(r) = at("option:No styling") else { return };
-                self.click(r.center());
-                self.next(400);
-            }
-            4557 => {
-                if app.settings.official_style != 3 {
-                    return;
-                }
-                self.mark("a11y_official_messages_row");
                 let Some(r) = self.scroll_to(ctx, at("toggle:Use the legacy chat input"), false) else { return };
                 self.click(r.center());
                 self.next(400);
             }
-            4558 => {
+            4556 => {
                 if !app.settings.legacy_input {
                     return;
                 }
                 self.mark("a11y_legacy_input_row");
                 self.shot(ctx, "a11y_rows.png");
+                self.next(200);
+            }
+            4557 => {
                 app.settings.shop_cursor = true;
-                app.settings.official_style = 0;
                 app.settings.legacy_input = false;
+                self.next(200);
+            }
+            4558 => {
                 app.settings.dev = true;
                 self.next(200);
             }
