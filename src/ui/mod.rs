@@ -2726,6 +2726,9 @@ pub fn bolded(text: &str, size: f32, ink: Color32, width: f32) -> egui::text::La
 /// A menu that opens at a point, like a right click, with room for submenus. False once closed.
 pub fn float_menu(ctx: &egui::Context, id: &str, at: Pos2, content: impl FnOnce(&mut Ui)) -> bool {
     let mut open = true;
+    let screen = ctx.content_rect();
+    let h = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("menu_h"))).unwrap_or(0.0) + 16.0;
+    let at = pos2(at.x, at.y.min(screen.bottom() - 8.0 - h).max(screen.top() + 8.0));
     egui::Popup::new(egui::Id::new(id), ctx.clone(), egui::PopupAnchor::Position(at), egui::LayerId::background())
         .kind(egui::PopupKind::Menu)
         .layout(egui::Layout::top_down_justified(egui::Align::Min))
