@@ -908,8 +908,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             }
         }
         Item::Sticker(id, name, fmt, server) => {
-            let ext = if *fmt == 4 { "gif" } else { "png" };
-            text::image(p, &format!("{}/stickers/{id}.{ext}?size=64", crate::api::media()), Rect::from_center_size(pos2(x + 12.0, y), vec2(26.0, 26.0)));
+            text::image(p, &crate::api::sticker(*id, *fmt, 64), Rect::from_center_size(pos2(x + 12.0, y), vec2(26.0, 26.0)));
             p.text(pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary);
             text::paint(p, pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, server, semi(12.0), pal().header_secondary, r.width() * 0.4);
         }

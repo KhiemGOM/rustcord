@@ -31,6 +31,7 @@ mod watchdog;
 pub use watchdog::beat;
 mod chatx;
 mod forum;
+mod stickers;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -419,6 +420,11 @@ impl Run {
     pub fn step(&mut self, app: &mut App, ctx: &egui::Context) {
         if self.done {
             return;
+        }
+        if self.step == 4327 {
+            let n = ctx.repaint_causes().iter().filter(|c| c.file.ends_with("gif.rs") || c.file.ends_with("lottie.rs")).count();
+            let k = self.rects.get("lottie_idle_wakes").and_then(|v| v.as_u64()).unwrap_or(0) + n as u64;
+            self.rects.insert("lottie_idle_wakes".into(), json!(k));
         }
         if let Some(at) = self.bench {
             for c in ctx.repaint_causes() {
@@ -1402,6 +1408,7 @@ impl Run {
             2900..=2959 => self.clips_steps(app, ctx),
             4100..=4199 => self.gallery_steps(app, ctx),
             4300..=4319 => self.forum_steps(app, ctx),
+            4320..=4339 => self.sticker_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
             3110..=3189 => self.members_steps(app, ctx),

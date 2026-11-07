@@ -1,6 +1,7 @@
 //! Where a custom emoji or a sticker comes from: the server behind it, with a way in.
 
-use egui::{Align2, Color32, CornerRadius, Frame, Rect, Sense, Stroke, Ui, pos2, vec2};
+use egui::text::{LayoutJob, TextFormat};
+use egui::{Align2, Color32, CornerRadius, Frame, Pos2, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::{App, popups, text};
@@ -13,6 +14,7 @@ pub struct Pop {
     pub name: String,
     pub sticker: bool,
     pub animated: bool,
+    pub format: u8,
     pub at: egui::Pos2,
 }
 
@@ -38,6 +40,9 @@ impl App {
     pub fn open_source(&mut self, pop: Pop) {
         let key = (pop.sticker, pop.id);
         let mine = if pop.sticker { self.store.guilds.values().any(|g| g.stickers.iter().any(|s| s.0 == pop.id)) } else { self.store.guilds.values().any(|g| g.emojis.iter().any(|e| e.id == pop.id)) };
+        if pop.sticker {
+            self.load_packs();
+        }
         if !mine && !self.sources.contains_key(&key) {
             self.sources.insert(key, Value::Null);
             let path = if pop.sticker { format!("/stickers/{}/guild", pop.id) } else { format!("/emojis/{}/source", pop.id) };
@@ -70,9 +75,68 @@ fn row(ui: &mut Ui, s: &Server, here: bool) {
     text::paint(ui.painter(), pos2(x, r.top() + 29.0), Align2::LEFT_CENTER, &sub, reg(12.0), pal().text_muted, r.right() - x);
 }
 
+/// A default pack's sticker: whose it is, three more from the pack, and the way into the rest.
+fn pack_pop(app: &mut App, ctx: &egui::Context, at: Pos2, name: &str, pack: &str, others: &[(Id, String, u8)]) {
+    let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("source_pop"));
+    super::motion::slide(ctx, layer, vec2(0.0, 1.0));
+    let mut more = false;
+    let play = app.settings.stickers;
+    let area = egui::Area::new(egui::Id::new("source_pop")).order(egui::Order::Foreground).fixed_pos(at).constrain(true).show(ctx, |ui| {
+        let shadow = ui.style().visuals.popup_shadow;
+        Frame::new().fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).inner_margin(16).show(ui, |ui| {
+            ui.set_width(288.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.label(RichText::new(name).font(semi(16.0)).color(pal().header_primary));
+            let mut job = LayoutJob::default();
+            let plain = |font| TextFormat { font_id: font, color: pal().text_normal, ..Default::default() };
+            job.append("This is a ", 0.0, plain(reg(14.0)));
+            job.append(pack, 0.0, plain(bold(14.0)));
+            job.append(" sticker.", 0.0, plain(reg(14.0)));
+            ui.label(job);
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0;
+                for (sid, sname, fmt) in others {
+                    let (r, resp) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
+                    let go = match play {
+                        crate::cache::Animate::Always => true,
+                        crate::cache::Animate::OnInteraction => resp.hovered(),
+                        crate::cache::Animate::Never => false,
+                    };
+                    egui::Image::from_uri(crate::gif::uri(ui.ctx(), &crate::api::sticker(*sid, *fmt, 80), go && ui.is_rect_visible(r))).show_loading_spinner(false).paint_at(ui, r);
+                    resp.on_hover_text(sname);
+                }
+            });
+            ui.add_space(8.0);
+            let label = ui.painter().layout_no_wrap("View More Stickers".into(), medium(14.0), pal().text_normal);
+            let (b, resp) = ui.allocate_exact_size(vec2(label.size().x + 24.0, 32.0), Sense::click());
+            super::settings::mark(ui, "source_pop:more", b);
+            let fill = Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 51 } else { 31 });
+            ui.painter().rect(b, 8, fill, Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 41)), egui::StrokeKind::Inside);
+            ui.painter().galley(b.center() - label.size() / 2.0, label, pal().text_normal);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            more = resp.clicked();
+        });
+    });
+    app.rects.insert("source_pop".into(), area.response.rect);
+    if more {
+        app.source_pop = None;
+        app.stickers = Some(at);
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("sticker_goto"), pack.to_string()));
+    } else if popups::dismissed(ctx, &area.response) {
+        app.source_pop = None;
+    }
+}
+
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(p) = &app.source_pop else { return };
-    let (id, sticker, animated, at, name) = (p.id, p.sticker, p.animated, p.at, p.name.clone());
+    let (id, sticker, animated, format, at, name) = (p.id, p.sticker, p.animated, p.format, p.at, p.name.clone());
+    let pack = app.packs.iter().find(|p| sticker && p.stickers.iter().any(|s| s.0 == id)).map(|p| (p.name.clone(), p.stickers.iter().filter(|s| s.0 != id).take(3).cloned().collect::<Vec<_>>()));
+    if let Some((pack, others)) = pack {
+        return pack_pop(app, ctx, at, &name, &pack, &others);
+    }
     let kind = if sticker { "sticker" } else { "emoji" };
     let home = if sticker {
         app.store.guilds.values().find(|g| g.stickers.iter().any(|s| s.0 == id))
@@ -96,7 +160,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.set_width(256.0);
                 ui.horizontal_top(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-                    let url = if sticker { format!("https://media.discordapp.net/stickers/{id}.png?size=96") } else { crate::markdown::emoji_url(id, animated) };
+                    let url = if sticker { crate::api::sticker(id, format, 96) } else { crate::markdown::emoji_url(id, animated) };
                     egui::Image::from_uri(crate::gif::uri(ui.ctx(), &url, true)).show_loading_spinner(false).paint_at(ui, r);
                     ui.add_space(12.0);
                     ui.vertical(|ui| {

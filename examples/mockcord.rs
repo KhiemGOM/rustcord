@@ -2482,7 +2482,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
         }
         ("GET", ["cdn", "stickers", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(160, 160, f.len() as u32)),
-        ("GET", ["cdn", "stickers", f]) if f.ends_with(".json") => (200, "application/json", b"{}".to_vec()),
+        ("GET", ["cdn", "stickers", f]) if f.ends_with(".json") => (200, "application/json", include_bytes!("fixtures/sticker.json").to_vec()),
         ("GET", ["cdn", "stickers", f]) => (200, "image/png", png(160, 160, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {

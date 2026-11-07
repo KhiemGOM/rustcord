@@ -799,10 +799,10 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         .filter(|g| !g.stickers.is_empty())
         .map(|g| (g.name.clone(), g.icon_url(), g.stickers.clone(), nitro || g.id == here))
         .collect();
-    let url = |id: &Id, fmt: u8| format!("{}/stickers/{id}.{}?size=160", crate::api::media(), if fmt == 4 { "gif" } else { "png" });
+    let url = |id: &Id, fmt: u8| crate::api::sticker(*id, fmt, 160);
     let mut tags: std::collections::HashMap<Id, &str> = std::collections::HashMap::new();
     for p in &app.packs {
-        let cover = p.stickers.iter().find(|s| s.0 == p.cover).or(p.stickers.first()).filter(|s| s.2 != 3).map(|s| url(&s.0, s.2));
+        let cover = p.stickers.iter().find(|s| s.0 == p.cover).or(p.stickers.first()).map(|s| url(&s.0, s.2));
         groups.push((p.name.clone(), cover, p.stickers.clone(), true));
         tags.extend(p.stickers.iter().zip(&p.tags).map(|(s, t)| (s.0, t.as_str())));
     }
@@ -843,6 +843,9 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
             marks.push((None, "Frequently Used"));
         }
         marks.extend(groups.iter().map(|(name, icon, _, _)| (icon.as_deref(), name.as_str())));
+        if go.is_none() && !tops.is_empty() && let Some(n) = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::new("sticker_goto"))) {
+            go = marks.iter().position(|(_, m)| *m == n);
+        }
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail.shrink2(vec2(8.0, 8.0))), |ui| {
             egui::ScrollArea::vertical().id_salt("sticker_rail").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
@@ -911,12 +914,14 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                                     ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
                                     hovered = Some((st.clone(), format!("from {from}")));
                                 }
-                                // lottie stickers (format 3) have no still image to show
-                                if st.2 != 3 && ui.is_rect_visible(r) {
+                                if ui.is_rect_visible(r) {
                                     let tint = if *ok { Color32::WHITE } else { Color32::from_white_alpha(90) };
-                                    Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), true)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
-                                } else if st.2 == 3 {
-                                    super::text::paint(ui.painter(), r.center(), Align2::CENTER_CENTER, &st.1, medium(14.0), pal().text_muted, r.width() - 16.0);
+                                    let play = match app.settings.stickers {
+                                        crate::cache::Animate::Always => true,
+                                        crate::cache::Animate::OnInteraction => resp.hovered(),
+                                        crate::cache::Animate::Never => false,
+                                    };
+                                    Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), play)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                                 }
                                 let resp = resp.on_hover_text(if *ok { st.1.clone() } else { format!("{} needs Nitro here", st.1) });
                                 let fav = app.ui.fav_stickers.contains(&st.0);

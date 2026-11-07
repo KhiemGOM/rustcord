@@ -74,7 +74,7 @@ enum Act {
     Invite(super::chatinvite::Go),
     CopyImage(String),
     Votes(Id),
-    Sticker(Id, String, Pos2),
+    Sticker(Id, String, u8, Pos2),
     CancelUpload(String),
     // a run of blocked messages shown or folded again: their ids
     Blocked(Vec<Id>, bool),
@@ -892,8 +892,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 system::Go::Guild(g) => app.select_guild(Some(g)),
                 system::Go::GuildSettings(g) => app.open_server_settings(g),
             },
-            Act::Emoji(id, name, animated, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: false, animated, at }),
-            Act::Sticker(id, name, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: true, animated: false, at }),
+            Act::Emoji(id, name, animated, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: false, animated, format: 0, at }),
+            Act::Sticker(id, name, format, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: true, animated: false, format, at }),
             Act::Role(r, at) => app.role_pop = Some((chan.guild, r, at)),
             Act::Tag(g, at) => app.tag_pop = Some((g, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
@@ -1365,12 +1365,14 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         for (id, name, fmt) in &m.stickers {
             cui.add_space(acc);
             acc = 4.0;
-            let ext = if *fmt == 4 { "gif" } else { "png" };
-            let url = format!("{}/stickers/{id}.{ext}?size=160", crate::api::media());
-            let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
+            let url = crate::api::sticker(*id, *fmt, 160);
+            let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_ui(|ui| {
+                ui.label(RichText::new(name).font(semi(14.0)).color(pal().header_primary));
+                ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
+            });
             d.card("sticker", &cui, r.rect);
             if r.clicked() {
-                d.acts.push(Act::Sticker(*id, name.clone(), r.rect.right_top() + vec2(8.0, 0.0)));
+                d.acts.push(Act::Sticker(*id, name.clone(), *fmt, r.rect.right_top() + vec2(8.0, 0.0)));
             }
         }
         for code in super::chatinvite::codes(&m.content) {
@@ -1889,7 +1891,15 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
-        let (icon, note) = if rm.interaction.is_some() { (Icon::Apps, "Click to see command") } else { (Icon::Image, "Click to see attachment") };
+        let (icon, note) = if rm.interaction.is_some() {
+            (Icon::Apps, "Click to see command")
+        } else if !rm.stickers.is_empty() {
+            (Icon::Sticker, "Click to see sticker")
+        } else if rm.flags & (1 << 13) != 0 {
+            (Icon::Mic, "Click to see voice message")
+        } else {
+            (Icon::Image, "Click to see attachment")
+        };
         icons::draw(p, icon, ir, pal().header_secondary);
         cx += 20.0;
         p.text(pos2(cx, y), Align2::LEFT_CENTER, note, reg(14.0), pal().header_secondary);

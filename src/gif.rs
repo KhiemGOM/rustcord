@@ -1,4 +1,4 @@
-//! Animated gifs, animated webp and gifv mp4 clips, decoded off the UI thread.
+//! Animated gifs, animated webp, gifv mp4 clips and Lottie stickers, decoded off the UI thread.
 //! egui_extras' loader decodes every frame inline the first time an image is
 //! drawn, which froze the window for ~0.4s when the GIF picker filled up.
 //! Registered after egui_extras' loaders, so it's asked first.
@@ -29,6 +29,7 @@ enum Kind {
     Webp,
     Mp4,
     Apng,
+    Lottie,
 }
 
 fn kind(b: &[u8]) -> Option<Kind> {
@@ -41,6 +42,8 @@ fn kind(b: &[u8]) -> Option<Kind> {
     } else if b.starts_with(&[0x89, b'P', b'N', b'G']) && b[..b.len().min(4096)].windows(4).any(|w| w == b"acTL") {
         // an animated png says so in a chunk ahead of its image data
         Some(Kind::Apng)
+    } else if crate::lottie::sniff(b) {
+        Some(Kind::Lottie)
     } else {
         None
     }
@@ -50,6 +53,16 @@ struct Anim {
     frames: Vec<Arc<ColorImage>>,
     // the longest side the frames were scaled down to, if they were
     side: Option<u32>,
+    lottie: Option<Arc<crate::lottie::Player>>,
+}
+
+impl Anim {
+    fn frame(&self, ctx: &egui::Context, i: usize) -> Arc<ColorImage> {
+        match &self.lottie {
+            Some(p) => p.frame(ctx, i),
+            None => self.frames[i % self.frames.len()].clone(),
+        }
+    }
 }
 
 type Entry = Poll<Result<Arc<Anim>, String>>;
@@ -103,11 +116,16 @@ fn collect(frames: impl Iterator<Item = image::ImageResult<image::Frame>>, side:
 }
 
 fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Duration>), String> {
+    if let Kind::Lottie = kind {
+        let (player, durations) = crate::lottie::Player::new(data, side.unwrap_or(320))?;
+        return Ok((Anim { frames: Vec::new(), side: Some(player.side()), lottie: Some(Arc::new(player)) }, durations));
+    }
     let (frames, mut durations) = match kind {
         Kind::Gif => collect(image::codecs::gif::GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
         Kind::Webp => collect(image::codecs::webp::WebPDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
         Kind::Mp4 => crate::mp4::frames(data, BUDGET)?.into_iter().map(|(img, d)| (Arc::new(shrink(img, side)), d)).unzip(),
         Kind::Apng => collect(image::codecs::png::PngDecoder::new(Cursor::new(data)).and_then(|d| d.apng()).map_err(|e| e.to_string())?.into_frames(), side)?,
+        Kind::Lottie => unreachable!(),
     };
     if frames.is_empty() {
         return Err("no frames".into());
@@ -118,7 +136,7 @@ fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Durat
             *d = Duration::from_millis(100);
         }
     }
-    Ok((Anim { frames, side }, durations))
+    Ok((Anim { frames, side, lottie: None }, durations))
 }
 
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a
@@ -247,7 +265,7 @@ impl ImageLoader for GifLoader {
         };
         let want = side(hint);
         let have = match self.cache.lock().get(uri) {
-            Some(Poll::Ready(Ok(a))) => Some((a.frames[index % a.frames.len()].clone(), a.side)),
+            Some(Poll::Ready(Ok(a))) => Some((a.frame(ctx, index), a.side)),
             Some(Poll::Ready(Err(e))) => return Err(LoadError::Loading(e.clone())),
             Some(Poll::Pending) => return Ok(ImagePoll::Pending { size: None }),
             None => None,
@@ -289,7 +307,7 @@ impl ImageLoader for GifLoader {
             .lock()
             .values()
             .map(|e| match e {
-                Poll::Ready(Ok(a)) => a.frames.iter().map(|f| f.pixels.len() * 4).sum(),
+                Poll::Ready(Ok(a)) => a.frames.iter().map(|f| f.pixels.len() * 4).sum::<usize>() + a.lottie.as_ref().map_or(0, |p| p.bytes()),
                 _ => 0,
             })
             .sum()
