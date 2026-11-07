@@ -128,7 +128,7 @@ impl Run {
                 self.next(900);
             }
             4614 => {
-                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", "billing:save"))));
+                ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", "billing:save"))));
                 self.next(500);
             }
             4615 => {
