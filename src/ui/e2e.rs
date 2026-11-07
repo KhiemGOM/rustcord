@@ -4909,6 +4909,10 @@ impl Run {
             }
             631 => {
                 let Some(r) = Self::at(ctx, "button:Generate Template") else { return };
+                let me = app.store.me;
+                if let Some(g) = app.store.guilds.get_mut(&1002) {
+                    g.owner = me;
+                }
                 self.shot(ctx, "server_template.png");
                 self.click(r.center());
                 self.next(600);
@@ -4938,6 +4942,9 @@ impl Run {
             634 => {
                 app.confirm = None;
                 app.server = None;
+                if let Some(g) = app.store.guilds.get_mut(&1002) {
+                    g.owner = 102;
+                }
                 self.step = 560;
                 self.step_at = Instant::now();
             }
