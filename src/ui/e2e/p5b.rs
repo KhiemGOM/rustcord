@@ -475,6 +475,58 @@ impl Run {
                 app.buy = None;
                 app.server = None;
                 self.next(300);
+                self.step = 5195;
+            }
+            5195 => {
+                app.select_guild(Some(self.target.0));
+                app.open_boosts(self.target.0);
+                self.next(1500);
+            }
+            5196 => {
+                let Some(r) = app.rects.get("boosts:level:1").copied() else {
+                    if stuck {
+                        self.fail("the Server Boosts page drew no Level 1 card".into());
+                    }
+                    return;
+                };
+                self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                self.next(500);
+            }
+            5197 => {
+                let Some(b) = Self::at(ctx, "perk_btn") else {
+                    if stuck {
+                        self.shot(ctx, "boosts_level_hover_missing.png");
+                        self.fail("hovering the enabled Level 1 card showed no button".into());
+                    }
+                    return;
+                };
+                self.shot(ctx, "boosts_level_hover.png");
+                self.click(b.center());
+                self.next(900);
+            }
+            5198 => {
+                let Some(x) = Self::at(ctx, "boosts:level_x") else {
+                    if stuck {
+                        self.fail("View Perks on Level 1 opened no dialog".into());
+                    }
+                    return;
+                };
+                self.mark("boosts_view_perks");
+                self.shot(ctx, "boosts_view_perks.png");
+                self.click(x.center());
+                self.next(700);
+            }
+            5199 => {
+                if Self::at(ctx, "boosts:level_x").is_some() {
+                    if stuck {
+                        self.fail("the View Perks dialog's X left it open".into());
+                    }
+                    return;
+                }
+                self.mark("boosts_view_perks_closed");
+                app.boosts = None;
+                self.next(300);
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
         }

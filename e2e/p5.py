@@ -29,6 +29,7 @@ def checks(runs, reqs):
         "p5: the Shop pager's Next and numbered pages moved through thirty frames (a /shop/search with a later offset)": both("shop_pager_next") and both("shop_pager_number") and bool(offset_pages),
         "p5: Subscribe to Nitro Basic opened the checkout": both("nitro_basic_click"),
         "p5: the Stickers page drew the Get Boosted banner and a timeline whose Buy Level opened the boost checkout": both("stickers_banner") and both("stickers_buy_level"),
+        "p5: hovering the enabled Level 1 card showed View Perks, which opened its dialog, and the X closed it": both("boosts_view_perks") and both("boosts_view_perks_closed"),
         "p5: the per-server profile editor's notice went away on Dismiss notice": both("profed_notice_dismissed"),
         "p5: the editor's Wishlist tab asked /wishlist/gift-recommendations, and the heart on a suggested item added it": both("wish_suggested_added")
             and any("/wishlist/gift-recommendations" in r.get("path", "") for r in reqs)
