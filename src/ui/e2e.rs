@@ -4354,6 +4354,12 @@ impl Run {
             // carol muted and deafened herself, alice was muted by the server
             521 => {
                 let seen = ["voice_state:103:Muted", "voice_state:103:Deafened", "voice_state:101:Server Muted"].iter().all(|k| Self::at(ctx, k).is_some());
+                if !seen && self.step_at.elapsed() > Duration::from_secs(2) && Instant::now() >= self.wait {
+                    // the voice rows sit under the text channels: bring the sidebar down to them
+                    self.queue.push_back(vec![Event::PointerMoved(pos2(150.0, 400.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                }
                 if seen {
                     self.mark("home_voice_states");
                     self.shot(ctx, "home_voice_states.png");
