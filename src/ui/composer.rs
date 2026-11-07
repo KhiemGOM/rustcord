@@ -70,8 +70,8 @@ const BUILT_IN: [(&str, &str, &str); 15] = [
     ("tts", "message", "Use text-to-speech to read the message to all members currently viewing the channel."),
     ("me", "message", "Displays text with emphasis."),
     ("spoiler", "message", "Marks your message as a spoiler."),
-    ("gif", "query", "Search for a GIF to send."),
-    ("sticker", "query", "Search for a sticker to send."),
+    ("gif", "query", "Search Animated GIFs on the Web"),
+    ("sticker", "query", "Search your stickers"),
     ("nick", "new_nick", "Change nickname on this server."),
     ("thread", "name message", "Start new thread"),
     ("kick", "user reason", "Kick user"),
@@ -785,9 +785,8 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     ui.painter().add(egui::Shadow { offset: [0, 1], blur: 4, spread: 0, color: Color32::from_black_alpha(36) }.as_shape(bar, CornerRadius::same(4)));
     ui.painter().rect(bar, CornerRadius::same(4), pal().bg_floating, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     let mut act = None;
-    let spoiler = if f.spoiler { "Unmark as Spoiler" } else { "Mark as Spoiler" };
     let buttons = [
-        (if f.spoiler { Icon::EyeOff } else { Icon::Eye }, spoiler, CardAct::Spoiler, pal().header_secondary),
+        (if f.spoiler { Icon::EyeOff } else { Icon::Eye }, "Spoiler Attachment", CardAct::Spoiler, pal().header_secondary),
         (Icon::Pencil, "Modify Attachment", CardAct::Modify, pal().header_secondary),
         (Icon::Trash, "Remove Attachment", CardAct::Remove, RED),
     ];
