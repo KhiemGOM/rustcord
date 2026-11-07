@@ -72,7 +72,7 @@ pub fn language(app: &mut App, ui: &mut Ui) -> bool {
     super::caption(
         ui,
         "Select a Language",
-        "Rustcord's own interface is English for now. This tells Discord which language to use for text it sends, like system messages and bot commands.",
+        "Choose the language you want Discord to display.",
     );
     super::lead(ui);
     let mut changed = false;
@@ -92,6 +92,8 @@ pub fn language(app: &mut App, ui: &mut Ui) -> bool {
         });
     });
     super::mark(ui, "lang", head.rect);
+    ui.add_space(8.0);
+    ui.add(egui::Label::new(egui::RichText::new("Rustcord's own interface is English for now. This tells Discord which language to use for text it sends, like system messages and bot commands.").font(crate::theme::reg(14.0)).color(crate::theme::pal().header_secondary)).selectable(false));
     super::end(ui, 32.0);
     sub(ui, "Time format");
     let mut cycle = app.settings.hour_cycle;
@@ -114,6 +116,9 @@ pub fn developer(app: &mut App, ui: &mut Ui) -> bool {
     ) {
         write(app, Patch::new().num(13, 2, app.settings.dev as u64));
         changed = true;
+    }
+    if app.settings.dev {
+        changed |= super::testmode::row(app, ui);
     }
     section(ui, "Cache");
     if action(
