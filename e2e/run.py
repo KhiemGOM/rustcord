@@ -61,6 +61,7 @@ import stickers
 import bots
 import embed
 import profed
+import protowire
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -363,7 +364,7 @@ def main():
         "person menu: a voice user's menu had volume, mute and soundboard rows, and their volume reached the mixer": all("person_menu" in r.get("marks_ms", {}) for r in (cold, warm)),
         "friend menu: right-clicking a friend gave the whole menu": all("friend_menu" in r.get("marks_ms", {}) for r in (cold, warm)),
         "pinned dm: Pin sent the dm's override flags": all("pin_dm" in r.get("marks_ms", {}) for r in (cold, warm)) and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/@me/settings") and "2048" in r.get("body", "") for r in reqs),
-        "accounts: the signed-in account is in the Switch Accounts list, and a custom status went to the server": all("accounts" in r.get("marks_ms", {}) for r in (cold, warm)) and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/settings") and "mock status" in r.get("body", "") for r in reqs),
+        "accounts: the signed-in account is in the Switch Accounts list, and a custom status went to the server": all("accounts" in r.get("marks_ms", {}) for r in (cold, warm)) and any(s.get("custom", {}).get("text") == "mock status" for s in protowire.status_writes(reqs)),
         "quick reactions: right-clicking one in the message menu and picking an emoji replaced it": all("quick_reactions" in r.get("marks_ms", {}) for r in (cold, warm)),
         "new messages bar: a wheel down at the bottom of the channel takes it away": all("bar_read" in r.get("marks_ms", {}) for r in (cold, warm)),
         "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),

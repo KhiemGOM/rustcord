@@ -492,6 +492,39 @@ pub fn voice_patch(soundboard_volume: f32, stream_previews: bool) -> Vec<u8> {
     out
 }
 
+/// An update to the status settings (11): the status, when it ends (zero for never) and when it was set.
+pub fn status_patch(status: &str, expires_ms: u64, created_ms: u64) -> Vec<u8> {
+    let mut value = Vec::new();
+    message(&mut value, 1, status.as_bytes());
+    let mut group = Vec::new();
+    message(&mut group, 1, &value);
+    tag(&mut group, 4, 1);
+    group.extend_from_slice(&expires_ms.to_le_bytes());
+    put_wrapped(&mut group, 5, created_ms);
+    let mut out = Vec::new();
+    message(&mut out, 11, &group);
+    out
+}
+
+/// An update to the custom status (11, 2); no text clears it.
+pub fn custom_status_patch(text: &str, expires_ms: u64, created_ms: u64) -> Vec<u8> {
+    let mut custom = Vec::new();
+    if !text.is_empty() {
+        message(&mut custom, 1, text.as_bytes());
+        if expires_ms != 0 {
+            tag(&mut custom, 4, 1);
+            custom.extend_from_slice(&expires_ms.to_le_bytes());
+        }
+        tag(&mut custom, 5, 1);
+        custom.extend_from_slice(&created_ms.to_le_bytes());
+    }
+    let mut group = Vec::new();
+    message(&mut group, 2, &custom);
+    let mut out = Vec::new();
+    message(&mut out, 11, &group);
+    out
+}
+
 /// An update that sets one guild's entrance sound (guild 0 is "All Servers"); a zero sound clears it.
 pub fn entrance_patch(guild: Id, sound: Id, source: Id) -> Vec<u8> {
     let mut js = Vec::new();
