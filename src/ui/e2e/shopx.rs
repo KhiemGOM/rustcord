@@ -466,7 +466,7 @@ impl Run {
             _ => {
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
                 app.shop = None;
-                self.step = 3110;
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
         }
     }
