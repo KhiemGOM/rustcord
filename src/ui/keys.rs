@@ -408,6 +408,17 @@ impl App {
         self.confirm = Some(c);
     }
 
+    /// Watch a friend's stream from outside the call: joins their voice channel first, as discord's
+    /// Watch Stream does (select the channel, then start the stream).
+    pub fn watch_stream(&mut self, ch: Id, user: Id) {
+        if self.voice.chan == Some(ch) {
+            self.voice.watch(&self.net, user);
+            return;
+        }
+        self.voice.watch_next = Some((ch, user, Instant::now()));
+        self.join_voice(ch, false);
+    }
+
     /// The home button clicked sixteen times, each within half a second of the last, turns on
     /// discord's hidden ディスコード sounds; sixteen more turn them off.
     pub fn home_clicked(&mut self) {
