@@ -920,7 +920,8 @@ fn ready(last_general: u64) -> Value {
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
             ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)), ch(CHATX, 0, "chat-extras", 7, Some(2010)), ch(gallery::GALLERY, 0, "gallery", 8, Some(2010)), ch(EMBEDS, 0, "embeds", 9, Some(2010)),
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)),
+            ch(2029, 4, "Test Rooms", 3, None), ch(CHATX, 0, "chat-extras", 0, Some(2029)), ch(gallery::GALLERY, 0, "gallery", 1, Some(2029)), ch(EMBEDS, 0, "embeds", 2, Some(2029)),
         ],
         "threads": [thread(), gallery::thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
