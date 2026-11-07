@@ -422,12 +422,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             Act::Settings(s) => app.settings_page = Some(s),
             Act::Quests => app.open_quests(),
             Act::Shop => app.open_shop(super::Page::Shop),
-            Act::Wishlist => {
-                app.open_shop(super::Page::Shop);
-                if let Some(s) = &mut app.shop {
-                    s.tab = 3;
-                }
-            }
+            Act::Wishlist => super::wish::open(app),
             Act::Perks(i) => {
                 if let Some(s) = &mut app.shop {
                     s.perks = i;

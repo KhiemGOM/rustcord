@@ -367,11 +367,16 @@ fn features(app: &mut App, ui: &mut Ui, basic_plans: &[Value], nitro_plans: &[Va
     }
     if buy {
         let (r, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
-        for (x, label, plans) in [(cols[0], "Nitro Basic", basic_plans), (cols[1], "Nitro", nitro_plans)] {
-            let b = Rect::from_center_size(pos2(r.left() + x + 80.0, r.center().y), vec2(144.0, 40.0));
-            if solid(ui, b, &format!("Subscribe to {label}"), BLURPLE, Color32::WHITE) {
+        let mut right = r.right();
+        for (x, label, plans) in [(cols[1], "Nitro", nitro_plans), (cols[0], "Nitro Basic", basic_plans)] {
+            let text = format!("Subscribe to {label}");
+            let bw = (ui.painter().layout_no_wrap(text.clone(), medium(16.0), Color32::WHITE).size().x + 32.0).max(144.0);
+            let left = (r.left() + x + 80.0 - bw / 2.0).min(right - bw);
+            let b = Rect::from_min_size(pos2(left, r.center().y - 20.0), vec2(bw, 40.0));
+            if solid(ui, b, &text, BLURPLE, Color32::WHITE) {
                 subscribe(app, plans);
             }
+            right = b.left() - 16.0;
         }
     }
     end(ui, 24.0);

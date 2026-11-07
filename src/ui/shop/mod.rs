@@ -3,9 +3,11 @@
 //! wrap, min and max sizes), never by a fixed window size. Browsing never leaves the client; only
 //! a purchase opens the checkout window.
 
+mod browse;
 mod catalog;
 mod nitro;
 pub mod product;
+pub mod wish;
 
 use egui::load::TexturePoll;
 use egui::{Color32, CornerRadius, Rect, Sense, Ui, pos2, vec2};
@@ -35,19 +37,24 @@ pub enum Page {
 
 pub struct Shop {
     pub page: Page,
-    // 0 Featured, 1 Browse, 2 Orbs Exclusives, 3 Wishlist
+    // 0 Featured, 1 Browse, 2 Orbs Exclusives
     pub tab: u8,
     pub search: String,
     pub product: Option<String>,
-    // Browse's Show only: avatar decorations, nameplates, profile effects, bundles, Orbs eligible
-    pub only: [bool; 5],
+    pub slide: usize,
+    pub browse: browse::Filters,
     pub collection: Option<String>,
     // the Nitro page's favourites tabs
     pub perks: u8,
     pub wish: Vec<String>,
+    pub wish_id: Option<String>,
+    pub wish_load: u8,
+    pub feed_sort: usize,
+    pub feed_shown: usize,
+    pub shuffle: u32,
 }
 
-const KEYS: [&str; 7] = ["shop_home", "shop_cats", "shop_owned", "shop_orbs", "nitro_subs", "nitro_plans", "nitro_basic"];
+const KEYS: [&str; 8] = ["shop_home", "shop_cats", "shop_owned", "shop_orbs", "shop_orbs_home", "nitro_subs", "nitro_plans", "nitro_basic"];
 
 pub(super) const NIGHT: Color32 = Color32::from_rgb(0x0b, 0x0a, 0x12);
 pub(super) const PLATE: Color32 = Color32::from_rgb(0x12, 0x12, 0x16);
@@ -57,7 +64,24 @@ impl App {
         for k in KEYS {
             refetch(self, k);
         }
-        self.shop = Some(Shop { page, tab: 0, search: String::new(), product: None, only: [false; 5], collection: None, perks: 0, wish: Vec::new() });
+        self.keyed.retain(|k, _| !k.starts_with("/shop/search"));
+        self.shop = Some(Shop {
+            page,
+            tab: 0,
+            search: String::new(),
+            product: None,
+            slide: 0,
+            browse: browse::Filters::new(),
+            collection: None,
+            perks: 0,
+            wish: Vec::new(),
+            wish_id: None,
+            wish_load: 0,
+            feed_sort: 0,
+            feed_shown: 12,
+            shuffle: 0,
+        });
+        wish::reload(self);
         self.ui.guild = None;
         self.directory = None;
         self.friends = false;
