@@ -139,12 +139,20 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
 }
 
 fn status(ui: &mut Ui, head: &str, desc: &str) {
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), if desc.is_empty() { 32.0 } else { 56.0 }), egui::Sense::hover());
-    crate::ui::icons::draw(ui.painter(), Icon::CircleCheck, egui::Rect::from_center_size(pos2(r.left() + 10.0, r.top() + 16.0), vec2(20.0, 20.0)), GREEN);
-    ui.painter().text(pos2(r.left() + 32.0, r.top() + 16.0), egui::Align2::LEFT_CENTER, head, medium(16.0), pal().header_primary);
-    if !desc.is_empty() {
-        crate::ui::text::paint(ui.painter(), pos2(r.left() + 32.0, r.top() + 38.0), egui::Align2::LEFT_CENTER, desc, reg(14.0), pal().header_secondary, r.width() - 40.0);
+    let w = ui.available_width();
+    let body = (!desc.is_empty()).then(|| ui.painter().layout(desc.into(), medium(14.0), pal().text_normal, w - 124.0));
+    let h = (22.0 + body.as_ref().map_or(0.0, |g| 4.0 + g.size().y)).max(24.0) + 16.0;
+    let (r, _) = ui.allocate_exact_size(vec2(w, h), egui::Sense::hover());
+    ui.painter().text(r.left_top(), egui::Align2::LEFT_TOP, head, semi(16.0), pal().header_primary);
+    if let Some(g) = body {
+        ui.painter().galley(r.left_top() + vec2(0.0, 26.0), g, pal().text_normal);
     }
+    let sw = egui::Rect::from_min_size(pos2(r.right() - 48.0, r.top()), vec2(48.0, 24.0));
+    let resp = ui.interact(sw, ui.id().with(("safety_on", head)), egui::Sense::hover());
+    let mut dim = ui.new_child(egui::UiBuilder::new().max_rect(sw));
+    dim.set_opacity(0.5);
+    settings::paint_switch(&dim, sw, &resp, true);
+    resp.on_hover_text("This feature is on by default");
 }
 
 fn overview(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info: &Value) {
@@ -163,6 +171,7 @@ fn overview(app: &mut App, ui: &mut Ui, gid: Id, g: &crate::state::Guild, info: 
     let mut go = None;
     for (head, sub, page) in cards {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), egui::Sense::click());
+        settings::mark(ui, &format!("safety:{head}"), r);
         ui.painter().rect(r, egui::CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), egui::Stroke::new(1.0, super::faint(51)), egui::StrokeKind::Inside);
         ui.painter().text(pos2(r.left() + 20.0, r.center().y - 10.0), egui::Align2::LEFT_CENTER, head, semi(16.0), pal().header_primary);
         ui.painter().text(pos2(r.left() + 20.0, r.center().y + 12.0), egui::Align2::LEFT_CENTER, sub, medium(12.0), pal().header_secondary);
