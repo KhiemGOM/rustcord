@@ -69,7 +69,7 @@ impl Run {
                 }
                 self.next(300);
             }
-            _ => self.step = 4400,
+            _ => self.step = 4340,
         }
     }
 }

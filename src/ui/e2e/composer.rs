@@ -19,7 +19,7 @@ impl Run {
     pub(super) fn composer_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let general = self.target.1;
         let late = self.step_at.elapsed() > Duration::from_secs(6);
-        let menu_row = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let menu_row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         let gate_of = |app: &App, ch: Id| app.store.channels.get(&ch).map(|c| gate::check(app, c));
         let at = |app: &App, key: &str| app.rects.get(key).copied();
         macro_rules! when {

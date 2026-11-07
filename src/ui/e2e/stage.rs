@@ -12,7 +12,7 @@ impl Run {
     pub(super) fn stage_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let me = app.store.me;
         let hover = |run: &mut Self, at: Pos2| run.queue.push_back(vec![Event::PointerMoved(at)]);
-        let row = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         let connected = |app: &App, ch: Id| app.voice.state == State::Connected && app.voice.chan == Some(ch);
         let idle = |app: &App| app.voice.state == State::Idle && app.voice.chan.is_none();
         match self.step {

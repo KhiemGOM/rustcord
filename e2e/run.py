@@ -58,6 +58,7 @@ import live
 import members
 import chatx
 import forum
+import p1b
 import stickers
 import bots
 import embed
@@ -577,6 +578,7 @@ def main():
         **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
         **forum.checks({"cold": cold, "warm": warm}, reqs, data),
         **stickers.checks({"cold": cold, "warm": warm}, reqs, data),
+        **p1b.checks({"cold": cold, "warm": warm}, reqs, data),
         **bots.checks({"cold": cold, "warm": warm}, reqs, data),
         **embed.checks({"cold": cold, "warm": warm}, reqs, data),
         **profed.checks({"cold": cold, "warm": warm}, reqs, data),

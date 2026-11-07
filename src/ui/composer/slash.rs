@@ -246,6 +246,7 @@ impl App {
         let mut s = Slash::new(cmd, path);
         if let Some(sl) = s.slots.get_mut(s.active) {
             sl.text = text.to_string();
+            sl.shown |= !text.is_empty();
         }
         self.drafts.insert(chan.id, text.to_string());
         self.slash.insert(chan.id, s);
@@ -267,7 +268,8 @@ impl App {
         let Some(rest) = draft.strip_prefix('/') else { return };
         let Some((word, tail)) = rest.split_once(char::is_whitespace) else { return };
         let scope = if chan.guild != 0 { chan.guild } else { chan.id };
-        let Some(cmd) = self.commands.get(&scope).and_then(|c| c.list.iter().find(|c| c["type"].as_u64().unwrap_or(1) == 1 && c["name"] == word)).cloned() else { return };
+        let app_cmd = self.commands.get(&scope).and_then(|c| c.list.iter().find(|c| c["type"].as_u64().unwrap_or(1) == 1 && c["name"] == word)).cloned();
+        let Some(cmd) = app_cmd.or_else(|| BUILT_IN.iter().position(|(n, ..)| *n == word).filter(|_| built_in_here(self, chan, word)).map(built_in_command)) else { return };
         let forms = forms(&cmd);
         let (path, tail) = if forms.len() == 1 && forms[0].is_empty() {
             (Vec::new(), tail.to_string())
@@ -329,6 +331,13 @@ impl App {
             nested = vec![json!({ "type": ty(p), "name": name(p), "options": nested })];
         }
         let cmd = s.cmd.clone();
+        if cmd["builtin"] == true {
+            self.slash.remove(&ch);
+            self.drafts.remove(&ch);
+            self.aliases.remove(&ch);
+            self.run_built_in(chan, cmd["name"].as_str().unwrap_or_default(), &nested);
+            return;
+        }
         self.send_command(chan, &cmd, 1, nested, files, None, "slash_ui");
         self.slash.remove(&ch);
         self.drafts.remove(&ch);
@@ -752,6 +761,10 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
         let icon = app.commands.get(&if chan.guild != 0 { chan.guild } else { chan.id }).and_then(|c| c.apps.iter().find(|a| a.0 == app_id)).and_then(|a| a.2.clone());
         match icon {
             Some(h) => avatar(ui, ir, &format!("{}/app-icons/{app_id}/{h}.png?size=64", crate::api::cdn())),
+            None if s.cmd["builtin"] == true => {
+                ui.painter().circle_filled(ir.center(), 12.0, BLURPLE);
+                icons::draw(ui.painter(), Icon::Discord, ir.shrink(5.0), Color32::WHITE);
+            }
             None => {
                 ui.painter().rect_filled(ir, CornerRadius::same(4), pal().header_secondary);
                 ui.painter().text(ir.center(), Align2::CENTER_CENTER, "/", semi(16.0), pal().bg_input);

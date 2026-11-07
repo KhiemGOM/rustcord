@@ -81,6 +81,25 @@ const BUILT_IN: [(&str, &str, &str); 15] = [
     ("leave", "silent", "Leave Group"),
 ];
 
+/// A built-in as the application command it is in discord, so it gets the same pills.
+fn built_in_command(i: usize) -> Value {
+    let (name, opts, desc) = BUILT_IN[i];
+    let options: Vec<Value> = opts
+        .split(' ')
+        .map(|o| {
+            let kind = match o {
+                "user" => 6,
+                "duration" | "delete_messages" => 4,
+                "silent" => 5,
+                _ => 3,
+            };
+            let required = matches!((name, o), ("me" | "spoiler" | "tts" | "thread" | "msg", _) | (_, "user" | "duration"));
+            json!({ "name": o, "type": kind, "required": required, "description": "" })
+        })
+        .collect();
+    json!({ "name": name, "type": 1, "description": desc, "options": options, "builtin": true })
+}
+
 /// Whether a built-in command makes sense here, as discord's predicates decide.
 fn built_in_here(app: &App, chan: &Channel, name: &str) -> bool {
     use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MODERATE_MEMBERS};
@@ -318,11 +337,12 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             });
     }
 
+    if !app.slash.contains_key(&ch) {
+        app.slash_from_draft(chan);
+    }
     let slashing = app.slash.contains_key(&ch);
     if slashing {
         slash::bar(app, ui, chan);
-    } else {
-        app.slash_from_draft(chan);
     }
     let focused = ui.memory(|m| m.has_focus(tid));
     let nothing_focused = ui.memory(|m| m.focused().is_none());
@@ -796,6 +816,9 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
         let ink = if ink == RED { ink } else { crate::ui::motion::mix(ink, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
         icons::draw(ui.painter(), icon, Rect::from_center_size(cell.center(), vec2(20.0, 20.0)), ink);
         super::settings::mark(ui, &format!("card:{i}:{k}"), cell);
+        if resp.hovered() {
+            super::settings::said(ui.ctx(), "card_tip", tip);
+        }
         if resp.on_hover_text(tip).clicked() {
             act = Some(what);
         }
@@ -954,6 +977,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
         }
         Item::BuiltIn(i) => {
             let (name, args, desc) = BUILT_IN[*i];
+            super::settings::said(ui.ctx(), &format!("builtin:{name}"), desc);
             let ir = Rect::from_center_size(pos2(x + 16.0, y), vec2(32.0, 32.0));
             p.circle_filled(ir.center(), 16.0, BLURPLE);
             icons::draw(p, Icon::Discord, ir.shrink(8.0), Color32::WHITE);
@@ -1050,7 +1074,13 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
             }
             return Some(0);
         }
-        Item::BuiltIn(i) => (format!("/{}", BUILT_IN[*i].0), String::new()),
+        Item::BuiltIn(i) => {
+            app.start_slash(chan, &built_in_command(*i), &[], "");
+            if let Some(sl) = app.slash.get_mut(&chan.id).and_then(|s| s.slots.first_mut()) {
+                sl.shown = true;
+            }
+            return Some(0);
+        }
         Item::Sticker(id, ..) => {
             draft.replace_range(start..cur_b, "");
             let new_cursor = draft[..start].chars().count();
@@ -1260,54 +1290,44 @@ impl App {
         let draft = self.drafts.get(&ch).cloned().unwrap_or_default();
         let Some(rest) = draft.trim().strip_prefix('/') else { return false };
         let (name, args) = rest.split_once(char::is_whitespace).map_or((rest, ""), |(n, a)| (n, a.trim()));
-        if name == "gif" {
-            self.drafts.remove(&ch);
-            let at = self.rects.get("gif_button").map_or(pos2(800.0, 600.0), |r| r.left_top());
-            self.open_gifs(at);
-            self.search_gifs(args.to_string());
-            return true;
-        }
-        if name == "sticker" {
-            self.drafts.remove(&ch);
-            self.sticker_q = Some(args.to_string());
-            self.gifs = None;
-            self.picker = None;
-            self.stickers = Some(super::picker::anchor(self));
-            return true;
-        }
-        let Some(&(_, opts, _)) = BUILT_IN.iter().find(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };
+        let Some(i) = BUILT_IN.iter().position(|(n, ..)| *n == name).filter(|_| built_in_here(self, chan, name)) else { return false };
         let args = self.resolve_aliases(ch, args);
-        // the options as discord types them, so the usual parsing fills them in
-        let kinds: Vec<Value> = opts
-            .split(' ')
-            .map(|o| {
-                let kind = match o {
-                    "user" => 6,
-                    "duration" | "delete_messages" => 4,
-                    "silent" => 5,
-                    _ => 3,
-                };
-                let required = matches!((name, o), ("me" | "spoiler" | "tts" | "thread" | "msg", _) | (_, "user" | "duration"));
-                json!({ "name": o, "type": kind, "required": required })
-            })
-            .collect();
-        let (got, err) = build_options(&json!(kinds), &args);
+        let (got, err) = build_options(&built_in_command(i)["options"], &args);
         if let Some(e) = err {
             self.toast(e);
             return true;
         }
+        self.drafts.remove(&ch);
+        self.aliases.remove(&ch);
+        self.run_built_in(chan, name, &got);
+        true
+    }
+
+    /// What a built-in does with the options it was given: the text ones send what they'd
+    /// send, the rest do their thing and say how it went.
+    pub fn run_built_in(&mut self, chan: &Channel, name: &str, got: &[Value]) {
+        let ch = chan.id;
         let get = |k: &str| got.iter().find(|o| o["name"] == k).map(|o| o["value"].clone());
         let text = |k: &str| get(k).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
         let user = get("user").and_then(|v| v.as_str().and_then(|s| s.parse::<Id>().ok()));
         let who = user.map(|u| self.store.name_in(chan.guild, u)).unwrap_or_default();
         let g = chan.guild;
-        self.drafts.remove(&ch);
-        self.aliases.remove(&ch);
         let say = |app: &mut App, out: String, tts: bool| {
             app.drafts.insert(ch, out);
             app.post(ch, tts);
         };
         match name {
+            "gif" => {
+                let at = self.rects.get("gif_button").map_or(pos2(800.0, 600.0), |r| r.left_top());
+                self.open_gifs(at);
+                self.search_gifs(text("query"));
+            }
+            "sticker" => {
+                self.sticker_q = Some(text("query"));
+                self.gifs = None;
+                self.picker = None;
+                self.stickers = Some(super::picker::anchor(self));
+            }
             "shrug" => say(self, format!("{} ¯\\_(ツ)_/¯", text("message")).trim().to_string(), false),
             "tableflip" => say(self, format!("{} (╯°□°)╯︵ ┻━┻", text("message")).trim().to_string(), false),
             "unflip" => say(self, format!("{} ┬─┬ノ( º _ ºノ)", text("message")).trim().to_string(), false),
@@ -1361,7 +1381,6 @@ impl App {
             }
             _ => {}
         }
-        true
     }
 
     /// Text too long to send as a message goes up as message.txt, as discord does with a paste.

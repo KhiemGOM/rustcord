@@ -11,7 +11,7 @@ use crate::voice::{State, audio};
 /// camera and screen share underneath, laid out in the area `ui` was given.
 pub fn panel(app: &mut App, ui: &mut Ui) {
     let Some(ch) = app.voice.chan else { return };
-    let video = app.voice.camera || app.voice.video_call;
+    let video = app.voice.camera || app.voice.video_call || app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let (text, col) = match app.voice.state {
         State::Connected => (if video { "Video Connected" } else { "Voice Connected" }, GREEN),
         State::Reconnecting => ("Reconnecting", YELLOW),
@@ -43,7 +43,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     // hover its words turn into Voice Details
     let t = Rect::from_min_size(pos2(tile.right() + 8.0, y - 17.0), vec2(r.right() - 76.0 - tile.right() - 8.0, 19.0));
     let status = ui.interact(t, egui::Id::new("voice_status"), Sense::click());
-    ui.painter().text(t.left_center(), Align2::LEFT_CENTER, if status.hovered() { if video { "Video Details" } else { "Voice Details" } } else { text }, medium(16.0), col);
+    let shown = if status.hovered() { if video { "Video Details" } else { "Voice Details" } } else { text };
+    super::settings::said(ui.ctx(), "voice_status", shown);
+    ui.painter().text(t.left_center(), Align2::LEFT_CENTER, shown, medium(16.0), col);
     if app.voice.state != State::Connected {
         super::motion::ellipsis(ui, pos2(t.right() + 6.0, t.center().y), col);
     }
@@ -441,7 +443,7 @@ fn frame(app: &mut App, ui: &Ui, key: String, img: &Arc<ColorImage>, r: Rect) {
     egui::Image::new(egui::load::SizedTexture::new(id, fr.size())).corner_radius(6).paint_at(ui, fr);
 }
 
-fn live_badge(ui: &Ui, right_top: egui::Pos2) {
+pub fn live_badge(ui: &Ui, right_top: egui::Pos2) {
     let g = ui.painter().layout_no_wrap("LIVE".into(), semi(11.0), Color32::WHITE);
     let r = Rect::from_min_size(pos2(right_top.x - g.size().x - 12.0, right_top.y), g.size() + vec2(12.0, 4.0));
     ui.painter().rect_filled(r, CornerRadius::same(8), RED);

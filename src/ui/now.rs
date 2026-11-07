@@ -14,6 +14,7 @@ use crate::theme::*;
 enum Body<'a> {
     Playing(&'a Activity),
     Voice(Id, Id),
+    Stream(Option<&'a Activity>),
 }
 
 fn header_line(a: &Activity) -> String {
@@ -53,10 +54,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.add_space(16.0);
             let store = &app.store;
             let mut in_voice: crate::state::Map<Id, (Id, Id)> = Default::default();
+            let mut live: crate::state::Set<Id> = Default::default();
             for g in store.guilds.values() {
                 for (u, c) in &g.voice {
                     if *c != 0 && store.relationships.get(u) == Some(&FRIEND) {
                         in_voice.insert(*u, (g.id, *c));
+                        if g.streaming.contains(u) {
+                            live.insert(*u);
+                        }
                     }
                 }
             }
@@ -96,8 +101,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let mut bodies: Vec<Body> = acts.iter().filter(|a| a.kind != 4 && (a.spotify() || !body_lines(a).is_empty())).take(2).map(|a| Body::Playing(a)).collect();
                     if let Some((g, c)) = in_voice.get(u) {
                         bodies.push(Body::Voice(*g, *c));
+                        if live.contains(u) {
+                            bodies.push(Body::Stream(acts.iter().copied().find(|a| a.kind == 0)));
+                        }
                     }
-                    let heights: Vec<f32> = bodies.iter().map(|b| if matches!(b, Body::Playing(a) if body_lines(a).len() > 2) { 84.0 } else { 68.0 }).collect();
+                    let preview = (ui.available_width() - 32.0) * 9.0 / 16.0;
+                    let heights: Vec<f32> = bodies
+                        .iter()
+                        .map(|b| match b {
+                            Body::Playing(a) if body_lines(a).len() > 2 => 84.0,
+                            Body::Stream(_) => 62.0 + preview + 16.0,
+                            _ => 68.0,
+                        })
+                        .collect();
                     let total = 68.0 + heights.iter().sum::<f32>();
                     let (card, resp) = ui.allocate_exact_size(vec2(ui.available_width(), total), Sense::click());
                     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "now_card", *u)), (card, bodies.len())));
@@ -155,6 +171,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                     ly += 16.0;
                                 }
                                 ticking |= a.start > 0 && !a.spotify();
+                            }
+                            Body::Stream(game) => {
+                                let who = Rect::from_min_size(pos2(row.left() + 16.0, row.top() + 10.0), vec2(32.0, 32.0));
+                                avatar(ui, who, &user.avatar_url());
+                                text::paint(ui.painter(), pos2(who.right() + 12.0, row.top() + 18.0), Align2::LEFT_CENTER, &name, semi(14.0), pal().header_primary, row.width() - 130.0);
+                                let doing = game.map_or("Sharing their screen", |a| a.name.as_str());
+                                text::paint(ui.painter(), pos2(who.right() + 12.0, row.top() + 36.0), Align2::LEFT_CENTER, doing, reg(12.0), pal().header_secondary, row.width() - 130.0);
+                                super::call::live_badge(ui, pos2(row.right() - 16.0, row.top() + 18.0));
+                                let shot = Rect::from_min_size(pos2(row.left() + 16.0, row.top() + 62.0), vec2(row.width() - 32.0, preview));
+                                ui.painter().rect_filled(shot, CornerRadius::same(8), Color32::from_rgb(0x1e, 0x1f, 0x22));
+                                super::settings::mark(ui, &format!("now_stream:{u}"), shot);
+                                super::settings::said(ui.ctx(), &format!("now_stream:{u}"), doing);
                             }
                             Body::Voice(g, c) => {
                                 let rr = ui.interact(row, ui.id().with(("now_voice", u)), Sense::click());

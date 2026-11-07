@@ -165,6 +165,8 @@ pub enum Cmd {
     /// A purchase: sent once, never retried, and only when `charge_barred` says nothing stands in the way.
     Charge { method: &'static str, path: String, body: Value, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
+    /// A forum post with files on its first message.
+    ForumPost { channel: Id, body: Value, files: Vec<(PathBuf, String, String)>, tag: Tag },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     /// A write that says where in the app it came from, in X-Context-Properties.
     Located { method: &'static str, path: String, body: Option<Value>, context: Value, tag: Tag },
@@ -185,7 +187,7 @@ fn allowed(c: &Cmd) -> bool {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
-        Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
+        Cmd::Sticker { .. } | Cmd::ForumPost { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
@@ -434,6 +436,12 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     if let Err(e) = a.sticker(guild, [("name", name), ("tags", tags), ("description", description)], file).await {
                         tx.send(Ev::Error(e));
                     }
+                });
+            }
+            Cmd::ForumPost { channel, body, files, tag } => {
+                tokio::spawn(async move {
+                    let res = a.forum_post(channel, body, &files).await;
+                    tx.send(Ev::Rest { tag, res });
                 });
             }
             Cmd::Sudo { method, path, body, mfa, tag } => {

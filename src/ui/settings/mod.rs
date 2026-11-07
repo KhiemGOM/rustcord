@@ -443,7 +443,17 @@ pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
 
 /// Remember where a control is, for the scripted e2e run to click.
 pub fn mark(ui: &Ui, key: &str, r: Rect) {
-    ui.data_mut(|d| d.insert_temp(Id::new(("e2e", key)), r));
+    mark_in(ui.ctx(), key, r);
+}
+
+pub fn mark_in(ctx: &egui::Context, key: &str, r: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(Id::new(("e2e", key)), (r, pass)));
+}
+
+pub fn said(ctx: &egui::Context, key: &str, text: &str) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(Id::new(("e2e_note", key)), (text.to_string(), pass)));
 }
 
 // widgets every page is built from. Each one starts with whatever gap the one above left

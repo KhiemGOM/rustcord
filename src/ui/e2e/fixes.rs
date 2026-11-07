@@ -16,7 +16,7 @@ impl Run {
     /// and the member list's activity settings.
     pub(super) fn fixes_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let at = |key: &str| Self::at(ctx, key);
-        let row = |label: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("menu_row", label))));
+        let row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         let run_id = Id::new(("fixes", "run"));
         let bad_id = Id::new(("fixes", "bad"));
         let x_id = Id::new(("fixes", "x"));
@@ -47,7 +47,7 @@ impl Run {
             }
             3003 => {
                 let seen = at(&format!("dm_close:{DM}")).is_some();
-                ctx.data_mut(|d| d.remove::<Rect>(Id::new(("e2e", format!("dm_close:{DM}")))));
+                ctx.data_mut(|d| d.remove::<(Rect, u64)>(Id::new(("e2e", format!("dm_close:{DM}")))));
                 ctx.data_mut(|d| *d.get_temp_mut_or_default::<u32>(if seen { run_id } else { bad_id }) += 1);
                 if self.step_at.elapsed() > Duration::from_millis(1500) {
                     let (run, bad) = ctx.data(|d| (d.get_temp::<u32>(run_id).unwrap_or(0), d.get_temp::<u32>(bad_id).unwrap_or(0)));

@@ -32,6 +32,8 @@ pub use watchdog::beat;
 mod chatx;
 mod forum;
 mod stickers;
+mod chatcheck;
+mod p1b;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -1413,6 +1415,8 @@ impl Run {
             4100..=4199 => self.gallery_steps(app, ctx),
             4300..=4319 => self.forum_steps(app, ctx),
             4320..=4339 => self.sticker_steps(app, ctx),
+            4340..=4364 => self.chat_check_steps(app, ctx),
+            4365..=4399 => self.p1b_steps(app, ctx),
             4400..=4499 => self.perms_steps(app, ctx),
             4500..=4599 => self.themes_steps(app, ctx),
             4650..=4699 => self.shopx_steps(app, ctx),
@@ -1497,7 +1501,7 @@ impl Run {
     fn pick(&mut self, ctx: &egui::Context, head: &str, item: &str) -> bool {
         if !self.picking {
             let Some(r) = Self::at(ctx, head) else { return false };
-            ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", item))));
+            ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", item))));
             self.click(r.center());
             self.picking = true;
             self.wait = Instant::now() + Duration::from_millis(500);
@@ -1510,7 +1514,13 @@ impl Run {
     }
 
     fn at(ctx: &egui::Context, key: &str) -> Option<egui::Rect> {
-        ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", key))))
+        let (r, pass) = ctx.data(|d| d.get_temp::<(egui::Rect, u64)>(egui::Id::new(("e2e", key))))?;
+        (pass == ctx.cumulative_pass_nr()).then_some(r)
+    }
+
+    fn said(ctx: &egui::Context, key: &str) -> Option<String> {
+        let (text, pass) = ctx.data(|d| d.get_temp::<(String, u64)>(egui::Id::new(("e2e_note", key))))?;
+        (pass == ctx.cumulative_pass_nr()).then_some(text)
     }
 
     /// Settings: a screenshot of every page, then a few real round trips.
@@ -3303,7 +3313,7 @@ impl Run {
                 }
                 self.shot(ctx, &format!("{name}.png"));
                 // a dropdown item that hands off to the browser has to actually ask for it
-                match ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Server Boost")))) {
+                match Self::at(ctx, &format!("menu_row:{}", "Server Boost")) {
                     Some(r) if self.step == 388 => self.click(r.center()),
                     _ => self.key(Key::Escape),
                 }
@@ -3357,12 +3367,15 @@ impl Run {
             }
             399 => {
                 let Some(r) = app.rects.get("quick:3").copied() else { return };
+                self.shot(ctx, "quick_before.png");
                 self.rclick(r.center());
                 self.next(600);
             }
             400 => {
                 if !matches!(app.picker, Some((super::Pick::Quick(3), _))) {
-                    return self.fail("right-clicking a quick reaction didn't open the picker for it".into());
+                    self.shot(ctx, "quick_after.png");
+                    let at = app.rects.get("quick:3").copied();
+                    return self.fail(format!("right-clicking a quick reaction didn't open the picker for it: menu={} picker={} tile={at:?}", app.menu.is_some(), app.picker.is_some()));
                 }
                 self.queue.push_back(vec![Event::Text("skull".into())]);
                 self.queue.push_back(vec![]);
@@ -3891,7 +3904,7 @@ impl Run {
             me.queue.push_back(vec![Event::Text(text.into())]);
             me.key(Key::Enter);
         };
-        let menu_row = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let menu_row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         match self.step {
             450 => {
                 app.select_guild(Some(self.target.0));
@@ -4917,7 +4930,7 @@ impl Run {
         ];
         let guild = self.target.0;
         let list = |app: &App| app.store.msgs.get(&SYSTEM).map(|e| e.list.clone()).unwrap_or_default();
-        let row = |ctx: &egui::Context, label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let row = |ctx: &egui::Context, label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         let case = |app: &App, i: usize| -> Option<Id> {
             let l = list(app);
             let found = match i {
@@ -4930,10 +4943,7 @@ impl Run {
             };
             found.map(|m| m.id)
         };
-        let open_menu = |me: &mut Self, app: &mut App, ctx: &egui::Context, id: Id| {
-            for l in LABELS {
-                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("menu_row", l))));
-            }
+        let open_menu = |me: &mut Self, app: &mut App, id: Id| {
             app.menu = Some((SYSTEM, id, egui::pos2(300.0, 100.0)));
             me.next(400);
         };
@@ -4992,7 +5002,7 @@ impl Run {
                     self.step = 808;
                     return;
                 };
-                open_menu(self, app, ctx, id);
+                open_menu(self, app, id);
             }
             806 => {
                 self.rects.insert(format!("menu:{}", self.loaded), json!(labels(ctx)));
@@ -5012,7 +5022,7 @@ impl Run {
                 let Some(m) = list(app).into_iter().find(|m| m.failed && m.content == "e2e-fail-once") else { return };
                 self.mark("msg_failed");
                 self.shot(ctx, "msg_failed.png");
-                open_menu(self, app, ctx, m.id);
+                open_menu(self, app, m.id);
             }
             810 => {
                 self.rects.insert("menu:failed".into(), json!(labels(ctx)));
@@ -5532,9 +5542,7 @@ impl Run {
     /// mixer, Pin through the menu, switching accounts and the custom status.
     fn person_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         use crate::ui::usermenu::Origin;
-        let key = |label: &str| egui::Id::new(("menu_row", label));
-        let row = |ctx: &egui::Context, label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(key(label)));
-        let clear = |ctx: &egui::Context, labels: &[&str]| labels.iter().for_each(|l| ctx.data_mut(|d| d.remove::<egui::Rect>(key(l))));
+        let row = |ctx: &egui::Context, label: &str| Self::at(ctx, &format!("menu_row:{label}"));
         let at = egui::pos2(400.0, 200.0);
         const VOICE: [&str; 8] = ["Profile", "Start a Call", "User Volume", "Mute", "Mute Soundboard", "Invite to Server", "Ignore", "Block"];
         const FRIEND: [&str; 5] = ["Profile", "Message", "Start a Call", "Add Friend Nickname", "Remove Friend"];
@@ -5547,7 +5555,6 @@ impl Run {
                 self.next(800);
             }
             2501 => {
-                clear(ctx, &VOICE);
                 // the only server we can invite from is ours, and the activity steps met Alice there
                 if let Some(den) = app.store.members.get_mut(&1008) {
                     den.remove(&101);
@@ -5576,7 +5583,6 @@ impl Run {
                 self.next(300);
             }
             2504 => {
-                clear(ctx, &FRIEND);
                 app.select_guild(None);
                 app.friends = true;
                 app.user_menu = Some((102, 0, None, at));
@@ -5596,7 +5602,6 @@ impl Run {
                 self.mark("friend_menu");
                 let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else { return self.fail("no dm to open the menu on".into()) };
                 self.loaded = dm as usize;
-                clear(ctx, &DM);
                 app.friends = false;
                 let who = app.store.channels[&dm].recipients[0];
                 app.user_menu = Some((who, 0, Some(dm), at));
