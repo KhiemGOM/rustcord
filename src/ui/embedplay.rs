@@ -98,6 +98,12 @@ pub fn px(r: Rect, ppp: f32) -> [i32; 4] {
 pub fn place(app: &mut App, ctx: &Context) {
     let at = app.embed_at.take();
     let Some(p) = &mut app.embed else { return };
+    if p.frame.fullscreen() {
+        let all = px(ctx.content_rect(), ctx.pixels_per_point());
+        p.fresh = false;
+        p.frame.place(all, all, true, None);
+        return;
+    }
     let Some((_, full, clip)) = at.filter(|(k, ..)| *k == p.key) else {
         if std::mem::take(&mut p.fresh) {
             return;
@@ -110,8 +116,9 @@ pub fn place(app: &mut App, ctx: &Context) {
     let seen = full.intersect(clip);
     let pressed = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !seen.contains(p)));
     let ppp = ctx.pixels_per_point();
+    let over = app.bar.map(|(_, r)| px(r, ppp));
     let Some(p) = &app.embed else { return };
-    p.frame.place(px(full, ppp), px(clip, ppp), !covered);
+    p.frame.place(px(full, ppp), px(clip, ppp), !covered, over);
     p.frame.hush(!seen.is_positive());
     if pressed {
         p.frame.blur();

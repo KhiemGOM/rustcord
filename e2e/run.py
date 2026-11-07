@@ -66,6 +66,7 @@ import profed
 import protowire
 import serverx
 import shopx
+import tidy
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -591,6 +592,7 @@ def main():
         **themes.checks({"cold": cold, "warm": warm}, reqs),
         **serverx.checks({"cold": cold, "warm": warm}, reqs, data),
         **shopx.checks({"cold": cold, "warm": warm}, reqs, data),
+        **tidy.checks({"cold": cold, "warm": warm}, reqs, data),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
