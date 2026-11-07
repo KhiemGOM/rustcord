@@ -158,20 +158,33 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     } else if gif {
         if nitro {
             ed.dlg = Dlg::None;
-            if let Some(p) = rfd::FileDialog::new().add_filter("GIF", &["gif"]).pick_file()
-                && let Ok(b) = std::fs::read(p)
-            {
-                crate::ui::crop::open(app, b, 1.0, |app: &mut App, u: String| {
-                    if let Some(e) = &mut app.profed {
-                        e.draft.avatar = Pic::New(u);
-                    }
-                });
-            }
+            let c = ctx.content_rect().center();
+            app.open_gifs_for_profile(pos2(c.x + 248.0, c.y + 198.0));
         } else {
             app.toast("Animated avatars are exclusive to Nitro.");
         }
     } else if close || m.should_close() {
         ed.dlg = Dlg::None;
+    }
+}
+
+/// A GIF picked for the avatar: once its picture has arrived it goes to the cropper.
+pub fn gif_arrived(app: &mut App, ctx: &egui::Context) {
+    let Some(url) = app.gif_load.clone() else { return };
+    match ctx.try_load_bytes(&url) {
+        Ok(egui::load::BytesPoll::Ready { bytes, .. }) => {
+            app.gif_load = None;
+            crate::ui::crop::open(app, bytes.to_vec(), 1.0, |app: &mut App, u: String| {
+                if let Some(e) = &mut app.profed {
+                    e.draft.avatar = Pic::New(u);
+                }
+            });
+        }
+        Ok(_) => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+        Err(_) => {
+            app.gif_load = None;
+            app.toast("Couldn't load that GIF.");
+        }
     }
 }
 

@@ -40,6 +40,6 @@ def checks(runs, reqs):
         "themes: with Nitro an app icon was chosen and put on the window": both("app_icon_chosen") and both("app_icon_on_window"),
         "themes: a free account's Preview Icon opened the panel, previewed an icon without choosing it and Exit Preview went back": both("app_icon_previews") and both("app_icon_exit"),
             "settings: Accessibility has the shop cursor and legacy chat input rows, each taking a real click": both("a11y_custom_cursor_row") and both("a11y_legacy_input_row"),
-        "settings: Developer's Application Test Mode took an application id through its dialog and cleared again": both("developer_test_mode_on") and both("developer_test_mode_off"),
+        "settings: Developer's Application Test Mode took an application id through its dialog, put a strip across the top and cleared from its close button": both("developer_test_mode_on") and both("developer_test_mode_banner") and both("developer_test_mode_off"),
         "settings: an authorized app's About and Policies opens": both("apps_about_and_policies"),
     }

@@ -765,6 +765,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 ui.painter().rect_filled(tag, CornerRadius::same(8), Color32::from_black_alpha((143.0 * shown) as u8));
                 ui.painter().with_clip_rect(tag.shrink2(vec2(12.0, 0.0))).galley(pos2(tag.left() + 12.0, tag.center().y - g.size().y / 2.0), g, Color32::WHITE.gamma_multiply(shown));
             }
+            if app.settings.dev && app.settings.stream_info && ui.rect_contains_pointer(tile) {
+                super::tile::stream_info(ui, app, *u, tile);
+            }
             if app.voice.live.contains(u) {
                 live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
             }

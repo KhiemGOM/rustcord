@@ -1410,6 +1410,9 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                 crate::net::Conn::Online if app.settings.hiding_personal() => "Streamer Mode".into(),
                 // discord shows the custom status, or the status itself, and the username on hover
                 crate::net::Conn::Online if hot => user.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+                crate::net::Conn::Online if app.store.custom_emoji.as_ref().is_some_and(|e| e.id == 0) => {
+                    format!("{} {}", app.store.custom_emoji.as_ref().map_or("", |e| e.name.as_str()), app.store.custom_status.as_deref().unwrap_or_default()).trim().to_string()
+                }
                 crate::net::Conn::Online => app.store.custom_status.clone().unwrap_or_else(|| {
                     match status {
                         Status::Online => "Online",
