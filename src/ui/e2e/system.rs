@@ -77,6 +77,8 @@ impl Run {
             2713 => {
                 if !app.settings.hw_accel {
                     self.mark("hw_accel_off");
+                    app.settings.hw_accel = true;
+                    app.save_settings(ctx);
                 }
                 if !self.open_page(app, "Language & Time") {
                     return;
