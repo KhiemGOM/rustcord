@@ -4685,6 +4685,11 @@ impl Run {
         let loaded = |app: &App, k: &str| app.server.as_ref().is_some_and(|s| s.data.get(k).is_some_and(|v| !v.is_null()));
         match self.step {
             600 => {
+                // Server Template and Delete Server are the owner's, and the mock's owner is somebody else
+                let me = app.store.me;
+                if let Some(g) = app.store.guilds.get_mut(&1001) {
+                    g.owner = me;
+                }
                 app.open_server_settings(1001);
                 self.next(800);
             }
