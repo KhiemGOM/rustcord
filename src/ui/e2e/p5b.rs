@@ -422,6 +422,59 @@ impl Run {
                 app.settings.profed_notice = false;
                 app.profed = None;
                 self.next(300);
+                self.step = 5190;
+            }
+            5190 => {
+                app.server = None;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
+                app.open_server_settings(OWNED);
+                if let Some(s) = &mut app.server {
+                    s.page = ServerPage::Stickers;
+                }
+                self.next(1500);
+            }
+            5191 => {
+                let Some(r) = Self::at(ctx, "stickers:Boost Server") else {
+                    if stuck {
+                        self.shot(ctx, "stickers_missing.png");
+                        self.fail("the Stickers page had no Get Boosted banner".into());
+                    }
+                    return;
+                };
+                let _ = r;
+                self.shot(ctx, "stickers_banner.png");
+                self.mark("stickers_banner");
+                self.next(500);
+            }
+            5192 => {
+                let Some(r) = Self::at(ctx, "stickers:buy:1") else {
+                    if stuck {
+                        self.fail("the Stickers timeline had no Buy Level on Level 1".into());
+                    }
+                    return;
+                };
+                if !self.in_view(ctx, r) {
+                    return;
+                }
+                self.shot(ctx, "stickers_levels.png");
+                self.click(r.center());
+                self.next(900);
+            }
+            5193 => {
+                if app.buy.is_none() {
+                    if stuck {
+                        self.fail("Buy Level opened no boost checkout".into());
+                    }
+                    return;
+                }
+                self.mark("stickers_buy_level");
+                self.shot(ctx, "stickers_buy_level.png");
+                self.next(500);
+            }
+            5194 => {
+                app.buy = None;
+                app.server = None;
+                self.next(300);
             }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
         }
