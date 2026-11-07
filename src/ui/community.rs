@@ -84,12 +84,9 @@ impl App {
 
 pub fn loaded(app: &mut App, key: &'static str, v: Value) {
     if key == "prune" {
-        let Some(gid) = app.server.as_ref().map(|s| s.guild).or(app.home.as_ref().map(|h| h.guild)) else { return };
-        let n = v["pruned"].as_u64().unwrap_or(0);
-        let body = format!("**{n}** member{} who haven't been seen in **7 days** and have no roles will be kicked. They can rejoin with a new invite.", if n == 1 { "" } else { "s" });
-        app.confirm = Some(super::Confirm::new("Prune Members", body, "Prune", move |app: &mut App| {
-            app.rest("POST", format!("/guilds/{gid}/prune"), Some(json!({ "days": 7, "compute_prune_count": false })), Tag::reason());
-        }));
+        if let Some(d) = &mut app.prune {
+            d.count = Some(v["pruned"].as_u64().unwrap_or(0));
+        }
         return;
     }
     let Some(h) = &mut app.home else { return };
@@ -255,6 +252,12 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
     let total = tb.total;
     let roles: Vec<(Id, String, u32, i32)> = app.store.guilds.get(&gid).map(|g| g.roles.values().map(|r| (r.id, r.name.clone(), r.color, r.position)).collect()).unwrap_or_default();
     let me = app.store.me;
+    let (owner, my_top) = app.store.guilds.get(&gid).map(|g| (g.owner, g.my_roles.iter().filter_map(|r| g.roles.get(r)).map(|r| r.position).max().unwrap_or(0))).unwrap_or_default();
+    let actionable = |m: &Value| {
+        let u = sid(&m["member"]["user"]["id"]);
+        let top = m["member"]["roles"].as_array().into_iter().flatten().filter_map(|r| roles.iter().find(|x| x.0 == sid(r))).map(|r| r.3).max().unwrap_or(0);
+        u != me && u != owner && (owner == me || top < my_top)
+    };
     let mut acts: Vec<(&str, Id, egui::Pos2)> = Vec::new();
     let mut role_add: Option<(Id, Id)> = None;
     let mut role_drop: Option<(Id, Id)> = None;
@@ -357,16 +360,23 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
         let end = |i: usize| starts[i] + w[i] - CELL;
         let (hr, _) = cu.allocate_exact_size(vec2(want, 57.0), Sense::hover());
         cu.painter().hline(hr.x_range(), hr.top() + 0.5, Stroke::new(1.0, pal().border_subtle));
-        let all = !list.is_empty() && list.iter().all(|m| tb.picked.contains(&sid(&m["member"]["user"]["id"])));
+        let pickable: Vec<Id> = list.iter().filter(|m| actionable(m)).map(|m| sid(&m["member"]["user"]["id"])).collect();
+        let all = !pickable.is_empty() && pickable.iter().all(|u| tb.picked.contains(u));
         let cb = Rect::from_min_size(pos2(table.left() + CELL, hr.center().y - 10.0), vec2(20.0, 20.0));
         let cr = cu.interact(cb, cu.id().with("pick_all"), Sense::click());
         app.rects.insert("members:pick_all".into(), cb);
-        checkbox(cu, cr.id, cb, all, cr.hovered());
-        if cr.clicked() {
-            if all {
-                tb.picked.clear();
-            } else {
-                tb.picked = list.iter().map(|m| sid(&m["member"]["user"]["id"])).filter(|u| *u != me).collect();
+        if pickable.is_empty() && !list.is_empty() {
+            checkbox(cu, cr.id, cb, false, false);
+            cu.painter().rect_filled(cb, 4, pal().bg_primary.gamma_multiply(0.5));
+            cr.on_hover_text("There are no actionable members");
+        } else {
+            checkbox(cu, cr.id, cb, all, cr.hovered());
+            if cr.clicked() {
+                if all {
+                    tb.picked.clear();
+                } else {
+                    tb.picked = pickable.iter().copied().collect();
+                }
             }
         }
         for (i, t) in ["NAME", "MEMBER SINCE", "JOINED DISCORD", "JOIN METHOD", "ROLES", "SIGNALS"].iter().enumerate() {
@@ -412,11 +422,15 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 let on = tb.picked.contains(&uid);
                 let c = ui.interact(cb, ui.id().with(("pick", uid)), Sense::click());
                 app.rects.insert(format!("members:pick:{uid}"), cb);
-                if uid != me {
+                if actionable(m) {
                     checkbox(ui, c.id, cb, on, c.hovered());
                     if c.clicked() {
                         picks.push((uid, !on));
                     }
+                } else {
+                    checkbox(ui, c.id, cb, false, false);
+                    ui.painter().rect_filled(cb, 4, pal().bg_primary.gamma_multiply(0.5));
+                    c.on_hover_text("Cannot action this member");
                 }
                 let user = app.store.user(uid).cloned();
                 let av = Rect::from_min_size(pos2(col(0), y - 16.0), vec2(32.0, 32.0));
@@ -593,7 +607,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
         refresh(app);
     }
     if prune {
-        app.rest("GET", format!("/guilds/{gid}/prune?days=7"), None, Tag::Home("prune"));
+        app.open_prune(gid);
     }
     if bulk_kick || bulk_ban {
         let n = chosen.len();
