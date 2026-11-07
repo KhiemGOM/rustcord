@@ -37,7 +37,7 @@ impl Run {
                 }
                 let Some(r) = poster(app, b) else {
                     let Some(chat) = app.wheel.chat else { return };
-                    self.scroll_by(side(chat), 200.0);
+                    self.scroll_by(side(chat), if self.step_at.elapsed() < std::time::Duration::from_secs(6) { -200.0 } else { 200.0 });
                     self.wait = std::time::Instant::now() + std::time::Duration::from_millis(400);
                     return;
                 };
@@ -90,7 +90,7 @@ impl Run {
             }
             4707 => {
                 let Some((full, clip)) = frame_rects(app, b) else { return };
-                let at = egui::pos2(full.right().min(clip.right() - 40.0) - 60.0, full.bottom() + 10.0);
+                let at = egui::pos2(full.right().min(clip.right() - 40.0) - 60.0, full.bottom() + 28.0);
                 self.queue.push_back(vec![Event::PointerMoved(at)]);
                 self.next(500);
             }
@@ -116,6 +116,19 @@ impl Run {
                 if app.bar.is_none() && app.embed.as_ref().is_some_and(|p| p.frame.hole().is_none()) {
                     self.mark("embed_window_whole_again");
                 }
+                app.rects.retain(|k, _| !k.starts_with("member:"));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(940.0, 500.0)));
+                self.next(1200);
+            }
+            4710 => {
+                if app.cur() != Some(EMBEDS) {
+                    return;
+                }
+                self.shot(ctx, "members_940.png");
+                if app.rects.keys().any(|k| k.starts_with("member:")) && ctx.content_rect().width() < 1000.0 {
+                    self.mark("member_list_at_940");
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
             _ => self.step = 3110,

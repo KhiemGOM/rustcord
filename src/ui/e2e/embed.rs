@@ -96,7 +96,12 @@ impl Run {
                 if app.cur() != Some(EMBEDS) {
                     return;
                 }
-                let Some(r) = poster(app, b) else { return };
+                let Some(r) = poster(app, b) else {
+                    let Some(chat) = app.wheel.chat else { return };
+                    self.scroll_by(side(chat), -200.0);
+                    self.wait = std::time::Instant::now() + std::time::Duration::from_millis(400);
+                    return;
+                };
                 if r.height() < 150.0 && self.sub < 4 {
                     let Some(chat) = app.wheel.chat else { return };
                     self.sub += 1;

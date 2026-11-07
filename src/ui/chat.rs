@@ -254,7 +254,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), search_w) {
             app.ui.search_w = w;
         }
-    } else if chan.kind == 1 && !app.ui.hide_dm_profile && room >= 320.0 + 420.0 {
+    } else if chan.kind == 1 && !app.ui.hide_dm_profile && ctx.content_rect().width() >= 1132.0 {
         if let Some(&uid) = chan.recipients.first() {
             let r = egui::Panel::right("dm_profile")
                 .exact_size(320.0)

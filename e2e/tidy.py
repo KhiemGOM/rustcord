@@ -21,5 +21,6 @@ def checks(runs, reqs, data):
         "embed fullscreen: the page's own button went fullscreen and its window covered the whole app": both("embed_fullscreen_covers_window")
         and any(isinstance(v, dict) and v.get("w", 0) > 700 for v in full),
         "embed fullscreen: leaving it put the window back over its embed": both("embed_fullscreen_exit_returns"),
+        "member list: at 940 wide the list stayed beside the chat": both("member_list_at_940"),
         "embed toolbar: the window left a hole where the message toolbar is, and closed it again": both("embed_window_leaves_toolbar_hole") and both("embed_window_whole_again"),
     }
