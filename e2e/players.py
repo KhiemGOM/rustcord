@@ -14,6 +14,8 @@ def checks(runs, reqs, data):
         "players: K played, M muted and the volume was saved": both("player_keys"),
         "players: F opened the full window view and Escape closed it": both("player_fullscreen") and both("player_fullscreen_exit"),
         "players: scrolling the video out of view paused it": both("player_offscreen_pause"),
+        "players: the mp3 was read in ranged pieces, never as one whole download": got("/cdn/media/tone.mp3") >= 1
+            and all(r.get("range") for r in reqs if r.get("method") == "GET" and "/cdn/media/tone.mp3" in r.get("path", "")),
         "players: an mp3 played, seeked, and took over from the video": both("player_audio_plays") and both("player_audio_seek") and both("player_one_at_a_time")
             and got("/cdn/media/tone.mp3") >= 1,
         "players: a .rs attachment showed as code, expanded, and ctrl+a selected just its text": both("player_text_loads") and both("player_text_expands")

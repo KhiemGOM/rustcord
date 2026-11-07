@@ -2612,12 +2612,12 @@ async fn http_conn(mut s: TcpStream, w: W) {
         {
             let mut wl = w.lock().unwrap();
             let text: String = if path.starts_with("/upload/") { format!("{} bytes", body.len()) } else { String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect() };
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason"), "context": header("x-context-properties") });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason"), "context": header("x-context-properties"), "range": header("range") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
         let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
-        let (code, ctype, out) = match (rules::check(&method, &parts, &body).or_else(|| header("x-context-properties").and_then(|c| rules::context(&c))), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
+        let (mut code, ctype, mut out) = match (rules::check(&method, &parts, &body).or_else(|| header("x-context-properties").and_then(|c| rules::context(&c))), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
             (Some(refusal), _) => {
                 log(&w, json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "refused": refusal }));
                 (400, "application/json", refusal.to_string().into_bytes())
@@ -2628,14 +2628,31 @@ async fn http_conn(mut s: TcpStream, w: W) {
         if code >= 400 && path.starts_with("/cdn/") {
             log(&w, json!({ "t": now_ms(), "cdn_refused": path, "code": code }));
         }
+        let mut extra = String::new();
+        if code == 200 && path.starts_with("/cdn/media/") {
+            extra.push_str("Accept-Ranges: bytes\r\n");
+            let span = header("range").and_then(|r| r.strip_prefix("bytes=").and_then(|r| r.split_once('-').map(|(a, b)| (a.parse::<usize>().ok(), b.parse::<usize>().ok()))));
+            if let Some((Some(from), to)) = span {
+                let total = out.len();
+                let to = to.unwrap_or(total.saturating_sub(1)).min(total.saturating_sub(1));
+                if from > to {
+                    (code, out) = (416, Vec::new());
+                } else {
+                    extra.push_str(&format!("Content-Range: bytes {from}-{to}/{total}\r\n"));
+                    (code, out) = (206, out[from..=to].to_vec());
+                }
+            }
+        }
         let reason = match code {
             200 => "OK",
+            206 => "Partial Content",
+            416 => "Range Not Satisfiable",
             204 => "No Content",
             400 => "Bad Request",
             401 => "Unauthorized",
             _ => "Not Found",
         };
-        let head = format!("HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n", out.len());
+        let head = format!("HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n{extra}Connection: keep-alive\r\n\r\n", out.len());
         if s.write_all(head.as_bytes()).await.is_err() || s.write_all(&out).await.is_err() {
             return;
         }

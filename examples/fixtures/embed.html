@@ -2,6 +2,7 @@
 <meta charset="utf-8">
 <title>Mock Player</title>
 <body style="margin:0;background:#123;color:#fff;font:14px sans-serif">
+<button id="fs" style="position:absolute;left:8px;top:8px;width:120px;height:40px;z-index:2">Fullscreen</button>
 <video id="v" src="/cdn/media/clip.mp4" loop autoplay style="width:100%;height:100%;object-fit:contain"></video>
 <script>
 const clip = new URLSearchParams(location.search).get('clip');
@@ -18,6 +19,11 @@ log('loaded', {
 });
 if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia({ audio: true }).then(() => log('mic', 'granted'), e => log('mic', e.name));
 const v = document.getElementById('v');
+document.getElementById('fs').onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(e => log('fullscreen', e.name));
+};
+document.addEventListener('fullscreenchange', () => setTimeout(() => log('fullscreen', { on: !!document.fullscreenElement, w: innerWidth, h: innerHeight }), 400));
 v.addEventListener('playing', () => log('playing', { muted: v.muted }), { once: true });
 v.addEventListener('pause', () => log('paused', v.currentTime));
 let n = 0, resumed = false;

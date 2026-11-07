@@ -14,11 +14,11 @@ const GUILD: Id = 1000;
 const EMBEDS: Id = 2062;
 const GENERAL: Id = 2011;
 
-fn msg_of(app: &App, needle: &str) -> Option<Id> {
+pub(super) fn msg_of(app: &App, needle: &str) -> Option<Id> {
     app.store.msgs.get(&EMBEDS)?.list.iter().find(|m| m.content.contains(needle)).map(|m| m.id)
 }
 
-fn poster(app: &App, msg: Id) -> Option<Rect> {
+pub(super) fn poster(app: &App, msg: Id) -> Option<Rect> {
     app.rects.get(&format!("embed_poster:{msg}")).copied().filter(|r| r.is_positive() && r.height() > 100.0)
 }
 
@@ -26,29 +26,29 @@ fn player(app: &App, msg: Id) -> Option<Rect> {
     app.rects.get(&format!("embed_player:{msg}")).copied().filter(|r| r.is_positive() && r.height() > 100.0)
 }
 
-fn frame_rects(app: &App, msg: Id) -> Option<(Rect, Rect)> {
+pub(super) fn frame_rects(app: &App, msg: Id) -> Option<(Rect, Rect)> {
     Some((app.rects.get(&format!("embed_frame:{msg}")).copied()?, app.rects.get("embed_clip").copied()?))
 }
 
-fn playing(app: &App, msg: Id) -> bool {
+pub(super) fn playing(app: &App, msg: Id) -> bool {
     app.embed.as_ref().is_some_and(|p| p.key.0 == msg && matches!(p.frame.status(), crate::webwin::child::Status::Up))
 }
 
-fn near(a: i32, b: i32) -> bool {
+pub(super) fn near(a: i32, b: i32) -> bool {
     (a - b).abs() <= 2
 }
 
-fn side(clip: Rect) -> Pos2 {
+pub(super) fn side(clip: Rect) -> Pos2 {
     pos2(clip.left() + 16.0, clip.center().y)
 }
 
 impl Run {
-    fn scroll_by(&mut self, at: Pos2, dy: f32) {
+    pub(super) fn scroll_by(&mut self, at: Pos2, dy: f32) {
         self.queue.push_back(vec![Event::PointerMoved(at)]);
         self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
     }
 
-    fn window_shot(&self, name: &str) {
+    pub(super) fn window_shot(&self, name: &str) {
         use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
         use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
         use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos};
@@ -83,6 +83,10 @@ impl Run {
             }
             app.select_guild(Some(GUILD));
             app.open(EMBEDS);
+            if let Some(z) = std::env::var("RUSTCORD_E2E_ZOOM").ok().and_then(|v| v.parse::<f32>().ok()) {
+                app.settings.zoom = z / 100.0;
+                app.save_settings(ctx);
+            }
             return self.next(800);
         }
         let (Some(a), Some(b), Some(file)) = (msg_of(app, "mock1"), msg_of(app, "mock2"), msg_of(app, "medal.tv")) else { return };
@@ -92,7 +96,12 @@ impl Run {
                 if app.cur() != Some(EMBEDS) {
                     return;
                 }
-                let Some(r) = poster(app, b) else { return };
+                let Some(r) = poster(app, b) else {
+                    let Some(chat) = app.wheel.chat else { return };
+                    self.scroll_by(side(chat), -200.0);
+                    self.wait = std::time::Instant::now() + std::time::Duration::from_millis(400);
+                    return;
+                };
                 if r.height() < 150.0 && self.sub < 4 {
                     let Some(chat) = app.wheel.chat else { return };
                     self.sub += 1;

@@ -20,6 +20,8 @@ use windows::core::{GUID, HSTRING, Interface};
 
 use crate::voice::hwdec::{Mips, halvings};
 
+mod stream;
+
 type Card = (ID3D11Device, ID3D11DeviceContext);
 
 const QUEUE: usize = 4;
@@ -113,6 +115,12 @@ struct St {
     video_done: bool,
 }
 
+#[derive(Clone)]
+enum Src {
+    File(PathBuf),
+    Http(stream::Http, String),
+}
+
 pub struct Session {
     st: Mutex<St>,
     pcm: Mutex<VecDeque<f32>>,
@@ -125,7 +133,7 @@ pub struct Session {
     tex: Mutex<Option<TextureHandle>>,
     // the pixels it's drawn at, and when that last wasn't more than this
     want: Mutex<((usize, usize), Instant)>,
-    file: PathBuf,
+    src: Src,
     key: String,
 }
 
@@ -162,53 +170,16 @@ pub fn open(rt: &tokio::runtime::Runtime, key: &str, url: &str, video: bool, fra
     stop();
     crate::audioplay::stop();
     static SWEPT: std::sync::Once = std::sync::Once::new();
-    SWEPT.call_once(sweep);
+    SWEPT.call_once(|| _ = std::fs::remove_dir_all(std::env::temp_dir().join("rustcord-media")));
     let resume = RESUME.lock().unwrap().get(key).copied().unwrap_or(0.0);
-    let s = Arc::new(Session::new(key, url, frame));
+    let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5).unwrap_or("bin");
+    let src = match url.strip_prefix("file:///") {
+        Some(local) => Src::File(PathBuf::from(local)),
+        None => Src::Http(stream::Http { http: crate::api::http(), url: url.to_string(), rt: rt.handle().clone() }, format!("media.{ext}")),
+    };
+    let s = Arc::new(Session::new(key, src, frame));
     *CUR.lock().unwrap() = Some(s.clone());
-    let (http, url) = (crate::api::http(), url.to_string());
-    rt.spawn(async move {
-        match download(&http, &url, &s).await {
-            Ok(()) => {
-                std::thread::spawn(move || start(s, video, resume));
-            }
-            Err(e) => s.st.lock().unwrap().phase = Phase::Failed(e),
-        }
-    });
-}
-
-fn sweep() {
-    let old = Duration::from_secs(24 * 3600);
-    for f in std::fs::read_dir(std::env::temp_dir().join("rustcord-media")).into_iter().flatten().flatten() {
-        if f.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|e| e > old)) {
-            let _ = std::fs::remove_file(f.path());
-        }
-    }
-}
-
-async fn download(http: &reqwest::Client, url: &str, s: &Session) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
-    if s.file.exists() {
-        return Ok(());
-    }
-    let e = |e: &dyn std::fmt::Display| e.to_string();
-    let mut r = http.get(url).send().await.and_then(|r| r.error_for_status()).map_err(|x| e(&x))?;
-    let total = r.content_length().unwrap_or(0) as f32;
-    let part = s.file.with_extension(format!("{}.part", std::process::id()));
-    std::fs::create_dir_all(part.parent().unwrap()).map_err(|x| e(&x))?;
-    let mut f = tokio::fs::File::create(&part).await.map_err(|x| e(&x))?;
-    let mut got = 0f32;
-    while let Some(c) = r.chunk().await.map_err(|x| e(&x))? {
-        if s.stop.load(Relaxed) {
-            return Err("stopped".into());
-        }
-        f.write_all(&c).await.map_err(|x| e(&x))?;
-        got += c.len() as f32;
-        s.st.lock().unwrap().phase = Phase::Loading(if total > 0.0 { got / total } else { 0.0 });
-    }
-    f.flush().await.map_err(|x| e(&x))?;
-    drop(f);
-    std::fs::rename(&part, &s.file).map_err(|x| e(&x))
+    std::thread::spawn(move || start(s, video, resume));
 }
 
 fn start(s: Arc<Session>, video: bool, resume: f64) {
@@ -260,15 +231,7 @@ fn start(s: Arc<Session>, video: bool, resume: f64) {
 }
 
 impl Session {
-    fn new(key: &str, url: &str, frame: u64) -> Session {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        url.hash(&mut h);
-        let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5).unwrap_or("bin");
-        let file = match url.strip_prefix("file:///") {
-            Some(local) => PathBuf::from(local),
-            None => std::env::temp_dir().join("rustcord-media").join(format!("{:x}.{ext}", h.finish())),
-        };
+    fn new(key: &str, src: Src, frame: u64) -> Session {
         Session {
             st: Mutex::new(St {
                 phase: Phase::Loading(0.0),
@@ -293,7 +256,7 @@ impl Session {
             stop: AtomicBool::new(false),
             tex: Mutex::default(),
             want: Mutex::new(((0, 0), Instant::now())),
-            file,
+            src,
             key: key.to_string(),
         }
     }
@@ -478,7 +441,7 @@ unsafe fn gpu_manager() -> windows::core::Result<(IMFDXGIDeviceManager, Card)> {
     }
 }
 
-unsafe fn reader(path: &std::path::Path, advanced: bool, gpu: Option<&IMFDXGIDeviceManager>) -> windows::core::Result<IMFSourceReader> {
+unsafe fn reader(src: &Src, advanced: bool, gpu: Option<&IMFDXGIDeviceManager>) -> windows::core::Result<IMFSourceReader> {
     unsafe {
         let mut attrs = None;
         MFCreateAttributes(&mut attrs, 3)?;
@@ -490,8 +453,10 @@ unsafe fn reader(path: &std::path::Path, advanced: bool, gpu: Option<&IMFDXGIDev
             attrs.SetUnknown(&MF_SOURCE_READER_D3D_MANAGER, mgr)?;
             attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
         }
-        let url = HSTRING::from(path.to_string_lossy().as_ref());
-        let r = MFCreateSourceReaderFromURL(&url, &attrs)?;
+        let r = match src {
+            Src::File(path) => MFCreateSourceReaderFromURL(&HSTRING::from(path.to_string_lossy().as_ref()), &attrs)?,
+            Src::Http(http, name) => MFCreateSourceReaderFromByteStream(&stream::byte_stream(http.clone(), name)?, &attrs)?,
+        };
         r.SetStreamSelection(ALL, false)?;
         Ok(r)
     }
@@ -529,11 +494,26 @@ fn fit((w, h): (usize, usize), want: (usize, usize)) -> (usize, usize) {
     (((w as f32 * k) as usize & !1).max(2), ((h as f32 * k) as usize & !1).max(2))
 }
 
+/// The picture as it's seen: wide pixels widened and a rotated one turned on its side. The
+/// converter keeps the source's shape inside whatever frame it is given, with black bars to make
+/// up the difference, so the frame has to be asked for in that shape.
+unsafe fn display(t: &IMFMediaType, (w, h): (usize, usize)) -> (usize, usize) {
+    unsafe {
+        let (pn, pd) = t.GetUINT64(&MF_MT_PIXEL_ASPECT_RATIO).map_or((1, 1), |p| ((p >> 32) as usize, (p & 0xffff_ffff) as usize));
+        let (w, h) = if pn == 0 || pd == 0 { (w, h) } else if pn >= pd { (w * pn / pd, h) } else { (w, h * pd / pn) };
+        match t.GetUINT32(&MF_MT_VIDEO_ROTATION) {
+            Ok(90 | 270) => (h, w),
+            _ => (w, h),
+        }
+    }
+}
+
 unsafe fn output(r: &IMFSourceReader, (w, h): (usize, usize), native: u64) -> windows::core::Result<()> {
     unsafe {
         let mt = MFCreateMediaType()?;
         mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
         mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
+        mt.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, 1 << 32 | 1)?;
         let size = (w as u64) << 32 | h as u64;
         if size != native {
             mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
@@ -577,14 +557,14 @@ unsafe fn card_image(sample: &IMFSample, mips: &mut Option<Mips>, (dev, ctx): &C
     }
 }
 
-unsafe fn open_video(path: &std::path::Path, gpu: bool, want: (usize, usize)) -> windows::core::Result<VideoReader> {
+unsafe fn open_video(src: &Src, gpu: bool, want: (usize, usize)) -> windows::core::Result<VideoReader> {
     unsafe {
         let (mgr, card) = if gpu { gpu_manager().map(|(m, c)| (Some(m), Some(c)))? } else { (None, None) };
-        let r = reader(path, true, mgr.as_ref())?;
+        let r = reader(src, true, mgr.as_ref())?;
         r.SetStreamSelection(VIDEO, true)?;
         let native = r.GetNativeMediaType(VIDEO, 0)?;
         let size = native.GetUINT64(&MF_MT_FRAME_SIZE)?;
-        let (nw, nh) = ((size >> 32) as usize, (size & 0xffff_ffff) as usize);
+        let (nw, nh) = display(&native, ((size >> 32) as usize, (size & 0xffff_ffff) as usize));
         let rate = native.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(30 << 32 | 1);
         let fps = (rate >> 32) as f32 / (rate & 0xffff_ffff).max(1) as f32;
         let k = (MAX_W as f32 / nw as f32).min(MAX_H as f32 / nh as f32).min(1.0);
@@ -621,7 +601,7 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
         init();
         let asked = || s.want.lock().unwrap().0;
         let gpu = GPU.load(Relaxed);
-        let opened = open_video(&s.file, gpu, asked()).or_else(|e| if gpu { open_video(&s.file, false, asked()) } else { Err(e) });
+        let opened = open_video(&s.src, gpu, asked()).or_else(|e| if gpu { open_video(&s.src, false, asked()) } else { Err(e) });
         let VideoReader { mut r, info, mut pic, mut native, mut card } = match opened {
             Ok(v) => v,
             Err(e) => {
@@ -705,7 +685,7 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     if card.is_some() && !shown && (read.is_err() || (due.is_some() && img.is_none())) {
                         card = None;
                         mips = None;
-                        if let Ok(o) = open_video(&s.file, false, asked()) {
+                        if let Ok(o) = open_video(&s.src, false, asked()) {
                             (r, pic, native) = (o.r, o.pic, o.native);
                             seek_to(&r, skip);
                             continue;
@@ -730,9 +710,9 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
     }
 }
 
-unsafe fn open_audio(path: &std::path::Path, ch: u32, rate: u32) -> windows::core::Result<Option<(IMFSourceReader, f64, u32, u32)>> {
+unsafe fn open_audio(src: &Src, ch: u32, rate: u32) -> windows::core::Result<Option<(IMFSourceReader, f64, u32, u32)>> {
     unsafe {
-        let r = reader(path, false, None)?;
+        let r = reader(src, false, None)?;
         if r.SetStreamSelection(AUDIO, true).is_err() || r.GetNativeMediaType(AUDIO, 0).is_err() {
             return Ok(None);
         }
@@ -759,7 +739,7 @@ fn audio_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
         let dev = std::env::var_os("RUSTCORD_SILENT").is_none().then(|| cpal::default_host().default_output_device()).flatten();
         let cfg = dev.as_ref().and_then(|d| d.default_output_config().ok()).filter(|c| c.sample_format() == cpal::SampleFormat::F32);
         let (ch, rate) = cfg.as_ref().map_or((2, 48_000), |c| (c.channels() as u32, c.sample_rate()));
-        let (r, dur, got_ch, got_rate) = match open_audio(&s.file, ch, rate) {
+        let (r, dur, got_ch, got_rate) = match open_audio(&s.src, ch, rate) {
             Ok(Some(a)) => a,
             Ok(None) => {
                 let _ = done.send(Opened::Audio(Ok(None)));
@@ -867,8 +847,8 @@ fn audio_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
 mod tests {
     use super::*;
 
-    fn fixture(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures").join(name)
+    fn fixture(name: &str) -> Src {
+        Src::File(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures").join(name))
     }
 
     #[test]
@@ -888,6 +868,30 @@ mod tests {
         }
     }
 
+    fn lit(img: &ColorImage, x: usize, y: usize) -> bool {
+        let [r, g, b, _] = img.pixels[y * img.size[0] + x].to_array();
+        r.max(g).max(b) > 200 && r.min(g).min(b) > 150
+    }
+
+    #[test]
+    fn wide_pixels_and_turned_clips_fill_their_frame() {
+        unsafe {
+            init();
+            for (name, size) in [("wide.mp4", (360, 180)), ("turned.mp4", (320, 180))] {
+                let VideoReader { r, info, pic, .. } = open_video(&fixture(name), false, size).unwrap();
+                assert_eq!((info.w, info.h), size, "{name}");
+                let (mut flags, mut sample) = (0u32, None);
+                r.ReadSample(VIDEO, 0, None, Some(&mut flags), None, Some(&mut sample)).unwrap();
+                let img = to_image(&sample.unwrap(), &pic).unwrap();
+                let [w, h] = img.size;
+                assert_eq!((w, h), size, "{name}");
+                for (x, y) in [(w / 2, 1), (w / 2, h - 2), (1, h / 2), (w - 2, h / 2)] {
+                    assert!(lit(&img, x, y), "{name}: the white border is missing at {x},{y}");
+                }
+            }
+        }
+    }
+
     fn cpu_secs() -> f64 {
         use windows_sys::Win32::Foundation::FILETIME;
         use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
@@ -902,9 +906,7 @@ mod tests {
     fn plays_a_clip_for_how_much_cpu() {
         let Some(clip) = std::env::var_os("RUSTCORD_BENCH_CLIP") else { return };
         unsafe { std::env::set_var("RUSTCORD_SILENT", "1") };
-        let s = Arc::new(Session::new("bench", "http://bench/clip.mp4", 0));
-        std::fs::create_dir_all(s.file.parent().unwrap()).unwrap();
-        std::fs::copy(clip, &s.file).unwrap();
+        let s = Arc::new(Session::new("bench", Src::File(PathBuf::from(clip)), 0));
         let ctx = egui::Context::default();
         let started = s.clone();
         std::thread::spawn(move || start(started, true, 0.0));

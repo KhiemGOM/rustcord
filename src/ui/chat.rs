@@ -254,7 +254,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), search_w) {
             app.ui.search_w = w;
         }
-    } else if chan.kind == 1 && !app.ui.hide_dm_profile && room >= 320.0 + 420.0 {
+    } else if chan.kind == 1 && !app.ui.hide_dm_profile && ctx.content_rect().width() >= 1132.0 {
         if let Some(&uid) = chan.recipients.first() {
             let r = egui::Panel::right("dm_profile")
                 .exact_size(320.0)
@@ -265,7 +265,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let pr = r.response.rect;
             ui.painter().vline(pr.left() + 0.5, pr.y_range(), hairline(ui.pixels_per_point(), pal().border_subtle));
         }
-    } else if chan.kind == 3 && !app.ui.hide_members && room >= members_w + 420.0 {
+    } else if chan.kind == 3 && !app.ui.hide_members {
         let r = egui::Panel::right("group_members")
             .exact_size(members_w)
             .resizable(false)
@@ -274,7 +274,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show(ui, |ui| super::members::group(app, ui, &chan));
         let gr = r.response.rect;
         ui.painter().vline(gr.left() + 0.5, gr.y_range(), hairline(ui.pixels_per_point(), pal().border_subtle));
-    } else if chan.guild != 0 && side.is_none() && !app.ui.hide_members && room >= members_w + 420.0 {
+    } else if chan.guild != 0 && side.is_none() && !app.ui.hide_members {
         let r = egui::Panel::right("members")
             .default_size(members_w)
             .size_range(200.0..=(room - 420.0).clamp(200.0, 480.0))

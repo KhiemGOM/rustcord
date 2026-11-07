@@ -63,6 +63,16 @@ impl Frame {
         }
     }
 
+    pub fn fullscreen(&self) -> bool {
+        self.host.as_ref().is_some_and(Host::fullscreen)
+    }
+
+    pub fn press(&self, x: i32, y: i32) {
+        if let Some(host) = &self.host {
+            host.press(x, y);
+        }
+    }
+
     pub fn hush(&self, on: bool) {
         if self.hushed.replace(on) != on
             && let Some(host) = &self.host
