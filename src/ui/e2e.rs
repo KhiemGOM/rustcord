@@ -5618,7 +5618,7 @@ impl Run {
                     return;
                 }
                 self.mark("pin_dm");
-                app.set_custom_status("mock status", 2);
+                app.set_custom_status("mock status", None, 2);
                 crate::cache::remember_account(&crate::cache::SavedAccount { id: 4242, name: "Second".into(), avatar: None }, "mock-token");
                 app.accounts = crate::cache::accounts();
                 app.switch_account(4242);

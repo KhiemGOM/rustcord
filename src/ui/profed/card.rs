@@ -303,7 +303,7 @@ fn status_bubble(app: &mut App, ed: &mut Editor, ui: &mut Ui, at: Rect) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     if resp.clicked() {
-        app.status_text = Some(crate::ui::cstatus::State::from(cur.as_ref()));
+        app.status_text = Some(crate::ui::cstatus::State::from(&app.store));
     }
 }
 

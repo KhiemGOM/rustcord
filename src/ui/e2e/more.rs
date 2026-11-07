@@ -304,7 +304,7 @@ impl Run {
             }
             // the custom status: Shift+Enter does nothing, Enter saves
             1939 => {
-                app.status_text = Some(crate::ui::cstatus::State::from(None));
+                app.status_text = Some(crate::ui::cstatus::State::from(&app.store));
                 self.next(500);
             }
             1940 => {
