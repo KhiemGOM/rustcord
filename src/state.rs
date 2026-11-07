@@ -1334,6 +1334,9 @@ pub struct Store {
     pub feed: Vec<FeedEntry>,
     #[serde(skip)]
     pub app_icons: Map<Id, Option<String>>,
+    // names of the games mentioned with @game, as the autocomplete gave them
+    #[serde(skip)]
+    pub game_names: Map<Id, String>,
 }
 
 impl Store {
