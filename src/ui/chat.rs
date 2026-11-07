@@ -387,192 +387,267 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .show(ui, |ui| {
             let r = ui.max_rect();
             ui.painter().hline(r.left() - 16.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
+            let panel = ui.max_rect();
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
-                // discord's header icons are 20, the name 9 past them
-                let glyph = |ui: &mut Ui, icon: Icon| {
-                    let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-                    icons::draw(ui.painter(), icon, r, pal().channel_default);
-                    ui.add_space(4.0);
-                };
-                let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
-                    let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-                    side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
-                    ui.add_space(4.0);
-                    r
-                };
-                match chan.kind {
-                    1 => {
-                        if let Some(u) = chan.recipients.first().and_then(|u| app.store.user(*u)) {
-                            let (av, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-                            avatar(ui, av, &u.avatar_url());
+                let tools = tools(chan);
+                // discord's toolbar is its icons 8 apart and then the search box, which shrinks first;
+                // the name and topic get what is left, clipped with a fade
+                let bar = 8.0 + tools.iter().map(|t| t.width() + 8.0).sum::<f32>() + 4.0;
+                let room = ui.available_width();
+                let name_w = (room - bar - SEARCH_W).max(0.0);
+                let search_w = (SEARCH_W - (bar + SEARCH_W - room).max(0.0)).max(0.0);
+                let (name, _) = ui.allocate_exact_size(vec2(name_w, 32.0), Sense::hover());
+                app.rects.insert("header:name".into(), name);
+                let mut group = ui.new_child(UiBuilder::new().max_rect(name).layout(Layout::left_to_right(Align::Center)));
+                group.set_clip_rect(name.intersect(ui.clip_rect()));
+                {
+                    let ui = &mut group;
+                    // discord's header icons are 20, the name 9 past them
+                    let glyph = |ui: &mut Ui, icon: Icon| {
+                        let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                        icons::draw(ui.painter(), icon, r, pal().channel_default);
+                        ui.add_space(4.0);
+                    };
+                    let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
+                        let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                        side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
+                        ui.add_space(4.0);
+                        r
+                    };
+                    match chan.kind {
+                        1 => {
+                            if let Some(u) = chan.recipients.first().and_then(|u| app.store.user(*u)) {
+                                let (av, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                                avatar(ui, av, &u.avatar_url());
+                            }
+                        }
+                        3 => glyph(ui, Icon::People),
+                        10..=12 => {
+                            let parent = app.store.channels.get(&chan.parent).cloned();
+                            if let Some(p) = parent {
+                                chan_glyph(ui, &app.store, &p);
+                                let r = text::label(ui, &p.name, medium(16.0), pal().header_secondary, Sense::click());
+                                if r.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                }
+                                if r.clicked() {
+                                    app.open(p.id);
+                                }
+                                let (r, _) = ui.allocate_exact_size(vec2(16.0, 24.0), Sense::hover());
+                                icons::draw(ui.painter(), Icon::ChevronRight, r, pal().channel_default);
+                            }
+                            glyph(ui, Icon::Thread);
+                        }
+                        _ => {
+                            let r = chan_glyph(ui, &app.store, chan);
+                            app.rects.insert("header:icon".into(), r);
                         }
                     }
-                    3 => glyph(ui, Icon::People),
-                    10..=12 => {
-                        let parent = app.store.channels.get(&chan.parent).cloned();
-                        if let Some(p) = parent {
-                            chan_glyph(ui, &app.store, &p);
-                            let r = text::label(ui, &p.name, medium(16.0), pal().header_secondary, Sense::click());
-                            if r.hovered() {
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if r.clicked() {
-                                app.open(p.id);
-                            }
-                            let (r, _) = ui.allocate_exact_size(vec2(16.0, 24.0), Sense::hover());
-                            icons::draw(ui.painter(), Icon::ChevronRight, r, pal().channel_default);
-                        }
-                        glyph(ui, Icon::Thread);
-                    }
-                    _ => {
-                        let r = chan_glyph(ui, &app.store, chan);
-                        app.rects.insert("header:icon".into(), r);
-                    }
-                }
-                let tools = if chan.guild != 0 { 420.0 } else { 300.0 };
-                // a narrow window elides the name rather than running it under the buttons
-                let w = (ui.available_width() - tools).max(24.0);
-                ui.allocate_ui_with_layout(vec2(w, 24.0), Layout::left_to_right(Align::Center), |ui| {
-                    // discord draws the header's emoji with the system font, as in the channel list
-                    let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, ui.available_width(), 1.0);
+                    // the name keeps its width and is clipped by the group, as discord's overflow does
+                    let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
                     let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
                     if super::follow::can_follow(app, chan) {
                         super::follow::header_button(app, ui, chan);
                     }
-                });
-                if let Some(topic) = chan.topic.as_ref().filter(|t| !t.is_empty()) {
-                    let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
-                    ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
-                    let w = (ui.available_width() - tools).max(0.0);
-                    ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
-                        let r = text::label(ui, &topic.replace('\n', " "), reg(14.0), pal().header_secondary, Sense::click());
-                        app.rects.insert("header:topic".into(), r.rect);
-                        if r.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-                        if r.clicked() {
-                            app.topic = Some(chan.id);
-                        }
-                    });
+                    if let Some(topic) = chan.topic.as_ref().filter(|t| !t.is_empty()) {
+                        let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
+                        ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
+                        let w = ui.available_width();
+                        ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
+                            let r = text::label(ui, &topic.replace('\n', " "), reg(14.0), pal().header_secondary, Sense::click());
+                            app.rects.insert("header:topic".into(), r.rect);
+                            if r.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if r.clicked() {
+                                app.topic = Some(chan.id);
+                            }
+                        });
+                    }
                 }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let qid = egui::Id::new("search_q");
-                    let mut q: String = ui.data(|d| d.get_temp(qid).unwrap_or_default());
-                    // discord's 244x32 box, placeholder naming the server
-                    let sw = 244.0;
-                    let hint = match app.store.guilds.get(&chan.guild) {
-                        Some(g) => format!("Search {}", g.name.split_whitespace().collect::<Vec<_>>().join(" ")),
-                        None => "Search".to_string(),
-                    };
-                    let mut clear = false;
-                    let r = ui
-                        .allocate_ui_with_layout(vec2(sw, 32.0), Layout::left_to_right(Align::Center), |ui| {
-                            Frame::new()
-                                .fill(pal().input_bg)
-                                .stroke(Stroke::new(1.0, pal().border_subtle))
-                                .corner_radius(8)
-                                .inner_margin(Margin { left: 8, right: 8, top: 6, bottom: 5 })
-                                .show(ui, |ui| {
-                                    let r = ui.add(
-                                        egui::TextEdit::singleline(&mut q)
-                                            .id(egui::Id::new("search_box"))
-                                            .frame(Frame::NONE)
-                                            .font(medium(14.0))
-                                            .hint_text(RichText::new(hint).color(pal().text_muted))
-                                            .desired_width(sw - 42.0),
-                                    );
-                                    // the magnifier turns into a clear button once there's a query
-                                    let (ir, x) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::click());
-                                    if q.is_empty() {
-                                        icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
-                                    } else {
-                                        icons::draw(ui.painter(), Icon::Close, ir, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &x)));
-                                        clear = x.clicked();
-                                    }
-                                    r
-                                })
-                                .inner
-                        })
-                        .inner;
-                    app.rects.insert("search".into(), r.rect);
-                    if clear {
-                        q.clear();
-                        app.search = None;
+                if name_w >= 8.0 {
+                    let (x0, x1) = (name.right() - 8.0, name.right());
+                    let (clear, bg) = (Color32::TRANSPARENT, pal().bg_primary);
+                    let mut fade = egui::Mesh::default();
+                    for (x, y, c) in [(x0, panel.top(), clear), (x1, panel.top(), bg), (x1, panel.bottom(), bg), (x0, panel.bottom(), clear)] {
+                        fade.colored_vertex(pos2(x, y), c);
                     }
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
-                        app.start_search(chan.id, q.trim().to_string());
+                    fade.add_triangle(0, 1, 2);
+                    fade.add_triangle(0, 2, 3);
+                    ui.painter().add(fade);
+                }
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.add_space(8.0);
+                for tool in &tools {
+                    match tool {
+                        Tool::Call => super::call::call_button(app, ui, chan.id),
+                        Tool::Video => super::call::video_button(app, ui, chan.id),
+                        Tool::Threads => {
+                            let t = icon_button(ui, Icon::Thread, 32.0, "Threads");
+                            app.rects.insert("threads_button".into(), t.rect);
+                            if std::mem::take(&mut app.open_threads) {
+                                egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&t));
+                            }
+                            super::popups::threads_menu(app, &t, if chan.is_thread() { chan.parent } else { chan.id });
+                        }
+                        Tool::Bell => bell(app, ui, chan),
+                        Tool::Pins => {
+                            let pins = super::toggle_button(ui, Icon::Pin, 32.0, "Pinned Messages", app.pins.is_some());
+                            if app.store.pins_unread(chan.id) {
+                                // discord's new-pins dot sits on the icon's lower right, cut out of it
+                                let c = pins.rect.center() + vec2(4.5, 4.5);
+                                ui.painter().circle_filled(c, 6.0, pal().bg_primary);
+                                if pins.hovered() {
+                                    ui.painter().circle_filled(c, 6.0, pal().control_hover);
+                                }
+                                ui.painter().circle_filled(c, 4.0, BLURPLE);
+                                app.rects.insert("pins_dot".into(), Rect::from_center_size(c, vec2(8.0, 8.0)));
+                            }
+                            app.rects.insert("pins_button".into(), pins.rect);
+                            if pins.clicked() {
+                                match app.pins {
+                                    Some(_) => app.pins = None,
+                                    None => app.open_pins(chan.id),
+                                }
+                            }
+                        }
+                        Tool::AddFriends => {
+                            let add = icon_button(ui, Icon::PersonAdd, 32.0, "Add Friends to DM");
+                            app.rects.insert("dm:add".into(), add.rect);
+                            if add.clicked() {
+                                app.group_pick = Some(super::dmpick::Pick::new(Some(chan.id)));
+                            }
+                        }
+                        Tool::Members => {
+                            let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
+                            if super::toggle_button(ui, Icon::People, 32.0, tip, !app.ui.hide_members).clicked() {
+                                app.ui.hide_members = !app.ui.hide_members;
+                                app.search = None;
+                            }
+                        }
+                        Tool::Profile => {
+                            let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };
+                            if super::toggle_button(ui, Icon::UserProfile, 32.0, tip, !app.ui.hide_dm_profile).clicked() {
+                                app.ui.hide_dm_profile = !app.ui.hide_dm_profile;
+                                app.search = None;
+                            }
+                        }
+                        Tool::More => super::thread::more(app, ui, chan, false),
                     }
-                    if let Some(past) = super::popups::search_options(app, ui.ctx(), &r, &mut q, chan.guild) {
-                        app.start_search(chan.id, past.clone());
-                        q = past;
-                    }
-                    ui.data_mut(|d| d.insert_temp(qid, q));
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
+                }
+                ui.add_space(4.0);
+                if search_w < 2.0 {
+                    return;
+                }
+                let qid = egui::Id::new("search_q");
+                let mut q: String = ui.data(|d| d.get_temp(qid).unwrap_or_default());
+                // placeholder naming the server
+                let hint = match app.store.guilds.get(&chan.guild) {
+                    Some(g) => format!("Search {}", g.name.split_whitespace().collect::<Vec<_>>().join(" ")),
+                    None => "Search".to_string(),
+                };
+                let mut clear = false;
+                let (slot, _) = ui.allocate_exact_size(vec2(search_w, 32.0), Sense::hover());
+                let mut field = ui.new_child(UiBuilder::new().max_rect(slot).layout(Layout::left_to_right(Align::Center)));
+                field.set_clip_rect(slot.intersect(ui.clip_rect()));
+                let r = {
+                    let ui = &mut field;
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    if chan.is_thread() {
-                        super::thread::more(app, ui, chan, false);
-                    }
-                    if chan.kind == 1 {
-                        let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };
-                        if super::toggle_button(ui, Icon::UserProfile, 32.0, tip, !app.ui.hide_dm_profile).clicked() {
-                            app.ui.hide_dm_profile = !app.ui.hide_dm_profile;
-                            app.search = None;
-                        }
-                    }
-                    if chan.guild != 0 || chan.kind == 3 {
-                        let tip = if app.ui.hide_members { "Show Member List" } else { "Hide Member List" };
-                        if super::toggle_button(ui, Icon::People, 32.0, tip, !app.ui.hide_members).clicked() {
-                            app.ui.hide_members = !app.ui.hide_members;
-                            app.search = None;
-                        }
-                    }
-                    if chan.guild == 0 {
-                        let add = icon_button(ui, Icon::PersonAdd, 32.0, "Add Friends to DM");
-                        app.rects.insert("dm:add".into(), add.rect);
-                        if add.clicked() {
-                            app.group_pick = Some(super::dmpick::Pick::new(Some(chan.id)));
-                        }
-                    }
-                    if !chan.is_forum() {
-                        let pins = super::toggle_button(ui, Icon::Pin, 32.0, "Pinned Messages", app.pins.is_some());
-                        if app.store.pins_unread(chan.id) {
-                            // discord's new-pins dot sits on the icon's lower right, cut out of it
-                            let c = pins.rect.center() + vec2(4.5, 4.5);
-                            ui.painter().circle_filled(c, 6.0, pal().bg_primary);
-                            if pins.hovered() {
-                                ui.painter().circle_filled(c, 6.0, pal().control_hover);
+                    Frame::new()
+                        .fill(pal().input_bg)
+                        .stroke(Stroke::new(1.0, pal().border_subtle))
+                        .corner_radius(8)
+                        .inner_margin(Margin { left: 8, right: 8, top: 6, bottom: 5 })
+                        .show(ui, |ui| {
+                            let r = ui.add(
+                                egui::TextEdit::singleline(&mut q)
+                                    .id(egui::Id::new("search_box"))
+                                    .frame(Frame::NONE)
+                                    .font(medium(14.0))
+                                    .hint_text(RichText::new(hint).color(pal().text_muted))
+                                    .desired_width((search_w - 42.0).max(0.0)),
+                            );
+                            // the magnifier turns into a clear button once there's a query
+                            let (ir, x) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::click());
+                            if q.is_empty() {
+                                icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
+                            } else {
+                                icons::draw(ui.painter(), Icon::Close, ir, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &x)));
+                                clear = x.clicked();
                             }
-                            ui.painter().circle_filled(c, 4.0, BLURPLE);
-                            app.rects.insert("pins_dot".into(), Rect::from_center_size(c, vec2(8.0, 8.0)));
-                        }
-                        app.rects.insert("pins_button".into(), pins.rect);
-                        if pins.clicked() {
-                            match app.pins {
-                                Some(_) => app.pins = None,
-                                None => app.open_pins(chan.id),
-                            }
-                        }
-                    }
-                    if chan.guild != 0 {
-                        bell(app, ui, chan);
-                    }
-                    if chan.guild != 0 && (matches!(chan.kind, 0 | 5) || chan.is_thread()) {
-                        let t = icon_button(ui, Icon::Thread, 32.0, "Threads");
-                        app.rects.insert("threads_button".into(), t.rect);
-                        if std::mem::take(&mut app.open_threads) {
-                            egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&t));
-                        }
-                        super::popups::threads_menu(app, &t, if chan.is_thread() { chan.parent } else { chan.id });
-                    }
-                    if chan.guild == 0 {
-                        super::call::video_button(app, ui, chan.id);
-                        super::call::call_button(app, ui, chan.id);
-                    }
-                });
+                            r
+                        })
+                        .inner
+                };
+                app.rects.insert("search".into(), r.rect);
+                if clear {
+                    q.clear();
+                    app.search = None;
+                }
+                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
+                    app.start_search(chan.id, q.trim().to_string());
+                }
+                if let Some(past) = super::popups::search_options(app, ui.ctx(), &r, &mut q, chan.guild) {
+                    app.start_search(chan.id, past.clone());
+                    q = past;
+                }
+                ui.data_mut(|d| d.insert_temp(qid, q));
             });
         });
+}
+
+const SEARCH_W: f32 = 244.0;
+
+#[derive(Clone, Copy)]
+enum Tool {
+    Call,
+    Video,
+    Threads,
+    Bell,
+    Pins,
+    AddFriends,
+    Members,
+    Profile,
+    More,
+}
+
+impl Tool {
+    fn width(self) -> f32 {
+        if matches!(self, Tool::Call | Tool::Video) { 28.0 } else { 32.0 }
+    }
+}
+
+/// The header's buttons left to right, as discord lists them for this kind of channel.
+fn tools(chan: &Channel) -> Vec<Tool> {
+    let mut out = Vec::new();
+    if chan.guild == 0 {
+        out.extend([Tool::Call, Tool::Video]);
+    }
+    if chan.guild != 0 && (matches!(chan.kind, 0 | 5) || chan.is_thread()) {
+        out.push(Tool::Threads);
+    }
+    if chan.guild != 0 {
+        out.push(Tool::Bell);
+    }
+    if !chan.is_forum() {
+        out.push(Tool::Pins);
+    }
+    if chan.guild == 0 {
+        out.push(Tool::AddFriends);
+    }
+    if chan.guild != 0 || chan.kind == 3 {
+        out.push(Tool::Members);
+    }
+    if chan.kind == 1 {
+        out.push(Tool::Profile);
+    }
+    if chan.is_thread() {
+        out.push(Tool::More);
+    }
+    out
 }
 
 /// The header's notification bell: Discord's menu to mute the channel or pick its level.
