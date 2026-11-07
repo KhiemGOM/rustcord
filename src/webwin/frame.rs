@@ -8,7 +8,7 @@ use windows_sys::Win32::Graphics::Gdi::{BLACK_BRUSH, ClientToScreen, GetStockObj
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowRect, IsWindowVisible, RegisterClassW, SW_HIDE, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetForegroundWindow, GetWindowRect, IsWindowVisible, RegisterClassW, SW_HIDE, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
     SetWindowPos, ShowWindow, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
 };
 
@@ -71,8 +71,13 @@ impl Frame {
         }
     }
 
+    /// Only while we're in front: SetFocus activates the window, over whatever the user has open.
     pub fn blur(&self) {
-        unsafe { SetFocus(self.main) };
+        unsafe {
+            if GetForegroundWindow() == self.main {
+                SetFocus(self.main);
+            }
+        }
     }
 
     /// Where the window is in the main window's pixels, whether it is shown, and the page's own

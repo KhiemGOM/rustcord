@@ -145,7 +145,7 @@ impl Host {
 
     pub fn blur(&self) {
         let w = self.s.done.get().parent;
-        if w != 0 {
+        if w != 0 && unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() } == w as HWND {
             unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus(w as HWND) };
         }
     }
