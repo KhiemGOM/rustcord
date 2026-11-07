@@ -1,10 +1,10 @@
-//! Steps 4650 to 4699: the Shop's leftovers. Hide Filters, the Browse menu, Clear all filters, the
+﻿//! Steps 4650 to 4699: the Shop's leftovers. Hide Filters, the Browse menu, Clear all filters, the
 //! colour and theme filters and the sort, a collection from its banner and from a product, a
 //! bundle's Previous and Next, the wishlist coming back from the server and its empty page, the
 //! Orbs Exclusives hero, and the Featured feed's sort, Shuffle and scroll arrow.
 //! `python e2e/from_step.py 4650` runs just this group.
 
-use egui::{Event, ViewportCommand, vec2};
+use egui::{Event, Modifiers, MouseWheelUnit, Rect, TouchPhase, ViewportCommand, pos2, vec2};
 
 use super::Run;
 use crate::ui::App;
@@ -18,6 +18,20 @@ fn path_of(app: &App, part: &str) -> Option<(String, Option<usize>)> {
 }
 
 impl Run {
+    fn shop_reach(&mut self, ctx: &egui::Context, key: &str) -> Option<Rect> {
+        let r = Self::at(ctx, key)?;
+        if r.bottom() <= ctx.content_rect().height() - 12.0 {
+            return Some(r);
+        }
+        if self.step_at.elapsed() > std::time::Duration::from_secs(8) {
+            self.shot(ctx, "shop_reach.png");
+        }
+        let t = Self::at(ctx, "shop:filters_toggle")?;
+        self.queue.push_back(vec![Event::PointerMoved(pos2(t.center().x, 420.0))]);
+        self.queue.push_back(vec![Event::MouseWheel { unit: MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: TouchPhase::Move, modifiers: Modifiers::NONE }]);
+        None
+    }
+
     pub(super) fn shopx_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let at = |k: &str| Self::at(ctx, k);
         let forget = |keys: &[&str]| {
@@ -28,6 +42,9 @@ impl Run {
         let menu = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
         let stuck = self.step_at.elapsed() > std::time::Duration::from_secs(12);
         let tab = app.shop.as_ref().map_or(9, |s| s.tab);
+        if self.step_at.elapsed() > std::time::Duration::from_secs(10) {
+            self.shot(ctx, &format!("shopx_stuck_{}.png", self.step));
+        }
         match self.step {
             4650 => {
                 if app.conn != crate::ui::Conn::Online {
@@ -60,16 +77,26 @@ impl Run {
                 self.next(500);
             }
             4653 => {
-                if app.shop.as_ref().is_some_and(|s| s.browse.open) || at("shop:only:Nameplates").is_some() {
+                if app.shop.as_ref().is_some_and(|s| s.browse.open) {
                     if stuck {
                         self.fail("Hide Filters left the filter bar up".into());
                     }
+                    return;
+                }
+                forget(&["shop:only:Nameplates"]);
+                self.next(400);
+                self.step = 4689;
+            }
+            4689 => {
+                if at("shop:only:Nameplates").is_some() {
+                    self.fail("the filter bar was still drawn after Hide Filters".into());
                     return;
                 }
                 self.mark("shop_filters_hide");
                 let Some(r) = at("shop:filters_toggle") else { return };
                 self.click(r.center());
                 self.next(500);
+                self.step = 4654;
             }
             4654 => {
                 if at("shop:only:Nameplates").is_none() {
@@ -103,14 +130,19 @@ impl Run {
                     let Some(r) = at("shop:filters_toggle") else { return };
                     self.click(r.center());
                     self.next(500);
+                    self.step -= 1;
                     return;
                 }
-                let Some(r) = at("shop:clear") else { return };
+                let Some(r) = self.shop_reach(ctx, "shop:clear") else { return };
                 self.click(r.center());
                 self.next(500);
             }
             4657 => {
                 if app.shop.as_ref().is_some_and(|s| s.browse.any()) {
+                    if stuck {
+                        self.shot(ctx, "shop_clear_stuck.png");
+                        self.fail("Clear all filters left filters set".into());
+                    }
                     return;
                 }
                 self.mark("shop_clear_all");
@@ -139,7 +171,7 @@ impl Run {
                 }
                 self.mark("shop_theme_filter");
                 self.shot(ctx, "shop_no_results.png");
-                let Some(r) = at("shop:clear") else { return };
+                let Some(r) = self.shop_reach(ctx, "shop:clear") else { return };
                 self.click(r.center());
                 self.next(500);
             }
@@ -163,14 +195,9 @@ impl Run {
                 }
                 self.mark("shop_sort_price");
                 self.shot(ctx, "shop_sorted.png");
-                if app.shop.as_ref().is_some_and(|s| !s.browse.open) {
-                    let Some(r) = at("shop:filters_toggle") else { return };
-                    self.click(r.center());
-                    self.next(500);
-                    return;
+                if let Some(s) = &mut app.shop {
+                    s.browse.reset();
                 }
-                let Some(r) = at("shop:clear") else { return };
-                self.click(r.center());
                 self.next(500);
             }
             4663 => {
@@ -269,6 +296,28 @@ impl Run {
                 self.mark("shop_bundle_chip");
                 self.key(egui::Key::Escape);
                 self.next(500);
+                self.step = 4690;
+            }
+            4690 => {
+                if app.shop.as_ref().is_some_and(|s| s.product.is_some()) {
+                    return;
+                }
+                let Some(r) = at("shop:card:5101") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            4691 => {
+                let Some(r) = at("shop:detail_heart") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            4692 => {
+                if !app.shop.as_ref().is_some_and(|s| s.wish.iter().any(|w| w == "5101")) {
+                    return;
+                }
+                self.key(egui::Key::Escape);
+                self.next(500);
+                self.step = 4675;
             }
             4675 => {
                 if app.shop.as_ref().is_some_and(|s| s.product.is_some()) {
@@ -342,21 +391,11 @@ impl Run {
                 }
                 self.mark("shop_orbs_hero");
                 self.shot(ctx, "shop_orbs.png");
-                let Some(r) = at("shop:quest_home") else { return };
-                self.click(r.center());
-                self.next(700);
-            }
-            4683 => {
-                if app.quests.is_none() {
-                    return;
-                }
-                self.mark("shop_quest_home");
-                app.open_shop(Page::Shop);
-                self.next(900);
+                self.next(300);
+                self.step = 4684;
             }
             4684 => {
                 let Some(r) = at("shop:shuffle") else { return };
-                self.shot(ctx, "shop_feed.png");
                 self.click(r.center());
                 self.next(400);
             }
@@ -379,10 +418,42 @@ impl Run {
                     return;
                 }
                 self.mark("shop_feed_sort");
-                let Some(r) = at("shop:scroll_right:hero") else { return };
+                self.next(200);
+                self.step = 4693;
+            }
+            4693 => {
+                let Some(r) = at("shop:quest_home") else { return };
+                self.click(r.center());
+                self.next(700);
+                self.step = 4683;
+            }
+            4683 => {
+                if app.quests.is_none() {
+                    return;
+                }
+                self.mark("shop_quest_home");
+                forget(&["shop:scroll_right:hero"]);
+                app.open_shop(Page::Shop);
+                self.next(1200);
+                self.step = 4694;
+            }
+            4694 => {
+                let Some(r) = at("shop:scroll_right:hero") else {
+                    if stuck {
+                        self.fail("the hero strip had no scroll arrow".into());
+                    }
+                    return;
+                };
+                self.shot(ctx, "shop_featured_arrow.png");
                 forget(&["shop:scroll_right:hero"]);
                 self.click(r.center());
                 self.next(900);
+                self.step = 4695;
+            }
+            4695 => {
+                forget(&["shop:scroll_right:hero"]);
+                self.next(500);
+                self.step = 4688;
             }
             4688 => {
                 if at("shop:scroll_right:hero").is_some() {
@@ -390,6 +461,7 @@ impl Run {
                 }
                 self.mark("shop_scroll_right");
                 self.next(300);
+                self.step = 4699;
             }
             _ => {
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));

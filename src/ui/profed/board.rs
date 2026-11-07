@@ -82,9 +82,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect) -> f32 {
         Tab::Wishlist => {
             let w = wish(app, app.store.me);
             let (h, go) = paint_wishlist(ui, body, &w, Color32::WHITE);
-            if go {
-                explore(app);
-            }
+            ed.to_shop |= go;
             h + 48.0
         }
     }

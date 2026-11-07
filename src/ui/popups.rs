@@ -1279,7 +1279,7 @@ fn profile(app: &mut App, ctx: &egui::Context) {
     } else if let Some(at) = banner.friend {
         app.user_menu = Some((uid, gid, None, at));
     } else if banner.add {
-        app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
+        app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend);
     } else if banner.mod_view {
         app.open_mod_view(gid, uid);
     } else if dismissed(ctx, &area.response) && app.user_menu.is_none() && app.role_add.is_none() && app.tag_pop.is_none() {
@@ -1443,7 +1443,7 @@ pub fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         app.user_menu = Some((uid, 0, None, at));
     }
     if banner.add {
-        app.rest("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), Tag::Friend);
+        app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend);
     }
     if let Some(n) = save_note {
         app.save_note(uid, n);
