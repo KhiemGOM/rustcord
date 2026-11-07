@@ -163,6 +163,14 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
     s.data.insert(key, v);
 }
 
+pub fn open_role(app: &mut App, gid: Id, role: Id, tab: u8) {
+    roles::open(app, gid, role, tab);
+}
+
+pub fn audit_changed(app: &mut App, gid: Id) {
+    moderation::changed(app, gid);
+}
+
 /// Files dropped on the window go to the Emoji page when it's the one open.
 pub fn dropped(app: &mut App, path: &std::path::Path) -> bool {
     match &mut app.server {
@@ -283,6 +291,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 super::text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y + 4.0), Align2::LEFT_CENTER, h, bold(12.0), pal().header_secondary, r.width() - 20.0);
                 for (p, label) in items {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+                    super::settings::mark(ui, &format!("side:{label}"), r);
                     let on = *p == page;
                     if on {
                         ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
@@ -314,6 +323,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(8.0);
                 for (p, label) in items {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+                    super::settings::mark(ui, &format!("side:{label}"), r);
                     if page == *p {
                         ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
                     } else {
