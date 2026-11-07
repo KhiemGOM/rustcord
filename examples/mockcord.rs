@@ -337,6 +337,7 @@ fn chatx_msgs(cdn: &str) -> Vec<Value> {
         m["attachments"] = json!([{ "id": "11", "filename": "copy-me.png", "size": 4096, "url": format!("{cdn}/attachments/2085/11/copy-me.png"),
             "proxy_url": format!("{cdn}/attachments/2085/11/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
     });
+    add(103, "a sticker from a default pack", &|m| m["sticker_items"] = json!([{ "id": "8103", "name": "Sleepy", "format_type": 3 }]));
     add(102, "a sticker from elsewhere", &|m| m["sticker_items"] = json!([{ "id": "7777", "name": "Monkey Think", "format_type": 1 }]));
     add(103, "a faraway <:CRose:9999> emoji", &|_| {});
     add(101, "quiet please", &|m| m["flags"] = json!(4096));

@@ -1,28 +1,24 @@
 //! Lottie stickers (format 3) from the mock's CDN: drawn in chat and in the picker, the pack
 //! popout a click on one opens, and that nothing is drawn once they're off the screen. Steps 4320
-//! and up, in the gallery channel.
+//! and up, in the chat-extras channel.
 
 use super::*;
 
-const GALLERY: Id = 2080;
+const CH: Id = 2085;
 const PACK_STICKER: &str = "8103.json";
+const TILE: &str = "sticker:8103:2085";
 
 impl Run {
     pub(super) fn sticker_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let at = |key: &str| Self::at(ctx, key);
         match self.step {
             4320 => {
-                let Some(id) = app.store.msgs.get(&GALLERY).and_then(|e| e.list.iter().find(|m| m.stickers.iter().any(|s| s.0 == 8103))).map(|m| m.id) else {
-                    if app.cur() != Some(GALLERY) {
-                        app.open(GALLERY);
-                    }
-                    return;
-                };
-                app.jump_to(GALLERY, id);
-                self.next(900);
+                app.rects.remove(TILE);
+                app.open(CH);
+                self.next(1200);
             }
             4321 => {
-                if app.rects.get("sticker:2080").is_none() || crate::gif::shown(PACK_STICKER) < 4 {
+                if app.rects.get(TILE).is_none() || crate::gif::shown(PACK_STICKER) < 4 {
                     if self.step_at.elapsed() > Duration::from_secs(12) {
                         self.fail(format!("the Lottie sticker drew {} frames in 12s", crate::gif::shown(PACK_STICKER)));
                     }
@@ -33,7 +29,7 @@ impl Run {
                 self.next(400);
             }
             4322 => {
-                let Some(r) = app.rects.get("sticker:2080").copied() else { return };
+                let Some(r) = app.rects.get(TILE).copied() else { return };
                 self.click(r.center());
                 self.next(600);
             }
