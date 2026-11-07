@@ -5,7 +5,7 @@
 
 pub mod frecency;
 
-use crate::cache::{Settings, Spoilers};
+use crate::cache::{Animate, Density, Settings, Spoilers, VideoBg};
 use crate::state::{Folder, Id, ReactEmoji};
 use crate::theme::{Custom, Fill, Theme};
 
@@ -301,6 +301,12 @@ account! {
     game_suggestions: bool,
     sticker_suggestions: bool,
     md_preview: bool,
+    image_descriptions: bool,
+    stickers: Animate,
+    search_all_dms: bool,
+    density: Density,
+    preview_video: bool,
+    video_bg: VideoBg,
 }
 
 fn flag(w: &[u8]) -> bool {
@@ -376,6 +382,9 @@ pub fn account(settings: &[u8], full: bool) -> Account {
             5 => {
                 for (n, v) in fields(b) {
                     match (n, v) {
+                        (1, Val::Bytes(w)) => a.video_bg = Some(if flag(w) { VideoBg::Blur } else { VideoBg::None }),
+                        (2, Val::Int(i)) if i < 4 => a.video_bg = Some(VideoBg::Preset(i as u8)),
+                        (5, Val::Bytes(w)) => a.preview_video = Some(flag(w)),
                         (6, Val::Bytes(w)) => a.push_delay = number(w).map(|s| s as u32).or(full.then_some(0)),
                         (7, Val::Bytes(w)) => a.stream_notify = Some(flag(w)),
                         (9, Val::Bytes(w)) => {
@@ -414,18 +423,27 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                                 _ => None,
                             }
                         }
+                        7 => a.image_descriptions = Some(flag(w)),
                         9 => a.inline_uploads = Some(flag(w)),
                         10 => a.inline_links = Some(flag(w)),
                         11 => a.gif_autoplay = Some(flag(w)),
                         12 => a.embeds = Some(flag(w)),
                         13 => a.reactions = Some(flag(w)),
                         14 => a.animate_emoji = Some(flag(w)),
+                        15 => {
+                            a.stickers = Some(match number(w) {
+                                Some(1) => Animate::OnInteraction,
+                                Some(2) => Animate::Never,
+                                _ => Animate::Always,
+                            })
+                        }
                         16 => a.tts_command = Some(flag(w)),
                         17 => a.compact = Some(flag(w)),
                         21 => a.emoticons = Some(flag(w)),
                         24 => a.legacy_input = Some(flag(w)),
                         28 => a.sticker_suggestions = Some(flag(w)),
                         39 => a.game_suggestions = Some(flag(w)),
+                        36 => a.search_all_dms = Some(flag(w)),
                         41 => a.compact_avatars = Some(flag(w)),
                         _ => {}
                     }
@@ -483,6 +501,13 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                             }
                         }
                         (9, Val::Int(i)) => a.hour_cycle = Some(i.min(2) as u8),
+                        (12, Val::Int(i)) => {
+                            a.density = Some(match i {
+                                1 => Density::Compact,
+                                2 => Density::Spacious,
+                                _ => Density::Default,
+                            })
+                        }
                         (14, Val::Int(i)) => a.server_themes = Some(i != 1),
                         _ => {}
                     }

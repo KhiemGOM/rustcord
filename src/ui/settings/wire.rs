@@ -169,6 +169,10 @@ impl Patch {
         self.put(g, f, Node::Bytes(body))
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn bytes(&self) -> Vec<u8> {
         encode(&self.0.iter().map(|(g, fs)| (*g, Node::Bytes(encode(fs)))).collect::<Vec<_>>())
     }

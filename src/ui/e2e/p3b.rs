@@ -368,7 +368,7 @@ impl Run {
                 app.voice.leave(&app.net);
                 self.next(600);
             }
-            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
+            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5000 },
         }
     }
 }

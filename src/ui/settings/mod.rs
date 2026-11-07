@@ -6,6 +6,7 @@ mod account;
 mod modals;
 mod activity;
 mod app;
+pub use app::backfill;
 mod theme;
 pub mod apps;
 pub mod billing;

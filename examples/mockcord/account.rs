@@ -46,6 +46,12 @@ fn session(hash: &str, os: &str, platform: &str, loc: &str, when: &str) -> Value
     json!({ "id_hash": hash, "approx_last_used_time": when, "client_info": { "os": os, "platform": platform, "location": loc } })
 }
 
+/// The settings blob as the account holds it now, once every PATCH is in; the READY of a client that
+/// restarts against the same mock has to carry it, as Discord's does.
+pub fn blob() -> Option<String> {
+    STATE.lock().unwrap().as_ref().map(|a| b64(&a.settings))
+}
+
 pub fn init(settings_b64: &str) {
     let settings = base64::engine::general_purpose::STANDARD.decode(settings_b64).unwrap_or_default();
     *STATE.lock().unwrap() = Some(fresh(settings));
