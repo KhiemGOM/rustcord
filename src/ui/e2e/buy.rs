@@ -172,14 +172,22 @@ impl Run {
                 let Some(r) = Self::at(ctx, "buy:purchase") else { return };
                 self.click(r.center());
                 self.click(r.center());
-                self.next(600);
+                self.next(0);
             }
             4209 => {
-                if !shown("buy:done") {
+                if self.sub == 0 {
+                    let Some(r) = Self::at(ctx, "buy:done").filter(|_| shown("buy:done")) else { return };
+                    self.click(r.center());
+                    self.sub = 1;
+                    self.wait = Instant::now() + Duration::from_millis(400);
                     return;
                 }
                 if !self.charges(app, 1, 1, "buy_one_charge_per_double_click") {
                     return;
+                }
+                self.sub = 0;
+                if app.buy.is_some() {
+                    self.mark("buy_done_kept_after_double_click");
                 }
                 self.mark("buy_done");
                 self.shot(ctx, "buy_done.png");

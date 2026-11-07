@@ -18,6 +18,7 @@ def checks(runs, reqs, data):
     wished = any(r.get("method") == "POST" and r.get("path", "").endswith("/users/@me/wishlist/items") and web.body(r).get("sku_id") == "5101" for r in reqs)
     return {
         "nitro: the Nitro Home row opened the page, with the plans, the subscription and the gift buttons": both("nitro_page") and has("/subscription-plans") and has("/billing/subscriptions"),
+        "nitro: Basic's plans were asked for under the sku in Discord's client": any(r.get("method") == "GET" and "/skus/978380684370378762/subscription-plans" in r.get("path", "") for r in reqs),
         "nitro: Gift Nitro opened the gift plan chooser in the client, not a window": both("nitro_gift_checkout") and gift == 0,
         "nitro: Subscribe on a plan card opened the purchase dialog in the client": both("nitro_subscribe_checkout"),
         "shop: the Shop row opened Featured from the catalog calls": both("shop_featured") and has("/collectibles-shop?") and has("/collectibles-categories/v2"),

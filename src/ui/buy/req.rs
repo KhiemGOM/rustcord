@@ -4,7 +4,6 @@
 
 use serde_json::{Map, Value, json};
 
-pub const BASIC_SKU: &str = "978380684370378762";
 pub const BOOST_SKU: &str = "590663762298667008";
 pub const NITRO_MONTH: &str = "511651880837840896";
 pub const NITRO_YEAR: &str = "511651885459963904";
@@ -20,7 +19,7 @@ const INSUFFICIENT_ORBS: u64 = 590001;
 
 pub fn nitro_sku(plan: &str) -> &'static str {
     match plan {
-        BASIC_MONTH | BASIC_YEAR => BASIC_SKU,
+        BASIC_MONTH | BASIC_YEAR => crate::ui::settings::billing::BASIC_SKU,
         "511651871736201216" | "511651876987469824" => "521846918637420545",
         _ => crate::ui::settings::billing::NITRO_SKU,
     }

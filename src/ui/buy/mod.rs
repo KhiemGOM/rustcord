@@ -74,6 +74,7 @@ pub struct Buy {
     waiver: bool,
     load: String,
     sent: bool,
+    pressed: f64,
     card_window: bool,
     polled: Option<Instant>,
     polling: bool,
@@ -133,6 +134,7 @@ impl App {
             waiver: false,
             load: random_id(),
             sent: false,
+            pressed: f64::NEG_INFINITY,
             card_window: false,
             polled: None,
             polling: false,
@@ -150,7 +152,7 @@ impl App {
                 get(self, "plans0", format!("/store/published-listings/skus/{}/subscription-plans?revenue_surface=0", crate::ui::settings::billing::NITRO_SKU));
             }
             What::NitroGift => {
-                for (i, sku) in [crate::ui::settings::billing::NITRO_SKU, req::BASIC_SKU].into_iter().enumerate() {
+                for (i, sku) in [crate::ui::settings::billing::NITRO_SKU, crate::ui::settings::billing::BASIC_SKU].into_iter().enumerate() {
                     get(self, ["plans0", "plans1"][i], format!("/store/published-listings/skus/{sku}/subscription-plans?revenue_surface=0"));
                 }
             }

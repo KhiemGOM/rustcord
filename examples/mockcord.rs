@@ -1069,7 +1069,8 @@ fn roster_list(gid: &str) -> Value {
     ids.extend((0..if n <= 1002 { 6 } else { 3 }).map(|i| 101 + (n + i) % 6));
     ids.dedup();
     let status = |id: u64| ["online", "idle", "dnd", "offline"][((id + n) % 4) as usize];
-    let item = |id: u64, s: &str| json!({ "member": { "user": user(id), "roles": [], "nick": null, "premium_since": null, "presence": { "status": s } } });
+    let roles = |id: u64| if id == ME && n == 1003 { json!(["1201"]) } else { json!([]) };
+    let item = |id: u64, s: &str| json!({ "member": { "user": user(id), "roles": roles(id), "nick": null, "premium_since": null, "presence": { "status": s } } });
     let (on, off): (Vec<u64>, Vec<u64>) = ids.into_iter().partition(|id| status(*id) != "offline");
     let mut items = vec![json!({ "group": { "id": "online", "count": on.len() } })];
     items.extend(on.iter().map(|id| item(*id, status(*id))));
@@ -1329,13 +1330,6 @@ fn billing(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
         ("GET", ["api", "v9", "users", "@me", "entitlements", "gifts"]) => Some((200, g["gifts"].clone())),
         ("GET", ["api", "v9", "users", "@me", "entitlements", "gift-codes"]) => Some((200, g["codes"].clone())),
         ("GET", ["api", "v9", "users", "%40me" | "@me", "badges", "17"]) => Some((200, json!({ "badge_id": "17", "progress": { "current": 4 } }))),
-        ("GET", ["api", "v9", "store", "published-listings", "skus", sku, "subscription-plans"]) => {
-            let (month, year) = if *sku == "521842831262875670" { (113000, 1130000) } else { (42000, 420000) };
-            Some((200, json!([
-                { "id": "511651880837840896", "interval": 1, "interval_count": 1, "price": month, "currency": "vnd", "sku_id": sku },
-                { "id": "511651885459963904", "interval": 2, "interval_count": 1, "price": year, "currency": "vnd", "sku_id": sku },
-            ])))
-        }
         ("DELETE", ["api", "v9", "users", "@me", "billing", "payment-sources", id]) => {
             let i = find("sources", "id", id, &g)?;
             g["sources"].as_array_mut()?.remove(i);
