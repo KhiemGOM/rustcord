@@ -14,8 +14,11 @@ impl Run {
         match self.step {
             4320 => {
                 app.rects.remove(TILE);
-                app.open(CH);
-                app.jump_to_present(CH);
+                let row = app.store.msgs.get(&CH).and_then(|e| e.list.iter().find(|m| m.content == "a sticker from a default pack")).map(|m| m.id);
+                match row {
+                    Some(id) => app.jump_to(CH, id),
+                    None => app.open(CH),
+                }
                 self.next(1200);
             }
             4321 => {

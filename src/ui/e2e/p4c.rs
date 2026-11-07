@@ -286,6 +286,9 @@ impl Run {
                 }
                 self.mark("dm_profile_unavailable");
                 self.shot(ctx, "dm_profile_off.png");
+                self.next(500);
+            }
+            5077 => {
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
                 self.next(600);
             }
