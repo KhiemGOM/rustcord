@@ -2539,12 +2539,12 @@ async fn http_conn(mut s: TcpStream, w: W) {
         {
             let mut wl = w.lock().unwrap();
             let text: String = if path.starts_with("/upload/") { format!("{} bytes", body.len()) } else { String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect() };
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason") });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason"), "context": header("x-context-properties") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
         let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
-        let (code, ctype, out) = match (rules::check(&method, &parts, &body), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
+        let (code, ctype, out) = match (rules::check(&method, &parts, &body).or_else(|| header("x-context-properties").and_then(|c| rules::context(&c))), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
             (Some(refusal), _) => {
                 log(&w, json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "refused": refusal }));
                 (400, "application/json", refusal.to_string().into_bytes())

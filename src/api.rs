@@ -225,13 +225,16 @@ impl Api {
     /// `call` for the requests discord guards with a second factor: the token from /mfa/finish
     /// rides in X-Discord-MFA-Authorization, and a 60003 answer comes back as `mfa:<ticket and methods>`.
     pub async fn call_mfa(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, String> {
-        self.try_call(m, path, body, mfa, None).await.map_err(|f| f.message)
+        self.try_call(m, path, body, mfa, None, None).await.map_err(|f| f.message)
     }
 
     /// The same request with the whole refusal kept: the field errors and the raw answer.
-    pub async fn try_call(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>, reason: Option<&str>) -> Result<Value, Failure> {
+    pub async fn try_call(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>, reason: Option<&str>, context: Option<&Value>) -> Result<Value, Failure> {
         for _ in 0..4 {
             let mut req = self.build(m.clone(), path);
+            if let Some(c) = context {
+                req = req.header("X-Context-Properties", base64::engine::general_purpose::STANDARD.encode(c.to_string()));
+            }
             if let Some(t) = mfa {
                 req = req.header("X-Discord-MFA-Authorization", t);
             }

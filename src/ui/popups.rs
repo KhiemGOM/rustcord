@@ -514,7 +514,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
         let code = super::invitecard::code_of(&t);
         if !code.is_empty() {
             let session = app.store.session.clone();
-            app.rest("POST", format!("/invites/{code}"), Some(json!({ "session_id": session })), Tag::Invite);
+            app.rest_in("POST", format!("/invites/{code}"), Some(json!({ "session_id": session })), "Join Guild", Tag::Invite);
         }
         close = true;
     }
@@ -539,9 +539,14 @@ enum Pick {
 
 impl App {
     /// Invite People: a fresh link to the channel, good for 30 days like the official client's.
-    pub fn invite_people(&mut self, ch: Id) {
+    pub fn invite_people(&mut self, ch: Id, source: &str) {
         self.made_invite = Some(MadeInvite { ch, code: None, query: String::new(), sent: Default::default() });
-        self.rest("POST", format!("/channels/{ch}/invites"), Some(json!({ "max_age": 2_592_000, "max_uses": 0, "temporary": false })), Tag::MadeInvite);
+        let body = Some(json!({ "max_age": 2_592_000, "max_uses": 0, "temporary": false }));
+        if source.is_empty() {
+            self.rest("POST", format!("/channels/{ch}/invites"), body, Tag::MadeInvite);
+        } else {
+            self.rest_in("POST", format!("/channels/{ch}/invites"), body, source, Tag::MadeInvite);
+        }
     }
 }
 

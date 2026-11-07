@@ -93,7 +93,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         app.rest("PUT", format!("/guilds/{gid}/incident-actions"), Some(body), Tag::reason());
     }
     if create && let Some(ch) = first {
-        app.invite_people(ch);
+        app.invite_people(ch, "Settings Invite");
         if let Some(s) = &mut app.server {
             s.data.remove("invites");
         }

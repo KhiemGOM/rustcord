@@ -166,6 +166,8 @@ pub enum Cmd {
 
 /// With RUSTCORD_READONLY set, nothing goes out that would change the account or
 /// that other people could see: no messages, reactions, acks, typing, voice,
+    /// A write that says where in the app it came from, in X-Context-Properties.
+    Located { method: &'static str, path: String, body: Option<Value>, context: Value, tag: Tag },
 /// presence, or non-GET REST calls. Used when touring a real account.
 pub static BLOCKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// The channel on screen, so the gateway can tell which events can wait for the next frame.
@@ -174,7 +176,7 @@ pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 fn allowed(c: &Cmd) -> bool {
     match c {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
-        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
+        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
         Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } => false,
         // member requests and lazy member-list subscriptions only read
@@ -377,7 +379,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Rest { method, path, body, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
+                    let res = a.try_call(m.clone(), &path, body, None, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(_)) => {}
@@ -388,7 +390,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Audit { method, path, body, reason, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason)).await.map_err(|f| fail(&tx, &m, &path, f));
+                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason), None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
                 });
             }
@@ -409,7 +411,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::Sudo { method, path, body, mfa, tag } => {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, mfa.as_deref(), None).await.map_err(|f| fail(&tx, &m, &path, f));
+                    let res = a.try_call(m.clone(), &path, body, mfa.as_deref(), None, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
                 });
             }
@@ -441,6 +443,16 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 });
             }
             Cmd::Typing { channel } => {
+            Cmd::Located { method, path, body, context, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
+                    let res = a.try_call(m.clone(), &path, body, None, None, Some(&context)).await.map_err(|f| fail(&tx, &m, &path, f));
+                    match (&tag, &res) {
+                        (Tag::Quiet, _) => {}
+                        _ => tx.send(Ev::Rest { tag, res }),
+                    }
+                });
+            }
                 tokio::spawn(async move {
                     let _ = a.typing(channel).await;
                 });
