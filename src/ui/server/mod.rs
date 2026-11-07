@@ -21,6 +21,7 @@ mod apps;
 mod automod;
 mod bar;
 mod expression;
+mod stickline;
 mod invites;
 mod linked;
 mod listing;

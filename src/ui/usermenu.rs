@@ -97,7 +97,7 @@ pub fn vol_gain(pos: f32) -> f32 {
 
 /// A server's rank for what the menu may do to a member: the owner outranks everyone, else the
 /// highest role position wins.
-fn rank(store: &Store, gid: Id, uid: Id) -> i64 {
+pub(super) fn rank(store: &Store, gid: Id, uid: Id) -> i64 {
     let Some(g) = store.guilds.get(&gid) else { return 0 };
     if g.owner == uid {
         return i64::MAX;

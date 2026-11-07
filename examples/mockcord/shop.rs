@@ -169,10 +169,13 @@ fn categories() -> Vec<Value> {
     let mut cape = product("5204", "Collab Cape", "A cape from another world.", 0, json!([{ "type": 0, "sku_id": "5204", "asset": "a_mockcape", "label": "A cape." }]), prices(99000, 79000, None), "5002");
     cape["is_first_party"] = json!(false);
     let orb = product("5203", "Panda Companion", "Give your avatar a new look.", 2000, json!([]), prices(79000, 66000, Some(4100)), "5002");
+    let frames: Vec<Value> = (1..=30).map(|n| product(&format!("53{n:02}"), &format!("Orchard Frame {n}"), "Frame your avatar.", 3, json!([]), prices(79000, 66000, None), "5003")).collect();
     vec![
         json!({ "sku_id": "5001", "name": "Cauldron Chaos", "summary": " ", "store_listing_id": "5001", "styles": styles(), "hero_ranking": ["5104", "5101"], "products": [bundle, hat, dust, fx],
             "hero_banner_url": media("hero-5001"), "hero_logo_url": media("logo-5001"), "catalog_banner_url": media("banner-5001"), "logo_url": media("logo-5001") }),
         json!({ "sku_id": "5002", "name": "All Ears", "summary": " ", "store_listing_id": "5002", "styles": styles(), "hero_ranking": ["5201"], "products": [fox, bunny, orb, cape],
+            "hero_banner_url": media("hero-5002"), "hero_logo_url": media("logo-5002"), "catalog_banner_url": media("banner-5002"), "logo_url": media("logo-5002") }),
+        json!({ "sku_id": "5003", "name": "Orchard", "summary": " ", "store_listing_id": "5003", "styles": styles(), "hero_ranking": [], "products": frames,
             "hero_banner_url": media("hero-5002"), "hero_logo_url": media("logo-5002"), "catalog_banner_url": media("banner-5002"), "logo_url": media("logo-5002") }),
     ]
 }
@@ -208,6 +211,13 @@ pub fn route(method: &str, parts: &[&str], query: &str, body: &[u8]) -> Option<(
         ("GET", ["api", "v9", "shop", "search"]) => search(query),
         ("GET", ["api", "v9", "collectibles-products", sku]) => categories().iter().flat_map(|c| c["products"].as_array().cloned().unwrap_or_default()).find(|p| p["sku_id"] == *sku).map(|p| (200, p)),
         ("GET", ["api", "v9", "wishlists", "7700"]) => Some((200, wishlist())),
+        ("GET", ["api", "v9", "wishlist", "gift-recommendations"]) => {
+            if !query.contains("user_ids=") {
+                return missing("user_ids");
+            }
+            let skus: Vec<Value> = ["5201", "5202", "5101", "5102", "5103", "5204", "5301", "5302"].iter().map(|s| json!({ "id": s, "product_line": 1 })).collect();
+            Some((200, json!({ "skus": skus, "skus_to_user_and_reason": {}, "applications": [], "storefront_pricing": null })))
+        }
         ("GET", ["api", "v9", "collectibles-categories", "v2"]) => Some((200, json!({ "categories": categories(), "collections": [] }))),
         ("POST", ["api", "v9", "users", "@me", "wishlist", "items"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
