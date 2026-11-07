@@ -4685,11 +4685,6 @@ impl Run {
         let loaded = |app: &App, k: &str| app.server.as_ref().is_some_and(|s| s.data.get(k).is_some_and(|v| !v.is_null()));
         match self.step {
             600 => {
-                // Server Template and Delete Server are the owner's, and the mock's owner is somebody else
-                let me = app.store.me;
-                if let Some(g) = app.store.guilds.get_mut(&1001) {
-                    g.owner = me;
-                }
                 app.open_server_settings(1001);
                 self.next(800);
             }
@@ -4917,6 +4912,11 @@ impl Run {
                     return;
                 }
                 self.mark("server_template");
+                // Delete Server is the owner's, and saving the profile earlier gave the guild back to the mock's owner
+                let me = app.store.me;
+                if let Some(g) = app.store.guilds.get_mut(&1001) {
+                    g.owner = me;
+                }
                 let Some(r) = Self::at(ctx, "side:Delete Server") else { return };
                 if r.bottom() > ctx.content_rect().bottom() - 10.0 {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, 300.0))]);
