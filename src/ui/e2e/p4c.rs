@@ -260,6 +260,35 @@ impl Run {
                 self.click(r.center());
                 self.next(600);
             }
+            5074 => {
+                if app.voice.chan.is_some() {
+                    return;
+                }
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
+                app.select_guild(None);
+                app.open(3000);
+                self.next(1200);
+            }
+            5075 => {
+                if app.rects.contains_key("dm:profile_off") {
+                    self.fail("the DM's profile toggle was greyed at 1280px with no call".into());
+                    return;
+                }
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1100.0, 720.0)));
+                self.next(900);
+            }
+            5076 => {
+                if !app.rects.contains_key("dm:profile_off") {
+                    if stuck {
+                        self.fail("the DM's profile toggle stayed live below 1132px".into());
+                    }
+                    return;
+                }
+                self.mark("dm_profile_unavailable");
+                self.shot(ctx, "dm_profile_off.png");
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
+                self.next(600);
+            }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
         }
     }

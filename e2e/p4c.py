@@ -44,4 +44,5 @@ def checks(runs, reqs):
         "p4c: Mute Music in the tray silenced it (the button reads Unmute Music), Unmute Music in the voice panel brought it back": both("stage_music_muted") and both("stage_music_panel_unmuted"),
         "p4c: a live stage stops the music, Unmute Music there plays it, and leaving ends that": both("stage_music_stops_live") and both("stage_music_forced") and both("stage_music_ends_on_leave"),
         "p4c: the stage tray's hand is Request to Speak with REQUEST_TO_SPEAK and Raise Hand Disabled (and does nothing) without it": both("stage_hand_enabled") and both("stage_hand_disabled"),
+        "p4c: the DM header's profile toggle greys out (Show User Profile (Unavailable)) below 1132px": both("dm_profile_unavailable"),
     }
