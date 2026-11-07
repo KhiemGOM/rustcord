@@ -2177,9 +2177,24 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         // a thread from a message or from nothing: the new channel back, and over the gateway
         ("POST", ["api", "v9", "channels", ch, "messages", _, "threads"]) | ("POST", ["api", "v9", "channels", ch, "threads"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let parent = channel(w, ch);
+            let mut applied = Vec::new();
+            if parent.as_ref().is_some_and(|p| p["type"] == 15) {
+                let tags: Vec<Value> = b["applied_tags"].as_array().cloned().unwrap_or_default();
+                let known = parent.as_ref().and_then(|p| p["available_tags"].as_array()).cloned().unwrap_or_default();
+                let required = parent.as_ref().is_some_and(|p| p["flags"].as_u64().unwrap_or(0) & 16 != 0);
+                let refuse = |code: u64, message: &str| (400, "application/json", json!({ "code": code, "message": message }).to_string().into_bytes());
+                if required && tags.is_empty() {
+                    return refuse(40067, "A tag is required to create a forum post in this channel");
+                }
+                if tags.len() > 5 || tags.iter().any(|t| !t.is_string() || !known.iter().any(|k| k["id"] == *t)) {
+                    return refuse(50035, "Invalid Form Body");
+                }
+                applied = tags;
+            }
             let t = json!({ "id": snow(now_ms()).to_string(), "type": 11, "guild_id": "1000", "parent_id": ch, "name": b["name"],
-                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null,
-                            "thread_metadata": { "archived": false, "auto_archive_duration": 4320 }, "member": { "user_id": ME.to_string() } });
+                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null, "applied_tags": applied,
+                            "thread_metadata": { "archived": false, "auto_archive_duration": b["auto_archive_duration"] }, "member": { "user_id": ME.to_string() } });
             let _ = w.lock().unwrap().events.send(json!({ "t": "THREAD_CREATE", "d": t.clone() }));
             ok(t)
         }
