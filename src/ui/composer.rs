@@ -1076,6 +1076,9 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         }
         Item::BuiltIn(i) => {
             app.start_slash(chan, &built_in_command(*i), &[], "");
+            if let Some(sl) = app.slash.get_mut(&chan.id).and_then(|s| s.slots.first_mut()) {
+                sl.shown = true;
+            }
             return Some(0);
         }
         Item::Sticker(id, ..) => {
