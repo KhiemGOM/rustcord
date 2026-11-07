@@ -36,7 +36,7 @@ impl Run {
                 self.mark("forum_guidelines_closed");
                 self.shot(ctx, "forum_guidelines_closed.png");
                 self.next(300);
-                self.step = 4370;
+                self.step = 4393;
             }
             4370 => {
                 app.select_guild(None);
@@ -187,6 +187,50 @@ impl Run {
                 self.key(Key::Escape);
                 self.next(400);
             }
+            4393 => {
+                let Some(b) = app.rects.get("forum:new_post").copied() else { return };
+                self.click(b.center());
+                self.next(500);
+            }
+            4394 => {
+                let Some(r) = app.rects.get("forum:post_title").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("Media post".into())]);
+                self.next(300);
+            }
+            4395 => {
+                let Some(r) = app.rects.get("forum:post_body").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("with a picture".into())]);
+                self.next(400);
+            }
+            4396 => {
+                let Some(m) = app.rects.get("forum:post_media").copied() else { return };
+                self.rects.insert("forum_media".into(), json!([m.min.x, m.min.y, m.width(), m.height()]));
+                self.mark("forum_add_media_button");
+                let path = self.dir.join("forum_media.png");
+                let _ = image::RgbaImage::from_pixel(64, 64, image::Rgba([40, 120, 200, 255])).save(&path);
+                if let Some(p) = app.post.as_mut() {
+                    p.files.push(path);
+                }
+                self.next(300);
+            }
+            4397 => {
+                let (Some(x), Some(send)) = (app.rects.get("forum:post_file_x:0").copied(), app.rects.get("forum:post_send").copied()) else { return };
+                self.mark("forum_media_chip");
+                self.shot(ctx, "forum_media.png");
+                let _ = x;
+                self.click(send.center());
+                self.next(1500);
+            }
+            4398 => {
+                if app.post.is_some() || !app.store.channels.values().any(|c| c.name == "Media post") {
+                    return;
+                }
+                self.mark("forum_media_posted");
+                self.next(300);
+                self.step = 4370;
+            }
             4389 => self.step = 4390,
             4390 => {
                 app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": "2021", "self_stream": true }));
@@ -208,6 +252,7 @@ impl Run {
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
                 app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": null }));
                 self.next(600);
+                self.step = 4400;
             }
             _ => self.step = 4400,
         }

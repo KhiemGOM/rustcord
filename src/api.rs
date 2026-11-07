@@ -321,7 +321,14 @@ impl Api {
             return self.call(Method::POST, &path, Some(body)).await;
         }
         let job = crate::upload::get(nonce);
-        let stopped = || job.as_ref().is_some_and(|j| j.cancelled());
+        let atts = self.upload_files(ch, files, job.as_ref()).await?;
+        body["attachments"] = Value::Array(atts);
+        self.call(Method::POST, &path, Some(body)).await
+    }
+
+    /// Files up to the storage urls discord hands out for `ch`; the attachment objects that name them.
+    async fn upload_files(&self, ch: Id, files: &[(PathBuf, String, String)], job: Option<&std::sync::Arc<crate::upload::Job>>) -> Result<Vec<Value>, String> {
+        let stopped = || job.is_some_and(|j| j.cancelled());
         let mut asks = Vec::new();
         let mut atts = Vec::new();
         for (i, (f, name, alt)) in files.iter().enumerate() {
@@ -351,11 +358,16 @@ impl Api {
             }
             let slot = slots.iter().find(|s| slot_id(s) == Some(i as u64)).ok_or("upload refused")?;
             let url = slot["upload_url"].as_str().ok_or("upload refused")?;
-            self.put_file(url, f, name, job.as_ref()).await?;
+            self.put_file(url, f, name, job).await?;
             atts[i]["uploaded_filename"] = slot["upload_filename"].clone();
         }
-        body["attachments"] = Value::Array(atts);
-        self.call(Method::POST, &path, Some(body)).await
+        Ok(atts)
+    }
+
+    /// A forum post with its first message's files: they go up first, then the thread names them.
+    pub async fn forum_post(&self, ch: Id, mut body: Value, files: &[(PathBuf, String, String)]) -> Result<Value, String> {
+        body["message"]["attachments"] = Value::Array(self.upload_files(ch, files, None).await?);
+        self.call(Method::POST, &format!("/channels/{ch}/threads?use_nested_fields=true"), Some(body)).await
     }
 
     /// One file to the storage url discord handed out, read off the disk as it goes so a big one
