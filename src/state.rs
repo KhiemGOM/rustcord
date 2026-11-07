@@ -1187,6 +1187,15 @@ impl From<Store> for Tracked {
 }
 
 impl Tracked {
+    /// Presences and typing never move a badge, a mention count or an unread dot, so the sums
+    /// stay for them.
+    pub fn apply(&mut self, t: &str, d: &Value) -> Option<Id> {
+        if !matches!(t, "PRESENCE_UPDATE" | "TYPING_START") {
+            self.sums.take();
+        }
+        self.store.apply(t, d)
+    }
+
     fn sums(&self) -> &Sums {
         self.sums.get_or_init(|| {
             let s = &self.store;
