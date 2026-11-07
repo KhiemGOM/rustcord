@@ -1897,6 +1897,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
+        ("GET", ["hcaptcha", "1", "api.js"]) => (200, "application/javascript", include_bytes!("fixtures/hcaptcha.js").to_vec()),
+        ("GET", ["hcaptcha", _]) => (204, "text/plain", Vec::new()),
         ("GET", ["activity", _]) => (200, "text/html", activity_page()),
         ("GET", ["embed", "player"]) => (200, "text/html", include_bytes!("fixtures/embed.html").to_vec()),
         ("POST", ["api", "v9", "mock", "embed"]) => ok(json!({})),
