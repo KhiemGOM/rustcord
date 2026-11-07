@@ -40,6 +40,11 @@ enum Act {
     Manage,
 }
 
+/// The button Purchase turns into sits where Purchase was, so a double-click's second half lands on it.
+fn second_half(pressed: f64, now: f64) -> bool {
+    now - pressed < unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() } as f64 / 1000.0
+}
+
 fn button(ui: &mut Ui, r: Rect, label: &str, fill: Color32, ink: Color32, on: bool, key: &str) -> bool {
     let resp = ui.interact(r, Id::new(("buy_button", key)), if on { Sense::CLICK } else { Sense::hover() });
     let fill = if !on { fill.gamma_multiply(0.5) } else if resp.hovered() { fill.gamma_multiply(0.85) } else { fill };
@@ -406,6 +411,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
             }
             Act::Manage => crate::webwin::manage(),
             Act::Purchase => {
+                b.pressed = ctx.input(|i| i.time);
                 app.buy = Some(b);
                 super::purchase(app);
                 return;
@@ -477,6 +483,7 @@ fn review(ui: &mut Ui, b: &mut Buy, avatar: &str, friends: &[(Uid, String)], fac
 }
 
 fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
+    let second = second_half(b.pressed, ui.input(|i| i.time));
     let h = 40.0;
     let y = foot.bottom() - SPACE_16 - h;
     if b.step == Step::Review {
@@ -551,19 +558,19 @@ fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
         Step::Sending => {}
         Step::Confirming { .. } => {
             let r = right("Close", x);
-            if button(ui, r, "Close", Color32::TRANSPARENT, pal().header_primary, true, "close") {
+            if button(ui, r, "Close", Color32::TRANSPARENT, pal().header_primary, true, "close") && !second {
                 acts.push(Act::Close);
             }
         }
         Step::Done(_) => {
             let r = right("Done", x);
-            if button(ui, r, "Done", BLURPLE, Color32::WHITE, true, "done") {
+            if button(ui, r, "Done", BLURPLE, Color32::WHITE, true, "done") && !second {
                 acts.push(Act::Close);
             }
         }
         Step::Failed { unsure, .. } => {
             let r = right("Close", x);
-            if button(ui, r, "Close", BLURPLE, Color32::WHITE, true, "close") {
+            if button(ui, r, "Close", BLURPLE, Color32::WHITE, true, "close") && !second {
                 acts.push(Act::Close);
             }
             x = r.left() - SPACE_8;
@@ -579,5 +586,17 @@ fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::second_half;
+
+    #[test]
+    fn only_the_click_right_after_purchase_is_its_second_half() {
+        assert!(second_half(10.0, 10.05));
+        assert!(!second_half(10.0, 15.0));
+        assert!(!second_half(f64::NEG_INFINITY, 0.0));
     }
 }

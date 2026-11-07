@@ -39,6 +39,7 @@ def checks(runs, reqs, data):
         "buy: Enter, Cancel, Escape, a disabled Purchase and a short Orbs balance each reached the server as no charge": all(
             both(m) for m in ("buy_baseline", "buy_enter_inert", "buy_cancel", "buy_escape", "buy_no_charge_on_cancel_or_escape", "buy_no_source_no_charge", "buy_orbs_short_no_charge")),
         "buy: a double click on Purchase made one charge, and the dialog showed Done": both("buy_one_charge_per_double_click") and both("buy_done") and len(sku("5101")) == n,
+        "buy: the double click's last click landed on Done and left it up": both("buy_done_kept_after_double_click"),
         "buy: every card charge sent the total and currency from its preview, the chosen source and a purchase token": bool(money) and all(
             m["expected_amount"] > 0 and m["expected_currency"] == "vnd" and m.get("payment_source_id") and len(m.get("purchase_token", "")) >= 16 and m.get("load_id") for m in money),
         "buy: nothing in a purchase body is card data or the account token": not any(k in r.get("body", "") for r in charges for k in card_keys + ('"mock-token"',)),

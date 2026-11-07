@@ -19,7 +19,7 @@ type Step = (&'static str, String, Option<Value>);
 
 pub const KEYS: [&str; 9] = ["subs", "sources", "payments", "slots", "cooldown", "credits", "gifts", "gift_codes", "badge"];
 pub const NITRO_SKU: &str = "521842831262875670";
-pub const BASIC_SKU: &str = "978380692553465865";
+pub const BASIC_SKU: &str = "978380684370378762";
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const COUNTRIES: [(&str, &str); 36] = [
     ("US", "United States"), ("GB", "United Kingdom"), ("VN", "Vietnam"), ("CA", "Canada"), ("AU", "Australia"), ("DE", "Germany"),
