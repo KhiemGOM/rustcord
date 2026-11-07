@@ -142,6 +142,8 @@ pub struct Gifs {
     pub trending: bool,
     // the starred ones, opened from their tile
     pub favorites: bool,
+    // opened from the avatar dialog: no tabs or stars, and a click hands the picture to the cropper
+    pub profile: bool,
 }
 
 /// Discord's gifs come from Klipy now.
@@ -156,11 +158,18 @@ pub struct Gif {
 
 impl App {
     pub fn open_gifs(&mut self, at: Pos2) {
-        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: false });
+        self.gifs = Some(Gifs { query: String::new(), sent: String::new(), results: None, at, cats: None, trend: None, trending: false, favorites: false, profile: false });
         self.rest("GET", format!("/gifs/trending?{GIF_Q}"), None, Tag::GifCats);
     }
 
     /// What /gif and the picker's box search for.
+    pub fn open_gifs_for_profile(&mut self, at: Pos2) {
+        self.open_gifs(at);
+        if let Some(g) = &mut self.gifs {
+            g.profile = true;
+        }
+    }
+
     pub fn search_gifs(&mut self, q: String) {
         let Some(g) = &mut self.gifs else { return };
         g.query = q.clone();
@@ -207,7 +216,8 @@ impl App {
 
 fn gifs(app: &mut App, ctx: &egui::Context) {
     let autoplay = app.settings.gif_autoplay;
-    let favs: Vec<Gif> = app.settings.fav_gifs.iter().map(|(url, src, w, h)| Gif { url: url.clone(), src: src.clone(), w: *w, h: *h }).collect();
+    let profile = app.gifs.as_ref().is_some_and(|g| g.profile);
+    let favs: Vec<Gif> = if profile { Vec::new() } else { app.settings.fav_gifs.iter().map(|(url, src, w, h)| Gif { url: url.clone(), src: src.clone(), w: *w, h: *h }).collect() };
     let Some(g) = &mut app.gifs else { return };
     let mut pick = None;
     let mut search = None;
@@ -217,7 +227,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
     let mut open_favs = false;
     let home = g.query.is_empty() && !g.trending && !g.favorites;
     let mut cat_rects = Vec::new();
-    let (area, to) = super::picker::shell(ctx, g.at, Align2::RIGHT_BOTTOM, Some(super::picker::Tab::Gifs), |ui| {
+    let (area, to) = super::picker::shell(ctx, g.at, Align2::RIGHT_BOTTOM, (!profile).then_some(super::picker::Tab::Gifs), |ui| {
         let r = super::picker::search_box(ui, &mut g.query, "Search Klipy", (!home).then_some(&mut back));
         r.request_focus();
         if r.changed() {
@@ -321,7 +331,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                             if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| sr.contains(p)) {
                                 star = Some((gif.url.clone(), gif.src.clone(), gif.w, gif.h));
                             } else if resp.clicked() {
-                                pick = Some(gif.url.clone());
+                                pick = Some(if profile { gif.src.clone() } else { gif.url.clone() });
                             }
                         }
                         ui.allocate_space(vec2(ui.available_width(), ys[0].max(ys[1])));
@@ -365,7 +375,9 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
         super::picker::toggle(app, t);
     } else if let Some(url) = pick {
         app.gifs = None;
-        if let Some(ch) = app.cur() {
+        if profile {
+            app.gif_load = Some(url);
+        } else if let Some(ch) = app.cur() {
             // shift+click puts the link in the composer instead of sending it
             if ctx.input(|i| i.modifiers.shift) {
                 let d = app.drafts.entry(ch).or_default();
@@ -387,6 +399,7 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
     gifs(app, ctx);
+    super::profed::gif_arrived(app, ctx);
     forward(app, ctx);
     super::reactions::show(app, ctx);
     super::pollvotes::show(app, ctx);
@@ -1598,7 +1611,8 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     }
     let status = app.store.presence.get(&me).copied().unwrap_or(Status::Online);
     let dev = app.settings.dev;
-    let custom = app.store.custom_status.clone();
+    let custom = app.store.custom_status.clone().or_else(|| app.store.custom_emoji.as_ref().map(|_| String::new()));
+    let emoji = app.store.custom_emoji.clone();
     let app_accounts = app.accounts.clone();
     let mut act = None;
     ui.set_width(300.0);
@@ -1609,10 +1623,14 @@ pub fn account(app: &mut App, ui: &mut Ui) {
     let bubble = match &custom {
         // the speech bubble discord floats beside your avatar
         Some(c) => {
-            let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0);
+            let lead = if emoji.is_some() { 24.0 } else { 0.0 };
+            let g = ui.painter().layout(c.clone(), reg(14.0), pal().header_primary, 155.0 - lead);
             let b = Rect::from_min_size(pos2(top.left() + 105.0, top.bottom() - 7.0), vec2(179.0, (g.size().y + 22.0).max(40.0)));
             ui.painter().rect(b, 16, pal().bg_floating, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-            ui.painter().galley(pos2(b.left() + 12.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
+            if let Some(e) = &emoji {
+                egui::Image::from_uri(super::chat::emoji_url(e)).show_loading_spinner(false).paint_at(ui, Rect::from_center_size(pos2(b.left() + 22.0, b.center().y), vec2(18.0, 18.0)));
+            }
+            ui.painter().galley(pos2(b.left() + 12.0 + lead, b.center().y - g.size().y / 2.0), g, pal().header_primary);
             b
         }
         // and with nothing set, the prompt to add one
@@ -1718,7 +1736,7 @@ pub fn account(app: &mut App, ui: &mut Ui) {
         Some(AccountAct::Status(s)) => app.set_status_for(s, None),
         Some(AccountAct::StatusFor(s, secs)) => app.set_status_for(s, secs),
         Some(AccountAct::Edit) => app.settings_page = Some(super::settings::Page::Profiles),
-        Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(app.store.custom_status.as_ref())),
+        Some(AccountAct::Custom) => app.status_text = Some(super::cstatus::State::from(&app.store)),
         Some(AccountAct::CopyId) => ui.ctx().copy_text(me.to_string()),
         Some(AccountAct::Switch(id)) => app.switch_account(id),
         Some(AccountAct::Manage) => app.user_dialog = Some(super::userdlg::Dialog::Accounts),

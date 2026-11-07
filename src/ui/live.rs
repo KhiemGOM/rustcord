@@ -49,6 +49,7 @@ impl App {
                 }
                 if let Some(c) = d.get("custom_status") {
                     self.store.custom_status = c["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
+                    self.store.custom_emoji = c["emoji_name"].as_str().filter(|n| !n.is_empty()).map(|n| crate::state::ReactEmoji { id: c["emoji_id"].as_str().and_then(|i| i.parse().ok()).unwrap_or(0), name: n.to_string(), animated: false });
                 }
             }
             "WEBHOOKS_UPDATE" => {

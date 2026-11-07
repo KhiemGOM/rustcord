@@ -1,13 +1,15 @@
 //! Developer's Application Test Mode: the application id (and where its embedded app is served from)
 //! kept while test mode is on.
 
-use egui::Ui;
+use egui::text::{LayoutJob, TextFormat};
+use egui::{Align, Frame, Margin, Rect, Sense, Ui, pos2, vec2};
 
 use super::modals::{Act, dialog as show, label};
 use super::{dropdown, mark, toggle};
 use crate::cache::TestApp;
 use crate::theme::*;
 use crate::ui::App;
+use crate::ui::icons::{self, Icon};
 
 pub struct Form {
     id: String,
@@ -87,5 +89,45 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
         }
         Act::Close => app.sform.test_mode = None,
         _ => {}
+    }
+}
+
+/// The strip across the top while an application is in test mode; its close button ends the mode.
+pub fn banner(app: &mut App, ui: &mut Ui) {
+    let Some(name) = app.settings.test_app.as_ref().map(|a| a.id.clone()) else { return };
+    let [fill, ink] = pal().notice;
+    let mut job = LayoutJob::default();
+    job.halign = Align::Center;
+    for (text, font) in [
+        ("Test mode is currently active for ", medium(14.0)),
+        (name.as_str(), semi(14.0)),
+        (". Unpublished SKUs will appear and you will not be charged for any related payments.", medium(14.0)),
+    ] {
+        job.append(text, 0.0, TextFormat::simple(font, ink));
+    }
+    let mut closed = false;
+    egui::Panel::top("test_mode_banner")
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(Frame::new().fill(fill).inner_margin(Margin { left: 40, right: 40, top: 9, bottom: 9 }))
+        .show(ui, |ui| {
+            let w = ui.available_width();
+            job.wrap.max_width = w;
+            let galley = ui.fonts_mut(|f| f.layout_job(job));
+            let (r, _) = ui.allocate_exact_size(vec2(w, galley.size().y.max(18.0)), Sense::hover());
+            ui.painter().galley(pos2(r.center().x - galley.size().x / 2.0, r.top()), galley, ink);
+            let full = ui.max_rect();
+            let hit = Rect::from_min_size(pos2(full.right() + 40.0 - 36.0, full.top() - 9.0), vec2(36.0, 36.0));
+            let resp = ui.interact(hit, egui::Id::new("test_mode_close"), Sense::click());
+            icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(hit.center(), vec2(16.0, 16.0)), ink);
+            mark(ui, "test_mode:close", hit);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            closed = resp.clicked();
+        });
+    if closed {
+        app.settings.test_app = None;
+        app.save_settings(ui.ctx());
     }
 }

@@ -4292,6 +4292,7 @@ dependencies = [
  "raw-window-handle",
  "realfft",
  "reqwest",
+ "resvg",
  "rfd",
  "rtrb",
  "rustls",

@@ -1355,6 +1355,23 @@ fn billing(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
         }
         ("PATCH", ["api", "v9", "users", "@me", "billing", "payment-sources", id]) => {
             let i = find("sources", "id", id, &g)?;
+            if let Some(a) = b.get("billing_address") {
+                let text = |k: &str| a.get(k).is_none_or(|v| v.is_string());
+                let known = ["name", "line_1", "line_2", "city", "state", "postal_code", "country"];
+                let country = a["country"].as_str().is_some_and(|c| c.len() == 2 && c.chars().all(|c| c.is_ascii_uppercase()));
+                if !a.is_object() || a.as_object()?.keys().any(|k| !known.contains(&k.as_str())) || !known.iter().all(|k| text(k)) || !country || a["line_1"].as_str().is_none_or(str::is_empty) {
+                    return Some((400, json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "billing_address": { "_errors": [{ "code": "INVALID", "message": "Enter a complete billing address." }] } } })));
+                }
+                g["sources"][i]["billing_address"] = a.clone();
+            }
+            for k in ["expires_month", "expires_year"] {
+                if let Some(v) = b.get(k) {
+                    if !v.is_u64() || (k == "expires_month" && !(1..=12).contains(&v.as_u64()?)) {
+                        return Some((400, json!({ "message": "Invalid Form Body", "code": 50035, "errors": { k: { "_errors": [{ "code": "INVALID", "message": "Something is wrong with your expiration date" }] } } })));
+                    }
+                    g["sources"][i][k] = v.clone();
+                }
+            }
             if b["default"] == true {
                 g["sources"].as_array_mut()?.iter_mut().for_each(|s| s["default"] = json!(false));
                 g["sources"][i]["default"] = json!(true);
@@ -1804,11 +1821,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!(list))
         }
         // settings pages
-        ("GET", ["api", "v9", "users", "@me", "settings"]) => ok(json!({
-            "explicit_content_filter": 1, "default_guilds_restricted": false, "show_current_game": true,
-            "allow_accessibility_detection": false, "friend_source_flags": { "all": true },
-        })),
-        ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "guilds", "@me", "settings"]) | ("PATCH", ["api", "v9", "users", "@me", "guilds", "settings"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -2477,6 +2489,16 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", "still.png"]) => (200, "image/png", png(480, 270, 7, false)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "assets", "content", f]) if f.starts_with("a5a35112") => (
+            200,
+            "image/svg+xml",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="28" viewBox="0 0 20 28"><path d="M1 1 L1 22 L7 17 L11 26 L14 25 L10 16 L18 16 Z" fill="#fee75c" stroke="#111" stroke-width="2" stroke-linejoin="round"/></svg>"##.to_vec(),
+        ),
+        ("GET", ["cdn", "assets", "content", f]) if f.starts_with("99d372f8") => (
+            200,
+            "image/svg+xml",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="28" viewBox="0 0 20 28"><path d="M1 1 L1 22 L7 17 L11 26 L14 25 L10 16 L18 16 Z" fill="#eb459e" stroke="#111" stroke-width="2" stroke-linejoin="round"/></svg>"##.to_vec(),
+        ),
         ("GET", ["cdn", "assets", "content", f]) if f.ends_with(".svg") => (
             200,
             "image/svg+xml",

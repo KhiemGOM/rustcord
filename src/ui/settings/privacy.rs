@@ -444,7 +444,11 @@ fn people(app: &mut App, ui: &mut Ui) {
     }
     if let Some((id, ignore)) = act {
         let path = if ignore { format!("/users/@me/relationships/{id}/ignore") } else { format!("/users/@me/relationships/{id}") };
-        app.rest("DELETE", path, None, Tag::Remote("action"));
+        if ignore {
+            app.rest_in("DELETE", path, None, "user settings", Tag::Remote("action"));
+        } else {
+            app.rest("DELETE", path, None, Tag::Remote("action"));
+        }
         if !ignore && let Ok(uid) = id.parse::<Id>() {
             app.store.relationships.remove(&uid);
         }

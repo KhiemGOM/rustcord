@@ -1,7 +1,9 @@
 use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
+use super::privacy::write;
+use super::wire::Patch;
 use super::{Page, caption, dropdown, markers, radio, section, sub, toggle};
-use crate::cache::{Animate, Density, RoleColors, Spoilers};
+use crate::cache::{Animate, Density, RoleColors, Settings, Spoilers};
 use crate::theme::*;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
@@ -9,12 +11,11 @@ use crate::ui::icons::{self, Icon};
 pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     let mut changed = false;
     section(ui, "Messages");
-    let s = &mut app.settings;
     sub(ui, "Show images, videos, and lolcats...");
-    let mut chat = toggle(ui, &mut s.inline_links, "When posted as links to chat", "");
-    chat |= toggle(ui, &mut s.inline_uploads, "When uploaded directly to Discord", "Uploads larger than 10MB will not be previewed.");
-    chat |= toggle(ui, &mut s.embeds, "Show embeds and link previews", "");
-    chat |= toggle(ui, &mut s.reactions, "Show emoji reactions", "");
+    let mut chat = synced(app, ui, "When posted as links to chat", "", |s| &mut s.inline_links, 10);
+    chat |= synced(app, ui, "When uploaded directly to Discord", "Uploads larger than 10MB will not be previewed.", |s| &mut s.inline_uploads, 9);
+    chat |= synced(app, ui, "Show embeds and link previews", "", |s| &mut s.embeds, 12);
+    chat |= synced(app, ui, "Show emoji reactions", "", |s| &mut s.reactions, 13);
     changed |= quick_reactions(app, ui);
     let s = &mut app.settings;
     let shown = match s.spoilers {
@@ -32,7 +33,16 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     }) {
         chat = true;
     }
-    s.spoilers = spoilers;
+    if spoilers != s.spoilers {
+        s.spoilers = spoilers;
+        let name = match spoilers {
+            Spoilers::OnClick => "ON_CLICK",
+            Spoilers::Moderated => "IF_MODERATOR",
+            Spoilers::Always => "ALWAYS",
+        };
+        write(app, Patch::new().text(6, 4, name));
+    }
+    let s = &mut app.settings;
     let compact = s.compact;
     let mut avatars = !compact || s.compact_avatars;
     let desc = "To hide avatars, go to Accessibility and select Compact under Chat Message Display.";
@@ -41,27 +51,22 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
             chat = true;
         }
     });
-    if compact {
+    if compact && avatars != s.compact_avatars {
         s.compact_avatars = avatars;
+        write(app, Patch::new().flag(6, 41, avatars));
     }
     related(app, ui, Page::Accessibility, "Accessibility", "Adjust the visual density of chat messages and UI");
 
     sub(ui, "Threads");
-    changed |= toggle(ui, &mut app.settings.thread_sidebar, "Open threads in split view", "");
+    changed |= synced(app, ui, "Open threads in split view", "", |s| &mut s.thread_sidebar, 3);
 
 
     section(ui, "Chat Box");
-    let s = &mut app.settings;
-    chat |= toggle(ui, &mut s.md_preview, "Preview emoji, mentions, and markdown syntax as you type", "");
-    chat |= toggle(
-        ui,
-        &mut s.emoticons,
-        "Automatically convert emoticons in your messages to emoji",
-        "For example, when you type :) Rustcord will convert it to 🙂",
-    );
-    chat |= toggle(ui, &mut s.sticker_suggestions, "Show stickers in autocomplete results", "");
-    chat |= toggle(ui, &mut s.game_suggestions, "Show games in autocomplete results", "");
-    chat |= toggle(ui, &mut s.send_button, "Show send message button", "");
+    chat |= synced(app, ui, "Preview emoji, mentions, and markdown syntax as you type", "", |s| &mut s.md_preview, 2);
+    chat |= synced(app, ui, "Automatically convert emoticons in your messages to emoji", "For example, when you type :) Rustcord will convert it to 🙂", |s| &mut s.emoticons, 21);
+    chat |= synced(app, ui, "Show stickers in autocomplete results", "", |s| &mut s.sticker_suggestions, 28);
+    chat |= synced(app, ui, "Show games in autocomplete results", "", |s| &mut s.game_suggestions, 39);
+    chat |= toggle(ui, &mut app.settings.send_button, "Show send message button", "");
     if chat {
         app.heights.clear();
     }
@@ -212,9 +217,11 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     changed |= radio(ui, &mut s.density, &[(Density::Compact, "Compact", ""), (Density::Default, "Default", ""), (Density::Spacious, "Spacious", "")]);
     caption(ui, "Chat Message Display", "Change the appearance of chat messages.");
     let mut compact = s.compact;
+    let mut flipped = false;
     if radio(ui, &mut compact, &[(false, "Cozy", "Modern, beautiful, and easy on your eyes."), (true, "Compact", "Fit more messages on screen at one time. #IRC")]) {
         s.compact = compact;
         changed = true;
+        flipped = true;
     }
     caption(ui, "Space Between Message Groups", "Adjust the spacing between message groups.");
     changed |= markers(ui, &mut s.group_space, &[0.0, 4.0, 8.0, 16.0, 24.0], |v| format!("{v}px"), 16.0);
@@ -223,6 +230,9 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     if markers(ui, &mut pct, &crate::ui::ZOOMS, |v| format!("{v}"), 100.0) {
         s.zoom = pct / 100.0;
         changed = true;
+    }
+    if flipped {
+        write(app, Patch::new().flag(6, 17, app.settings.compact));
     }
     if changed {
         app.heights.clear();
@@ -257,19 +267,6 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     });
     let roles = picked || role != s.role_colors;
     s.role_colors = role;
-    let official = ["Default", "No text color", "No background color", "No styling"];
-    let mut style = s.official_style as usize;
-    choice(ui, "Official Messages", official[style.min(3)], |ui| {
-        for (i, name) in official.iter().enumerate() {
-            let row = ui.selectable_label(style == i, *name);
-            super::mark(ui, &format!("option:{name}"), row.rect);
-            if row.clicked() {
-                style = i;
-            }
-        }
-    });
-    colors |= style != s.official_style as usize;
-    s.official_style = style as u8;
     colors |= toggle(ui, &mut s.switch_icons, "Show on/off indicators", "On forms, menus and settings, on/off toggles will have icons.");
     related(app, ui, Page::Appearance, "Appearance", "Change your app theme");
 
@@ -284,12 +281,12 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     motion |= toggle(ui, &mut s.sync_motion, "Sync with computer setting", "");
     caption(ui, "Minimum notification duration", "Keep pop-up notifications on screen for at least this long. Notifications that already stay longer are unaffected.");
     motion |= markers(ui, &mut s.min_toast_secs, &[3.0, 5.0, 10.0, 15.0, 20.0], |v| format!("{v}s"), 5.0);
-    motion |= toggle(ui, &mut s.gif_autoplay, "Play GIFs when Rustcord is focused", "");
-    motion |= toggle(ui, &mut s.animate_emoji, "Play animated emoji", "");
+    motion |= synced(app, ui, "Play GIFs when Rustcord is focused", "", |s| &mut s.gif_autoplay, 11);
+    motion |= synced(app, ui, "Play animated emoji", "", |s| &mut s.animate_emoji, 14);
     sub(ui, "Play sticker animations");
     motion |= radio(
         ui,
-        &mut s.stickers,
+        &mut app.settings.stickers,
         &[
             (Animate::Always, "Always animate", ""),
             (Animate::OnInteraction, "Animate on interaction", "On the desktop client, stickers will animate on hover or focus. On mobile clients, stickers will animate on long-press."),
@@ -302,20 +299,24 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     caption(ui, "Text-to-Speech rate", "Control the speed at which text is read aloud when using Speak Message or other text-to-speech features.");
     let mut audio = speech_rate(ui, &mut s.tts_rate);
     audio |= toggle(ui, &mut s.image_descriptions, "Show image descriptions", "Image descriptions are used to describe images for screen readers.");
-    audio |= toggle(ui, &mut s.legacy_input, "Use the legacy chat input", "Disables most chat features but may work better with screen readers.");
+    audio |= synced(app, ui, "Use the legacy chat input", "Disables most chat features but may work better with screen readers.", |s| &mut s.legacy_input, 24);
     if audio {
         app.heights.clear();
-    }
-    if let Some(v) = super::user::legacy(app, ui) {
-        let mut sr = v["allow_accessibility_detection"].as_bool().unwrap_or(false);
-        if toggle(ui, &mut sr, "Allow Discord to track screen reader usage", "Lets Discord know whether you use a screen reader, to improve accessibility features.") {
-            super::user::set_legacy(app, serde_json::json!({ "allow_accessibility_detection": sr }));
-        }
     }
     if roles | motion | colors {
         app.heights.clear();
     }
     changed | roles | motion | colors | audio
+}
+
+fn synced(app: &mut App, ui: &mut Ui, label: &str, desc: &str, field: fn(&mut Settings) -> &mut bool, f: u64) -> bool {
+    let mut on = *field(&mut app.settings);
+    let hit = toggle(ui, &mut on, label, desc);
+    if hit {
+        *field(&mut app.settings) = on;
+        write(app, Patch::new().flag(6, f, on));
+    }
+    hit
 }
 
 /// The slider from "Slower" to "Faster" with the speed beside it, and a button that reads a line aloud.

@@ -6,7 +6,7 @@
 pub mod frecency;
 
 use crate::cache::{Settings, Spoilers};
-use crate::state::{Folder, Id};
+use crate::state::{Folder, Id, ReactEmoji};
 use crate::theme::{Custom, Fill, Theme};
 
 enum Val<'a> {
@@ -194,9 +194,9 @@ pub fn privacy_update(field: u64, ids: &[Id]) -> Vec<u8> {
     out
 }
 
-/// The account's own custom status text (status settings 11, custom_status 2), unless it ran out.
+/// The account's own custom status text and emoji (status settings 11, custom_status 2), unless it ran out.
 /// None when the blob has no status settings at all, so a partial update leaves it be.
-pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {
+pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<(String, Option<ReactEmoji>)>> {
     let status = fields(settings).into_iter().find_map(|(n, v)| match (n, v) {
         (11, Val::Bytes(b)) => Some(b),
         _ => None,
@@ -207,15 +207,18 @@ pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {
     }) else {
         return Some(None);
     };
-    let mut text = None;
+    let (mut text, mut emoji) = (String::new(), ReactEmoji::default());
     for (n, v) in fields(custom) {
         match (n, v) {
-            (1, Val::Bytes(t)) => text = Some(String::from_utf8_lossy(t).into_owned()),
+            (1, Val::Bytes(t)) => text = String::from_utf8_lossy(t).into_owned(),
+            (2, Val::Fixed(id)) => emoji.id = id,
+            (3, Val::Bytes(name)) => emoji.name = String::from_utf8_lossy(name).into_owned(),
             (4, Val::Fixed(exp)) if exp != 0 && exp <= now_ms => return Some(None),
             _ => {}
         }
     }
-    Some(text.filter(|t| !t.is_empty()))
+    let emoji = (!emoji.name.is_empty()).then_some(emoji);
+    Some((!text.is_empty() || emoji.is_some()).then_some((text, emoji)))
 }
 
 /// From the status settings (11): the status (1) and whether games are shared (3, a BoolValue
@@ -294,6 +297,10 @@ account! {
     push_delay: u32,
     tts_command: bool,
     clips_voice: bool,
+    legacy_input: bool,
+    game_suggestions: bool,
+    sticker_suggestions: bool,
+    md_preview: bool,
 }
 
 fn flag(w: &[u8]) -> bool {
@@ -328,6 +335,10 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         a.push_delay = Some(60);
         a.tts_command = Some(true);
         a.hour_cycle = Some(0);
+        a.legacy_input = Some(false);
+        a.game_suggestions = Some(true);
+        a.sticker_suggestions = Some(false);
+        a.md_preview = Some(true);
     }
     for (n, v) in fields(settings) {
         let Val::Bytes(b) = v else { continue };
@@ -393,6 +404,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                 for (n, v) in fields(b) {
                     let Val::Bytes(w) = v else { continue };
                     match n {
+                        2 => a.md_preview = Some(flag(w)),
                         3 => a.thread_sidebar = Some(flag(w)),
                         4 => {
                             a.spoilers = match text(w).as_deref() {
@@ -411,6 +423,9 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                         16 => a.tts_command = Some(flag(w)),
                         17 => a.compact = Some(flag(w)),
                         21 => a.emoticons = Some(flag(w)),
+                        24 => a.legacy_input = Some(flag(w)),
+                        28 => a.sticker_suggestions = Some(flag(w)),
+                        39 => a.game_suggestions = Some(flag(w)),
                         41 => a.compact_avatars = Some(flag(w)),
                         _ => {}
                     }
@@ -543,11 +558,18 @@ pub fn status_patch(status: &str, expires_ms: u64, created_ms: u64) -> Vec<u8> {
     out
 }
 
-/// An update to the custom status (11, 2); no text clears it.
-pub fn custom_status_patch(text: &str, expires_ms: u64, created_ms: u64) -> Vec<u8> {
+/// An update to the custom status (11, 2); no text and no emoji clears it.
+pub fn custom_status_patch(text: &str, emoji: Option<&ReactEmoji>, expires_ms: u64, created_ms: u64) -> Vec<u8> {
     let mut custom = Vec::new();
-    if !text.is_empty() {
+    if !text.is_empty() || emoji.is_some() {
         message(&mut custom, 1, text.as_bytes());
+        if let Some(e) = emoji {
+            if e.id != 0 {
+                tag(&mut custom, 2, 1);
+                custom.extend_from_slice(&e.id.to_le_bytes());
+            }
+            message(&mut custom, 3, e.name.as_bytes());
+        }
         if expires_ms != 0 {
             tag(&mut custom, 4, 1);
             custom.extend_from_slice(&expires_ms.to_le_bytes());

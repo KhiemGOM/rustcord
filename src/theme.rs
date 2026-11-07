@@ -80,6 +80,7 @@ pub struct Palette {
     pub highlight_bg: Color32,
     pub highlight_hover: Color32,
     pub mention_bar: Color32,
+    pub notice: [Color32; 2],
     pub dark: bool,
 }
 
@@ -124,6 +125,7 @@ impl Palette {
             highlight_bg: f(self.highlight_bg),
             highlight_hover: f(self.highlight_hover),
             mention_bar: f(self.mention_bar),
+            notice: self.notice.map(&f),
             dark: self.dark,
         }
     }
@@ -198,6 +200,7 @@ const ASH: Palette = Palette {
     highlight_bg: tint(0xf8a300, 78),
     highlight_hover: tint(0xf8a300, 39),
     mention_bar: rgb(0xfcb529),
+    notice: [rgb(0x622a00), rgb(0xffe7cf)],
     dark: true,
 };
 
@@ -231,6 +234,7 @@ const DARK: Palette = Palette {
     link: rgb(0x4d96ee),
     mention_fg: rgb(0xa9bbff),
     mention_bar: rgb(0xea9800),
+    notice: [rgb(0x431000), rgb(0xffc356)],
     ..ASH
 };
 
@@ -269,6 +273,7 @@ const ONYX: Palette = Palette {
     link: rgb(0x2781e7),
     mention_fg: rgb(0x8ca0fd),
     mention_bar: rgb(0xce8100),
+    notice: [rgb(0x240000), rgb(0xfaaa00)],
     ..ASH
 };
 
@@ -307,6 +312,7 @@ const LIGHT: Palette = Palette {
     mention_fg: rgb(0x2e3c88),
     dark: false,
     mention_bar: rgb(0x945300),
+    notice: [rgb(0xffe7cf), rgb(0x5e2700)],
     ..ASH
 };
 

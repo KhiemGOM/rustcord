@@ -211,6 +211,9 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     if msg != 0 && msg == BUTTON_CREATED.load(Ordering::Relaxed) {
         crate::tray::send("badge");
     }
+    if msg == WM_SETCURSOR && lp as u16 as u32 == HTCLIENT && crate::cursor::apply() {
+        return 1;
+    }
     if msg == WM_ERASEBKGND {
         use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect};
         let mut r: RECT = unsafe { std::mem::zeroed() };

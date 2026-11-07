@@ -1,3 +1,4 @@
+use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, CornerRadius, Rect, RichText, Sense, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
@@ -110,4 +111,29 @@ fn body(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, at: egui::Pos2) {
         ui.close();
     }
     super::stage::tile_items(app, ui, chan, u);
+}
+
+/// Developer mode's Stream Info Overlay: what the person's video is, shown over their tile under the pointer.
+pub fn stream_info(ui: &Ui, app: &App, user: Id, tile: Rect) {
+    let img = app.voice.video.get(&user);
+    let size = img.map(|i| i.source_size).filter(|s| s.x > 0.0);
+    let fps = app.voice.video_rate.get(&user).map_or(0, |r| r.2);
+    let rows = [
+        ("Video Codec: ", if size.is_some() { "H264".to_string() } else { "-".into() }),
+        ("Resolution: ", size.map_or("-".into(), |s| format!("{} x {}", s.x as u32, s.y as u32))),
+        ("FPS: ", if size.is_some() && fps > 0 { fps.to_string() } else { "-".into() }),
+    ];
+    let mut job = LayoutJob::default();
+    job.append("Stream Info", 0.0, TextFormat::simple(semi(12.0), Color32::WHITE));
+    for (name, value) in rows {
+        job.append(&format!("
+{name}"), 0.0, TextFormat::simple(reg(12.0), Color32::WHITE));
+        job.append(&value, 0.0, TextFormat::simple(semi(12.0), Color32::WHITE));
+    }
+    let galley = ui.painter().layout_job(job);
+    let r = Rect::from_min_size(tile.min + vec2(8.0, 8.0), galley.size() + vec2(16.0, 12.0));
+    super::settings::mark(ui, "stream_info", r);
+    ui.painter().rect_filled(r, CornerRadius::same(4), Color32::from_black_alpha(170));
+    ui.painter().galley(r.min + vec2(8.0, 6.0), galley, Color32::WHITE);
+    ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
 }

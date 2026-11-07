@@ -44,6 +44,7 @@ mod menus;
 mod more;
 mod players;
 mod perms;
+mod p3b;
 mod themes;
 mod serverx;
 mod shopx;
@@ -1419,6 +1420,7 @@ impl Run {
             4365..=4399 => self.p1b_steps(app, ctx),
             4400..=4499 => self.perms_steps(app, ctx),
             4500..=4599 => self.themes_steps(app, ctx),
+            4600..=4649 => self.p3b_steps(app, ctx),
             4650..=4699 => self.shopx_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
@@ -5621,7 +5623,7 @@ impl Run {
                     return;
                 }
                 self.mark("pin_dm");
-                app.set_custom_status("mock status", 2);
+                app.set_custom_status("mock status", None, 2);
                 crate::cache::remember_account(&crate::cache::SavedAccount { id: 4242, name: "Second".into(), avatar: None }, "mock-token");
                 app.accounts = crate::cache::accounts();
                 app.switch_account(4242);
