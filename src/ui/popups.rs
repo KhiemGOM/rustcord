@@ -936,6 +936,13 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
                 ui.label(RichText::new("Start searches with @ # ! * $ to narrow results.").font(reg(14.0)).color(pal().header_secondary));
+                let learn = ui.add(egui::Label::new(RichText::new("Learn more").font(reg(14.0)).color(pal().link)).sense(Sense::click()));
+                if learn.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if learn.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/115000070311"));
+                }
             });
         });
     // the title and arrows sit on the backdrop around the box

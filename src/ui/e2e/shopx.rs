@@ -528,7 +528,26 @@ impl Run {
                     }
                     4 => {
                         self.shot(ctx, "quests_buttons.png");
-                        go(self, 5, 300);
+                        app.quests = None;
+                        app.store.me_raw["premium_type"] = serde_json::json!(0);
+                        app.settings_page = Some(crate::ui::settings::Page::Nitro);
+                        go(self, 5, 1800);
+                    }
+                    5 => {
+                        let both = at("billing:Subscribe to Nitro Basic").zip(at("billing:Subscribe to Nitro"));
+                        if let Some((a, b)) = both
+                            && !a.intersects(b)
+                            && a.width() >= 160.0
+                        {
+                            self.mark("nitro_basic_button_fits");
+                        }
+                        self.shot(ctx, "nitro_settings.png");
+                        go(self, 6, 300);
+                    }
+                    6 => {
+                        app.store.me_raw["premium_type"] = serde_json::json!(2);
+                        app.settings_page = None;
+                        go(self, 7, 300);
                     }
                     _ => {
                         ctx.data_mut(|d| d.remove::<u8>(key));

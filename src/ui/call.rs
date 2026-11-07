@@ -11,8 +11,9 @@ use crate::voice::{State, audio};
 /// camera and screen share underneath, laid out in the area `ui` was given.
 pub fn panel(app: &mut App, ui: &mut Ui) {
     let Some(ch) = app.voice.chan else { return };
+    let video = app.voice.camera || app.voice.video_call;
     let (text, col) = match app.voice.state {
-        State::Connected => ("Voice Connected", GREEN),
+        State::Connected => (if video { "Video Connected" } else { "Voice Connected" }, GREEN),
         State::Reconnecting => ("Reconnecting", YELLOW),
         _ => ("RTC Connecting", YELLOW),
     };
@@ -42,7 +43,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     // hover its words turn into Voice Details
     let t = Rect::from_min_size(pos2(tile.right() + 8.0, y - 17.0), vec2(r.right() - 76.0 - tile.right() - 8.0, 19.0));
     let status = ui.interact(t, egui::Id::new("voice_status"), Sense::click());
-    ui.painter().text(t.left_center(), Align2::LEFT_CENTER, if status.hovered() { "Voice Details" } else { text }, medium(16.0), col);
+    ui.painter().text(t.left_center(), Align2::LEFT_CENTER, if status.hovered() { if video { "Video Details" } else { "Voice Details" } } else { text }, medium(16.0), col);
     if app.voice.state != State::Connected {
         super::motion::ellipsis(ui, pos2(t.right() + 6.0, t.center().y), col);
     }
@@ -226,13 +227,12 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(&info).font(mono(11.0)).color(pal().header_secondary));
             }
-            if app.voice.privacy.is_some() {
-                ui.add_space(8.0);
-                let (b, _) = ui.allocate_exact_size(vec2(256.0, 24.0), Sense::hover());
-                ui.painter().rect_filled(b, 4, GREEN.gamma_multiply(0.12));
-                icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), GREEN);
-                ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, "End-to-end encrypted", medium(12.0), GREEN);
-            }
+            ui.add_space(8.0);
+            let (b, _) = ui.allocate_exact_size(vec2(256.0, 24.0), Sense::hover());
+            ui.painter().rect_filled(b, 4, GREEN.gamma_multiply(0.12));
+            icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), GREEN);
+            let kind = if app.voice.privacy.is_some() { "End-to-end encrypted" } else { "Secure Connection" };
+            ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, kind, medium(12.0), GREEN);
         });
     if let Some(r) = shown.as_ref().map(|s| s.response.rect) {
         app.rects.insert("rtc:popout".into(), r);
