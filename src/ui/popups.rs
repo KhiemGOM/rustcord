@@ -1745,7 +1745,7 @@ fn pins(app: &mut App, ctx: &egui::Context) {
     let tall = ctx.content_rect().height() * 0.8 - 57.0;
     let mut jump = None;
     let mut unpin = None;
-    let manage = app.store.channels.get(&ch).is_some_and(|c| c.guild == 0 || app.store.perms(c) & crate::state::MANAGE_MESSAGES != 0);
+    let manage = app.store.channels.get(&ch).is_some_and(|c| c.guild == 0 || app.store.perms(c) & crate::state::PIN_MESSAGES != 0);
     let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("pins"))
         .order(egui::Order::Foreground)
         .fixed_pos(at)

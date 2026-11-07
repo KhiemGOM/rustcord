@@ -76,6 +76,8 @@ pub const MANAGE_NICKNAMES: u64 = 1 << 27;
 pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
 pub const MANAGE_EVENTS: u64 = 1 << 33;
 pub const CREATE_EVENTS: u64 = 1 << 44;
+pub const PIN_MESSAGES: u64 = 1 << 51;
+pub const READ_MESSAGE_HISTORY: u64 = 1 << 16;
 pub const VIEW_AUDIT_LOG: u64 = 1 << 7;
 pub const MANAGE_GUILD_EXPRESSIONS: u64 = 1 << 30;
 pub const CREATE_GUILD_EXPRESSIONS: u64 = 1 << 43;
@@ -1466,6 +1468,11 @@ impl Store {
 
     /// Whether we may write here: a timeout takes the permission away, a thread asks for its own
     /// and a locked one needs manage threads.
+
+    /// Pinning and unpinning: anyone in a dm, Pin Messages (with history to read) in a server.
+    pub fn can_pin(&self, c: &Channel) -> bool {
+        c.guild == 0 || self.perms(c) & (PIN_MESSAGES | READ_MESSAGE_HISTORY) == PIN_MESSAGES | READ_MESSAGE_HISTORY
+    }
 
     pub fn can_send(&self, c: &Channel) -> bool {
         if c.guild == 0 {
