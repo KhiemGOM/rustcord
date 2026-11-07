@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 use super::perms::SECTIONS;
-use super::{App, bar, faint, rule};
+use super::{App, bar, faint, linked, rule};
 use crate::net::Tag;
 use crate::state::{Id, Role, sid};
 use crate::theme::*;
@@ -82,12 +82,13 @@ pub struct Edit {
     emoji: Option<String>,
     links: Option<Vec<String>>,
     links_all: bool,
+    conds: Vec<linked::Cond>,
 }
 
 impl Edit {
     pub fn new(r: &Role, tab: u8) -> Edit {
         let d = Draft::of(r);
-        Edit { id: r.id, tab, base: d.clone(), draft: d, pq: String::new(), mq: String::new(), saving: false, focus_name: false, add: None, emoji: None, links: None, links_all: true }
+        Edit { id: r.id, tab, base: d.clone(), draft: d, pq: String::new(), mq: String::new(), saving: false, focus_name: false, add: None, emoji: None, links: None, links_all: true, conds: Vec::new() }
     }
 
     pub fn adding(&self) -> bool {
@@ -160,6 +161,7 @@ fn tabs(ui: &mut Ui, e: &mut Edit, everyone: bool, members: usize) {
         let g = ui.painter().layout_no_wrap(label, medium(16.0), pal().header_primary);
         let b = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x + 8.0, r.height()));
         let resp = ui.interact(b, ui.id().with(("role_tab", t)), Sense::click());
+        settings::mark(ui, &format!("role:tab:{t}"), b);
         let on = e.tab == t;
         let ink = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
         ui.painter().text(pos2(b.left() + 4.0, b.center().y), Align2::LEFT_CENTER, g.text(), medium(16.0), ink);
@@ -575,7 +577,10 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
     if e.links.is_none()
         && let Some(v) = app.server.as_ref().and_then(|s| s.data.get(key)).filter(|v| !v.is_null())
     {
-        let list: Vec<String> = v.as_array().into_iter().flatten().flat_map(|g| g.as_array().into_iter().flatten().chain(std::iter::once(g)).filter_map(|c| c["connection_type"].as_str())).map(str::to_string).collect();
+        let mut list: Vec<String> = v.as_array().into_iter().flatten().flat_map(|g| g.as_array().into_iter().flatten().chain(std::iter::once(g)).filter_map(|c| c["connection_type"].as_str())).map(str::to_string).collect();
+        let mut seen = HashSet::new();
+        list.retain(|t| seen.insert(t.clone()));
+        e.conds = linked::parse(v);
         e.links = Some(list);
     }
     let _ = role;
@@ -592,6 +597,7 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
         ui.add_space(16.0);
     }
     let mut next = list.clone();
+    let mut fields_changed = false;
     for (i, t) in list.iter().enumerate() {
         let name = PLATFORMS.iter().find(|p| p.0 == t).map_or(t.as_str(), |p| p.1);
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
@@ -601,9 +607,13 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
         icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), crate::ui::motion::mix(pal().header_secondary, RED, crate::ui::motion::hot(ui.ctx(), &resp)));
         if resp.clicked() && members == 0 {
             next.remove(i);
+            e.conds.retain(|c| c.platform != *t);
             break;
         }
         ui.add_space(8.0);
+        if linked::has_fields(t) && linked::editor(ui, t, &mut e.conds, members > 0) {
+            fields_changed = true;
+        }
     }
     if list.len() > 1 {
         ui.add_space(8.0);
@@ -612,7 +622,9 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
         e.links_all = all;
         ui.add_space(8.0);
     }
+    ui.add_space(8.0);
     let add = settings::secondary(ui, "Add requirement");
+    settings::mark(ui, "role:add_requirement", add.rect);
     egui::Popup::menu(&add).show(|ui| {
         crate::ui::menu_body(ui, |ui| {
             for (id, label) in PLATFORMS {
@@ -622,11 +634,11 @@ fn links(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role, members
             }
         });
     });
-    if next != list {
+    if next != list || fields_changed {
         let groups: Vec<Value> = if e.links_all || next.len() < 2 {
-            vec![Value::Array(next.iter().map(|t| json!({ "connection_type": t })).collect())]
+            vec![Value::Array(next.iter().flat_map(|t| linked::elements(t, &e.conds)).collect())]
         } else {
-            next.iter().map(|t| json!([{ "connection_type": t }])).collect()
+            next.iter().map(|t| Value::Array(linked::elements(t, &e.conds))).collect()
         };
         let body = if next.is_empty() { json!([]) } else { Value::Array(groups) };
         app.rest("PUT", path, Some(body), Tag::reason());

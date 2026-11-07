@@ -47,6 +47,8 @@ mod buy;
 mod shop;
 #[path = "mockcord/profiles.rs"]
 mod profiles;
+#[path = "mockcord/roleconn.rs"]
+mod roleconn;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 #[path = "mockcord/prefs.rs"]
@@ -1454,6 +1456,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     }
     if method == "GET" && parts.first() == Some(&"cdn") {
         if let Some(refusal) = cdn_shape::check(path) {
+    if let Some((code, v)) = roleconn::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
             return refusal;
         }
     }
@@ -2077,8 +2082,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
         ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
-        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(json!([])),
-        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "guilds", "1000", "roles", _, "members"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "guilds", "1000", "roles"]) => {
             let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
