@@ -227,7 +227,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
         if removable {
             let b = Rect::from_center_size(pos2(pill.right() - 12.0, pill.center().y), vec2(16.0, 16.0));
             let resp = ui.interact(b, ui.id().with(("role_x", id)), Sense::click());
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "role_x", id)), b));
+            crate::ui::settings::mark(ui, &format!("role_x:{id}"), b);
             icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(b.center(), vec2(10.0, 10.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -661,7 +661,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let g = ui.painter().layout_no_wrap(label.clone(), medium(14.0), if on { pal().header_primary } else { pal().header_secondary }, );
             let tr = Rect::from_min_size(pos2(tx, ty - 10.0), vec2(g.size().x, 32.0));
             let resp = ui.interact(tr, ui.id().with(("fp_tab", label)), Sense::click());
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "fp_tab", *t as u8)), tr));
+            crate::ui::settings::mark(ui, &format!("fp_tab:{}", *t as u8), tr);
             let ink = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
             let g = ui.painter().layout_no_wrap(label.clone(), medium(14.0), ink);
             ui.painter().galley(pos2(tx, ty - g.size().y / 2.0 + 6.0), g, ink);

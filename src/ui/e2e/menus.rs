@@ -284,7 +284,7 @@ impl Run {
                 self.next(900);
             }
             3833 => {
-                let Some((icon, tip)) = ctx.data(|d| d.get_temp::<(Rect, Rect)>(egui::Id::new(("e2e", "rail_tip")))) else { return };
+                let (Some(icon), Some(tip)) = (Self::at(ctx, "rail_icon"), Self::at(ctx, "rail_tip")) else { return };
                 if tip.left() >= icon.right() && (tip.center().y - icon.center().y).abs() < 3.0 {
                     self.mark("rail_tip_beside_icon");
                 }
@@ -296,7 +296,7 @@ impl Run {
                 self.next(900);
             }
             3834 => {
-                let title = ctx.data(|d| d.get_temp::<String>(egui::Id::new(("e2e", "title")))).unwrap_or_default();
+                let title = Self::said(ctx, "title").unwrap_or_default();
                 if title == "Discover" {
                     self.mark("title_says_discover");
                 }
@@ -308,7 +308,7 @@ impl Run {
                 self.next(900);
             }
             3835 => {
-                let title = ctx.data(|d| d.get_temp::<String>(egui::Id::new(("e2e", "title")))).unwrap_or_default();
+                let title = Self::said(ctx, "title").unwrap_or_default();
                 if title == "Quests" {
                     self.mark("title_says_quests");
                 }
