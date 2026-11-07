@@ -14,7 +14,7 @@ use crate::theme::*;
 enum Body<'a> {
     Playing(&'a Activity),
     Voice(Id, Id),
-    Stream(Option<&'a Activity>),
+    Stream(Id, Option<&'a Activity>),
 }
 
 fn header_line(a: &Activity) -> String {
@@ -93,6 +93,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             let mut open = None;
             let mut channel = None;
+            let mut watch = None;
             let mut ticking = false;
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for u in &busy {
@@ -102,7 +103,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     if let Some((g, c)) = in_voice.get(u) {
                         bodies.push(Body::Voice(*g, *c));
                         if live.contains(u) {
-                            bodies.push(Body::Stream(acts.iter().copied().find(|a| a.kind == 0)));
+                            bodies.push(Body::Stream(*c, acts.iter().copied().find(|a| a.kind == 0)));
                         }
                     }
                     let preview = (ui.available_width() - 32.0) * 9.0 / 16.0;
@@ -110,7 +111,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         .iter()
                         .map(|b| match b {
                             Body::Playing(a) if body_lines(a).len() > 2 => 84.0,
-                            Body::Stream(_) => 62.0 + preview + 16.0,
+                            Body::Stream(..) => 62.0 + preview + 16.0,
                             _ => 68.0,
                         })
                         .collect();
@@ -173,7 +174,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 }
                                 ticking |= a.start > 0 && !a.spotify();
                             }
-                            Body::Stream(game) => {
+                            Body::Stream(c, game) => {
                                 let who = Rect::from_min_size(pos2(row.left() + 16.0, row.top() + 10.0), vec2(32.0, 32.0));
                                 avatar(ui, who, &user.avatar_url());
                                 text::paint(ui.painter(), pos2(who.right() + 12.0, row.top() + 18.0), Align2::LEFT_CENTER, &name, semi(14.0), pal().header_primary, row.width() - 130.0);
@@ -184,6 +185,20 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 ui.painter().rect_filled(shot, CornerRadius::same(8), Color32::from_rgb(0x1e, 0x1f, 0x22));
                                 super::settings::mark(ui, &format!("now_stream:{u}"), shot);
                                 super::settings::said(ui.ctx(), &format!("now_stream:{u}"), doing);
+                                if ui.rect_contains_pointer(shot) {
+                                    let g = ui.painter().layout_no_wrap("Watch Stream".into(), semi(14.0), Color32::WHITE);
+                                    let b = Rect::from_center_size(shot.center(), vec2(g.size().x + 32.0, 32.0));
+                                    let br = ui.interact(b, ui.id().with(("now_watch", u)), Sense::click());
+                                    ui.painter().rect_filled(b, CornerRadius::same(8), if br.hovered() { pal().control_hover } else { pal().control });
+                                    ui.painter().galley(pos2(b.left() + 16.0, b.center().y - g.size().y / 2.0), g, Color32::WHITE);
+                                    super::settings::mark(ui, &format!("now_watch:{u}"), b);
+                                    if br.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if br.clicked() {
+                                        watch = Some((*c, *u));
+                                    }
+                                }
                             }
                             Body::Voice(g, c) => {
                                 let rr = ui.interact(row, ui.id().with(("now_voice", u)), Sense::click());
@@ -204,7 +219,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         }
                         y += h;
                     }
-                    if resp.clicked() && channel.is_none() {
+                    if resp.clicked() && channel.is_none() && watch.is_none() {
                         open = Some(*u);
                     }
                     ui.add_space(8.0);
@@ -220,7 +235,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let q: Vec<String> = want.iter().map(|a| format!("application_ids={a}")).collect();
                 app.rest("GET", format!("/applications/public?{}", q.join("&")), None, Tag::AppIcons(want));
             }
-            if let Some((g, c)) = channel {
+            if let Some((c, u)) = watch {
+                app.watch_stream(c, u);
+            } else if let Some((g, c)) = channel {
                 app.ui.guild = Some(g);
                 app.open(c);
             } else if let Some(u) = open {
