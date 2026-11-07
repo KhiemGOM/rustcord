@@ -90,8 +90,9 @@ pub fn paint_art(ui: &Ui, a: &Activity, icon: &Option<String>, r: Rect, radius: 
 }
 
 /// The card on a profile: "Playing X" over the artwork and its lines, with a progress bar and a
-/// Play on Spotify button for a song. `w` is the card's width.
-pub fn card(ui: &mut Ui, a: &Activity, w: f32, icon: &Option<String>, connected: bool) -> Option<Act> {
+/// Play on Spotify and Listen Along buttons for a song: side by side with words on a full
+/// profile (`wide`), an icon beside Play on Spotify in the popout. `w` is the card's width.
+pub fn card(ui: &mut Ui, a: &Activity, w: f32, icon: &Option<String>, connected: bool, name: &str, wide: bool) -> Option<Act> {
     let text_lines = lines(a);
     let song = a.spotify();
     let body = if song { 60.0 } else { (text_lines.len() as f32 * 16.0 + 18.0).max(60.0) };
@@ -124,20 +125,39 @@ pub fn card(ui: &mut Ui, a: &Activity, w: f32, icon: &Option<String>, connected:
         p.rect_filled(bar, CornerRadius::same(2), Color32::from_white_alpha(46));
         p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * done as f32 / total as f32, 4.0)), CornerRadius::same(2), Color32::WHITE);
         let b = Rect::from_min_size(pos2(r.left() + 8.0, r.bottom() - 40.0), vec2(w - 16.0, 32.0));
-        let resp = ui.interact(b, ui.id().with(("play", &a.name)), Sense::click());
+        let (play, along) = if wide {
+            let half = (b.width() - 8.0) / 2.0;
+            (Rect::from_min_size(pos2(b.left() + half + 8.0, b.top()), vec2(half, 32.0)), Rect::from_min_size(b.min, vec2(half, 32.0)))
+        } else {
+            (Rect::from_min_size(b.min, vec2(b.width() - 40.0, 32.0)), Rect::from_min_size(pos2(b.right() - 32.0, b.top()), vec2(32.0, 32.0)))
+        };
+        let url = a.sync_id.as_ref().filter(|_| connected).map(|id| format!("https://open.spotify.com/track/{id}"));
+        let resp = ui.interact(play, ui.id().with(("play", &a.name)), Sense::click());
+        let listen = ui.interact(along, ui.id().with(("listen", &a.name)), Sense::click());
+        super::settings::mark(ui, "spotify:play", play);
+        super::settings::mark(ui, "spotify:listen", along);
         let p = ui.painter();
-        p.rect_filled(b, CornerRadius::same(8), Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }));
+        p.rect_filled(play, CornerRadius::same(8), Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }));
         let label = if connected { "Play on Spotify" } else { "Connect Spotify" };
-        let lw = text::paint(p, pos2(b.center().x + 12.0, b.center().y), Align2::CENTER_CENTER, label, medium(14.0), pal().header_primary, b.width() - 60.0);
-        p.circle_filled(pos2(lw.left() - 16.0, b.center().y), 8.0, SPOTIFY);
-        if resp.hovered() {
+        let lw = text::paint(p, pos2(play.center().x + 12.0, play.center().y), Align2::CENTER_CENTER, label, medium(14.0), pal().header_primary, play.width() - 60.0);
+        p.circle_filled(pos2(lw.left() - 16.0, play.center().y), 8.0, SPOTIFY);
+        p.rect_filled(along, CornerRadius::same(8), Color32::from_white_alpha(if listen.hovered() { 31 } else { 20 }));
+        if wide {
+            text::paint(p, along.center(), Align2::CENTER_CENTER, "Listen Along", medium(14.0), pal().header_primary, along.width() - 16.0);
+        } else {
+            icons::draw(p, Icon::ListenAlong, Rect::from_center_size(along.center(), vec2(16.0, 16.0)), pal().header_primary);
+        }
+        if resp.hovered() || listen.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if resp.clicked() {
-            act = Some(match (&a.sync_id, connected) {
-                (Some(id), true) => Act::Play(format!("https://open.spotify.com/track/{id}")),
-                _ => Act::Connect,
-            });
+            act = Some(url.clone().map_or(Act::Connect, Act::Play));
+        }
+        if listen.hovered() {
+            super::settings::said(ui.ctx(), "listen_tip", &format!("Listen along with {name}"));
+        }
+        if listen.on_hover_text(format!("Listen along with {name}")).clicked() {
+            act = Some(url.map_or(Act::Connect, Act::Play));
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     } else {

@@ -100,7 +100,7 @@ fn activity(app: &mut App, ui: &mut Ui, r: Rect) -> f32 {
     }
     let mut c = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(r.left(), y), vec2(r.width(), 400.0))));
     for a in &live {
-        crate::ui::presence::card(&mut c, a, r.width(), &None, false);
+        crate::ui::presence::card(&mut c, a, r.width(), &None, false, "", false);
     }
     y += c.min_rect().height();
     y - r.top()

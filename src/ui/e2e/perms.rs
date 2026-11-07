@@ -11,7 +11,7 @@ const CHANNEL: Id = 2200;
 const ROLE: Id = 4400;
 
 fn menu_row(ctx: &egui::Context, label: &str) -> Option<egui::Rect> {
-    ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))))
+    Run::at(ctx, &format!("menu_row:{}", label))
 }
 
 const ALWAYS: [&str; 4] = ["Server Profile", "Engagement", "Boost Perks", "App Directory"];
@@ -23,7 +23,7 @@ impl Run {
         let drawn = |ctx: &egui::Context, l: &str| Self::at(ctx, &format!("side:{l}")).is_some();
         let forget = |ctx: &egui::Context| {
             for l in ["Server Tag", "Engagement", "Boost Perks", "Emoji", "Stickers", "Soundboard", "Members", "Roles", "Invites", "Access", "Integrations", "App Directory", "Safety Setup", "Audit Log", "Bans", "AutoMod", "Server Profile", "Server Template", "Delete Server", "Enable Community"] {
-                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", format!("side:{l}").as_str()))));
+                ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", format!("side:{l}").as_str()))));
             }
         };
         let grant = |app: &mut App, perms: Option<u64>| {
@@ -264,7 +264,7 @@ impl Run {
             }
             4428 => {
                 for k in ["role:managed", "role:locked"] {
-                    ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", k))));
+                    ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", k))));
                 }
                 crate::ui::server::open_role(app, GUILD, 4401, 3);
                 self.next(1000);

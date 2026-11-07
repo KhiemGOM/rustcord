@@ -4,7 +4,8 @@ use super::{App, avatar, badge, channel_title, icon_button, status_dot};
 use super::icons::{self, Icon};
 use super::menus::{ChanAct, GuildAct, Move, channel_menu, guild_menu};
 use super::text;
-use crate::state::{Channel, Id, Status, Store};
+use crate::net::Cmd;
+use crate::state::{Channel, FRIEND, Id, Status, Store, snowflake_ms};
 use crate::theme::*;
 
 fn sort_key(c: &Channel) -> (bool, i32, Id) {
@@ -1106,6 +1107,7 @@ fn dms(app: &mut App, ui: &mut Ui) {
     let mut menu = None;
     let mut cleanup = false;
     let mut leave = None;
+    let mut wave = None;
     header(ui, |ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
@@ -1195,12 +1197,13 @@ fn dms(app: &mut App, ui: &mut Ui) {
             for id in ids {
                 let Some(c) = store.channels.get(&id) else { continue };
                 let title = channel_title(store, id);
-                let (r, x) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none() && app.shop.is_none());
+                let (r, act) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none() && app.shop.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
-                if x {
-                    leave = Some(id);
-                } else if r.clicked() {
-                    open = Some(id);
+                match act {
+                    Some(DmAct::Close) => leave = Some(id),
+                    Some(DmAct::Wave) => wave = Some(id),
+                    None if r.clicked() => open = Some(id),
+                    None => {}
                 }
                 if r.secondary_clicked() {
                     let who = if c.kind == 1 { c.recipients.first().copied().unwrap_or(0) } else { 0 };
@@ -1218,12 +1221,33 @@ fn dms(app: &mut App, ui: &mut Ui) {
     if let Some(c) = leave {
         super::popups::leave_dm(app, c);
     }
+    if let Some(c) = wave {
+        app.open(c);
+        app.net.send(Cmd::Send { channel: c, content: String::new(), nonce: crate::state::make_nonce(), reply: None, files: Vec::new(), stickers: vec![WAVE_STICKER], tts: false });
+    }
     if cleanup {
         app.user_dialog = Some(super::userdlg::Dialog::cleanup());
     }
 }
 
-fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> (egui::Response, bool) {
+const WAVE_STICKER: Id = 749054660769218631;
+
+fn wave_here(store: &Store, c: &Channel) -> bool {
+    let [u] = c.recipients[..] else { return false };
+    c.kind == 1
+        && c.last_msg == 0
+        && store.relationships.get(&u) == Some(&FRIEND)
+        && !store.ignored.contains(&u)
+        && store.user(u).is_some_and(|u| !u.bot)
+        && chrono::Utc::now().timestamp_millis() - snowflake_ms(c.id) < 21 * 86_400_000
+}
+
+enum DmAct {
+    Close,
+    Wave,
+}
+
+fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel, title: &str, selected: bool) -> (egui::Response, Option<DmAct>) {
     let (row, resp, hl) = dense_row(ui, 42.0);
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.contains_pointer();
@@ -1291,18 +1315,32 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
             super::tag_chip(&clip, u, pos2(r.right() + 4.0, row.center().y), 1.0);
         }
     }
-    let mut closed = false;
-    if hovered {
+    let mut act = None;
+    if wave_here(store, c) {
+        let w = text::layout(ui.ctx(), "👋 Wave", medium(14.0), pal().text_normal, 400.0).size().x;
+        let b = Rect::from_min_size(pos2(row.right() - 13.0 - w - 24.0, row.center().y - 16.0), vec2(w + 24.0, 32.0));
+        let hit = ui.interact(b, ui.id().with(("dm_wave", c.id)), Sense::click());
+        super::settings::mark(ui, &format!("dm_wave:{}", c.id), b);
+        let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &hit));
+        ui.painter().rect_filled(b, CornerRadius::same(8), fill);
+        text::paint(ui.painter(), pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "👋 Wave", medium(14.0), pal().text_normal, w);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        if hit.on_hover_text(format!("Wave to {title}")).clicked() {
+            act = Some(DmAct::Wave);
+        }
+    } else if hovered {
         let xr = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
         let hit = ui.interact(xr.expand(4.0), ui.id().with(("dm_close", c.id)), Sense::click());
         super::settings::mark(ui, &format!("dm_close:{}", c.id), xr);
         icons::draw(ui.painter(), Icon::Close, xr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
-        closed = hit.on_hover_text("Close DM").clicked();
+        if hit.on_hover_text("Close DM").clicked() {
+            act = Some(DmAct::Close);
+        }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     } else if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
     }
-    (resp, closed)
+    (resp, act)
 }
 
 fn group_color(id: Id) -> Color32 {

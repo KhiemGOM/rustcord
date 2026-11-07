@@ -142,7 +142,7 @@ impl Run {
                 self.next(400);
             }
             3716 => {
-                let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Copy Image")))) else { return };
+                let Some(r) = Self::at(ctx, &format!("menu_row:{}", "Copy Image")) else { return };
                 self.shot(ctx, "chatx_image_menu.png");
                 if let Ok(mut cb) = arboard::Clipboard::new() {
                     let _ = cb.clear();
@@ -251,12 +251,12 @@ impl Run {
                 self.next(500);
             }
             3729 => {
-                let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Create Reminder")))) else { return };
+                let Some(r) = Self::at(ctx, &format!("menu_row:{}", "Create Reminder")) else { return };
                 self.click(r.center());
                 self.next(500);
             }
             3730 => {
-                let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Custom...")))) else { return };
+                let Some(r) = Self::at(ctx, &format!("menu_row:{}", "Custom...")) else { return };
                 self.shot(ctx, "chatx_reminder_menu.png");
                 self.click(r.center());
                 self.next(500);

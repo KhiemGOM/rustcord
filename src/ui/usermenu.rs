@@ -64,7 +64,7 @@ pub fn menu_heading(ui: &mut Ui, text: &str) {
 /// 0 to 1. Gives the new place while it's dragged or clicked, and whether the pointer let go.
 pub fn menu_slider(ui: &mut Ui, label: &str, at: f32, value: Option<&str>) -> Option<(f32, bool)> {
     let (r, resp) = ui.allocate_at_least(vec2(160.0, 58.0), Sense::click_and_drag());
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
+    super::settings::mark(ui, &format!("menu_row:{label}"), r);
     let track = Rect::from_min_size(pos2(r.left() + 8.0, r.top() + 40.0), vec2(r.width() - 16.0, 4.0));
     let p = ui.painter();
     p.text(pos2(r.left() + 8.0, r.top() + 17.0), egui::Align2::LEFT_CENTER, label, medium(14.0), pal().header_primary);

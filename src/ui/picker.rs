@@ -716,7 +716,7 @@ fn grid(
                 let (r, resp) = ui.allocate_exact_size(vec2(cell, cell), Sense::click());
                 let on = kbd.sel == Some(base + i);
                 if base + i == 0 {
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "emoji0")), r));
+                    super::settings::mark(ui, "emoji0", r);
                 }
                 if on {
                     ui.painter().rect_filled(r, CornerRadius::same(4), pal().control_hover);

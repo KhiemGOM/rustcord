@@ -2728,6 +2728,9 @@ pub fn bolded(text: &str, size: f32, ink: Color32, width: f32) -> egui::text::La
 /// A menu that opens at a point, like a right click, with room for submenus. False once closed.
 pub fn float_menu(ctx: &egui::Context, id: &str, at: Pos2, content: impl FnOnce(&mut Ui)) -> bool {
     let mut open = true;
+    let screen = ctx.content_rect();
+    let h = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("menu_h"))).unwrap_or(0.0) + 16.0;
+    let at = pos2(at.x, at.y.min(screen.bottom() - 8.0 - h).max(screen.top() + 8.0));
     egui::Popup::new(egui::Id::new(id), ctx.clone(), egui::PopupAnchor::Position(at), egui::LayerId::background())
         .kind(egui::PopupKind::Menu)
         .layout(egui::Layout::top_down_justified(egui::Align::Min))
@@ -2892,7 +2895,7 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
     let (r, resp) = ui.allocate_at_least(vec2(w, h), Sense::click());
     list_row(label, resp.id);
     // menus have no app to report to; the e2e driver finds rows here by label
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("menu_row", label)), r));
+    settings::mark(ui, &format!("menu_row:{label}"), r);
     let p = ui.painter();
     if resp.has_focus() {
         p.rect_filled(r, CornerRadius::same(4), if danger { crate::theme::CRITICAL_BG } else { crate::theme::MENU_HOVER });

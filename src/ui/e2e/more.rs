@@ -19,7 +19,7 @@ fn png(w: u32, h: u32) -> Vec<u8> {
 }
 
 impl Run {
-    fn chord(&mut self, key: Key, modifiers: Modifiers) {
+    pub(super) fn chord(&mut self, key: Key, modifiers: Modifiers) {
         let k = |pressed| Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
         self.queue.push_back(vec![k(true)]);
         self.queue.push_back(vec![k(false)]);

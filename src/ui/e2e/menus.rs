@@ -49,7 +49,7 @@ impl Run {
     pub(super) fn menu_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let guild = self.target.0;
         let general = self.target.1;
-        let row = |label: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("menu_row", label))));
+        let row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         match self.step {
             3800 => {
                 if app.conn != Conn::Online || !app.store.channels.contains_key(&general) {
@@ -358,7 +358,7 @@ impl Run {
                 self.next(700);
             }
             3841 => {
-                let Some(m) = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("e2e", "modal:new_server")))) else { return };
+                let Some(m) = Self::at(ctx, "modal:new_server") else { return };
                 if Self::inside(ctx, m) {
                     self.mark("new_server_fits_short");
                 }
@@ -378,7 +378,7 @@ impl Run {
                 self.next(700);
             }
             3843 => {
-                let Some(m) = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("e2e", "modal:guild_notifs")))) else { return };
+                let Some(m) = Self::at(ctx, "modal:guild_notifs") else { return };
                 if Self::inside(ctx, m) {
                     self.mark("notifs_fits_short");
                 }

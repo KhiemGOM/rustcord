@@ -160,6 +160,9 @@ impl Run {
                 let sh = &app.voice.shared;
                 if app.voice.camera && app.voice.video.contains_key(&app.store.me) && sh.video_out.load(Relaxed) > 10 {
                     self.mark("camera_on");
+                    if Self::said(ctx, "voice_status").as_deref() == Some("Video Connected") {
+                        self.mark("video_connected_text");
+                    }
                     if effects::last_open().as_deref() == Some(SECOND) {
                         self.mark("camera_device");
                     }
@@ -193,6 +196,17 @@ impl Run {
                 }
             }
             2826 => {
+                if let Some(r) = app.rects.get("voice:status").copied() {
+                    if self.loaded != 88 {
+                        self.loaded = 88;
+                        self.queue.push_back(vec![Event::PointerMoved(r.center() + vec2(1.0, 0.0))]);
+                        self.queue.push_back(vec![Event::PointerMoved(r.center())]);
+                        return;
+                    }
+                    if Self::said(ctx, "voice_status").as_deref() == Some("Video Details") {
+                        self.mark("video_details_hover");
+                    }
+                }
                 let before = ctx.data(|d| d.get_temp::<u64>(egui::Id::new("e2e_camera_sent"))).unwrap_or(0);
                 if app.voice.camera && app.voice.shared.video_out.load(Relaxed) > before + 5 {
                     self.mark("camera_callbar_menu");
