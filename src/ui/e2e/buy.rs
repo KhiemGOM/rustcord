@@ -249,6 +249,7 @@ impl Run {
             }
             4215 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);
@@ -342,6 +343,7 @@ impl Run {
             }
             4227 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);
@@ -432,6 +434,7 @@ impl Run {
             }
             4238 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);
@@ -462,6 +465,7 @@ impl Run {
             }
             4242 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);
@@ -498,6 +502,7 @@ impl Run {
             }
             4246 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);
@@ -540,6 +545,7 @@ impl Run {
             }
             4251 => {
                 if app.buy.is_some() {
+                    self.tap(ctx, "buy:done");
                     return;
                 }
                 Self::wipe(ctx);

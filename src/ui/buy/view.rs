@@ -40,7 +40,8 @@ enum Act {
     Manage,
 }
 
-/// The button Purchase turns into sits where Purchase was, so a double-click's second half lands on it.
+/// What Purchase turns into is a shorter dialog with its button where Purchase was, so a
+/// double-click's second half lands on that button or just outside the dialog.
 fn second_half(pressed: f64, now: f64) -> bool {
     now - pressed < unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() } as f64 / 1000.0
 }
@@ -362,7 +363,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
             footer(ui, foot, &b, &mut acts);
         });
     });
-    if shown.should_close() && !busy {
+    if shown.should_close() && !busy && !second_half(b.pressed, ctx.input(|i| i.time)) {
         acts.push(Act::Close);
     }
     let mut keep = true;
