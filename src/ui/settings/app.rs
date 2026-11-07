@@ -1,6 +1,6 @@
 use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
-use super::{Page, caption, dropdown, markers, note, radio, section, sub, toggle};
+use super::{Page, caption, dropdown, markers, radio, section, sub, toggle};
 use crate::cache::{Animate, Density, RoleColors, Spoilers};
 use crate::theme::*;
 use crate::ui::App;
@@ -8,76 +8,6 @@ use crate::ui::icons::{self, Icon};
 
 pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     let mut changed = false;
-    section(ui, "Theme");
-    let mut sync = app.settings.theme == Theme::Sync;
-    if toggle(ui, &mut sync, "Same as Device Theme", "Match your device's light or dark mode.") {
-        app.settings.theme = if sync { Theme::Sync } else { Theme::Dark };
-        app.settings.custom_theme = None;
-        changed = true;
-    }
-    super::end(ui, 32.0);
-    sub(ui, "Default Themes");
-    let themes = [
-        (Theme::Light, "Light", Color32::WHITE),
-        (Theme::Ash, "Ash", Color32::from_rgb(50, 51, 57)),
-        (Theme::Dark, "Dark", Color32::from_rgb(29, 29, 33)),
-        (Theme::Onyx, "Onyx", Color32::BLACK),
-        (Theme::Sync, "Sync with computer", Color32::WHITE),
-    ];
-    super::lead(ui);
-    let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
-    for (i, (t, name, fill)) in themes.into_iter().enumerate() {
-        let r = Rect::from_min_size(strip.min + vec2(56.0 * i as f32, 0.0), vec2(48.0, 48.0));
-        let on = app.settings.theme == t && app.settings.custom_theme.is_none();
-        ui.painter().rect_filled(r, CornerRadius::same(8), fill);
-        if t == Theme::Sync {
-            let half = Rect::from_min_max(pos2(r.center().x, r.top()), r.max);
-            ui.painter().rect_filled(half, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, Color32::from_rgb(29, 29, 33));
-        }
-        if tile(app, ui, name, r, on) {
-            app.settings.theme = t;
-            app.settings.custom_theme = None;
-            changed = true;
-        }
-    }
-
-    ui.add_space(40.0);
-    super::lead(ui);
-    let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-    let title = ui.painter().text(head.left_center(), Align2::LEFT_CENTER, "Color Themes", semi(16.0), pal().text_normal);
-    icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(title.right() + 12.0, head.center().y), vec2(16.0, 16.0)), pal().header_primary);
-    ui.add_space(4.0);
-    ui.add(egui::Label::new(RichText::new("Make Discord yours. Only with Nitro.").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
-    ui.add_space(20.0);
-    let per_row = ((ui.available_width() + 10.0) / 66.0).floor().max(1.0) as usize;
-    let rows = PRESETS.len().div_ceil(per_row);
-    let (grid, _) = ui.allocate_exact_size(vec2(ui.available_width(), rows as f32 * 66.0 - 10.0), Sense::hover());
-    for (i, preset) in PRESETS.iter().enumerate() {
-        let r = Rect::from_min_size(grid.min + vec2((i % per_row) as f32 * 66.0, (i / per_row) as f32 * 66.0), vec2(56.0, 56.0));
-        ui.painter().add(egui::Shape::mesh(rounded_gradient(preset, r, 8.0)));
-        let on = app.settings.custom_theme == Some(i as u8);
-        if tile(app, ui, preset.name, r, on) {
-            app.settings.custom_theme = Some(i as u8);
-            changed = true;
-        }
-    }
-    super::end(ui, 32.0);
-    let s = &mut app.settings;
-    changed |= toggle(ui, &mut s.sync_theme, "Sync theme across my devices", "");
-    changed |= toggle(ui, &mut s.own_theme_on_profiles, "Apply theme to other users' profiles", "");
-    related(app, ui, Page::Accessibility, "Accessibility", "Change saturation of colors, enable high-contrast mode, and more");
-
-    section(ui, "App Icon");
-    note(ui, "Change the Discord in-app icon, only with Nitro.");
-    super::lead(ui);
-    let (r, _) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::hover());
-    let logo = Rect::from_center_size(r.center(), vec2(40.0, 40.0));
-    ui.painter().rect_filled(r, CornerRadius::same(8), BLURPLE);
-    egui::Image::new(egui::include_image!("../../../assets/discord.png")).paint_at(ui, logo);
-    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
-    ui.add_space(8.0);
-    ui.add(egui::Label::new(RichText::new("Blurple (Default)").font(reg(14.0)).color(pal().header_secondary)).selectable(false));
-
     section(ui, "Messages");
     let s = &mut app.settings;
     sub(ui, "Show images, videos, and lolcats...");
@@ -130,6 +60,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
         "For example, when you type :) Rustcord will convert it to 🙂",
     );
     chat |= toggle(ui, &mut s.sticker_suggestions, "Show stickers in autocomplete results", "");
+    chat |= toggle(ui, &mut s.game_suggestions, "Show games in autocomplete results", "");
     chat |= toggle(ui, &mut s.send_button, "Show send message button", "");
     if chat {
         app.heights.clear();
@@ -157,8 +88,8 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     changed | chat | streamer
 }
 
-/// A theme swatch's ring, tick and click; true when it was clicked and isn't the one on.
-fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
+/// A theme swatch's ring, tick and click; true when it was clicked.
+pub(super) fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
     let resp = ui.interact(r, egui::Id::new(("theme", name)), Sense::click());
     let ring = if on { BLURPLE } else { crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 61), pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
@@ -171,11 +102,11 @@ fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     app.rects.insert(format!("theme:{name}"), r);
-    resp.clicked() && !on
+    resp.clicked()
 }
 
 /// The link row to a neighbouring page: its icon, a name, one line, a chevron.
-fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: &str) {
+pub(super) fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: &str) {
     super::lead(ui);
     ui.add_space(24.0);
     ui.add(egui::Label::new(RichText::new("Related Settings").font(semi(16.0)).color(pal().text_normal)).selectable(false));
@@ -201,7 +132,7 @@ fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: &str) {
 }
 
 /// A label on the left and a dropdown on the right; true when the menu's pick changed something.
-fn choice(ui: &mut Ui, label: &str, shown: &str, menu: impl FnOnce(&mut Ui)) -> bool {
+pub(super) fn choice(ui: &mut Ui, label: &str, shown: &str, menu: impl FnOnce(&mut Ui)) -> bool {
     super::lead(ui);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
     ui.painter().text(pos2(r.left(), r.center().y), Align2::LEFT_CENTER, label, medium(16.0), pal().header_primary);
@@ -309,6 +240,7 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     let mut colors = moved;
     colors |= toggle(ui, &mut s.saturate_custom, "Apply saturation setting to custom colors", "Apply the above setting to custom color choices, like role colors.");
     colors |= toggle(ui, &mut s.high_contrast, "Enable High Contrast Mode", "Enhance visibility with bold colors and sharp contrast.");
+    colors |= toggle(ui, &mut s.shop_cursor, "Enable custom cursor in shop", "Use a custom cursor design when browsing the shop. Can be turned off if the cursor feels distracting or interferes with navigation.");
     colors |= toggle(ui, &mut s.sync_contrast, "Sync contrast settings", "This allows Discord to use your computer's contrast theme.");
     let mut role = s.role_colors;
     let shown = match role {
@@ -325,6 +257,19 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     });
     let roles = picked || role != s.role_colors;
     s.role_colors = role;
+    let official = ["Default", "No text color", "No background color", "No styling"];
+    let mut style = s.official_style as usize;
+    choice(ui, "Official Messages", official[style.min(3)], |ui| {
+        for (i, name) in official.iter().enumerate() {
+            let row = ui.selectable_label(style == i, *name);
+            super::mark(ui, &format!("option:{name}"), row.rect);
+            if row.clicked() {
+                style = i;
+            }
+        }
+    });
+    colors |= style != s.official_style as usize;
+    s.official_style = style as u8;
     colors |= toggle(ui, &mut s.switch_icons, "Show on/off indicators", "On forms, menus and settings, on/off toggles will have icons.");
     related(app, ui, Page::Appearance, "Appearance", "Change your app theme");
 
@@ -357,6 +302,7 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     caption(ui, "Text-to-Speech rate", "Control the speed at which text is read aloud when using Speak Message or other text-to-speech features.");
     let mut audio = speech_rate(ui, &mut s.tts_rate);
     audio |= toggle(ui, &mut s.image_descriptions, "Show image descriptions", "Image descriptions are used to describe images for screen readers.");
+    audio |= toggle(ui, &mut s.legacy_input, "Use the legacy chat input", "Disables most chat features but may work better with screen readers.");
     if audio {
         app.heights.clear();
     }

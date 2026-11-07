@@ -2,6 +2,7 @@
 whole run. The steps before it that open the first channel still run.
 
     python e2e/from_step.py 1900     # needs target/release built; prints the marks it reached
+    python e2e/from_step.py login    # the login run on its own, scored by auth.checks
 """
 
 import json
@@ -11,6 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import auth
 import run
 
 
@@ -18,9 +20,17 @@ def main():
     art = Path(tempfile.mkdtemp(prefix="rustcord_from_step_"))
     run.ART = art
     log = art / "mock_requests.jsonl"
-    mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE)])
+    mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)])
     time.sleep(0.5)
     try:
+        if sys.argv[1] == "login":
+            res = run.run_client("login", art / "data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", "RUSTCORD_FAKE_PASSKEY": "mock-assertion", "RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1"})
+            time.sleep(0.5)
+            reqs = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+            print(json.dumps({k: v for k, v in auth.checks(res, reqs).items()}, indent=1))
+            print(json.dumps({"ok": res.get("ok"), "error": res.get("error"), "marks": sorted(res.get("marks_ms", {}))}))
+            print("artifacts:", art)
+            return
         env = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_CAM": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1", "RUSTCORD_E2E_FROM": sys.argv[1], "RUSTCORD_E2E_MEMBERS": "1"}
         res = run.run_client("run", art / "data", env)
     finally:

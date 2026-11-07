@@ -70,7 +70,7 @@ fn fresh(settings: Vec<u8>) -> Acct {
             json!({ "type": "twitch", "id": "3", "name": "you-on-twitch", "visibility": 0, "verified": true, "integrations": [{ "id": "7001", "guild": { "id": "999", "name": "ghostie's graveyard", "icon": null }, "account": { "id": "t1", "name": "ghostiefruit" } }] }),
         ],
         oauth: vec![
-            json!({ "id": "1290000000000000000", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } }),
+            json!({ "id": "1290000000000000000", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot.", "terms_of_service_url": "https://dyno.example/terms", "privacy_policy_url": "https://dyno.example/privacy" } }),
             json!({ "id": "1280000000000000000", "scopes": ["identify", "email", "applications.commands"], "application": { "id": "105", "name": "Polar Anticheat", "icon": null, "description": "" } }),
         ],
         blocked: vec![105],

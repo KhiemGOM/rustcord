@@ -52,6 +52,7 @@ import sound
 import activity
 import clips
 import perms
+import themes
 import refusals
 import live
 import members
@@ -153,6 +154,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_SOUNDS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_ACTIVITY": f"http://127.0.0.1:{HTTP}/activity/{{app}}",
+        "RUSTCORD_HCAPTCHA": f"http://127.0.0.1:{HTTP}/hcaptcha",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
         "RUSTCORD_REMOTE_AUTH": f"ws://127.0.0.1:{REMOTE}",
         "RUSTCORD_TOKEN": "mock-token",
@@ -198,7 +200,7 @@ def main():
         # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
         real_video = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_SILENT": "1", **cam}
         warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
-        signin = run_client("login", ART / "login_data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", **fake})
+        signin = run_client("login", ART / "login_data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", "RUSTCORD_FAKE_PASSKEY": "mock-assertion", **fake})
     finally:
         mock.kill()
 
@@ -581,6 +583,7 @@ def main():
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
         **gallery.checks({"cold": cold, "warm": warm}, reqs, data),
         **perms.checks({"cold": cold, "warm": warm}, reqs, data),
+        **themes.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),

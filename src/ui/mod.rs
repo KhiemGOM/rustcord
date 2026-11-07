@@ -24,6 +24,7 @@ mod directory;
 mod dmpick;
 mod discover;
 mod embedplay;
+mod eyedrop;
 mod e2e;
 mod events;
 mod favs;
@@ -92,6 +93,7 @@ mod side;
 mod sidebar_view;
 mod tagpop;
 mod textfile;
+mod themes;
 mod thread;
 mod spelling;
 mod splash;
@@ -282,6 +284,7 @@ pub struct App {
     obs_seen: bool,
     capture_hidden: bool,
     pub sform: settings::Forms,
+    pub themes: themes::State,
     // a channel the user just marked unread shouldn't get re-acked on the next frame
     pub hold_ack: Option<Id>,
     pub reply_ping: bool,
@@ -475,6 +478,7 @@ impl App {
             win: None,
             settings: cache::settings(),
             settings_page: None,
+            themes: Default::default(),
             invite: None,
             invite_card: Default::default(),
             chat_invites: Default::default(),
@@ -1117,10 +1121,13 @@ impl App {
         let changed = now.changed(self.synced.as_ref());
         self.synced = Some(now);
         // sync with computer is a local choice the account doesn't know about
-        let theme = self.settings.theme;
+        let (theme, preset, own) = (self.settings.theme, self.settings.custom_theme, self.settings.own_theme.clone());
         changed.apply(&mut self.settings);
         if theme == crate::theme::Theme::Sync || !self.settings.sync_theme {
             self.settings.theme = theme;
+        }
+        if !self.settings.sync_theme {
+            (self.settings.custom_theme, self.settings.own_theme) = (preset, own);
         }
         self.heights.clear();
         self.save_settings(ctx);
@@ -1147,6 +1154,7 @@ impl App {
             density: s.density,
         });
         self.apply_look(ctx);
+        themes::icon::put(ctx, themes::icon::index(&s.app_icon));
         crate::speech::set_speed(s.tts_rate);
         crate::toast::set_long(s.min_toast_secs > 5.0);
         crate::theme::style(ctx);
@@ -1167,7 +1175,7 @@ impl App {
             ctx,
             &crate::theme::Look {
                 theme: s.theme,
-                gradient: s.custom_theme,
+                fill: themes::shown(self),
                 saturation: s.saturation,
                 saturate_custom: s.saturate_custom,
                 contrast: s.high_contrast || (s.sync_contrast && self.system.high_contrast),
@@ -2299,6 +2307,7 @@ impl eframe::App for App {
             }
             let full = self.call.full && self.voice.chan.is_some() && self.cur() == self.voice.chan;
             self.call.full = full;
+            self.apply_look(&ctx);
             let rail = if full {
                 Rect::NOTHING
             } else {
@@ -2311,6 +2320,9 @@ impl eframe::App for App {
                     .response
                     .rect
             };
+            if !full {
+                themes::show(self, ui);
+            }
             // discord: 375 wide with the rail and its 1px frame line, draggable between 264 and 432
             let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 302.0 };
             let cr = if full {

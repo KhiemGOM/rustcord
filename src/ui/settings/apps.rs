@@ -258,6 +258,38 @@ fn authorized(app: &mut App, ui: &mut Ui) {
                 });
             });
             ui.add_space(12.0);
+            let (blurb, terms, privacy) = (a["description"].as_str().unwrap_or(""), a["terms_of_service_url"].as_str(), a["privacy_policy_url"].as_str());
+            if !blurb.is_empty() || terms.is_some() || privacy.is_some() {
+                let key = format!("about:{tid}");
+                let shown = app.sform.app_open.contains(&key);
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+                ui.painter().text(r.left_center(), Align2::LEFT_CENTER, "About and Policies", medium(14.0), pal().header_primary);
+                icons::draw(ui.painter(), if shown { Icon::ChevronUp } else { Icon::ChevronDown }, Rect::from_center_size(pos2(r.right() - 12.0, r.center().y), vec2(20.0, 20.0)), pal().header_secondary);
+                super::mark(ui, &format!("about:{}", a["name"].as_str().unwrap_or("")), r);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    if shown {
+                        app.sform.app_open.retain(|x| *x != key);
+                    } else {
+                        app.sform.app_open.push(key);
+                    }
+                }
+                if shown {
+                    if !blurb.is_empty() {
+                        ui.add(egui::Label::new(RichText::new(blurb).font(reg(14.0)).color(pal().text_normal)).wrap());
+                    }
+                    for (name, url) in [("Terms of Service", terms), ("Privacy Policy", privacy)] {
+                        if let Some(u) = url
+                            && super::link(ui, name).clicked()
+                        {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(u));
+                        }
+                    }
+                }
+                ui.add_space(12.0);
+            }
             let scopes: Vec<&str> = t["scopes"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
             let open = app.sform.app_open.contains(&tid);
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());

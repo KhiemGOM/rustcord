@@ -1628,6 +1628,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({}))
         }
         ("PATCH", ["api", "v9", "users", "@me", "settings-proto", _]) => ok(json!({})),
+        ("GET", ["api", "v9", "users", "@me", "custom-themes"]) => ok(json!([])),
         ("GET", ["api", "v9", "soundboard-default-sounds"]) => ok(json!([
             { "sound_id": "1", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0, "available": true },
             { "sound_id": "2", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0, "available": true },
@@ -1897,6 +1898,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
+        ("GET", ["hcaptcha", "1", "api.js"]) => (200, "application/javascript", include_bytes!("fixtures/hcaptcha.js").to_vec()),
+        ("GET", ["hcaptcha", _]) => (204, "text/plain", Vec::new()),
         ("GET", ["activity", _]) => (200, "text/html", activity_page()),
         ("GET", ["embed", "player"]) => (200, "text/html", include_bytes!("fixtures/embed.html").to_vec()),
         ("POST", ["api", "v9", "mock", "embed"]) => ok(json!({})),
@@ -2436,6 +2439,12 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", "still.png"]) => (200, "image/png", png(480, 270, 7, false)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "assets", "content", f]) if f.ends_with(".svg") => (
+            200,
+            "image/svg+xml",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="117" height="69" viewBox="0 0 117 69"><rect width="117" height="69" rx="6" fill="#5865f2"/><circle cx="82" cy="34" r="22" fill="#eb459e"/><circle cx="82" cy="34" r="10" fill="#faa61a"/></svg>"##.to_vec(),
+        ),
+        ("GET", ["cdn", "assets", f]) if f.ends_with(".webp") => (200, "image/png", png(96, 96, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),

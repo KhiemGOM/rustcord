@@ -1,31 +1,12 @@
 //! The login screens against the mock (RUSTCORD_E2E_LOGIN): no saved token, every way in.
 
 use egui::{Context, Event, Rect};
-use std::io::{Read, Write};
-use std::time::Duration;
+use std::io::Write;
 
 use super::Run;
 use crate::auth::Qr;
 use crate::ui::App;
 use crate::ui::login::Page;
-
-const SITEKEY: &str = "10000000-ffff-ffff-ffff-000000000001";
-
-fn solve(url: &str, token: &str) -> Option<bool> {
-    let addr = url.trim_start_matches("http://").trim_end_matches('/');
-    let talk = |req: String| -> Option<String> {
-        let mut s = std::net::TcpStream::connect(addr).ok()?;
-        s.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-        s.write_all(req.as_bytes()).ok()?;
-        let mut out = String::new();
-        let _ = s.read_to_string(&mut out);
-        Some(out)
-    };
-    let page = talk(format!("GET / HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n"))?;
-    let secret = page.split("fetch(\"/").nth(1)?.split('"').next()?;
-    talk(format!("POST /{secret} HTTP/1.1\r\nHost: {addr}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token}", token.len()))?;
-    Some(page.contains(SITEKEY) && page.contains("mock-rqdata"))
-}
 
 fn scan() {
     let base = crate::api::base().trim_start_matches("http://");
@@ -97,15 +78,8 @@ impl Run {
                 self.sign_in_as(app, "captcha@mock.test");
                 self.next(300);
             }
-            1506 if app.login.captcha => {
-                let url = std::fs::read_to_string(self.dir.join("captcha_url")).unwrap_or_default();
-                if url.is_empty() {
-                    return;
-                }
+            1506 if app.login.captcha && crate::webwin::is_open() => {
                 self.mark("login_captcha_opened");
-                if solve(&url, "e2e-captcha") == Some(true) {
-                    self.mark("login_captcha_page");
-                }
                 self.next(200);
             }
             1507 => {
@@ -267,11 +241,42 @@ impl Run {
                 self.shot(ctx, "qr_ticket.png");
                 self.next(200);
             }
-            1552 if app.token.as_deref() == Some("mock-token") => {
-                self.mark("qr_login");
-                self.next(200);
+            1552 => {
+                self.signed_in(app, "qr_login");
             }
-            1553 if self.pending_shots == 0 => self.finish(ctx),
+            1553 if on_login(app) && self.press(app, "passkey") => self.next(500),
+            1554 if app.login.busy => {
+                self.mark("passkey_ui_alive");
+                self.shot(ctx, "passkey_busy.png");
+                self.next(100);
+            }
+            1555 => {
+                self.signed_in(app, "passkey_login");
+            }
+            1556 if on_login(app) => {
+                unsafe { std::env::set_var("RUSTCORD_FAKE_PASSKEY", "cancel") };
+                self.press(app, "passkey");
+                self.next(2200);
+            }
+            1557 if app.login.err.as_deref() == Some("Cancelled.") => {
+                unsafe { std::env::set_var("RUSTCORD_FAKE_PASSKEY", "mock-assertion") };
+                self.mark("passkey_cancelled");
+                self.shot(ctx, "passkey_cancelled.png");
+                self.next(100);
+            }
+            1558 if on_login(app) => {
+                self.sign_in_as(app, "key@mock.test");
+                self.next(300);
+            }
+            1559 if on_mfa(app) && app.login.mfa.kind == "webauthn" && self.press(app, "webauthn") => self.next(500),
+            1560 if app.login.mfa.busy => {
+                self.mark("mfa_key_ui_alive");
+                self.next(100);
+            }
+            1561 => {
+                self.signed_in(app, "mfa_key");
+            }
+            1562 if self.pending_shots == 0 => self.finish(ctx),
             _ => {}
         }
     }

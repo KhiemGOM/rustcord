@@ -396,6 +396,9 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "Advanced");
     if accordion(ui, "diagnostics", "Show Diagnostic Settings", "Hide Diagnostic Settings", "Settings that collect technical data for Rustcord's developers to analyze, such as debug logging and audio recording") {
         let s = &mut app.settings;
+        if s.dev {
+            changed |= toggle(ui, &mut s.stream_info, "Stream Info Overlay", "Display stream information on video tiles on mouseover");
+        }
         changed |= toggle(ui, &mut s.aec_dump, "Diagnostic Audio Recording", "Diagnostic audio recording is used for analyzing audio problems. The last five minutes of voice is saved to the voice folder.");
         sub(ui, "Debug Logging Settings");
         changed |= toggle(ui, &mut s.debug_log, "Debug Logging", "Saves debug logs to the voice folder that you can look through when troubleshooting.");
