@@ -2054,6 +2054,14 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({ "claimed_at": status["claimed_at"], "entitlements": [], "errors": [] }))
         }
         ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
+        ("GET", ["api", "v9", "games", "autocomplete"]) => {
+            let q = query_str(path, "q").to_lowercase();
+            if q.is_empty() || query_str(path, "filter_group") != "default" {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body" }).to_string().into_bytes());
+            }
+            let all = [("7100", "Mockcord Quest"), ("9001", "Mock Racers"), ("9002", "Crab Quest"), ("9005", "Rust Simulator")];
+            ok(json!(all.iter().filter(|g| g.1.to_lowercase().contains(&q)).map(|g| json!({ "id": g.0, "name": g.1, "icon": null, "platform_availability": ["win32"] })).collect::<Vec<_>>()))
+        }
         // the mock itself is the running game the client should spot
         ("GET", ["api", "v9", "applications", "detectable"]) => ok(json!([
             { "id": "7100", "name": "Mockcord Quest", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": false }] },
@@ -2672,7 +2680,15 @@ async fn ws_conn(s: TcpStream, w: W) {
                         }
                         let last = w.lock().unwrap().msgs.last().map(|m| m["id"].as_str().unwrap().parse::<u64>().unwrap()).unwrap_or(0);
                         vec![
-                            ("READY".into(), ready(last)),
+                            ("READY".into(), {
+                                let mut r = ready(last);
+                                if std::env::var_os("MOCK_SETTINGS_LIVE").is_some()
+                                    && let Some(b) = account::blob()
+                                {
+                                    r["user_settings_proto"] = json!(b);
+                                }
+                                r
+                            }),
                             ("READY_SUPPLEMENTAL".into(), json!({ "merged_presences": { "friends": [
                                 { "user_id": "101", "status": "online" }, { "user_id": "102", "status": "idle" }, { "user_id": "103", "status": "dnd" }
                             ], "guilds": [] }, "guilds": [] })),

@@ -3,7 +3,7 @@ use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, Ui, UiB
 use super::privacy::write;
 use super::wire::Patch;
 use super::{Page, caption, dropdown, markers, radio, section, sub, toggle};
-use crate::cache::{Animate, Density, RoleColors, Settings, Spoilers};
+use crate::cache::{Animate, Density, RoleColors, Settings, Spoilers, VideoBg};
 use crate::theme::*;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
@@ -77,6 +77,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     let mut all = s.search_all_dms;
     if radio(ui, &mut all, &[(false, "Searches only in the selected DM", ""), (true, "Searches across all my DMs", "")]) {
         s.search_all_dms = all;
+        write(app, Patch::new().flag(6, 36, all));
         changed = true;
     }
 
@@ -214,7 +215,11 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
 
     section(ui, "Visual Density");
     caption(ui, "UI Density", "Adjust the space between server, channel, and member lists.");
-    changed |= radio(ui, &mut s.density, &[(Density::Compact, "Compact", ""), (Density::Default, "Default", ""), (Density::Spacious, "Spacious", "")]);
+    let mut density = s.density;
+    let density_changed = radio(ui, &mut density, &[(Density::Compact, "Compact", ""), (Density::Default, "Default", ""), (Density::Spacious, "Spacious", "")]);
+    if density_changed {
+        s.density = density;
+    }
     caption(ui, "Chat Message Display", "Change the appearance of chat messages.");
     let mut compact = s.compact;
     let mut flipped = false;
@@ -234,6 +239,15 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     if flipped {
         write(app, Patch::new().flag(6, 17, app.settings.compact));
     }
+    if density_changed {
+        let v = match app.settings.density {
+            Density::Compact => 1,
+            Density::Spacious => 2,
+            Density::Default => 4,
+        };
+        write(app, Patch::new().num(13, 12, v));
+    }
+    changed |= density_changed;
     if changed {
         app.heights.clear();
     }
@@ -284,21 +298,26 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     motion |= synced(app, ui, "Play GIFs when Rustcord is focused", "", |s| &mut s.gif_autoplay, 11);
     motion |= synced(app, ui, "Play animated emoji", "", |s| &mut s.animate_emoji, 14);
     sub(ui, "Play sticker animations");
-    motion |= radio(
+    let mut stickers = app.settings.stickers;
+    if radio(
         ui,
-        &mut app.settings.stickers,
+        &mut stickers,
         &[
             (Animate::Always, "Always animate", ""),
             (Animate::OnInteraction, "Animate on interaction", "On the desktop client, stickers will animate on hover or focus. On mobile clients, stickers will animate on long-press."),
             (Animate::Never, "Never animate", ""),
         ],
-    );
+    ) {
+        app.settings.stickers = stickers;
+        write(app, Patch::new().sub(6, 15, &[(1, stickers as u64)]));
+        motion = true;
+    }
 
     section(ui, "Audio & Screen Reader");
     let s = &mut app.settings;
     caption(ui, "Text-to-Speech rate", "Control the speed at which text is read aloud when using Speak Message or other text-to-speech features.");
     let mut audio = speech_rate(ui, &mut s.tts_rate);
-    audio |= toggle(ui, &mut s.image_descriptions, "Show image descriptions", "Image descriptions are used to describe images for screen readers.");
+    audio |= synced(app, ui, "Show image descriptions", "Image descriptions are used to describe images for screen readers.", |s| &mut s.image_descriptions, 7);
     audio |= synced(app, ui, "Use the legacy chat input", "Disables most chat features but may work better with screen readers.", |s| &mut s.legacy_input, 24);
     if audio {
         app.heights.clear();
@@ -307,6 +326,38 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
         app.heights.clear();
     }
     changed | roles | motion | colors | audio
+}
+
+/// What the account has never been told: settings that used to stay on this machine and differ from
+/// Discord's default are sent up at login rather than lost to it.
+pub fn backfill(app: &mut App) {
+    let (a, s) = (&app.store.account, &app.settings);
+    let mut patch = Patch::new();
+    if a.image_descriptions.is_none() && s.image_descriptions {
+        patch = patch.flag(6, 7, true);
+    }
+    if a.stickers.is_none() && s.stickers != Animate::Always {
+        patch = patch.sub(6, 15, &[(1, s.stickers as u64)]);
+    }
+    if a.search_all_dms.is_none() && s.search_all_dms {
+        patch = patch.flag(6, 36, true);
+    }
+    if a.density.is_none() && s.density != Density::Default {
+        patch = patch.num(13, 12, if s.density == Density::Compact { 1 } else { 2 });
+    }
+    if a.preview_video.is_none() && s.preview_video {
+        patch = patch.flag(5, 5, true);
+    }
+    if a.video_bg.is_none() {
+        match s.video_bg {
+            VideoBg::Blur => patch = patch.sub(5, 1, &[(1, 1)]),
+            VideoBg::Preset(n) => patch = patch.num(5, 2, n as u64),
+            VideoBg::None | VideoBg::Custom => {}
+        }
+    }
+    if !patch.is_empty() {
+        write(app, patch);
+    }
 }
 
 fn synced(app: &mut App, ui: &mut Ui, label: &str, desc: &str, field: fn(&mut Settings) -> &mut bool, f: u64) -> bool {

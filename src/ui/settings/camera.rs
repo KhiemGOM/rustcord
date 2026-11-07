@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
+use super::privacy::write;
+use super::wire::Patch;
 use super::{dropdown, link, mark, primary, toggle};
 use crate::cache::VideoBg;
 use crate::theme::*;
@@ -213,6 +215,16 @@ fn text_tile(ui: &mut Ui, r: Rect, icon: Icon, text: &str, selected: bool, id: I
     resp.clicked()
 }
 
+fn push_bg(app: &mut App, bg: VideoBg) {
+    let patch = match bg {
+        VideoBg::None => Patch::new().sub(5, 1, &[(1, 0)]),
+        VideoBg::Blur => Patch::new().sub(5, 1, &[(1, 1)]),
+        VideoBg::Preset(n) => Patch::new().num(5, 2, n as u64),
+        VideoBg::Custom => return,
+    };
+    write(app, patch);
+}
+
 fn pick_custom(app: &mut App) -> bool {
     let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]).pick_file() else { return false };
     use_custom(app, &path)
@@ -297,6 +309,7 @@ fn backgrounds(app: &mut App, ui: &mut Ui) -> bool {
     }
     if let Some(p) = pick {
         app.settings.video_bg = p;
+        push_bg(app, p);
         changed = true;
     }
     if effects::BROKEN.load(Relaxed) {
@@ -395,7 +408,10 @@ pub fn section(app: &mut App, ui: &mut Ui) -> bool {
     let (r, _) = ui.allocate_exact_size(vec2(w, 220.0), Sense::hover());
     viewport(app, ui, r, "settings", false);
     super::end(ui, 24.0);
-    changed |= toggle(ui, &mut app.settings.preview_video, "Always preview video", "Pops up preview modal every time you turn on video");
+    if toggle(ui, &mut app.settings.preview_video, "Always preview video", "Pops up preview modal every time you turn on video") {
+        write(app, Patch::new().flag(5, 5, app.settings.preview_video));
+        changed = true;
+    }
     super::lead(ui);
     ui.label(RichText::new("Camera").font(medium(16.0)).color(pal().header_primary));
     ui.add_space(8.0);
@@ -454,6 +470,7 @@ fn modal(app: &mut App, ctx: &Context) {
                 mark(ui, "camera:modal:always", r);
                 if resp.clicked() {
                     app.settings.preview_video = !on;
+                    write(app, Patch::new().flag(5, 5, !on));
                     changed = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
