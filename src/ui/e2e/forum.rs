@@ -107,6 +107,62 @@ impl Run {
                 app.rest("PATCH", format!("/channels/{FORUM}"), Some(json!({ "flags": 0, "available_tags": [{ "id": "1", "name": "feature", "emoji_name": "✨" }, { "id": "2", "name": "ux" }] })), Tag::Quiet);
                 self.next(500);
             }
+            4313 => {
+                if app.post.is_some() {
+                    return;
+                }
+                app.open_thread(2031, true, false);
+                self.next(1200);
+            }
+            4314 => {
+                let Some(follow) = Self::at(ctx, "forum_bar:follow") else { return };
+                if app.cur() != Some(2031) || Self::at(ctx, "forum_bar:react").is_none() {
+                    return;
+                }
+                self.mark("forum_bar_drawn");
+                self.shot(ctx, "forum_bar.png");
+                self.click(follow.center());
+                self.next(700);
+            }
+            4315 => {
+                if app.store.channels.get(&2031).is_some_and(|c| c.joined) {
+                    self.mark("forum_bar_following");
+                }
+                self.shot(ctx, "forum_bar_following.png");
+                let Some(link) = Self::at(ctx, "forum_bar:link") else { return };
+                self.click(link.center());
+                self.next(500);
+            }
+            4316 => {
+                if Self::at(ctx, "forum_bar:copied").is_some() {
+                    self.mark("forum_bar_copied");
+                }
+                let Some(react) = Self::at(ctx, "forum_bar:react") else { return };
+                self.click(react.center());
+                self.next(600);
+            }
+            4317 => {
+                if app.picker.is_some() {
+                    self.mark("forum_bar_react_picker");
+                }
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            4318 => {
+                app.open(2011);
+                self.next(900);
+            }
+            4319 => {
+                let Some(id) = app.store.msgs.get(&2011).and_then(|e| e.list.iter().find(|m| m.thread.is_some())).map(|m| m.id) else { return };
+                if self.rects.insert("thread_card_jumped".into(), json!(true)).is_none() {
+                    app.attach(2050);
+                    app.jump_to(2011, id);
+                    self.wait = Instant::now() + Duration::from_millis(1500);
+                    return;
+                }
+                self.shot(ctx, "thread_card.png");
+                self.next(300);
+            }
             _ => self.step = 4320,
         }
     }

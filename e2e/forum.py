@@ -23,5 +23,8 @@ def checks(runs, reqs, data):
             and len(tagged) >= 2 and all(b["applied_tags"] == ["2"] and b["message"] == {"content": "Needs a tag first"} for b in tagged)
             and all("use_nested_fields=true" in r["path"] for r in made),
         "forum: the new post came back with its tag": both("forum_post_created_tagged"),
+        "forum: a post's toolbar showed Follow, Copy Link and React to Post; Follow joined the post, Copy Link said Copied, React to Post opened the picker": both("forum_bar_drawn")
+            and both("forum_bar_following") and both("forum_bar_copied") and both("forum_bar_react_picker")
+            and len([r for r in reqs if r.get("method") == "PUT" and r.get("path", "").endswith("/channels/2031/thread-members/@me")]) >= 2,
         "forum: a forum with more tags than fit shows See more tags, and a tag picked from it joined the post": both("forum_see_more_tags") and both("forum_more_tag_picked"),
     }
