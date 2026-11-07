@@ -1584,6 +1584,9 @@ impl App {
                         if let Some(s) = &mut self.server {
                             s.errors = self.fail.as_ref().map(|f| f.0.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| vec![(String::new(), e.clone())]);
                         }
+                        if k == "automod_regex" {
+                            return server::loaded(self, k, serde_json::json!([]));
+                        }
                         server::loaded(self, k, serde_json::json!([]))
                     }
                     Tag::Chan("saved") => {
