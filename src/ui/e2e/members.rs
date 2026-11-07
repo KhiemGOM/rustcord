@@ -216,13 +216,13 @@ impl Run {
                 self.next(800);
             }
             3133 => {
-                let Some(c) = app.confirm.as_ref() else { return };
-                if c.title == "Prune Members" && c.body.contains("**2** members") {
+                let Some(r) = Self::at(ctx, "prune:go") else { return };
+                if app.prune.as_ref().is_some_and(|d| d.count == Some(2)) {
                     self.shot(ctx, "members_prune.png");
-                    self.key(Key::Enter);
+                    self.click(r.center());
                     self.next(1500);
                 } else if stuck {
-                    self.fail(format!("the prune dialog said {:?}", c.body));
+                    self.fail("the prune dialog never counted two members".into());
                 }
             }
             3134 => {
@@ -271,7 +271,7 @@ impl Run {
                 self.settled_menu_click(ctx, &format!("Kick {name}"), 600);
             }
             3141 => {
-                if app.confirm.is_some() {
+                if app.kickban.is_some() {
                     self.key(Key::Enter);
                     self.next(1500);
                 }
@@ -293,7 +293,8 @@ impl Run {
                 self.settled_menu_click(ctx, &format!("Ban {name}"), 600);
             }
             3145 => {
-                if app.confirm.is_some() {
+                if let Some(d) = app.kickban.as_mut() {
+                    d.pick = Some(2);
                     self.key(Key::Enter);
                     self.next(1500);
                 }

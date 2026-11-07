@@ -51,6 +51,7 @@ import web
 import sound
 import activity
 import clips
+import perms
 import refusals
 import live
 import members
@@ -575,6 +576,7 @@ def main():
         **rail.checks({"cold": cold, "warm": warm}, reqs, data),
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
         **gallery.checks({"cold": cold, "warm": warm}, reqs, data),
+        **perms.checks({"cold": cold, "warm": warm}, reqs, data),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
