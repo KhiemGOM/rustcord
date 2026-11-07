@@ -1149,20 +1149,10 @@ impl Run {
             64 => {
                 if app.voice.camera && app.voice.video.contains_key(&me) && n(&sh.video_out) > 10 {
                     self.mark("camera_on");
-                    if Self::said(ctx, "voice_status").as_deref() == Some("Video Connected") {
-                        self.mark("video_connected_text");
-                    }
-                    if let Some(r) = app.rects.get("voice:status").copied() {
-                        self.queue.push_back(vec![Event::PointerMoved(r.center() + vec2(1.0, 0.0))]);
-                        self.queue.push_back(vec![Event::PointerMoved(r.center())]);
-                    }
-                    self.next(500);
+                    self.next(0);
                 }
             }
             65 => {
-                if Self::said(ctx, "voice_status").as_deref() == Some("Video Details") {
-                    self.mark("video_details_hover");
-                }
                 let Some(u) = app.voice.live.iter().copied().find(|u| *u != me) else { return };
                 let Some(r) = app.rects.get(&format!("voice:watch:{u}")).copied() else { return };
                 self.click(r.center());
