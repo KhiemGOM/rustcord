@@ -15,6 +15,16 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 pub const TOKEN: &str = "mock-token";
 
+const PASSKEY: &str = r#"{"publicKey":{"challenge":"bW9jay1jaGFsbGVuZ2U","rpId":"discord.com","timeout":60000,"userVerification":"preferred","allowCredentials":[]}}"#;
+
+fn passwordless_finish(b: &Value) -> (u16, Option<Value>) {
+    if b["ticket"] == "passkey-ticket" && b["credential"] == "mock-assertion" {
+        (200, Some(json!({ "token": TOKEN, "user_id": "100", "required_actions": [] })))
+    } else {
+        (400, Some(json!({ "code": 50035, "message": "Invalid Form Body" })))
+    }
+}
+
 static SCAN: std::sync::LazyLock<tokio::sync::broadcast::Sender<()>> = std::sync::LazyLock::new(|| tokio::sync::broadcast::channel(4).0);
 static LOGINS: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 static TICKETS: Mutex<Option<HashMap<String, Vec<u8>>>> = Mutex::new(None);
@@ -50,6 +60,7 @@ fn login(b: &Value) -> (u16, Option<Value>) {
     }
     match who {
         "captcha@mock.test" if !solved(b) => captcha(),
+        "key@mock.test" => (200, Some(json!({ "mfa": true, "ticket": "mfa-ticket", "totp": false, "sms": false, "backup": false, "webauthn": PASSKEY, "user_id": "100" }))),
         "mfa@mock.test" => (200, Some(json!({ "mfa": true, "ticket": "mfa-ticket", "totp": true, "sms": true, "backup": true, "webauthn": null, "user_id": "100" }))),
         "newloc@mock.test" => {
             let mut g = LOGINS.lock().unwrap();
@@ -104,6 +115,8 @@ pub fn route(method: &str, path: &str, body: &[u8]) -> Option<(u16, Option<Value
     let p = path.strip_prefix("/api/v9")?;
     Some(match (method, p) {
         ("POST", "/auth/login") => login(&b),
+        ("POST", "/auth/passwordless/start") => (200, Some(json!({ "challenge": r#"{"publicKey":{"challenge":"bW9jay1jaGFsbGVuZ2U","rpId":"discord.com","timeout":60000,"userVerification":"preferred"}}"#, "ticket": "passkey-ticket" }))),
+        ("POST", "/auth/conditional/finish") => passwordless_finish(&b),
         ("POST", "/auth/mfa/sms/send") => (200, Some(json!({ "phone": "+1•••••••12" }))),
         ("POST", p) if p.starts_with("/auth/mfa/") => mfa(&p["/auth/mfa/".len()..], &b),
         ("POST", "/mock/scan") => {

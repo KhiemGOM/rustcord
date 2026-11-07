@@ -1,6 +1,10 @@
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke};
 use std::sync::Arc;
 
+mod fill;
+
+pub use fill::{Custom, DEFAULT_COLOR, Fill};
+
 //// The colours that change with the theme. Brand colours (blurple, status
 /// colours) stay put across themes, like they do in the official client.
 /// Values are the custom properties discord's web css resolves per theme; the
@@ -319,44 +323,44 @@ pub enum Theme {
 static THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
 static PALETTES: [Palette; 4] = [LIGHT, ASH, DARK, ONYX];
 static CURRENT: std::sync::atomic::AtomicPtr<Palette> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
-static GRADIENT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(NONE);
+static GRADIENT: std::sync::atomic::AtomicPtr<Preset> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static LOOK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 static BUILT: std::sync::Mutex<Vec<(u64, &'static Palette)>> = std::sync::Mutex::new(Vec::new());
 static SATURATION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(100);
 static SATURATE_CUSTOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-const NONE: u8 = 255;
 
 /// One Nitro colour theme: the stops of its background gradient (percent along the line, at the css angle).
 pub struct Preset {
     pub name: &'static str,
     pub light: bool,
     pub angle: f32,
+    pub veil: Option<f32>,
     pub stops: &'static [(u32, f32)],
 }
 
 pub static PRESETS: [Preset; 22] = [
-    Preset { name: "Mint Apple", light: true, angle: 180.0, stops: &[(0x56b69f, 6.15), (0x63bc61, 48.7), (0x9eca67, 93.07)] },
-    Preset { name: "Citrus Sherbert", light: true, angle: 180.0, stops: &[(0xf3b336, 31.1), (0xee8558, 67.09)] },
-    Preset { name: "Retro Raincloud", light: true, angle: 148.71, stops: &[(0x3a7ca1, 5.64), (0x7f7eb9, 26.38), (0x7f7eb9, 49.92), (0x3a7ca1, 73.12)] },
-    Preset { name: "Hanami", light: true, angle: 38.08, stops: &[(0xefaab3, 3.56), (0xefd696, 35.49), (0xa6daa2, 68.78)] },
-    Preset { name: "Sunrise", light: true, angle: 154.19, stops: &[(0x9f4175, 8.62), (0xc49064, 48.07), (0xa6953d, 76.04)] },
-    Preset { name: "Cotton Candy", light: true, angle: 180.14, stops: &[(0xf4abb8, 8.5), (0xb1c2fc, 94.28)] },
-    Preset { name: "LoFi Vibes", light: true, angle: 179.52, stops: &[(0xa4c0f7, 7.08), (0xa9e4e8, 34.94), (0xb0e2b8, 65.12), (0xcfdfa2, 96.23)] },
-    Preset { name: "Desert Khaki", light: true, angle: 38.99, stops: &[(0xe7dbd0, 12.92), (0xdfd0b2, 32.92), (0xe0d6a3, 52.11)] },
-    Preset { name: "Sunset", light: false, angle: 141.68, stops: &[(0x48288c, 27.57), (0xdb7f4b, 71.25)] },
-    Preset { name: "Chroma Glow", light: false, angle: 128.92, stops: &[(0x0eb5bf, 3.94), (0x4c0ce0, 26.1), (0xa308a7, 39.82), (0x9a53ff, 56.89), (0x218be0, 76.45)] },
-    Preset { name: "Forest", light: false, angle: 162.27, stops: &[(0x142215, 11.2), (0x2d4d39, 29.93), (0x454c32, 48.64), (0x5a7c58, 67.85), (0xa98e4b, 83.54)] },
-    Preset { name: "Crimson Moon", light: false, angle: 64.92, stops: &[(0x950909, 16.17), (0x000000, 72.0)] },
-    Preset { name: "Midnight Blurple", light: false, angle: 48.17, stops: &[(0x5348ca, 11.21), (0x140730, 61.92)] },
-    Preset { name: "Mars", light: false, angle: 170.82, stops: &[(0x895240, 14.61), (0x8f4343, 74.62)] },
-    Preset { name: "Dusk", light: false, angle: 180.0, stops: &[(0x665069, 12.84), (0x91a3d1, 85.99)] },
-    Preset { name: "Under the Sea", light: false, angle: 179.14, stops: &[(0x647962, 1.91), (0x588575, 48.99), (0x6a8482, 96.35)] },
-    Preset { name: "Retro Storm", light: false, angle: 148.71, stops: &[(0x3a7ca1, 5.64), (0x58579a, 26.38), (0x58579a, 49.92), (0x3a7ca1, 73.12)] },
-    Preset { name: "Neon Nights", light: false, angle: 180.0, stops: &[(0x01a89e, 0.0), (0x7d60ba, 50.0), (0xb43898, 100.0)] },
-    Preset { name: "Strawberry Lemonade", light: false, angle: 161.03, stops: &[(0xaf1a6c, 18.79), (0xc26b20, 49.76), (0xe7a525, 80.72)] },
-    Preset { name: "Aurora", light: false, angle: 239.16, stops: &[(0x062053, 10.39), (0x191fbb, 26.87), (0x13929a, 48.31), (0x218573, 64.98), (0x051a81, 92.5)] },
-    Preset { name: "Sepia", light: false, angle: 69.98, stops: &[(0x857664, 14.14), (0x5b4421, 60.35)] },
-    Preset { name: "Blurple Twilight", light: false, angle: 47.61, stops: &[(0x2c3fe7, 11.18), (0x261d83, 64.54)] },
+    Preset { name: "Mint Apple", light: true, angle: 180.0, veil: None, stops: &[(0x56b69f, 6.15), (0x63bc61, 48.7), (0x9eca67, 93.07)] },
+    Preset { name: "Citrus Sherbert", light: true, angle: 180.0, veil: None, stops: &[(0xf3b336, 31.1), (0xee8558, 67.09)] },
+    Preset { name: "Retro Raincloud", light: true, angle: 148.71, veil: None, stops: &[(0x3a7ca1, 5.64), (0x7f7eb9, 26.38), (0x7f7eb9, 49.92), (0x3a7ca1, 73.12)] },
+    Preset { name: "Hanami", light: true, angle: 38.08, veil: None, stops: &[(0xefaab3, 3.56), (0xefd696, 35.49), (0xa6daa2, 68.78)] },
+    Preset { name: "Sunrise", light: true, angle: 154.19, veil: None, stops: &[(0x9f4175, 8.62), (0xc49064, 48.07), (0xa6953d, 76.04)] },
+    Preset { name: "Cotton Candy", light: true, angle: 180.14, veil: None, stops: &[(0xf4abb8, 8.5), (0xb1c2fc, 94.28)] },
+    Preset { name: "LoFi Vibes", light: true, angle: 179.52, veil: None, stops: &[(0xa4c0f7, 7.08), (0xa9e4e8, 34.94), (0xb0e2b8, 65.12), (0xcfdfa2, 96.23)] },
+    Preset { name: "Desert Khaki", light: true, angle: 38.99, veil: None, stops: &[(0xe7dbd0, 12.92), (0xdfd0b2, 32.92), (0xe0d6a3, 52.11)] },
+    Preset { name: "Sunset", light: false, angle: 141.68, veil: None, stops: &[(0x48288c, 27.57), (0xdb7f4b, 71.25)] },
+    Preset { name: "Chroma Glow", light: false, angle: 128.92, veil: None, stops: &[(0x0eb5bf, 3.94), (0x4c0ce0, 26.1), (0xa308a7, 39.82), (0x9a53ff, 56.89), (0x218be0, 76.45)] },
+    Preset { name: "Forest", light: false, angle: 162.27, veil: None, stops: &[(0x142215, 11.2), (0x2d4d39, 29.93), (0x454c32, 48.64), (0x5a7c58, 67.85), (0xa98e4b, 83.54)] },
+    Preset { name: "Crimson Moon", light: false, angle: 64.92, veil: None, stops: &[(0x950909, 16.17), (0x000000, 72.0)] },
+    Preset { name: "Midnight Blurple", light: false, angle: 48.17, veil: None, stops: &[(0x5348ca, 11.21), (0x140730, 61.92)] },
+    Preset { name: "Mars", light: false, angle: 170.82, veil: None, stops: &[(0x895240, 14.61), (0x8f4343, 74.62)] },
+    Preset { name: "Dusk", light: false, angle: 180.0, veil: None, stops: &[(0x665069, 12.84), (0x91a3d1, 85.99)] },
+    Preset { name: "Under the Sea", light: false, angle: 179.14, veil: None, stops: &[(0x647962, 1.91), (0x588575, 48.99), (0x6a8482, 96.35)] },
+    Preset { name: "Retro Storm", light: false, angle: 148.71, veil: None, stops: &[(0x3a7ca1, 5.64), (0x58579a, 26.38), (0x58579a, 49.92), (0x3a7ca1, 73.12)] },
+    Preset { name: "Neon Nights", light: false, angle: 180.0, veil: None, stops: &[(0x01a89e, 0.0), (0x7d60ba, 50.0), (0xb43898, 100.0)] },
+    Preset { name: "Strawberry Lemonade", light: false, angle: 161.03, veil: None, stops: &[(0xaf1a6c, 18.79), (0xc26b20, 49.76), (0xe7a525, 80.72)] },
+    Preset { name: "Aurora", light: false, angle: 239.16, veil: None, stops: &[(0x062053, 10.39), (0x191fbb, 26.87), (0x13929a, 48.31), (0x218573, 64.98), (0x051a81, 92.5)] },
+    Preset { name: "Sepia", light: false, angle: 69.98, veil: None, stops: &[(0x857664, 14.14), (0x5b4421, 60.35)] },
+    Preset { name: "Blurple Twilight", light: false, angle: 47.61, veil: None, stops: &[(0x2c3fe7, 11.18), (0x261d83, 64.54)] },
 ];
 
 /// Display options the renderers read without an `App` in reach (markdown,
@@ -442,7 +446,7 @@ pub fn hairline(ppp: f32, color: Color32) -> Stroke {
 
 /// Onyx draws a few hairlines the other themes leave out.
 pub fn onyx() -> bool {
-    THEME.load(std::sync::atomic::Ordering::Relaxed) == 3 && GRADIENT.load(std::sync::atomic::Ordering::Relaxed) == NONE
+    THEME.load(std::sync::atomic::Ordering::Relaxed) == 3 && GRADIENT.load(std::sync::atomic::Ordering::Relaxed).is_null()
 }
 
 /// The wash and outline discord gives every text field.
@@ -454,7 +458,7 @@ pub fn input_frame() -> egui::Frame {
 /// pulled toward grey, and whether contrast is raised.
 pub struct Look {
     pub theme: Theme,
-    pub gradient: Option<u8>,
+    pub fill: Option<Fill>,
     pub saturation: f32,
     pub saturate_custom: bool,
     pub contrast: bool,
@@ -463,10 +467,10 @@ pub struct Look {
 /// Switch the live palette to `look` (`Sync` follows the system's light/dark setting).
 pub fn set_look(ctx: &egui::Context, look: &Look) {
     use std::sync::atomic::Ordering::Relaxed;
-    let gradient = look.gradient.filter(|g| (*g as usize) < PRESETS.len());
+    let gradient = look.fill.as_ref().map(Fill::resolve);
     let idx = match (gradient, look.theme) {
         (Some(g), _) => {
-            if PRESETS[g as usize].light {
+            if g.light {
                 0
             } else {
                 2
@@ -482,12 +486,18 @@ pub fn set_look(ctx: &egui::Context, look: &Look) {
         },
     };
     let sat = (look.saturation.clamp(0.0, 1.0) * 100.0).round() as u8;
-    let key = idx as u64 | (gradient.unwrap_or(NONE) as u64) << 8 | (sat as u64) << 16 | (look.contrast as u64) << 24 | (look.saturate_custom as u64) << 25;
+    let at = gradient.map_or(0, |g| g as *const Preset as u64);
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (idx, at, sat, look.contrast, look.saturate_custom).hash(&mut h);
+        h.finish()
+    };
     if LOOK.swap(key, Relaxed) == key {
         return;
     }
     THEME.store(idx, Relaxed);
-    GRADIENT.store(gradient.unwrap_or(NONE), Relaxed);
+    GRADIENT.store(gradient.map_or(std::ptr::null_mut(), |g| g as *const Preset as *mut Preset), Relaxed);
     SATURATION.store(sat, Relaxed);
     SATURATE_CUSTOM.store(look.saturate_custom, Relaxed);
     let palette = {
@@ -505,10 +515,15 @@ pub fn set_look(ctx: &egui::Context, look: &Look) {
     style(ctx);
 }
 
-fn build(base: usize, gradient: Option<u8>, sat: u8, contrast: bool) -> Palette {
+fn build(base: usize, gradient: Option<&Preset>, sat: u8, contrast: bool) -> Palette {
     let mut p = PALETTES[base];
-    if gradient.is_some() {
-        let (floor, rail, chat) = if p.dark { (0.84, 0.72, 0.62) } else { (0.78, 0.66, 0.56) };
+    if let Some(g) = gradient {
+        let (floor, rail, chat) = match g.veil {
+            Some(m) if p.dark => (0.54 + 0.36 * m, 0.51 + 0.34 * m, 0.48 + 0.32 * m),
+            Some(m) => (0.51 + 0.34 * m, 0.48 + 0.32 * m, 0.45 + 0.30 * m),
+            None if p.dark => (0.84, 0.72, 0.62),
+            None => (0.78, 0.66, 0.56),
+        };
         p.bg_tertiary = veil(p.bg_tertiary, floor);
         p.frame_bg = veil(p.frame_bg, floor);
         p.bg_secondary_alt = veil(p.bg_secondary_alt, rail);
@@ -569,15 +584,16 @@ pub fn gradient_at(preset: &Preset, t: f32) -> Color32 {
 
 /// The gradient behind the window, drawn before anything else; nothing on a plain theme.
 pub fn backdrop(ctx: &egui::Context) {
-    let i = GRADIENT.load(std::sync::atomic::Ordering::Relaxed) as usize;
-    let Some(preset) = PRESETS.get(i) else { return };
+    let ptr = GRADIENT.load(std::sync::atomic::Ordering::Relaxed);
+    let Some(preset) = (unsafe { ptr.as_ref() }) else { return };
+    let at = (ptr as usize, SATURATION.load(std::sync::atomic::Ordering::Relaxed));
     let screen = ctx.content_rect();
     let id = egui::Id::new("backdrop");
-    let kept = ctx.data(|d| d.get_temp::<(usize, egui::Rect, std::sync::Arc<egui::Mesh>)>(id)).filter(|k| k.0 == i && k.1 == screen);
+    let kept = ctx.data(|d| d.get_temp::<((usize, u8), egui::Rect, std::sync::Arc<egui::Mesh>)>(id)).filter(|k| k.0 == at && k.1 == screen);
     let mesh = kept.map_or_else(
         || {
             let mesh = std::sync::Arc::new(gradient_mesh(preset, screen));
-            ctx.data_mut(|d| d.insert_temp(id, (i, screen, mesh.clone())));
+            ctx.data_mut(|d| d.insert_temp(id, (at, screen, mesh.clone())));
             mesh
         },
         |k| k.2,
@@ -640,7 +656,7 @@ pub fn solid(c: Color32) -> Color32 {
 
 /// The colour the window is cleared to before anything draws.
 pub fn clear() -> Color32 {
-    if GRADIENT.load(std::sync::atomic::Ordering::Relaxed) == NONE { pal().bg_tertiary } else { Color32::BLACK }
+    if GRADIENT.load(std::sync::atomic::Ordering::Relaxed).is_null() { pal().bg_tertiary } else { Color32::BLACK }
 }
 
 pub const BLURPLE: Color32 = Color32::from_rgb(0x58, 0x65, 0xf2);
@@ -957,7 +973,7 @@ mod tests {
 
     #[test]
     fn gradient_lets_the_backdrop_through() {
-        let p = build(2, Some(8), 100, false);
+        let p = build(2, Some(&PRESETS[8]), 100, false);
         assert!(p.bg_primary.a() < 255 && p.bg_tertiary.a() < 255);
         assert_eq!(p.bg_floating.a(), 255);
     }

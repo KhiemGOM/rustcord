@@ -1,4 +1,3 @@
-mod captcha;
 mod remote;
 mod rsa;
 
@@ -9,7 +8,6 @@ use std::sync::Arc;
 use crate::api::{Api, Captcha, Reply};
 use crate::net::{Ev as NetEv, Tx};
 
-pub use captcha::solve_captcha;
 pub use remote::run as qr_login;
 
 #[derive(Clone, Default)]
@@ -38,6 +36,8 @@ pub enum Cmd {
     Register(Register),
     Name(String),
     Forgot(String),
+    Key { ticket: String, options: String },
+    Passkey,
 }
 
 pub enum Fail {
@@ -112,11 +112,30 @@ where
         let (Some(sitekey), true) = (r.body["captcha_sitekey"].as_str(), r.body["captcha_key"].is_array()) else { return Ok(r) };
         tx.send(NetEv::Auth(Ev::Captcha));
         let (sitekey, rqdata) = (sitekey.to_string(), r.body["captcha_rqdata"].as_str().map(str::to_string));
-        let key = tokio::task::spawn_blocking(move || solve_captcha(&sitekey, rqdata.as_deref())).await.ok().flatten();
+        let key = tokio::task::spawn_blocking(move || crate::webwin::captcha::solve(&sitekey, rqdata.as_deref())).await.ok().flatten();
         let Some(key) = key else { return Err("The captcha wasn't completed. Try again.".into()) };
         cap = Some(Captcha { key, rqtoken: r.body["captcha_rqtoken"].as_str().map(str::to_string) });
     }
     Err("The captcha failed. Please try again.".into())
+}
+
+fn key_options(challenge: &str) -> String {
+    match serde_json::from_str::<Value>(challenge) {
+        Ok(v) if v.get("publicKey").is_some() => challenge.to_string(),
+        Ok(v) if v.is_object() => json!({ "publicKey": v }).to_string(),
+        _ => json!({ "publicKey": { "challenge": challenge } }).to_string(),
+    }
+}
+
+async fn assertion(options: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || crate::webauthn::get(&options)).await.map_err(|e| e.to_string())?
+}
+
+async fn passkey(api: &Api) -> Result<Reply, String> {
+    let start = api.passwordless_start().await?;
+    let (Some(challenge), Some(ticket)) = (start.body["challenge"].as_str(), start.body["ticket"].as_str()) else { return Ok(start) };
+    let credential = assertion(key_options(challenge)).await?;
+    api.passwordless_finish(ticket, &credential).await
 }
 
 fn reply(tx: &Tx, r: Result<Reply, String>, ok: impl FnOnce(&Reply) -> Option<Ev>) {
@@ -150,6 +169,14 @@ pub async fn run(cmd: Cmd, api: Arc<Api>, tx: Tx) {
             });
         }
         Cmd::Mfa { kind, ticket, code } => reply(&tx, api.mfa(kind, &ticket, &code).await, token),
+        Cmd::Key { ticket, options } => {
+            let r = match assertion(options).await {
+                Ok(code) => api.mfa("webauthn", &ticket, &code).await,
+                Err(e) => Err(e),
+            };
+            reply(&tx, r, token);
+        }
+        Cmd::Passkey => reply(&tx, passkey(&api).await, token),
         Cmd::Sms(ticket) => {
             let r = api.sms(&ticket).await;
             let ev = match r {

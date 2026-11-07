@@ -53,6 +53,20 @@ fn texts(ui: &mut Ui, title: &str, body: &str) {
     ui.add(egui::Label::new(RichText::new(body).font(reg(16.0)).color(pal().text_normal)).wrap());
 }
 
+fn passkey(app: &mut App, ui: &mut Ui) {
+    ui.add_space(8.0);
+    let busy = app.login.busy;
+    ui.vertical_centered(|ui| {
+        let r = ui.add_enabled_ui(!busy, |ui| super::link(ui, "Or sign in with a passkey")).inner;
+        app.login.rects.insert("passkey", r.rect);
+        if r.clicked() && !busy {
+            app.login.err = None;
+            app.login.busy = true;
+            app.net.send(Cmd::Auth(crate::auth::Cmd::Passkey));
+        }
+    });
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
     let qr = &mut app.login.qr;
     match &qr.state {
@@ -60,12 +74,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let r = code(ui, qr, "placeholder", false);
             app.login.rects.insert("qr", r);
             texts(ui, "Log in with QR Code", "Scan this with the Discord mobile app to log in instantly.");
+            passkey(app, ui);
         }
         Qr::Ready(fp) => {
             let text = format!("https://discord.com/ra/{fp}");
             let r = code(ui, qr, &text, true);
             app.login.rects.insert("qr", r);
             texts(ui, "Log in with QR Code", "Scan this with the Discord mobile app to log in instantly.");
+            passkey(app, ui);
         }
         Qr::Ticket { id, avatar: hash, name } => {
             let url = match hash {

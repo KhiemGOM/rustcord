@@ -140,7 +140,7 @@ fn sync(app: &App, ctx: &Context) {
 }
 
 pub fn shown(app: &App, cams: &[String]) -> String {
-    app.settings.camera.clone().or_else(|| cams.first().cloned()).unwrap_or_else(|| "No camera found".into())
+    app.settings.camera.clone().or_else(|| cams.first().cloned()).unwrap_or_else(|| "No Video Devices".into())
 }
 
 fn picker(app: &mut App, ui: &mut Ui, cams: &[String]) -> bool {
@@ -148,6 +148,15 @@ fn picker(app: &mut App, ui: &mut Ui, cams: &[String]) -> bool {
     let mut changed = false;
     let w = ui.available_width();
     let cur = shown(app, cams);
+    if cams.is_empty() {
+        let (r, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
+        let faint = Color32::from_rgba_unmultiplied(151, 151, 159, 61);
+        ui.painter().rect(r, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, faint), egui::StrokeKind::Inside);
+        icons::draw(ui.painter(), Icon::Camera, Rect::from_center_size(pos2(r.left() + 22.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+        ui.painter().text(pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, &cur, medium(16.0), pal().text_muted);
+        mark(ui, "camera:device", r);
+        return false;
+    }
     let resp = dropdown(ui, w, Some(Icon::Camera), &cur, |ui| {
         for name in cams {
             let item = ui.selectable_label(*name == cur, name);

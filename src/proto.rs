@@ -7,7 +7,7 @@ pub mod frecency;
 
 use crate::cache::{Settings, Spoilers};
 use crate::state::{Folder, Id};
-use crate::theme::Theme;
+use crate::theme::{Custom, Fill, Theme};
 
 enum Val<'a> {
     Int(u64),
@@ -264,6 +264,10 @@ macro_rules! account {
 
 account! {
     theme: Theme,
+    custom_theme: Option<u8>,
+    own_theme: Option<Custom>,
+    server_themes: bool,
+    appearance_raw: Vec<u8>,
     dev: bool,
     hour_cycle: u8,
     compact: bool,
@@ -429,12 +433,17 @@ pub fn account(settings: &[u8], full: bool) -> Account {
             13 => {
                 if full {
                     a.dev = Some(false);
+                    a.custom_theme = Some(None);
+                    a.own_theme = Some(None);
+                    a.server_themes = Some(true);
                 }
+                a.appearance_raw = Some(b.to_vec());
+                let mut light = false;
                 for (n, v) in fields(b) {
-                    let Val::Int(i) = v else { continue };
-                    match n {
+                    match (n, v) {
                         // 1 dark, 2 light, 3 darker, 4 midnight; the 2025 names are Ash, Light, Dark, Onyx
-                        1 => {
+                        (1, Val::Int(i)) => {
+                            light = i == 2;
                             a.theme = match i {
                                 1 => Some(Theme::Ash),
                                 2 => Some(Theme::Light),
@@ -443,8 +452,23 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                                 _ => None,
                             }
                         }
-                        2 => a.dev = Some(i != 0),
-                        9 => a.hour_cycle = Some(i.min(2) as u8),
+                        (2, Val::Int(i)) => a.dev = Some(i != 0),
+                        (3, Val::Bytes(c)) => {
+                            a.custom_theme = Some(None);
+                            a.own_theme = Some(None);
+                            for (n, v) in fields(c) {
+                                match (n, v) {
+                                    (2, Val::Bytes(w)) => a.custom_theme = Some(number(w).and_then(|id| match Fill::from_id(id as u32) {
+                                        Some(Fill::Preset(i)) => Some(i),
+                                        _ => None,
+                                    })),
+                                    (4, Val::Bytes(t)) => a.own_theme = Some(custom_theme(t, light)),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        (9, Val::Int(i)) => a.hour_cycle = Some(i.min(2) as u8),
+                        (14, Val::Int(i)) => a.server_themes = Some(i != 1),
                         _ => {}
                     }
                 }
@@ -453,6 +477,19 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         }
     }
     a
+}
+
+fn custom_theme(b: &[u8], light: bool) -> Option<Custom> {
+    let mut c = Custom { colors: Vec::new(), angle: 0, mix: 0, light };
+    for (n, v) in fields(b) {
+        match (n, v) {
+            (1, Val::Bytes(s)) => c.colors.extend(u32::from_str_radix(String::from_utf8_lossy(s).trim_start_matches('#'), 16)),
+            (3, Val::Int(i)) => c.angle = i as i32,
+            (4, Val::Int(i)) => c.mix = i as i32,
+            _ => {}
+        }
+    }
+    (!c.colors.is_empty()).then_some(c)
 }
 
 fn tag(out: &mut Vec<u8>, field: u64, wire: u64) {
@@ -509,5 +546,81 @@ pub fn entrance_patch(guild: Id, sound: Id, source: Id) -> Vec<u8> {
     message(&mut all, 1, &entry);
     let mut out = Vec::new();
     message(&mut out, 3, &all);
+    out
+}
+
+fn copy(out: &mut Vec<u8>, n: u64, v: &Val) {
+    match v {
+        Val::Int(i) => {
+            tag(out, n, 0);
+            put(out, *i);
+        }
+        Val::Bytes(b) => message(out, n, b),
+        Val::Fixed(x) => {
+            tag(out, n, 1);
+            out.extend_from_slice(&x.to_le_bytes());
+        }
+        Val::Float(f) => {
+            tag(out, n, 5);
+            out.extend_from_slice(&f.to_le_bytes());
+        }
+    }
+}
+
+/// The base theme's number in the theme enum.
+fn theme_number(t: Theme, light: bool) -> u64 {
+    match t {
+        Theme::Ash => 1,
+        Theme::Light => 2,
+        Theme::Dark => 3,
+        Theme::Onyx => 4,
+        Theme::Sync if light => 2,
+        Theme::Sync => 1,
+    }
+}
+
+/// The whole appearance settings message: `raw` is the one the account last sent, with the theme,
+/// the client theme (a preset or the user's own colours) and the default for server themes put in
+/// place and every other field left as it was.
+pub fn appearance(raw: &[u8], theme: Theme, fill: Option<&Fill>, server_themes: bool) -> Vec<u8> {
+    let mut body = Vec::new();
+    let light = matches!(fill, Some(Fill::Custom(c)) if c.light);
+    tag(&mut body, 1, 0);
+    put(&mut body, theme_number(theme, light));
+    let mut client = Vec::new();
+    match fill {
+        Some(Fill::Preset(i)) => {
+            let mut id = Vec::new();
+            tag(&mut id, 1, 0);
+            put(&mut id, Fill::id(*i) as u64);
+            message(&mut client, 2, &id);
+        }
+        Some(Fill::Custom(c)) => {
+            let mut custom = Vec::new();
+            for col in &c.colors {
+                message(&mut custom, 1, format!("#{col:06x}").as_bytes());
+            }
+            tag(&mut custom, 3, 0);
+            put(&mut custom, c.angle as u64);
+            tag(&mut custom, 4, 0);
+            put(&mut custom, c.mix as u64);
+            message(&mut client, 4, &custom);
+        }
+        None => {}
+    }
+    message(&mut body, 3, &client);
+    for (n, v) in fields(raw) {
+        if !matches!(n, 1 | 3 | 14) {
+            copy(&mut body, n, &v);
+        }
+    }
+    tag(&mut body, 14, 0);
+    put(&mut body, if server_themes { 2 } else { 1 });
+    body
+}
+
+pub fn appearance_patch(body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    message(&mut out, 13, body);
     out
 }

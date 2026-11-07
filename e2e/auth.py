@@ -22,8 +22,9 @@ def checks(run, reqs):
         "login: the run finished its script": run.get("ok") is True,
         "login: the card drew with Welcome back and the QR column": ok("login_screen"),
         "login: a wrong password put a red error on both fields": ok("login_field_error") and any(b.get("password") == "nope" for b in logins),
-        "login: a captcha challenge opened the local hCaptcha page, the token went back and the login retried with it": ok("login_captcha_opened")
-            and ok("login_captcha_page") and ok("login_captcha_solved")
+        "login: a captcha challenge opened the small window on the virtual discord.com page, the token went back and the login retried with it": ok("login_captcha_opened") and ok("login_captcha_solved")
+            and any(r.get("path", "").startswith("/hcaptcha/render") and "sitekey=10000000-ffff-ffff-ffff-000000000001" in r.get("path", "") and "host=discord.com" in r.get("path", "") for r in reqs)
+            and any(r.get("path", "").startswith("/hcaptcha/data") and "mock-rqdata" in r.get("path", "") for r in reqs)
             and any(b.get("login") == "captcha@mock.test" and b.get("captcha_key") == "e2e-captcha" for b in logins)
             and any(b.get("login") == "captcha@mock.test" and "captcha_key" not in b for b in logins),
         "login: a wrong authenticator code showed an error, the right one signed in": ok("mfa_shown") and ok("mfa_bad_code") and ok("mfa_totp")
@@ -45,4 +46,8 @@ def checks(run, reqs):
             and any(b.get("email") == "e2e@mock.test" and b.get("username") == "e2e_user" and b.get("date_of_birth") == "1999-05-17" and b.get("consent") is True for b in registers),
         "qr: the gateway handshake drew a code, showed who scanned it, and exchanged the ticket for a token": ok("qr_shown") and ok("qr_ticket") and ok("qr_login")
             and len(sent("/users/@me/remote-auth/login")) >= 1,
+        "login: the passkey link ran the assertion off the UI thread, then signed in with the mock's ticket": ok("passkey_ui_alive") and ok("passkey_login")
+            and any(b.get("ticket") == "passkey-ticket" and b.get("credential") == "mock-assertion" for b in sent("/auth/conditional/finish")),
+        "login: a cancelled passkey prompt put its message on the login card and sent nothing": ok("passkey_cancelled") and len(sent("/auth/conditional/finish")) == 1,
+        "login: the security key method kept the UI alive while it waited, then signed in": ok("mfa_key_ui_alive") and ok("mfa_key") and [b.get("code") for b in mfa("webauthn")] == ["mock-assertion"],
     }

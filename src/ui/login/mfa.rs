@@ -136,14 +136,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             f.rects.insert("webauthn", r.rect);
             if r.clicked() && !f.mfa.busy {
                 f.mfa.err = None;
-                match f.mfa.challenge.webauthn.as_deref().map(crate::webauthn::get)
- {
-                    Some(Ok(code)) => {
-                        f.mfa.busy = true;
-                        app.net.send(Cmd::Auth(Auth::Mfa { kind: "webauthn", ticket: f.mfa.challenge.ticket.clone(), code }));
-                    }
-                    Some(Err(e)) => f.mfa.err = Some(e),
-                    None => {}
+                if let Some(options) = f.mfa.challenge.webauthn.clone() {
+                    f.mfa.busy = true;
+                    app.net.send(Cmd::Auth(Auth::Key { ticket: f.mfa.challenge.ticket.clone(), options }));
                 }
             }
             switcher(ui, f, methods.len());

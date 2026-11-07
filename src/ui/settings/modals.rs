@@ -321,7 +321,7 @@ pub(super) fn verify_modal(app: &mut App, ctx: &egui::Context) {
 // dialogs -------------------------------------------------------------------------------
 
 #[derive(PartialEq)]
-enum Act {
+pub(super) enum Act {
     None,
     Go,
     Alt,
@@ -329,7 +329,7 @@ enum Act {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str, fill: Color32, alt: Option<(&str, Color32)>, body: impl FnOnce(&mut Ui)) -> Act {
+pub(super) fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str, fill: Color32, alt: Option<(&str, Color32)>, body: impl FnOnce(&mut Ui)) -> Act {
     let mut act = Act::None;
     let at = if id == "settings_modal" { "modal" } else { "verify" };
     let r = crate::ui::motion::Modal::new(id.into()).frame(Frame::new().fill(pal().bg_secondary).corner_radius(8)).show(ctx, |ui| {
@@ -381,7 +381,7 @@ fn dialog(ctx: &egui::Context, id: &'static str, head: &str, sub: &str, go: &str
     act
 }
 
-fn label(ui: &mut Ui, s: &str) {
+pub(super) fn label(ui: &mut Ui, s: &str) {
     ui.label(RichText::new(s.to_uppercase()).font(semi(12.0)).color(pal().header_secondary));
     ui.add_space(8.0);
 }
@@ -416,6 +416,7 @@ pub fn modals(app: &mut App, ctx: &egui::Context) {
     }
     modal(app, ctx);
     verify_modal(app, ctx);
+    super::testmode::dialog(app, ctx);
 }
 
 fn codes_text(email: &str, codes: &[(String, bool)]) -> String {

@@ -199,7 +199,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         problem(ui, &e);
     }
     if f.captcha {
-        problem(ui, "Finish the captcha in your browser to continue.");
+        problem(ui, "Finish the captcha in the window that opened.");
     }
     let r = primary(ui, "Continue", f.busy);
     f.rects.insert("submit", r.rect);
