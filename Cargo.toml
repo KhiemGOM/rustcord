@@ -39,6 +39,8 @@ serde_json = "1.0.151"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "io-util"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 webview2-com = "0.39"
+velato = { version = "0.12.0", default-features = false }
+vello_cpu = { version = "0.1.0", default-features = false, features = ["std", "u8_pipeline", "f32_pipeline"] }
 wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
 windows = { version = "0.62.2", features = [
     "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common",

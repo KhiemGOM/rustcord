@@ -735,6 +735,34 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
     let ids = app.inbox_unreads();
     let s = &app.store;
     let list: Vec<_> = ids.iter().filter_map(|c| s.channels.get(c)).collect();
+    if !app.settings.inbox_tip {
+        Frame::new().fill(pal().bg_primary).corner_radius(8).inner_margin(16).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 16.0;
+                let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    ui.label(RichText::new("Stay up to date with latest messages!").font(semi(16.0)).color(pal().header_primary));
+                    ui.label(RichText::new("Unread messages from all your unmuted channels will show up here. Time to get to that zero inbox!").color(pal().text_normal));
+                    ui.add_space(4.0);
+                    let g = ui.painter().layout_no_wrap("Got it!".into(), medium(14.0), Color32::WHITE);
+                    let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 32.0, 32.0), Sense::click());
+                    app.rects.insert("inbox:tip".into(), b);
+                    ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+                    ui.painter().galley(b.center() - g.size() / 2.0, g, Color32::WHITE);
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        app.settings.inbox_tip = true;
+                    }
+                });
+            });
+        });
+        ui.add_space(16.0);
+    }
     if list.is_empty() {
         empty(ui, "You're all caught up.");
         return None;
@@ -799,18 +827,25 @@ fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
         ui.add_space(24.0);
         return None;
     };
+    let (head, how, action, tail) = if reminders {
+        ("Stay organized, never forget a follow-up", "Right-click any message and pick ", "Create Reminder", ". We'll nudge you here when it's due.")
+    } else {
+        ("Collect your favorite memories", "Right-click any message and pick ", "Bookmark Message", ". Find it here, for your eyes only.")
+    };
+    ui.add_space(16.0);
+    ui.vertical_centered(|ui| {
+        ui.label(RichText::new(head).font(semi(24.0)).color(pal().header_primary));
+        ui.add_space(8.0);
+        let mut job = egui::text::LayoutJob::default();
+        let fmt = |font| egui::TextFormat { font_id: font, color: pal().text_normal, ..Default::default() };
+        job.append(how, 0.0, fmt(reg(14.0)));
+        job.append(action, 0.0, fmt(bold(14.0)));
+        job.append(tail, 0.0, fmt(reg(14.0)));
+        job.halign = egui::Align::Center;
+        ui.label(job);
+    });
+    ui.add_space(24.0);
     if list.is_empty() {
-        let (head, sub) = if reminders {
-            ("You have no Reminders!", "Set a reminder on any message to have it appear here.")
-        } else {
-            ("You have no Bookmarks!", "You can bookmark any message to have it appear here.")
-        };
-        ui.add_space(24.0);
-        ui.vertical_centered(|ui| {
-            ui.label(RichText::new(head).font(semi(16.0)).color(pal().header_primary));
-            ui.label(RichText::new(sub).color(pal().header_secondary));
-        });
-        ui.add_space(24.0);
         return None;
     }
     let s = &app.store;

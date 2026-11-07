@@ -23,6 +23,20 @@ pub enum Field {
     Text(String),
     Input(Input),
     Select(Select),
+    Choice(Choice),
+}
+
+/// A radio group (21), a checkbox group (22) or a lone checkbox (23): rows you tick.
+pub struct Choice {
+    pub label: String,
+    pub desc: Option<String>,
+    pub custom_id: String,
+    pub kind: u8,
+    pub options: Vec<Opt>,
+    pub min: usize,
+    pub max: usize,
+    pub required: bool,
+    pub picked: Vec<String>,
 }
 
 pub struct Input {
@@ -96,8 +110,40 @@ fn leaf(c: &Value, label: String, desc: Option<String>, wrapped: bool) -> Option
                 types: c["channel_types"].as_array().into_iter().flatten().filter_map(|t| t.as_u64().map(|t| t as u8)).collect(),
             }))
         }
+        k @ (21..=23) => {
+            let options: Vec<Opt> = if k == 23 {
+                vec![Opt { label: label.clone(), value: "true".into(), desc: None, lead: selectmenu::Lead::None }]
+            } else {
+                c["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|o| Opt { label: text_of(o, "label"), value: text_of(o, "value"), desc: o["description"].as_str().map(str::to_string), lead: selectmenu::Lead::None })
+                    .collect()
+            };
+            let picked = if k == 23 {
+                c["default"].as_bool().unwrap_or(false).then(|| "true".to_string()).into_iter().collect()
+            } else {
+                c["options"].as_array().into_iter().flatten().filter(|o| o["default"].as_bool() == Some(true)).map(|o| text_of(o, "value")).collect()
+            };
+            Some(Field::Choice(Choice {
+                label: if k == 23 { String::new() } else { label },
+                desc,
+                custom_id: text_of(c, "custom_id"),
+                kind: k as u8,
+                options,
+                min: if k == 22 { count(c, "min_values", 1) } else { 0 },
+                max: if k == 22 { count(c, "max_values", options_len(c)) } else { 1 },
+                required: if k == 22 { count(c, "min_values", 1) > 0 } else { c["required"].as_bool().unwrap_or(k == 21) },
+                picked,
+            }))
+        }
         _ => None,
     }
+}
+
+fn options_len(c: &Value) -> usize {
+    c["options"].as_array().map_or(1, Vec::len)
 }
 
 impl Modal {
@@ -159,6 +205,9 @@ impl Modal {
                         selectmenu::validate(s.picked.len(), s.min, s.max)
                     }
                 }
+                Field::Choice(c) if c.picked.is_empty() && !c.required => None,
+                Field::Choice(c) if c.kind == 21 => c.picked.is_empty().then(|| "This field is required.".to_string()),
+                Field::Choice(c) => selectmenu::validate(c.picked.len(), c.min, c.max),
             })
             .collect()
     }
@@ -174,6 +223,14 @@ impl Modal {
                 }
                 Field::Select(s) => {
                     let inner = json!({ "type": s.kind, "custom_id": s.custom_id, "values": s.picked });
+                    json!({ "type": 18, "component": inner })
+                }
+                Field::Choice(c) => {
+                    let inner = match c.kind {
+                        21 => json!({ "type": 21, "custom_id": c.custom_id, "value": c.picked.first() }),
+                        22 => json!({ "type": 22, "custom_id": c.custom_id, "values": c.picked }),
+                        _ => json!({ "type": 23, "custom_id": c.custom_id, "value": !c.picked.is_empty() }),
+                    };
                     json!({ "type": 18, "component": inner })
                 }
             })
@@ -257,7 +314,55 @@ fn field(ui: &mut Ui, store: &crate::state::Store, guild: Id, m_channel: Id, i: 
             selectmenu::show(ui, store, id, &spec, &mut s.picked);
             error_line(ui, shown);
         }
+        Field::Choice(c) => {
+            if !c.label.is_empty() {
+                label(ui, &c.label, c.required, &c.desc);
+            }
+            for (n, o) in c.options.iter().enumerate() {
+                if n > 0 {
+                    ui.add_space(8.0);
+                }
+                let on = c.picked.contains(&o.value);
+                if choice_row(ui, c.kind == 21, on, o, &format!("bot_choice:{}:{}", c.custom_id, o.value)) {
+                    match c.kind {
+                        21 => c.picked = vec![o.value.clone()],
+                        _ if on => c.picked.retain(|v| *v != o.value),
+                        _ if c.kind == 22 && c.picked.len() >= c.max => {}
+                        _ => c.picked.push(o.value.clone()),
+                    }
+                }
+            }
+            error_line(ui, shown);
+        }
     }
+}
+
+fn choice_row(ui: &mut Ui, round: bool, on: bool, o: &Opt, mark: &str) -> bool {
+    let g = ui.painter().layout_no_wrap(o.label.clone(), reg(16.0), pal().header_primary);
+    let h = if o.desc.is_some() { 44.0 } else { 24.0 };
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
+    super::settings::mark(ui, mark, r);
+    let cb = egui::Rect::from_min_size(r.min, vec2(24.0, 24.0));
+    let ink = if on { BLURPLE } else { pal().header_secondary };
+    if round {
+        ui.painter().circle_stroke(cb.center(), 10.0, Stroke::new(2.0, ink));
+        if on {
+            ui.painter().circle_filled(cb.center(), 5.0, BLURPLE);
+        }
+    } else {
+        ui.painter().rect(cb, 4, if on { BLURPLE } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, ink), egui::StrokeKind::Inside);
+        if on {
+            super::icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), egui::Color32::WHITE);
+        }
+    }
+    ui.painter().galley(egui::pos2(r.left() + 36.0, r.top() + 12.0 - g.size().y / 2.0), g, pal().header_primary);
+    if let Some(d) = &o.desc {
+        ui.painter().text(egui::pos2(r.left() + 36.0, r.top() + 34.0), egui::Align2::LEFT_CENTER, d, reg(12.0), pal().text_muted);
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.clicked()
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -279,7 +384,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             });
             ui.add_space(20.0);
             let tried = m.tried;
-            egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.6).id_salt("bot_modal_scroll").show(ui, |ui| {
+            let body = egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.6).id_salt("bot_modal_scroll").show(ui, |ui| {
                 for (i, f) in m.fields.iter_mut().enumerate() {
                     if i > 0 {
                         ui.add_space(16.0);
@@ -287,6 +392,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     field(ui, &app.store, guild, m.channel, i, f, &errors[i], tried, &mut submit);
                 }
             });
+            super::settings::mark(ui, "bot_modal:scroll", body.inner_rect);
             ui.add_space(24.0);
             if let Some(e) = &m.error {
                 ui.label(RichText::new(e).font(reg(14.0)).color(pal().critical));

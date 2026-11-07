@@ -41,6 +41,22 @@ pub fn media() -> &'static str {
     V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://media.discordapp.net".into() })
 }
 
+/// Where discord.com's own static files live, unless RUSTCORD_CDN moves them (Lottie stickers are json there).
+pub fn asset() -> &'static str {
+    static V: OnceLock<String> = OnceLock::new();
+    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://discord.com".into() })
+}
+
+/// A sticker's picture: Lottie (format 3) is json on the asset host and drawn by `lottie`, a gif
+/// stays a gif, png and apng come as png.
+pub fn sticker(id: u64, fmt: u8, size: u32) -> String {
+    match fmt {
+        3 => format!("{}/stickers/{id}.json", asset()),
+        4 => format!("{}/stickers/{id}.gif?size={size}", media()),
+        _ => format!("{}/stickers/{id}.png?size={size}", media()),
+    }
+}
+
 pub fn emoji_cdn() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
     V.get_or_init(|| env_or("RUSTCORD_EMOJI_CDN", "https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72"))

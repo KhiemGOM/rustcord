@@ -27,6 +27,7 @@ enum Act {
     Delete(Id),
     React(Id, ReactEmoji, bool),
     Picker(Id, Pos2),
+    Post(super::forumbar::Do),
     Menu(Id, Pos2),
     Url(String),
     // the poster of a video embed clicked: which one, and the address of its player
@@ -74,7 +75,7 @@ enum Act {
     Invite(super::chatinvite::Go),
     CopyImage(String),
     Votes(Id),
-    Sticker(Id, String, Pos2),
+    Sticker(Id, String, u8, Pos2),
     CancelUpload(String),
     // a run of blocked messages shown or folded again: their ids
     Blocked(Vec<Id>, bool),
@@ -696,6 +697,10 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     // last frame's height says how much room to leave above it
     let fill_id = egui::Id::new(("chat_fill", ch));
     let natural: f32 = ctx.data(|d| d.get_temp(fill_id)).unwrap_or(f32::MAX);
+    let post_forum = d.store.channels.get(&chan.parent).filter(|f| chan.is_thread() && f.is_forum());
+    let copied_id = egui::Id::new(("post_copied", ch));
+    let copied = ctx.data(|s| s.get_temp::<std::time::Instant>(copied_id)).is_some_and(|t| t.elapsed().as_secs() < 2);
+    let mut op_bottom = None;
     let out = crate::theme::auto_scroll(ui, |ui| sa.show_viewport(ui, |ui, vp| {
         if nudge != 0.0 {
             ui.scroll_with_delta_animation(vec2(0.0, nudge), egui::style::ScrollAnimation::none());
@@ -745,6 +750,15 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 }
                 if !folded {
                     message(ui, &mut d, m, prev, start);
+                    if let Some(f) = post_forum.filter(|_| m.id == ch) {
+                        ui.add_space(8.0);
+                        let a = super::forumbar::show(ui, chan, f, Some(m), false, copied);
+                        d.acts.extend(a.map(Act::Post));
+                        ui.add_space(8.0);
+                    }
+                }
+                if m.id == ch {
+                    op_bottom = Some(y + h);
                 }
                 let real = ui.cursor().top() - top;
                 if known.is_none_or(|k| (k - real).abs() > 0.5) {
@@ -766,11 +780,14 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
     }));
 
+    let stuck = post_forum.is_some() && op_bottom.map_or(!list.is_empty() && !at_start, |b| b <= out.state.offset.y);
+    ctx.data_mut(|s| s.insert_temp(egui::Id::new(("op_stuck", ch)), stuck));
     let D { acts, bar, rects, frame_at, .. } = d;
     app.bar = bar;
     if frame_at.is_some() {
         app.embed_at = frame_at;
     }
+    app.rects.remove("emoji_tip");
     app.rects.extend(rects);
     let offset = out.state.offset.y;
     app.offsets.insert(ch, offset);
@@ -881,6 +898,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 }
             }
             Act::Reactors(id, em, burst, n) => app.ask_reactors(ch, id, &em, burst, n),
+            Act::Post(a) => post_do(app, ui.ctx(), chan, a),
             Act::System(go, at) => match go {
                 system::Go::Profile(u) => app.open_profile(u, chan.guild, at),
                 system::Go::Message(c, id) => app.jump_to(c, id),
@@ -891,8 +909,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 system::Go::Guild(g) => app.select_guild(Some(g)),
                 system::Go::GuildSettings(g) => app.open_server_settings(g),
             },
-            Act::Emoji(id, name, animated, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: false, animated, at }),
-            Act::Sticker(id, name, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: true, animated: false, at }),
+            Act::Emoji(id, name, animated, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: false, animated, format: 0, at }),
+            Act::Sticker(id, name, format, at) => app.open_source(super::sourcepop::Pop { id, name, sticker: true, animated: false, format, at }),
             Act::Role(r, at) => app.role_pop = Some((chan.guild, r, at)),
             Act::Tag(g, at) => app.tag_pop = Some((g, at)),
             Act::React(id, em, add) => app.react(ch, id, em, add),
@@ -1033,8 +1051,52 @@ fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 }
 
+/// The thread card's bottom line: the last message in it, or why there's none to show.
+fn thread_line(store: &Store, t: &Channel, guild: Id) -> String {
+    if t.archived {
+        return "There are no recent messages in this thread.".into();
+    }
+    if t.msg_count == 0 {
+        return "There are no messages in this thread yet.".into();
+    }
+    match store.msgs.get(&t.id).and_then(|e| e.list.last()) {
+        Some(m) => format!("{}: {}", store.name_in(guild, m.author), markdown::plain(&m.content, store, guild)),
+        None => "There are no recent messages in this thread.".into(),
+    }
+}
+
+fn post_do(app: &mut App, ctx: &egui::Context, post: &Channel, a: super::forumbar::Do) {
+    use super::forumbar::Do;
+    let ch = post.id;
+    match a {
+        Do::React(em, add) => app.react(ch, ch, em, add),
+        Do::Picker(at) => app.picker = Some((Pick::React(ch, ch), at)),
+        Do::Follow(on) => app.follow_thread(ch, on),
+        Do::Link => {
+            ctx.copy_text(format!("https://discord.com/channels/{}/{ch}", post.guild));
+            ctx.data_mut(|s| s.insert_temp(egui::Id::new(("post_copied", ch)), std::time::Instant::now()));
+            ctx.request_repaint_after(std::time::Duration::from_secs(2));
+        }
+        Do::Top => app.thread_top(ch),
+    }
+}
+
 /// The "N new messages" strip on top and the "Jump To Present" strip at the bottom.
 fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: f32) {
+    if ui.ctx().data(|s| s.get_temp::<bool>(egui::Id::new(("op_stuck", ch)))).unwrap_or(false)
+        && let Some(post) = app.store.channels.get(&ch).cloned()
+        && let Some(forum) = app.store.channels.get(&post.parent).cloned()
+    {
+        let r = Rect::from_min_size(area.min, vec2(area.width(), 48.0));
+        ui.painter().rect_filled(r, 0, pal().bg_primary);
+        let first = app.store.msgs.get(&ch).and_then(|e| e.list.iter().find(|m| m.id == ch)).cloned();
+        let copied = ui.ctx().data(|s| s.get_temp::<std::time::Instant>(egui::Id::new(("post_copied", ch)))).is_some_and(|t| t.elapsed().as_secs() < 2);
+        let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(0.0, 8.0))));
+        let act = super::forumbar::show(&mut bar, &post, &forum, first.as_ref(), true, copied);
+        if let Some(a) = act {
+            post_do(app, ui.ctx(), &post, a);
+        }
+    }
     let detached = app.store.msgs.get(&ch).is_some_and(|e| e.detached);
     if let Some(after) = app.marker.filter(|(c, _)| *c == ch && app.marker_bar).map(|(_, m)| m) {
         let list = app.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default();
@@ -1132,6 +1194,8 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) -> bool {
                         .color(pal().header_secondary),
                 );
             }
+        } else if let Some(forum) = store.channels.get(&chan.parent).filter(|f| chan.is_thread() && f.is_forum()) {
+            super::forum::post_intro(ui, chan, forum);
         } else {
             // a voice channel's chat has a bubble and no # before the name
             let voice = chan.is_voice();
@@ -1363,12 +1427,15 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         for (id, name, fmt) in &m.stickers {
             cui.add_space(acc);
             acc = 4.0;
-            let ext = if *fmt == 4 { "gif" } else { "png" };
-            let url = format!("{}/stickers/{id}.{ext}?size=160", crate::api::media());
-            let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_text(name);
+            let url = crate::api::sticker(*id, *fmt, 160);
+            let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_ui(|ui| {
+                ui.label(RichText::new(name).font(semi(14.0)).color(pal().header_primary));
+                ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
+            });
             d.card("sticker", &cui, r.rect);
+            d.card(&format!("sticker:{id}"), &cui, r.rect);
             if r.clicked() {
-                d.acts.push(Act::Sticker(*id, name.clone(), r.rect.right_top() + vec2(8.0, 0.0)));
+                d.acts.push(Act::Sticker(*id, name.clone(), *fmt, r.rect.right_top() + vec2(8.0, 0.0)));
             }
         }
         for code in super::chatinvite::codes(&m.content) {
@@ -1402,16 +1469,20 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
         if let Some(t) = m.thread.and_then(|t| d.store.channels.get(&t)) {
             cui.add_space(acc);
             acc = 4.0;
+            let line = thread_line(d.store, t, d.guild);
             let r = Frame::new()
                 .fill(pal().bg_secondary)
+                .stroke(Stroke::new(1.0, pal().border_subtle))
                 .corner_radius(4)
-                .inner_margin(Margin::symmetric(12, 8))
+                .inner_margin(8)
                 .show(&mut cui, |ui| {
                     ui.set_max_width(400.0);
+                    ui.spacing_mut().item_spacing = vec2(8.0, 2.0);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&t.name).font(semi(14.0)).color(pal().header_primary));
                         ui.label(RichText::new(format!("{} Messages ›", t.msg_count)).font(semi(14.0)).color(pal().link));
                     });
+                    ui.add(Label::new(RichText::new(line).font(reg(14.0)).color(pal().text_normal)).truncate());
                 })
                 .response
                 .interact(Sense::click());
@@ -1887,7 +1958,15 @@ fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     let excerpt = markdown::plain(&rm.content, d.store, d.guild);
     if excerpt.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
-        let (icon, note) = if rm.interaction.is_some() { (Icon::Apps, "Click to see command") } else { (Icon::Image, "Click to see attachment") };
+        let (icon, note) = if rm.interaction.is_some() {
+            (Icon::Apps, "Click to see command")
+        } else if !rm.stickers.is_empty() {
+            (Icon::Sticker, "Click to see sticker")
+        } else if rm.flags & (1 << 13) != 0 {
+            (Icon::Mic, "Click to see voice message")
+        } else {
+            (Icon::Image, "Click to see attachment")
+        };
         icons::draw(p, icon, ir, pal().header_secondary);
         cx += 20.0;
         p.text(pos2(cx, y), Align2::LEFT_CENTER, note, reg(14.0), pal().header_secondary);
@@ -1949,10 +2028,14 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                         }
                     }
                 }
+                let mut over_emoji = None;
                 for (idx, url, size, lead) in &t.emojis {
                     let c = galley.pos_from_cursor(CCursor::new(*idx));
                     let x = origin.x + (c.min.x - lead).max(0.0);
                     let rect = Rect::from_min_size(pos2(x, origin.y + c.center().y - size / 2.0), vec2(*size, *size));
+                    if resp.hover_pos().is_some_and(|p| rect.contains(p)) {
+                        over_emoji = Some(*idx);
+                    }
                     Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).show_loading_spinner(false).paint_at(ui, rect);
                     if let Some((_, id)) = url.split('?').next().and_then(|u| u.rsplit_once("/emojis/"))
                         && ui.clip_rect().contains_rect(rect)
@@ -1968,13 +2051,19 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     if idx > 0 && origin.x + galley.pos_from_cursor(CCursor::new(idx)).min.x > p.x {
                         idx -= 1;
                     }
+                    if let Some(i) = over_emoji {
+                        idx = i;
+                    }
                     if let Some((_, l)) = t.links.iter().find(|(r, _)| r.contains(&idx)) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         if let Link::Emoji(_, name, _) = l {
-                            egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.id().with(("emoji_tip", msg)), egui::PopupAnchor::Pointer).show(|ui| {
+                            let tip = egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.id().with(("emoji_tip", msg)), egui::PopupAnchor::Pointer).show(|ui| {
                                 ui.label(RichText::new(format!(":{name}:")).font(semi(14.0)).color(pal().header_primary));
                                 ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
                             });
+                            if let Some(t) = tip {
+                                d.rects.push(("emoji_tip".into(), t.response.rect));
+                            }
                         }
                         if resp.middle_clicked() {
                             match l {
@@ -2941,7 +3030,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
             egui::containers::menu::SubMenu::new().show(ui, &add, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for e in &frequent {
-                    let name = if e.id != 0 { e.name.clone() } else { emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name).to_string() };
+                    let name = if e.id != 0 { e.name.clone() } else { super::reactions::unicode_name(&e.name).to_string() };
                     let url = gif::uri(ui.ctx(), &emoji_url(e), true);
                     if menu_row(ui, None, &format!(":{name}:"), None, false, Trail::Image(url)).clicked() {
                         react = Some(e.clone());

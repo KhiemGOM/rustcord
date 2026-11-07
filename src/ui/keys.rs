@@ -172,7 +172,7 @@ impl App {
             return;
         }
         if k(Modifiers::NONE, Key::Escape) || k(Modifiers::SHIFT, Key::PageDown) {
-            self.escape();
+            self.escape(ctx);
         }
 
         let (up, down, uup, udown, mup, mdown) =
@@ -306,9 +306,10 @@ impl App {
 
     /// Escape, once nothing open took it: search results close; a chat scrolled well back
     /// jumps to the present; an unread one is marked read; otherwise it scrolls to the bottom.
-    fn escape(&mut self) {
+    fn escape(&mut self, ctx: &egui::Context) {
         if self.search.is_some() {
             self.search = None;
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("search_q"), String::new()));
             return;
         }
         let Some(ch) = self.cur() else { return };

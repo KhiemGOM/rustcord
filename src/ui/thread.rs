@@ -61,32 +61,36 @@ impl App {
         self.rest("PATCH", format!("/channels/{id}"), Some(body), Tag::Remote("action"));
     }
 
+    pub fn follow_thread(&mut self, id: Id, on: bool) {
+        self.rest(if on { "PUT" } else { "DELETE" }, format!("/channels/{id}/thread-members/@me"), None, Tag::Remote("action"));
+        if let Some(c) = self.store.channels.get_mut(&id) {
+            c.joined = on;
+        }
+        let me = self.store.me;
+        if let Some(l) = self.store.thread_members.get_mut(&id) {
+            l.retain(|u| *u != me);
+            if on {
+                l.push(me);
+            }
+        }
+    }
+
+    pub fn thread_top(&mut self, id: Id) {
+        let at_start = self.store.msgs.entry(id).or_default().at_start;
+        if at_start {
+            self.scroll_fix = Some((id, 0.0));
+        } else {
+            self.store.msgs.entry(id).or_default().loading = true;
+            self.jump_top = Some(id);
+            self.net.send(Cmd::Messages { channel: id, page: Page::Around(id) });
+        }
+    }
+
     fn act_on_thread(&mut self, c: &Channel, a: Act) {
         let id = c.id;
         match a {
-            Act::Join(on) => {
-                self.rest(if on { "PUT" } else { "DELETE" }, format!("/channels/{id}/thread-members/@me"), None, Tag::Remote("action"));
-                if let Some(c) = self.store.channels.get_mut(&id) {
-                    c.joined = on;
-                }
-                let me = self.store.me;
-                if let Some(l) = self.store.thread_members.get_mut(&id) {
-                    l.retain(|u| *u != me);
-                    if on {
-                        l.push(me);
-                    }
-                }
-            }
-            Act::Top => {
-                let at_start = self.store.msgs.entry(id).or_default().at_start;
-                if at_start {
-                    self.scroll_fix = Some((id, 0.0));
-                } else {
-                    self.store.msgs.entry(id).or_default().loading = true;
-                    self.jump_top = Some(id);
-                    self.net.send(Cmd::Messages { channel: id, page: Page::Around(id) });
-                }
-            }
+            Act::Join(on) => self.follow_thread(id, on),
+            Act::Top => self.thread_top(id),
             Act::Edit => self.open_chan_settings(id),
             Act::Split(on) => {
                 if on {

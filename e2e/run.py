@@ -56,6 +56,8 @@ import refusals
 import live
 import members
 import chatx
+import forum
+import stickers
 import bots
 import embed
 import profed
@@ -568,6 +570,8 @@ def main():
         **live.checks({"cold": cold, "warm": warm}, reqs, data),
         **members.checks({"cold": cold, "warm": warm}, reqs, data),
         **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
+        **forum.checks({"cold": cold, "warm": warm}, reqs, data),
+        **stickers.checks({"cold": cold, "warm": warm}, reqs, data),
         **bots.checks({"cold": cold, "warm": warm}, reqs, data),
         **embed.checks({"cold": cold, "warm": warm}, reqs, data),
         **profed.checks({"cold": cold, "warm": warm}, reqs, data),
