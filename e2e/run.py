@@ -52,6 +52,7 @@ import sound
 import activity
 import clips
 import perms
+import themes
 import refusals
 import live
 import members
@@ -582,6 +583,7 @@ def main():
         **discover.checks({"cold": cold, "warm": warm}, reqs, data),
         **gallery.checks({"cold": cold, "warm": warm}, reqs, data),
         **perms.checks({"cold": cold, "warm": warm}, reqs, data),
+        **themes.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),

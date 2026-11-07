@@ -6,6 +6,7 @@ mod account;
 mod modals;
 mod activity;
 mod app;
+mod theme;
 pub mod apps;
 pub mod billing;
 pub mod camera;
@@ -391,7 +392,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 Page::Gifts => billing::gifts(app, ui),
                 Page::Billing => billing::billing(app, ui),
                 Page::Voice => voice::page(app, ui),
-                Page::Appearance => app::appearance(app, ui),
+                Page::Appearance => theme::page(app, ui) | app::appearance(app, ui),
                 Page::Accessibility => app::accessibility(app, ui),
                 Page::System => system::system(app, ui),
                 Page::Language => system::language(app, ui),
@@ -459,6 +460,11 @@ fn end(ui: &Ui, g: f32) {
 /// A page section: the 24px heading, with a rule above it unless it's the first. Its name
 /// is what the sidebar's sub-rows scroll to.
 pub fn section(ui: &mut Ui, title: &str) {
+    section_with(ui, title, None);
+}
+
+/// `section` with a secondary button at the right end of the heading row; true when it's clicked.
+pub fn section_with(ui: &mut Ui, title: &str, button: Option<&str>) -> bool {
     let id = Id::new("settings_secs");
     let first = ui.data(|d| d.get_temp::<Vec<(String, f32)>>(id)).is_none_or(|v| v.is_empty());
     if !first {
@@ -478,7 +484,14 @@ pub fn section(ui: &mut Ui, title: &str) {
         ui.data_mut(|d| d.remove_temp::<String>(Id::new("settings_goto")));
         ui.scroll_to_rect(r.translate(vec2(0.0, -64.0)), Some(Align::TOP));
     }
+    let mut clicked = false;
+    if let Some(text) = button {
+        let row = Rect::from_min_max(pos2(r.left(), r.center().y - 20.0), pos2(ui.max_rect().right(), r.center().y + 20.0));
+        let mut c = ui.new_child(UiBuilder::new().max_rect(row).layout(Layout::right_to_left(Align::Center)));
+        clicked = secondary(&mut c, text).clicked();
+    }
     end(ui, 33.0);
+    clicked
 }
 
 /// A rule inside a section.

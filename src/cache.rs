@@ -62,6 +62,14 @@ pub struct Settings {
     // appearance
     pub theme: crate::theme::Theme,
     pub custom_theme: Option<u8>,
+    pub own_theme: Option<crate::theme::Custom>,
+    // the in-app icon's id, as discord names them
+    pub app_icon: String,
+    // servers that made a theme show it to people who haven't picked "Use my theme"
+    pub server_themes: bool,
+    // the appearance message the account last sent, so an update keeps the fields we don't know
+    #[serde(skip)]
+    pub appearance_raw: Vec<u8>,
     pub sync_theme: bool,
     pub own_theme_on_profiles: bool,
     pub compact: bool,
@@ -308,6 +316,10 @@ impl Default for Settings {
             saturate_custom: false,
             high_contrast: false,
             sync_contrast: true,
+            own_theme: None,
+            app_icon: "AppIcon".into(),
+            server_themes: true,
+            appearance_raw: Vec::new(),
             switch_icons: false,
             role_colors: RoleColors::InNames,
             reduced_motion: false,
