@@ -4353,10 +4353,14 @@ impl Run {
         let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.author == app.store.me && m.content == text));
         match self.step {
             520 => {
-                // alice only sits in the lounge once an earlier step has put her there, server muted
-                let d = json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true });
-                app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
-                app.store.apply("VOICE_STATE_UPDATE", &d);
+                // alice only sits in the lounge once an earlier step has put her there, server muted, and the stage steps took carol's own mute off
+                for d in [
+                    json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true }),
+                    json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }),
+                ] {
+                    app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
+                    app.store.apply("VOICE_STATE_UPDATE", &d);
+                }
                 app.select_guild(Some(self.target.0));
                 app.open(general);
                 self.next(1200);
