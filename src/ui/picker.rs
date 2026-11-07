@@ -793,7 +793,7 @@ impl App {
 /// Discord's sticker picker: every server's stickers, the current one first; another
 /// server's need nitro. Discord's own packs follow, every one of them sendable.
 pub fn stickers(app: &mut App, ctx: &egui::Context) {
-    let Some(at) = app.stickers else { return drop(ctx.data_mut(|d| d.remove::<String>(egui::Id::new("sticker_q")))) };
+    let Some(at) = app.stickers else { return ctx.data_mut(|d| d.remove::<String>(egui::Id::new("sticker_q"))) };
     let Some(ch) = app.cur() else { return };
     app.load_packs();
     let here = app.store.channels.get(&ch).map_or(0, |c| c.guild);

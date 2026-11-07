@@ -608,6 +608,10 @@ impl Run {
                     self.next(1500);
                     if let Some(from) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
                         self.step = from;
+                        // the step that sends a message is skipped, and alice's reply to it is what the toast steps read
+                        if from > 5 {
+                            app.rest("POST", "/mock/dm".into(), Some(json!({ "channel": 3000, "from": 101, "text": "hey, saw your message — got a sec?", "after_ms": 500 })), crate::net::Tag::Quiet);
+                        }
                     }
                 }
             }
@@ -4347,6 +4351,10 @@ impl Run {
         let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.author == app.store.me && m.content == text));
         match self.step {
             520 => {
+                // alice only sits in the lounge once an earlier step has put her there, server muted
+                let d = json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true });
+                app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
+                app.store.apply("VOICE_STATE_UPDATE", &d);
                 app.select_guild(Some(self.target.0));
                 app.open(general);
                 self.next(1200);
