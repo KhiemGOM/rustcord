@@ -96,6 +96,10 @@ impl App {
     }
 
     fn stage_fx(&mut self) {
+        if self.call.music_forced.is_some() && self.call.music_forced != self.voice.chan {
+            self.call.music_forced = None;
+        }
+        looping("stage_waiting", self.stage_music());
         let seat = self.voice.stage.seats.get(&self.store.me);
         let invited = self.voice.stage_room && seat.is_some_and(|s| s.audience && s.hand.is_some()) && !self.call.asked;
         if std::mem::replace(&mut self.call.invited, invited) != invited && invited {

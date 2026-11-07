@@ -2,14 +2,13 @@ use egui::{Align2, Color32, CornerRadius, Frame, Margin, Rect, RichText, Sense, 
 use serde_json::{Value, json};
 
 use super::icons::{self, Icon};
-use super::{App, DANGER, avatar, menu_item, menu_sep};
+use super::{App, avatar, menu_item, menu_sep};
 use crate::net::Tag;
 use crate::state::{Channel, Id, MANAGE_CHANNELS};
 use crate::theme::*;
 
 const MUTE_MEMBERS: u64 = 1 << 22;
 const MOVE_MEMBERS: u64 = 1 << 24;
-const BAR: Color32 = Color32::from_rgb(11, 11, 13);
 
 pub struct Form {
     pub chan: Id,
@@ -45,7 +44,7 @@ impl App {
         self.stage_state(chan, &who.to_string(), json!({ "suppress": false, "request_to_speak_timestamp": at, "channel_id": chan.id.to_string() }));
     }
 
-    fn end_stage(&mut self, ch: Id) {
+    pub(super) fn end_stage(&mut self, ch: Id) {
         self.rest("DELETE", format!("/stage-instances/{ch}"), None, Tag::reason());
     }
 }
@@ -164,7 +163,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
         }
         let bar = Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max);
-        controls(app, ui, chan, bar, mods, me);
+        super::stagebar::controls(app, ui, chan, bar);
         invited(app, ui, chan, r, me);
     });
 }
@@ -290,78 +289,6 @@ pub fn tile_items(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id) {
     } else if menu_item(ui, None, "Move to Audience", false) {
         app.set_speaker(chan, u, false);
         ui.close();
-    }
-}
-
-fn controls(app: &mut App, ui: &mut Ui, chan: &Channel, bar: Rect, mods: bool, me: Id) {
-    let cy = bar.bottom() - 41.0;
-    let audience = app.voice.stage.seats.get(&me).is_some_and(|s| s.audience);
-    let hand = app.voice.stage.seats.get(&me).is_some_and(|s| s.hand.is_some());
-    let mut parts: Vec<(&str, f32)> = Vec::new();
-    if audience {
-        parts.push((if mods { "Speak on Stage" } else if hand { "Lower Hand" } else { "Request to Speak" }, if mods { 168.0 } else { 188.0 }));
-    } else {
-        parts.push(("Mute", 70.0));
-        parts.push(("Move to Audience", 190.0));
-    }
-    if mods {
-        parts.push(("End Stage", 124.0));
-    }
-    let total: f32 = parts.iter().map(|p| p.1).sum::<f32>() + 12.0 * parts.len() as f32 + 66.0;
-    let mut x = bar.center().x - total / 2.0;
-    for (label, w) in parts {
-        let r = Rect::from_min_size(pos2(x, cy - 25.0), vec2(w, 50.0));
-        x += w + 12.0;
-        ui.painter().rect_filled(r, CornerRadius::same(25), BAR);
-        let resp = ui.interact(r, egui::Id::new(("stage_ctl", label)), Sense::click());
-        if resp.hovered() {
-            ui.painter().rect_filled(r.shrink(5.0), CornerRadius::same(20), pal().bg_mod_hover);
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        app.rects.insert(format!("stage:ctl:{label}"), r);
-        let mute = app.voice.mute || app.voice.deaf;
-        match label {
-            "Mute" => {
-                icons::draw(ui.painter(), if mute { Icon::MicOff } else { Icon::Mic }, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), if mute { DANGER } else { Color32::WHITE });
-                if resp.on_hover_text(if mute { "Unmute" } else { "Mute" }).clicked() {
-                    app.voice.set_mute(&app.net, !mute);
-                }
-            }
-            _ => {
-                let danger = label == "End Stage";
-                let icon = match label {
-                    "Request to Speak" | "Lower Hand" => Some(Icon::Hand),
-                    _ => None,
-                };
-                let g = ui.painter().layout_no_wrap(label.into(), medium(16.0), if danger { DANGER } else { Color32::WHITE });
-                let w = g.size().x + if icon.is_some() { 28.0 } else { 0.0 };
-                let x0 = r.center().x - w / 2.0;
-                if let Some(i) = icon {
-                    icons::draw(ui.painter(), i, Rect::from_center_size(pos2(x0 + 10.0, r.center().y), vec2(20.0, 20.0)), Color32::WHITE);
-                }
-                ui.painter().galley(pos2(x0 + w - g.size().x, r.center().y - g.size().y / 2.0), g, if danger { DANGER } else { Color32::WHITE });
-                if resp.clicked() {
-                    match label {
-                        "Speak on Stage" => app.set_speaker(chan, me, true),
-                        "Request to Speak" => app.request_to_speak(chan, true),
-                        "Lower Hand" => app.request_to_speak(chan, false),
-                        "Move to Audience" => app.set_speaker(chan, me, false),
-                        _ => {
-                            let ch = chan.id;
-                            app.confirm = Some(super::Confirm::new("End Stage for Everyone", "Are you sure you want to end the Stage for everyone?\n\nThe Stage will end immediately.", "End Stage", move |app: &mut App| app.end_stage(ch)));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let end = Rect::from_min_size(pos2(x, cy - 25.0), vec2(66.0, 50.0));
-    let r = ui.interact(end, egui::Id::new(("stage_ctl", "leave")), Sense::click());
-    ui.painter().rect_filled(end, CornerRadius::same(25), if r.hovered() { DANGER.gamma_multiply(0.85) } else { DANGER });
-    icons::draw(ui.painter(), Icon::HangUp, Rect::from_center_size(end.center(), vec2(20.0, 20.0)), Color32::WHITE);
-    app.rects.insert("voice:leave_big".into(), end);
-    if r.on_hover_text(if audience { "Disconnect Quietly" } else { "Leave the Stage" }).clicked() {
-        app.voice.leave(&app.net);
     }
 }
 

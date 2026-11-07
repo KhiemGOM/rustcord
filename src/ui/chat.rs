@@ -254,7 +254,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if let Some(w) = app.dragged(&ctx, r.response.rect.width(), search_w) {
             app.ui.search_w = w;
         }
-    } else if chan.kind == 1 && !app.ui.hide_dm_profile && room >= 320.0 + 420.0 {
+    } else if chan.kind == 1 && !app.ui.hide_dm_profile && room >= 320.0 + 420.0 && !dm_profile_unavailable(app, &ctx, &chan) {
         if let Some(&uid) = chan.recipients.first() {
             let r = egui::Panel::right("dm_profile")
                 .exact_size(320.0)
@@ -526,6 +526,12 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 app.ui.hide_members = !app.ui.hide_members;
                                 app.search = None;
                             }
+                        }
+                        Tool::Profile if dm_profile_unavailable(app, ui.ctx(), chan) => {
+                            let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                            icons::draw(ui.painter(), Icon::UserProfile, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_secondary.gamma_multiply(0.9));
+                            app.rects.insert("dm:profile_off".into(), r);
+                            resp.on_hover_text("Show User Profile (Unavailable)");
                         }
                         Tool::Profile => {
                             let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };
@@ -1042,6 +1048,11 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
 /// S reads it out, Ctrl+C copies it, Alt+Enter marks it unread, Shift+F10 opens its menu and
 /// Escape or Tab goes back to the composer. Shift skips the pin and delete dialogs. Any other
 /// typing goes to the composer, which takes the focus back.
+/// Discord greys the profile toggle below 1132 px and while the DM's call fills the top of the chat.
+fn dm_profile_unavailable(app: &App, ctx: &egui::Context, chan: &Channel) -> bool {
+    ctx.content_rect().width() < 1132.0 || app.voice.chan == Some(chan.id)
+}
+
 fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let Some(id) = app.focus_msg else { return };
     if app.layered(ui.ctx()) {
