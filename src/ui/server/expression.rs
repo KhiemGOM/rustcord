@@ -165,12 +165,6 @@ const TIERS: [(u32, u32, u32); 3] = [(1, 2, 15), (2, 7, 30), (3, 14, 60)];
 pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
     title(ui, "Stickers", "");
     let Some(g) = app.store.guilds.get(&gid).cloned() else { return };
-    let total: usize = match g.tier {
-        1 => 15,
-        2 => 30,
-        3 => 60,
-        _ => 5,
-    };
     if let Some(s) = app.server.as_mut().filter(|s| s.pages.emoji.synced != g.stickers.len()) {
         s.pages.emoji.synced = g.stickers.len();
         s.data.remove("stickers");
@@ -178,49 +172,59 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
     let list: Vec<Value> = app.server_data("stickers", format!("/guilds/{gid}/stickers")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let used = list.len().max(g.stickers.len());
     let mut boost = false;
+    let mut buy_level = false;
     if g.tier < 3 {
-        let next = TIERS[g.tier as usize];
-        crate::ui::settings::card(ui, |ui| {
-            ui.label(RichText::new("Get Boosted").font(semi(20.0)).color(pal().header_primary));
-            ui.add_space(4.0);
-            ui.label(RichText::new(format!("Enjoy more stickers and other perks by boosting your server to Level {}. Each Level unlocks more sticker slots and new benefits for everyone.", next.0)).font(reg(14.0)).color(pal().text_normal));
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                boost = settings::primary(ui, "Boost Server").clicked();
-                if settings::secondary(ui, "Learn More").clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/360028038352"));
-                }
-            });
-            ui.add_space(12.0);
-            for (lvl, need, slots) in TIERS {
-                let on = g.tier >= lvl as u8;
-                ui.label(RichText::new(format!("Level {lvl}  {}/{need} Boosts{}", g.boosts.min(need), if on { "  \u{2713}" } else { "" })).font(medium(14.0)).color(if on { GREEN } else { pal().header_secondary }));
-                let _ = slots;
-            }
-        });
+        let (go, learn) = super::stickline::banner(ui, TIERS[g.tier as usize].0);
+        boost |= go;
+        if learn {
+            ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/360028038352"));
+        }
+        ui.add_space(24.0);
+        rule(ui);
+        ui.add_space(24.0);
     }
-    ui.add_space(24.0);
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.label(RichText::new("Free Slots").font(semi(20.0)).color(pal().header_primary));
-            ui.label(RichText::new(format!("{} of {total} slots available", total.saturating_sub(used))).font(reg(14.0)).color(pal().header_secondary));
-        });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if settings::primary(ui, "Upload Sticker").clicked()
-                && let Some(s) = &mut app.server
-            {
-                s.pages.emoji.form = Some(StickerForm { id: 0, name: String::new(), tags: String::new(), description: String::new(), file: None });
-            }
-        });
-    });
-    ui.add_space(16.0);
-    let w = ui.available_width();
-    let per = ((w + 16.0) / 152.0).floor().max(1.0) as usize;
+    let slot = ui.painter().add(egui::Shape::Noop);
+    let rail_x = ui.cursor().left() + 12.0;
+    let mut nodes = Vec::new();
+    let free_y = std::cell::Cell::new(0.0f32);
     let mut act: Option<(&str, Value)> = None;
-    for chunk in list.chunks(per) {
-        let (r, _) = ui.allocate_exact_size(vec2(w, 176.0), Sense::hover());
-        for (i, st) in chunk.iter().enumerate() {
-            let t = Rect::from_min_size(pos2(r.left() + i as f32 * 152.0, r.top()), vec2(136.0, 164.0));
+    egui::Frame::new().inner_margin(egui::Margin { left: 36, ..Default::default() }).show(ui, |ui| {
+        if g.tier == 0 {
+            nodes.push(super::stickline::Node { y: ui.cursor().top() + 10.0, reached: true });
+            ui.label(RichText::new("No Server Boost").font(medium(16.0)).color(pal().header_primary));
+            ui.label(RichText::new("No one has bestowed Boosts to this server yet. See if any members would kindly bless your server for server-wide Boost Perks!").font(reg(14.0)).color(pal().text_normal));
+            ui.add_space(16.0);
+        }
+        let free = 5usize;
+        let card_top = ui.cursor().top();
+        egui::Frame::new().fill(pal().bg_primary).stroke(Stroke::new(1.0, faint(41))).corner_radius(8).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Free Slots").font(semi(16.0)).color(pal().header_primary));
+                    ui.label(RichText::new(format!("{} of {free} slots available", free.saturating_sub(used))).font(reg(12.0)).color(pal().header_secondary));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if settings::primary(ui, "Upload Sticker").clicked()
+                        && let Some(s) = &mut app.server
+                    {
+                        s.pages.emoji.form = Some(StickerForm { id: 0, name: String::new(), tags: String::new(), description: String::new(), file: None });
+                    }
+                });
+            });
+            ui.add_space(16.0);
+            let w = ui.available_width();
+            let per = ((w + 16.0) / 152.0).floor().max(1.0) as usize;
+            let cells: Vec<Option<Value>> = list.iter().cloned().map(Some).chain(std::iter::repeat(None)).take(list.len().max(free)).collect();
+            for chunk in cells.chunks(per) {
+                let (r, _) = ui.allocate_exact_size(vec2(w, 176.0), Sense::hover());
+                for (i, st) in chunk.iter().enumerate() {
+                    let t = Rect::from_min_size(pos2(r.left() + i as f32 * 152.0, r.top()), vec2(136.0, 164.0));
+                    let Some(st) = st else {
+                        ui.painter().rect_stroke(t, CornerRadius::same(8), Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
+                        icons::draw(ui.painter(), Icon::Sticker, Rect::from_center_size(t.center(), vec2(48.0, 48.0)), faint(61));
+                        continue;
+                    };
             let resp = ui.interact(t, ui.id().with(("sticker", i, sid(&st["id"]))), Sense::hover());
             ui.painter().rect(t, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
             let (id, fmt) = (sid(&st["id"]), st["format_type"].as_u64().unwrap_or(1));
@@ -243,8 +247,22 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
             }
         }
     }
-    if list.is_empty() {
-        ui.label(RichText::new("No stickers yet.").font(reg(14.0)).color(pal().header_secondary));
+        });
+        free_y.set(card_top + 33.0);
+        nodes.push(super::stickline::Node { y: card_top + 33.0, reached: true });
+        for (lvl, _, total) in TIERS {
+            ui.add_space(20.0);
+            let before = if lvl == 1 { free as u32 } else { TIERS[lvl as usize - 2].2 };
+            let adds = if lvl == 1 { format!("+{} Sticker Slots", total - before) } else { format!("+{} Sticker Slots ({total} total)", total - before) };
+            let (y, buy) = super::stickline::level(ui, lvl, TIERS[lvl as usize - 1].1, adds, g.tier >= lvl as u8);
+            nodes.push(super::stickline::Node { y, reached: g.tier >= lvl as u8 });
+            buy_level |= buy;
+        }
+    });
+    super::stickline::rail(ui, slot, rail_x, &nodes);
+    super::stickline::check(ui, pos2(rail_x, free_y.get()));
+    if buy_level {
+        app.open_buy(crate::ui::buy::What::Boost(gid));
     }
     if boost {
         app.server = None;
