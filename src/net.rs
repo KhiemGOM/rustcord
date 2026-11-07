@@ -136,6 +136,8 @@ pub enum Tag {
     // the activity shelf, launching one and the oauth steps its page asks for, by step
     Activity(String),
     AddApp(bool),
+    // the purchase dialog's calls, and the server a listing or shop page is for
+    Buy(&'static str, Id),
 }
 
 pub enum Cmd {
@@ -153,6 +155,8 @@ pub enum Cmd {
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
     /// A moderation write whose reason rides in X-Audit-Log-Reason.
     Audit { method: &'static str, path: String, body: Option<Value>, reason: String, tag: Tag },
+    /// A purchase: sent once, never retried, and only when `charge_barred` says nothing stands in the way.
+    Charge { method: &'static str, path: String, body: Value, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     /// A GET with an app's own access token instead of ours.
@@ -172,11 +176,36 @@ fn allowed(c: &Cmd) -> bool {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
-        Cmd::Sticker { .. } | Cmd::Audit { .. } => false,
+        Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
     }
+}
+
+/// Set by the e2e to prove a read-only run refuses a purchase before anything is sent.
+pub static FORCE_READONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn loopback(base: &str) -> bool {
+    reqwest::Url::parse(base).ok().and_then(|u| u.host_str().map(|h| matches!(h, "127.0.0.1" | "localhost" | "[::1]"))).unwrap_or(false)
+}
+
+fn barred(readonly: bool, harness: bool, base: &str) -> Option<&'static str> {
+    if readonly {
+        return Some("This run is read-only, so nothing was bought.");
+    }
+    if harness && !loopback(base) {
+        return Some("A test run only buys from the mock, so nothing was bought.");
+    }
+    None
+}
+
+/// Why a purchase must not go out right now, if it must not: a read-only run, or a test or tour
+/// run that isn't pointed at a server on this machine.
+pub fn charge_barred() -> Option<&'static str> {
+    let readonly = FORCE_READONLY.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("RUSTCORD_READONLY").is_some();
+    let harness = ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some());
+    barred(readonly, harness, api::base())
 }
 
 #[derive(Clone)]
@@ -285,6 +314,13 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     let mut qr: Option<tokio::task::JoinHandle<()>> = None;
     let readonly = std::env::var_os("RUSTCORD_READONLY").is_some();
     while let Some(cmd) = rx.recv().await {
+        if let Cmd::Charge { tag, .. } = &cmd
+            && let Some(why) = charge_barred()
+        {
+            BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            tx.send(Ev::Rest { tag: tag.clone(), res: Ok(serde_json::json!({ "status": 0, "body": { "message": why } })) });
+            continue;
+        }
         if readonly && !allowed(&cmd) {
             BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             continue;
@@ -363,6 +399,13 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     tx.send(Ev::Rest { tag, res });
                 });
             }
+            Cmd::Charge { method, path, body, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
+                    let res = a.charge(m, &path, &body).await;
+                    tx.send(Ev::Rest { tag, res });
+                });
+            }
             Cmd::Sticker { guild, name, tags, description, file } => {
                 tokio::spawn(async move {
                     if let Err(e) = a.sticker(guild, [("name", name), ("tags", tags), ("description", description)], file).await {
@@ -411,5 +454,26 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             }
             Cmd::Voice(c) => voice.cmd(c, &tx),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_purchase_is_barred_when_read_only_or_when_a_test_run_isnt_on_this_machine() {
+        assert!(barred(true, false, "http://127.0.0.1:1/api/v9").is_some());
+        assert!(barred(true, true, "http://127.0.0.1:1/api/v9").is_some());
+        assert!(barred(false, true, "https://discord.com/api/v9").is_some());
+        assert!(barred(false, true, "http://discord.com.evil.test/api/v9").is_some());
+        assert!(barred(false, true, "http://127.0.0.1:9/api/v9").is_none());
+        assert!(barred(false, false, "https://discord.com/api/v9").is_none());
+    }
+
+    #[test]
+    fn a_read_only_run_drops_a_charge_at_the_gate() {
+        let c = Cmd::Charge { method: "POST", path: "/store/skus/1/purchase".into(), body: Value::Null, tag: Tag::Quiet };
+        assert!(!allowed(&c));
     }
 }

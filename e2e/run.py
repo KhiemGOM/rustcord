@@ -45,6 +45,7 @@ import players
 import voice_settings
 import rpc
 import qol
+import buy
 import shop
 import web
 import sound
@@ -316,7 +317,7 @@ def main():
         "billing: default payment method PATCHed": any(r.get("method") == "PATCH" and "/billing/payment-sources/" in r.get("path", "") and '"default":true' in r.get("body", "") for r in reqs),
         "billing: nothing was bought or deleted": not any(
             (r.get("method") != "GET" and "/billing/" in r.get("path", "") and "/payment-sources/" not in r.get("path", "")) or (r.get("method") == "DELETE" and "/payment-sources/" in r.get("path", ""))
-            or any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe")) for r in reqs),
+            or any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe")) for r in reqs if not buy.of_the_buy_group(r)),
         **{f"settings: {name} PATCHed to the account's settings proto": sum(b64decode(json.loads(r["body"])["settings"]) == want for r in reqs
                                                                             if r.get("method") == "PATCH" and "/settings-proto/" in r.get("path", "") and r.get("body")) == 2
            for name, want in [("friends online off", bytes([0x3a, 2, 0x62, 0])), ("tts command off", bytes([0x32, 3, 0x82, 1, 0])),
@@ -560,6 +561,7 @@ def main():
         **fixes.checks({"cold": cold, "warm": warm}, reqs, data),
         **web.checks({"cold": cold, "warm": warm}, reqs, data),
         **shop.checks({"cold": cold, "warm": warm}, reqs, data),
+        **buy.checks({"cold": cold, "warm": warm}, reqs, data),
         **clips.checks({"cold": cold, "warm": warm}, reqs, data),
         **refusals.checks({"cold": cold, "warm": warm}, reqs, data),
         **live.checks({"cold": cold, "warm": warm}, reqs, data),

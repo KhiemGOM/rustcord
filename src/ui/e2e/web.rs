@@ -1,7 +1,5 @@
 use super::Run;
 
-const PLAN: &str = crate::webwin::NITRO_MONTHLY;
-
 impl Run {
     /// A purchase opens the checkout window on its billing page, a second one moves it, Escape
     /// closes it and takes the temporary profile with it.
@@ -9,21 +7,21 @@ impl Run {
         let at = |path: &str| crate::webwin::shown().is_some_and(|u| u.ends_with(path));
         match self.step {
             900 => {
-                crate::webwin::subscribe(PLAN, false);
+                crate::webwin::add_card();
                 self.next(0);
             }
             901 => {
-                if at(&format!("/billing/premium/subscribe?plan_id={PLAN}&gift=false")) {
+                if at("/billing/payment-sources/create") {
                     self.mark("web_open");
                     if crate::webwin::profiles_left() > 0 {
                         self.mark("web_profile_made");
                     }
-                    crate::webwin::boost(1000);
+                    crate::webwin::manage();
                     self.next(0);
                 }
             }
             902 => {
-                if at("/billing/guild-subscriptions/purchase?guild_id=1000") {
+                if at("/billing/premium/manage") {
                     self.mark("web_navigate");
                     crate::webwin::press_escape();
                     self.next(0);

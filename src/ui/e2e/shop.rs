@@ -2,6 +2,7 @@
 //! from what the mock serves, and the purchase buttons open the checkout window on a billing page.
 
 use super::*;
+use crate::ui::buy::{Step, What};
 use crate::ui::shop::Page;
 
 impl Run {
@@ -44,14 +45,15 @@ impl Run {
                 self.next(0);
             }
             3204 => {
-                if crate::webwin::shown().is_some_and(|u| u.ends_with("&gift=true") && u.contains("/billing/premium/subscribe?plan_id=")) {
+                if app.buy.as_ref().is_some_and(|b| b.step == Step::Plans) && at("buy:plan:511651880837840896").is_some() {
                     self.mark("nitro_gift_checkout");
-                    crate::webwin::press_escape();
+                    self.shot(ctx, "buy_gift_plans.png");
+                    self.key(Key::Escape);
                     self.next(0);
                 }
             }
             3205 => {
-                if crate::webwin::is_open() {
+                if app.buy.is_some() {
                     return;
                 }
                 self.next(0);
@@ -68,14 +70,14 @@ impl Run {
                 self.next(0);
             }
             3236 => {
-                if crate::webwin::shown().is_some_and(|u| u.ends_with("&gift=false") && u.contains("/billing/premium/subscribe?plan_id=")) {
+                if app.buy.as_ref().is_some_and(|b| matches!(b.what, What::Nitro(_))) {
                     self.mark("nitro_subscribe_checkout");
-                    crate::webwin::press_escape();
+                    self.key(Key::Escape);
                     self.next(0);
                 }
             }
             3237 => {
-                if crate::webwin::is_open() {
+                if app.buy.is_some() {
                     return;
                 }
                 let Some(r) = app.rects.get("home:Shop").copied() else { return };
@@ -164,17 +166,18 @@ impl Run {
                 self.next(400);
             }
             3216 => {
-                if app.shop.as_ref().and_then(|s| s.bought.as_deref()) == Some("/shop#itemSkuId=5101") {
-                    self.mark("shop_buy_no_window");
+                if app.buy.as_ref().is_some_and(|b| matches!(&b.what, What::Shop(p) if p["sku_id"] == "5101")) {
+                    self.mark("shop_buy_opens_checkout");
                     if crate::webwin::is_open() {
                         self.fail("a collectible purchase opened the checkout window".into());
                     }
                     self.key(Key::Escape);
-                    self.next(0);
+                    self.next(300);
+                    self.key(Key::Escape);
                 }
             }
             3217 => {
-                if app.shop.as_ref().is_some_and(|s| s.product.is_some()) {
+                if app.buy.is_some() || app.shop.as_ref().is_some_and(|s| s.product.is_some()) {
                     return;
                 }
                 self.mark("shop_detail_escape");
@@ -278,7 +281,7 @@ impl Run {
             _ => {
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
                 app.shop = None;
-                self.step = 1600;
+                self.step = 4200;
             }
         }
     }

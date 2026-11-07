@@ -234,6 +234,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut make_invite: Option<Id> = None;
     let mut set_status: Option<Id> = None;
     let mut boost_page = false;
+    let mut shop_page = false;
     let mut events_page = false;
     let mut events_act: Option<EventsAct> = None;
     let mut open_chat: Option<Id> = None;
@@ -242,6 +243,8 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut home_page = None;
     let open_page = if app.boosts == Some(gid) {
         Some("Server Boosts")
+    } else if app.server_shop.as_ref().is_some_and(|s| s.guild == gid) {
+        Some("Server Shop")
     } else {
         match app.home.as_ref().filter(|h| h.guild == gid).map(|h| h.page) {
             Some(super::community::Page::Members) => Some("Members"),
@@ -283,6 +286,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let unread = !muted && g.newest_event > read.map_or(0, |r| r.last_acked);
                 match home_rows(ui, g, store.my_perms(gid), open_page, EventsRow { muted, unread, mentions }, &mut events_act) {
                     Some("Server Boosts") => boost_page = true,
+                    Some("Server Shop") => shop_page = true,
                     Some("Events") => events_page = true,
                     Some("Members") => home_page = Some(super::community::Page::Members),
                     Some("Server Guide") => home_page = Some(super::community::Page::Guide),
@@ -493,6 +497,9 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     }
     if boost_page {
         app.open_boosts(gid);
+    }
+    if shop_page {
+        app.open_server_shop(gid);
     }
     if events_page {
         app.open_events(gid);
@@ -717,7 +724,6 @@ fn get_started(ui: &mut Ui, total: usize, done: usize) -> bool {
 fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
     let has = |f: &str| g.features.iter().any(|x| x == f);
-    let id = g.id;
     let community = has("COMMUNITY");
     let perms = if perms & ADMINISTRATOR != 0 { u64::MAX } else { perms };
     let mut rows: Vec<(Icon, &'static str, String)> = Vec::new();
@@ -733,7 +739,7 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
     }
     // servers selling role subscriptions get discord's shop row
     if has("ROLE_SUBSCRIPTIONS_AVAILABLE_FOR_PURCHASE") {
-        rows.push((Icon::Shop, "Server Shop", format!("https://discord.com/channels/{id}/shop")));
+        rows.push((Icon::Shop, "Server Shop", String::new()));
     }
     // the member table is for moderators, in community servers or ones with discord's tools on
     let moderator = perms & (BAN_MEMBERS | KICK_MEMBERS | MODERATE_MEMBERS | MANAGE_GUILD) != 0;

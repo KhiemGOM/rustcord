@@ -37,6 +37,8 @@ mod rules;
 mod members;
 #[path = "mockcord/bot.rs"]
 mod bot;
+#[path = "mockcord/buy.rs"]
+mod buy;
 #[path = "mockcord/shop.rs"]
 mod shop;
 #[path = "mockcord/profiles.rs"]
@@ -936,6 +938,7 @@ fn ready(last_general: u64) -> Value {
                           simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])];
     guilds[2]["premium_subscription_count"] = json!(6);
     guilds[2]["premium_tier"] = json!(1);
+    guilds[2]["features"] = json!(["ROLE_SUBSCRIPTIONS_AVAILABLE_FOR_PURCHASE"]);
     guilds[1]["emojis"] = json!([
         { "id": "5200", "name": "omgBruh", "animated": false },
         { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
@@ -1422,6 +1425,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
         }
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
+    if let Some((code, v)) = buy::route(w, method, &parts, path, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
     if let Some((code, mut v)) = shop::route(method, &parts, body) {
@@ -2425,7 +2431,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
         ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
-        ("GET", ["billing", ..]) => shop::billing_page(&parts, path).unwrap_or((404, "text/plain", b"not found".to_vec())),
+        ("GET", ["billing", ..]) => shop::billing_page(&parts).unwrap_or((404, "text/plain", b"not found".to_vec())),
         ("GET", ["app"]) => (200, "text/html", br#"<link href="/assets/other.css" rel="stylesheet"><link href="/assets/fonts.css" rel="stylesheet">"#.to_vec()),
         ("GET", ["assets", "other.css"]) => (200, "text/css", b"body{margin:0}".to_vec()),
         ("GET", ["assets", "fonts.css"]) => {
