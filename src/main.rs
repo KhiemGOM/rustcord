@@ -12,6 +12,7 @@ mod gif;
 mod highlight;
 mod hotkeys;
 mod imgcache;
+mod lottie;
 mod markdown;
 mod media;
 mod mp4;

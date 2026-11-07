@@ -107,7 +107,7 @@ impl Run {
                 app.rest("PATCH", format!("/channels/{FORUM}"), Some(json!({ "flags": 0, "available_tags": [{ "id": "1", "name": "feature", "emoji_name": "✨" }, { "id": "2", "name": "ux" }] })), Tag::Quiet);
                 self.next(500);
             }
-            _ => self.step = 3110,
+            _ => self.step = 4320,
         }
     }
 }
