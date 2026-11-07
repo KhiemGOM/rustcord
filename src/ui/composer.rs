@@ -54,6 +54,8 @@ enum Item {
     Role(Id, String, u32),
     Everyone(&'static str),
     AtTime,
+    AtGame,
+    Game(Id, String, Option<String>),
     When(i64, char),
     Channel(Id, String),
     Emoji(Em),
@@ -136,6 +138,12 @@ fn token(draft: &str, cursor: usize) -> Option<(usize, char, String)> {
     {
         return Some((i, 'T', before[i + 6..].to_string()));
     }
+    if let Some(i) = before.rfind("@game ")
+        && before[..i].chars().next_back().is_none_or(char::is_whitespace)
+        && !before[i..].contains('\n')
+    {
+        return Some((i, 'G', before[i + 6..].to_string()));
+    }
     let start = before.rfind(|c: char| c.is_whitespace()).map(|i| i + 1).unwrap_or(0);
     let word = &before[start..];
     let first = word.chars().next()?;
@@ -178,6 +186,9 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                     out.push((s as u16, Item::User(u, name, user.username.clone())));
                 }
             }
+            if app.settings.game_suggestions && "game".starts_with(&q) {
+                out.push((2, Item::AtGame));
+            }
             if "time".starts_with(&q) {
                 out.push((2, Item::AtTime));
             }
@@ -194,6 +205,16 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
                         }
                     }
                 }
+            }
+        }
+        'G' if app.settings.game_suggestions => {
+            let q = q.trim();
+            let hits = (1..=q.len()).rev().filter(|n| q.is_char_boundary(*n)).find_map(|n| match app.keyed.get(&format!("games:{}", &q[..n])) {
+                Some(Some(Ok(v))) => Some(v.clone()),
+                _ => None,
+            });
+            for g in hits.iter().flat_map(|v| v.as_array()).flatten() {
+                out.push((0, Item::Game(sid(&g["id"]), g["name"].as_str().unwrap_or_default().to_string(), g["icon"].as_str().map(str::to_string))));
             }
         }
         'T' => {
@@ -396,6 +417,11 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
     if matches!(&tok, Some((_, ':', _))) && app.settings.sticker_suggestions {
         app.load_packs();
+    }
+    if let Some((_, 'G', q)) = &tok
+        && app.settings.game_suggestions
+    {
+        game_search(app, ui.ctx(), q.trim());
     }
     let items = tok.as_ref().map(|(_, k, q)| candidates(app, chan, *k, q)).unwrap_or_default();
     let open = !items.is_empty() && (focused || typed);
@@ -856,6 +882,7 @@ fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &[Item], com
         '#' => "Text Channels".to_string(),
         ':' => "Emoji Matching".to_string(),
         'T' => "Time".to_string(),
+        'G' => "Games".to_string(),
         _ => "Commands".to_string(),
     };
     let row_h = if kind == '/' { 52.0 } else { 34.0 };
@@ -914,6 +941,24 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, format!("@{e}"), semi(15.0), pal().header_primary);
             let note = if *e == "here" { "Notify everyone online in this channel." } else { "Notify everyone who has permission to view this channel." };
             p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, note, reg(13.0), pal().header_secondary);
+        }
+        Item::AtGame => {
+            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@game", semi(15.0), pal().header_primary);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Mention a game", reg(13.0), pal().header_secondary);
+        }
+        Item::Game(id, name, icon) => {
+            let ir = Rect::from_center_size(pos2(x + 12.0, y), vec2(24.0, 24.0));
+            match icon {
+                Some(h) => avatar(ui, ir, &format!("{}/app-icons/{id}/{h}.png?size=64", crate::api::cdn())),
+                None => {
+                    p.rect_filled(ir, CornerRadius::same(6), pal().bg_tertiary);
+                }
+            }
+            text::paint(p, pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary, r.width() - 48.0);
+        }
+        Item::AtTime => {
+            p.text(pos2(x + 4.0, y), Align2::LEFT_CENTER, "@time", semi(15.0), pal().header_primary);
+            p.text(pos2(r.right() - 8.0, y), Align2::RIGHT_CENTER, "Refer to a time dynamically in the viewer's time zone", reg(13.0), pal().header_secondary);
         }
         Item::When(secs, st) => {
             text::paint(p, pos2(x + 4.0, y), Align2::LEFT_CENTER, &crate::markdown::fmt_ts(*secs, *st), semi(15.0), pal().header_primary, r.width() * 0.7);
@@ -1069,6 +1114,26 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
 }
 
 /// Replace the token with the chosen completion, returning the new cursor (in chars).
+/// Discord asks for games a typed query at a time, no faster than every 200ms.
+fn game_search(app: &mut App, ctx: &egui::Context, q: &str) {
+    let key = format!("games:{q}");
+    if q.is_empty() || app.keyed.contains_key(&key) {
+        return;
+    }
+    let id = egui::Id::new("game_query");
+    let now = ctx.input(|i| i.time);
+    let (last, since) = ctx.data(|d| d.get_temp::<(String, f64)>(id)).unwrap_or_default();
+    if last != q {
+        ctx.data_mut(|d| d.insert_temp(id, (q.to_string(), now)));
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    } else if now - since < 0.2 {
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    } else {
+        app.keyed.insert(key.clone(), None);
+        app.rest("GET", format!("/games/autocomplete?q={}&filter_group=default", super::directory::urlencode(q)), None, Tag::Keyed(key));
+    }
+}
+
 fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usize) -> Option<usize> {
     let ch = chan.id;
     let draft = app.drafts.entry(ch).or_default();
@@ -1078,6 +1143,8 @@ fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, cursor: usiz
         Item::Role(id, name, _) => (format!("@{name}"), format!("<@&{id}>")),
         Item::Everyone(e) => (format!("@{e}"), format!("@{e}")),
         Item::AtTime => ("@time".into(), "@time".into()),
+        Item::AtGame => ("@game".into(), "@game".into()),
+        Item::Game(id, name, _) => (format!("@{name}"), format!("<@${id}>")),
         Item::When(secs, st) => {
             let raw = format!("<t:{secs}:{st}>");
             (raw.clone(), raw)
