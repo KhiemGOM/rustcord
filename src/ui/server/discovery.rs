@@ -52,6 +52,10 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         form::small(ui, "Your server doesn't pass all the requirements to be in Server Discovery yet.");
     }
     ui.add_space(16.0);
+    if listed || sufficient {
+        ui.add_space(24.0);
+        super::listing::show(app, ui, gid);
+    }
     let label = if listed { "Disable Discovery" } else { "Enable Discovery" };
     let resp = ui.add_enabled_ui(listed || sufficient, |ui| form::button(ui, label, !listed)).inner;
     if resp.clicked() {
