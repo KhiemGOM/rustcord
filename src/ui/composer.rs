@@ -1102,7 +1102,6 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
                     crate::ui::motion::wash(ui, &resp, r, 4, pal().control_hover, 0.05);
                     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "format", tip)), r));
                     if resp.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
                         pick = Some(mark);
                     }

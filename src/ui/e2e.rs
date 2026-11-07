@@ -3786,7 +3786,7 @@ impl Run {
                 self.next(1200);
             }
             1201 => {
-                let Some((card, bodies)) = ctx.data(|d| d.get_temp::<(egui::Rect, usize)>(egui::Id::new(("e2e", "now_card", 101u64)))) else { return };
+                let (Some(card), Some(bodies)) = (Self::at(ctx, "now_card:101"), Self::said(ctx, "now_rows:101").and_then(|n| n.parse::<usize>().ok())) else { return };
                 if bodies < 3 || card.height() < 68.0 + 3.0 * 68.0 {
                     return self.fail(format!("alice's Active Now card had {bodies} rows over {}px", card.height()));
                 }
@@ -3807,7 +3807,7 @@ impl Run {
                 if app.profiles.get(&101).is_none_or(|p| p.is_null()) {
                     return;
                 }
-                let Some(b) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "banner", "Open in Mod View")))) else { return };
+                let Some(b) = Self::at(ctx, "banner:Open in Mod View") else { return };
                 self.shot(ctx, "profile_popout_extras.png");
                 self.click(b.center());
                 self.next(700);
@@ -3833,7 +3833,7 @@ impl Run {
                     return;
                 }
                 self.mark("role_added");
-                let Some(x) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "role_x", 1102u64)))) else { return };
+                let Some(x) = Self::at(ctx, "role_x:1102") else { return };
                 self.click(x.center());
                 self.next(600);
             }
@@ -3850,7 +3850,7 @@ impl Run {
                 if app.profiles.get(&101).is_none_or(|p| p.is_null()) || app.outbox.get(&101).is_none_or(|o| o.is_empty()) || app.mod_view.is_some() {
                     return;
                 }
-                let Some(t) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "fp_tab", super::profile::Tab::Friends as u8)))) else { return };
+                let Some(t) = Self::at(ctx, &format!("fp_tab:{}", super::profile::Tab::Friends as u8)) else { return };
                 self.shot(ctx, "full_profile.png");
                 self.mark("full_profile");
                 self.click(t.center());
@@ -4288,7 +4288,7 @@ impl Run {
                 self.next(60);
             }
             497 => {
-                if ctx.data(|d| d.get_temp::<(bool, egui::Rect)>(egui::Id::new(("e2e", "ddr", 0usize)))).is_some_and(|(lit, _)| lit) {
+                if Self::at(ctx, "ddr_lit:0").is_some() {
                     self.mark("qol_combos");
                     self.shot(ctx, "qol_combos.png");
                     // H H → N K: the Raging Demon

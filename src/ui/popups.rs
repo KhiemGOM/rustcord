@@ -1335,7 +1335,7 @@ fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool, friend: bool, mod_view
         let r = Rect::from_min_size(pos2(x - 32.0, top.top() + 8.0), vec2(32.0, 32.0));
         x -= 40.0;
         let resp = ui.interact(r, ui.id().with(("banner_btn", tip)), Sense::click());
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "banner", tip)), r));
+        crate::ui::settings::mark(ui, &format!("banner:{tip}"), r);
         let fill = egui::Color32::from_black_alpha(if resp.hovered() { 184 } else { 143 });
         ui.painter().circle(r.center(), 16.0, fill, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)));
         super::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), egui::Color32::WHITE);
