@@ -29,6 +29,7 @@ def checks(runs, reqs, data):
         "chat: Copy Image put the picture's pixels on the clipboard": both("chatx_copy_image"),
         "chat: a sticker opened its popout with the server it's from, asked /stickers/{id}/guild, and Join Server joined": both("chatx_sticker_popout")
             and len(sent("GET", "/stickers/7777/guild")) >= 2 and len(sent("PUT", "/guilds/3000/members/@me")) >= 2,
+        "chat: hovering a custom emoji showed \"Click to learn more\" and a real click on it opened its popout": both("chatx_emoji_tooltip") and both("chatx_emoji_click"),
         "chat: a custom emoji from another server opened its popout, asked /emojis/{id}/source": both("chatx_emoji_popout")
             and len(sent("GET", "/emojis/9999/source")) >= 2,
         "chat: a @silent message showed its bell": both("chatx_silent"),

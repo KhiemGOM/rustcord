@@ -771,6 +771,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if frame_at.is_some() {
         app.embed_at = frame_at;
     }
+    app.rects.remove("emoji_tip");
     app.rects.extend(rects);
     let offset = out.state.offset.y;
     app.offsets.insert(ch, offset);
@@ -1950,10 +1951,14 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                         }
                     }
                 }
+                let mut over_emoji = None;
                 for (idx, url, size, lead) in &t.emojis {
                     let c = galley.pos_from_cursor(CCursor::new(*idx));
                     let x = origin.x + (c.min.x - lead).max(0.0);
                     let rect = Rect::from_min_size(pos2(x, origin.y + c.center().y - size / 2.0), vec2(*size, *size));
+                    if resp.hover_pos().is_some_and(|p| rect.contains(p)) {
+                        over_emoji = Some(*idx);
+                    }
                     Image::from_uri(gif::uri(ui.ctx(), url, ui.is_rect_visible(rect))).show_loading_spinner(false).paint_at(ui, rect);
                     if let Some((_, id)) = url.split('?').next().and_then(|u| u.rsplit_once("/emojis/"))
                         && ui.clip_rect().contains_rect(rect)
@@ -1969,13 +1974,19 @@ fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     if idx > 0 && origin.x + galley.pos_from_cursor(CCursor::new(idx)).min.x > p.x {
                         idx -= 1;
                     }
+                    if let Some(i) = over_emoji {
+                        idx = i;
+                    }
                     if let Some((_, l)) = t.links.iter().find(|(r, _)| r.contains(&idx)) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         if let Link::Emoji(_, name, _) = l {
-                            egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.id().with(("emoji_tip", msg)), egui::PopupAnchor::Pointer).show(|ui| {
+                            let tip = egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.id().with(("emoji_tip", msg)), egui::PopupAnchor::Pointer).show(|ui| {
                                 ui.label(RichText::new(format!(":{name}:")).font(semi(14.0)).color(pal().header_primary));
                                 ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
                             });
+                            if let Some(t) = tip {
+                                d.rects.push(("emoji_tip".into(), t.response.rect));
+                            }
                         }
                         if resp.middle_clicked() {
                             match l {

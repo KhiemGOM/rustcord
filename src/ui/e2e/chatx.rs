@@ -196,16 +196,18 @@ impl Run {
             }
             3722 => {
                 let Some(r) = app.rects.get("custom_emoji:9999").copied() else { return };
+                if app.rects.contains_key("emoji_tip") {
+                    self.mark("chatx_emoji_tooltip");
+                }
                 self.shot(ctx, "chatx_emoji_hover.png");
                 self.click(r.center());
                 self.next(600);
             }
             3723 => {
-                if app.source_pop.is_some() {
-                    self.mark("chatx_emoji_click");
-                } else {
-                    app.open_source(crate::ui::sourcepop::Pop { id: 9999, name: "CRose".into(), sticker: false, animated: false, at: pos2(560.0, 420.0) });
+                if app.source_pop.is_none() {
+                    return self.fail("a real click on the custom emoji didn't open its popout".into());
                 }
+                self.mark("chatx_emoji_click");
                 self.next(300);
                 self.step = 3725;
             }
