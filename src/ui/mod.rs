@@ -2524,6 +2524,9 @@ impl eframe::App for App {
         // dropping files on the window attaches them to the next message
         let dropped = !raw.dropped_files.is_empty();
         for f in raw.dropped_files.drain(..) {
+            if self.interactions.modal.as_mut().is_some_and(|m| m.drop_file(f.path())) {
+                continue;
+            }
             if !server::dropped(self, f.path()) {
                 self.attach_files(vec![f.path().to_path_buf()]);
             }

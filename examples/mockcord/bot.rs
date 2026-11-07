@@ -241,6 +241,7 @@ fn modal(nonce: &str, ch: u64, iid: u64) -> Value {
             { "type": 18, "label": "Topics", "component": { "type": 22, "custom_id": "topics", "min_values": 0, "max_values": 2,
                 "options": [{ "label": "Bugs", "value": "bugs" }, { "label": "Ideas", "value": "ideas" }, { "label": "Praise", "value": "praise" }] } },
             { "type": 18, "label": "Send me the newsletter", "component": { "type": 23, "custom_id": "newsletter", "default": false } },
+            { "type": 18, "label": "Screenshot", "description": "Optional, one picture", "component": { "type": 19, "custom_id": "shot", "min_values": 0, "max_values": 1, "required": false, "file_types": [".png", ".txt"] } },
         ],
     } })
 }
@@ -428,6 +429,10 @@ pub fn handle(w: &W, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
                         Some(v) => out.push(format!("{}={}", c["custom_id"].as_str().unwrap_or(""), v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("+"))),
                         None => *ok = false,
                     },
+                    Some(19) => match c["values"].as_array() {
+                        Some(v) => out.push(format!("{}={}", c["custom_id"].as_str().unwrap_or(""), v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("+"))),
+                        None => *ok = false,
+                    },
                     Some(23) => match c["value"].as_bool() {
                         Some(v) => out.push(format!("{}={v}", c["custom_id"].as_str().unwrap_or(""))),
                         None => *ok = false,
@@ -436,6 +441,21 @@ pub fn handle(w: &W, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
                 }
             }
             rows.iter().for_each(|r| walk(r, &mut out, &mut ok));
+            let staged = data["attachments"].as_array().cloned().unwrap_or_default();
+            let mut wanted = Vec::new();
+            fn files(c: &Value, wanted: &mut Vec<String>) {
+                match c["type"].as_u64() {
+                    Some(1) => c["components"].as_array().into_iter().flatten().for_each(|x| files(x, wanted)),
+                    Some(18) => files(&c["component"], wanted),
+                    Some(19) => wanted.extend(c["values"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string))),
+                    _ => {}
+                }
+            }
+            rows.iter().for_each(|r| files(r, &mut wanted));
+            let known = |id: &str| staged.iter().any(|a| a["id"] == id && a["filename"].is_string() && a["uploaded_filename"].is_string());
+            if wanted.iter().any(|id| !known(id)) || staged.len() != wanted.len() {
+                return bad(400, "a file upload's values must name the attachments sent with it, each with a filename and uploaded_filename", "attachments");
+            }
             if !ok {
                 return bad(400, "a text input needs a value, a select or checkbox group values, a radio group a value and a checkbox a boolean", "components");
             }
