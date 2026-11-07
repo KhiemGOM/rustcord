@@ -47,16 +47,16 @@ mod joins;
 mod buy;
 #[path = "mockcord/shop.rs"]
 mod shop;
-#[path = "mockcord/profiles.rs"]
-mod profiles;
 #[path = "mockcord/roleconn.rs"]
 mod roleconn;
+#[path = "mockcord/profiles.rs"]
+mod profiles;
+#[path = "mockcord/servers.rs"]
+mod servers;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 #[path = "mockcord/prefs.rs"]
 mod prefs;
-#[path = "mockcord/servers.rs"]
-mod servers;
 
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -1431,27 +1431,33 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
+    if let Some((code, v)) = acks::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
     if let Some((code, v)) = buy::route(w, method, &parts, path, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
-    if let Some((code, mut v)) = shop::route(method, &parts, body) {
-        // one catalog: the shop's pages and the profile editor's pickers read the same list
     if let Some((code, v, event)) = joins::route(method, &parts, path.split_once('?').map(|q| q.1), body, user, iso, now_ms()) {
         if let Some((t, d)) = event {
             let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
         }
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
+    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some((code, v)) = perms::route(w, method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, mut v)) = shop::route(method, &parts, body) {
+        // one catalog: the shop's pages and the profile editor's pickers read the same list
         if parts.ends_with(&["collectibles-categories", "v2"])
             && let (Some((_, more)), Some(list)) = (profiles::route(method, &parts, &Value::Null, &cdn), v["categories"].as_array_mut())
-    if let Some((code, v)) = acks::route(method, &parts, body) {
-        return (code, "application/json", v.to_string().into_bytes());
-    }
         {
             list.extend(more["categories"].as_array().cloned().unwrap_or_default());
         }
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v)) = roleconn::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
     }
     if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
@@ -1464,9 +1470,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     }
     if method == "GET" && parts.first() == Some(&"cdn") {
         if let Some(refusal) = cdn_shape::check(path) {
-    if let Some((code, v)) = roleconn::route(method, &parts, body) {
-        return (code, "application/json", v.to_string().into_bytes());
-    }
             return refusal;
         }
     }

@@ -66,8 +66,8 @@ mod blocked;
 mod pollvotes;
 mod remind;
 mod sourcepop;
-mod uploading;
 pub mod viewas;
+mod uploading;
 mod chatinvite;
 mod invitecard;
 mod popups;
@@ -522,6 +522,7 @@ impl App {
             embed: None,
             embed_at: None,
             events: None,
+            joins: Default::default(),
             quests: None,
             shop: None,
             buy: None,
@@ -916,14 +917,14 @@ impl App {
         self.net.send(Cmd::Rest { method, path, body, tag });
     }
 
-    /// Notification settings the way discord saves them: servers go in the bulk route keyed by
-    /// id, direct messages on their own.
-    pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
-        if gid == 0 {
     pub fn rest_in(&self, method: &'static str, path: String, body: Option<serde_json::Value>, location: &str, tag: Tag) {
         self.net.send(Cmd::Located { method, path, body, context: json!({ "location": location }), tag });
     }
 
+    /// Notification settings the way discord saves them: servers go in the bulk route keyed by
+    /// id, direct messages on their own.
+    pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
+        if gid == 0 {
             self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), tag);
         } else {
             self.rest("PATCH", "/users/@me/guilds/settings".into(), Some(json!({ "guilds": { gid.to_string(): body } })), tag);
@@ -934,15 +935,15 @@ impl App {
         self.net.send(Cmd::Audit { method, path, body, reason: reason.trim().to_string(), tag });
     }
 
-    pub fn mark_read(&mut self, chans: &[Id]) {
-        let mut states = Vec::new();
-        for ch in chans {
-            let Some(last) = self.store.channels.get(ch).map(|c| c.last_msg).filter(|l| *l != 0) else { continue };
     pub fn proto_patch(&self, bytes: Vec<u8>, tag: Tag) {
         use base64::Engine;
         self.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(bytes) })), tag);
     }
 
+    pub fn mark_read(&mut self, chans: &[Id]) {
+        let mut states = Vec::new();
+        for ch in chans {
+            let Some(last) = self.store.channels.get(ch).map(|c| c.last_msg).filter(|l| *l != 0) else { continue };
             let r = self.store.reads.entry(*ch).or_default();
             if r.last_acked < last || r.mentions > 0 {
                 r.last_acked = last;
@@ -1575,10 +1576,10 @@ impl App {
                     Tag::Chan(k) if k != "channel" => channel::loaded(self, k, serde_json::json!([])),
                     Tag::Home("members") => community::loaded(self, "members", serde_json::json!({ "members": [] })),
                     Tag::Events(g, k) => events::loaded(self, g, k, &serde_json::json!([])),
-                    Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
                     Tag::Joins(g, i) => applications::failed(self, g, i),
                     Tag::JoinsFor(..) => {}
                     Tag::JoinsAct(g) => applications::done(self, g, false, &serde_json::Value::Null),
+                    Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &serde_json::json!([])),
                     Tag::Quests(k) => quests::loaded(self, k, &serde_json::json!({})),
                     Tag::Follow => follow::done(self, false),
                     Tag::AddFriend(_) => {
@@ -1662,10 +1663,10 @@ impl App {
             Tag::Chan(k) => channel::loaded(self, k, v),
             Tag::Home(k) => community::loaded(self, k, v),
             Tag::Events(g, k) => events::loaded(self, g, k, &v),
-            Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &v),
             Tag::Joins(g, i) => applications::loaded(self, g, i, &v),
             Tag::JoinsFor(g, u) => applications::others(self, g, u, &v),
             Tag::JoinsAct(g) => applications::done(self, g, true, &v),
+            Tag::EventUsers(g, e) => events::users_loaded(self, g, e, &v),
             Tag::Quests(k) => quests::loaded(self, k, &v),
             Tag::Follow => follow::done(self, true),
             Tag::Feed => {
@@ -2080,8 +2081,8 @@ impl App {
         server::show(self, &ctx);
         channel::show(self, &ctx);
         events::show(self, &ctx);
-        stage::modals(self, &ctx);
         applications::modals(self, &ctx);
+        stage::modals(self, &ctx);
         settings::verify(self, &ctx);
         share::show(self, &ctx);
         let mut show_detail = false;
@@ -2313,6 +2314,7 @@ impl eframe::App for App {
             splash::show(ui);
         } else {
             self.streamer_banner(ui);
+            viewas::bar(self, ui);
             // a modal over the app; shown first so it takes ESC before the chat does
             let settings_open = self.settings_page.is_some();
             if settings_open {
@@ -2323,7 +2325,6 @@ impl eframe::App for App {
                 self.heights.clear();
                 self.heights_w = w;
             }
-            viewas::bar(self, ui);
             let full = self.call.full && self.voice.chan.is_some() && self.cur() == self.voice.chan;
             self.call.full = full;
             let rail = if full {

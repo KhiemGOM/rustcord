@@ -157,15 +157,17 @@ pub enum Cmd {
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
+    /// Channel settings the way discord saves them: the changed fields in a PATCH, then one PUT
+    /// per overwrite that changed and one DELETE per overwrite that went, then the channel again.
+    Channel { channel: Id, patch: Option<Value>, put: Vec<Value>, clear: Vec<Id>, tag: Tag },
     /// A moderation write whose reason rides in X-Audit-Log-Reason.
     Audit { method: &'static str, path: String, body: Option<Value>, reason: String, tag: Tag },
     /// A purchase: sent once, never retried, and only when `charge_barred` says nothing stands in the way.
     Charge { method: &'static str, path: String, body: Value, tag: Tag },
-    /// Channel settings the way discord saves them: the changed fields in a PATCH, then one PUT
-    /// per overwrite that changed and one DELETE per overwrite that went, then the channel again.
-    Channel { channel: Id, patch: Option<Value>, put: Vec<Value>, clear: Vec<Id>, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
+    /// A write that says where in the app it came from, in X-Context-Properties.
+    Located { method: &'static str, path: String, body: Option<Value>, context: Value, tag: Tag },
     /// A GET with an app's own access token instead of ours.
     Bearer { path: String, token: String, tag: Tag },
     Voice(voice::Cmd),
@@ -173,8 +175,6 @@ pub enum Cmd {
 
 /// With RUSTCORD_READONLY set, nothing goes out that would change the account or
 /// that other people could see: no messages, reactions, acks, typing, voice,
-    /// A write that says where in the app it came from, in X-Context-Properties.
-    Located { method: &'static str, path: String, body: Option<Value>, context: Value, tag: Tag },
 /// presence, or non-GET REST calls. Used when touring a real account.
 pub static BLOCKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// The channel on screen, so the gateway can tell which events can wait for the next frame.
@@ -394,10 +394,6 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     }
                 });
             }
-            Cmd::Audit { method, path, body, reason, tag } => {
-                tokio::spawn(async move {
-                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason), None).await.map_err(|f| fail(&tx, &m, &path, f));
             Cmd::Channel { channel, patch, put, clear, tag } => {
                 tokio::spawn(async move {
                     use reqwest::Method;
@@ -419,6 +415,10 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     tx.send(Ev::Rest { tag, res });
                 });
             }
+            Cmd::Audit { method, path, body, reason, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+                    let res = a.try_call(m.clone(), &path, body, None, Some(&reason), None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
                 });
             }
@@ -441,6 +441,16 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.try_call(m.clone(), &path, body, mfa.as_deref(), None, None).await.map_err(|f| fail(&tx, &m, &path, f));
                     tx.send(Ev::Rest { tag, res });
+                });
+            }
+            Cmd::Located { method, path, body, context, tag } => {
+                tokio::spawn(async move {
+                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
+                    let res = a.try_call(m.clone(), &path, body, None, None, Some(&context)).await.map_err(|f| fail(&tx, &m, &path, f));
+                    match (&tag, &res) {
+                        (Tag::Quiet, _) => {}
+                        _ => tx.send(Ev::Rest { tag, res }),
+                    }
                 });
             }
             Cmd::Bearer { path, token, tag } => {
@@ -471,16 +481,6 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 });
             }
             Cmd::Typing { channel } => {
-            Cmd::Located { method, path, body, context, tag } => {
-                tokio::spawn(async move {
-                    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
-                    let res = a.try_call(m.clone(), &path, body, None, None, Some(&context)).await.map_err(|f| fail(&tx, &m, &path, f));
-                    match (&tag, &res) {
-                        (Tag::Quiet, _) => {}
-                        _ => tx.send(Ev::Rest { tag, res }),
-                    }
-                });
-            }
                 tokio::spawn(async move {
                     let _ = a.typing(channel).await;
                 });
