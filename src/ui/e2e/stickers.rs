@@ -15,12 +15,20 @@ impl Run {
             4320 => {
                 app.rects.remove(TILE);
                 app.open(CH);
+                app.jump_to_present(CH);
                 self.next(1200);
             }
             4321 => {
-                if app.rects.get(TILE).is_none() || crate::gif::shown(PACK_STICKER) < 4 {
+                let (tile, frames) = (app.rects.get(TILE).is_some(), crate::gif::shown(PACK_STICKER));
+                if !tile || frames < 4 {
                     if self.step_at.elapsed() > Duration::from_secs(12) {
-                        self.fail(format!("the Lottie sticker drew {} frames in 12s", crate::gif::shown(PACK_STICKER)));
+                        self.shot(ctx, "lottie_fail.png");
+                        let why = if frames < 4 {
+                            format!("the Lottie sticker drew {frames} frames in 12s")
+                        } else {
+                            format!("the Lottie sticker played ({frames} frames) but its tile was never marked: channel {:?}, scroll {:?}", app.cur(), app.offsets.get(&CH))
+                        };
+                        self.fail(why);
                     }
                     return;
                 }

@@ -208,9 +208,16 @@ impl Run {
                 }
             }
             727 => {
+                if let Some(r) = row("End Stage for Everyone") {
+                    self.shot(ctx, "stage_end_menu.png");
+                    self.click(r.center());
+                    self.next(500);
+                    return;
+                }
                 let Some(r) = app.rects.get("stage:ctl:End Stage").copied() else { return };
-                self.click(r.center());
-                self.next(500);
+                if self.rects.insert("stage_end_caret".into(), json!(true)).is_none() {
+                    self.click(r.center());
+                }
             }
             728 => {
                 if app.confirm.is_none() {
@@ -257,7 +264,7 @@ impl Run {
                     return;
                 }
                 self.mark("stage_hand");
-                let Some(r) = app.rects.get("stage:ctl:Lower Hand").copied() else { return };
+                let Some(r) = app.rects.get("stage:ctl:Cancel Request").copied() else { return };
                 self.click(r.center());
                 self.next(500);
             }

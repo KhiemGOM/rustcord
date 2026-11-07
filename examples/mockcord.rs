@@ -824,7 +824,7 @@ fn side_guilds() -> Vec<Value> {
         json!({ "id": id.to_string(), "type": kind, "name": name, "position": pos, "parent_id": parent.map(|p| p.to_string()),
                 "permission_overwrites": [], "last_message_id": snow(now_ms() - 90_000).to_string() })
     };
-    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" });
+    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "4296018944" });
     let guild = |id: u64, name: &str, chans: Vec<Value>| {
         json!({ "id": id.to_string(), "name": name, "icon": null, "owner_id": "102", "roles": [everyone(id)], "emojis": [], "channels": chans })
     };
