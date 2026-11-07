@@ -2,7 +2,6 @@
 //! Shift+Enter does nothing.
 
 use egui::{Color32, Frame, Key, RichText, Stroke};
-use serde_json::json;
 
 use super::{App, button, grey_button, icon_button, menu_item, settings};
 use super::icons::Icon;
@@ -82,25 +81,21 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 impl App {
     /// Empty text clears it; `length` is a row of LENGTHS.
     pub fn set_custom_status(&mut self, text: &str, length: usize) {
-        let body = if text.is_empty() {
-            json!({ "custom_status": null })
-        } else {
-            let expires = match LENGTHS[length].1 {
-                None => json!(null),
-                Some(secs) => {
-                    let now = chrono::Local::now();
-                    let end = if secs < 0 {
-                        (now.date_naive() + chrono::Duration::days(1)).and_hms_opt(0, 0, 0).and_then(|t| t.and_local_timezone(chrono::Local).single()).unwrap_or(now)
-                    } else {
-                        now + chrono::Duration::seconds(secs)
-                    };
-                    json!(end.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
-                }
-            };
-            json!({ "custom_status": { "text": text, "expires_at": expires, "emoji_id": null, "emoji_name": null } })
+        let now = chrono::Local::now();
+        let expires = match LENGTHS[length].1 {
+            _ if text.is_empty() => 0,
+            None => 0,
+            Some(secs) => {
+                let end = if secs < 0 {
+                    (now.date_naive() + chrono::Duration::days(1)).and_hms_opt(0, 0, 0).and_then(|t| t.and_local_timezone(chrono::Local).single()).unwrap_or(now)
+                } else {
+                    now + chrono::Duration::seconds(secs)
+                };
+                end.timestamp_millis() as u64
+            }
         };
         self.store.custom_status = (!text.is_empty()).then(|| text.to_string());
-        self.rest("PATCH", "/users/@me/settings".into(), Some(body), Tag::fail(super::SAVE_FAILED));
+        self.proto_patch(crate::proto::custom_status_patch(text, expires, now.timestamp_millis() as u64), Tag::fail(super::SAVE_FAILED));
     }
 }
 
@@ -110,8 +105,8 @@ impl App {
     pub fn set_status_for(&mut self, status: &str, secs: Option<i64>) {
         self.set_status(status);
         self.status_until = secs.filter(|_| status != "online").map(|s| chrono::Utc::now().timestamp() + s);
-        let until = self.status_until.and_then(|t| chrono::DateTime::from_timestamp(t, 0)).map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-        self.rest("PATCH", "/users/@me/settings".into(), Some(json!({ "status": status, "status_expires_at": until })), Tag::Quiet);
+        let expires = self.status_until.map_or(0, |t| t as u64 * 1000);
+        self.proto_patch(crate::proto::status_patch(status, expires, chrono::Utc::now().timestamp_millis() as u64), Tag::Quiet);
     }
 
     pub fn status_expiry(&mut self, ctx: &egui::Context) {

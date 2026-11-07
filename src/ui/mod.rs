@@ -935,6 +935,11 @@ impl App {
         let mut states = Vec::new();
         for ch in chans {
             let Some(last) = self.store.channels.get(ch).map(|c| c.last_msg).filter(|l| *l != 0) else { continue };
+    pub fn proto_patch(&self, bytes: Vec<u8>, tag: Tag) {
+        use base64::Engine;
+        self.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(bytes) })), tag);
+    }
+
             let r = self.store.reads.entry(*ch).or_default();
             if r.last_acked < last || r.mentions > 0 {
                 r.last_acked = last;
