@@ -639,7 +639,12 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
             let room = (ui.ctx().content_rect().height() - 330.0).clamp(144.0, 480.0);
             egui::ScrollArea::vertical().max_height(room).auto_shrink([false, true]).show(ui, |ui| {
                 Frame::new().inner_margin(Margin::symmetric(24, 0)).show(ui, |ui| {
-                    for &p in &rows {
+                    if link.is_none() {
+                        ui.add_space(24.0);
+                        ui.label(RichText::new("Fetching your friends list...").font(semi(16.0)).color(pal().header_primary));
+                        ui.add_space(24.0);
+                    }
+                    for &p in rows.iter().filter(|_| link.is_some()) {
                         let (key, ch) = match p {
                             Pick::Chan(c) => (c, store.channels.get(&c)),
                             Pick::Friend(u) => (u, None),
@@ -692,7 +697,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
                             send = Some(p);
                         }
                     }
-                    if rows.is_empty() {
+                    if rows.is_empty() && link.is_some() {
                         ui.add_space(24.0);
                         ui.vertical_centered(|ui| ui.label(RichText::new("No results found").color(pal().header_secondary)));
                         ui.add_space(24.0);
