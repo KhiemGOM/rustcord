@@ -435,6 +435,11 @@ pub fn pal() -> &'static Palette {
     if p.is_null() { &PALETTES[1] } else { unsafe { &*p } }
 }
 
+/// A 1px css border as Chromium draws it: whole device pixels, rounded down, never a blur.
+pub fn hairline(ppp: f32, color: Color32) -> Stroke {
+    Stroke::new(ppp.floor().max(1.0) / ppp, color)
+}
+
 /// Onyx draws a few hairlines the other themes leave out.
 pub fn onyx() -> bool {
     THEME.load(std::sync::atomic::Ordering::Relaxed) == 3 && GRADIENT.load(std::sync::atomic::Ordering::Relaxed) == NONE

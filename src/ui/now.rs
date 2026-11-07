@@ -48,7 +48,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 0 }))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().vline(r.left() - 16.0, r.y_range().expand(16.0), Stroke::new(1.0, pal().border_subtle));
+            ui.painter().vline(r.left() - 16.0, r.y_range().expand(16.0), hairline(ui.pixels_per_point(), pal().border_subtle));
             ui.label(RichText::new("Active Now").font(semi(20.0)).color(pal().header_primary));
             ui.add_space(16.0);
             let store = &app.store;
