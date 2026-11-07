@@ -205,9 +205,9 @@ fn checkbox(ui: &Ui, id: egui::Id, r: Rect, on: bool, hot: bool) {
     let k = motion::tween(ctx, id.with("fill"), on, 0.15, motion::EASE);
     let edge = Stroke::new(1.0, faint(if hot { 200 } else { 163 }).gamma_multiply(1.0 - k));
     ui.painter().rect(r, 4, motion::mix(Color32::from_black_alpha(20), BLURPLE, k), edge, egui::StrokeKind::Inside);
-    let u = motion::tween(ctx, id.with("tick"), on, 0.3, motion::Curve::Bezier(0.65, 0.0, 0.83, 0.83));
-    if u > 0.25 {
-        let s = motion::keys(&[(0.0, 0.7), (0.25, 0.7), (0.75, 1.1), (1.0, 1.0)], u);
+    let u = motion::flip(ctx, id.with("tick"), on, 0.3, 0.0);
+    if on && u > 0.25 {
+        let s = motion::keys_eased(&[(0.0, 0.7), (0.25, 0.7), (0.75, 1.1), (1.0, 1.0)], u, motion::Curve::Bezier(0.65, 0.0, 0.83, 0.83));
         let c = r.center();
         let p = |x: f32, y: f32| c + vec2(x, y) * s;
         ui.painter().add(egui::Shape::line(vec![p(-5.0, 0.0), p(-1.5, 3.5), p(5.0, -3.5)], Stroke::new(2.0, Color32::WHITE)));
