@@ -208,7 +208,8 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
             }
         }
         'G' if app.settings.game_suggestions => {
-            let q = q.trim();
+            let q = game_query(&q);
+            let q = q.as_str();
             let hits = (1..=q.len()).rev().filter(|n| q.is_char_boundary(*n)).find_map(|n| match app.keyed.get(&format!("games:{}", &q[..n])) {
                 Some(Some(Ok(v))) => Some(v.clone()),
                 _ => None,
@@ -421,7 +422,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if let Some((_, 'G', q)) = &tok
         && app.settings.game_suggestions
     {
-        game_search(app, ui.ctx(), q.trim());
+        game_search(app, ui.ctx(), &game_query(q));
     }
     let items = tok.as_ref().map(|(_, k, q)| candidates(app, chan, *k, q)).unwrap_or_default();
     let open = !items.is_empty() && (focused || typed);
@@ -1114,6 +1115,11 @@ fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> {
 }
 
 /// Replace the token with the chosen completion, returning the new cursor (in chars).
+/// The query as discord sends it: trimmed, lowercase, underscores as spaces, 100 characters at most.
+fn game_query(q: &str) -> String {
+    q.trim().to_lowercase().replace('_', " ").chars().take(100).collect()
+}
+
 /// Discord asks for games a typed query at a time, no faster than every 200ms.
 fn game_search(app: &mut App, ctx: &egui::Context, q: &str) {
     let key = format!("games:{q}");
