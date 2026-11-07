@@ -76,6 +76,10 @@ pub const MANAGE_NICKNAMES: u64 = 1 << 27;
 pub const VIEW_GUILD_INSIGHTS: u64 = 1 << 19;
 pub const MANAGE_EVENTS: u64 = 1 << 33;
 pub const CREATE_EVENTS: u64 = 1 << 44;
+pub const VIEW_AUDIT_LOG: u64 = 1 << 7;
+pub const MANAGE_GUILD_EXPRESSIONS: u64 = 1 << 30;
+pub const CREATE_GUILD_EXPRESSIONS: u64 = 1 << 43;
+pub const SETTINGS_ACCESS: u64 = MANAGE_GUILD | MANAGE_ROLES | ADMINISTRATOR | BAN_MEMBERS | MANAGE_NICKNAMES | CREATE_GUILD_EXPRESSIONS | MANAGE_GUILD_EXPRESSIONS | MANAGE_WEBHOOKS | VIEW_AUDIT_LOG | VIEW_GUILD_INSIGHTS;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub enum Status {
