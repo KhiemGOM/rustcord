@@ -66,6 +66,7 @@ mod pollvotes;
 mod remind;
 mod sourcepop;
 mod uploading;
+pub mod viewas;
 mod chatinvite;
 mod invitecard;
 mod popups;
@@ -2313,6 +2314,7 @@ impl eframe::App for App {
                 self.heights.clear();
                 self.heights_w = w;
             }
+            viewas::bar(self, ui);
             let full = self.call.full && self.voice.chan.is_some() && self.cur() == self.voice.chan;
             self.call.full = full;
             let rail = if full {
