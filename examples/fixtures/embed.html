@@ -21,8 +21,9 @@ if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia({ audio: true })
 const v = document.getElementById('v');
 document.getElementById('fs').onclick = () => {
   if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen().then(() => log('fullscreen', { w: innerWidth, h: innerHeight }), e => log('fullscreen', e.name));
+  else document.documentElement.requestFullscreen().catch(e => log('fullscreen', e.name));
 };
+document.addEventListener('fullscreenchange', () => setTimeout(() => log('fullscreen', { on: !!document.fullscreenElement, w: innerWidth, h: innerHeight }), 400));
 v.addEventListener('playing', () => log('playing', { muted: v.muted }), { once: true });
 v.addEventListener('pause', () => log('paused', v.currentTime));
 let n = 0, resumed = false;

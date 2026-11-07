@@ -7,12 +7,16 @@
 use egui::vec2;
 
 use super::Run;
-use super::embed::{frame_rects, msg_of, near, playing, poster, side};
+use super::embed::{frame_rects, msg_of, near, playing, side};
 use crate::ui::{App, embedplay};
 
 const GUILD: u64 = 1000;
 const EMBEDS: u64 = 2062;
 const BUTTON: (i32, i32) = (30, 24);
+
+fn poster(app: &App, msg: u64) -> Option<egui::Rect> {
+    app.rects.get(&format!("embed_poster:{msg}")).copied().filter(|r| r.is_positive() && r.height() > 40.0)
+}
 
 impl Run {
     pub(super) fn tidy_steps(&mut self, app: &mut App, ctx: &egui::Context) {
@@ -32,9 +36,12 @@ impl Run {
                 if app.cur() != Some(EMBEDS) {
                     return;
                 }
+                if playing(app, b) {
+                    return self.next(0);
+                }
                 let Some(r) = poster(app, b) else {
                     let Some(chat) = app.wheel.chat else { return };
-                    self.scroll_by(side(chat), if self.step_at.elapsed() < std::time::Duration::from_secs(6) { -200.0 } else { 200.0 });
+                    self.scroll_by(side(chat), if self.step_at.elapsed().as_secs() / 7 % 2 == 0 { -200.0 } else { 200.0 });
                     self.wait = std::time::Instant::now() + std::time::Duration::from_millis(400);
                     return;
                 };
@@ -93,8 +100,13 @@ impl Run {
             4709 => {
                 app.settings.zoom = 1.5;
                 app.save_settings(ctx);
-                self.next(1500);
-                self.step = 4703;
+                self.next(2500);
+                self.step = 4730;
+            }
+            4730 => {
+                app.open(EMBEDS);
+                self.next(1000);
+                self.step = 4701;
             }
             4710 => {
                 app.settings.zoom = 1.0;
