@@ -2411,7 +2411,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 feats.push(json!(if apply { "MEMBER_VERIFICATION_MANUAL_APPROVAL" } else { "MEMBER_VERIFICATION_GATE_ENABLED" }));
             }
             keep(w, format!("g:{g}"), json!({ "features": feats }).to_string().as_bytes());
-            guild_update(w, g);
+            let (w, g) = (w.clone(), g.to_string());
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                guild_update(&w, &g);
+            });
             ok(form)
         }
         ("GET", ["api", "v9", "guilds", g, "templates"]) => ok(w.lock().unwrap().edits.get(&format!("t:{g}")).map(|t| json!([t])).unwrap_or(json!([]))),
