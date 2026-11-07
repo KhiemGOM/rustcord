@@ -26,6 +26,9 @@ const PALETTE: [(&str, &str); 13] = [
 ];
 
 const ROUTES: &[(&str, &str, Spec)] = &[
+    ("POST", "channels/*/messages/*/ack", &[("token", "s?"), ("last_viewed", "i"), ("flags", "i"), ("manual", "b"), ("mention_count", "i")]),
+    ("PATCH", "guilds/*/requests/*", &[("action", "s!"), ("rejection_reason", "s?")]),
+    ("PUT", "channels/*/permissions/*", &[("id", "n"), ("type", "i!"), ("allow", "s!"), ("deny", "s!")]),
     ("PATCH", "guilds/*/profile", &[("tag", "s?"), ("badge", "i?"), ("badge_color_primary", "s?"), ("badge_color_secondary", "s?"), ("description", "s"), ("brand_color_primary", "s?"), ("name", "s"), ("icon", "s?"), ("custom_banner", "s?"), ("visibility", "i"), ("traits", "a"), ("game_application_ids", "a")]),
     ("PUT", "guilds/*/incident-actions", &[("invites_disabled_until", "s?!"), ("dms_disabled_until", "s?!"), ("lockdown_duration_hours", "i?!")]),
     ("PATCH", "guilds/*/vanity-url", &[("code", "s?!")]),

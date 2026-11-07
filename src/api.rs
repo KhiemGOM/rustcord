@@ -197,11 +197,12 @@ pub struct Captcha {
 pub struct Api {
     http: reqwest::Client,
     token: String,
+    ack_token: std::sync::Mutex<Option<String>>,
 }
 
 impl Api {
     pub fn new(http: reqwest::Client, token: String) -> Self {
-        Api { http, token }
+        Api { http, token, ack_token: Default::default() }
     }
 
     fn build(&self, m: Method, path: &str) -> reqwest::RequestBuilder {
@@ -441,9 +442,20 @@ impl Api {
         Err((status, nested.or_else(|| v["message"].as_str().map(str::to_string)).unwrap_or_default()))
     }
 
-    pub async fn ack(&self, ch: Id, id: Id) -> Result<Value, String> {
-        self.call(Method::POST, &format!("/channels/{ch}/messages/{id}/ack"), Some(json!({ "token": null })))
-            .await
+    /// Acks send the token the last ack came back with, one for the whole session.
+    pub async fn ack(&self, ch: Id, id: Id, last_viewed: u64, flags: Option<u8>) -> Result<Value, String> {
+        let sent = self.ack_token.lock().ok().and_then(|t| t.clone());
+        let mut body = json!({ "token": sent, "last_viewed": last_viewed });
+        if let Some(f) = flags {
+            body["flags"] = json!(f);
+        }
+        let res = self.call(Method::POST, &format!("/channels/{ch}/messages/{id}/ack"), Some(body)).await?;
+        if let (Some(new), Ok(mut cur)) = (res["token"].as_str(), self.ack_token.lock())
+            && *cur == sent
+        {
+            *cur = Some(new.to_string());
+        }
+        Ok(res)
     }
 
     pub async fn typing(&self, ch: Id) -> Result<Value, String> {

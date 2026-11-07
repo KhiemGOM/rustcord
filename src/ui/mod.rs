@@ -1077,10 +1077,14 @@ impl App {
     }
 
     pub fn mark_unread(&mut self, ch: Id, id: Id) {
-        // ack the message before this one so it shows as the first unread
-        let prev = self.store.msgs.get(&ch).and_then(|e| e.list.iter().rev().find(|m| m.id < id)).map(|m| m.id).unwrap_or(id - 1);
+        let (prev, mentions) = {
+            let list = self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default();
+            let prev = list.iter().rev().find(|m| m.id < id).map(|m| m.id).unwrap_or(((id >> 22) - 1) << 22);
+            let mentions = list.iter().filter(|m| m.id > prev && m.author != self.store.me && self.store.mentions_me(m)).count();
+            (prev, mentions)
+        };
         self.store.reads.entry(ch).or_default().last_acked = prev;
-        self.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(json!({ "manual": true, "token": null })), Tag::Quiet);
+        self.rest("POST", format!("/channels/{ch}/messages/{prev}/ack"), Some(json!({ "manual": true, "mention_count": mentions })), Tag::Quiet);
         self.marker = Some((ch, prev));
         self.marker_bar = true;
         self.hold_ack = Some(ch);
@@ -2030,7 +2034,7 @@ impl App {
                 }
                 self.hold_ack = None;
             }
-            let Some(last) = self.store.channels.get(&ch).map(|c| c.last_msg) else { continue };
+            let Some((last, flags)) = self.store.channels.get(&ch).map(|c| (c.last_msg, if c.is_thread() { 2 } else { (c.guild != 0) as u8 })) else { continue };
             let (acked, mentions) = self.store.reads.get(&ch).map_or((0, 0), |r| (r.last_acked, r.mentions));
             if last <= acked && mentions == 0 {
                 continue;
@@ -2039,7 +2043,10 @@ impl App {
             r.last_acked = last.max(r.last_acked);
             r.mentions = 0;
             if last != 0 {
-                self.net.send(Cmd::Ack { channel: ch, id: last });
+                let flags = (r.flags != Some(flags)).then_some(flags);
+                r.flags = r.flags.or(flags);
+                let last_viewed = ((chrono::Utc::now().timestamp_millis() - 1_420_070_400_000) as f64 / 86_400_000.0).ceil() as u64;
+                self.net.send(Cmd::Ack { channel: ch, id: last, last_viewed, flags });
             }
         }
     }
