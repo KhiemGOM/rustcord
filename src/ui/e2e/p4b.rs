@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use egui::{Event, Id, Modifiers, ViewportCommand, vec2};
+use egui::{Event, Id, Key, Modifiers, ViewportCommand, vec2};
 
 use super::Run;
 use crate::cache::{Animate, Density, Settings, VideoBg};
@@ -180,6 +180,55 @@ impl Run {
             5015 => {
                 app.search = None;
                 self.step = 5020;
+            }
+            5020 => {
+                app.settings.game_suggestions = true;
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("@gam".into())]);
+                self.next(500);
+            }
+            5021 => {
+                if !app.ac_open {
+                    if stuck {
+                        self.fail("typing @gam offered nothing".into());
+                    }
+                    return;
+                }
+                self.shot(ctx, "at_game_row.png");
+                self.mark("at_game_row");
+                self.key(Key::Tab);
+                self.queue.push_back(vec![Event::Text("mock".into())]);
+                self.next(900);
+            }
+            5022 => {
+                if !app.keyed.get("games:mock").is_some_and(|r| matches!(r, Some(Ok(_)))) {
+                    if stuck {
+                        self.fail("@game mock never got its results".into());
+                    }
+                    return;
+                }
+                self.shot(ctx, "at_game_results.png");
+                self.mark("at_game_results");
+                self.key(Key::Tab);
+                self.queue.push_back(vec![Event::Text("is the best".into())]);
+                self.key(Key::Enter);
+                self.next(900);
+            }
+            5023 => {
+                app.settings.game_suggestions = false;
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("@gam".into())]);
+                self.next(500);
+            }
+            5024 => {
+                if !app.ac_open {
+                    self.mark("at_game_gated");
+                }
+                app.settings.game_suggestions = true;
+                app.drafts.remove(&self.target.1);
+                self.next(300);
             }
             5030 => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
             5040 => {
