@@ -26,6 +26,7 @@ impl Run {
                 app.profed = None;
                 app.settings.shop_cursor = true;
                 app.select_guild(None);
+                app.shop = None;
                 app.open_shop(Page::Shop);
                 self.next(1200);
             }
@@ -35,9 +36,7 @@ impl Run {
                 self.next(500);
             }
             4602 => {
-                if at("shop:tab:Browse").is_none() {
-                    return;
-                }
+                let Some(tab) = at("shop:tab:Browse") else { return };
                 if cursor::mode() != 2 {
                     if stuck {
                         self.fail(format!("the pointer over a shop tab was mode {}, not the hand", cursor::mode()));
@@ -48,7 +47,7 @@ impl Run {
                 if cursor::probe() == cursor::handle(cursor::POINTER) {
                     self.mark("shop_cursor_hand_applied");
                 }
-                self.queue.push_back(vec![Event::PointerMoved(pos2(ctx.content_rect().center().x + 200.0, 16.0))]);
+                self.queue.push_back(vec![Event::PointerMoved(pos2(ctx.content_rect().right() - 6.0, tab.bottom() + 6.0))]);
                 self.next(500);
             }
             4603 => {
@@ -130,7 +129,7 @@ impl Run {
                 self.next(900);
             }
             4614 => {
-                ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", "billing:save"))));
+                ctx.data_mut(|d| d.remove::<egui::Rect>(egui::Id::new(("e2e", "billing:save"))));
                 self.next(500);
             }
             4615 => {
