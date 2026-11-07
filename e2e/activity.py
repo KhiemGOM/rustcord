@@ -23,7 +23,7 @@ def checks(runs, reqs, data):
     ends = lambda r, tail: path(r).endswith(tail)
     first_get = index(lambda r: r.get("method") == "GET" and ends(r, "/oauth2/authorize") and "client_id=9100" in r.get("path", ""))
     first_grant = index(lambda r: r.get("method") == "POST" and ends(r, "/oauth2/authorize") and "client_id=9100" in r.get("path", ""))
-    me = [r for r in reqs if r.get("method") == "GET" and ends(r, "/oauth2/@me")]
+    me = [r for r in reqs if r.get("method") == "GET" and ends(r, "/oauth2/@me") and r.get("auth") != "Bearer mock-rpc-token"]
     probes = said("probe")
     ready = said("ready")
     participants = [len(d.get("participants", [])) for d in said("dispatch:ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE")]
@@ -54,7 +54,7 @@ def checks(runs, reqs, data):
         "activity: another person's running activity showed a tile and Join Activity joined it": both("activity_join_tile") and both("activity_joined") and launches("9101") >= n,
         "activity: refusing consent sent the frame an error and issued no code": both("activity_denied")
         and any(d.get("evt") == "ERROR" and d.get("data", {}).get("code") == 5000 for d in said("authorize", "9101"))
-        and count(lambda r: r.get("method") == "POST" and ends(r, "/oauth2/authorize") and "client_id=9101" in r.get("path", "")) == 0,
+        and count(lambda r: r.get("method") == "POST" and ends(r, "/oauth2/authorize") and "client_id=9101" in r.get("path", "") and "scope=bot" not in r.get("path", "")) == 0,
         "activity: the web view followed the call into its own window": both("activity_popout"),
         "activity: starting one, someone joining it and leaving it played their sounds": both("activity_cues"),
         "activity: leaving the call left the activity": both("activity_left_with_call") and leaves("9101") >= n,

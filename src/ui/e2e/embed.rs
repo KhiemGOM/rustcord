@@ -280,11 +280,17 @@ impl Run {
                 }
                 let Some((_, clip)) = frame_rects(app, b) else { return };
                 if player(app, file).is_none() {
+                    self.sub += 1;
+                    if self.sub > 40 {
+                        self.shot(ctx, "embed_no_player.png");
+                        return self.fail(format!("scrolled up {} times and never drew the proxied file's player", self.sub));
+                    }
                     self.scroll_by(side(clip), 120.0);
                     self.next(350);
                     self.step -= 1;
                     return;
                 }
+                self.sub = 0;
                 self.mark("embed_direct_player");
                 self.next(0);
             }

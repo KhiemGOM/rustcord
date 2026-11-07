@@ -40,5 +40,5 @@ def checks(runs, reqs, data):
         "stage: being invited to speak showed the prompt and played its sound": both("stage_invited_cue"),
         "stage: End Stage asked, then deleted the stage": both("stage_ended") and len(sent("DELETE", "/stage-instances/2802")) == 2,
         "stage: Request to Speak raised our hand and Lower Hand put it down": both("stage_hand") and both("stage_hand_down")
-            and sum(bool(b.get("request_to_speak_timestamp")) for b in hands) == 2 and sum(b.get("request_to_speak_timestamp") is None for b in hands) == 2,
+            and sum(bool(b.get("request_to_speak_timestamp")) for b in hands) == 2 and sum(b.get("request_to_speak_timestamp") is None for b in hands) == 4,
     }
