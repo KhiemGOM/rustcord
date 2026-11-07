@@ -191,6 +191,9 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
     super::end(ui, 32.0);
 
     super::lead(ui);
+    if in_call {
+        probe::set_testing(false);
+    }
     let testing = probe::testing();
     let w = ui.available_width();
     ui.horizontal(|ui| {
