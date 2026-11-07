@@ -39,7 +39,7 @@ def checks(runs, reqs):
             and any(b"#ff0066" in b and b"\x18\x5a" in b and b"\x20\x28" in b for b in blobs),
         "themes: with Nitro an app icon was chosen and put on the window": both("app_icon_chosen") and both("app_icon_on_window"),
         "themes: a free account's Preview Icon opened the panel, previewed an icon without choosing it and Exit Preview went back": both("app_icon_previews") and both("app_icon_exit"),
-            "settings: Accessibility has the shop cursor, Official Messages and legacy chat input rows, each taking a real click": both("a11y_custom_cursor_row") and both("a11y_official_messages_row") and both("a11y_legacy_input_row"),
+            "settings: Accessibility has the shop cursor and legacy chat input rows, each taking a real click": both("a11y_custom_cursor_row") and both("a11y_legacy_input_row"),
         "settings: Developer's Application Test Mode took an application id through its dialog and cleared again": both("developer_test_mode_on") and both("developer_test_mode_off"),
         "settings: an authorized app's About and Policies opens": both("apps_about_and_policies"),
     }

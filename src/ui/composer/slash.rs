@@ -264,7 +264,7 @@ impl App {
     pub fn slash_from_draft(&mut self, chan: &Channel) {
         let ch = chan.id;
         let draft = self.drafts.get(&ch).cloned().unwrap_or_default();
-        let Some(rest) = draft.strip_prefix('/') else { return };
+        let Some(rest) = draft.strip_prefix('/').filter(|_| !self.settings.legacy_input) else { return };
         let Some((word, tail)) = rest.split_once(char::is_whitespace) else { return };
         let scope = if chan.guild != 0 { chan.guild } else { chan.id };
         let Some(cmd) = self.commands.get(&scope).and_then(|c| c.list.iter().find(|c| c["type"].as_u64().unwrap_or(1) == 1 && c["name"] == word)).cloned() else { return };

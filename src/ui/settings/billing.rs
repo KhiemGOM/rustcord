@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Id, Layout, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{LOGOUT, Look, card, danger, end, faint, input, lead, link, loading, mark, primary, refetch, remote, secondary, section};
 use crate::net::Tag;
@@ -9,6 +9,7 @@ use crate::theme::*;
 use crate::ui::App;
 use crate::ui::icons::{self, Icon};
 
+mod address;
 mod boosts;
 mod gifts;
 
@@ -560,13 +561,6 @@ pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
     false
 }
 
-fn address_lines(s: &Value) -> Vec<String> {
-    let a = &s["billing_address"];
-    let f = |k: &str| a[k].as_str().filter(|x| !x.is_empty()).map(str::to_string);
-    let city = [f("city"), f("state"), f("postal_code")].into_iter().flatten().collect::<Vec<_>>().join(", ");
-    [f("name"), f("line_1"), f("line_2"), Some(city).filter(|c| !c.is_empty()), f("country").map(|c| country(&c))].into_iter().flatten().collect()
-}
-
 fn source_row(ui: &mut Ui, s: &Value, in_use: bool) -> bool {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 76.0), Sense::hover());
     let p = ui.painter().clone();
@@ -614,30 +608,33 @@ fn edit_source(app: &mut App, ui: &mut Ui, sources: &[Value]) {
             ui.add_space(16.0);
             source_summary(ui, s);
             ui.add_space(16.0);
-            ui.label(RichText::new("BILLING ADDRESS").font(semi(12.0)).color(pal().header_secondary));
-            ui.add_space(6.0);
-            let lines = address_lines(s);
-            if lines.is_empty() {
-                ui.label(RichText::new("No billing address on file.").font(reg(14.0)).color(pal().text_muted));
-            }
-            for l in lines {
-                ui.label(RichText::new(l).font(reg(16.0)).color(pal().text_normal));
-            }
+            address::fields(ui, s);
             if !default {
                 ui.add_space(16.0);
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
                 let boxr = Rect::from_center_size(pos2(row.left() + 12.0, row.center().y), vec2(20.0, 20.0));
-                ui.painter().rect(boxr, CornerRadius::same(4), Color32::TRANSPARENT, Stroke::new(2.0, pal().header_secondary), egui::StrokeKind::Inside);
+                let on: bool = get(ui, "form_default");
+                if on {
+                    ui.painter().rect_filled(boxr, CornerRadius::same(4), BLURPLE);
+                    icons::draw(ui.painter(), Icon::Check, boxr.shrink(3.0), Color32::WHITE);
+                } else {
+                    ui.painter().rect(boxr, CornerRadius::same(4), Color32::TRANSPARENT, Stroke::new(2.0, pal().header_secondary), egui::StrokeKind::Inside);
+                }
                 ui.painter().text(pos2(row.left() + 32.0, row.center().y), Align2::LEFT_CENTER, "Make this my default payment method.", reg(16.0), pal().text_normal);
                 mark(ui, "billing:make_default", row);
-                make = resp.clicked();
+                if resp.clicked() {
+                    put(ui, "form_default", !on);
+                }
             }
         });
         Frame::new().fill(pal().bg_secondary).corner_radius(CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }).inner_margin(16).show(ui, |ui| {
             ui.set_width(408.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let b = crate::ui::button(ui, "Done", BLURPLE, 80.0);
-                close = b.clicked();
+                let b = crate::ui::button(ui, "Save Changes", BLURPLE, 130.0);
+                mark(ui, "billing:save", b.rect);
+                make = b.clicked();
+                ui.add_space(8.0);
+                close = super::secondary(ui, "Cancel").clicked();
                 ui.add_space(8.0);
                 let d = crate::ui::button(ui, "Delete Payment Method", RED, 170.0);
                 mark(ui, "billing:delete_source", d.rect);
@@ -646,12 +643,17 @@ fn edit_source(app: &mut App, ui: &mut Ui, sources: &[Value]) {
         });
     });
     if make {
+        let body = address::body(ui, s, default || get(ui, "form_default"));
         put(ui, "edit", None::<String>);
-        act(app, ui, vec![("PATCH", format!("/users/@me/billing/payment-sources/{id}"), Some(json!({ "default": true })))]);
+        put(ui, "form_for", String::new());
+        put(ui, "form_default", false);
+        act(app, ui, vec![("PATCH", format!("/users/@me/billing/payment-sources/{id}"), Some(body))]);
     } else if delete {
         put(ui, "delete", true);
     } else if close || r.should_close() {
         put(ui, "edit", None::<String>);
+        put(ui, "form_for", String::new());
+        put(ui, "form_default", false);
     }
 }
 

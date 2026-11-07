@@ -97,10 +97,8 @@ pub struct Settings {
     pub tts_rate: f32,
     pub image_descriptions: bool,
     pub send_button: bool,
-    // the shop's own pointer, how official developer messages are styled (0 default, 1 no text colour,
-    // 2 no background, 3 no styling), the plain chat input, games in the autocomplete
+    // the shop's own pointer, the plain chat input, games in the autocomplete
     pub shop_cursor: bool,
-    pub official_style: u8,
     pub legacy_input: bool,
     pub game_suggestions: bool,
     // stream details on video tiles under the pointer, and the application put in test mode
@@ -345,7 +343,6 @@ impl Default for Settings {
             tts_rate: 1.0,
             image_descriptions: false,
             shop_cursor: true,
-            official_style: 0,
             legacy_input: false,
             game_suggestions: true,
             stream_info: false,

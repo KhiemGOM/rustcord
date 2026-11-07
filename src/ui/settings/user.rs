@@ -1,11 +1,5 @@
-use egui::{RichText, Ui};
-use serde_json::Value;
-
-use super::{account, modals, card, open_web, primary, remote};
-use crate::net::Tag;
+use super::{account, modals};
 use crate::state::Id;
-use crate::theme::*;
-use crate::ui::App;
 
 #[derive(Default)]
 pub struct Forms {
@@ -47,39 +41,4 @@ impl Forms {
     pub fn modal_closed(&self) -> bool {
         self.modal.is_none()
     }
-}
-
-/// The classic JSON settings object. Its fields have names, so writing one can
-/// never land on the wrong setting; if discord ever retires it, writes just fail.
-pub(super) fn legacy(app: &mut App, ui: &mut Ui) -> Option<Value> {
-    let v = remote(app, "legacy", "/users/@me/settings").cloned();
-    match v {
-        Some(Ok(v)) => Some(v),
-        None => {
-            super::lead(ui);
-            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
-            None
-        }
-        Some(Err(_)) => {
-            card(ui, |ui| {
-                ui.label(RichText::new("Discord didn't hand these settings to Rustcord. You can still change them in the browser.").font(reg(14.0)).color(pal().header_secondary));
-                ui.add_space(8.0);
-                if primary(ui, "Open on discord.com").clicked() {
-                    open_web("/settings");
-                }
-            });
-            None
-        }
-    }
-}
-
-pub(super) fn set_legacy(app: &mut App, patch: Value) {
-    if let Some(Some(Ok(cur))) = app.remote.get_mut("legacy")
-        && let (Some(c), Some(p)) = (cur.as_object_mut(), patch.as_object())
-    {
-        for (k, v) in p {
-            c.insert(k.clone(), v.clone());
-        }
-    }
-    app.rest("PATCH", "/users/@me/settings".into(), Some(patch), Tag::Remote("action"));
 }
