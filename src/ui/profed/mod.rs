@@ -86,22 +86,47 @@ pub struct Editor {
     opened: usize,
 }
 
-pub const BIO_PROMPTS: [&str; 6] = [
+pub const BIO_PROMPTS: [&str; 10] = [
     "Describe yourself in a haiku",
-    "Your vibe in five words",
-    "Share a fun fact about yourself",
+    "Describe yourself like a game character",
     "Tell us a bit about you",
-    "Your vibe \u{2014} chaotic, calm, or somewhere in between?",
-    "What\u{2019}s your villain origin story?",
+    "Share a fun fact about yourself",
+    "Describe yourself in three emoji",
+    "Your life in one sentence",
+    "What’s your villain origin story?",
+    "Write a brief intro",
+    "Your vibe — chaotic, calm, or somewhere in between?",
+    "Your vibe in five words",
 ];
 
-pub const STATUS_PROMPTS: [&str; 6] = [
-    "Shower thought?",
+pub const STATUS_PROMPTS: [&str; 27] = [
+    "What have you been playing?",
+    "What have you been listening to?",
+    "What have you been watching?",
     "What are you currently obsessed with?",
-    "What\u{2019}s the most useless talent you have?",
+    "Shower thought?",
+    "Today I learned...",
+    "What’s your hot take?",
+    "Best dad joke?",
+    "Best emoji to describe your day?",
+    "What’s the most useless talent you have?",
+    "What video game item would you be?",
+    "What have you been reading?",
+    "Last song stuck in your head?",
+    "Most used emoji lately?",
+    "Best thing you ate this week?",
+    "What fictional world would you live in?",
+    "If your life had a theme song...",
+    "Favorite collectible?",
+    "Most satisfying game mechanic?",
+    "Favorite NPC companion?",
+    "Food you’re craving now?",
+    "Pick a mythical creature as a pet",
+    "Latest hobby?",
+    "Favorite anime lately?",
+    "Just ranked up in...",
     "Choose your character class",
-    "What\u{2019}s your hot take?",
-    "What\u{2019}s one of your hot takes?",
+    "Hit a high score in...",
 ];
 
 pub fn open(app: &mut App, guild: Option<Id>) {
