@@ -17,7 +17,7 @@ const GROUP: Id = 3001;
 const BANNED: Id = 104;
 const NEWCOMER: Id = 107;
 
-fn event(app: &mut App, t: &str, d: serde_json::Value) {
+pub(super) fn event(app: &mut App, t: &str, d: serde_json::Value) {
     app.rest("POST", "/mock/event".into(), Some(json!({ "t": t, "d": d })), crate::net::Tag::Quiet);
 }
 

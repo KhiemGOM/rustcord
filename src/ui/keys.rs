@@ -47,6 +47,8 @@ impl App {
             || self.status_text.is_some()
             || self.leaving.is_some()
             || self.timeout.is_some()
+            || self.kickban.is_some()
+            || self.prune.is_some()
             || self.combos.is_some()
             || self.breathe.is_some()
             || self.demon.is_some()
@@ -106,6 +108,8 @@ impl App {
             || self.breathe.is_some()
             || self.demon.is_some()
             || self.timeout.is_some()
+            || self.kickban.is_some()
+            || self.prune.is_some()
             || self.settings_page.is_some()
             || egui::Popup::is_any_open(ctx)
     }
