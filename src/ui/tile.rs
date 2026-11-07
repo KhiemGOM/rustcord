@@ -8,15 +8,22 @@ use crate::state::{Channel, Id};
 use crate::theme::*;
 
 impl App {
-    pub fn set_peer(&mut self, user: Id, peer: Peer, save: bool) {
+    pub fn set_peer(&mut self, user: Id, mut peer: Peer, save: bool) {
         if peer.muted || peer.soundboard_muted || peer.volume != 100.0 {
+            peer.modified = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
             self.settings.peers.insert(user, peer);
+            if self.settings.peers.len() > 300
+                && let Some(old) = self.settings.peers.iter().min_by_key(|(_, p)| p.modified).map(|(u, _)| *u)
+            {
+                self.settings.peers.remove(&old);
+            }
         } else {
             self.settings.peers.remove(&user);
         }
         self.voice.configure(&self.settings);
         if save {
             crate::cache::set_settings(&self.settings);
+            super::settings::send(self, crate::proto::peers_patch(&self.settings.peers, user));
         }
     }
 
@@ -85,12 +92,14 @@ fn body(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, at: egui::Pos2) {
                 super::settings::slider(ui, w, &mut at, 0.0, 1.0)
             })
             .inner;
+        let dragged = egui::Id::new("peer_dragged");
         if moved {
             peer.volume = (super::usermenu::vol_gain(at) * 100.0).round();
             app.set_peer(u, peer, false);
+            ui.data_mut(|d| d.insert_temp(dragged, u));
         }
-        if ui.input(|i| i.pointer.any_released()) && app.settings.peers.get(&u).is_some_and(|p| p.volume != 100.0) {
-            crate::cache::set_settings(&app.settings);
+        if ui.input(|i| i.pointer.any_released()) && ui.data_mut(|d| d.remove_temp::<Id>(dragged)) == Some(u) {
+            app.set_peer(u, app.peer(u), true);
         }
         ui.add_space(4.0);
         menu_sep(ui);

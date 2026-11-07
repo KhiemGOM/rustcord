@@ -282,7 +282,7 @@ impl Run {
                 app.inbox = None;
                 self.next(300);
             }
-            5031 => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
+            5031 => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5050 },
             5040 => {
                 if app.conn != crate::ui::Conn::Online || app.synced.is_none() {
                     return;

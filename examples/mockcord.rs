@@ -1652,6 +1652,25 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
             ok(json!({}))
         }
+        // another device of the account changing what it plays people at: {"users":[{"id":102,"volume":35.0,"muted":true}]}
+        ("POST", ["api", "v9", "mock", "peers"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut group = Vec::new();
+            for u in b["users"].as_array().into_iter().flatten() {
+                let mut setting = Vec::new();
+                if u["muted"].as_bool().unwrap_or(false) {
+                    setting.extend(pb_int(1, 1));
+                }
+                setting.extend([varint(2 << 3 | 5), (u["volume"].as_f64().unwrap_or(100.0) as f32).to_le_bytes().to_vec()].concat());
+                let entry = [varint(1 << 3 | 1), u["id"].as_u64().unwrap_or(0).to_le_bytes().to_vec(), pb_len(2, &setting)].concat();
+                group.extend(pb_len(1, &entry));
+            }
+            let proto = base64::engine::general_purpose::STANDARD.encode(pb_len(16, &group));
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": true } }));
+            ok(json!({}))
+        }
         ("GET", ["api", "v9", "users", "@me", "settings-proto", "2"]) => {
             use base64::Engine;
             ok(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(frecency::get()) }))

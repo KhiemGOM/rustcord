@@ -46,6 +46,7 @@ mod players;
 mod perms;
 mod p3b;
 mod p4b;
+mod p4c;
 mod themes;
 mod serverx;
 mod shopx;
@@ -1424,6 +1425,7 @@ impl Run {
             4600..=4649 => self.p3b_steps(app, ctx),
             4650..=4699 => self.shopx_steps(app, ctx),
             5000..=5049 => self.p4b_steps(app, ctx),
+            5050..=5099 => self.p4c_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
