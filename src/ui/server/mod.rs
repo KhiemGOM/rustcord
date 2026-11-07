@@ -33,7 +33,7 @@ use super::App;
 use super::sidebar_view;
 use super::icons::{self, Icon};
 use crate::net::Tag;
-use crate::state::Id;
+use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_GUILD_EXPRESSIONS, Id, KICK_MEMBERS, MANAGE_GUILD, MANAGE_GUILD_EXPRESSIONS, MANAGE_NICKNAMES, MANAGE_ROLES, MANAGE_WEBHOOKS, MODERATE_MEMBERS, VIEW_AUDIT_LOG, VIEW_GUILD_INSIGHTS};
 use crate::theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -67,6 +67,23 @@ const SIDE: &[(&str, &[(Page, &str)])] = &[
     ("APPS", &[(Page::Integrations, "Integrations"), (Page::Directory, "App Directory")]),
     ("MODERATION", &[(Page::Safety, "Safety Setup"), (Page::Audit, "Audit Log"), (Page::Bans, "Bans"), (Page::AutoMod, "AutoMod")]),
 ];
+
+fn shown(page: Page, perms: u64, community: bool) -> bool {
+    let any = |m: u64| perms & m != 0;
+    match page {
+        Page::Profile | Page::Engagement | Page::Perks | Page::Directory => true,
+        Page::Tag | Page::Invites | Page::Access | Page::Template | Page::Safety => any(MANAGE_GUILD),
+        Page::Discovery => community && any(MANAGE_GUILD),
+        Page::Emoji | Page::Stickers | Page::Soundboard => any(MANAGE_GUILD_EXPRESSIONS | CREATE_GUILD_EXPRESSIONS),
+        Page::Members => any(ADMINISTRATOR | MANAGE_GUILD | BAN_MEMBERS | KICK_MEMBERS | MODERATE_MEMBERS | MANAGE_ROLES | MANAGE_NICKNAMES),
+        Page::Roles => any(MANAGE_ROLES),
+        Page::Integrations => any(MANAGE_GUILD | MANAGE_WEBHOOKS),
+        Page::Audit => any(VIEW_AUDIT_LOG),
+        Page::Bans => any(BAN_MEMBERS | VIEW_AUDIT_LOG),
+        Page::AutoMod => !community && any(MANAGE_GUILD),
+        Page::Community => any(MANAGE_GUILD) || community && any(VIEW_GUILD_INSIGHTS),
+    }
+}
 
 pub struct State {
     pub guild: Id,
@@ -144,6 +161,14 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
         s.draft.clear();
     }
     s.data.insert(key, v);
+}
+
+pub fn open_role(app: &mut App, gid: Id, role: Id, tab: u8) {
+    roles::open(app, gid, role, tab);
+}
+
+pub fn audit_changed(app: &mut App, gid: Id) {
+    moderation::changed(app, gid);
 }
 
 /// Files dropped on the window go to the Emoji page when it's the one open.
@@ -245,18 +270,28 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(46.0);
             let gname = app.store.guilds.get(&gid).map(|g| g.name.to_uppercase()).unwrap_or_default();
-            for (i, (head, items)) in SIDE.iter().enumerate() {
-                if i > 0 {
+            let perms = app.store.my_perms(gid);
+            let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
+            let owner = app.store.guilds.get(&gid).is_some_and(|g| g.owner == app.store.me);
+            let mut first = true;
+            for (head, items) in SIDE.iter() {
+                let items: Vec<_> = items.iter().filter(|(p, _)| shown(*p, perms, community)).collect();
+                if items.is_empty() {
+                    continue;
+                }
+                if !first {
                     ui.add_space(8.0);
                     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
                     ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
                     ui.add_space(8.0);
                 }
+                first = false;
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
                 let h = if head.is_empty() { gname.as_str() } else { *head };
                 super::text::paint(ui.painter(), pos2(r.left() + 10.0, r.center().y + 4.0), Align2::LEFT_CENTER, h, bold(12.0), pal().header_secondary, r.width() - 20.0);
-                for (p, label) in items.iter() {
+                for (p, label) in items {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+                    super::settings::mark(ui, &format!("side:{label}"), r);
                     let on = *p == page;
                     if on {
                         ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
@@ -275,66 +310,46 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                 }
             }
-            ui.add_space(8.0);
-            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-            ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
-            ui.add_space(8.0);
-            let community = app.store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
-            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-            if page == Page::Community {
-                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
-            } else {
+            let pick = |l: &[(Page, &'static str)]| l.iter().copied().filter(|(p, _)| shown(*p, perms, community)).collect::<Vec<_>>();
+            let tail = [pick(&[(Page::Community, if community { "Community Overview" } else { "Enable Community" }), (Page::Discovery, "Discovery")]), pick(&[(Page::Template, "Server Template")])];
+            for (gi, items) in tail.iter().enumerate() {
+                let del = gi == 1 && owner;
+                if items.is_empty() && !del {
+                    continue;
+                }
+                ui.add_space(8.0);
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
+                ui.add_space(8.0);
+                for (p, label) in items {
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+                    super::settings::mark(ui, &format!("side:{label}"), r);
+                    if page == *p {
+                        ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
+                    } else {
                         crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                     }
-            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, if community { "Community Overview" } else { "Enable Community" }, medium(16.0), if page == Page::Community || resp.hovered() { pal().header_primary } else { pal().header_secondary });
-            if resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            if resp.clicked() {
-                goto = Some(Page::Community);
-            }
-            if community {
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-                if page == Page::Discovery {
-                    ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
-                } else {
+                    ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, *label, medium(16.0), if page == *p || resp.hovered() { pal().header_primary } else { pal().header_secondary });
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        goto = Some(*p);
+                    }
+                }
+                if del {
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
                     crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
-                }
-                ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Discovery", medium(16.0), if page == Page::Discovery || resp.hovered() { pal().header_primary } else { pal().header_secondary });
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if resp.clicked() {
-                    goto = Some(Page::Discovery);
-                }
-            }
-            ui.add_space(8.0);
-            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-            ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
-            ui.add_space(8.0);
-            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-            if page == Page::Template {
-                ui.painter().rect_filled(r, CornerRadius::same(4), pal().bg_mod_selected);
-            } else {
-                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
+                    super::settings::mark(ui, "side:Delete Server", r);
+                    ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Delete Server", medium(16.0), RED);
+                    icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(16.0, 16.0)), RED);
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
-            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Server Template", medium(16.0), if page == Page::Template || resp.hovered() { pal().header_primary } else { pal().header_secondary });
-            if resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            if resp.clicked() {
-                goto = Some(Page::Template);
-            }
-            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-            crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
-            super::settings::mark(ui, "side:Delete Server", r);
-            ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Delete Server", medium(16.0), RED);
-            icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(16.0, 16.0)), RED);
-            if resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            if resp.clicked() {
-                delete = true;
+                    if resp.clicked() {
+                        delete = true;
+                    }
+                }
             }
             ui.add_space(60.0);
         });

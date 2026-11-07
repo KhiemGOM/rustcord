@@ -248,6 +248,23 @@ pub fn more(app: &mut App, v: Value) {
     s.data.insert("audit_more", json!(v["audit_log_entries"].as_array().map_or(0, |a| a.len())));
 }
 
+fn audit_path(gid: Id, (user, action): (Id, u64)) -> String {
+    let mut path = format!("/guilds/{gid}/audit-logs?limit=50");
+    if user != 0 {
+        path += &format!("&user_id={user}");
+    }
+    if action != 0 {
+        path += &format!("&action_type={action}");
+    }
+    path
+}
+
+pub fn changed(app: &mut App, gid: Id) {
+    let Some(s) = app.server.as_ref().filter(|s| s.guild == gid && s.data.contains_key("audit")) else { return };
+    let path = audit_path(gid, (s.pages.log.user, s.pages.log.action));
+    app.rest("GET", path, None, Tag::Server("audit"));
+}
+
 pub fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
     title(ui, "Audit Log", "");
     let Some(s) = app.server.as_mut() else { return };
@@ -257,13 +274,7 @@ pub fn audit(app: &mut App, ui: &mut Ui, gid: Id) {
         s.data.remove("audit");
         s.data.remove("audit_more");
     }
-    let mut path = format!("/guilds/{gid}/audit-logs?limit=50");
-    if want.0 != 0 {
-        path += &format!("&user_id={}", want.0);
-    }
-    if want.1 != 0 {
-        path += &format!("&action_type={}", want.1);
-    }
+    let path = audit_path(gid, want);
     let log = app.server_data("audit", path).cloned().unwrap_or(Value::Null);
     let users: HashMap<String, (String, String)> = log["users"]
         .as_array()

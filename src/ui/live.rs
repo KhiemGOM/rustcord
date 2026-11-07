@@ -39,6 +39,17 @@ impl App {
                 self.reload(gid, "integrations", format!("/guilds/{gid}/integrations?include_applications=true&include_role_connections_metadata=true"));
                 self.reload(gid, "command_index", format!("/guilds/{gid}/application-command-index"));
             }
+            "GUILD_AUDIT_LOG_ENTRY_CREATE" => super::server::audit_changed(self, gid),
+            "INVITE_CREATE" | "INVITE_DELETE" => self.reload(gid, "invites", format!("/guilds/{gid}/invites")),
+            "USER_SETTINGS_UPDATE" => {
+                let me = self.store.me;
+                if let Some(s) = d["status"].as_str().filter(|s| matches!(*s, "online" | "idle" | "dnd" | "invisible")) {
+                    self.store.presence.insert(me, Status::parse(s));
+                }
+                if let Some(c) = d.get("custom_status") {
+                    self.store.custom_status = c["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
+                }
+            }
             "WEBHOOKS_UPDATE" => {
                 self.reload(gid, "webhooks", format!("/guilds/{gid}/webhooks"));
                 let ch = sid(&d["channel_id"]);

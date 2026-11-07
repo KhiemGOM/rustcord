@@ -358,7 +358,6 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     match a.messages(channel, page).await {
                         Ok(Value::Array(list)) => tx.send(Ev::Messages { channel, page, list }),
-                        Err(err) if err == api::UNAUTHORIZED => tx.send(Ev::AuthFailed),
                         Err(err) => tx.send(Ev::MessagesFailed { channel, page, err }),
                         Ok(_) => tx.send(Ev::MessagesFailed { channel, page, err: String::new() }),
                     }
@@ -379,9 +378,6 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.try_call(m.clone(), &path, body, None, None).await.map_err(|f| fail(&tx, &m, &path, f));
-                    if res.as_ref().is_err_and(|e| e == api::UNAUTHORIZED) {
-                        return tx.send(Ev::AuthFailed);
-                    }
                     match (&tag, &res) {
                         (Tag::Quiet, Ok(_)) => {}
                         (Tag::Quiet, Err(_)) => {}
@@ -393,9 +389,6 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.try_call(m.clone(), &path, body, None, Some(&reason)).await.map_err(|f| fail(&tx, &m, &path, f));
-                    if res.as_ref().is_err_and(|e| e == api::UNAUTHORIZED) {
-                        return tx.send(Ev::AuthFailed);
-                    }
                     tx.send(Ev::Rest { tag, res });
                 });
             }

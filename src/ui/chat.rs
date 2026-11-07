@@ -967,6 +967,7 @@ fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
     };
     let own = list[at].1 == app.store.me;
     let manage = chan.guild == 0 || app.store.perms(chan) & crate::state::MANAGE_MESSAGES != 0;
+    let pin = app.store.can_pin(chan);
     let row = ui.data(|s| s.get_temp::<Rect>(egui::Id::new(("row", id)))).unwrap_or(Rect::from_min_size(pos2(400.0, 300.0), vec2(1.0, 1.0)));
     let shift = ui.input(|i| i.modifiers.shift);
     let key = |ui: &mut Ui, m: Modifiers, k: Key| ui.input_mut(|i| super::take_key(i, m, k));
@@ -1020,7 +1021,7 @@ fn message_keys(app: &mut App, ui: &mut Ui, chan: &Channel) {
             app.focus_msg = None;
         }
         Some("+") => app.picker = Some((Pick::React(ch, id), row.right_top() - vec2(360.0, 0.0))),
-        Some("p") if manage => app.pin_msg(ch, id, !shift),
+        Some("p") if pin => app.pin_msg(ch, id, !shift),
         Some("f") => app.forward = Some(super::popups::Forward::new(ch, id)),
         Some("s") => app.speak(ch, id),
         _ => {
@@ -2887,8 +2888,8 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
     frequent.truncate(10);
     let quick = app.quick_reactions();
     let Some(chan) = app.store.channels.get(&ch).cloned() else { return };
-    // pinning and deleting other people's messages take manage messages, except in dms
     let manage = chan.guild == 0 || app.store.perms(&chan) & crate::state::MANAGE_MESSAGES != 0;
+    let pin = app.store.can_pin(&chan);
     let threads = chan.guild != 0 && matches!(chan.kind, 0 | 5) && !has_thread && editable;
     let configure = chan.guild != 0 && kind == 7 && app.store.perms(&chan) & crate::state::MANAGE_GUILD != 0;
     let publishable = chan.kind == 5 && (own || manage);
@@ -2976,7 +2977,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
         if !content.is_empty() && menu_item(ui, Some(Icon::Copy), "Copy Text", false) {
             pick = Some(MenuPick::Copy);
         }
-        if sent && manage && pinnable && menu_item(ui, Some(Icon::Pin), if pinned { "Unpin Message" } else { "Pin Message" }, false) {
+        if sent && pin && pinnable && menu_item(ui, Some(Icon::Pin), if pinned { "Unpin Message" } else { "Pin Message" }, false) {
             pick = Some(MenuPick::Pin);
         }
         let mark = if saved { (Icon::Bookmarked, "Remove Bookmark") } else { (Icon::Bookmark, "Bookmark Message") };

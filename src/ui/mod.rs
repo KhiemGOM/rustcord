@@ -39,6 +39,8 @@ mod friends;
 pub mod icons;
 mod interact;
 mod keys;
+mod kickban;
+mod prune;
 #[cfg(test)]
 mod locks;
 mod live;
@@ -327,6 +329,8 @@ pub struct App {
     pub breathe: Option<keys::Breathe>,
     // Timeout for a member: who, in which server, the length picked and the reason
     pub timeout: Option<popups::Timeout>,
+    pub kickban: Option<kickban::Dialog>,
+    pub prune: Option<prune::Dialog>,
     // the server left for the dms, which Ctrl+Alt+→ goes back to
     pub prev_guild: Option<Id>,
     // the open channel when it's scrolled well back from the newest messages
@@ -569,6 +573,8 @@ impl App {
             demon: None,
             breathe: None,
             timeout: None,
+            kickban: None,
+            prune: None,
             prev_guild: None,
             far_up: None,
             home_clicks: (0, None),
@@ -1567,7 +1573,7 @@ impl App {
         match tag {
             Tag::Link(_) | Tag::Buy(..) => {}
             Tag::Pins(ch) => {
-                let list: Vec<Message> = v.as_array().into_iter().flatten().map(|m| self.store.parse_message(m)).collect();
+                let list: Vec<Message> = v["items"].as_array().into_iter().flatten().map(|p| self.store.parse_message(&p["message"])).collect();
                 if self.pins.as_ref().is_some_and(|(c, _)| *c == ch) {
                     self.pins = Some((ch, Some(list)));
                 }

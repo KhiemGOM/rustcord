@@ -127,6 +127,26 @@ fn name_preview(p: &Painter, pos: egui::Pos2, name: &str, d: &Draft, ink: Color3
     }
 }
 
+fn banner(ui: &mut Ui, key: &str, parts: &[(&str, bool)]) {
+    let out = Frame::new().fill(YELLOW.gamma_multiply(0.1)).stroke(Stroke::new(1.0, YELLOW)).corner_radius(8).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal_top(|ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+            let c = r.center();
+            ui.painter().add(egui::Shape::convex_polygon(vec![pos2(c.x, c.y - 8.0), pos2(c.x + 9.0, c.y + 7.0), pos2(c.x - 9.0, c.y + 7.0)], YELLOW, Stroke::NONE));
+            ui.painter().text(pos2(c.x, c.y + 2.0), Align2::CENTER_CENTER, "!", bold(11.0), Color32::BLACK);
+            let mut job = LayoutJob::default();
+            job.wrap.max_width = ui.available_width();
+            for (t, link) in parts {
+                job.append(t, 0.0, TextFormat { font_id: medium(14.0), color: if *link { pal().link } else { pal().text_normal }, line_height: Some(18.0), ..Default::default() });
+            }
+            ui.add(egui::Label::new(job).wrap().selectable(false));
+        });
+    });
+    settings::mark(ui, key, out.response.rect);
+    ui.add_space(16.0);
+}
+
 fn tabs(ui: &mut Ui, e: &mut Edit, everyone: bool, members: usize) {
     let items: Vec<(u8, String)> = if everyone {
         vec![(1, "Permissions".into())]
@@ -182,19 +202,27 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         .server_data("role_counts", format!("/guilds/{gid}/roles/member-counts"))
         .and_then(|v| v[e.id.to_string()].as_u64())
         .map_or(members.len(), |n| n as usize);
+    let locked = !everyone && !crate::ui::profile::can_manage(&app.store, gid, e.id);
+    if role.managed {
+        banner(ui, "role:managed", &[("This role is managed by an integration: ", false), (&role.name, true), (". It cannot be manually assigned to members. You can remove the integration to remove this role.", false)]);
+    }
+    if locked {
+        let top = app.store.guilds.get(&gid).and_then(|g| g.my_roles.iter().filter_map(|r| g.roles.get(r)).map(|r| r.position).max());
+        banner(ui, "role:locked", &[(if top == Some(role.position) { "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help." } else { "Role is locked because it is a higher rank than your highest role." }, false)]);
+    }
     tabs(ui, &mut e, everyone, n);
-    match e.tab {
-        0 => {
-            if display(app, ui, gid, &mut e, &role) {
-                app.server = None;
-                app.ui.guild = Some(gid);
-                app.open_boosts(gid);
-                return;
-            }
-        }
+    let mut open_boosts = false;
+    ui.add_enabled_ui(!locked, |ui| match e.tab {
+        0 => open_boosts = display(app, ui, gid, &mut e, &role),
         1 => permissions(app, ui, &mut e, &role),
         2 => links(app, ui, gid, &mut e, &role, n),
         _ => manage(app, ui, gid, &mut e, &members, &role),
+    });
+    if open_boosts {
+        app.server = None;
+        app.ui.guild = Some(gid);
+        app.open_boosts(gid);
+        return;
     }
     if e.draft != e.base {
         ui.add_space(80.0);
@@ -642,6 +670,11 @@ fn manage(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, members: &[Id], rol
             ui.painter().text(pos2(n.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &us.username, reg(14.0), pal().header_secondary);
         }
         let x = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(28.0, 28.0));
+        if role.managed {
+            icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), pal().header_secondary.gamma_multiply(0.4));
+            ui.interact(x, ui.id().with(("role_rm", *u)), Sense::hover()).on_hover_text("Members cannot be manually added or removed from this role");
+            continue;
+        }
         let xr = ui.interact(x, ui.id().with(("role_rm", *u)), Sense::click());
         icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), crate::ui::motion::mix(pal().header_secondary, RED, crate::ui::motion::hot(ui.ctx(), &xr)));
         if xr.on_hover_text("Remove member").clicked() {
