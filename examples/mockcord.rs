@@ -37,6 +37,8 @@ mod gallery;
 mod rules;
 #[path = "mockcord/members.rs"]
 mod members;
+#[path = "mockcord/perms.rs"]
+mod perms;
 #[path = "mockcord/bot.rs"]
 mod bot;
 #[path = "mockcord/buy.rs"]
@@ -1440,6 +1442,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v)) = perms::route(w, method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     if let Some((code, v)) = billing(method, &parts, body) {
