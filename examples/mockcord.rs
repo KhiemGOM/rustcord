@@ -1709,10 +1709,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
-        ("GET", ["api", "v9", "channels", ch, "pins"]) => {
+        ("GET", ["api", "v9", "channels", ch, "messages", "pins"]) => {
             let w = w.lock().unwrap();
-            let list: Vec<&Value> = w.msgs.iter().filter(|m| m["channel_id"] == *ch && m["pinned"] == json!(true)).rev().collect();
-            ok(json!(list))
+            let limit = query(path, "limit").map_or(50, |l| l as usize);
+            let list: Vec<Value> = w.msgs.iter().filter(|m| m["channel_id"] == *ch && m["pinned"] == json!(true)).rev().map(|m| json!({ "pinned_at": m["timestamp"], "message": m })).collect();
+            ok(json!({ "items": list.iter().take(limit).collect::<Vec<_>>(), "has_more": list.len() > limit }))
         }
         ("GET", ["api", "v9", "guilds", _, "messages", "search"]) | ("GET", ["api", "v9", "users", "@me", "messages", "search"]) => {
             let q = path.split("content=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_lowercase();

@@ -79,7 +79,7 @@ impl App {
 
     pub fn open_pins(&mut self, ch: Id) {
         self.pins = Some((ch, None));
-        self.rest("GET", format!("/channels/{ch}/pins"), None, Tag::Pins(ch));
+        self.rest("GET", format!("/channels/{ch}/messages/pins?limit=50"), None, Tag::Pins(ch));
         // opening them is seeing them, which takes the dot off the pin button
         if self.store.pins_unread(ch) {
             let last = self.store.channels.get(&ch).map_or(0, |c| c.last_pin);
