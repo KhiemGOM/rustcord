@@ -611,7 +611,9 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                             let glow = lit[i].map_or(0.0, |t| (1.0 - t.elapsed().as_secs_f32() / 0.3).max(0.0));
                             let col = Color32::WHITE.lerp_to_gamma(BLURPLE, glow);
                             ddr_arrow(ui.painter(), r.shrink(6.0), turn, col, glow > 0.0);
-                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "ddr", i)), (glow > 0.0, r)));
+                            if glow > 0.0 {
+                                crate::ui::settings::mark(ui, &format!("ddr_lit:{i}"), r);
+                            }
                         }
                     });
                 });

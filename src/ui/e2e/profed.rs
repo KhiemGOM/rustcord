@@ -413,7 +413,7 @@ impl Run {
                         self.mark("profile_friends_since");
                     }
                     self.shot(ctx, "profed_full_board.png");
-                    let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", "fp_tab", crate::ui::profile::Tab::Wishlist as u8)))) else { return };
+                    let Some(r) = Self::at(ctx, &format!("fp_tab:{}", crate::ui::profile::Tab::Wishlist as u8)) else { return };
                     self.click(r.center());
                     self.next(700);
                 }

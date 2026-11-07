@@ -116,7 +116,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         .collect();
                     let total = 68.0 + heights.iter().sum::<f32>();
                     let (card, resp) = ui.allocate_exact_size(vec2(ui.available_width(), total), Sense::click());
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "now_card", *u)), (card, bodies.len())));
+                    crate::ui::settings::mark(ui, &format!("now_card:{u}"), card);
+                    crate::ui::settings::said(ui.ctx(), &format!("now_rows:{u}"), &bodies.len().to_string());
                     let hot = resp.hovered();
                     let p = ui.painter();
                     p.rect_filled(card, CornerRadius::same(12), if hot { Color32::from_rgb(0x12, 0x12, 0x14) } else { Color32::BLACK });

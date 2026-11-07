@@ -1143,7 +1143,11 @@ impl App {
         self.synced = Some(now);
         // sync with computer is a local choice the account doesn't know about
         let (theme, preset, own) = (self.settings.theme, self.settings.custom_theme, self.settings.own_theme.clone());
+        let custom_bg = self.settings.video_bg == crate::cache::VideoBg::Custom && self.settings.custom_bg.is_some();
         changed.apply(&mut self.settings);
+        if custom_bg {
+            self.settings.video_bg = crate::cache::VideoBg::Custom;
+        }
         if theme == crate::theme::Theme::Sync || !self.settings.sync_theme {
             self.settings.theme = theme;
         }
@@ -1939,6 +1943,7 @@ impl App {
                     }
                     if t == "READY" {
                         favs::fetch(self);
+                        settings::backfill(self);
                     }
                     if t == "USER_SETTINGS_PROTO_UPDATE" {
                         favs::updated(self, &d);
@@ -2519,6 +2524,9 @@ impl eframe::App for App {
         // dropping files on the window attaches them to the next message
         let dropped = !raw.dropped_files.is_empty();
         for f in raw.dropped_files.drain(..) {
+            if self.interactions.modal.as_mut().is_some_and(|m| m.drop_file(f.path())) {
+                continue;
+            }
             if !server::dropped(self, f.path()) {
                 self.attach_files(vec![f.path().to_path_buf()]);
             }
