@@ -51,6 +51,8 @@ mod profiles;
 mod auth;
 #[path = "mockcord/prefs.rs"]
 mod prefs;
+#[path = "mockcord/servers.rs"]
+mod servers;
 
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -1444,8 +1446,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
-    if let Some((code, v)) = perms::route(w, method, &parts, body) {
-        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    if let Some((code, v)) = servers::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
     }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
