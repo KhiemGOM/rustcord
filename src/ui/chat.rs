@@ -2963,7 +2963,7 @@ pub fn context_menu(app: &mut App, ctx: &egui::Context) {
             egui::containers::menu::SubMenu::new().show(ui, &add, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for e in &frequent {
-                    let name = if e.id != 0 { e.name.clone() } else { emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name).to_string() };
+                    let name = if e.id != 0 { e.name.clone() } else { super::reactions::unicode_name(&e.name).to_string() };
                     let url = gif::uri(ui.ctx(), &emoji_url(e), true);
                     if menu_row(ui, None, &format!(":{name}:"), None, false, Trail::Image(url)).clicked() {
                         react = Some(e.clone());

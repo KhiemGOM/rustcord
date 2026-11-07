@@ -418,7 +418,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }, |i, hot| {
                             if hot {
                                 let e = &list[i].0;
-                                let name = if e.id != 0 { e.name.clone() } else { emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name).to_string() };
+                                let name = if e.id != 0 { e.name.clone() } else { super::reactions::unicode_name(&e.name).to_string() };
                                 hovered = Some((super::chat::emoji_url(e), format!(":{name}:"), None));
                             }
                         }, |i, at| menu_at = Some((list[i].0.clone(), at)));

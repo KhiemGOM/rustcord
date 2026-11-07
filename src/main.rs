@@ -6,6 +6,7 @@ mod auth;
 mod cache;
 mod clips;
 mod emoji_font;
+mod emoji_names;
 mod fonts;
 mod gateway;
 mod gif;
