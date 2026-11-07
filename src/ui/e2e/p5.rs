@@ -144,6 +144,27 @@ impl Run {
                 app.mod_view = None;
                 self.next(300);
             }
+            5117 => {
+                app.store.custom_emoji = Some(crate::state::ReactEmoji { id: 5000, name: "ferris".into(), animated: false });
+                app.store.custom_status = Some("writing rust".into());
+                self.next(1200);
+            }
+            5118 => {
+                if !app.rects.contains_key("side:status_emoji") {
+                    if stuck {
+                        self.fail("a custom emoji status drew no emoji in the side panel".into());
+                    }
+                    return;
+                }
+                self.mark("side_status_custom_emoji");
+                self.shot(ctx, "side_status_emoji.png");
+                self.next(500);
+            }
+            5119 => {
+                app.store.custom_emoji = None;
+                app.store.custom_status = None;
+                self.next(300);
+            }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5120 },
         }
     }
