@@ -342,7 +342,10 @@ impl Run {
                 if app.voice.state != crate::voice::State::Connected || app.voice.chan != Some(self.call) {
                     return;
                 }
-                let Some(r) = app.rects.get(&format!("voice:tile:{me}")).copied() else { return };
+                let Some(mut r) = app.rects.get(&format!("voice:tile:{me}")).copied() else { return };
+                if let Some((_, other)) = app.rects.iter().find(|(k, _)| k.starts_with("voice:tile:") && !k.ends_with(&me.to_string()) && app.voice.video.contains_key(&k["voice:tile:".len()..].parse().unwrap_or(0))) {
+                    r = *other;
+                }
                 app.settings.dev = true;
                 app.settings.stream_info = true;
                 self.queue.push_back(vec![Event::PointerMoved(r.center())]);
