@@ -1,6 +1,7 @@
 //! Steps 4700 to 4799: what the web view of a video embed does beyond following its poster. A page
 //! asking for fullscreen through a real click in it (the mock's player has a button), the window
-//! then covering the whole client area and giving it back; and the member list at 940 wide.
+//! then covering the whole client area and giving it back, all of it again at 150% zoom where the
+//! window is placed in physical pixels; and the member list at 940 wide.
 //! `python e2e/from_step.py 4700` runs this group.
 
 use egui::vec2;
@@ -22,10 +23,6 @@ impl Run {
             }
             app.select_guild(Some(GUILD));
             app.open(EMBEDS);
-            if let Some(z) = std::env::var("RUSTCORD_E2E_ZOOM").ok().and_then(|v| v.parse::<f32>().ok()) {
-                app.settings.zoom = z / 100.0;
-                app.save_settings(ctx);
-            }
             return self.next(800);
         }
         let Some(b) = msg_of(app, "mock2") else { return };
@@ -59,6 +56,10 @@ impl Run {
                     self.step -= 1;
                     return;
                 }
+                let want = embedplay::px(full.intersect(clip), ppp);
+                if ppp > 1.4 && probe(app).is_some_and(|(shown, win, bounds)| shown && win.iter().zip(want).all(|(x, y)| near(*x, y)) && bounds[2] == win[2]) {
+                    self.mark("embed_frame_follows_150");
+                }
                 self.next(0);
             }
             4704 => {
@@ -71,9 +72,9 @@ impl Run {
                 let all = embedplay::px(ctx.content_rect(), ppp);
                 let Some((shown, win, bounds)) = probe(app) else { return };
                 if app.embed.as_ref().is_some_and(|p| p.frame.fullscreen()) && shown && win.iter().zip(all).all(|(x, y)| near(*x, y)) && bounds[2] == win[2] && bounds[3] == win[3] {
-                    self.mark("embed_fullscreen_covers_window");
+                    self.mark(if ppp > 1.4 { "embed_fullscreen_covers_window_150" } else { "embed_fullscreen_covers_window" });
                 }
-                self.window_shot("embed_fullscreen.png");
+                self.window_shot(if ppp > 1.4 { "embed_fullscreen_150.png" } else { "embed_fullscreen.png" });
                 if let Some(p) = &app.embed {
                     p.frame.press(BUTTON.0, BUTTON.1);
                 }
@@ -84,22 +85,41 @@ impl Run {
                 let (Some((shown, win, bounds)), Some(p)) = (probe(app), &app.embed) else { return };
                 let want = embedplay::px(full.intersect(clip), ppp);
                 if !p.frame.fullscreen() && shown && win.iter().zip(want).all(|(x, y)| near(*x, y)) && bounds[2] == win[2] {
-                    self.mark("embed_fullscreen_exit_returns");
+                    self.mark(if ppp > 1.4 { "embed_fullscreen_exit_returns_150" } else { "embed_fullscreen_exit_returns" });
                 }
                 self.next(0);
+                self.step = if ppp > 1.4 { 4710 } else { 4709 };
             }
-            4707 => {
+            4709 => {
+                app.settings.zoom = 1.5;
+                app.save_settings(ctx);
+                self.next(1500);
+                self.step = 4703;
+            }
+            4710 => {
+                app.settings.zoom = 1.0;
+                app.save_settings(ctx);
+                self.next(800);
+                self.step = 4720;
+            }
+            4720 => {
                 app.rects.retain(|k, _| !k.starts_with("member:"));
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(940.0, 500.0)));
-                self.next(1200);
+                self.next(1500);
             }
-            4708 => {
+            4721 => {
                 if app.cur() != Some(EMBEDS) {
                     return;
                 }
                 self.shot(ctx, "members_940.png");
                 if app.rects.keys().any(|k| k.starts_with("member:")) && ctx.content_rect().width() < 1000.0 {
                     self.mark("member_list_at_940");
+                }
+                self.next(0);
+            }
+            4722 => {
+                if self.pending_shots > 0 {
+                    return;
                 }
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
