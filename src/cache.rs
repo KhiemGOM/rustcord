@@ -215,17 +215,18 @@ pub struct Settings {
     pub halloween_sounds: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(default)]
 pub struct Peer {
     pub volume: f32,
     pub muted: bool,
     pub soundboard_muted: bool,
+    pub modified: u64,
 }
 
 impl Default for Peer {
     fn default() -> Self {
-        Peer { volume: 100.0, muted: false, soundboard_muted: false }
+        Peer { volume: 100.0, muted: false, soundboard_muted: false, modified: 0 }
     }
 }
 

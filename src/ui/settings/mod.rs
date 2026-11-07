@@ -13,6 +13,7 @@ pub mod billing;
 pub mod camera;
 mod clips;
 mod privacy;
+pub use privacy::send;
 mod keybinds;
 mod notify;
 mod search;

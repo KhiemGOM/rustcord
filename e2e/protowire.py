@@ -2,6 +2,7 @@
 
 import base64
 import json
+import struct
 
 
 def varint(b, i):
@@ -30,6 +31,9 @@ def fields(b):
             n, i = varint(b, i)
             v = b[i:i + n]
             i += n
+        elif wire == 5:
+            v = struct.unpack("<f", b[i:i + 4])[0]
+            i += 4
         else:
             break
         out.append((key >> 3, v))
