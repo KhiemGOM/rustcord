@@ -448,22 +448,54 @@ impl Run {
                 forget(&["shop:scroll_right:hero"]);
                 self.click(r.center());
                 self.next(900);
-                self.step = 4695;
-            }
-            4695 => {
-                forget(&["shop:scroll_right:hero"]);
-                self.next(500);
                 self.step = 4688;
             }
             4688 => {
+                let seen = egui::Id::new("shopx_arrow_forgotten");
+                if !ctx.data(|d| d.get_temp::<bool>(seen)).unwrap_or(false) {
+                    forget(&["shop:scroll_right:hero"]);
+                    ctx.data_mut(|d| d.insert_temp(seen, true));
+                    self.next(500);
+                    self.step -= 1;
+                    return;
+                }
                 if at("shop:scroll_right:hero").is_some() {
                     return;
                 }
                 self.mark("shop_scroll_right");
                 self.next(300);
+                self.step = 4696;
+            }
+            4696 => {
+                app.shop = None;
+                app.open_profile(101, 0, pos2(300.0, 160.0));
+                self.next(1500);
+            }
+            4697 => {
+                if app.profiles.get(&101).is_none_or(|p| p.is_null()) || !app.cosmo.items.contains_key("7003") {
+                    if stuck {
+                        self.fail("the popout never resolved the profile effect".into());
+                    }
+                    return;
+                }
+                self.shot(ctx, "fx_popout_a.png");
+                self.next(1100);
+            }
+            4698 => {
+                self.shot(ctx, "fx_popout_b.png");
+                self.mark("profile_effect_popout_shots");
+                app.open_full(101, 0, crate::ui::profile::Tab::Activity);
+                self.next(2600);
+                self.step = 4695;
+            }
+            4695 => {
+                self.shot(ctx, "fx_full.png");
+                self.mark("profile_effect_full_shot");
+                self.next(700);
                 self.step = 4699;
             }
             _ => {
+                app.full_profile = None;
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
                 app.shop = None;
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
