@@ -329,8 +329,15 @@ impl Modal {
         let screen = ctx.content_rect();
         let area = egui::Modal::default_area(self.id).fade_in(false);
         let layer = area.layer();
-        if !ctx.memory(|m| m.areas().visible_last_frame(&layer)) {
+        // egui raises an area only the first time it exists, and two raised in one frame keep their
+        // old order, so a dialog opened with another (settings and its editor) waits a frame
+        let (frame, raised, wait) = (ctx.cumulative_frame_nr(), Id::new("modal_raised"), self.id.with("raise"));
+        let opened = !ctx.memory(|m| m.areas().visible_last_frame(&layer));
+        if opened && ctx.data(|d| d.get_temp::<u64>(raised)) == Some(frame) {
+            ctx.data_mut(|d| d.insert_temp(wait, true));
+        } else if opened || ctx.data_mut(|d| d.remove_temp::<bool>(wait)).is_some() {
             ctx.move_to_top(layer);
+            ctx.data_mut(|d| d.insert_temp(raised, frame));
         }
         let top = ctx.memory_mut(|m| {
             m.set_modal_layer(layer);
@@ -388,6 +395,32 @@ mod tests {
             let _ = tx.send(());
         });
         assert!(rx.recv_timeout(Duration::from_secs(30)).is_ok());
+    }
+
+    #[test]
+    fn dialogs_opened_again_stack_in_the_order_they_open() {
+        let ctx = Context::default();
+        let (a, b) = (Id::new("settings"), Id::new("editor"));
+        let frame = |show: &[Id]| {
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                for id in show {
+                    Modal::new(*id).show(ui.ctx(), |ui| ui.set_min_size(egui::vec2(100.0, 100.0)));
+                }
+            });
+            out.textures_delta.clear();
+        };
+        let top = |id: Id| ctx.layer_id_at(ctx.content_rect().center()) == Some(egui::Modal::default_area(id).layer());
+        frame(&[a]);
+        frame(&[a, b]);
+        ctx.move_to_top(egui::Modal::default_area(a).layer());
+        frame(&[a, b]);
+        assert!(top(a), "clicking the lower one raised it");
+        frame(&[]);
+        frame(&[]);
+        frame(&[a, b]);
+        frame(&[a, b]);
+        frame(&[a, b]);
+        assert!(top(b), "the one opened last is on top");
     }
 
     fn close(a: f32, b: f32, tol: f32) -> bool {
