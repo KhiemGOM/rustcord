@@ -19,7 +19,7 @@ def checks(runs, reqs, data):
     full = [p.get("v") for p in posts if p.get("k") == "fullscreen"]
     return {
         "embed fullscreen: the page's own button went fullscreen and its window covered the whole app": both("embed_fullscreen_covers_window")
-        and any(isinstance(v, dict) and v.get("w", 0) > 700 for v in full),
+        and any(isinstance(v, dict) and v.get("on") and v.get("w", 0) > 700 for v in full),
         "embed fullscreen: leaving it put the window back over its embed": both("embed_fullscreen_exit_returns"),
         "embeds at 150% zoom: the window sat over its embed in physical pixels, covered the app in fullscreen, and came back": both("embed_frame_follows_150")
         and both("embed_fullscreen_covers_window_150")
