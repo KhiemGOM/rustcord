@@ -758,7 +758,8 @@ pub struct Pack {
 
 impl App {
     pub fn load_packs(&mut self) {
-        if self.packs_at.is_some_and(|t| t.elapsed() < Duration::from_secs(3600)) {
+        let keep = if self.packs.is_empty() { 10 } else { 3600 };
+        if self.packs_at.is_some_and(|t| t.elapsed() < Duration::from_secs(keep)) {
             return;
         }
         self.packs_at = Some(Instant::now());
