@@ -296,7 +296,7 @@ fn login_page(app: &mut App, ui: &mut Ui) {
                 problem(ui, &e);
             }
             if f.captcha {
-                problem(ui, "Finish the captcha in your browser to continue.");
+                problem(ui, "Finish the captcha in the window that opened.");
             }
             let r = primary(ui, "Log In", f.busy);
             f.rects.insert("submit", r.rect);
@@ -367,7 +367,7 @@ fn forgot(app: &mut App, ui: &mut Ui) {
         problem(ui, &e);
     }
     if f.captcha {
-        problem(ui, "Finish the captcha in your browser to continue.");
+        problem(ui, "Finish the captcha in the window that opened.");
     }
     let r = primary(ui, "Send Reset Instructions", f.busy);
     f.rects.insert("submit", r.rect);

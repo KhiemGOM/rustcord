@@ -1,31 +1,12 @@
 //! The login screens against the mock (RUSTCORD_E2E_LOGIN): no saved token, every way in.
 
 use egui::{Context, Event, Rect};
-use std::io::{Read, Write};
-use std::time::Duration;
+use std::io::Write;
 
 use super::Run;
 use crate::auth::Qr;
 use crate::ui::App;
 use crate::ui::login::Page;
-
-const SITEKEY: &str = "10000000-ffff-ffff-ffff-000000000001";
-
-fn solve(url: &str, token: &str) -> Option<bool> {
-    let addr = url.trim_start_matches("http://").trim_end_matches('/');
-    let talk = |req: String| -> Option<String> {
-        let mut s = std::net::TcpStream::connect(addr).ok()?;
-        s.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-        s.write_all(req.as_bytes()).ok()?;
-        let mut out = String::new();
-        let _ = s.read_to_string(&mut out);
-        Some(out)
-    };
-    let page = talk(format!("GET / HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n"))?;
-    let secret = page.split("fetch(\"/").nth(1)?.split('"').next()?;
-    talk(format!("POST /{secret} HTTP/1.1\r\nHost: {addr}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token}", token.len()))?;
-    Some(page.contains(SITEKEY) && page.contains("mock-rqdata"))
-}
 
 fn scan() {
     let base = crate::api::base().trim_start_matches("http://");
@@ -97,15 +78,8 @@ impl Run {
                 self.sign_in_as(app, "captcha@mock.test");
                 self.next(300);
             }
-            1506 if app.login.captcha => {
-                let url = std::fs::read_to_string(self.dir.join("captcha_url")).unwrap_or_default();
-                if url.is_empty() {
-                    return;
-                }
+            1506 if app.login.captcha && crate::webwin::is_open() => {
                 self.mark("login_captcha_opened");
-                if solve(&url, "e2e-captcha") == Some(true) {
-                    self.mark("login_captcha_page");
-                }
                 self.next(200);
             }
             1507 => {

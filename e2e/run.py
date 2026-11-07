@@ -153,6 +153,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_SOUNDS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_ACTIVITY": f"http://127.0.0.1:{HTTP}/activity/{{app}}",
+        "RUSTCORD_HCAPTCHA": f"http://127.0.0.1:{HTTP}/hcaptcha",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
         "RUSTCORD_REMOTE_AUTH": f"ws://127.0.0.1:{REMOTE}",
         "RUSTCORD_TOKEN": "mock-token",

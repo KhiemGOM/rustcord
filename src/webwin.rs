@@ -5,6 +5,7 @@
 //! script that runs before the page's own, so the target is the first and only page loaded and
 //! the window is dark until it paints. Browsing is never done here: any other page is refused.
 
+pub mod captcha;
 pub mod child;
 pub mod frame;
 
@@ -113,7 +114,7 @@ fn go(url: String) {
     }
     let parent = crate::winsys::WINDOW.load(Relaxed);
     let token = crate::cache::token();
-    if std::thread::Builder::new().name("webwin".into()).spawn(move || run(parent, token)).is_err() {
+    if std::thread::Builder::new().name("webwin".into()).spawn(move || run(parent, move |hwnd, data| setup(hwnd, &base(), token, data))).is_err() {
         BUSY.store(false, Relaxed);
         if let Some(u) = NEXT.lock().unwrap().take() {
             browser(&u);
@@ -478,14 +479,14 @@ fn sweep(root: &Path) {
     }
 }
 
-fn run(parent: isize, token: Option<String>) {
+fn run(parent: isize, boot: impl FnOnce(HWND, &Path) -> windows::core::Result<()>) {
     let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
     let root = crate::cache::dir().join("webview2");
     sweep(&root);
     let data: PathBuf = root.join(format!("{}-{}", std::process::id(), COUNT.fetch_add(1, Relaxed)));
     LIVE.lock().unwrap().push(data.clone());
     let hwnd = create_window(parent);
-    let up = !hwnd.is_null() && setup(hwnd, &base(), token, &data).is_ok();
+    let up = !hwnd.is_null() && boot(hwnd, &data).is_ok();
     if up {
         OPEN.store(hwnd as isize, Relaxed);
         let quiet = std::env::var_os("RUSTCORD_E2E").is_some() || std::env::var_os("RUSTCORD_BENCH").is_some();
