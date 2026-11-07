@@ -77,6 +77,19 @@ fn kind(q: &Value) -> u8 {
     }
 }
 
+fn accept_label(q: &Value) -> &'static str {
+    let has = |k: &str| config(q)["task_config_v2"]["tasks"][k].is_object();
+    if has("WATCH_VIDEO") {
+        "Start Video Quest"
+    } else if has("PLAY_ACTIVITY") {
+        "Play Now"
+    } else if has("ACHIEVEMENT_IN_ACTIVITY") {
+        "Launch Quest"
+    } else {
+        "Accept Quest"
+    }
+}
+
 fn reward(q: &Value) -> String {
     let r = &config(q)["rewards_config"]["rewards"][0];
     if r["type"].as_u64() == Some(4) {
@@ -95,6 +108,10 @@ fn describe(q: &Value) -> String {
         2 => format!("Stream {game} for {minutes} minutes and win {reward}."),
         _ => format!("Play {game} for {minutes} minutes and win {reward}."),
     }
+}
+
+fn text_width(ui: &Ui, text: &str) -> f32 {
+    ui.painter().layout_no_wrap(text.to_string(), medium(16.0), Color32::WHITE).size().x
 }
 
 fn colour(v: &Value, fallback: Color32) -> Color32 {
@@ -129,7 +146,9 @@ enum Act {
 
 fn plate(ui: &mut Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
     let resp = ui.interact(r, ui.id().with(("quest_btn", label, r.min.x as i32, r.min.y as i32)), if on { Sense::click() } else { Sense::hover() });
-    super::settings::mark(ui, &format!("quest:{label}"), r);
+    if on {
+        super::settings::mark(ui, &format!("quest:{label}"), r);
+    }
     let fade = if on { 1.0 } else { 0.5 };
     let fill = if primary {
         if resp.hovered() && on { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE }
@@ -204,19 +223,31 @@ fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut V
         let fill = Rect::from_min_size(bar.min, vec2(bar.width() * progress(q), 6.0));
         ui.painter().rect_filled(fill, CornerRadius::same(3), GREEN);
     }
-    let btn = Rect::from_min_size(pos2(r.right() - 13.0 - 148.0, foot), vec2(148.0, 40.0));
-    if claimed {
-        plate(ui, btn, "Claimed", false, false);
+    let label = if claimed {
+        "Claimed"
     } else if done {
-        if plate(ui, btn, "Claim Reward", true, !busy) {
+        "Claim Reward"
+    } else if enrolled {
+        if kind(q) == 0 { "Watch Video" } else { "Claim Reward" }
+    } else {
+        accept_label(q)
+    };
+    let width = (text_width(ui, label) + 32.0).max(148.0);
+    let btn = Rect::from_min_size(pos2(r.right() - 13.0 - width, foot), vec2(width, 40.0));
+    if claimed {
+        plate(ui, btn, label, false, false);
+    } else if done {
+        if plate(ui, btn, label, true, !busy) {
             acts.push(Act::Claim(id.clone()));
         }
     } else if enrolled {
-        let label = if kind(q) == 0 { "Watch Video" } else { "In Progress" };
         if plate(ui, btn, label, false, kind(q) == 0) {
             acts.push(Act::Open("https://discord.com/quest-home"));
         }
-    } else if plate(ui, btn, "Accept Quest", true, !busy) {
+        if kind(q) != 0 {
+            ui.interact(btn, ui.id().with(("quest_tip", &id)), Sense::hover()).on_hover_text("Complete the task to unlock the reward");
+        }
+    } else if plate(ui, btn, label, true, !busy) {
         acts.push(Act::Enroll(id.clone()));
     }
     ui.painter().rect_stroke(r, CornerRadius::same(10), Stroke::new(1.0, edge), egui::StrokeKind::Inside);
