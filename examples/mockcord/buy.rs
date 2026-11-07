@@ -30,7 +30,7 @@ static S: Mutex<Option<State>> = Mutex::new(None);
 
 impl State {
     fn new() -> Self {
-        State { attempts: 0, accepted: 0, shift: 0, orbs: 6000, owned: vec![], drift: 0, decline: false, confirm: false, boom: false, no_sources: false, pay: vec![], slot: 0 }
+        State { attempts: 0, accepted: 0, shift: 0, orbs: 1500, owned: vec![], drift: 0, decline: false, confirm: false, boom: false, no_sources: false, pay: vec![], slot: 0 }
     }
 }
 
@@ -156,7 +156,10 @@ pub fn route(w: &crate::W, method: &str, parts: &[&str], path: &str, body: &[u8]
             Some((200, json!({ "id": id, "status": status, "amount": 0, "currency": "vnd" })))
         }
         ("GET", ["api", "v9", "users", "@me", "billing", "payment-sources"]) if st.no_sources => Some((200, json!([]))),
-        ("GET", ["api", "v9", "users", "@me", "virtual-currency", "balance"]) => Some((200, json!({ "balance": st.orbs }))),
+        ("GET", ["api", "v9", "users", "@me", "virtual-currency", "balance"]) => {
+            let claimed = crate::quest_list(w).iter().filter(|q| q["user_status"]["claimed_at"].is_string() && q["id"] == "9003").count() as u64;
+            Some((200, json!({ "balance": st.orbs + 840 * claimed })))
+        }
         ("GET", ["api", "v9", "store", "published-listings", "skus", sku, "subscription-plans"]) => {
             let plans: &[(&str, i64, u8)] = match *sku {
                 NITRO => &[("511651880837840896", 113000, 1), ("511651885459963904", 1130000, 2)],
