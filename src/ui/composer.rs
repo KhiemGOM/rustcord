@@ -256,7 +256,7 @@ fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<Item> {
         }
         '/' => {
             let scope = if chan.guild != 0 { chan.guild } else { chan.id };
-            if let Some(cmds) = app.commands.get(&scope) {
+            if let Some(cmds) = app.commands.get(&scope).filter(|_| !app.settings.legacy_input) {
                 for (i, c) in cmds.list.iter().enumerate() {
                     if c["type"].as_u64().unwrap_or(1) != 1 {
                         continue;
@@ -389,7 +389,9 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .map(|r| r.primary.index.0)
         .unwrap_or(draft_now.chars().count());
     let tok = token(&draft_now, cursor).filter(|t| !slashing && (app.ac_dismissed.as_ref() != Some(&t.2) || t.1 == '/'));
-    if let Some((_, '/', _)) = &tok {
+    if let Some((_, '/', _)) = &tok
+        && !app.settings.legacy_input
+    {
         app.ensure_commands(chan);
     }
     if matches!(&tok, Some((_, ':', _))) && app.settings.sticker_suggestions {
@@ -554,7 +556,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                         // discord's text starts 64 in: 16, the 24 button, then 24 more
                         ui.add_space(23.0);
-                        let preview = app.settings.md_preview;
+                        let preview = app.settings.md_preview && !app.settings.legacy_input;
                         let draft = app.drafts.entry(ch).or_default();
                         egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt(("composer_scroll", side)).show(ui, |ui| {
                             // the row is horizontal; padding above and below the text has to be vertical

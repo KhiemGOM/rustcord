@@ -128,6 +128,8 @@ pub const ZOOMS: [f32; 11] = [50.0, 67.0, 75.0, 80.0, 90.0, 100.0, 110.0, 125.0,
 
 pub enum Pick {
     Composer,
+    // the emoji of the status being set
+    Status,
     React(Id, Id),
     // a slot of the quick reactions
     Quick(usize),
@@ -346,6 +348,7 @@ pub struct App {
     pub home_clicks: (u32, Option<Instant>),
     pub discodo_at: Option<Instant>,
     pub gifs: Option<popups::Gifs>,
+    pub gif_load: Option<String>,
     pub nav: titlebar::Nav,
     pub inbox: Option<titlebar::Inbox>,
     pub(crate) title_count: Option<u32>,
@@ -589,6 +592,7 @@ impl App {
             home_clicks: (0, None),
             discodo_at: None,
             gifs: None,
+            gif_load: None,
             nav: Default::default(),
             inbox: None,
             title_count: None,
@@ -2322,6 +2326,7 @@ impl eframe::App for App {
             splash::show(ui);
         } else {
             self.streamer_banner(ui);
+            settings::test_mode_banner(self, ui);
             viewas::bar(self, ui);
             // a modal over the app; shown first so it takes ESC before the chat does
             let settings_open = self.settings_page.is_some();

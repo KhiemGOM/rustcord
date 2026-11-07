@@ -625,6 +625,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     a.1 = Some(em);
                 }
             }
+            Pick::Status => super::cstatus::chose(app, c.react()),
             Pick::Quick(slot) => {
                 let em = match c {
                     Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },

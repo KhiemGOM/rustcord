@@ -261,7 +261,14 @@ impl Decode {
                             }
                             shared.video_in.fetch_add(1, Relaxed);
                             let size = d.size();
-                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| d.picture(want))
+                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| {
+                                d.picture(want).map(|p| {
+                                    p.map(|mut i| {
+                                        i.source_size = egui::vec2(size.0 as f32, size.1 as f32);
+                                        i
+                                    })
+                                })
+                            })
                         });
                         match shown {
                             Ok(img) if d.starved < STARVED => img,
@@ -284,7 +291,9 @@ impl Decode {
                                 rgba.resize(w * h * 4, 0);
                                 yuv.write_rgba8(&mut rgba);
                                 let f = (w / tw.max(1)).min(h / th.max(1)).clamp(1, 8);
-                                if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) }
+                                let mut img = if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) };
+                                img.source_size = egui::vec2(w as f32, h as f32);
+                                img
                             })
                         }
                         Ok(None) => None,

@@ -31,6 +31,7 @@ use crate::net::Tag;
 use crate::theme::*;
 
 pub use system::combo;
+pub use testmode::banner as test_mode_banner;
 
 /// A request discord may answer with a second-factor challenge, from outside the settings.
 pub fn guarded(app: &mut App, method: &'static str, path: &str, body: Option<serde_json::Value>) {

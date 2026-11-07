@@ -25,7 +25,7 @@ fn translucent() -> bool {
 }
 
 impl Run {
-    fn scroll_to(&mut self, ctx: &egui::Context, r: Option<Rect>, panel: bool) -> Option<Rect> {
+    pub(super) fn scroll_to(&mut self, ctx: &egui::Context, r: Option<Rect>, panel: bool) -> Option<Rect> {
         let screen = ctx.content_rect();
         if let Some(r) = r
             && r.center().y > 150.0
@@ -48,6 +48,7 @@ impl Run {
 
     pub(super) fn themes_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let at = |k: &str| Self::at(ctx, k);
+        let stuck = self.step_at.elapsed() > Duration::from_secs(12);
         let settings_on = |app: &App| app.settings_page == Some(Page::Appearance);
         match self.step {
             4500 => {
@@ -489,33 +490,24 @@ impl Run {
                     return;
                 }
                 self.mark("a11y_custom_cursor_row");
-                let Some(r) = self.scroll_to(ctx, at("dropdown:Default"), false) else { return };
-                self.click(r.center());
-                self.next(400);
-            }
-            4556 => {
-                let Some(r) = at("option:No styling") else { return };
-                self.click(r.center());
-                self.next(400);
-            }
-            4557 => {
-                if app.settings.official_style != 3 {
-                    return;
-                }
-                self.mark("a11y_official_messages_row");
                 let Some(r) = self.scroll_to(ctx, at("toggle:Use the legacy chat input"), false) else { return };
                 self.click(r.center());
                 self.next(400);
             }
-            4558 => {
+            4556 => {
                 if !app.settings.legacy_input {
                     return;
                 }
                 self.mark("a11y_legacy_input_row");
                 self.shot(ctx, "a11y_rows.png");
+                self.next(200);
+            }
+            4557 => {
                 app.settings.shop_cursor = true;
-                app.settings.official_style = 0;
                 app.settings.legacy_input = false;
+                self.next(200);
+            }
+            4558 => {
                 app.settings.dev = true;
                 self.next(200);
             }
@@ -549,30 +541,41 @@ impl Run {
                 if app.settings.test_app.as_ref().is_some_and(|t| t.id == "123456789012345678" && !t.proxy && t.port == "8080") && app.sform.test_mode.is_none() {
                     self.mark("developer_test_mode_on");
                     self.shot(ctx, "developer_test_mode.png");
-                    let Some(r) = at("toggle:Application Test Mode") else { return };
-                    self.click(r.center());
-                    self.next(500);
+                    self.key(Key::Escape);
+                    self.next(700);
                 }
             }
             4564 => {
+                let Some(r) = at("test_mode:close") else {
+                    if stuck {
+                        self.fail("test mode was on but no strip showed across the top".into());
+                    }
+                    return;
+                };
+                self.mark("developer_test_mode_banner");
+                self.shot(ctx, "test_mode_banner.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            4565 => {
                 if app.settings.test_app.is_none() {
                     self.mark("developer_test_mode_off");
                     app.settings.dev = false;
                     self.next(200);
                 }
             }
-            4565 => {
+            4566 => {
                 if !self.open_page(app, "Connected Apps") {
                     return;
                 }
                 self.next(1000);
             }
-            4566 => {
+            4567 => {
                 let Some(r) = self.scroll_to(ctx, at("about:Dyno"), false) else { return };
                 self.click(r.center());
                 self.next(500);
             }
-            4567 => {
+            4568 => {
                 if app.sform.app_open.iter().any(|k| k.starts_with("about:")) {
                     self.mark("apps_about_and_policies");
                     self.shot(ctx, "apps_about.png");

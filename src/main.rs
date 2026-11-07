@@ -5,6 +5,7 @@ mod audioplay;
 mod auth;
 mod cache;
 mod clips;
+mod cursor;
 mod emoji_font;
 mod emoji_names;
 mod fonts;

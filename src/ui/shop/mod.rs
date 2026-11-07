@@ -5,6 +5,7 @@
 
 mod browse;
 mod catalog;
+mod cursor;
 mod nitro;
 pub mod product;
 pub mod wish;
@@ -92,7 +93,11 @@ impl App {
 pub fn show(app: &mut App, ui: &mut Ui) {
     match app.shop.as_ref().map(|s| s.page) {
         Some(Page::Nitro) => nitro::show(app, ui),
-        Some(Page::Shop) => catalog::show(app, ui),
+        Some(Page::Shop) => {
+            let area = ui.max_rect();
+            catalog::show(app, ui);
+            cursor::shop(ui, area, app.settings.shop_cursor);
+        }
         None => {}
     }
 }

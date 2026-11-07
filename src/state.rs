@@ -1281,6 +1281,8 @@ pub struct Store {
     pub thread_members: Map<Id, Vec<Id>>,
     #[serde(default)]
     pub custom_status: Option<String>,
+    #[serde(default)]
+    pub custom_emoji: Option<ReactEmoji>,
     // activity sharing turned off: discord's show_current_game
     #[serde(skip)]
     pub hide_game: bool,
@@ -1574,6 +1576,13 @@ impl Store {
         };
         if let Some(t) = start.as_i64() {
             self.voice_start.insert(ch, t);
+        }
+    }
+
+    fn own_custom(c: Option<(String, Option<ReactEmoji>)>) -> (Option<String>, Option<ReactEmoji>) {
+        match c {
+            Some((text, emoji)) => (Some(text).filter(|t| !t.is_empty()), emoji),
+            None => (None, None),
         }
     }
 
@@ -2044,7 +2053,7 @@ impl Store {
                 folders = crate::proto::guild_folders(&raw);
                 self.load_privacy(&raw, true);
                 self.account = crate::proto::account(&raw, true);
-                self.custom_status = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten();
+                (self.custom_status, self.custom_emoji) = Self::own_custom(crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten());
                 self.own_status(&raw);
             }
         }
@@ -2761,7 +2770,7 @@ impl Store {
                     }
                     self.account.merge(crate::proto::account(&raw, full));
                     if let Some(c) = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64) {
-                        self.custom_status = c;
+                        (self.custom_status, self.custom_emoji) = Self::own_custom(c);
                     }
                     self.own_status(&raw);
                 }

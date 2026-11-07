@@ -8,6 +8,7 @@ mod pick;
 mod style;
 
 pub use draft::{Pic, Slot, widgets_of};
+pub use pick::gif_arrived;
 pub use style::PRESETS;
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};

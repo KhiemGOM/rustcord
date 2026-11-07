@@ -172,6 +172,8 @@ pub struct VoiceUi {
     pub camera: bool,
     /// latest camera frame per user, ours included
     pub video: HashMap<Id, Arc<egui::ColorImage>>,
+    /// frames shown per second for each person's video, counted over the last whole second
+    pub video_rate: HashMap<Id, (std::time::Instant, u32, u32)>,
     /// who has their camera on / is streaming, from voice states
     pub cams: HashSet<Id>,
     pub live: HashSet<Id>,
@@ -605,9 +607,15 @@ impl VoiceUi {
         match e.kind {
             Kind::Frame(u, img) => {
                 self.video.insert(u, img);
+                let (since, count, fps) = self.video_rate.entry(u).or_insert((std::time::Instant::now(), 0, 0));
+                *count += 1;
+                if since.elapsed() >= std::time::Duration::from_secs(1) {
+                    (*since, *fps, *count) = (std::time::Instant::now(), *count, 0);
+                }
             }
             Kind::VideoOff(u) => {
                 self.video.remove(&u);
+                self.video_rate.remove(&u);
                 self.tex.remove(&format!("cam:{u}"));
             }
             Kind::Error(err) => return Some(err),
