@@ -97,6 +97,15 @@ pub struct Settings {
     pub tts_rate: f32,
     pub image_descriptions: bool,
     pub send_button: bool,
+    // the shop's own pointer, how official developer messages are styled (0 default, 1 no text colour,
+    // 2 no background, 3 no styling), the plain chat input, games in the autocomplete
+    pub shop_cursor: bool,
+    pub official_style: u8,
+    pub legacy_input: bool,
+    pub game_suggestions: bool,
+    // stream details on video tiles under the pointer, and the application put in test mode
+    pub stream_info: bool,
+    pub test_app: Option<TestApp>,
     pub md_preview: bool,
     pub sticker_suggestions: bool,
     pub hide_activity_cards: bool,
@@ -263,6 +272,13 @@ pub enum InputProfile {
     Custom,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct TestApp {
+    pub id: String,
+    pub proxy: bool,
+    pub port: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
 pub enum Noise {
     #[default]
@@ -300,6 +316,10 @@ impl Default for Settings {
             hw_accel: true,
             theme: Default::default(),
             custom_theme: None,
+            own_theme: None,
+            app_icon: "AppIcon".into(),
+            server_themes: true,
+            appearance_raw: Vec::new(),
             sync_theme: true,
             own_theme_on_profiles: false,
             compact: false,
@@ -316,10 +336,6 @@ impl Default for Settings {
             saturate_custom: false,
             high_contrast: false,
             sync_contrast: true,
-            own_theme: None,
-            app_icon: "AppIcon".into(),
-            server_themes: true,
-            appearance_raw: Vec::new(),
             switch_icons: false,
             role_colors: RoleColors::InNames,
             reduced_motion: false,
@@ -328,6 +344,12 @@ impl Default for Settings {
             stickers: Animate::Always,
             tts_rate: 1.0,
             image_descriptions: false,
+            shop_cursor: true,
+            official_style: 0,
+            legacy_input: false,
+            game_suggestions: true,
+            stream_info: false,
+            test_app: None,
             send_button: false,
             md_preview: true,
             sticker_suggestions: false,

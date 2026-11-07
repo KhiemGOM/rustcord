@@ -16,6 +16,7 @@ mod keybinds;
 mod notify;
 mod search;
 mod system;
+mod testmode;
 mod user;
 mod voice;
 mod wire;

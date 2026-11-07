@@ -461,6 +461,121 @@ impl Run {
                     app.settings.app_icon = "AppIcon".into();
                     app.settings.server_themes = true;
                     app.save_settings(ctx);
+                    self.next(300);
+                }
+            }
+            4553 => {
+                if app.settings_page.is_none() {
+                    let Some(r) = app.rects.get("gear").copied() else { return };
+                    self.click(r.center());
+                    self.wait = std::time::Instant::now() + Duration::from_millis(800);
+                    return;
+                }
+                if !self.open_page(app, "Accessibility") {
+                    return;
+                }
+                self.next(800);
+            }
+            4554 => {
+                let Some(r) = self.scroll_to(ctx, at("toggle:Enable custom cursor in shop"), false) else { return };
+                if !app.settings.shop_cursor {
+                    return;
+                }
+                self.click(r.center());
+                self.next(400);
+            }
+            4555 => {
+                if app.settings.shop_cursor {
+                    return;
+                }
+                self.mark("a11y_custom_cursor_row");
+                let Some(r) = self.scroll_to(ctx, at("dropdown:Default"), false) else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            4556 => {
+                let Some(r) = at("option:No styling") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            4557 => {
+                if app.settings.official_style != 3 {
+                    return;
+                }
+                self.mark("a11y_official_messages_row");
+                let Some(r) = self.scroll_to(ctx, at("toggle:Use the legacy chat input"), false) else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            4558 => {
+                if !app.settings.legacy_input {
+                    return;
+                }
+                self.mark("a11y_legacy_input_row");
+                self.shot(ctx, "a11y_rows.png");
+                app.settings.shop_cursor = true;
+                app.settings.official_style = 0;
+                app.settings.legacy_input = false;
+                app.settings.dev = true;
+                self.next(200);
+            }
+            4559 => {
+                if !self.open_page(app, "Developer") {
+                    return;
+                }
+                self.next(800);
+            }
+            4560 => {
+                let Some(r) = at("toggle:Application Test Mode") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            4561 => {
+                if app.sform.test_mode.is_none() {
+                    return;
+                }
+                self.shot(ctx, "test_mode_dialog.png");
+                let Some(r) = at("test_mode:id") else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("123456789012345678".into())]);
+                self.next(500);
+            }
+            4562 => {
+                let Some(r) = at("verify_done") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            4563 => {
+                if app.settings.test_app.as_ref().is_some_and(|t| t.id == "123456789012345678" && !t.proxy && t.port == "8080") && app.sform.test_mode.is_none() {
+                    self.mark("developer_test_mode_on");
+                    self.shot(ctx, "developer_test_mode.png");
+                    let Some(r) = at("toggle:Application Test Mode") else { return };
+                    self.click(r.center());
+                    self.next(500);
+                }
+            }
+            4564 => {
+                if app.settings.test_app.is_none() {
+                    self.mark("developer_test_mode_off");
+                    app.settings.dev = false;
+                    self.next(200);
+                }
+            }
+            4565 => {
+                if !self.open_page(app, "Connected Apps") {
+                    return;
+                }
+                self.next(1000);
+            }
+            4566 => {
+                let Some(r) = self.scroll_to(ctx, at("about:Dyno"), false) else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            4567 => {
+                if app.sform.app_open.iter().any(|k| k.starts_with("about:")) {
+                    self.mark("apps_about_and_policies");
+                    self.shot(ctx, "apps_about.png");
                     self.key(Key::Escape);
                     self.next(500);
                 }

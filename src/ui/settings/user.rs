@@ -10,6 +10,7 @@ use crate::ui::App;
 #[derive(Default)]
 pub struct Forms {
     pub search: String,
+    pub test_mode: Option<super::testmode::Form>,
     pub modal: Option<modals::Modal>,
     pub verify: Option<modals::Verify>,
     pub web: Option<modals::Web>,

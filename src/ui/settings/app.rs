@@ -60,6 +60,7 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
         "For example, when you type :) Rustcord will convert it to 🙂",
     );
     chat |= toggle(ui, &mut s.sticker_suggestions, "Show stickers in autocomplete results", "");
+    chat |= toggle(ui, &mut s.game_suggestions, "Show games in autocomplete results", "");
     chat |= toggle(ui, &mut s.send_button, "Show send message button", "");
     if chat {
         app.heights.clear();
@@ -131,7 +132,7 @@ pub(super) fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: 
 }
 
 /// A label on the left and a dropdown on the right; true when the menu's pick changed something.
-fn choice(ui: &mut Ui, label: &str, shown: &str, menu: impl FnOnce(&mut Ui)) -> bool {
+pub(super) fn choice(ui: &mut Ui, label: &str, shown: &str, menu: impl FnOnce(&mut Ui)) -> bool {
     super::lead(ui);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
     ui.painter().text(pos2(r.left(), r.center().y), Align2::LEFT_CENTER, label, medium(16.0), pal().header_primary);
@@ -239,6 +240,7 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     let mut colors = moved;
     colors |= toggle(ui, &mut s.saturate_custom, "Apply saturation setting to custom colors", "Apply the above setting to custom color choices, like role colors.");
     colors |= toggle(ui, &mut s.high_contrast, "Enable High Contrast Mode", "Enhance visibility with bold colors and sharp contrast.");
+    colors |= toggle(ui, &mut s.shop_cursor, "Enable custom cursor in shop", "Use a custom cursor design when browsing the shop. Can be turned off if the cursor feels distracting or interferes with navigation.");
     colors |= toggle(ui, &mut s.sync_contrast, "Sync contrast settings", "This allows Discord to use your computer's contrast theme.");
     let mut role = s.role_colors;
     let shown = match role {
@@ -255,6 +257,19 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     });
     let roles = picked || role != s.role_colors;
     s.role_colors = role;
+    let official = ["Default", "No text color", "No background color", "No styling"];
+    let mut style = s.official_style as usize;
+    choice(ui, "Official Messages", official[style.min(3)], |ui| {
+        for (i, name) in official.iter().enumerate() {
+            let row = ui.selectable_label(style == i, *name);
+            super::mark(ui, &format!("option:{name}"), row.rect);
+            if row.clicked() {
+                style = i;
+            }
+        }
+    });
+    colors |= style != s.official_style as usize;
+    s.official_style = style as u8;
     colors |= toggle(ui, &mut s.switch_icons, "Show on/off indicators", "On forms, menus and settings, on/off toggles will have icons.");
     related(app, ui, Page::Appearance, "Appearance", "Change your app theme");
 
@@ -287,6 +302,7 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     caption(ui, "Text-to-Speech rate", "Control the speed at which text is read aloud when using Speak Message or other text-to-speech features.");
     let mut audio = speech_rate(ui, &mut s.tts_rate);
     audio |= toggle(ui, &mut s.image_descriptions, "Show image descriptions", "Image descriptions are used to describe images for screen readers.");
+    audio |= toggle(ui, &mut s.legacy_input, "Use the legacy chat input", "Disables most chat features but may work better with screen readers.");
     if audio {
         app.heights.clear();
     }
