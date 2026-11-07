@@ -1170,7 +1170,10 @@ impl Run {
                 // would land on the call once the picker shuts
                 if let Some(p) = &app.share {
                     self.mark("share_picker");
-                    if self.share_at.is_none_or(|t| t.elapsed() > Duration::from_millis(600)) {
+                    if self.share_at.is_none() {
+                        self.share_at = Some(Instant::now());
+                    }
+                    if self.share_at.is_some_and(|t| t.elapsed() > Duration::from_millis(600)) {
                         let key = if p.tab == 1 { "share:item:0" } else { "share:tab:1" };
                         if let Some(r) = app.rects.get(key).copied() {
                             if p.tab == 1 {
