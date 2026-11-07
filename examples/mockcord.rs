@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/acks.rs"]
+mod acks;
 #[path = "mockcord/cdn.rs"]
 mod cdn_shape;
 #[path = "mockcord/frecency.rs"]
@@ -1429,6 +1431,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         // one catalog: the shop's pages and the profile editor's pickers read the same list
         if parts.ends_with(&["collectibles-categories", "v2"])
             && let (Some((_, more)), Some(list)) = (profiles::route(method, &parts, &Value::Null, &cdn), v["categories"].as_array_mut())
+    if let Some((code, v)) = acks::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
         {
             list.extend(more["categories"].as_array().cloned().unwrap_or_default());
         }
@@ -1707,7 +1712,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("PUT", ["api", "v9", "channels", _, "recipients", _]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", ch, "followers"]) => ok(json!({ "channel_id": ch, "webhook_id": "9100" })),
-        ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
         ("GET", ["api", "v9", "channels", ch, "messages", "pins"]) => {

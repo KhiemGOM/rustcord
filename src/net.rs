@@ -149,7 +149,7 @@ pub enum Cmd {
     Send { channel: Id, content: String, nonce: String, reply: Option<(Id, bool)>, files: Vec<(PathBuf, String, String)>, stickers: Vec<Id>, tts: bool },
     Download { url: String, path: PathBuf },
     Interact(Value),
-    Ack { channel: Id, id: Id },
+    Ack { channel: Id, id: Id, last_viewed: u64, flags: Option<u8> },
     Typing { channel: Id },
     Gateway(Value),
     Rest { method: &'static str, path: String, body: Option<Value>, tag: Tag },
@@ -369,9 +369,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 }
                 let _ = outbox.send((a, Outgoing { channel, content, nonce, reply, files, stickers, tts }));
             }
-            Cmd::Ack { channel, id } => {
+            Cmd::Ack { channel, id, last_viewed, flags } => {
                 tokio::spawn(async move {
-                    let _ = a.ack(channel, id).await;
+                    let _ = a.ack(channel, id, last_viewed, flags).await;
                 });
             }
             Cmd::Rest { method, path, body, tag } => {

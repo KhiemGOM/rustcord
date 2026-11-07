@@ -1040,6 +1040,8 @@ pub struct ReadState {
     // the newest pin you've seen, unix ms
     #[serde(default)]
     pub last_pin: i64,
+    #[serde(default)]
+    pub flags: Option<u8>,
 }
 
 /// One entry of a presence's activities: a game, a stream, Spotify, a custom status.
@@ -1985,6 +1987,7 @@ impl Store {
         };
         self.muted.clear();
         self.events_muted.clear();
+                flags: r["flags"].as_u64().map(|f| f as u8),
         self.gprefs.clear();
         self.unreads.clear();
         self.levels.clear();
@@ -2417,7 +2420,8 @@ impl Store {
             "CHANNEL_PINS_ACK" => self.reads.entry(sid(&d["channel_id"])).or_default().last_pin = iso_ms(&d["timestamp"]),
             "MESSAGE_ACK" => {
                 let r = self.reads.entry(sid(&d["channel_id"])).or_default();
-                r.last_acked = r.last_acked.max(sid(&d["message_id"]));
+                let acked = sid(&d["message_id"]);
+                r.last_acked = if d["manual"].as_bool() == Some(true) { acked } else { r.last_acked.max(acked) };
                 r.mentions = d["mention_count"].as_u64().unwrap_or(0) as u32;
             }
             "TYPING_START" => {
