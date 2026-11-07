@@ -157,6 +157,9 @@ pub enum Cmd {
     Audit { method: &'static str, path: String, body: Option<Value>, reason: String, tag: Tag },
     /// A purchase: sent once, never retried, and only when `charge_barred` says nothing stands in the way.
     Charge { method: &'static str, path: String, body: Value, tag: Tag },
+    /// Channel settings the way discord saves them: the changed fields in a PATCH, then one PUT
+    /// per overwrite that changed and one DELETE per overwrite that went, then the channel again.
+    Channel { channel: Id, patch: Option<Value>, put: Vec<Value>, clear: Vec<Id>, tag: Tag },
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     /// A GET with an app's own access token instead of ours.
@@ -178,7 +181,7 @@ fn allowed(c: &Cmd) -> bool {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
-        Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } => false,
+        Cmd::Sticker { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
@@ -391,6 +394,27 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 tokio::spawn(async move {
                     let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
                     let res = a.try_call(m.clone(), &path, body, None, Some(&reason), None).await.map_err(|f| fail(&tx, &m, &path, f));
+            Cmd::Channel { channel, patch, put, clear, tag } => {
+                tokio::spawn(async move {
+                    use reqwest::Method;
+                    let chan = format!("/channels/{channel}");
+                    let mut writes: Vec<(Method, String, Option<Value>)> = Vec::new();
+                    writes.extend(patch.map(|b| (Method::PATCH, chan.clone(), Some(b))));
+                    writes.extend(put.into_iter().map(|o| (Method::PUT, format!("{chan}/permissions/{}", o["id"].as_str().unwrap_or_default()), Some(o))));
+                    writes.extend(clear.into_iter().map(|id| (Method::DELETE, format!("{chan}/permissions/{id}"), None)));
+                    let mut failed = None;
+                    for (m, path, body) in writes {
+                        if let Err(f) = a.try_call(m.clone(), &path, body, None, None, None).await {
+                            failed.get_or_insert(fail(&tx, &m, &path, f));
+                        }
+                    }
+                    let res = match failed {
+                        Some(e) => Err(e),
+                        None => a.try_call(Method::GET, &chan, None, None, None, None).await.map_err(|f| fail(&tx, &Method::GET, &chan, f)),
+                    };
+                    tx.send(Ev::Rest { tag, res });
+                });
+            }
                     tx.send(Ev::Rest { tag, res });
                 });
             }
