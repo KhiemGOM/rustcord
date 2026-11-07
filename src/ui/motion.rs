@@ -329,6 +329,7 @@ impl Modal {
         let screen = ctx.content_rect();
         let area = egui::Modal::default_area(self.id).fade_in(false);
         let layer = area.layer();
+        let dim = egui::Area::new(self.id.with("dim")).order(egui::Order::Foreground).interactable(false).fixed_pos(screen.min).fade_in(false);
         // egui raises an area only the first time it exists, and two raised in one frame keep their
         // old order, so a dialog opened with another (settings and its editor) waits a frame
         let (frame, raised, wait) = (ctx.cumulative_frame_nr(), Id::new("modal_raised"), self.id.with("raise"));
@@ -336,6 +337,7 @@ impl Modal {
         if opened && ctx.data(|d| d.get_temp::<u64>(raised)) == Some(frame) {
             ctx.data_mut(|d| d.insert_temp(wait, true));
         } else if opened || ctx.data_mut(|d| d.remove_temp::<bool>(wait)).is_some() {
+            ctx.move_to_top(dim.layer());
             ctx.move_to_top(layer);
             ctx.data_mut(|d| d.insert_temp(raised, frame));
         }
@@ -347,14 +349,9 @@ impl Modal {
         let s = self.from + (1.0 - self.from) * t;
         let c = screen.center();
         ctx.set_transform_layer(layer, TSTransform::new((c.to_vec2()) * (1.0 - s), s));
-        egui::Area::new(self.id.with("dim"))
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .fixed_pos(screen.min)
-            .fade_in(false)
-            .show(ctx, |ui| {
-                ui.painter().rect_filled(screen, 0.0, self.dim.gamma_multiply(t.clamp(0.0, 1.0)));
-            });
+        dim.show(ctx, |ui| {
+            ui.painter().rect_filled(screen, 0.0, self.dim.gamma_multiply(t.clamp(0.0, 1.0)));
+        });
         let frame = self.frame;
         let out = area.show(ctx, |ui| {
             ui.multiply_opacity(t.clamp(0.0, 1.0));
@@ -395,6 +392,30 @@ mod tests {
             let _ = tx.send(());
         });
         assert!(rx.recv_timeout(Duration::from_secs(30)).is_ok());
+    }
+
+    #[test]
+    fn a_dialog_draws_over_its_own_dim() {
+        let ctx = Context::default();
+        let card = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(50.0, 50.0));
+        let order = |time: f64, show: bool| {
+            let raw = egui::RawInput { time: Some(time), ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| {
+                if show {
+                    Modal::new(Id::new("d")).show(ui.ctx(), |ui| ui.painter().rect_filled(card, 0.0, Color32::RED));
+                }
+            });
+            out.textures_delta.clear();
+            let screen = ctx.content_rect();
+            let at = |want: &dyn Fn(&egui::epaint::RectShape) -> bool| out.shapes.iter().position(|s| matches!(&s.shape, egui::Shape::Rect(r) if want(r)));
+            at(&|r| r.rect == screen).zip(at(&|r| r.fill == Color32::RED))
+        };
+        for start in [0.0, 4.0] {
+            let seen: Vec<_> = (0..20).filter_map(|t| order(start + t as f64 * 0.1, true)).collect();
+            assert!(!seen.is_empty(), "opened at {start}: never fully drawn");
+            assert!(seen.iter().all(|(dim, drawn)| dim < drawn), "opened at {start}: dim drawn after the card");
+            let _ = order(start + 3.0, false);
+        }
     }
 
     #[test]
