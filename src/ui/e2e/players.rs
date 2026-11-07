@@ -226,7 +226,7 @@ impl Run {
             }
             1823 => {
                 if self.pending_shots == 0 {
-                    self.step = 1900;
+                    self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 1900 };
                     self.wait = Instant::now() + Duration::from_millis(100);
                 }
             }
