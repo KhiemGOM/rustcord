@@ -26,7 +26,6 @@ impl Run {
                 app.profed = None;
                 app.settings.shop_cursor = true;
                 app.select_guild(None);
-                app.shop = None;
                 app.open_shop(Page::Shop);
                 self.next(1200);
             }
