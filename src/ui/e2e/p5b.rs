@@ -392,6 +392,36 @@ impl Run {
             5174 => {
                 app.profed = None;
                 self.next(300);
+                self.step = 5180;
+            }
+            5180 => {
+                app.settings.profed_notice = false;
+                crate::ui::profed::open(app, Some(OWNED));
+                self.next(1800);
+            }
+            5181 => {
+                let Some(x) = Self::at(ctx, "profed_notice_x") else {
+                    if stuck {
+                        self.shot(ctx, "profed_notice_missing.png");
+                        self.fail("a per-server profile showed no notice to dismiss".into());
+                    }
+                    return;
+                };
+                self.shot(ctx, "profed_notice.png");
+                self.click(x.center());
+                self.next(700);
+            }
+            5182 => {
+                if !app.settings.profed_notice || Self::at(ctx, "profed_notice_x").is_some() {
+                    if stuck {
+                        self.fail("Dismiss notice left the per-server profile notice up".into());
+                    }
+                    return;
+                }
+                self.mark("profed_notice_dismissed");
+                app.settings.profed_notice = false;
+                app.profed = None;
+                self.next(300);
             }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
         }
