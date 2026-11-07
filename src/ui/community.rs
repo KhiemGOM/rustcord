@@ -174,7 +174,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id) {
             icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(20.0, 20.0)), pal().channel_default);
             ui.painter().text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, title, medium(16.0), pal().header_primary);
         });
+    let tabbed = super::applications::header(app, ui, gid, page == Page::Members);
     egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| match page {
+        Page::Members if tabbed && super::applications::tab(app, gid) > 0 => super::applications::page(app, ui, gid),
         Page::Members => members(app, ui, gid),
         Page::Guide => super::guide::show(app, ui, gid),
         Page::Channels(tab) => channels(app, ui, gid, tab),

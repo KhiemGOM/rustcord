@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 #[path = "mockcord/account.rs"]
 mod account;
+#[path = "mockcord/acks.rs"]
+mod acks;
 #[path = "mockcord/cdn.rs"]
 mod cdn_shape;
 #[path = "mockcord/frecency.rs"]
@@ -35,14 +37,22 @@ mod gallery;
 mod rules;
 #[path = "mockcord/members.rs"]
 mod members;
+#[path = "mockcord/perms.rs"]
+mod perms;
 #[path = "mockcord/bot.rs"]
 mod bot;
+#[path = "mockcord/joins.rs"]
+mod joins;
 #[path = "mockcord/buy.rs"]
 mod buy;
 #[path = "mockcord/shop.rs"]
 mod shop;
+#[path = "mockcord/roleconn.rs"]
+mod roleconn;
 #[path = "mockcord/profiles.rs"]
 mod profiles;
+#[path = "mockcord/servers.rs"]
+mod servers;
 #[path = "mockcord_auth/mod.rs"]
 mod auth;
 #[path = "mockcord/prefs.rs"]
@@ -1421,10 +1431,22 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
     }
+    if let Some((code, v)) = acks::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
     if let Some((code, v)) = buy::route(w, method, &parts, path, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
+    if let Some((code, v, event)) = joins::route(method, &parts, path.split_once('?').map(|q| q.1), body, user, iso, now_ms()) {
+        if let Some((t, d)) = event {
+            let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+        }
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
     let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some((code, v)) = perms::route(w, method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     if let Some((code, mut v)) = shop::route(method, &parts, body) {
         // one catalog: the shop's pages and the profile editor's pickers read the same list
         if parts.ends_with(&["collectibles-categories", "v2"])
@@ -1434,8 +1456,14 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
+    if let Some((code, v)) = roleconn::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
     if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v)) = servers::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
     }
     if let Some((code, v)) = billing(method, &parts, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
@@ -1708,7 +1736,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("PUT", ["api", "v9", "channels", _, "recipients", _]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", ch, "followers"]) => ok(json!({ "channel_id": ch, "webhook_id": "9100" })),
-        ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
         ("GET", ["api", "v9", "channels", ch, "messages", "pins"]) => {
@@ -2069,8 +2096,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         }
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
         ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
-        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(json!([])),
-        ("PUT", ["api", "v9", "guilds", "1000", "roles", _, "connections", "configuration"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "guilds", "1000", "roles", _, "members"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "guilds", "1000", "roles"]) => {
             let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -2544,12 +2569,12 @@ async fn http_conn(mut s: TcpStream, w: W) {
         {
             let mut wl = w.lock().unwrap();
             let text: String = if path.starts_with("/upload/") { format!("{} bytes", body.len()) } else { String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect() };
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason") });
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason"), "context": header("x-context-properties") });
             let _ = writeln!(wl.log, "{line}");
         }
         let mfa = header("x-discord-mfa-authorization");
         let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
-        let (code, ctype, out) = match (rules::check(&method, &parts, &body), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
+        let (code, ctype, out) = match (rules::check(&method, &parts, &body).or_else(|| header("x-context-properties").and_then(|c| rules::context(&c))), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
             (Some(refusal), _) => {
                 log(&w, json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "refused": refusal }));
                 (400, "application/json", refusal.to_string().into_bytes())

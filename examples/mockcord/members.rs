@@ -30,7 +30,7 @@ struct State {
     timeout: HashMap<u64, u64>,
 }
 
-static STATE: Mutex<Option<State>> = Mutex::new(None);
+static STATE: Mutex<Option<HashMap<String, State>>> = Mutex::new(None);
 
 fn fresh(now: u64) -> State {
     let mut s = State::default();
@@ -90,7 +90,7 @@ fn ban(st: &mut State, u: u64, reason: &str) {
     }
 }
 
-fn search(st: &State, b: &Base, body: &Value) -> (u16, Option<Value>, Option<(&'static str, Value)>) {
+fn search(st: &State, b: &Base, g: &str, body: &Value) -> (u16, Option<Value>, Option<(&'static str, Value)>) {
     let sort = body["sort"].as_u64().unwrap_or(1);
     if !(1..=4).contains(&sort) {
         return bad("sort", "Value must be one of (1, 2, 3, 4).");
@@ -132,7 +132,7 @@ fn search(st: &State, b: &Base, body: &Value) -> (u16, Option<Value>, Option<(&'
             row
         })
         .collect();
-    (200, Some(json!({ "guild_id": "1000", "members": list, "page_result_count": list.len(), "total_result_count": total })), None)
+    (200, Some(json!({ "guild_id": g, "members": list, "page_result_count": list.len(), "total_result_count": total })), None)
 }
 
 fn prunable(st: &State, b: &Base) -> Vec<u64> {
@@ -147,11 +147,15 @@ fn days(q: Option<&str>, body: &Value) -> Option<u64> {
 /// What the member endpoints answer: status, body and a gateway event, or None when the path isn't theirs.
 pub fn route(method: &str, parts: &[&str], query: Option<&str>, body: &[u8], b: &Base) -> Option<(u16, Option<Value>, Option<(&'static str, Value)>)> {
     let v: Value = serde_json::from_slice(body).unwrap_or_default();
+    let guild = match parts {
+        ["api", "v9", "guilds", g, ..] => g,
+        _ => return None,
+    };
     let mut guard = STATE.lock().unwrap();
-    let st = guard.get_or_insert_with(|| fresh(b.now));
+    let st = guard.get_or_insert_with(HashMap::new).entry(guild.to_string()).or_insert_with(|| fresh(b.now));
     let gone = |g: &str, u: u64| ("GUILD_MEMBER_REMOVE", json!({ "guild_id": g, "user": (b.user)(u) }));
     Some(match (method, parts) {
-        ("POST", ["api", "v9", "guilds", _, "members-search"]) => search(st, b, &v),
+        ("POST", ["api", "v9", "guilds", g, "members-search"]) => search(st, b, g, &v),
         ("DELETE", ["api", "v9", "guilds", g, "members", u]) if *u != "@me" => {
             let u = id(u)?;
             if !present(st, u) {

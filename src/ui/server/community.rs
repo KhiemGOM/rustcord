@@ -115,7 +115,7 @@ fn overview(app: &mut App, ui: &mut Ui, gid: Snow) {
     form::small(ui, "Server Insights is hosted on a separate website so that it\u{2019}s easier to share links and browse cross platform.");
     ui.add_space(8.0);
     if form::button(ui, "Open Server Insights", false).clicked() {
-        super::super::settings::open_web(&format!("/developers/servers/{gid}/analytics"));
+        super::super::settings::open_web(&format!("/developers/servers/{gid}"));
     }
     form::line(ui);
     super::super::settings::h5(ui, "Server Discovery");

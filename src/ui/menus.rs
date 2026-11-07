@@ -73,7 +73,7 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     let hide = store.hide_muted.contains(&gid);
     let has = |f: &str| g.features.iter().any(|x| x == f);
     let community = has("COMMUNITY");
-    let web = || Some(GuildAct::Web(format!("https://discord.com/channels/{gid}")));
+    let web = || Some(GuildAct::Web(format!("https://discord.com/developers/servers/{gid}")));
     let mut act = None;
     if menu_item(ui, Some(Icon::Gem), "Server Boost", false) {
         act = Some(GuildAct::Boosts);

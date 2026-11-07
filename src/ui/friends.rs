@@ -125,7 +125,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
     }
     let name = app.add_friend.trim().to_string();
     if send && !name.is_empty() {
-        app.rest("POST", "/users/@me/relationships".into(), Some(json!({ "username": name, "discriminator": null })), Tag::AddFriend(name));
+        app.rest_in("POST", "/users/@me/relationships".into(), Some(json!({ "username": name, "discriminator": null })), "Add Friend", Tag::AddFriend(name));
         app.add_friend.clear();
     }
     ui.add_space(32.0);
@@ -272,16 +272,16 @@ fn list(app: &mut App, ui: &mut Ui) {
             let name = app.store.name_in(0, u);
             let body = format!("Are you sure you want to remove {name} from your friends?");
             app.confirm = Some(super::Confirm::new(format!("Remove '{name}'"), body, "Remove Friend", move |app: &mut App| {
-                app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::reason())
+                app.rest_in("DELETE", format!("/users/@me/relationships/{u}"), None, "Friends", Tag::reason())
             }));
         }
         Some((u, "accept")) => {
             app.store.relationships.insert(u, FRIEND);
-            app.rest("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), Tag::rollback(move |app: &mut App| { app.store.relationships.remove(&u); }));
+            app.rest_in("PUT", format!("/users/@me/relationships/{u}"), Some(json!({})), "Friends", Tag::rollback(move |app: &mut App| { app.store.relationships.remove(&u); }));
         }
         Some((u, _)) => {
             let was = app.store.relationships.remove(&u);
-            app.rest("DELETE", format!("/users/@me/relationships/{u}"), None, Tag::rollback(move |app: &mut App| {
+            app.rest_in("DELETE", format!("/users/@me/relationships/{u}"), None, "Friends", Tag::rollback(move |app: &mut App| {
                 if let Some(t) = was {
                     app.store.relationships.insert(u, t);
                 }

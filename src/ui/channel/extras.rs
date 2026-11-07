@@ -112,7 +112,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
         s.pause = Some((!paused, false, 24));
     }
     if create {
-        app.invite_people(ch);
+        app.invite_people(ch, "Settings Invite");
     }
 }
 
