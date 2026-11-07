@@ -78,6 +78,7 @@ fn fresh(settings: Vec<u8>) -> Acct {
         oauth: vec![
             json!({ "id": "1290000000000000000", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot.", "terms_of_service_url": "https://dyno.example/terms", "privacy_policy_url": "https://dyno.example/privacy" } }),
             json!({ "id": "1280000000000000000", "scopes": ["identify", "email", "applications.commands"], "application": { "id": "105", "name": "Polar Anticheat", "icon": null, "description": "" } }),
+            json!({ "id": "1270000000000000000", "scopes": ["identify"], "application": { "id": "106", "name": "Mock Notes", "icon": null, "description": "Keeps notes for your server.", "terms_of_service_url": "https://notes.example/terms", "privacy_policy_url": "https://notes.example/privacy" } }),
         ],
         blocked: vec![105],
         ignored: vec![104],

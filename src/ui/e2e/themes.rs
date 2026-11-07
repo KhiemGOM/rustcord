@@ -579,7 +579,7 @@ impl Run {
                 self.next(1000);
             }
             4567 => {
-                let Some(r) = self.scroll_to(ctx, at("about:Dyno"), false) else { return };
+                let Some(r) = self.scroll_to(ctx, at("about:Mock Notes"), false) else { return };
                 self.click(r.center());
                 self.next(500);
             }
