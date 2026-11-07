@@ -38,8 +38,14 @@ impl Grab {
                     .and_then(|(d, c)| Wgc::open(&d, &c, m, true))
                     .map(|s| Grab::Wgc(Box::new(s)))
                     .or_else(|_| Screen::open().map(|s| Grab::Screen(Box::new(s)))),
-                Source::Camera => Camera::open(None, true).map(|c| Grab::Camera(Box::new(c))),
-                Source::Device(i) => Camera::open(Some(i), false).map(|c| Grab::Camera(Box::new(c))),
+                Source::Camera => {
+                    super::preview::settle();
+                    Camera::open(None, true).map(|c| Grab::Camera(Box::new(c)))
+                }
+                Source::Device(i) => {
+                    super::preview::settle();
+                    Camera::open(Some(i), false).map(|c| Grab::Camera(Box::new(c)))
+                }
             }
         };
         r.map_err(|e| e.message().to_string())
