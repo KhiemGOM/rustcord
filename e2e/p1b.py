@@ -14,6 +14,8 @@ def body(r):
 
 def checks(runs, reqs, data):
     both = lambda m: all(m in r.get("marks_ms", {}) for r in runs.values())
+    media = [body(r) for r in reqs if r.get("method") == "POST" and r.get("path", "").startswith("/api/v9/channels/2030/threads") and body(r).get("name") == "Media post"]
+    slots = [r for r in reqs if r.get("method") == "POST" and r.get("path", "") == "/api/v9/channels/2030/attachments"]
     posts = [r for r in reqs if r.get("method") == "POST" and r.get("path", "").startswith("/api/v9/channels/") and r["path"].endswith("/messages")]
     waves = [r for r in posts if body(r).get("sticker_ids") == ["749054660769218631"]]
     shrugs = [r for r in posts if body(r).get("content", "").startswith("pill hello")]
@@ -23,6 +25,8 @@ def checks(runs, reqs, data):
         "chat: hovering an upload card's spoiler button showed a Spoiler Attachment tooltip, whether or not it was on": both("spoiler_tip_off") and both("spoiler_tip_on"),
         "chat: /gif and /sticker described themselves as Search Animated GIFs on the Web and Search your stickers": both("gif_command_text") and both("sticker_command_text"),
         "forum: the topic showed as a Post Guidelines card and its close button took it away": both("forum_guidelines_card") and both("forum_guidelines_closed"),
+        "forum: the post form had Add Media, a picked file showed as a chip, and Post uploaded it first and named it in the thread's first message": both("forum_add_media_button") and both("forum_media_chip") and both("forum_media_posted")
+            and len(slots) >= 2 and len(media) >= 2 and all(m["message"]["content"] == "with a picture" and m["message"]["attachments"][0]["filename"] == "forum_media.png" and m["message"]["attachments"][0].get("uploaded_filename") for m in media),
         "dms: a friend's new empty dm had a Wave button with a Wave to tooltip, and no other dm did": both("wave_only_new_dm") and both("wave_tooltip"),
         "dms: Wave sent the Wave sticker to that dm and the button went away": both("wave_sent") and len(waves) >= 2 and all(not r["path"].endswith("/3000/messages") for r in waves),
         "profile: a song's popout card had a Listen Along button with a Listen along with tooltip, and a click did something": both("listen_along_tip") and both("listen_along_click"),

@@ -2228,6 +2228,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                     return refuse(50035, "Invalid Form Body");
                 }
                 applied = tags;
+                for a in b["message"]["attachments"].as_array().into_iter().flatten() {
+                    if !w.lock().unwrap().uploads.contains_key(a["uploaded_filename"].as_str().unwrap_or("")) {
+                        return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "message": { "attachments": { "_errors": [{ "code": "ATTACHMENT_NOT_UPLOADED", "message": "Attachment was not uploaded" }] } } } }).to_string().into_bytes());
+                    }
+                }
             }
             let t = json!({ "id": snow(now_ms()).to_string(), "type": 11, "guild_id": "1000", "parent_id": ch, "name": b["name"],
                             "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null, "applied_tags": applied,

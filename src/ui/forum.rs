@@ -23,6 +23,7 @@ pub struct Post {
     pub title: String,
     pub body: String,
     pub tags: Vec<Id>,
+    pub files: Vec<std::path::PathBuf>,
 }
 
 /// What Sort & View, the tag pills and the search bar are set to, per forum for the session.
@@ -41,7 +42,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
     let can_post = app.store.perms(forum) & crate::state::SEND_MESSAGES != 0;
     app.rects.retain(|k, _| !k.starts_with("forum:"));
     let mut open: Option<Id> = None;
-    let mut submit: Option<Option<(String, String, Vec<Id>)>> = None;
+    let mut submit: Option<Option<(String, String, Vec<Id>, Vec<std::path::PathBuf>)>> = None;
     let mut rects: Vec<(String, Rect)> = Vec::new();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         Frame::new().inner_margin(24).show(ui, |ui| {
@@ -51,13 +52,27 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                 None => {
                     // discord starts the post's title from whatever was typed in the search
                     if search_bar(ui, &mut v.query, can_post, &mut rects) {
-                        app.post = Some(Post { title: v.query.trim().to_string(), body: String::new(), tags: Vec::new() });
+                        app.post = Some(Post { title: v.query.trim().to_string(), body: String::new(), tags: Vec::new(), files: Vec::new() });
                     }
                 }
                 Some(post) => {
                     Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_muted)).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.spacing_mut().item_spacing.y = 0.0;
+                        let media = Rect::from_min_size(pos2(ui.max_rect().right() - 78.0, ui.cursor().top()), vec2(78.0, 78.0));
+                        let add = ui.interact(media, ui.id().with("post_media"), Sense::click());
+                        let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &add));
+                        ui.painter().rect(media, 8, fill, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+                        icons::draw(ui.painter(), Icon::AddMedia, Rect::from_center_size(media.center(), vec2(32.0, 32.0)), pal().header_primary);
+                        rects.push(("forum:post_media".into(), media));
+                        if add.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if add.on_hover_text("Add Media").clicked()
+                            && let Some(picked) = rfd::FileDialog::new().pick_files()
+                        {
+                            post.files.extend(picked);
+                        }
                         ui.horizontal(|ui| {
                             let (x, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
                             icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
@@ -73,7 +88,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                                     .frame(Frame::NONE)
                                     .font(semi(20.0))
                                     .hint_text(RichText::new("Title").font(semi(20.0)).color(pal().text_muted))
-                                    .desired_width(ui.available_width()),
+                                    .desired_width(ui.available_width() - 90.0),
                             );
                             rects.push(("forum:post_title".into(), r.rect));
                         });
@@ -85,9 +100,33 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                                 .margin(Margin { left: 34, ..Margin::ZERO })
                                 .desired_rows(2)
                                 .hint_text("Enter a message...")
-                                .desired_width(ui.available_width()),
+                                .desired_width(ui.available_width() - 90.0),
                         );
                         rects.push(("forum:post_body".into(), r.rect));
+                        if !post.files.is_empty() {
+                            ui.add_space(8.0);
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                                let mut gone = None;
+                                for (i, f) in post.files.iter().enumerate() {
+                                    let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                                    let g = ui.painter().layout_no_wrap(name, medium(14.0), pal().header_primary);
+                                    let (chip, _) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 28.0), Sense::hover());
+                                    ui.painter().rect_filled(chip, 6, pal().control);
+                                    ui.painter().galley(pos2(chip.left() + 10.0, chip.center().y - g.size().y / 2.0), g, pal().header_primary);
+                                    let x = Rect::from_center_size(pos2(chip.right() - 14.0, chip.center().y), vec2(14.0, 14.0));
+                                    let resp = ui.interact(x.expand(4.0), ui.id().with(("post_file_x", i)), Sense::click());
+                                    icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+                                    rects.push((format!("forum:post_file_x:{i}"), x));
+                                    if resp.on_hover_text("Remove Attachment").clicked() {
+                                        gone = Some(i);
+                                    }
+                                }
+                                if let Some(i) = gone {
+                                    post.files.remove(i);
+                                }
+                            });
+                        }
                         ui.add_space(12.0);
                         post_tags(ui, forum, &mut post.tags, &mut rects);
                         ui.add_space(12.0);
@@ -96,12 +135,12 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                         ui.add_space(8.0);
                         let filled = !post.title.trim().is_empty() && !post.body.trim().is_empty();
                         let needs_tag = forum.require_tag && post.tags.is_empty();
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.allocate_ui_with_layout(vec2(ui.available_width(), 36.0), Layout::right_to_left(Align::Center), |ui| {
                             let ok = filled && !needs_tag;
                             let send = post_button(ui, ok);
                             rects.push(("forum:post_send".into(), send.rect));
                             if send.clicked() && ok {
-                                submit = Some(Some((post.title.trim().to_string(), post.body.trim().to_string(), post.tags.clone())));
+                                submit = Some(Some((post.title.trim().to_string(), post.body.trim().to_string(), post.tags.clone(), post.files.clone())));
                             }
                             if forum.rate > 0 {
                                 ui.add_space(8.0);
@@ -180,10 +219,15 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
         app.rects.insert(k, r);
     }
     if let Some(sent) = submit {
-        if let Some((name, body, tags)) = sent {
+        if let Some((name, body, tags, files)) = sent {
             let archive = if forum.archive_after > 0 { forum.archive_after } else { 4320 };
             let payload = json!({ "name": name, "auto_archive_duration": archive, "applied_tags": tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(), "message": { "content": body } });
-            app.rest("POST", format!("/channels/{}/threads?use_nested_fields=true", forum.id), Some(payload), Tag::reason());
+            if files.is_empty() {
+                app.rest("POST", format!("/channels/{}/threads?use_nested_fields=true", forum.id), Some(payload), Tag::reason());
+            } else {
+                let files = files.into_iter().map(|p| (p.clone(), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), String::new())).collect();
+                app.net.send(crate::net::Cmd::ForumPost { channel: forum.id, body: payload, files, tag: Tag::reason() });
+            }
         }
         app.post = None;
     }
