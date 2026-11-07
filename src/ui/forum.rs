@@ -3,7 +3,7 @@ use serde_json::json;
 use std::collections::HashSet;
 
 use super::icons::{self, Icon};
-use super::{App, Trail, avatar, button, menu_row, menu_sep, text};
+use super::{App, Trail, avatar, menu_row, menu_sep, text};
 use crate::net::Tag;
 use crate::state::{Channel, Id, snowflake_ms};
 use crate::theme::*;
@@ -17,6 +17,12 @@ fn ago(id: Id) -> String {
         86400..2592000 => format!("{}d ago", secs / 86400),
         _ => ">30d ago".into(),
     }
+}
+
+pub struct Post {
+    pub title: String,
+    pub body: String,
+    pub tags: Vec<Id>,
 }
 
 /// What Sort & View, the tag pills and the search bar are set to, per forum for the session.
@@ -33,9 +39,10 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
     let key = egui::Id::new(("forum_view", forum.id));
     let mut v: View = ui.data(|d| d.get_temp(key)).unwrap_or_else(|| View { gallery: forum.layout == 2, ..Default::default() });
     let can_post = app.store.perms(forum) & crate::state::SEND_MESSAGES != 0;
+    app.rects.retain(|k, _| !k.starts_with("forum:"));
     let mut open: Option<Id> = None;
-    let mut submit = None;
-    let mut rects = Vec::new();
+    let mut submit: Option<Option<(String, String, Vec<Id>)>> = None;
+    let mut rects: Vec<(String, Rect)> = Vec::new();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         Frame::new().inner_margin(24).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -43,40 +50,68 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             match &mut app.post {
                 None => {
                     // discord starts the post's title from whatever was typed in the search
-                    if search_bar(ui, &mut v.query, can_post) {
-                        app.post = Some((v.query.trim().to_string(), String::new()));
+                    if search_bar(ui, &mut v.query, can_post, &mut rects) {
+                        app.post = Some(Post { title: v.query.trim().to_string(), body: String::new(), tags: Vec::new() });
                     }
                 }
-                Some((title, body)) => {
-                    Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).show(ui, |ui| {
+                Some(post) => {
+                    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_muted)).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.spacing_mut().item_spacing.y = 6.0;
-                        ui.add(
-                            egui::TextEdit::singleline(title)
-                                .frame(Frame::NONE)
-                                .font(semi(20.0))
-                                .hint_text("Post title")
-                                .desired_width(ui.available_width()),
-                        );
-                        ui.add_space(6.0);
-                        Frame::new().fill(pal().bg_input).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::multiline(body)
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.horizontal(|ui| {
+                            let (x, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
+                            icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+                            rects.push(("forum:post_close".into(), x));
+                            if resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if resp.on_hover_text("Clear").clicked() {
+                                submit = Some(None);
+                            }
+                            let r = ui.add(
+                                egui::TextEdit::singleline(&mut post.title)
                                     .frame(Frame::NONE)
-                                    .font(reg(16.0))
-                                    .desired_rows(3)
-                                    .hint_text("Enter a message to start the conversation")
+                                    .font(semi(20.0))
+                                    .hint_text(RichText::new("Title").font(semi(20.0)).color(pal().text_muted))
                                     .desired_width(ui.available_width()),
                             );
+                            rects.push(("forum:post_title".into(), r.rect));
                         });
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
+                        let r = ui.add(
+                            egui::TextEdit::multiline(&mut post.body)
+                                .frame(Frame::NONE)
+                                .font(reg(16.0))
+                                .margin(Margin { left: 34, ..Margin::ZERO })
+                                .desired_rows(2)
+                                .hint_text("Enter a message...")
+                                .desired_width(ui.available_width()),
+                        );
+                        rects.push(("forum:post_body".into(), r.rect));
+                        ui.add_space(12.0);
+                        post_tags(ui, forum, &mut post.tags, &mut rects);
+                        ui.add_space(12.0);
+                        let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                        ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
+                        ui.add_space(8.0);
+                        let filled = !post.title.trim().is_empty() && !post.body.trim().is_empty();
+                        let needs_tag = forum.require_tag && post.tags.is_empty();
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let ok = !title.trim().is_empty() && !body.trim().is_empty();
-                            if button(ui, "Post", if ok { BLURPLE } else { pal().bg_accent }, 90.0).clicked() && ok {
-                                submit = Some((title.trim().to_string(), body.trim().to_string()));
+                            let ok = filled && !needs_tag;
+                            let send = post_button(ui, ok);
+                            rects.push(("forum:post_send".into(), send.rect));
+                            if send.clicked() && ok {
+                                submit = Some(Some((post.title.trim().to_string(), post.body.trim().to_string(), post.tags.clone())));
                             }
-                            if ui.add(egui::Label::new(RichText::new("Cancel").color(pal().header_primary)).sense(Sense::click())).clicked() {
-                                submit = Some((String::new(), String::new()));
+                            if forum.rate > 0 {
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Slowmode is enabled.").font(reg(14.0)).color(pal().header_secondary));
+                                let (t, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                                icons::draw(ui.painter(), Icon::Timer, t, pal().header_secondary);
+                            }
+                            if filled && needs_tag {
+                                let r = ui.add(egui::Label::new(RichText::new("A tag is required to create a post in this channel").font(medium(14.0)).color(RED)));
+                                rects.push(("forum:post_tag_required".into(), r.rect));
                             }
                         });
                     });
@@ -120,7 +155,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                     for (i, p) in row.iter().enumerate() {
                         let r = Rect::from_min_size(pos2(band.left() + i as f32 * (cw + 16.0), band.top()), vec2(cw, ch));
                         let resp = tile(app, ui, forum, p, r, fresh(p));
-                        rects.push((p.id, r));
+                        rects.push((format!("post:{}", p.id), r));
                         if resp.clicked() {
                             open = Some(p.id);
                         }
@@ -131,7 +166,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for p in posts {
                     let r = card(app, ui, forum, p);
-                    rects.push((p.id, r.rect));
+                    rects.push((format!("post:{}", p.id), r.rect));
                     if r.clicked() {
                         open = Some(p.id);
                     }
@@ -140,13 +175,14 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
         });
     });
     ui.data_mut(|d| d.insert_temp(key, v));
-    for (p, r) in rects {
-        app.rects.insert(format!("post:{p}"), r);
+    for (k, r) in rects {
+        app.rects.insert(k, r);
     }
-    if let Some((title, body)) = submit {
-        if !title.is_empty() {
-            let payload = json!({ "name": title, "message": { "content": body }, "applied_tags": [] });
-            app.rest("POST", format!("/channels/{}/threads", forum.id), Some(payload), Tag::reason());
+    if let Some(sent) = submit {
+        if let Some((name, body, tags)) = sent {
+            let archive = if forum.archive_after > 0 { forum.archive_after } else { 4320 };
+            let payload = json!({ "name": name, "auto_archive_duration": archive, "applied_tags": tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(), "message": { "content": body } });
+            app.rest("POST", format!("/channels/{}/threads?use_nested_fields=true", forum.id), Some(payload), Tag::reason());
         }
         app.post = None;
     }
@@ -158,7 +194,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
 
 /// The bar over the posts: a search that narrows them by title, New Post at its right end
 /// (dimmed without permission to post). True when New Post was clicked.
-fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool) -> bool {
+fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool, rects: &mut Vec<(String, Rect)>) -> bool {
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::hover());
     ui.painter().rect(bar, 8, pal().bg_primary, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(bar.left() + 26.0, bar.center().y), vec2(26.0, 26.0)), pal().header_secondary);
@@ -166,6 +202,7 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool) -> bool {
     let label = ui.painter().layout_no_wrap("New Post".into(), medium(14.0), ink);
     let b = Rect::from_min_max(pos2(bar.right() - 9.0 - label.size().x - 44.0, bar.center().y - 16.0), pos2(bar.right() - 9.0, bar.center().y + 16.0));
     let resp = ui.interact(b, ui.id().with("new_post"), if can_post { Sense::click() } else { Sense::hover() });
+    rects.push(("forum:new_post".into(), b));
     let fill = match (can_post, resp.hovered()) {
         (false, _) => BLURPLE.gamma_multiply(0.5),
         (true, true) => BLURPLE.gamma_multiply(0.85),
@@ -196,19 +233,143 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool) -> bool {
     resp.clicked() || (shift_enter && (edit.has_focus() || edit.lost_focus()))
 }
 
-fn tag_label(t: &crate::state::Tag) -> String {
-    match &t.emoji {
-        Some(e) => format!("{e} {}", t.name),
-        None => t.name.clone(),
+/// The post form's tag row: a tag icon, the tags that fit as toggles (five at most), and the
+/// rest under "See more tags".
+fn post_tags(ui: &mut Ui, forum: &Channel, picked: &mut Vec<Id>, rects: &mut Vec<(String, Rect)>) {
+    if forum.tags.is_empty() {
+        return;
+    }
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+    icons::draw(ui.painter(), Icon::Tag, Rect::from_center_size(pos2(row.left() + 8.0, row.center().y), vec2(16.0, 16.0)), pal().header_secondary);
+    let more_w = ui.painter().layout_no_wrap("See more tags".into(), medium(14.0), Color32::WHITE).size().x + 46.0;
+    let at_limit = picked.len() >= 5;
+    let mut x = row.left() + 24.0;
+    let mut full = false;
+    let mut flip = None;
+    for t in &forum.tags {
+        let w = chip_width(ui, t);
+        full |= x + w > row.right() - more_w - 4.0;
+        if full {
+            continue;
+        }
+        let on = picked.contains(&t.id);
+        let r = chip(ui, Rect::from_min_size(pos2(x, row.center().y - 12.0), vec2(w, 24.0)), t, on, true, ui.id().with(("post_tag", t.id)));
+        rects.push((format!("forum:post_tag:{}", t.id), r.rect));
+        if r.clicked() && (on || !at_limit) {
+            flip = Some(t.id);
+        }
+        x = r.rect.right() + 4.0;
+    }
+    if full {
+        let more = pill(ui, pos2(x, row.top()), None, None, "See more tags", true, false, ui.id().with("post_more_tags"));
+        rects.push(("forum:post_more_tags".into(), more.rect));
+        egui::Popup::menu(&more).gap(4.0).show(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for t in &forum.tags {
+                let on = picked.contains(&t.id);
+                let row = menu_row(ui, None, &tag_label(t), None, false, Trail::Check(on));
+                rects.push((format!("forum:more_tag:{}", t.id), row.rect));
+                if row.clicked() && (on || !at_limit) {
+                    flip = Some(t.id);
+                }
+            }
+        });
+    }
+    if let Some(t) = flip {
+        match picked.iter().position(|p| *p == t) {
+            Some(i) => {
+                picked.remove(i);
+            }
+            None => picked.push(t),
+        }
     }
 }
 
+fn post_button(ui: &mut Ui, ok: bool) -> egui::Response {
+    let ink = if ok { Color32::WHITE } else { Color32::from_white_alpha(128) };
+    let g = ui.painter().layout_no_wrap("Post".into(), medium(14.0), ink);
+    let (b, resp) = ui.allocate_exact_size(vec2(12.0 + 16.0 + 4.0 + g.size().x + 12.0, 32.0), if ok { Sense::click() } else { Sense::hover() });
+    let fill = if ok { crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)) } else { BLURPLE.gamma_multiply(0.5) };
+    ui.painter().rect_filled(b, 8, fill);
+    icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(b.left() + 20.0, b.center().y), vec2(16.0, 16.0)), ink);
+    ui.painter().galley(pos2(b.left() + 32.0, b.center().y - g.size().y / 2.0), g, ink);
+    if ok && resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+fn chip_width(ui: &Ui, t: &crate::state::Tag) -> f32 {
+    18.0 + ui.painter().layout_no_wrap(t.name.clone(), semi(12.0), Color32::WHITE).size().x + if tag_lead(t).is_some() { 18.0 } else { 0.0 }
+}
+
+/// A tag as the small rounded chip the post form and a post's top use: 24 tall, its emoji at 12.
+fn chip(ui: &mut Ui, r: Rect, t: &crate::state::Tag, on: bool, click: bool, id: egui::Id) -> egui::Response {
+    let resp = ui.interact(r, id, if click { Sense::click() } else { Sense::hover() });
+    let (fill, edge) = if on {
+        (BLURPLE.gamma_multiply(0.3), BLURPLE)
+    } else {
+        (Color32::from_rgba_unmultiplied(151, 151, 159, if click && resp.hovered() { 51 } else { 31 }), Color32::from_rgba_unmultiplied(151, 151, 159, 51))
+    };
+    ui.painter().rect(r, 12, fill, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+    let g = ui.painter().layout_no_wrap(t.name.clone(), semi(12.0), pal().header_primary);
+    let mut x = r.left() + 9.0;
+    if let Some(u) = tag_lead(t) {
+        egui::Image::from_uri(u).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(pos2(x, r.center().y - 6.0), vec2(12.0, 12.0)));
+        x += 18.0;
+    }
+    ui.painter().galley(pos2(x, r.center().y - g.size().y / 2.0), g, pal().header_primary);
+    if click && resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+fn tag_label(t: &crate::state::Tag) -> String {
+    match &t.emoji {
+        Some(e) if t.emoji_id == 0 => format!("{e} {}", t.name),
+        _ => t.name.clone(),
+    }
+}
+
+fn tag_lead(t: &crate::state::Tag) -> Option<String> {
+    match (&t.emoji, t.emoji_id) {
+        (_, id) if id != 0 => Some(crate::markdown::emoji_url(id, false)),
+        (Some(e), _) => Some(crate::markdown::twemoji(e)),
+        _ => None,
+    }
+}
+
+/// The top of a post: a bubble, the title large, then the tags it was posted with.
+pub fn post_intro(ui: &mut Ui, post: &Channel, forum: &Channel) {
+    let (r, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
+    icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(r.center(), vec2(40.0, 40.0)), pal().header_primary);
+    ui.add_space(8.0);
+    ui.label(RichText::new(&post.name).font(bold(32.0)).color(pal().header_primary));
+    let tags: Vec<_> = post.applied.iter().filter_map(|t| forum.tags.iter().find(|x| x.id == *t)).collect();
+    if tags.is_empty() {
+        return;
+    }
+    ui.add_space(8.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+        for t in tags {
+            let (b, _) = ui.allocate_exact_size(vec2(chip_width(ui, t), 24.0), Sense::hover());
+            chip(ui, b, t, false, false, ui.id().with(("intro_tag", t.id)));
+        }
+    });
+}
+
+fn tag_width(ui: &Ui, t: &crate::state::Tag) -> f32 {
+    ui.painter().layout_no_wrap(t.name.clone(), semi(14.0), Color32::WHITE).size().x + 26.0 + if tag_lead(t).is_some() { 20.0 } else { 0.0 }
+}
+
 /// One of the filter row's rounded buttons. Sort & View and All are quieter and carry a caret.
-fn pill(ui: &mut Ui, at: Pos2, icon: Option<Icon>, label: &str, caret: bool, on: bool, id: egui::Id) -> egui::Response {
+fn pill(ui: &mut Ui, at: Pos2, icon: Option<Icon>, lead: Option<&str>, label: &str, caret: bool, on: bool, id: egui::Id) -> egui::Response {
     let quiet = icon.is_some() || caret;
     let (font, ink) = if quiet { (medium(14.0), pal().header_secondary) } else { (semi(14.0), pal().header_primary) };
     let g = ui.painter().layout_no_wrap(label.to_string(), font, ink);
-    let w = 13.0 + if icon.is_some() { 24.0 } else { 0.0 } + g.size().x + if caret { 33.0 } else { 13.0 };
+    let w = 13.0 + if icon.is_some() { 24.0 } else { 0.0 } + if lead.is_some() { 20.0 } else { 0.0 } + g.size().x + if caret { 33.0 } else { 13.0 };
     let r = Rect::from_min_size(at, vec2(w, 32.0));
     let resp = ui.interact(r, id, Sense::click());
     let (fill, edge) = if on {
@@ -225,6 +386,11 @@ fn pill(ui: &mut Ui, at: Pos2, icon: Option<Icon>, label: &str, caret: bool, on:
         icons::draw(p, i, Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0)), ink);
         x += 24.0;
     }
+    if let Some(u) = lead {
+        egui::Image::from_uri(u.to_string()).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(pos2(x, r.center().y - 7.0), vec2(14.0, 14.0)));
+        x += 20.0;
+    }
+    let p = ui.painter();
     let gw = g.size().x;
     p.galley(pos2(x, r.center().y - g.size().y / 2.0), g, ink);
     if caret {
@@ -239,7 +405,7 @@ fn pill(ui: &mut Ui, at: Pos2, icon: Option<Icon>, label: &str, caret: bool, on:
 /// Sort & View, a rule, then the forum's tags; the ones that don't fit wait under "All".
 fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
-    let sv = pill(ui, row.min, Some(Icon::Sort), "Sort & View", true, false, ui.id().with("sort_view"));
+    let sv = pill(ui, row.min, Some(Icon::Sort), None, "Sort & View", true, false, ui.id().with("sort_view"));
     egui::Popup::menu(&sv).gap(4.0).show(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         let head = |ui: &mut Ui, t: &str| {
@@ -287,21 +453,20 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
     let mut flip = None;
     let mut full = false;
     for t in &forum.tags {
-        let label = tag_label(t);
-        let w = ui.painter().layout_no_wrap(label.clone(), semi(14.0), Color32::WHITE).size().x + 26.0;
+        let w = tag_width(ui, t);
         // leave room for "All" once anything spills over
         full |= x + w > row.right() - 72.0;
         if full {
             continue;
         }
-        let r = pill(ui, pos2(x, row.top()), None, &label, false, v.tags.contains(&t.id), ui.id().with(("tag", t.id)));
+        let r = pill(ui, pos2(x, row.top()), None, tag_lead(t).as_deref(), &t.name, false, v.tags.contains(&t.id), ui.id().with(("tag", t.id)));
         if r.clicked() {
             flip = Some(t.id);
         }
         x = r.rect.right() + 8.0;
     }
     if full {
-        let all = pill(ui, pos2(x, row.top()), None, "All", true, false, ui.id().with("all_tags"));
+        let all = pill(ui, pos2(x, row.top()), None, None, "All", true, false, ui.id().with("all_tags"));
         egui::Popup::menu(&all).gap(4.0).show(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for t in &forum.tags {

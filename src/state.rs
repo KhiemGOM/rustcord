@@ -208,6 +208,12 @@ pub struct Channel {
     #[serde(default)]
     pub applied: Vec<Id>,
     #[serde(default)]
+    pub default_react: Option<ReactEmoji>,
+    #[serde(default)]
+    pub require_tag: bool,
+    #[serde(default)]
+    pub archive_after: u32,
+    #[serde(default)]
     pub nsfw: bool,
     // a forum's default view: 1 list, 2 gallery
     #[serde(default)]
@@ -226,6 +232,8 @@ pub struct Tag {
     pub id: Id,
     pub name: String,
     pub emoji: Option<String>,
+    #[serde(default)]
+    pub emoji_id: Id,
 }
 
 impl Channel {
@@ -264,9 +272,15 @@ impl Channel {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|t| Tag { id: sid(&t["id"]), name: st(&t["name"]), emoji: ost(&t["emoji_name"]) })
+                .map(|t| Tag { id: sid(&t["id"]), name: st(&t["name"]), emoji: ost(&t["emoji_name"]), emoji_id: sid(&t["emoji_id"]) })
                 .collect(),
             applied: ids(&v["applied_tags"]),
+            default_react: Some(&v["default_reaction_emoji"])
+                .filter(|e| e.is_object())
+                .map(|e| ReactEmoji { id: sid(&e["emoji_id"]), name: st(&e["emoji_name"]), animated: false })
+                .filter(|e| e.id != 0 || !e.name.is_empty()),
+            require_tag: v["flags"].as_u64().unwrap_or(0) & (1 << 4) != 0,
+            archive_after: v["default_auto_archive_duration"].as_u64().unwrap_or(0) as u32,
             last_pin: iso_ms(&v["last_pin_timestamp"]),
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
             layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,

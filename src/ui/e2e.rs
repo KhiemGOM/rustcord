@@ -30,6 +30,7 @@ mod watchdog;
 
 pub use watchdog::beat;
 mod chatx;
+mod forum;
 
 use super::{App, side};
 use crate::net::Conn;
@@ -1400,6 +1401,7 @@ impl Run {
             2800..=2829 => self.camera_steps(app, ctx),
             2900..=2959 => self.clips_steps(app, ctx),
             4100..=4199 => self.gallery_steps(app, ctx),
+            4300..=4319 => self.forum_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
             3110..=3189 => self.members_steps(app, ctx),

@@ -1131,6 +1131,8 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) -> bool {
                         .color(pal().header_secondary),
                 );
             }
+        } else if let Some(forum) = store.channels.get(&chan.parent).filter(|f| chan.is_thread() && f.is_forum()) {
+            super::forum::post_intro(ui, chan, forum);
         } else {
             // a voice channel's chat has a bubble and no # before the name
             let voice = chan.is_voice();
