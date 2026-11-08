@@ -308,7 +308,12 @@ impl Run {
             }
             4691 => {
                 let Some(r) = at("shop:detail_heart") else { return };
+                let Some(wished) = app.shop.as_ref().filter(|s| s.wish_load == 2).map(|s| s.wish.iter().any(|w| w == "5101")) else { return };
                 self.click(r.center());
+                if wished {
+                    self.wait = std::time::Instant::now() + std::time::Duration::from_millis(600);
+                    return;
+                }
                 self.next(600);
             }
             4692 => {

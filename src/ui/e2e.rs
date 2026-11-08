@@ -600,6 +600,13 @@ impl Run {
             }
             2 => {
                 let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let head = app.rects.get("guildmenu").map_or(0.0, |h| h.bottom());
+                if r.top() < head {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, head + 200.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
                 self.click(r.center());
                 self.next(50);
             }
@@ -1074,6 +1081,13 @@ impl Run {
                     return self.fail("no voice channel".into());
                 };
                 let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                let covered = ["game:panel", "userpanel"].iter().filter_map(|k| app.rects.get(*k)).map(|p| p.top()).fold(ctx.content_rect().bottom(), f32::min);
+                if r.bottom() > covered {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, covered - 100.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
                 self.call = vc;
                 self.click(r.center());
                 self.mark("voice_click");
@@ -1455,6 +1469,15 @@ impl Run {
             3800..=3899 => self.menu_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
+                    if !self.rects.contains_key("layout_side_final") {
+                        self.rects.insert("layout_side_final".into(), json!(if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 }));
+                        self.rects.insert("layout_members_final".into(), json!(if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 }));
+                        if std::env::var_os("RUSTCORD_E2E_MEMBERS").is_some() {
+                            app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
+                        }
+                        self.wait = Instant::now() + Duration::from_millis(1000);
+                        return;
+                    }
                     self.finish(ctx);
                 }
             }
@@ -2351,6 +2374,15 @@ impl Run {
             242 => {
                 let Some(w) = chat_w(app) else { return };
                 if app.cur() != Some(self.target.1) {
+                    return;
+                }
+                if !self.rects.contains_key("layout_side_boot") {
+                    self.rects.insert("layout_side_boot".into(), json!(side_w(app)));
+                    self.rects.insert("layout_members_boot".into(), json!(members_w(app)));
+                }
+                if side_w(app) < 250.0 {
+                    drag(self, pos2(72.0 + side_w(app), 400.0), 120.0);
+                    self.wait = Instant::now() + Duration::from_millis(700);
                     return;
                 }
                 self.rects.insert("layout_side_start".into(), json!(side_w(app)));
@@ -4357,10 +4389,14 @@ impl Run {
         let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.author == app.store.me && m.content == text));
         match self.step {
             520 => {
-                // alice only sits in the lounge once an earlier step has put her there, server muted
-                let d = json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true });
-                app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
-                app.store.apply("VOICE_STATE_UPDATE", &d);
+                // alice only sits in the lounge once an earlier step has put her there, server muted, and the stage steps took carol's own mute off
+                for d in [
+                    json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true }),
+                    json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }),
+                ] {
+                    app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
+                    app.store.apply("VOICE_STATE_UPDATE", &d);
+                }
                 app.select_guild(Some(self.target.0));
                 app.open(general);
                 self.next(1200);
@@ -4909,6 +4945,10 @@ impl Run {
             }
             631 => {
                 let Some(r) = Self::at(ctx, "button:Generate Template") else { return };
+                let me = app.store.me;
+                if let Some(g) = app.store.guilds.get_mut(&1002) {
+                    g.owner = me;
+                }
                 self.shot(ctx, "server_template.png");
                 self.click(r.center());
                 self.next(600);
@@ -4938,6 +4978,9 @@ impl Run {
             634 => {
                 app.confirm = None;
                 app.server = None;
+                if let Some(g) = app.store.guilds.get_mut(&1002) {
+                    g.owner = 102;
+                }
                 self.step = 560;
                 self.step_at = Instant::now();
             }
@@ -5794,12 +5837,14 @@ impl Run {
             288 => {
                 // the seeded gradient authors sit above everything the earlier steps sent
                 let seen = |w: u64| app.rects.contains_key(&format!("name:{w}"));
-                if !(seen(103) && seen(105) && seen(106)) && self.tries < 14 {
-                    self.tries += 1;
+                if !(seen(103) && seen(105) && seen(106)) {
+                    if self.step_at.elapsed() > Duration::from_secs(17) {
+                        return self.fail("the seeded gradient authors never scrolled into view".into());
+                    }
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
                     self.queue.push_back(vec![Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Point,
-                        delta: vec2(0.0, 150.0),
+                        delta: vec2(0.0, 250.0),
                         phase: egui::TouchPhase::Move,
                         modifiers: Modifiers::NONE,
                     }]);

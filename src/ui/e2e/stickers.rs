@@ -70,12 +70,14 @@ impl Run {
                 }
                 app.open(2012);
                 self.next(600);
-                self.rects.insert("lottie_shown_before_idle".into(), json!(crate::gif::shown(PACK_STICKER)));
             }
-            4326 => self.next(1500),
+            4326 => {
+                self.rects.insert("lottie_draws_before_idle".into(), json!(crate::gif::draws(PACK_STICKER)));
+                self.next(1500);
+            }
             4327 => {
-                let before = self.rects.get("lottie_shown_before_idle").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                if crate::gif::shown(PACK_STICKER) == before {
+                let before = self.rects.get("lottie_draws_before_idle").and_then(|v| v.as_u64()).unwrap_or(0);
+                if crate::gif::draws(PACK_STICKER) == before {
                     self.mark("lottie_idle_off_screen");
                 }
                 self.next(300);

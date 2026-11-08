@@ -113,12 +113,14 @@ impl Run {
             }
             2719 => {
                 let Some(r) = Self::at(ctx, "keybind:add") else { return };
+                let before = app.settings.keybinds.len();
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("keybinds_before"), before));
                 self.click(r.center());
                 self.next(900);
             }
             2720 => {
                 self.shot(ctx, "settings_keybind_added.png");
-                if app.settings.keybinds.len() == 1 {
+                if app.settings.keybinds.len() == ctx.data(|d| d.get_temp::<usize>(egui::Id::new("keybinds_before"))).unwrap_or(0) + 1 {
                     self.mark("keybind_added");
                 }
                 self.next(700);

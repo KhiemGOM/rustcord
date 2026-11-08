@@ -361,6 +361,10 @@ impl Run {
                     self.fail(format!("bulk kick of bob and carol left {:?}", ids(app)));
                 }
             }
+            3156 => {
+                app.rest("POST", "/mock/members-reset".into(), Some(serde_json::json!({})), crate::net::Tag::Quiet);
+                self.next(500);
+            }
             _ => self.step = 99,
         }
     }

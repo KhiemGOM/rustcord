@@ -72,6 +72,8 @@ impl Run {
                 self.next(800);
             }),
             566 => {
+                let mine = app.store.msgs.get(&SLOW).map_or(0, |e| e.list.iter().filter(|m| m.author == app.store.me).count());
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("slow_before"), mine));
                 if let Some(r) = at(app, "composer") {
                     self.click(r.center());
                 }
@@ -89,7 +91,8 @@ impl Run {
             568 => {
                 let kept = app.drafts.get(&SLOW).is_some_and(|d| d == "second");
                 let sent = app.store.msgs.get(&SLOW).map_or(0, |e| e.list.iter().filter(|m| m.author == app.store.me).count());
-                if kept && sent == 1 {
+                let before = ctx.data(|d| d.get_temp::<usize>(egui::Id::new("slow_before"))).unwrap_or(0);
+                if kept && sent == before + 1 {
                     self.mark("composer_slow_blocked");
                 }
                 app.drafts.remove(&SLOW);

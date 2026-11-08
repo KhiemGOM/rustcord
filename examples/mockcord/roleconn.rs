@@ -23,6 +23,10 @@ fn bad(why: &str) -> (u16, Value) {
 }
 
 pub fn route(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
+    if let ("POST", ["api", "v9", "mock", "roleconn-reset"]) = (method, parts) {
+        *SAVED.lock().unwrap() = None;
+        return Some((200, json!({})));
+    }
     let ("GET" | "PUT", ["api", "v9", "guilds", _, "roles", role, "connections", "configuration"]) = (method, parts) else { return None };
     let mut all = SAVED.lock().unwrap();
     let all = all.get_or_insert_with(HashMap::new);

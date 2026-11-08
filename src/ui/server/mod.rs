@@ -153,6 +153,9 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
         "webhook_new" => return apps::created(app, v),
         _ => {}
     }
+    if key == "verification" {
+        access::saved(app, &v);
+    }
     let Some(s) = &mut app.server else { return };
     match key {
         "sounds_done" => return drop(s.data.remove("sounds")),

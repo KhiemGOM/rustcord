@@ -169,6 +169,7 @@ impl Run {
                 }
             }
             4816 => {
+                app.rest("POST", "/mock/join-reset".into(), Some(serde_json::json!({})), crate::net::Tag::Quiet);
                 if let Some(g) = app.store.guilds.get_mut(&OWNED) {
                     g.features.retain(|f| f != FEATURE);
                 }
@@ -322,6 +323,11 @@ impl Run {
                 } else if stuck {
                     self.fail("saving the discovery tags did not come back".into());
                 }
+            }
+            4835 => {
+                app.rest("POST", "/mock/roleconn-reset".into(), Some(serde_json::json!({})), crate::net::Tag::Quiet);
+                app.rest("POST", "/mock/servers-reset".into(), Some(serde_json::json!({})), crate::net::Tag::Quiet);
+                self.next(300);
             }
             _ => self.step = 4650,
         }

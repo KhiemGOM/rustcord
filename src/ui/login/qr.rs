@@ -86,7 +86,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         Qr::Ticket { id, avatar: hash, name } => {
             let url = match hash {
                 Some(h) => format!("{}/avatars/{id}/{h}.png?size=128", api::cdn()),
-                None => format!("{}/embed/avatars/{}.png", api::cdn(), id.parse::<u64>().unwrap_or(0) >> 22 % 6),
+                None => format!("{}/embed/avatars/{}.png", api::cdn(), (id.parse::<u64>().unwrap_or(0) >> 22) % 6),
             };
             let (name, shown) = (name.clone(), ui.allocate_exact_size(vec2(120.0, 120.0), egui::Sense::hover()).0);
             avatar(ui, shown, &url);
