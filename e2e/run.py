@@ -301,7 +301,7 @@ def main():
                               ("image opened in the in-app viewer", "viewer"),
                               ("unread dm shows as a bubble in the rail", "dm_bubble"), ("alt+arrow channel navigation", "alt_nav"),
                               ("gif picked from the picker was sent", "gif"), ("reply sent with ping off", "reply_quiet")]},
-        "reply with @ OFF told discord not to ping": sum('"replied_user":false' in r.get("body", "") for r in sends) == 2,
+        "reply with @ OFF told discord not to ping": sum('"replied_user":false' in r.get("body", "") and "quiet reply" in r.get("body", "") for r in sends) == 2,
         "shift+enter made a newline instead of sending": sum("quiet reply\nsecond line" in b for b in sent_bodies) == 2,
         **{f"settings: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("every page opened and was captured", "settings_tour"), ("profile edit saved via the unsaved-changes bar", "profile_saved"),
@@ -313,7 +313,7 @@ def main():
                               ("avatar decoration picked and saved", "profile_decoration"), ("disable account says you own servers", "owner_modal"),
                               ("hardware acceleration switched off", "hw_accel_off"), ("notifications, system, language and developer pages were driven", "system_pages"),
                               ("settings search found a control by its label", "settings_search"), ("a keybind was added", "keybind_added")]},
-        "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
+        "settings: profile pronouns PATCHed": sum('"bio":"rustacean. writes too many side projects.","pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
         "settings: privacy switches PATCHed to the settings blob": sum(1 for r in reqs if r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/settings-proto/1")) >= 2 * 4,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
         "settings: username PATCHed with the password": sum('"username":"you_"' in r.get("body", "") and '"password":"hunter2"' in r.get("body", "") for r in reqs) == 2,
@@ -330,11 +330,11 @@ def main():
         "billing: default payment method PATCHed": any(r.get("method") == "PATCH" and "/billing/payment-sources/" in r.get("path", "") and '"default":true' in r.get("body", "") for r in reqs),
         "billing: nothing was bought or deleted": not any(
             (r.get("method") != "GET" and "/billing/" in r.get("path", "") and "/payment-sources/" not in r.get("path", "")) or (r.get("method") == "DELETE" and "/payment-sources/" in r.get("path", ""))
-            or any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe")) for r in reqs if not buy.of_the_buy_group(r)),
+            or (r.get("method") != "GET" and any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe"))) for r in reqs if not buy.of_the_buy_group(r)),
         **{f"settings: {name} PATCHed to the account's settings proto": sum(b64decode(json.loads(r["body"])["settings"]) == want for r in reqs
-                                                                            if r.get("method") == "PATCH" and "/settings-proto/" in r.get("path", "") and r.get("body")) == 2
-           for name, want in [("friends online off", bytes([0x3a, 2, 0x62, 0])), ("tts command off", bytes([0x32, 3, 0x82, 1, 0])),
-                              ("24-hour clock", bytes([0x6a, 2, 0x48, 2])), ("developer mode", bytes([0x6a, 2, 0x10, 1]))]},
+                                                                            if r.get("method") == "PATCH" and "/settings-proto/" in r.get("path", "") and r.get("body")) == n
+           for name, want, n in [("friends online off", bytes([0x3a, 2, 0x62, 0]), 4), ("tts command off", bytes([0x32, 3, 0x82, 1, 0]), 2),
+                                 ("24-hour clock", bytes([0x6a, 2, 0x48, 2]), 4), ("developer mode", bytes([0x6a, 2, 0x10, 1]), 2)]},
         "settings: email category PATCHed natively": sum('"social":false' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/email-settings") and r.get("method") == "PATCH") == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))

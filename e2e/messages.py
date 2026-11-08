@@ -56,7 +56,7 @@ def checks(runs, reqs, data):
         "messages: every system message kind says what discord's wording says": both("msg_system_texts")
         and all(want in rects(r).get("system_texts", {}).get(k, "") for r in runs.values() for k, want in TEXTS.items()),
         "messages: a reaction's tooltip names who reacted": both("msg_reaction_tooltip")
-        and all(rects(r).get("reaction_tooltips") == [":fire: reacted by Alice, Bob 🔨, and Carol ✿", ":+1: reacted by Alice and Bob 🔨"] for r in runs.values()),
+        and all(rects(r).get("reaction_tooltips") == [":fire: reacted by Alice, Bob 🔨, and Carol ✿", ":thumbsup: reacted by Alice and Bob 🔨"] for r in runs.values()),
         "messages: who reacted is fetched per emoji": len([r for r in sent("GET", "/messages/") if "/reactions/" in r.get("path", "") and "limit=100" in r.get("path", "")]) >= 4,
         "messages: View Reactions opens its window": both("msg_reactors_modal"),
         "messages: the menu on a reacted message has View Reactions and Report Message": shows("menu:0", "Add Reaction", "View Reactions", "Reply", "Forward", "Copy Text", "Report Message") and hides("menu:0", "Edit Message", "Resend message"),
