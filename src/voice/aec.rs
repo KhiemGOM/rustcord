@@ -80,6 +80,8 @@ impl Aec {
         }
         let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
         let (d_rms, y_rms, x_rms) = (rms(near), rms(&echo), rms(far));
+        let related = near.iter().zip(&echo).map(|(d, y)| d * y).sum::<f32>() / (BLOCK as f32 * d_rms * y_rms).max(1e-10);
+        let mu = if related > 0.5 { MU } else { 0.1 };
         self.far_rms[newest] = x_rms;
         let mut err = [0f32; BLOCK];
         for ((e, d), y) in err.iter_mut().zip(near.iter()).zip(&echo) {
@@ -88,17 +90,24 @@ impl Aec {
         let e_rms = rms(&err);
 
         let far_peak = self.far_rms.iter().cloned().fold(0.0, f32::max);
-        let talking_over = d_rms > 0.7 * far_peak;
+        self.time[..BLOCK].fill(0.0);
+        self.time[BLOCK..].copy_from_slice(near);
+        let _ = self.fwd.process(&mut self.time, &mut self.spec);
+        let near_power = self.spec.iter().map(|s| s.norm_sqr()).sum::<f32>();
+        let far_power = self.power.iter().sum::<f32>();
+        let shared = self.spec.iter().zip(&self.power).map(|(s, p)| (s.norm_sqr() * p).sqrt()).sum::<f32>();
+        let overlap = shared / (near_power * far_power).sqrt().max(1e-10);
+        let talking_over = overlap < 0.5;
         self.far_only = far_peak > 1e-3 && !talking_over;
         if x_rms > 1e-3 && !talking_over {
             self.time[..BLOCK].fill(0.0);
             self.time[BLOCK..].copy_from_slice(&err);
             let _ = self.fwd.process(&mut self.time, &mut self.spec);
-            let eps = BLOCK as f32 * 1e-6;
+            let eps = BLOCK as f32 * 1e-3;
             for k in 0..PARTS {
                 let x = &self.xf[part(k)];
                 for (((a, s), x), p) in self.acc.iter_mut().zip(&self.spec).zip(x).zip(&self.power) {
-                    *a = x.conj() * s * (MU / (p + eps));
+                    *a = x.conj() * s * (mu / (p + eps));
                 }
                 let _ = self.inv.process(&mut self.acc, &mut self.time);
                 self.time[BLOCK..].fill(0.0);
@@ -177,6 +186,20 @@ mod tests {
     }
 
     #[test]
+    fn keeps_quiet_speech_over_loud_playback_without_echo() {
+        let n = 48_000 * 4;
+        let far: Vec<f32> = (0..n).map(|i| 0.5 * (i as f32 * 0.0576).sin()).collect();
+        let talker: Vec<f32> = (0..n).map(|i| 0.05 * (i as f32 * 0.0839).sin()).collect();
+        let mut out = talker.clone();
+        run(&far, &mut out);
+        let tail = 48_000 * 2..;
+        let error: Vec<f32> = out[tail.clone()].iter().zip(&talker[tail.clone()]).map(|(a,b)| a-b).collect();
+        let snr = 10.0 * (energy(&talker[tail]) / energy(&error).max(1e-20)).log10();
+        eprintln!("near-end speech: {snr:.1} dB SNR");
+        assert!(snr > 10.0, "near-end speech distorted: {snr} dB SNR");
+    }
+
+    #[test]
     fn keeps_the_near_end_talker() {
         let mut rng = Rng(11);
         let far = speech(&mut rng, 48_000 * 6);
@@ -187,5 +210,19 @@ mod tests {
         let tail = 48_000 * 4..;
         let kept = energy(&out[tail.clone()]) / energy(&talker[tail]);
         assert!(kept > 0.6 && kept < 1.6, "kept {kept}");
+    }
+
+    #[test]
+    fn keeps_unrelated_quiet_speech_over_playback() {
+        let n = 48_000 * 4;
+        let far = speech(&mut Rng(41), n);
+        let talker: Vec<f32> = speech(&mut Rng(73), n).into_iter().map(|v| v * 0.1).collect();
+        let mut out = talker.clone();
+        run(&far, &mut out);
+        let tail = 48_000 * 2..;
+        let error: Vec<f32> = out[tail.clone()].iter().zip(&talker[tail.clone()]).map(|(a, b)| a - b).collect();
+        let snr = 10.0 * (energy(&talker[tail]) / energy(&error).max(1e-20)).log10();
+        eprintln!("unrelated near-end speech: {snr:.1} dB SNR");
+        assert!(snr > 10.0, "near-end speech distorted: {snr} dB SNR");
     }
 }

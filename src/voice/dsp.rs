@@ -321,6 +321,15 @@ mod tests {
     }
 
     #[test]
+    fn cancels_loud_speaker_echo() {
+        let (near, out, _) = speakers_into_mic(40 * 48, 1.2, false);
+        let tail = near.len() - 48_000 * 3;
+        let db = 20.0 * (rms(&near[tail..]) / rms(&out[tail..])).log10();
+        eprintln!("loud echo reduction: {db:.1} dB");
+        assert!(db > 15.0, "only {db} dB removed from loud echo");
+    }
+
+    #[test]
     fn cancels_the_echo_at_any_real_latency() {
         let taken: Vec<(usize, f32)> = [15, 25, 40, 60, 120, 240]
             .into_iter()
