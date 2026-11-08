@@ -10,6 +10,8 @@ use super::Run;
 use crate::ui::App;
 use crate::ui::shop::Page;
 
+const CATALOG: usize = 38;
+
 fn path_of(app: &App, part: &str) -> Option<(String, Option<usize>)> {
     app.keyed.iter().find(|(k, _)| k.starts_with("/shop/search") && k.contains(part)).map(|(k, v)| {
         let total = v.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v["pagination"]["total"].as_u64().unwrap_or(0) as usize);
@@ -187,7 +189,7 @@ impl Run {
             }
             4662 => {
                 let sorted = app.shop.as_ref().and_then(|s| s.browse.picked).is_some_and(|s| s.label() == "Price: Low to High");
-                if !sorted || path_of(app, "sort_type=price&sort_direction=asc").and_then(|p| p.1) != Some(8) {
+                if !sorted || path_of(app, "sort_type=price&sort_direction=asc").and_then(|p| p.1) != Some(CATALOG) {
                     if stuck {
                         self.fail("Price: Low to High did not search by price".into());
                     }
