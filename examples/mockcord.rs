@@ -1960,7 +1960,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "activity", "forget"]) => {
-            w.lock().unwrap().authorized.clear();
+            let mut w = w.lock().unwrap();
+            w.authorized.clear();
+            w.acts.clear();
             ok(json!({}))
         }
         ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
