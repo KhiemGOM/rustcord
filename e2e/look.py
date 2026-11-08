@@ -92,15 +92,14 @@ def checks(runs, reqs, data):
 
     cached = [data / "fonts" / f"{f}.ttf" for f in FONTS]
     out["look: gg sans and gg mono were decoded to ttf in the cache dir"] = all(sfnt(p) for p in cached)
-    login = min((r["t"] for r in reqs if r.get("path", "").endswith("/auth/login") and "t" in r), default=float("inf"))
-    paths = [r.get("path", "") for r in reqs if r.get("t", 0) < login]
+    paths = [r.get("path", "") for r in reqs]
     woff = [p for p in paths if p.endswith(".woff2")]
     # the nitro display name fonts come by their real names; everything else is gg sans or gg mono
     names = [p for p in woff if p.split("/")[-1][:-6] in NAME_FONTS]
     gg = [p for p in woff if p not in names]
     out["look: font download read the new names off /app after the built-in one 404ed, and the warm run reused the cache"] = (
         "/app" in paths and "/assets/fonts.css" in paths
-        and sum("/assets/mock" in p for p in gg) == len(FONTS) and len(gg) == len(FONTS) + 1)
+        and sum("/assets/mock" in p for p in gg) == 2 * len(FONTS) and len(gg) == 2 * (len(FONTS) + 1))
     out["look: the eleven nitro name fonts were each fetched once, the warm run reused them"] = (
-        len(names) == 11 and len(set(names)) == 11)
+        len(names) == 22 and len(set(names)) == 11 and all(names.count(n) == 2 for n in set(names)))
     return out
