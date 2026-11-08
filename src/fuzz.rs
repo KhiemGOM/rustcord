@@ -89,3 +89,20 @@ fn fuzz_gateway_events() {
         assert!(result.is_ok(), "case {case}, {event}: {payload}");
     }
 }
+
+#[test]
+fn notification_updates_keep_channel_flags() {
+    let mut store = crate::state::Store::default();
+    store.apply("USER_GUILD_SETTINGS_UPDATE", &serde_json::json!({"guild_id":"1", "flags":16384,
+        "channel_overrides":[{"channel_id":"2", "flags":6144}]}));
+    store.apply("USER_GUILD_SETTINGS_UPDATE", &serde_json::json!({"guild_id":"1",
+        "channel_overrides":[{"channel_id":"2", "muted":false}]}));
+    assert_eq!(store.chan_flags.get(&2), Some(&6144));
+    assert!(store.opted.contains(&2));
+    assert!(store.opt_in.contains(&1));
+    store.apply("USER_GUILD_SETTINGS_UPDATE", &serde_json::json!({"guild_id":"1", "flags":0,
+        "channel_overrides":[{"channel_id":"2", "flags":0}]}));
+    assert_eq!(store.chan_flags.get(&2), Some(&0));
+    assert!(!store.opted.contains(&2));
+    assert!(!store.opt_in.contains(&1));
+}
