@@ -191,6 +191,7 @@ impl Run {
                 }
                 self.mark("call_msg_ended");
                 let Some(r) = app.rects.get("voice:disconnect").copied() else { return };
+                event(app, "CALL_DELETE", json!({ "channel_id": DM.to_string() }));
                 self.click(r.center());
                 self.next(0);
             }
