@@ -264,6 +264,9 @@ impl Run {
                 if app.voice.chan.is_some() {
                     return;
                 }
+                for u in [ALICE, BOB, 103] {
+                    app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": DEN.to_string(), "user_id": u.to_string(), "channel_id": null }));
+                }
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 720.0)));
                 app.select_guild(None);
                 app.open(3000);
