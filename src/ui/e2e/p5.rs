@@ -45,6 +45,7 @@ impl Run {
             5102 => {
                 let Some(b) = Self::at(ctx, &format!("now_watch:{STREAMER}")) else {
                     if stuck {
+                        self.shot(ctx, "active_now_stuck.png");
                         self.fail("hovering the Active Now stream preview showed no Watch Stream button".into());
                     }
                     return;
