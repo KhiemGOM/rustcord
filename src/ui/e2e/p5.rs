@@ -31,6 +31,10 @@ impl Run {
                 if app.voice.chan.is_some() {
                     app.voice.leave(&app.net);
                 }
+                let elsewhere: Vec<u64> = app.store.guilds.values().filter(|g| g.voice.contains_key(&STREAMER)).map(|g| g.id).collect();
+                for g in elsewhere {
+                    app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": g.to_string(), "user_id": STREAMER.to_string(), "channel_id": null }));
+                }
                 app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": STREAMER.to_string(), "channel_id": STREAM_CHAN.to_string(), "self_stream": true }));
                 app.select_guild(None);
                 app.friends = true;
