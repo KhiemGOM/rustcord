@@ -27,6 +27,7 @@ mod login;
 mod camera;
 mod gallery;
 mod watchdog;
+mod stress;
 
 pub use watchdog::beat;
 mod chatx;
@@ -567,6 +568,9 @@ impl Run {
         }
         if self.tour && self.step != 99 {
             return self.tour_steps(app, ctx);
+        }
+        if (9000..9900).contains(&self.step) {
+            return self.stress_steps(app, ctx);
         }
         let me = app.store.me;
         let heard = app.voice.speaking.iter().any(|u| *u != me);

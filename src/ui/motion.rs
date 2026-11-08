@@ -586,7 +586,8 @@ mod tests {
         let ctx = Context::default();
         let at = |time: f64, on: bool| {
             let mut out = 0.0;
-            let _ = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| out = flip(ui.ctx(), Id::new("probe"), on, 0.4, 0.2));
+            let mut frame = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| out = flip(ui.ctx(), Id::new("probe"), on, 0.4, 0.2));
+            frame.textures_delta.clear();
             out
         };
         assert!(close(at(0.0, true), 1.0, 1e-6));

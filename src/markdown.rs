@@ -403,7 +403,7 @@ pub fn fmt_ts(secs: i64, style: char) -> String {
         'D' => "%B %-d, %Y",
         'F' => return format!("{} {}", dt.format("%A, %B %-d, %Y"), dt.format(hm())),
         'R' => {
-            let d = secs - chrono::Utc::now().timestamp();
+            let d = secs as i128 - chrono::Utc::now().timestamp() as i128;
             let a = d.abs();
             let (n, unit) = match a {
                 0..60 => (a, "second"),
