@@ -62,6 +62,10 @@ fn query(q: Option<&str>, k: &str) -> Option<String> {
 }
 
 pub fn route(method: &str, parts: &[&str], q: Option<&str>, body: &[u8], user: fn(u64) -> Value, iso: fn(u64) -> String, now: u64) -> Option<Reply> {
+    if let ("POST", ["api", "v9", "mock", "join-reset"]) = (method, parts) {
+        *STATE.lock().unwrap() = None;
+        return Some((200, Some(json!({})), None));
+    }
     let guild = match (method, parts) {
         ("GET", ["api", "v9", "guilds", g, "requests"]) | ("PATCH", ["api", "v9", "guilds", g, "requests", _]) | ("GET", ["api", "v9", "guilds", g, "requests", "users", _]) => *g,
         ("POST", ["api", "v9", "mock", "join-request"]) => "1001",
