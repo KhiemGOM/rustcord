@@ -84,13 +84,17 @@ impl Run {
                         }
                         return;
                     }
+                    if !restore {
+                        ctx.data_mut(|d| d.insert_temp(Id::new(("p4b_before", k)), got(&app.settings)));
+                    }
                     if self.scroll_click(ctx, key) {
                         advance(ctx);
                         self.step_at = Instant::now();
                         self.wait = Instant::now() + Duration::from_millis(400);
                     }
                 } else {
-                    if got(&app.settings) == restore {
+                    let before = ctx.data(|d| d.get_temp::<bool>(Id::new(("p4b_before", k - 1)))).unwrap_or(false);
+                    if (got(&app.settings) == before) != restore {
                         if stuck && !ctx.data(|d| d.get_temp::<bool>(Id::new("p4b_shot"))).unwrap_or(false) {
                             ctx.data_mut(|d| d.insert_temp(Id::new("p4b_shot"), true));
                             self.shot(ctx, "p4b_stuck.png");

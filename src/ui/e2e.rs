@@ -598,6 +598,13 @@ impl Run {
             }
             2 => {
                 let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let head = app.rects.get("guildmenu").map_or(0.0, |h| h.bottom());
+                if r.top() < head {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, head + 200.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
                 self.click(r.center());
                 self.next(50);
             }
