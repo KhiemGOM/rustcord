@@ -72,6 +72,9 @@ pub fn sync(app: &mut App) {
                     s.wish_id = v["id"].as_str().map(str::to_string).or(s.wish_id.take());
                     s.wish = skus(&v);
                 }
+                if let Some(id) = app.shop.as_ref().and_then(|s| s.wish_id.clone()) {
+                    app.keyed.insert(format!("wishlist:{id}"), Some(Ok(v)));
+                }
             }
             Err(e) => {
                 app.toast(e);
