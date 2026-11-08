@@ -108,10 +108,11 @@ pub fn plate(asset: &str) -> String {
 
 /// The products in a purchases list, or in the shop's categories.
 fn products(v: &Value) -> Vec<&Value> {
-    match v["categories"].as_array() {
+    let list: Vec<&Value> = match v["categories"].as_array() {
         Some(cats) => cats.iter().flat_map(|c| c["products"].as_array().into_iter().flatten()).collect(),
         None => v.as_array().into_iter().flatten().collect(),
-    }
+    };
+    list.into_iter().flat_map(|p| std::iter::once(p).chain(p["variants"].as_array().into_iter().flatten())).collect()
 }
 
 /// Every single-item product in `v`, bundles unpacked into their items.
@@ -128,6 +129,19 @@ pub fn items(v: &Value) -> Vec<Item> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn owned_variant_groups_include_their_decorations() {
+        let v = serde_json::json!([{"type":2000,"variants":[{"type":0,"sku_id":"11","name":"Panda",
+            "items":[{"type":0,"sku_id":"11","asset":"panda"}]}]}]);
+        let items = super::items(&v);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].asset, "panda");
+        assert_eq!(items[0].sku, "11");
+    }
 }
 
 #[derive(Default)]

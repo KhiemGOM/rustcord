@@ -172,7 +172,11 @@ fn categories() -> Vec<Value> {
     let bunny = product("5202", "Bunny Babe", "Make your name stand out in servers and chats.", 2, json!([{ "type": 2, "sku_id": "5202", "asset": "nameplates/all_ears/5202/", "label": "Bunny.", "palette": "bubble_gum" }]), prices(79000, 66000, None), "5002");
     let mut cape = product("5204", "Collab Cape", "A cape from another world.", 0, json!([{ "type": 0, "sku_id": "5204", "asset": "a_mockcape", "label": "A cape." }]), prices(99000, 79000, None), "5002");
     cape["is_first_party"] = json!(false);
-    let orb = product("5203", "Panda Companion", "Give your avatar a new look.", 2000, json!([]), prices(79000, 66000, Some(4100)), "5002");
+    let mut orb = product("5203", "Panda Companion", "Give your avatar a new look.", 2000, json!([]), prices(79000, 66000, Some(4100)), "5002");
+    orb["variants"] = json!([
+        product("5210", "Panda Companion", "Give your avatar a new look.", 0, json!([{ "type":0,"sku_id":"5210","asset":"a_mockpanda" }]), prices(79000,66000,Some(4100)), "5002"),
+        product("5211", "Blue Panda Companion", "Give your avatar a new look.", 0, json!([{ "type":0,"sku_id":"5211","asset":"a_mockpanda_blue" }]), prices(79000,66000,Some(4100)), "5002")
+    ]);
     let frames: Vec<Value> = (1..=30).map(|n| product(&format!("53{n:02}"), &format!("Orchard Frame {n}"), "Frame your avatar.", 3, json!([]), prices(79000, 66000, None), "5003")).collect();
     vec![
         json!({ "sku_id": "5001", "name": "Cauldron Chaos", "summary": " ", "store_listing_id": "5001", "styles": styles(), "hero_ranking": ["5104", "5101"], "products": [bundle, hat, dust, fx],

@@ -13,12 +13,33 @@ pub struct Price {
     pub was: Option<String>,
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn variant_decorations_have_a_preview_and_choices() {
+        let p = serde_json::json!({"type":2000,"sku_id":"10","variants":[
+            {"type":0,"sku_id":"11","items":[{"type":0,"asset":"panda"}]},
+            {"type":0,"sku_id":"12","items":[{"type":0,"asset":"fox"}]}
+        ]});
+        assert_eq!(super::kind(&p), 0);
+        assert_eq!(super::slides(&p).len(), 2);
+    }
+}
+
 pub fn sku(p: &Value) -> &str {
     p["sku_id"].as_str().unwrap_or_default()
 }
 
 pub fn kind(p: &Value) -> u64 {
-    p["type"].as_u64().unwrap_or(0)
+    selected(p, 0)["type"].as_u64().unwrap_or(0)
+}
+
+pub fn selected(p: &Value, index: usize) -> &Value {
+    if p["type"].as_u64() == Some(2000) {
+        p["variants"].as_array().and_then(|v| v.get(index).or_else(|| v.first())).unwrap_or(p)
+    } else {
+        p
+    }
 }
 
 pub fn label(p: &Value) -> &'static str {
@@ -58,6 +79,9 @@ pub fn amount(p: &Value, member: bool) -> i64 {
 }
 
 pub fn slides(p: &Value) -> Vec<Value> {
+    if p["type"].as_u64() == Some(2000) {
+        return p["variants"].as_array().cloned().unwrap_or_default();
+    }
     if kind(p) != 1000 {
         return Vec::new();
     }
@@ -110,6 +134,7 @@ fn ring(ui: &Ui, c: Pos2, avatar: &str, d: f32) {
 }
 
 pub fn preview(ui: &Ui, r: Rect, p: &Value, avatar: &str) {
+    let p = selected(p, 0);
     let item = &p["items"][0];
     let c = r.center();
     let k = r.width().min(r.height());
@@ -119,7 +144,7 @@ pub fn preview(ui: &Ui, r: Rect, p: &Value, avatar: &str) {
             let at = c - vec2(0.0, k * 0.04);
             ring(ui, at, avatar, d);
             if let Some(a) = item["asset"].as_str() {
-                pic(ui, &format!("{}/avatar-decoration-presets/{a}.png?size=240&passthrough=false", crate::api::cdn()), Rect::from_center_size(at, vec2(d * 1.2, d * 1.2)), 0, false);
+                pic(ui, &crate::ui::cosmo::deco(a, 240), Rect::from_center_size(at, vec2(d * 1.2, d * 1.2)), 0, false);
             }
         }
         2 => {
@@ -324,7 +349,7 @@ pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar
             painter.text(pos2(x, y), Align2::LEFT_TOP, format!("{} - {}", current["name"].as_str().unwrap_or_default(), label(current)), reg(14.0), pal().header_secondary);
             y += SPACE_20;
         }
-        let pr = price(p, member);
+        let pr = price(selected(p, slide), member);
         let foot = 40.0 + SPACE_8 + 20.0 + SPACE_12;
         let bottom = if wide { left.bottom().max(y + foot) } else { y + SPACE_16 + foot };
         price_row(ui, pos2(x, bottom - foot - 8.0), &pr, 20.0, false);
