@@ -553,7 +553,7 @@ def main():
         "layout: dragging the channel list far past its limit stops at discord's 359 and leaves the chat column >= 400 (both runs)":
             all(lay(r, "side_max") <= 359.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
         "layout: warm run starts with the panel widths the cold run left":
-            abs(lay(warm, "side_start") - lay(cold, "side_end")) < 1 and abs(lay(warm, "members_start") - lay(cold, "members_dragged")) < 1,
+            abs(lay(warm, "side_boot") - lay(cold, "side_final")) < 1 and abs(lay(warm, "members_boot") - lay(cold, "members_final")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         **{f"account sync: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
