@@ -77,12 +77,16 @@ impl Run {
                 let advance = |ctx: &egui::Context| ctx.data_mut(|d| d.insert_temp(Id::new("p4b_k"), k + 1));
                 if k % 2 == 0 {
                     app.settings_page = Some(*page);
-                    let key = if restore { undo } else { key };
+                    let before = if restore { ctx.data(|d| d.get_temp::<bool>(Id::new(("p4b_before", k)))).unwrap_or(false) } else { got(&app.settings) };
+                    let key = if restore == before { key } else { undo };
                     if Self::at(ctx, key).is_none() {
                         if stuck {
                             self.fail(format!("{key} never showed on its settings page"));
                         }
                         return;
+                    }
+                    if !restore {
+                        ctx.data_mut(|d| d.insert_temp(Id::new(("p4b_before", k)), got(&app.settings)));
                     }
                     if self.scroll_click(ctx, key) {
                         advance(ctx);
@@ -90,7 +94,8 @@ impl Run {
                         self.wait = Instant::now() + Duration::from_millis(400);
                     }
                 } else {
-                    if got(&app.settings) == restore {
+                    let before = ctx.data(|d| d.get_temp::<bool>(Id::new(("p4b_before", k - 1)))).unwrap_or(false);
+                    if (got(&app.settings) == before) != restore {
                         if stuck && !ctx.data(|d| d.get_temp::<bool>(Id::new("p4b_shot"))).unwrap_or(false) {
                             ctx.data_mut(|d| d.insert_temp(Id::new("p4b_shot"), true));
                             self.shot(ctx, "p4b_stuck.png");

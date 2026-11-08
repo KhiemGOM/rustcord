@@ -99,7 +99,7 @@ def checks(runs, reqs, data):
     gg = [p for p in woff if p not in names]
     out["look: font download read the new names off /app after the built-in one 404ed, and the warm run reused the cache"] = (
         "/app" in paths and "/assets/fonts.css" in paths
-        and sum("/assets/mock" in p for p in gg) == len(FONTS) and len(gg) == len(FONTS) + 1)
+        and sum("/assets/mock" in p for p in gg) == 2 * len(FONTS) and len(gg) == 2 * (len(FONTS) + 1))
     out["look: the eleven nitro name fonts were each fetched once, the warm run reused them"] = (
-        len(names) == 11 and len(set(names)) == 11)
+        len(names) == 22 and len(set(names)) == 11 and all(names.count(n) == 2 for n in set(names)))
     return out

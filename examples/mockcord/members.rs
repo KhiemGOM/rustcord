@@ -146,6 +146,10 @@ fn days(q: Option<&str>, body: &Value) -> Option<u64> {
 
 /// What the member endpoints answer: status, body and a gateway event, or None when the path isn't theirs.
 pub fn route(method: &str, parts: &[&str], query: Option<&str>, body: &[u8], b: &Base) -> Option<(u16, Option<Value>, Option<(&'static str, Value)>)> {
+    if let ("POST", ["api", "v9", "mock", "members-reset"]) = (method, parts) {
+        *STATE.lock().unwrap() = None;
+        return Some((200, Some(json!({})), None));
+    }
     let v: Value = serde_json::from_slice(body).unwrap_or_default();
     let guild = match parts {
         ["api", "v9", "guilds", g, ..] => g,

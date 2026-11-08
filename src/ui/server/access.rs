@@ -29,6 +29,16 @@ fn norm(ver: &Value, guild: &Value, features: &[String]) -> Value {
     })
 }
 
+pub fn saved(app: &mut App, form: &Value) {
+    let Some(fields) = form["form_fields"].as_array() else { return };
+    let Some(g) = app.server.as_ref().and_then(|s| app.store.guilds.get_mut(&s.guild)) else { return };
+    g.features.retain(|f| f != "MEMBER_VERIFICATION_MANUAL_APPROVAL" && f != "MEMBER_VERIFICATION_GATE_ENABLED");
+    if form["enabled"].as_bool() == Some(true) {
+        let apply = fields.iter().any(|f| f["field_type"] != "TERMS");
+        g.features.push(if apply { "MEMBER_VERIFICATION_MANUAL_APPROVAL" } else { "MEMBER_VERIFICATION_GATE_ENABLED" }.into());
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     form::fresh(ui);
     title(ui, "Access", "");

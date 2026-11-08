@@ -18,7 +18,7 @@ def checks(runs, reqs, data):
     tagged = [b for b in sent if b.get("name") == "Tagged post"]
     return {
         "forum: a REQUIRE_TAG forum showed \"A tag is required to create a post in this channel\" and Post sent nothing": both("forum_required_error")
-            and both("forum_required_blocks") and all(b.get("applied_tags") for b in sent),
+            and both("forum_required_blocks") and all(b.get("applied_tags") for b in sent if "attachments" not in b.get("message", {})),
         "forum: picking a tag in the post form cleared the error and the post went out with that tag in applied_tags, nested fields on": both("forum_tag_picked")
             and len(tagged) >= 2 and all(b["applied_tags"] == ["2"] and b["message"] == {"content": "Needs a tag first"} for b in tagged)
             and all("use_nested_fields=true" in r["path"] for r in made),

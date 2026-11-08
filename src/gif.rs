@@ -154,6 +154,7 @@ pub fn uri(ctx: &egui::Context, url: &str, play: bool) -> String {
         let e = shown.entry(url.to_string()).or_default();
         e.0.insert(i);
         e.1 = i;
+        e.2 += 1;
     }
     format!("{url}{SEP}{i}")
 }
@@ -204,6 +205,7 @@ pub fn uri_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> String {
         let e = shown.entry(url.to_string()).or_default();
         e.0.insert(i);
         e.1 = i;
+        e.2 += 1;
     }
     format!("{url}{SEP}{i}")
 }
@@ -214,7 +216,7 @@ fn last_frame(ctx: &egui::Context, url: &str) -> usize {
 
 // the e2e run asks which frames of an animation actually reached the screen
 static TRACE: AtomicBool = AtomicBool::new(false);
-static SHOWN: LazyLock<Mutex<BTreeMap<String, (HashSet<usize>, usize)>>> = LazyLock::new(Default::default);
+static SHOWN: LazyLock<Mutex<BTreeMap<String, (HashSet<usize>, usize, u64)>>> = LazyLock::new(Default::default);
 
 pub fn trace() {
     TRACE.store(true, Relaxed);
@@ -223,6 +225,11 @@ pub fn trace() {
 /// Most distinct frames shown so far of any url containing `part`.
 pub fn shown(part: &str) -> usize {
     SHOWN.lock().iter().filter(|(u, _)| u.contains(part)).map(|(_, f)| f.0.len()).max().unwrap_or(0)
+}
+
+/// How many times a url containing `part` was asked for a frame to draw, repeats included.
+pub fn draws(part: &str) -> u64 {
+    SHOWN.lock().iter().filter(|(u, _)| u.contains(part)).map(|(_, f)| f.2).sum()
 }
 
 /// The frame most recently shown for a url containing `part`.

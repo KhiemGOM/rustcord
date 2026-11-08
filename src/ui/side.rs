@@ -1323,7 +1323,9 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
         let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &hit));
         ui.painter().rect_filled(b, CornerRadius::same(8), fill);
         text::paint(ui.painter(), pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "👋 Wave", medium(14.0), pal().text_normal, w);
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        if hit.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
         if hit.on_hover_text(format!("Wave to {title}")).clicked() {
             act = Some(DmAct::Wave);
         }
