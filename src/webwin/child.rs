@@ -144,9 +144,13 @@ impl Host {
         self.s.full.get()
     }
 
-    /// A real click inside the page, for the e2e: only a trusted one lets a page ask for fullscreen.
+    /// A real click inside the page, for the e2e: only a trusted one lets a page ask for fullscreen,
+    /// and chromium refuses that unless the view has the keyboard focus a native click would give it.
     pub fn press(&self, x: i32, y: i32) {
-        let Some(wv) = self.s.ctl.borrow().as_ref().and_then(|c| unsafe { c.CoreWebView2() }.ok()) else { return };
+        let ctl = self.s.ctl.borrow();
+        let Some(ctl) = ctl.as_ref() else { return };
+        let Ok(wv) = (unsafe { ctl.CoreWebView2() }) else { return };
+        let _ = unsafe { ctl.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) };
         for kind in ["mousePressed", "mouseReleased"] {
             let args = HSTRING::from(json!({ "type": kind, "x": x, "y": y, "button": "left", "clickCount": 1 }).to_string());
             let _ = unsafe { wv.CallDevToolsProtocolMethod(&HSTRING::from("Input.dispatchMouseEvent"), &args, None::<&ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>) };
