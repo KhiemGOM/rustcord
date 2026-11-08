@@ -106,3 +106,9 @@ fn notification_updates_keep_channel_flags() {
     assert!(!store.opted.contains(&2));
     assert!(!store.opt_in.contains(&1));
 }
+
+#[test]
+fn worn_decorations_request_animation() {
+    let user = crate::state::User { decoration: Some("a_decoration".into()), ..Default::default() };
+    assert!(user.decoration_url().unwrap().contains("passthrough=true"));
+}

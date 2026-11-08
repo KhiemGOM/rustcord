@@ -58,7 +58,11 @@ struct Ctx<'a> {
 
 fn products(app: &App) -> Vec<&Value> {
     let src = get(app, "shop_cats").or(get(app, "shop_home"));
-    src.and_then(|v| v["categories"].as_array()).into_iter().flatten().flat_map(|c| c["products"].as_array().into_iter().flatten()).collect()
+    let mut seen = crate::state::Set::default();
+    src.into_iter().chain(get(app, "shop_orbs_home"))
+        .flat_map(|v| v["categories"].as_array().into_iter().flatten())
+        .flat_map(|c| c["products"].as_array().into_iter().flatten())
+        .filter(|p| seen.insert(sku(p))).collect()
 }
 
 fn grid(ui: &mut Ui, left: f32, y: &mut f32, w: f32, salt: &str, items: &[&Value], look: &Ctx, acts: &mut Vec<Act>) {
@@ -90,9 +94,10 @@ fn skeleton(ui: &mut Ui, left: f32, y: &mut f32, w: f32, count: usize) {
 
 fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, look: &Ctx, acts: &mut Vec<Act>) {
     let id = sku(p).to_string();
-    match product::card(ui, r, salt, p, look.member, look.wish.contains(&id), look.avatar, look.orbs) {
+    let wished = sku(product::selected(p, 0)).to_string();
+    match product::card(ui, r, salt, p, look.member, look.wish.contains(&wished), look.avatar, look.orbs) {
         Some(Hit::Open) => acts.push(Act::Open(id)),
-        Some(Hit::Wish) => acts.push(Act::Wish(id)),
+        Some(Hit::Wish) => acts.push(Act::Wish(wished)),
         None => {}
     }
 }
@@ -666,11 +671,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     if let Some(p) = open.as_deref().and_then(|id| find(&all, id)) {
         let cat = categories.iter().find(|c| c["sku_id"] == p["category_sku_id"]).and_then(|c| c["name"].as_str());
-        if let Some(a) = product::detail(ui.ctx(), p, member, wishing.iter().any(|w| w == sku(p)), &avatar, cat, slide) {
+        if let Some(a) = product::detail(ui.ctx(), p, member, wishing.iter().any(|w| w == sku(product::selected(p, slide))), &avatar, cat, slide) {
             acts.push(match a {
                 product::Act::Close => Act::Close,
-                product::Act::Buy => Act::Buy(sku(p).to_string()),
-                product::Act::Wish => Act::Wish(sku(p).to_string()),
+                product::Act::Buy => Act::Buy(sku(product::selected(p, slide)).to_string()),
+                product::Act::Wish => Act::Wish(sku(product::selected(p, slide)).to_string()),
                 product::Act::Collection => Act::Collection(p["category_sku_id"].as_str().map(str::to_string)),
                 product::Act::Pick(i) => Act::Pick(i),
             });
@@ -769,7 +774,7 @@ fn apply(app: &mut App, acts: Vec<Act>) {
 }
 
 fn buy(app: &mut App, id: String) {
-    if let Some(p) = products(app).into_iter().find(|p| sku(p) == id).cloned() {
+    if let Some(p) = products(app).into_iter().flat_map(|p| std::iter::once(p).chain(p["variants"].as_array().into_iter().flatten())).find(|p| sku(p) == id).cloned() {
         app.open_buy(crate::ui::buy::What::Shop(p));
     }
 }
