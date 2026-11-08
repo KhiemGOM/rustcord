@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use egui::{ViewportCommand, vec2};
+use egui::{ViewportCommand, pos2, vec2};
 use serde_json::json;
 
 use super::Run;
@@ -39,6 +39,16 @@ impl Run {
             }
             5101 => {
                 let Some(shot) = Self::at(ctx, &format!("now_stream:{STREAMER}")) else { return };
+                let screen = ctx.content_rect();
+                if shot.bottom() > screen.bottom() - 8.0 || shot.top() < screen.top() + 40.0 {
+                    if stuck {
+                        self.shot(ctx, "active_now_stuck.png");
+                        return self.fail(format!("the Active Now stream preview {shot:?} never scrolled into {screen:?}"));
+                    }
+                    self.scroll_by(pos2(screen.right() - 150.0, screen.center().y), if shot.top() < screen.top() + 40.0 { 240.0 } else { -240.0 });
+                    self.wait = std::time::Instant::now() + Duration::from_millis(500);
+                    return;
+                }
                 self.queue.push_back(vec![egui::Event::PointerMoved(shot.center() + vec2(0.0, -40.0))]);
                 self.next(500);
             }
