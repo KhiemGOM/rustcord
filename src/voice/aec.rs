@@ -225,4 +225,18 @@ mod tests {
         eprintln!("unrelated near-end speech: {snr:.1} dB SNR");
         assert!(snr > 10.0, "near-end speech distorted: {snr} dB SNR");
     }
+
+    #[test]
+    fn keeps_quiet_speech_after_learning_the_echo() {
+        let n = 48_000 * 6;
+        let far = speech(&mut Rng(53), n);
+        let talker: Vec<f32> = (0..n).map(|i| if i < 96_000 { 0.0 } else { 0.01 * (i as f32 * 0.0839).sin() }).collect();
+        let mut out: Vec<f32> = echo_path(&far).iter().zip(&talker).map(|(e, t)| e + t).collect();
+        run(&far, &mut out);
+        let tail = 48_000 * 4..;
+        let error: Vec<f32> = out[tail.clone()].iter().zip(&talker[tail.clone()]).map(|(a, b)| a - b).collect();
+        let snr = 10.0 * (energy(&talker[tail]) / energy(&error).max(1e-20)).log10();
+        eprintln!("quiet speech with echo: {snr:.1} dB SNR");
+        assert!(snr > 10.0, "quiet speech suppressed with echo: {snr} dB SNR");
+    }
 }
