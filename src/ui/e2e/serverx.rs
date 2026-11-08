@@ -169,6 +169,7 @@ impl Run {
                 }
             }
             4816 => {
+                app.rest("POST", "/mock/join-reset".into(), Some(serde_json::json!({})), crate::net::Tag::Quiet);
                 if let Some(g) = app.store.guilds.get_mut(&OWNED) {
                     g.features.retain(|f| f != FEATURE);
                 }
