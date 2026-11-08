@@ -5815,12 +5815,14 @@ impl Run {
             288 => {
                 // the seeded gradient authors sit above everything the earlier steps sent
                 let seen = |w: u64| app.rects.contains_key(&format!("name:{w}"));
-                if !(seen(103) && seen(105) && seen(106)) && self.tries < 14 {
-                    self.tries += 1;
+                if !(seen(103) && seen(105) && seen(106)) {
+                    if self.step_at.elapsed() > Duration::from_secs(17) {
+                        return self.fail("the seeded gradient authors never scrolled into view".into());
+                    }
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
                     self.queue.push_back(vec![Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Point,
-                        delta: vec2(0.0, 150.0),
+                        delta: vec2(0.0, 250.0),
                         phase: egui::TouchPhase::Move,
                         modifiers: Modifiers::NONE,
                     }]);

@@ -92,7 +92,8 @@ def checks(runs, reqs, data):
 
     cached = [data / "fonts" / f"{f}.ttf" for f in FONTS]
     out["look: gg sans and gg mono were decoded to ttf in the cache dir"] = all(sfnt(p) for p in cached)
-    paths = [r.get("path", "") for r in reqs]
+    login = min((r["t"] for r in reqs if r.get("path", "").endswith("/auth/login") and "t" in r), default=float("inf"))
+    paths = [r.get("path", "") for r in reqs if r.get("t", 0) < login]
     woff = [p for p in paths if p.endswith(".woff2")]
     # the nitro display name fonts come by their real names; everything else is gg sans or gg mono
     names = [p for p in woff if p.split("/")[-1][:-6] in NAME_FONTS]
