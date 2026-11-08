@@ -12,6 +12,7 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
 use windows::core::Interface;
 
+use super::effects;
 use super::video::Source;
 
 pub enum Grab {
@@ -23,6 +24,9 @@ pub enum Grab {
 
 impl Grab {
     pub fn fake(screen: bool) -> Grab {
+        if !screen {
+            effects::note_open(effects::device().filter(|d| effects::FAKE_CAMERAS.contains(&d.as_str())).unwrap_or_else(|| effects::FAKE_CAMERAS[0].into()));
+        }
         Grab::Fake { screen, t0: Instant::now() }
     }
 
@@ -34,8 +38,14 @@ impl Grab {
                     .and_then(|(d, c)| Wgc::open(&d, &c, m, true))
                     .map(|s| Grab::Wgc(Box::new(s)))
                     .or_else(|_| Screen::open().map(|s| Grab::Screen(Box::new(s)))),
-                Source::Camera => Camera::open(0).map(|c| Grab::Camera(Box::new(c))),
-                Source::Device(i) => Camera::open(i).map(|c| Grab::Camera(Box::new(c))),
+                Source::Camera => {
+                    super::preview::settle();
+                    Camera::open(None, true).map(|c| Grab::Camera(Box::new(c)))
+                }
+                Source::Device(i) => {
+                    super::preview::settle();
+                    Camera::open(Some(i), false).map(|c| Grab::Camera(Box::new(c)))
+                }
             }
         };
         r.map_err(|e| e.message().to_string())
@@ -61,11 +71,20 @@ impl Grab {
         match self {
             Grab::Fake { screen, t0 } => {
                 pattern(out, w, h, t0.elapsed().as_secs_f32(), *screen);
+                if !*screen {
+                    effects::apply(out, w, h);
+                }
                 true
             }
             Grab::Screen(s) => unsafe { s.frame(out, w, h) },
             Grab::Wgc(s) => unsafe { s.frame(out, w, h) },
-            Grab::Camera(c) => unsafe { c.frame(out, w, h) },
+            Grab::Camera(c) => {
+                let got = unsafe { c.frame(out, w, h) };
+                if got && c.fx {
+                    effects::apply(out, w, h);
+                }
+                got
+            }
         }
     }
 }
@@ -309,21 +328,22 @@ pub fn cameras() -> Vec<String> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let Ok(devs) = devices() else { return Vec::new() };
-        devs.iter()
-            .flatten()
-            .map(|d| {
-                let mut p = windows::core::PWSTR::null();
-                let mut n = 0u32;
-                match d.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut p, &mut n) {
-                    Ok(()) => {
-                        let s = p.to_string().unwrap_or_default();
-                        CoTaskMemFree(Some(p.0 as *const _));
-                        s
-                    }
-                    Err(_) => "Camera".to_string(),
-                }
-            })
-            .collect()
+        devs.iter().flatten().map(|d| name(d)).collect()
+    }
+}
+
+unsafe fn name(d: &IMFActivate) -> String {
+    unsafe {
+        let mut p = windows::core::PWSTR::null();
+        let mut n = 0u32;
+        match d.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut p, &mut n) {
+            Ok(()) => {
+                let s = p.to_string().unwrap_or_default();
+                CoTaskMemFree(Some(p.0 as *const _));
+                s
+            }
+            Err(_) => "Camera".to_string(),
+        }
     }
 }
 
@@ -345,19 +365,24 @@ unsafe fn devices() -> windows::core::Result<Vec<Option<IMFActivate>>> {
 
 pub struct Camera {
     reader: IMFSourceReader,
+    fx: bool,
     w: usize,
     h: usize,
     stride: i32,
 }
 
 impl Camera {
-    unsafe fn open(index: usize) -> windows::core::Result<Camera> {
+    /// The device at `index`, or with the name chosen in settings, or the first. `fx` is for
+    /// the call camera, which gets the video background.
+    unsafe fn open(index: Option<usize>, fx: bool) -> windows::core::Result<Camera> {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let devs = devices()?;
+            let index = index.unwrap_or_else(|| effects::device().and_then(|want| devs.iter().flatten().position(|d| name(d) == want)).unwrap_or(0));
             let Some(Some(first)) = devs.into_iter().nth(index) else {
                 return Err(windows::core::Error::new(windows::core::HRESULT(0x80070490u32 as i32), "no camera found"));
             };
+            effects::note_open(name(&first));
             let source: IMFMediaSource = first.ActivateObject()?;
             let mut ra = None;
             MFCreateAttributes(&mut ra, 1)?;
@@ -374,7 +399,7 @@ impl Camera {
             let size = cur.GetUINT64(&MF_MT_FRAME_SIZE)?;
             let (w, h) = ((size >> 32) as usize, (size & 0xffff_ffff) as usize);
             let stride = cur.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|s| s as i32).unwrap_or(w as i32 * 4);
-            Ok(Camera { reader, w, h, stride })
+            Ok(Camera { reader, fx, w, h, stride })
         }
     }
 

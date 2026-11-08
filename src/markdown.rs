@@ -14,6 +14,7 @@ pub enum Link {
     Masked(String),
     User(Id),
     Channel(Id),
+    Role(Id),
     Spoiler,
     // a custom emoji: its id, name and whether it moves
     Emoji(Id, String, bool),
@@ -30,7 +31,7 @@ pub struct Inline {
 
 pub enum Block {
     Text(Inline),
-    Code(String),
+    Code(String, String),
     Quote(Vec<Block>),
 }
 
@@ -347,24 +348,62 @@ fn url_len(s: &str) -> usize {
 }
 
 pub static CLOCK24: AtomicBool = AtomicBool::new(false);
+// 0 month first, 1 day first, 2 year first: how the account's language writes a numeric date
+static DATE_ORDER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn set_date_order(locale: &str) {
+    let order = match locale {
+        "en-US" => 0,
+        "ja" | "zh-CN" | "zh-TW" | "ko" | "hu" | "lt" | "sv-SE" => 2,
+        _ => 1,
+    };
+    DATE_ORDER.store(order, Ordering::Relaxed);
+}
+
+/// strftime for a numeric date, `year` being the pattern's year (`%y` or `%Y`) and `pad` whether
+/// day and month keep their leading zero
+pub fn short_date(year: &str, pad: bool) -> String {
+    let (m, d) = if pad { ("%m", "%d") } else { ("%-m", "%-d") };
+    match DATE_ORDER.load(Ordering::Relaxed) {
+        0 => format!("{m}/{d}/{year}"),
+        1 => format!("{d}/{m}/{year}"),
+        _ => format!("{year}/{m}/{d}"),
+    }
+}
 
 /// strftime for an hour:minute, honouring the 24h setting
 pub fn hm() -> &'static str {
     if CLOCK24.load(Ordering::Relaxed) { "%H:%M" } else { "%-I:%M %p" }
 }
 
+/// A time in the local zone. Asking chrono means asking Windows for the zone, on every message of
+/// every frame, so each quarter hour keeps its offset for a minute.
+pub fn local(ms: i64) -> chrono::DateTime<chrono::FixedOffset> {
+    thread_local! {
+        static OFFSETS: std::cell::RefCell<(std::time::Instant, crate::state::Map<i64, chrono::FixedOffset>)> = std::cell::RefCell::new((std::time::Instant::now(), Default::default()));
+    }
+    let utc = chrono::DateTime::from_timestamp_millis(ms).unwrap_or_default();
+    let offset = OFFSETS.with_borrow_mut(|(at, seen)| {
+        if at.elapsed().as_secs() >= 60 {
+            *at = std::time::Instant::now();
+            seen.clear();
+        }
+        *seen.entry(ms.div_euclid(900_000)).or_insert_with(|| Local.offset_from_utc_datetime(&utc.naive_utc()))
+    });
+    utc.with_timezone(&offset)
+}
+
 pub fn fmt_ts(secs: i64, style: char) -> String {
-    let Some(dt) = Local.timestamp_opt(secs, 0).single() else {
-        return String::new();
-    };
+    let dt = local(secs.saturating_mul(1000));
+    let numeric = short_date("%Y", true);
     let f = match style {
         't' => hm(),
         'T' => if CLOCK24.load(Ordering::Relaxed) { "%H:%M:%S" } else { "%-I:%M:%S %p" },
-        'd' => "%m/%d/%Y",
+        'd' => numeric.as_str(),
         'D' => "%B %-d, %Y",
         'F' => return format!("{} {}", dt.format("%A, %B %-d, %Y"), dt.format(hm())),
         'R' => {
-            let d = secs - Local::now().timestamp();
+            let d = secs - chrono::Utc::now().timestamp();
             let a = d.abs();
             let (n, unit) = match a {
                 0..60 => (a, "second"),
@@ -563,7 +602,12 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
             }
             None => (pal().mention_fg, pal().mention_bg),
         };
-        pill(b, &name, None, fg, bg);
+        pill(b, &name, Some(Link::Role(id)), fg, bg);
+        return Some(n);
+    }
+    if let Some(id) = inner.strip_prefix("@$").and_then(|x| x.parse::<Id>().ok()) {
+        let name = b.cx.store.game_names.get(&id).map_or_else(|| "@game".to_string(), |n| format!("@{n}"));
+        pill(b, &name, None, pal().mention_fg, pal().mention_bg);
         return Some(n);
     }
     if let Some(id) = inner.strip_prefix('@').map(|x| x.trim_start_matches('!')).and_then(|x| x.parse::<Id>().ok()) {
@@ -686,6 +730,17 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
     }
 }
 
+/// What's between the fences: the language on its own first line when something follows it, as
+/// discord's own `^```(?:([a-z0-9_+\-.#]+?)\n)?\n*([^\n][^]*?)\n*``` ` splits it.
+fn fence(inside: &str) -> (&str, &str) {
+    let named = |c: char| c.is_ascii_alphanumeric() || "_+-.#".contains(c);
+    let (lang, code) = match inside.split_once('\n') {
+        Some((first, rest)) if !first.is_empty() && first.chars().all(named) && !rest.trim_matches('\n').is_empty() => (first, rest),
+        _ => ("", inside),
+    };
+    (lang, code.trim_matches('\n'))
+}
+
 pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
     crate::theme::note_text(src);
     let src = src.trim();
@@ -699,16 +754,8 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         if !before.is_empty() {
             text_lines(cx, before, false, &mut out);
         }
-        let mut code = &after[..end];
-        if let Some(nl) = code.find('\n') {
-            let first = &code[..nl];
-            if !first.is_empty() && !first.contains(char::is_whitespace) {
-                code = &code[nl + 1..];
-            } else if first.is_empty() {
-                code = &code[1..];
-            }
-        }
-        out.push(Block::Code(code.trim_end_matches('\n').to_string()));
+        let (lang, code) = fence(&after[..end]);
+        out.push(Block::Code(lang.to_string(), code.to_string()));
         rest = after[end + 3..].trim_start_matches('\n');
     }
     if !rest.is_empty() {
@@ -734,4 +781,19 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fence;
+
+    #[test]
+    fn a_fence_names_its_language_only_on_its_own_line() {
+        assert_eq!(fence("rust\nfn main() {}\n"), ("rust", "fn main() {}"));
+        assert_eq!(fence("c++\n\nint x;"), ("c++", "int x;"));
+        assert_eq!(fence("rust"), ("", "rust"));
+        assert_eq!(fence("rust\n"), ("", "rust"));
+        assert_eq!(fence("\nfn main() {}"), ("", "fn main() {}"));
+        assert_eq!(fence("two words\nx"), ("", "two words\nx"));
+    }
 }

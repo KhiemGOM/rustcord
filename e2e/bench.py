@@ -1,10 +1,10 @@
 """Perf numbers against the mock: startup, idle and busy CPU, frames drawn, memory.
 
-    python e2e/bench.py [--build] [--secs 15] [--rate 20] [--guilds 115] [--target target]
+    python e2e/bench.py [--build] [--secs 15] [--rate 20] [--guilds 115] [--history 800] [--target target]
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
 --rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
-nonstop for --secs to price a frame, has its memory read, then opens its recent channels for
+nonstop for --secs to price a frame, scrolls a --history message chat with the wheel for --secs and prices its frames, has its memory read, then opens its recent channels for
 3x --secs and has it read again. The mock adds --guilds servers of 115 channels each, about a real account's size
 (0 for the plain mock). The window opens behind everything and ignores the real mouse and
 keyboard. Writes e2e/artifacts/bench.json.
@@ -112,18 +112,36 @@ def window(h, out, secs):
             "repaints_asked_by": dict(sorted(((k, n) for k, n in causes.items() if n), key=lambda kv: -kv[1])[:8])}
 
 
+def scroll(h, out, secs):
+    """A notch every 90ms, twelve one way then twelve the other, with the pointer over the chat. The window sits
+    behind everything, so nothing holds it to the display's rate: what counts is the cost of a frame, not their spacing."""
+    (out / "scroll").touch()
+    time.sleep(1)
+    n, t0 = len((stats(out) or {}).get("costs", [])), (stats(out) or {}).get("travel", 0)
+    w = window(h, out, secs)
+    costs = sorted((stats(out) or {}).get("costs", [])[n:])
+    (out / "scroll").unlink()
+    if not costs:
+        return w
+    at = lambda q: round(costs[min(int(len(costs) * q), len(costs) - 1)], 2)
+    w.update({"scrolled_px": round((stats(out) or {}).get("travel", 0) - t0), "frames": len(costs), "ui_ms_mean": round(sum(costs) / len(costs), 2), "ui_ms_p50": at(0.5), "ui_ms_p95": at(0.95),
+              "ui_ms_p99": at(0.99), "ui_ms_max": round(costs[-1], 2), "over_8ms": sum(c > 8.3 for c in costs), "over_16ms": sum(c > 16.7 for c in costs)})
+    return w
+
+
 def main():
     secs = float(sys.argv[sys.argv.index("--secs") + 1]) if "--secs" in sys.argv else 15
     rate = int(sys.argv[sys.argv.index("--rate") + 1]) if "--rate" in sys.argv else 20
     guilds = sys.argv[sys.argv.index("--guilds") + 1] if "--guilds" in sys.argv else "115"
+    history = sys.argv[sys.argv.index("--history") + 1] if "--history" in sys.argv else "800"
     if "--build" in sys.argv:
         subprocess.run(["cargo", "build", "--release", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
     http, ws = free_port(), free_port()
     tmp = Path(tempfile.mkdtemp(prefix="rcbench"))
     mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_port())],
-                            env=dict(os.environ, MOCK_GUILDS=guilds), stdout=subprocess.DEVNULL)
+                            env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.DEVNULL)
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
-               RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}",
+               RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}", RUSTCORD_SOUNDS=f"http://127.0.0.1:{http}",
                RUSTCORD_GATEWAY=f"ws://127.0.0.1:{ws}", RUSTCORD_TOKEN="mock-token", RUSTCORD_DATA=str(tmp / "data"), RUSTCORD_SILENT="1")
     report: dict = {"exe_mb": round(EXE.stat().st_size / 2**20, 1), "guilds": int(guilds)}
     try:
@@ -149,6 +167,8 @@ def main():
         report["busy"] = window(h, tmp / "w", secs)
         report["busy"]["rate"] = rate
         time.sleep(3)
+        report["scroll"] = scroll(h, tmp / "w", secs)
+        time.sleep(1)
         (tmp / "w" / "spin").touch()
         time.sleep(1)
         spin = window(h, tmp / "w", secs)

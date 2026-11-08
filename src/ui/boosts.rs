@@ -54,6 +54,7 @@ impl App {
     pub fn open_boosts(&mut self, gid: Id) {
         self.boosts = Some(gid);
         self.home = None;
+        self.server_shop = None;
         self.boost_info.insert(gid, Info::default());
         self.rest("GET", format!("/store/published-listings/skus?application_id={POWERUPS_APP}&guild_id={gid}"), None, Tag::Boosts(gid, 0));
         self.rest("GET", format!("/guilds/{gid}/powerups?include_ends_at=true"), None, Tag::Boosts(gid, 1));
@@ -156,14 +157,14 @@ fn card(ui: &Ui, r: Rect, on: bool, hot: bool) {
 }
 
 /// What a hovered card's foot turns into: Configure once it's on, else Enable and its price.
-fn hover_button(ui: &Ui, r: Rect, on: bool, cost: &str) -> egui::Response {
+fn hover_button(ui: &Ui, r: Rect, on: bool, cost: &str, on_label: &str) -> egui::Response {
     let b = Rect::from_min_size(pos2(r.left() + 17.0, r.bottom() - 57.0), vec2(r.width() - 34.0, 40.0));
     let resp = ui.interact(b, ui.id().with(("perk_btn", r.left() as i32, r.top() as i32)), Sense::click());
     super::settings::mark(ui, "perk_btn", b);
     let p = ui.painter();
-    p.rect(b, 8, if resp.hovered() { Color32::from_rgb(0x47, 0x52, 0xc4) } else { BLURPLE }, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    p.rect(b, 8, crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     if on {
-        p.text(b.center(), Align2::CENTER_CENTER, "Configure", medium(16.0), Color32::WHITE);
+        p.text(b.center(), Align2::CENTER_CENTER, on_label, medium(16.0), Color32::WHITE);
     } else {
         let g = p.layout_no_wrap("Enable  \u{2022}  ".to_string(), medium(16.0), Color32::WHITE);
         let c = p.layout_no_wrap(cost.to_string(), medium(16.0), Color32::WHITE);
@@ -196,10 +197,11 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
     let Some(info) = app.boost_info.get(&gid) else { return };
     if info.loaded & 3 != 3 {
         ui.add_space(40.0);
-        ui.centered_and_justified(|ui| ui.spinner());
+        ui.centered_and_justified(|ui| crate::ui::motion::spinner(ui, 24.0, pal().text_muted));
         return;
     }
     let mut rects = Vec::new();
+    let mut pick: Option<(String, bool)> = None;
     heading(ui, "Levels", "Your server will automatically \u{201c}level up\u{201d} once it has enough available Boosts.");
     let levels: Vec<&Powerup> = info.catalog.iter().filter(|p| !p.perk).take(3).collect();
     let w = ((ui.available_width() - 32.0) / 3.0).min(220.0);
@@ -226,7 +228,17 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
             p.text(pos2(r.left() + 43.0, ly), Align2::LEFT_CENTER, *label, medium(14.0), pal().text_normal);
         }
         p.text(pos2(r.left() + 17.0, r.top() + 229.0), Align2::LEFT_CENTER, "...and more!", medium(14.0), pal().text_normal);
-        foot(ui, r, &l.cost.to_string(), on);
+        if ui.rect_contains_pointer(r) {
+            if hover_button(ui, r, on, &l.cost.to_string(), "View Perks").clicked() {
+                if on {
+                    ui.ctx().data_mut(|d| d.insert_temp(modal_key(gid), i));
+                } else {
+                    pick = Some((String::new(), false));
+                }
+            }
+        } else {
+            foot(ui, r, &l.cost.to_string(), on);
+        }
         rects.push((format!("boosts:level:{}", i + 1), r));
     }
 
@@ -254,7 +266,6 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
     // discord's card: 326 tall, the art 180 across the top (fitted, a shade darker at its foot),
     // then the name, what it does and the price
     let w = (ui.available_width() - 32.0) / 3.0;
-    let mut pick = None;
     for chunk in cards.chunks(3) {
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 330.0), Sense::hover());
         for (i, (name, desc, cost, on, image, animated)) in chunk.iter().enumerate() {
@@ -284,7 +295,7 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
             let g = p.layout(desc.clone(), medium(14.0), ink, r.width() - 34.0);
             p.galley(pos2(r.left() + 17.0, r.top() + 223.0), g, ink);
             if hot {
-                if hover_button(ui, r, *on, cost).clicked() {
+                if hover_button(ui, r, *on, cost, "Configure").clicked() {
                     pick = Some((name.clone(), *on));
                 }
             } else {
@@ -295,6 +306,12 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.add_space(12.0);
     }
     app.rects.extend(rects);
+    let shown: Option<usize> = ui.ctx().data(|d| d.get_temp(modal_key(gid)));
+    if let Some(i) = shown
+        && level_modal(ui.ctx(), i, levels.get(i).map_or(0, |l| l.cost))
+    {
+        ui.ctx().data_mut(|d| d.remove::<usize>(modal_key(gid)));
+    }
     match pick {
         // configuring is the server settings page the perk lives on; turning one on spends the
         // server's boosts, which stays on discord.com with the rest of the boost checkout
@@ -304,9 +321,44 @@ fn main(app: &mut App, ui: &mut Ui, gid: Id) {
                 s.page = if name == "Enhanced Role Styles" { super::server::Page::Roles } else { super::server::Page::Tag };
             }
         }
-        Some((_, false)) => ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/boosts"))),
+        Some((_, false)) => app.open_buy(super::buy::What::Boost(gid)),
         None => {}
     }
+}
+
+fn modal_key(gid: Id) -> egui::Id {
+    egui::Id::new(("boost_level_modal", gid))
+}
+
+const LEVEL_STICKERS: [&str; 3] = ["+10 Sticker Slots", "+15 Sticker Slots (30 total)", "+30 Sticker Slots (60 total)"];
+
+/// View Perks on an enabled level: what it unlocks. Discord draws its own animation and builds
+/// the list from the level's definition; the lines here are the card's, with the sticker slots.
+fn level_modal(ctx: &egui::Context, i: usize, cost: u32) -> bool {
+    let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(16).inner_margin(Margin::same(24));
+    let mut close = false;
+    let m = crate::ui::motion::Modal::new(egui::Id::new("boost_level_view")).frame(frame).show(ctx, |ui| {
+        ui.set_width(400.0);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let top = ui.cursor().top();
+        let x = Rect::from_center_size(pos2(ui.max_rect().right() - 12.0, top + 12.0), vec2(24.0, 24.0));
+        let resp = ui.interact(x, egui::Id::new("boost_level_x"), Sense::click());
+        icons::draw(ui.painter(), Icon::Close, x, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
+        super::settings::mark(ui, "boosts:level_x", x);
+        close |= resp.clicked();
+        ui.label(egui::RichText::new(format!("Level {}", i + 1)).font(semi(24.0)).color(pal().header_primary));
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(format!("{cost} Boosts")).font(medium(14.0)).color(pal().header_secondary));
+        ui.add_space(20.0);
+        for (icon, label) in LEVEL_PERKS.get(i).into_iter().flatten().chain([&(Icon::Sticker, LEVEL_STICKERS[i.min(2)])]) {
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+            icons::draw(ui.painter(), *icon, Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(20.0, 20.0)), pal().text_normal);
+            ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, *label, medium(14.0), pal().text_normal);
+        }
+        ui.painter().text(pos2(ui.cursor().left() + 36.0, ui.cursor().top() + 14.0), Align2::LEFT_CENTER, "...and more!", medium(14.0), pal().text_normal);
+        ui.add_space(28.0);
+    });
+    close || m.should_close()
 }
 
 fn side(app: &mut App, ui: &mut Ui, gid: Id) {
@@ -344,7 +396,7 @@ fn side(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.add_space(8.0);
             let (b, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());
             let p = ui.painter();
-            p.rect_filled(b, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { Color32::from_rgba_unmultiplied(151, 151, 159, 20) });
+            p.rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 20), pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             p.rect_stroke(b, CornerRadius::same(8), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
             let g = p.layout_no_wrap("Boost This Server".into(), medium(14.0), pal().text_normal);
             let x = b.center().x - (g.size().x + 20.0) / 2.0;
@@ -373,8 +425,7 @@ fn side(app: &mut App, ui: &mut Ui, gid: Id) {
         });
     });
     if boost {
-        // buying or moving a boost is discord's checkout, which stays on the web
-        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}/boosts")));
+        app.open_buy(super::buy::What::Boost(gid));
     }
 }
 

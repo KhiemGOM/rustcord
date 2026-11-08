@@ -6,14 +6,15 @@ use openh264::decoder::Decoder;
 use openh264::encoder::{BitRate, Complexity, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, UsageType};
 use openh264::formats::{BgraSliceU8, YUVBuffer, YUVSource};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::sync::mpsc as smpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use super::capture;
+use super::hwdec::{Gpu, HwDec};
 use super::hwenc::{self, Convert, HwEnc};
 use super::{Ev, Kind, Shared};
 use crate::net::{self, Tx};
@@ -151,7 +152,77 @@ pub fn packetize(frame: &[u8], mut emit: impl FnMut(Vec<u8>, bool)) {
     }
 }
 
-/// Decodes on its own thread so a 1080p keyframe never stalls the media loop.
+// the hardware encoders and openh264, as Voice & Video's switches have them
+static HW: AtomicBool = AtomicBool::new(true);
+static SOFT: AtomicBool = AtomicBool::new(true);
+
+pub fn set_codecs(hw: bool, openh264: bool) {
+    HW.store(hw, Relaxed);
+    SOFT.store(openh264, Relaxed);
+}
+
+// the pixels each person's video is drawn at, and when
+static SHOWN: LazyLock<Mutex<HashMap<Id, ((usize, usize), Instant)>>> = LazyLock::new(Default::default);
+
+/// Called as a person's video is drawn. A bigger size counts at once, a smaller one after a second,
+/// so the same person in a tile and on the stage gets the stage's.
+pub fn shown(user: Id, size: egui::Vec2) {
+    let px = (size.x.ceil() as usize, size.y.ceil() as usize);
+    let now = Instant::now();
+    let mut m = SHOWN.lock().unwrap();
+    let e = m.entry(user).or_insert((px, now));
+    if (px.0 >= e.0.0 && px.1 >= e.0.1) || now - e.1 > Duration::from_secs(1) {
+        *e = (px, now);
+    }
+}
+
+fn on_screen(user: Id) -> Option<(usize, usize)> {
+    SHOWN.lock().unwrap().get(&user).filter(|e| e.1.elapsed() < Duration::from_millis(1500)).map(|e| e.0)
+}
+
+/// Averages each `f` by `f` block of a 4-byte-a-pixel picture into one pixel.
+fn shrink(src: &[u8], (w, h): (usize, usize), f: usize, [r, g, b]: [usize; 3]) -> ColorImage {
+    let (nw, nh) = (w / f, h / f);
+    let n = (f * f) as u32;
+    let mut px = Vec::with_capacity(nw * nh);
+    let mut sum = vec![0u32; nw * 3];
+    for y in 0..nh {
+        sum.fill(0);
+        for row in 0..f {
+            let line = &src[(y * f + row) * w * 4..][..nw * f * 4];
+            for (o, block) in sum.chunks_exact_mut(3).zip(line.chunks_exact(4 * f)) {
+                for c in block.chunks_exact(4) {
+                    o[0] += c[r] as u32;
+                    o[1] += c[g] as u32;
+                    o[2] += c[b] as u32;
+                }
+            }
+        }
+        px.extend(sum.chunks_exact(3).map(|o| egui::Color32::from_rgb((o[0] / n) as u8, (o[1] / n) as u8, (o[2] / n) as u8)));
+    }
+    ColorImage::new([nw, nh], px)
+}
+
+enum Dec {
+    Card(Box<HwDec>),
+    Soft(Decoder),
+}
+
+// a decoder that's had this many frames and shown nothing isn't going to
+const STARVED: u32 = 90;
+
+/// The size to make a picture this frame, if any. What's on screen comes at its size; what isn't
+/// comes once a second, small, which is what gets it on screen in the first place.
+fn picture_size(user: Id, ssrc: u32, last: &HashMap<u32, Instant>, (w, h): (usize, usize)) -> Option<(usize, usize)> {
+    match on_screen(user) {
+        Some(px) => Some(px),
+        None if last.get(&ssrc).is_some_and(|t| t.elapsed() < Duration::from_secs(1)) => None,
+        None => Some((w / 4, h / 4)),
+    }
+}
+
+/// Decodes on its own thread so a 1080p keyframe never stalls the media loop, on the card if it
+/// can. Every frame has to go through the decoder, but only what's on screen becomes a picture.
 pub struct Decode {
     tx: smpsc::Sender<(u32, Id, Vec<u8>)>,
 }
@@ -160,31 +231,86 @@ impl Decode {
     pub fn start(tag: u64, out: Tx, shared: Arc<Shared>, pli: mpsc::UnboundedSender<u32>) -> Decode {
         let (tx, rx) = smpsc::channel::<(u32, Id, Vec<u8>)>();
         let _ = std::thread::Builder::new().name("video-decode".into()).spawn(move || {
-            let mut decs: HashMap<u32, Decoder> = HashMap::new();
+            let mut decs: HashMap<u32, Dec> = HashMap::new();
+            let mut gpu: Option<Option<Gpu>> = None;
             let mut rgba = Vec::new();
+            let mut last: HashMap<u32, Instant> = HashMap::new();
+            let mut settle = None;
             while let Ok((ssrc, user, frame)) = rx.recv() {
-                let dec = match decs.get_mut(&ssrc) {
-                    Some(d) => d,
-                    None => match Decoder::new() {
-                        Ok(d) => decs.entry(ssrc).or_insert(d),
-                        Err(_) => continue,
+                if settle.is_some_and(|t| Instant::now() >= t) {
+                    crate::winsys::trim();
+                    settle = Some(Instant::now() + Duration::from_secs(3600));
+                }
+                if !decs.contains_key(&ssrc) {
+                    let card = HW.load(Relaxed).then(|| gpu.get_or_insert_with(|| Gpu::new().ok()).as_ref().and_then(|g| HwDec::new(g).ok())).flatten();
+                    let dec = match card {
+                        Some(d) => Dec::Card(Box::new(d)),
+                        None => match SOFT.load(Relaxed).then(Decoder::new) {
+                            Some(Ok(d)) => Dec::Soft(d),
+                            _ => continue,
+                        },
+                    };
+                    decs.insert(ssrc, dec);
+                }
+                let Some(dec) = decs.get_mut(&ssrc) else { continue };
+                let img = match dec {
+                    Dec::Card(d) => {
+                        let shown = d.decode(&frame).and_then(|new| {
+                            if !new {
+                                return Ok(None);
+                            }
+                            shared.video_in.fetch_add(1, Relaxed);
+                            let size = d.size();
+                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| {
+                                d.picture(want).map(|p| {
+                                    p.map(|mut i| {
+                                        i.source_size = egui::vec2(size.0 as f32, size.1 as f32);
+                                        i
+                                    })
+                                })
+                            })
+                        });
+                        match shown {
+                            Ok(img) if d.starved < STARVED => img,
+                            // the card gave out, or never started: carry on in software from a keyframe
+                            _ => {
+                                decs.remove(&ssrc);
+                                if let Some(Ok(d)) = SOFT.load(Relaxed).then(Decoder::new) {
+                                    decs.insert(ssrc, Dec::Soft(d));
+                                }
+                                let _ = pli.send(ssrc);
+                                None
+                            }
+                        }
+                    }
+                    Dec::Soft(d) => match d.decode(&frame) {
+                        Ok(Some(yuv)) => {
+                            let (w, h) = yuv.dimensions();
+                            shared.video_in.fetch_add(1, Relaxed);
+                            picture_size(user, ssrc, &last, (w, h)).map(|(tw, th)| {
+                                rgba.resize(w * h * 4, 0);
+                                yuv.write_rgba8(&mut rgba);
+                                let f = (w / tw.max(1)).min(h / th.max(1)).clamp(1, 8);
+                                let mut img = if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) };
+                                img.source_size = egui::vec2(w as f32, h as f32);
+                                img
+                            })
+                        }
+                        Ok(None) => None,
+                        Err(_) => {
+                            let _ = pli.send(ssrc);
+                            None
+                        }
                     },
                 };
-                match dec.decode(&frame) {
-                    Ok(Some(yuv)) => {
-                        let (w, h) = yuv.dimensions();
-                        rgba.resize(w * h * 4, 0);
-                        yuv.write_rgba8(&mut rgba);
-                        shared.video_in.fetch_add(1, Relaxed);
-                        let img = Arc::new(ColorImage::from_rgba_unmultiplied([w, h], &rgba));
-                        out.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, img) }));
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        let _ = pli.send(ssrc);
-                    }
+                if let Some(img) = img {
+                    last.insert(ssrc, Instant::now());
+                    settle.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));
+                    out.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, Arc::new(img)) }));
                 }
             }
+            drop((decs, rgba, gpu));
+            crate::winsys::trim();
         });
         Decode { tx }
     }
@@ -227,6 +353,7 @@ pub struct Sender {
     pub size: (usize, usize),
     pub fps: u32,
     pub bitrate: u32,
+    clip: bool,
     th: Option<JoinHandle<()>>,
 }
 
@@ -235,6 +362,9 @@ impl Drop for Sender {
         self.stop.store(true, Relaxed);
         if let Some(t) = self.th.take() {
             let _ = t.join();
+        }
+        if self.clip {
+            crate::clips::stream_end();
         }
     }
 }
@@ -247,12 +377,13 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
     let stop = Arc::new(AtomicBool::new(false));
     let key = Arc::new(AtomicBool::new(true));
     let (s2, k2) = (stop.clone(), key.clone());
+    let clip = src != Source::Camera;
     // COM objects stay on the thread that made them, so the source is opened over there
     let (opened, ready) = smpsc::sync_channel(1);
     let th = std::thread::Builder::new()
         .name("video-encode".into())
         .spawn(move || {
-            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, true) {
+            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, HW.load(Relaxed)) {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = opened.send(Err(e));
@@ -261,10 +392,16 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
             };
             let _ = opened.send(Ok((size, bps)));
             let t0 = Instant::now();
+            let base = crate::clips::ticks(t0);
             let frame_time = Duration::from_secs(1) / fps;
             let mut next = Instant::now();
             let mut n = 0u64;
+            let mut settle = Some(Instant::now() + Duration::from_secs(3));
             while !s2.load(Relaxed) {
+                if settle.is_some_and(|t| Instant::now() >= t) {
+                    crate::winsys::trim();
+                    settle = None;
+                }
                 // never behind by more than a frame, so a hiccup doesn't come out as a burst
                 next = (next + frame_time).max(Instant::now());
                 if !pipe.paced()
@@ -295,16 +432,27 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                 }
                 for (data, t) in frames {
                     shared.video_out.fetch_add(1, Relaxed);
+                    if clip && crate::clips::active() {
+                        crate::clips::video(&data, base + t, crate::clips::is_key(&data));
+                    }
                     let ts = (t as u64 * 9 / 1000) as u32;
                     if out.send(Encoded { data, ts }).is_err() {
                         return;
                     }
                 }
             }
+            drop(pipe);
+            crate::winsys::trim();
         })
         .map_err(|e| e.to_string())?;
     let (size, bitrate) = ready.recv().map_err(|e| e.to_string())??;
-    Ok(Sender { stop, key, size, fps, bitrate, th: Some(th) })
+    if clip {
+        crate::clips::stream_start(size, fps, crate::clips::source_name(match src {
+            Source::Window(h) => Some(h),
+            _ => None,
+        }));
+    }
+    Ok(Sender { stop, key, size, fps, bitrate, clip, th: Some(th) })
 }
 
 enum Pipe {
@@ -368,8 +516,7 @@ impl Pipe {
                     return Ok(false);
                 }
                 if let Some(p) = look {
-                    let px = bgra.chunks_exact(4).map(|p| egui::Color32::from_rgb(p[2], p[1], p[0])).collect();
-                    p(Arc::new(ColorImage::new([w, h], px)));
+                    p(Arc::new(shrink(bgra, (w, h), (h / 360).max(1), [2, 1, 0])));
                 }
                 match enc {
                     Enc::Card(e, yuv) => {
@@ -427,6 +574,9 @@ fn bitrate(w: usize, h: usize, fps: u32) -> u32 {
 
 // for when no card's encoder works
 fn soft(fps: u32, bps: u32) -> Option<Encoder> {
+    if !SOFT.load(Relaxed) {
+        return None;
+    }
     // openh264's screen-content mode takes 40-70ms a frame at 720p, too slow for 30fps;
     // the real-time camera mode on low, split over a few threads, takes a few ms
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4)) as u16;

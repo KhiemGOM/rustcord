@@ -3,14 +3,17 @@
 //! images, 12 = localization, 13 = appearance, 14 = guild folders). Field numbers
 //! are from dolfies/discord-protos.
 
-use crate::cache::{Settings, Spoilers};
-use crate::state::{Folder, Id};
-use crate::theme::Theme;
+pub mod frecency;
+
+use crate::cache::{Animate, Density, Peer, Settings, Spoilers, VideoBg};
+use crate::state::{Folder, Id, Map, ReactEmoji};
+use crate::theme::{Custom, Fill, Theme};
 
 enum Val<'a> {
     Int(u64),
     Bytes(&'a [u8]),
     Fixed(u64),
+    Float(f32),
 }
 
 fn varint(b: &[u8], i: &mut usize) -> Option<u64> {
@@ -49,10 +52,13 @@ fn fields(b: &[u8]) -> Vec<(u64, Val<'_>)> {
                 i += len as usize;
                 Val::Bytes(s)
             }
-            5 => {
-                i += 4;
-                continue;
-            }
+            5 => match b.get(i..i + 4) {
+                Some(s) => {
+                    i += 4;
+                    Val::Float(f32::from_le_bytes(s.try_into().unwrap()))
+                }
+                None => break,
+            },
             _ => break,
         };
         out.push((key >> 3, v));
@@ -108,9 +114,89 @@ pub fn guild_folders(settings: &[u8]) -> Vec<Folder> {
     out
 }
 
-/// The account's own custom status text (status settings 11, custom_status 2), unless it ran out.
+fn put_varint(out: &mut Vec<u8>, mut v: u64) {
+    while v >= 0x80 {
+        out.push((v & 0x7f) as u8 | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+fn put_bytes(out: &mut Vec<u8>, field: u64, b: &[u8]) {
+    put_varint(out, field << 3 | 2);
+    put_varint(out, b.len() as u64);
+    out.extend_from_slice(b);
+}
+
+fn put_ids(out: &mut Vec<u8>, field: u64, ids: &[Id]) {
+    let packed: Vec<u8> = ids.iter().flat_map(|g| (*g as u64).to_le_bytes()).collect();
+    put_bytes(out, field, &packed);
+}
+
+fn put_wrapped(out: &mut Vec<u8>, field: u64, v: u64) {
+    let mut w = Vec::new();
+    put_varint(&mut w, 1 << 3);
+    put_varint(&mut w, v);
+    put_bytes(out, field, &w);
+}
+
+/// A PreloadedUserSettings holding just the guild folders (14), for a partial update.
+pub fn folders_update(folders: &[Folder]) -> Vec<u8> {
+    let mut list = Vec::new();
+    for f in folders {
+        let mut b = Vec::new();
+        put_ids(&mut b, 1, &f.guilds);
+        if f.id != 0 {
+            put_wrapped(&mut b, 2, f.id as u64);
+        }
+        if let Some(n) = &f.name {
+            let mut w = Vec::new();
+            put_bytes(&mut w, 1, n.as_bytes());
+            put_bytes(&mut b, 3, &w);
+        }
+        if let Some(c) = f.color {
+            put_wrapped(&mut b, 4, c as u64);
+        }
+        put_bytes(&mut list, 1, &b);
+    }
+    let mut out = Vec::new();
+    put_bytes(&mut out, 14, &list);
+    out
+}
+
+/// The privacy settings' (8) lists of servers: 3 direct messages off, 13 activity status off, 15
+/// activity joining off, 16 message requests off. Only the lists the blob carries.
+pub fn privacy(settings: &[u8]) -> Vec<(u64, Vec<Id>)> {
+    let mut out = Vec::new();
+    for (n, v) in fields(settings) {
+        let (8, Val::Bytes(b)) = (n, v) else { continue };
+        for (n, v) in fields(b) {
+            if !matches!(n, 3 | 13 | 15 | 16) {
+                continue;
+            }
+            let ids = match v {
+                Val::Bytes(p) => p.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap()) as Id).collect(),
+                Val::Fixed(g) => vec![g as Id],
+                _ => continue,
+            };
+            out.push((n, ids));
+        }
+    }
+    out
+}
+
+/// One of those lists, set to `ids`, as a partial update.
+pub fn privacy_update(field: u64, ids: &[Id]) -> Vec<u8> {
+    let mut p = Vec::new();
+    put_ids(&mut p, field, ids);
+    let mut out = Vec::new();
+    put_bytes(&mut out, 8, &p);
+    out
+}
+
+/// The account's own custom status text and emoji (status settings 11, custom_status 2), unless it ran out.
 /// None when the blob has no status settings at all, so a partial update leaves it be.
-pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {
+pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<(String, Option<ReactEmoji>)>> {
     let status = fields(settings).into_iter().find_map(|(n, v)| match (n, v) {
         (11, Val::Bytes(b)) => Some(b),
         _ => None,
@@ -121,15 +207,18 @@ pub fn custom_status(settings: &[u8], now_ms: u64) -> Option<Option<String>> {
     }) else {
         return Some(None);
     };
-    let mut text = None;
+    let (mut text, mut emoji) = (String::new(), ReactEmoji::default());
     for (n, v) in fields(custom) {
         match (n, v) {
-            (1, Val::Bytes(t)) => text = Some(String::from_utf8_lossy(t).into_owned()),
+            (1, Val::Bytes(t)) => text = String::from_utf8_lossy(t).into_owned(),
+            (2, Val::Fixed(id)) => emoji.id = id,
+            (3, Val::Bytes(name)) => emoji.name = String::from_utf8_lossy(name).into_owned(),
             (4, Val::Fixed(exp)) if exp != 0 && exp <= now_ms => return Some(None),
             _ => {}
         }
     }
-    Some(text.filter(|t| !t.is_empty()))
+    let emoji = (!emoji.name.is_empty()).then_some(emoji);
+    Some((!text.is_empty() || emoji.is_some()).then_some((text, emoji)))
 }
 
 /// From the status settings (11): the status (1) and whether games are shared (3, a BoolValue
@@ -178,10 +267,15 @@ macro_rules! account {
 
 account! {
     theme: Theme,
+    custom_theme: Option<u8>,
+    own_theme: Option<Custom>,
+    server_themes: bool,
+    appearance_raw: Vec<u8>,
     dev: bool,
-    clock24: bool,
+    hour_cycle: u8,
     compact: bool,
     compact_avatars: bool,
+    thread_sidebar: bool,
     inline_links: bool,
     inline_uploads: bool,
     embeds: bool,
@@ -191,10 +285,40 @@ account! {
     gif_autoplay: bool,
     spoilers: Spoilers,
     locale: String,
+    stream_previews: bool,
+    soundboard_volume: f32,
+    entrance: Vec<(Id, Id, Id)>,
+    reaction_notify: u8,
+    stream_notify: bool,
+    friend_anniv: bool,
+    friend_online: bool,
+    server_events: bool,
+    profile_updates: bool,
+    push_delay: u32,
+    tts_command: bool,
+    clips_voice: bool,
+    legacy_input: bool,
+    game_suggestions: bool,
+    sticker_suggestions: bool,
+    md_preview: bool,
+    image_descriptions: bool,
+    stickers: Animate,
+    search_all_dms: bool,
+    density: Density,
+    preview_video: bool,
+    video_bg: VideoBg,
+    peers: Map<Id, Peer>,
 }
 
 fn flag(w: &[u8]) -> bool {
     matches!(wrapped(w), Some(Val::Int(v)) if v != 0)
+}
+
+fn number(w: &[u8]) -> Option<u64> {
+    match wrapped(w) {
+        Some(Val::Int(n)) => Some(n),
+        _ => None,
+    }
 }
 
 fn text(w: &[u8]) -> Option<String> {
@@ -208,13 +332,90 @@ fn text(w: &[u8]) -> Option<String> {
 /// bool, never written when false) means off rather than "not mentioned".
 pub fn account(settings: &[u8], full: bool) -> Account {
     let mut a = Account::default();
+    if full {
+        a.reaction_notify = Some(0);
+        a.stream_notify = Some(true);
+        a.friend_anniv = Some(true);
+        a.friend_online = Some(true);
+        a.server_events = Some(true);
+        a.profile_updates = Some(true);
+        a.push_delay = Some(60);
+        a.tts_command = Some(true);
+        a.hour_cycle = Some(0);
+        a.legacy_input = Some(false);
+        a.game_suggestions = Some(true);
+        a.sticker_suggestions = Some(false);
+        a.md_preview = Some(true);
+    }
     for (n, v) in fields(settings) {
         let Val::Bytes(b) = v else { continue };
         match n {
+            3 => {
+                let mut sounds = Vec::new();
+                for (n, v) in fields(b) {
+                    let (1, Val::Bytes(entry)) = (n, v) else { continue };
+                    let (mut guild, mut sound) = (0, (0, 0));
+                    for (n, v) in fields(entry) {
+                        match (n, v) {
+                            (1, Val::Fixed(g)) => guild = g,
+                            (2, Val::Bytes(gs)) => {
+                                for (n, v) in fields(gs) {
+                                    let (6, Val::Bytes(js)) = (n, v) else { continue };
+                                    for (n, v) in fields(js) {
+                                        match (n, v) {
+                                            (1, Val::Fixed(id)) => sound.0 = id,
+                                            (2, Val::Fixed(g)) => sound.1 = g,
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if sound.0 != 0 {
+                        sounds.push((guild, sound.0, sound.1));
+                    }
+                }
+                sounds.sort();
+                a.entrance = Some(sounds);
+            }
+            5 => {
+                for (n, v) in fields(b) {
+                    match (n, v) {
+                        (1, Val::Bytes(w)) => a.video_bg = Some(if flag(w) { VideoBg::Blur } else { VideoBg::None }),
+                        (2, Val::Int(i)) if i < 4 => a.video_bg = Some(VideoBg::Preset(i as u8)),
+                        (5, Val::Bytes(w)) => a.preview_video = Some(flag(w)),
+                        (6, Val::Bytes(w)) => a.push_delay = number(w).map(|s| s as u32).or(full.then_some(0)),
+                        (7, Val::Bytes(w)) => a.stream_notify = Some(flag(w)),
+                        (9, Val::Bytes(w)) => {
+                            if let Some((_, Val::Float(f))) = fields(w).into_iter().find(|(n, _)| *n == 1) {
+                                a.soundboard_volume = Some(f);
+                            }
+                        }
+                        (10, Val::Bytes(w)) => a.stream_previews = Some(!flag(w)),
+                        _ => {}
+                    }
+                }
+            }
+            7 => {
+                for (n, v) in fields(b) {
+                    match (n, v) {
+                        (7, Val::Int(i)) => a.reaction_notify = Some(i.min(2) as u8),
+                        (12, Val::Bytes(w)) => a.friend_online = Some(flag(w)),
+                        (14, Val::Bytes(w)) => a.friend_anniv = Some(flag(w)),
+                        (16, Val::Bytes(w)) => a.profile_updates = Some(flag(w)),
+                        (22, Val::Bytes(w)) => a.server_events = Some(flag(w)),
+                        _ => {}
+                    }
+                }
+            }
             6 => {
                 for (n, v) in fields(b) {
                     let Val::Bytes(w) = v else { continue };
                     match n {
+                        2 => a.md_preview = Some(flag(w)),
+                        3 => a.thread_sidebar = Some(flag(w)),
                         4 => {
                             a.spoilers = match text(w).as_deref() {
                                 Some("ALWAYS") => Some(Spoilers::Always),
@@ -223,16 +424,67 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                                 _ => None,
                             }
                         }
+                        7 => a.image_descriptions = Some(flag(w)),
                         9 => a.inline_uploads = Some(flag(w)),
                         10 => a.inline_links = Some(flag(w)),
                         11 => a.gif_autoplay = Some(flag(w)),
                         12 => a.embeds = Some(flag(w)),
                         13 => a.reactions = Some(flag(w)),
                         14 => a.animate_emoji = Some(flag(w)),
+                        15 => {
+                            a.stickers = Some(match number(w) {
+                                Some(1) => Animate::OnInteraction,
+                                Some(2) => Animate::Never,
+                                _ => Animate::Always,
+                            })
+                        }
+                        16 => a.tts_command = Some(flag(w)),
                         17 => a.compact = Some(flag(w)),
                         21 => a.emoticons = Some(flag(w)),
+                        24 => a.legacy_input = Some(flag(w)),
+                        28 => a.sticker_suggestions = Some(flag(w)),
+                        39 => a.game_suggestions = Some(flag(w)),
+                        36 => a.search_all_dms = Some(flag(w)),
                         41 => a.compact_avatars = Some(flag(w)),
                         _ => {}
+                    }
+                }
+            }
+            16 => {
+                let (mut peers, mut listed) = (Map::default(), false);
+                for (n, v) in fields(b) {
+                    let (1, Val::Bytes(entry)) = (n, v) else { continue };
+                    listed = true;
+                    let (mut user, mut p) = (0, Peer { volume: 0.0, ..Peer::default() });
+                    for (n, v) in fields(entry) {
+                        match (n, v) {
+                            (1, Val::Fixed(u)) => user = u as Id,
+                            (2, Val::Bytes(setting)) => {
+                                for (n, v) in fields(setting) {
+                                    match (n, v) {
+                                        (1, Val::Int(m)) => p.muted = m != 0,
+                                        (2, Val::Float(f)) => p.volume = f,
+                                        (3, Val::Fixed(t)) => p.modified = t,
+                                        (4, Val::Int(m)) => p.soundboard_muted = m != 0,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if user != 0 && (p.muted || p.soundboard_muted || p.volume != 100.0) {
+                        peers.insert(user, p);
+                    }
+                }
+                if full || listed || b.is_empty() {
+                    a.peers = Some(peers);
+                }
+            }
+            19 => {
+                for (n, v) in fields(b) {
+                    if let (1, Val::Bytes(w)) = (n, v) {
+                        a.clips_voice = Some(flag(w));
                     }
                 }
             }
@@ -246,12 +498,17 @@ pub fn account(settings: &[u8], full: bool) -> Account {
             13 => {
                 if full {
                     a.dev = Some(false);
+                    a.custom_theme = Some(None);
+                    a.own_theme = Some(None);
+                    a.server_themes = Some(true);
                 }
+                a.appearance_raw = Some(b.to_vec());
+                let mut light = false;
                 for (n, v) in fields(b) {
-                    let Val::Int(i) = v else { continue };
-                    match n {
+                    match (n, v) {
                         // 1 dark, 2 light, 3 darker, 4 midnight; the 2025 names are Ash, Light, Dark, Onyx
-                        1 => {
+                        (1, Val::Int(i)) => {
+                            light = i == 2;
                             a.theme = match i {
                                 1 => Some(Theme::Ash),
                                 2 => Some(Theme::Light),
@@ -260,14 +517,30 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                                 _ => None,
                             }
                         }
-                        2 => a.dev = Some(i != 0),
-                        9 => {
-                            a.clock24 = match i {
-                                1 => Some(false),
-                                2 => Some(true),
-                                _ => None,
+                        (2, Val::Int(i)) => a.dev = Some(i != 0),
+                        (3, Val::Bytes(c)) => {
+                            a.custom_theme = Some(None);
+                            a.own_theme = Some(None);
+                            for (n, v) in fields(c) {
+                                match (n, v) {
+                                    (2, Val::Bytes(w)) => a.custom_theme = Some(number(w).and_then(|id| match Fill::from_id(id as u32) {
+                                        Some(Fill::Preset(i)) => Some(i),
+                                        _ => None,
+                                    })),
+                                    (4, Val::Bytes(t)) => a.own_theme = Some(custom_theme(t, light)),
+                                    _ => {}
+                                }
                             }
                         }
+                        (9, Val::Int(i)) => a.hour_cycle = Some(i.min(2) as u8),
+                        (12, Val::Int(i)) => {
+                            a.density = Some(match i {
+                                1 => Density::Compact,
+                                2 => Density::Spacious,
+                                _ => Density::Default,
+                            })
+                        }
+                        (14, Val::Int(i)) => a.server_themes = Some(i != 1),
                         _ => {}
                     }
                 }
@@ -276,4 +549,228 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         }
     }
     a
+}
+
+fn custom_theme(b: &[u8], light: bool) -> Option<Custom> {
+    let mut c = Custom { colors: Vec::new(), angle: 0, mix: 0, light };
+    for (n, v) in fields(b) {
+        match (n, v) {
+            (1, Val::Bytes(s)) => c.colors.extend(u32::from_str_radix(String::from_utf8_lossy(s).trim_start_matches('#'), 16)),
+            (3, Val::Int(i)) => c.angle = i as i32,
+            (4, Val::Int(i)) => c.mix = i as i32,
+            _ => {}
+        }
+    }
+    (!c.colors.is_empty()).then_some(c)
+}
+
+fn tag(out: &mut Vec<u8>, field: u64, wire: u64) {
+    put(out, field << 3 | wire);
+}
+
+fn put(out: &mut Vec<u8>, mut v: u64) {
+    while v >= 0x80 {
+        out.push(v as u8 & 0x7f | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+fn message(out: &mut Vec<u8>, field: u64, body: &[u8]) {
+    tag(out, field, 2);
+    put(out, body.len() as u64);
+    out.extend_from_slice(body);
+}
+
+/// A PreloadedUserSettings update carrying just the voice settings the account mirrors:
+/// soundboard volume (voice_and_video.soundboard_settings) and stream previews turned off.
+pub fn voice_patch(soundboard_volume: f32, stream_previews: bool) -> Vec<u8> {
+    let mut volume = Vec::new();
+    tag(&mut volume, 1, 5);
+    volume.extend_from_slice(&soundboard_volume.to_le_bytes());
+    let mut off = Vec::new();
+    if !stream_previews {
+        tag(&mut off, 1, 0);
+        put(&mut off, 1);
+    }
+    let mut vv = Vec::new();
+    message(&mut vv, 9, &volume);
+    message(&mut vv, 10, &off);
+    let mut out = Vec::new();
+    message(&mut out, 5, &vv);
+    out
+}
+
+/// An update to what each person in a call is played at (audio_context_settings 16, user map). An
+/// emptied map is sent as one entry at the defaults for `last`, since a patch can't name an empty field.
+pub fn peers_patch(peers: &Map<Id, Peer>, last: Id) -> Vec<u8> {
+    let mut list: Vec<(Id, Peer)> = peers.iter().map(|(u, p)| (*u, *p)).collect();
+    if list.is_empty() {
+        list.push((last, Peer::default()));
+    }
+    list.sort_by_key(|(u, _)| *u);
+    let mut group = Vec::new();
+    for (user, p) in list {
+        let mut setting = Vec::new();
+        if p.muted {
+            tag(&mut setting, 1, 0);
+            put(&mut setting, 1);
+        }
+        if p.volume != 0.0 {
+            tag(&mut setting, 2, 5);
+            setting.extend_from_slice(&p.volume.to_le_bytes());
+        }
+        if p.modified != 0 {
+            tag(&mut setting, 3, 1);
+            setting.extend_from_slice(&p.modified.to_le_bytes());
+        }
+        if p.soundboard_muted {
+            tag(&mut setting, 4, 0);
+            put(&mut setting, 1);
+        }
+        let mut entry = Vec::new();
+        tag(&mut entry, 1, 1);
+        entry.extend_from_slice(&(user as u64).to_le_bytes());
+        message(&mut entry, 2, &setting);
+        message(&mut group, 1, &entry);
+    }
+    let mut out = Vec::new();
+    message(&mut out, 16, &group);
+    out
+}
+
+/// An update to the status settings (11): the status, when it ends (zero for never) and when it was set.
+pub fn status_patch(status: &str, expires_ms: u64, created_ms: u64) -> Vec<u8> {
+    let mut value = Vec::new();
+    message(&mut value, 1, status.as_bytes());
+    let mut group = Vec::new();
+    message(&mut group, 1, &value);
+    tag(&mut group, 4, 1);
+    group.extend_from_slice(&expires_ms.to_le_bytes());
+    put_wrapped(&mut group, 5, created_ms);
+    let mut out = Vec::new();
+    message(&mut out, 11, &group);
+    out
+}
+
+/// An update to the custom status (11, 2); no text and no emoji clears it.
+pub fn custom_status_patch(text: &str, emoji: Option<&ReactEmoji>, expires_ms: u64, created_ms: u64) -> Vec<u8> {
+    let mut custom = Vec::new();
+    if !text.is_empty() || emoji.is_some() {
+        message(&mut custom, 1, text.as_bytes());
+        if let Some(e) = emoji {
+            if e.id != 0 {
+                tag(&mut custom, 2, 1);
+                custom.extend_from_slice(&e.id.to_le_bytes());
+            }
+            message(&mut custom, 3, e.name.as_bytes());
+        }
+        if expires_ms != 0 {
+            tag(&mut custom, 4, 1);
+            custom.extend_from_slice(&expires_ms.to_le_bytes());
+        }
+        tag(&mut custom, 5, 1);
+        custom.extend_from_slice(&created_ms.to_le_bytes());
+    }
+    let mut group = Vec::new();
+    message(&mut group, 2, &custom);
+    let mut out = Vec::new();
+    message(&mut out, 11, &group);
+    out
+}
+
+/// An update that sets one guild's entrance sound (guild 0 is "All Servers"); a zero sound clears it.
+pub fn entrance_patch(guild: Id, sound: Id, source: Id) -> Vec<u8> {
+    let mut js = Vec::new();
+    tag(&mut js, 1, 1);
+    js.extend_from_slice(&sound.to_le_bytes());
+    tag(&mut js, 2, 1);
+    js.extend_from_slice(&source.to_le_bytes());
+    let mut gs = Vec::new();
+    message(&mut gs, 6, &js);
+    let mut entry = Vec::new();
+    tag(&mut entry, 1, 1);
+    entry.extend_from_slice(&guild.to_le_bytes());
+    message(&mut entry, 2, &gs);
+    let mut all = Vec::new();
+    message(&mut all, 1, &entry);
+    let mut out = Vec::new();
+    message(&mut out, 3, &all);
+    out
+}
+
+fn copy(out: &mut Vec<u8>, n: u64, v: &Val) {
+    match v {
+        Val::Int(i) => {
+            tag(out, n, 0);
+            put(out, *i);
+        }
+        Val::Bytes(b) => message(out, n, b),
+        Val::Fixed(x) => {
+            tag(out, n, 1);
+            out.extend_from_slice(&x.to_le_bytes());
+        }
+        Val::Float(f) => {
+            tag(out, n, 5);
+            out.extend_from_slice(&f.to_le_bytes());
+        }
+    }
+}
+
+/// The base theme's number in the theme enum.
+fn theme_number(t: Theme, light: bool) -> u64 {
+    match t {
+        Theme::Ash => 1,
+        Theme::Light => 2,
+        Theme::Dark => 3,
+        Theme::Onyx => 4,
+        Theme::Sync if light => 2,
+        Theme::Sync => 1,
+    }
+}
+
+/// The whole appearance settings message: `raw` is the one the account last sent, with the theme,
+/// the client theme (a preset or the user's own colours) and the default for server themes put in
+/// place and every other field left as it was.
+pub fn appearance(raw: &[u8], theme: Theme, fill: Option<&Fill>, server_themes: bool) -> Vec<u8> {
+    let mut body = Vec::new();
+    let light = matches!(fill, Some(Fill::Custom(c)) if c.light);
+    tag(&mut body, 1, 0);
+    put(&mut body, theme_number(theme, light));
+    let mut client = Vec::new();
+    match fill {
+        Some(Fill::Preset(i)) => {
+            let mut id = Vec::new();
+            tag(&mut id, 1, 0);
+            put(&mut id, Fill::id(*i) as u64);
+            message(&mut client, 2, &id);
+        }
+        Some(Fill::Custom(c)) => {
+            let mut custom = Vec::new();
+            for col in &c.colors {
+                message(&mut custom, 1, format!("#{col:06x}").as_bytes());
+            }
+            tag(&mut custom, 3, 0);
+            put(&mut custom, c.angle as u64);
+            tag(&mut custom, 4, 0);
+            put(&mut custom, c.mix as u64);
+            message(&mut client, 4, &custom);
+        }
+        None => {}
+    }
+    message(&mut body, 3, &client);
+    for (n, v) in fields(raw) {
+        if !matches!(n, 1 | 3 | 14) {
+            copy(&mut body, n, &v);
+        }
+    }
+    tag(&mut body, 14, 0);
+    put(&mut body, if server_themes { 2 } else { 1 });
+    body
+}
+
+pub fn appearance_patch(body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    message(&mut out, 13, body);
+    out
 }

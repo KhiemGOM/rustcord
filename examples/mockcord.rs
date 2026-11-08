@@ -1,6 +1,6 @@
 //! Tiny fake Discord for the e2e harness: REST + CDN over plain HTTP, gateway over ws,
 //! and a voice server (ws + udp on the same port number) with one fake speaker.
-//! usage: mockcord <http_port> <ws_port> <request_log.jsonl> [voice_port]
+//! usage: mockcord <http_port> <ws_port> <request_log.jsonl> [voice_port] [remote_auth_port]
 
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
@@ -23,10 +23,46 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
+#[path = "mockcord/account.rs"]
+mod account;
+#[path = "mockcord/acks.rs"]
+mod acks;
+#[path = "mockcord/cdn.rs"]
+mod cdn_shape;
+#[path = "mockcord/frecency.rs"]
+mod frecency;
+#[path = "mockcord/gallery.rs"]
+mod gallery;
+#[path = "mockcord/rules.rs"]
+mod rules;
+#[path = "mockcord/members.rs"]
+mod members;
+#[path = "mockcord/perms.rs"]
+mod perms;
+#[path = "mockcord/bot.rs"]
+mod bot;
+#[path = "mockcord/joins.rs"]
+mod joins;
+#[path = "mockcord/buy.rs"]
+mod buy;
+#[path = "mockcord/shop.rs"]
+mod shop;
+#[path = "mockcord/roleconn.rs"]
+mod roleconn;
+#[path = "mockcord/profiles.rs"]
+mod profiles;
+#[path = "mockcord/servers.rs"]
+mod servers;
+#[path = "mockcord_auth/mod.rs"]
+mod auth;
+#[path = "mockcord/prefs.rs"]
+mod prefs;
+
 const ME: u64 = 100;
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 const GENERAL: u64 = 2011;
 const MEDIA: u64 = 2060;
+const EMBEDS: u64 = 2062;
 const SPEAKER: u64 = 101;
 const SPEAKER_SSRC: u32 = 2001;
 const CLIENT_SSRC: u32 = 1001;
@@ -39,12 +75,71 @@ struct World {
     events: broadcast::Sender<Value>,
     voice_port: u16,
     voice_chan: Option<(Option<u64>, u64)>,
+    clip_flags: u64,
     voices: Vec<Voice>,
     // messages saved for later: bookmarks, and reminders with a due time
     saved: Vec<Value>,
     // channel settings saved over what READY says, and channels deleted since
     edits: serde_json::Map<String, Value>,
     gone: Vec<String>,
+    speakers: std::collections::HashSet<u64>,
+    // files PUT to an upload url, by the filename it handed out, and their sizes
+    uploads: std::collections::HashMap<String, usize>,
+    hands: std::collections::HashMap<u64, String>,
+    // running activities: channel, application, launch id, who has it open
+    acts: Vec<(u64, u64, String, Vec<u64>)>,
+    // applications the account has authorized
+    authorized: std::collections::HashSet<u64>,
+    fails: Vec<(String, String, u16, Value, u32)>,
+}
+
+const ACTIVITY_APPS: [(u64, &str, &str); 2] = [(9100, "Mock Quiz", "A quiz for the whole call"), (9101, "Mock Draw", "Draw something together")];
+
+fn activity_guild(ch: u64) -> Option<u64> {
+    match ch {
+        2801 => Some(1008),
+        2310 => Some(1003),
+        _ => None,
+    }
+}
+
+/// Tells the client how an activity stands: who's in it, none when it has ended.
+fn activity_update(w: &mut World, ch: u64, app: u64) {
+    let Some((_, _, launch, users)) = w.acts.iter().find(|a| a.0 == ch && a.1 == app) else { return };
+    let participants: Vec<Value> = users.iter().map(|u| json!({ "user_id": u.to_string(), "session_id": "mock-session", "nonce": null })).collect();
+    let d = json!({
+        "application_id": app.to_string(),
+        "launch_id": launch,
+        "composite_instance_id": launch,
+        "location": { "id": ch.to_string(), "kind": "gc", "channel_id": ch.to_string(), "guild_id": activity_guild(ch).map(|g| g.to_string()) },
+        "guild_id": activity_guild(ch).map(|g| g.to_string()),
+        "participants": participants,
+    });
+    let _ = w.events.send(json!({ "t": "EMBEDDED_ACTIVITY_UPDATE_V2", "d": d }));
+}
+
+fn activity_join(w: &mut World, ch: u64, app: u64, user: u64) {
+    match w.acts.iter_mut().find(|a| a.0 == ch && a.1 == app) {
+        Some(a) => {
+            if !a.3.contains(&user) {
+                a.3.push(user);
+            }
+        }
+        None => w.acts.push((ch, app, format!("L{}", now_ms()), vec![user])),
+    }
+    activity_update(w, ch, app);
+}
+
+fn activity_page() -> Vec<u8> {
+    include_bytes!("fixtures/activity.html").to_vec()
+}
+
+fn stage_guild(ch: u64) -> Option<u64> {
+    match ch {
+        2311 => Some(1003),
+        2802 => Some(1008),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -168,6 +263,8 @@ fn user(id: u64) -> Value {
         103 => ("carol", "Carol ✿", false),
         104 => ("dyno", "Dyno", true),
         106 => ("frank", "Frank", false),
+        108 => ("grim", "Grim", false),
+        109 => ("shade", "Shade", false),
         _ => ("eve", "Eve", false),
     };
     let mut u = json!({ "id": id.to_string(), "username": name, "global_name": global, "avatar": format!("av{id}"), "bot": bot, "discriminator": "0" });
@@ -203,6 +300,167 @@ fn msg(id: u64, ch: u64, author: u64, content: &str) -> Value {
     })
 }
 
+fn fail_body(status: u16) -> Value {
+    match status {
+        400 => json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "name": { "_errors": [{ "code": "BASE_TYPE_MAX_LENGTH", "message": "Must be 32 or fewer in length." }] } } }),
+        401 => json!({ "message": "401: Unauthorized", "code": 0 }),
+        403 => json!({ "message": "Missing Permissions", "code": 50013 }),
+        404 => json!({ "message": "Unknown Message", "code": 10008 }),
+        429 => json!({ "message": "You are being rate limited.", "retry_after": 30.0, "global": false }),
+        _ => json!({}),
+    }
+}
+
+const SYSTEM: u64 = 2070;
+const CHATX: u64 = 2085;
+
+/// What the chat cards and popouts have to draw: invite links, runs from a blocked user, a closed
+/// poll with voters, a custom emoji and a sticker from servers you aren't in, a @silent message.
+fn chatx_msgs(cdn: &str) -> Vec<Value> {
+    let t0 = now_ms() - 2 * 3_600_000;
+    let mut out: Vec<Value> = Vec::new();
+    let mut add = |author: u64, content: &str, f: &dyn Fn(&mut Value)| {
+        let mut m = msg(snow(t0 + out.len() as u64 * 60_000), CHATX, author, content);
+        f(&mut m);
+        out.push(m);
+    };
+    add(103, "who is coming? https://discord.gg/e2eChat1", &|_| {});
+    add(101, "the old one https://discord.gg/e2eGone1", &|_| {});
+    add(102, "our own place https://discord.gg/e2eHere1", &|_| {});
+    add(108, "blocked words one", &|_| {});
+    add(108, "blocked words two", &|_| {});
+    add(103, "an ordinary message in between", &|_| {});
+    add(109, "ignored words", &|_| {});
+    add(103, "", &|m| {
+        m["poll"] = json!({
+            "question": { "text": "tabs or spaces?" },
+            "answers": [
+                { "answer_id": 1, "poll_media": { "text": "tabs" } },
+                { "answer_id": 2, "poll_media": { "text": "spaces", "emoji": { "id": null, "name": "🚀" } } },
+            ],
+            "allow_multiselect": false,
+            "expiry": "2020-01-01T00:00:00+00:00",
+            "results": { "is_finalized": true, "answer_counts": [{ "id": 1, "count": 3, "me_voted": false }, { "id": 2, "count": 0, "me_voted": false }] },
+        });
+    });
+    add(101, "an image to copy", &|m| {
+        m["attachments"] = json!([{ "id": "11", "filename": "copy-me.png", "size": 4096, "url": format!("{cdn}/attachments/2085/11/copy-me.png"),
+            "proxy_url": format!("{cdn}/attachments/2085/11/copy-me.png"), "width": 400, "height": 225, "content_type": "image/png" }]);
+    });
+    add(103, "a sticker from a default pack", &|m| m["sticker_items"] = json!([{ "id": "8103", "name": "Sleepy", "format_type": 3 }]));
+    add(102, "a sticker from elsewhere", &|m| m["sticker_items"] = json!([{ "id": "7777", "name": "Monkey Think", "format_type": 1 }]));
+    add(103, "a faraway <:CRose:9999> emoji", &|_| {});
+    add(101, "quiet please", &|m| m["flags"] = json!(4096));
+    out
+}
+
+
+/// One message of every kind discord draws specially, in a channel of their own, with a few
+/// ordinary ones to hang reactions and menus on.
+fn system_msgs() -> Vec<Value> {
+    let t0 = now_ms() - 3 * 3_600_000;
+    let at = |i: u64| snow(t0 + i * 60_000);
+    let mut out = Vec::new();
+    let mut add = |kind: u64, author: u64, content: &str, f: &dyn Fn(&mut Value)| {
+        let mut m = msg(at(out.len() as u64), SYSTEM, author, content);
+        m["type"] = json!(kind);
+        f(&mut m);
+        out.push(m);
+    };
+    add(0, 102, "this one has reactions", &|m| {
+        m["reactions"] = json!([
+            { "emoji": { "id": null, "name": "🔥" }, "count": 3, "me": false },
+            { "emoji": { "id": null, "name": "👍" }, "count": 2, "me": false },
+        ]);
+    });
+    add(7, 102, "", &|_| {});
+    add(7, 104, "", &|_| {});
+    add(6, 103, "", &|m| m["message_reference"] = json!({ "channel_id": SYSTEM.to_string(), "message_id": at(0).to_string() }));
+    add(8, 102, "", &|_| {});
+    add(9, 103, "2", &|_| {});
+    add(18, 101, "release plan", &|m| m["message_reference"] = json!({ "channel_id": THREAD.to_string() }));
+    add(21, 101, "", &|m| {
+        m["referenced_message"] = msg(at(900), SYSTEM, 101, "the message a thread started from");
+        m["message_reference"] = json!({ "channel_id": SYSTEM.to_string(), "message_id": at(900).to_string() });
+    });
+    add(24, 103, "badword in a message", &|m| {
+        m["embeds"] = json!([{ "type": "auto_moderation_message", "fields": [
+            { "name": "rule_name", "value": "No spoilers" }, { "name": "keyword", "value": "badword" }, { "name": "channel_id", "value": GENERAL.to_string() } ] }]);
+    });
+    add(25, 105, "", &|m| m["role_subscription_data"] = json!({ "tier_name": "Gold", "total_months_subscribed": 3, "is_renewal": true }));
+    add(27, 101, "Rust talk", &|_| {});
+    add(28, 101, "Rust talk", &|_| {});
+    add(29, 102, "", &|_| {});
+    add(30, 103, "", &|_| {});
+    add(31, 101, "Q&A", &|_| {});
+    add(36, 101, &iso(now_ms() + 3_600_000), &|_| {});
+    add(37, 101, "", &|_| {});
+    add(38, 101, "", &|_| {});
+    add(39, 101, "", &|_| {});
+    add(44, 102, "", &|m| m["purchase_notification"] = json!({ "type": 1, "guild_product_purchase": { "listing_id": "1", "product_name": "Rust Mug" } }));
+    add(46, 103, "", &|m| {
+        m["message_reference"] = json!({ "channel_id": SYSTEM.to_string(), "message_id": at(0).to_string() });
+        m["embeds"] = json!([{ "type": "poll_result", "fields": [
+            { "name": "poll_question_text", "value": "Worse leg" }, { "name": "victor_answer_id", "value": "1" },
+            { "name": "victor_answer_text", "value": "fountain of fate" }, { "name": "victor_answer_votes", "value": "32" },
+            { "name": "total_votes", "value": "50" } ] }]);
+    });
+    add(14, 101, "", &|_| {});
+    add(15, 101, "", &|_| {});
+    add(16, 101, "", &|_| {});
+    add(17, 101, "", &|_| {});
+    add(3, 101, "", &|m| m["call"] = json!({ "participants": ["101"], "ended_timestamp": iso(now_ms() - 3 * 3_600_000 + 20 * 60_000 + 7 * 60_000) }));
+    add(4, 102, "new-name", &|_| {});
+    add(20, 104, "/stats ran", &|m| {
+        m["interaction_metadata"] = json!({ "id": "1", "type": 2, "user": user(101), "authorizing_integration_owners": { "0": "1000" } });
+    });
+    add(0, 101, "", &|m| {
+        m["flags"] = json!(8192);
+        m["attachments"] = json!([{ "id": "9", "filename": "voice-message.ogg", "size": 4096, "url": "http://127.0.0.1/voice.ogg", "proxy_url": "http://127.0.0.1/voice.ogg",
+            "content_type": "audio/ogg", "duration_secs": 3.0, "waveform": "AAAA" }]);
+    });
+    out
+}
+
+const REPORT_MENU: &str = r#"{
+ "version": "1.0", "variant": "1", "language": "en", "root_node_id": "root", "success_node_id": "done", "fail_node_id": "fail",
+ "nodes": {
+  "root": { "id": "root", "header": "Report Message", "subheader": "What's going on?", "key": "root",
+            "elements": [{ "name": "preview", "type": "message_preview", "data": {} }],
+            "children": [["It's spam", "spam"], ["Harassment", "harass"]], "button": null },
+  "spam": { "id": "spam", "header": "It's spam", "key": "spam", "report_type": "spam",
+            "elements": [{ "name": "reasons", "type": "checkbox", "should_submit_data": true,
+                           "data": [["links", "Spam links", null], ["flood", "Message flooding", "Many messages in a row"]] }],
+            "button": { "type": "submit" } },
+  "harass": { "id": "harass", "header": "Harassment", "key": "harass",
+              "elements": [{ "name": "details", "type": "text", "data": { "title": "Tell us more", "rows": 3, "placeholder": "Optional" } }],
+              "button": { "type": "submit" } },
+  "done": { "id": "done", "header": "Thanks for letting us know", "subheader": "We'll take a look.", "elements": [], "button": { "type": "done" } },
+  "fail": { "id": "fail", "header": "Something went wrong", "elements": [], "button": { "type": "cancel" } }
+ }
+}"#;
+
+fn unesc(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+            out.push(v);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn failed_once() -> &'static Mutex<std::collections::HashSet<String>> {
+    static S: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    S.get_or_init(Default::default)
+}
+
 fn seed(cdn: &str) -> Vec<Value> {
     let lines = [
         (101, "morning everyone ☀️"),
@@ -222,7 +480,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         (102, "brb, coffee ☕"),
         (106, "lurker here, first message in months 👋"),
     ];
-    let n = 160u64;
+    let n: u64 = std::env::var("MOCK_HISTORY").ok().and_then(|v| v.parse().ok()).unwrap_or(160);
     let start = now_ms() - n * 95_000;
     let mut out: Vec<Value> = Vec::new();
     for i in 0..n {
@@ -231,7 +489,7 @@ fn seed(cdn: &str) -> Vec<Value> {
         let mut m = msg(id, GENERAL, a, text);
         if i == n - 9 {
             m["attachments"] = json!([{ "id": "1", "filename": "screenshot.png", "size": 183_220,
-                "url": format!("{cdn}/attachments/shot.png"), "proxy_url": format!("{cdn}/attachments/shot.png"),
+                "url": format!("{cdn}/attachments/2011/1/photo-800x450-1.png"), "proxy_url": format!("{cdn}/attachments/2011/1/photo-800x450-1.png"),
                 "width": 800, "height": 450, "content_type": "image/png" }]);
             m["content"] = json!("here's the new layout");
         }
@@ -279,7 +537,7 @@ fn seed(cdn: &str) -> Vec<Value> {
                     { "answer_id": 3, "poll_media": { "text": "emacs" } },
                 ],
                 "allow_multiselect": false,
-                "expiry": "2099-01-01T00:00:00+00:00",
+                "expiry": iso(now_ms() + 2 * 86_400_000),
                 "results": { "is_finalized": false, "answer_counts": [
                     { "id": 1, "count": 7, "me_voted": false },
                     { "id": 2, "count": 11, "me_voted": false },
@@ -290,12 +548,23 @@ fn seed(cdn: &str) -> Vec<Value> {
         out.push(m);
     }
     out.extend(media_msgs(cdn));
+    out.extend(embed_msgs(cdn));
+    out.extend(system_msgs());
+    let gallery = gallery::messages(cdn);
+    if let Some(parent) = gallery.iter().find(|m| m["thread"].is_object()) {
+        out.extend(gallery::thread_messages(parent));
+    }
+    out.extend(gallery);
+    out.extend(chatx_msgs(cdn));
+    for (i, (a, text)) in [(101, "anyone up for ranked?"), (103, "in 10")].iter().enumerate() {
+        out.push(msg(snow(now_ms() - 8 * 60_000 + i as u64 * 60_000), THREAD_B, *a, text));
+    }
     let t0 = now_ms() - 30 * 60_000;
     for (i, (a, text)) in [(101, "ok what's left for 1.3?"), (102, "voice + video, then polish"), (100, "I'll take the settings screen"), (103, "forums too 🙏")].iter().enumerate() {
         out.push(msg(snow(t0 + i as u64 * 60_000), THREAD, *a, text));
     }
     for (post, a, text) in [(POST_A, 103, "Could we get a compact message mode? Long threads get tall fast."), (POST_B, 105, "Emoji picker should remember recently used ones.")] {
-        out.push(msg(post, FORUM, a, text));
+        out.push(msg(post, post, a, text));
     }
     out
 }
@@ -305,6 +574,28 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
     let t0 = now_ms() - 12 * 60_000;
     let at = |i: u64| snow(t0 + i * 60_000);
     let mut out = Vec::new();
+
+    let early = |i: u64| snow(t0 - 6 * 60_000 + i * 60_000);
+    let file = |name: &str, size: u64, ctype: &str, w: u32, h: u32| {
+        let url = format!("{cdn}/media/{name}?ex=65f0a1b2&is=65ee2cb2&hm=abc");
+        let mut a = json!({ "id": "9", "filename": name, "size": size, "url": url, "proxy_url": url, "content_type": ctype });
+        if w > 0 {
+            a["width"] = json!(w);
+            a["height"] = json!(h);
+        }
+        a
+    };
+    let mut m = msg(early(0), MEDIA, 102, "a video with sound");
+    // MOCK_CLIP_HD: a real video's file, in place of the tiny one, to measure the player with
+    let hd = std::env::var("MOCK_CLIP_HD").is_ok();
+    m["attachments"] = json!([file("clip.mp4", 19_785, "video/mp4", if hd { 1920 } else { 320 }, if hd { 1080 } else { 180 })]);
+    out.push(m);
+    let mut m = msg(early(1), MEDIA, 101, "an mp3");
+    m["attachments"] = json!([file("tone.mp3", 12_347, "audio/mpeg", 0, 0)]);
+    out.push(m);
+    let mut m = msg(early(2), MEDIA, 102, "some code");
+    m["attachments"] = json!([file("hello.rs", include_bytes!("fixtures/hello.rs").len() as u64, "text/plain; charset=utf-8", 0, 0)]);
+    out.push(m);
 
     let mut m = msg(at(0), MEDIA, 101, "party time <a:party:5100> and a static <:ferris:5000> in one line <a:party:5100>");
     m["reactions"] = json!([
@@ -332,6 +623,38 @@ fn media_msgs(cdn: &str) -> Vec<Value> {
     let dance = format!("{cdn}/media/dance.gif?ex=65f0a1b2&is=65ee2cb2&hm=abc");
     m["attachments"] = json!([{ "id": "2", "filename": "dance.gif", "size": 41_000, "url": dance, "proxy_url": dance,
         "width": 120, "height": 90, "content_type": "image/gif" }]);
+    out.push(m);
+    out
+}
+
+// video embeds as discord makes them: a provider's page to frame (no proxy_url), and a file it kept
+fn embed_msgs(cdn: &str) -> Vec<Value> {
+    let t0 = now_ms() - 40 * 60_000;
+    let site = cdn.trim_end_matches("/cdn");
+    let mut out: Vec<Value> = (0..30).map(|i| msg(snow(t0 + i * 20_000), EMBEDS, 101 + i % 3, &format!("filler {i}, so there is something to scroll past"))).collect();
+    let still = format!("{cdn}/media/still.png");
+    let frame = |n: u64| {
+        json!({ "type": "video", "url": format!("https://www.youtube.com/watch?v=mock{n}"), "title": format!("Mock clip {n}"),
+            "provider": { "name": "YouTube", "url": "https://www.youtube.com" },
+            "thumbnail": { "url": still, "proxy_url": still, "width": 480, "height": 270 },
+            "video": { "url": format!("{site}/embed/player?clip={n}"), "width": 480, "height": 270 } })
+    };
+    let mut m = msg(snow(t0 + 30 * 20_000), EMBEDS, 102, "https://www.youtube.com/watch?v=mock1");
+    m["embeds"] = json!([frame(1)]);
+    out.push(m);
+    let file = format!("{cdn}/media/clip.mp4");
+    let mut m = msg(snow(t0 + 31 * 20_000), EMBEDS, 103, "https://medal.tv/clips/mock");
+    m["embeds"] = json!([{ "type": "video", "url": "https://medal.tv/clips/mock", "title": "Mock Medal clip", "provider": { "name": "Medal" },
+        "thumbnail": { "url": still, "proxy_url": still, "width": 320, "height": 180 },
+        "video": { "url": file, "proxy_url": file, "width": 320, "height": 180 } }]);
+    out.push(m);
+    let mut m = msg(snow(t0 + 32 * 20_000), EMBEDS, 101, "https://www.youtube.com/watch?v=mock2");
+    m["embeds"] = json!([frame(2)]);
+    out.push(m);
+    let mut m = msg(snow(t0 + 33 * 20_000), EMBEDS, 102, "https://example.org/video");
+    m["embeds"] = json!([{ "type": "video", "url": "https://example.org/video", "title": "Not a provider Discord frames", "provider": { "name": "Example" },
+        "thumbnail": { "url": still, "proxy_url": still, "width": 480, "height": 270 },
+        "video": { "url": "https://example.org/player", "width": 480, "height": 270 } }]);
     out.push(m);
     out
 }
@@ -366,6 +689,11 @@ const FORUM: u64 = 2030;
 const POST_A: u64 = 2031;
 const POST_B: u64 = 2032;
 
+fn side_thread(id: u64, name: &str, meta: Value) -> Value {
+    json!({ "id": id.to_string(), "type": 11, "guild_id": "1000", "parent_id": GENERAL.to_string(), "name": name, "owner_id": "101",
+            "message_count": 1, "member_count": 2, "thread_metadata": meta, "last_message_id": null, "member": { "user_id": ME.to_string() } })
+}
+
 fn thread() -> Value {
     json!({ "id": THREAD.to_string(), "type": 11, "guild_id": "1000", "parent_id": GENERAL.to_string(), "name": "release planning",
             "owner_id": "101", "message_count": 4, "member_count": 4, "thread_metadata": { "archived": false },
@@ -374,12 +702,94 @@ fn thread() -> Value {
             "last_pin_timestamp": iso(now_ms() - 3_600_000) })
 }
 
-fn bot_buttons() -> Value {
-    json!([{ "type": 1, "components": [
-        { "type": 2, "style": 1, "label": "Snooze", "custom_id": "snooze", "emoji": { "name": "😴" } },
-        { "type": 2, "style": 4, "label": "Cancel", "custom_id": "cancel" },
-        { "type": 2, "style": 5, "label": "Docs", "url": "https://example.com/docs" },
-    ]}])
+// a thread in a server of ours, started by someone else and not joined: Join Thread, and every
+// moderation item in its menu
+const THREAD_B: u64 = 2160;
+
+fn thread_b() -> Value {
+    json!({ "id": THREAD_B.to_string(), "type": 11, "guild_id": "1001", "parent_id": "2100", "name": "lobby banter",
+            "owner_id": "101", "message_count": 2, "member_count": 2, "thread_metadata": { "archived": false, "locked": false },
+            "last_message_id": snow(now_ms() - 5 * 60_000).to_string() })
+}
+
+fn thread_members(thread: &str, guild: &str) -> Value {
+    let member = |u: u64| json!({ "user_id": u.to_string(), "thread_id": thread, "member": { "user": user(u), "roles": [] } });
+    json!({ "guild_id": guild, "thread_id": thread, "members": [member(101), member(103), member(102)],
+            "presences": [{ "user": { "id": "101" }, "status": "online", "activities": [] }, { "user": { "id": "103" }, "status": "idle", "activities": [] }] })
+}
+
+fn events_base(g: &str) -> Vec<Value> {
+    match g {
+        "1000" => vec![json!({
+            "id": "6100", "guild_id": "1000", "name": "Rust release party", "description": "Watching the release notes together, then a quiz.",
+            "channel_id": "2021", "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 26 * 3_600_000),
+            "scheduled_end_time": null, "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 4,
+        })],
+        "1001" => vec![
+            json!({ "id": "6200", "guild_id": "1001", "name": "Ranked night", "description": "Scrims in the hangout.", "channel_id": "2102",
+                    "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 5 * 3_600_000), "scheduled_end_time": null,
+                    "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 3 }),
+            json!({ "id": "6201", "guild_id": "1001", "name": "Map review", "description": "", "channel_id": null, "creator_id": ME.to_string(),
+                    "creator": user(ME), "scheduled_start_time": iso(now_ms() + 48 * 3_600_000), "scheduled_end_time": iso(now_ms() + 50 * 3_600_000),
+                    "status": 1, "entity_type": 3, "entity_metadata": { "location": "the community hall" }, "user_count": 0 }),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+// what the server has for a guild's events: the ones READY lists, then edits, cancels and new ones
+fn event_list(w: &W, g: &str) -> Vec<Value> {
+    let w = w.lock().unwrap();
+    let base = events_base(g);
+    let mut out: Vec<Value> = base
+        .iter()
+        .filter(|e| !w.gone.contains(&format!("event:{}", e["id"].as_str().unwrap_or_default())))
+        .map(|e| w.edits.get(&format!("event:{}", e["id"].as_str().unwrap_or_default())).cloned().unwrap_or_else(|| e.clone()))
+        .collect();
+    for (k, v) in &w.edits {
+        let id = v["id"].as_str().unwrap_or_default();
+        if k.starts_with("event:") && v["guild_id"] == g && !base.iter().any(|e| e["id"] == id) && !w.gone.contains(k) {
+            out.push(v.clone());
+        }
+    }
+    out.retain(|e| matches!(e["status"].as_u64(), Some(1 | 2)));
+    out
+}
+
+fn quests_base() -> Vec<Value> {
+    let quest = |id: &str, name: &str, task: Value, reward: Value, hue: &str| {
+        json!({ "id": id, "preview": false, "config": {
+            "id": id, "config_version": 2, "starts_at": iso(now_ms() - 86_400_000), "expires_at": iso(now_ms() + 6 * 86_400_000), "features": [],
+            "assets": { "hero": "hero.png", "quest_bar_hero": "hero.png", "game_tile": "tile.png", "logotype": "logo.png" },
+            "colors": { "primary": hue, "secondary": "#404a7b" },
+            "messages": { "quest_name": name, "game_title": "Mock Racers", "game_publisher": "Mock Games" },
+            "task_config_v2": { "tasks": task, "join_operator": "or" },
+            "rewards_config": { "assignment_method": 1, "rewards": [reward], "rewards_expire_at": null, "platforms": 0 },
+            "cta_config": { "link": "https://example.com", "button_label": "Play Free Now" } }, "user_status": null })
+    };
+    let orbs = |n: u64| json!({ "type": 4, "sku_id": "1", "name": format!("{n} Orbs"), "orb_quantity": n });
+    let mut done = quest("9003", "Mock Racers Finals Quest", json!({ "PLAY_ON_DESKTOP": { "type": "PLAY_ON_DESKTOP", "target": 900, "applications": [] } }), orbs(840), "#eb459e");
+    done["user_status"] = json!({ "user_id": ME.to_string(), "quest_id": "9003", "enrolled_at": iso(now_ms() - 3_600_000), "completed_at": iso(now_ms() - 60_000),
+                                  "claimed_at": null, "progress": { "PLAY_ON_DESKTOP": { "event_name": "PLAY_ON_DESKTOP", "value": 900 } } });
+    vec![
+        quest("9001", "Mock Racers Trailer Quest", json!({ "WATCH_VIDEO": { "type": "WATCH_VIDEO", "target": 27 } }), orbs(240), "#5865f2"),
+        quest("9002", "Mock Racers Play Quest", json!({ "PLAY_ON_DESKTOP": { "type": "PLAY_ON_DESKTOP", "target": 900, "applications": [] } }),
+              json!({ "type": 2, "sku_id": "2", "messages": { "name": "Turbo Kart avatar decoration", "name_with_article": "a Turbo Kart avatar decoration" } }), "#3ba55d"),
+        done,
+    ]
+}
+
+fn quest_list(w: &W) -> Vec<Value> {
+    let w = w.lock().unwrap();
+    quests_base()
+        .into_iter()
+        .map(|mut q| {
+            if let Some(s) = w.edits.get(&format!("quest:{}", q["id"].as_str().unwrap_or_default())) {
+                q["user_status"] = s.clone();
+            }
+            q
+        })
+        .collect()
 }
 
 // the client posts uploads and interactions as multipart; pull the json part out
@@ -414,7 +824,7 @@ fn side_guilds() -> Vec<Value> {
         json!({ "id": id.to_string(), "type": kind, "name": name, "position": pos, "parent_id": parent.map(|p| p.to_string()),
                 "permission_overwrites": [], "last_message_id": snow(now_ms() - 90_000).to_string() })
     };
-    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" });
+    let everyone = |id: u64| json!({ "id": id.to_string(), "name": "@everyone", "color": 0, "position": 0, "permissions": "4296018944" });
     let guild = |id: u64, name: &str, chans: Vec<Value>| {
         json!({ "id": id.to_string(), "name": name, "icon": null, "owner_id": "102", "roles": [everyone(id)], "emojis": [], "channels": chans })
     };
@@ -435,7 +845,8 @@ fn side_guilds() -> Vec<Value> {
     emoji["rules_channel_id"] = json!("2301");
     emoji["roles"] = json!([everyone(1003), { "id": "1201", "name": "Trusted", "color": 0, "position": 1, "permissions": "0" }]);
 
-    let mut den = guild(1008, "Voice Den", vec![ch(2800, 0, "chat", 0, None), ch(2801, 2, "Hangout", 1, None)]);
+    let mut den = guild(1008, "Voice Den", vec![ch(2800, 0, "chat", 0, None), ch(2801, 2, "Hangout", 1, None), ch(2802, 13, "Panel", 2, None)]);
+    den["owner_id"] = json!("100");
     den["voice_states"] = json!([{ "user_id": "101", "channel_id": "2801" }]);
     vec![
         emoji,
@@ -492,11 +903,22 @@ fn ready(last_general: u64) -> Value {
     let mut help = ch(2012, 0, "help", 1, Some(2010));
     help["last_message_id"] = json!(snow(now_ms() - 60_000).to_string());
     let mut forum = ch(FORUM, 15, "ideas", 4, Some(2010));
+    forum["topic"] = json!("- Make sure to explain your suggestions in-depth.
+- Suggest one feature/idea per post.
+- Do not have general discussions within the posts.
+
+If you'd like to upvote a suggestion, use the reaction!");
     forum["available_tags"] = json!([{ "id": "1", "name": "feature", "emoji_name": "✨" }, { "id": "2", "name": "ux" }]);
+    let mut slow = ch(2015, 0, "slow", 6, Some(2010));
+    slow["rate_limit_per_user"] = json!(30);
+    let mut readonly = ch(2016, 0, "read-only", 7, Some(2010));
+    readonly["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "2048" }]);
+    let mut news = ch(2002, 5, "📢・announcements", 1, Some(2000));
+    news["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "2048" }]);
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
-        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "281474976713728", "hoist": false },
+        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "844736315296768", "hoist": false },
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },
@@ -514,11 +936,12 @@ fn ready(last_general: u64) -> Value {
         ],
         "channels": [
             ch(2010, 4, "Text Channels", 0, None), general, help, ch(2013, 0, "🎲┃off-topic", 2, Some(2010)), secret,
-            ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), ch(2002, 5, "📢・announcements", 1, Some(2000)),
+            ch(2000, 4, "Information", 1, None), ch(2001, 0, "rules", 0, Some(2000)), news, slow, readonly,
             ch(2020, 4, "Voice Channels", 2, None), ch(2021, 2, "Lounge", 0, Some(2020)), ch(2022, 2, "Gaming", 1, Some(2020)),
-            forum, ch(MEDIA, 0, "media", 5, Some(2010)),
+            forum, ch(MEDIA, 0, "media", 5, Some(2010)), ch(SYSTEM, 0, "system", 6, Some(2010)),
+            ch(2029, 4, "Test Rooms", 3, None), ch(CHATX, 0, "chat-extras", 0, Some(2029)), ch(gallery::GALLERY, 0, "gallery", 1, Some(2029)), ch(EMBEDS, 0, "embeds", 2, Some(2029)),
         ],
-        "threads": [thread()],
+        "threads": [thread(), gallery::thread(), side_thread(2051, "locked talk", json!({ "archived": false, "locked": true })), side_thread(2052, "old talk", json!({ "archived": true, "locked": false }))],
         // alice server muted, carol muted and deafened herself
         "voice_states": [{ "user_id": "101", "channel_id": "2021", "mute": true }, { "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }],
     });
@@ -529,15 +952,27 @@ fn ready(last_general: u64) -> Value {
     };
     let mut guilds = vec![g1, simple(1001, "Gamers United", None, &[(2100, "lobby"), (2101, "lfg")]),
                           simple(1002, "Design Club", Some("icon1002"), &[(2200, "showcase"), (2201, "feedback")])];
+    guilds[2]["premium_subscription_count"] = json!(6);
+    guilds[2]["premium_tier"] = json!(1);
+    guilds[2]["features"] = json!(["ROLE_SUBSCRIPTIONS_AVAILABLE_FOR_PURCHASE"]);
     guilds[1]["emojis"] = json!([
         { "id": "5200", "name": "omgBruh", "animated": false },
         { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
     ]);
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
+    if let Some(f) = guilds[0]["features"].as_array_mut() {
+        f.push(json!("GUILD_TAGS"));
+    }
     guilds[1]["owner_id"] = json!(ME.to_string());
-    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING"]);
+    // the roles the members table shows, which only the first server has otherwise
+    let mut roles = guilds[0]["roles"].as_array().cloned().unwrap_or_default();
+    roles[0]["id"] = json!("1001");
+    guilds[1]["roles"] = json!(roles);
+    guilds[1]["features"] = json!(["COMMUNITY", "GUILD_ONBOARDING", "GUILD_TAGS", "GUILD_SERVER_GUIDE"]);
     guilds[1]["channels"].as_array_mut().unwrap().push(ch(2102, 2, "Hangout", 2, None));
+    guilds[1]["threads"] = json!([thread_b()]);
+    guilds[1]["guild_scheduled_events"] = json!(events_base("1001"));
     guilds.extend(side_guilds());
     let mut folders = vec![json!({ "guild_ids": ["1000"] }), json!({ "id": 77, "name": "Hobbies", "color": 0xE91E63, "guild_ids": ["1001", "1002"] }),
                            json!({ "id": 78, "name": "Pals", "guild_ids": ["1003", "1004", "1005", "1006"] }), json!({ "guild_ids": ["1007"] }), json!({ "guild_ids": ["1008"] })];
@@ -574,6 +1009,7 @@ fn ready(last_general: u64) -> Value {
                 "last_pin_timestamp": iso(now_ms() - 2 * 86_400_000) }),
         json!({ "id": "2012", "last_message_id": "0", "mention_count": 2 }),
         json!({ "id": "3000", "last_message_id": "0", "mention_count": 0 }),
+        json!({ "id": "1001", "read_state_type": 1, "last_message_id": "0", "mention_count": 2 }),
     ];
     reads.extend(side_reads());
     reads.extend(extra_reads);
@@ -581,9 +1017,9 @@ fn ready(last_general: u64) -> Value {
     merged.extend((0..extra).map(|_| json!([])));
     json!({
         "v": 9, "session_id": "mock-session", "resume_gateway_url": null,
-        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0 },
+        "user": { "id": ME.to_string(), "username": "you", "global_name": "You", "avatar": "av100", "email": "you@example.com", "premium_type": 0, "mfa_enabled": false, "phone": "+15555550100", "nsfw_allowed": true },
         "users": users,
-        "relationships": [{ "id": "101", "type": 1 }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }],
+        "relationships": [{ "id": "101", "type": 1, "since": "2025-03-14T10:00:00.000000+00:00" }, { "id": "102", "type": 1 }, { "id": "103", "type": 1 }, { "id": "106", "type": 3 }, { "id": "108", "type": 2 }],
         "guilds": guilds,
         "merged_members": merged,
         "private_channels": [
@@ -591,6 +1027,8 @@ fn ready(last_general: u64) -> Value {
             { "id": "3001", "type": 3, "name": "", "recipient_ids": ["102", "103"], "last_message_id": snow(now_ms() - 7_200_000).to_string() },
             // muted below: its messages mustn't ping or pop up in the rail
             { "id": "3002", "type": 1, "recipient_ids": ["105"], "last_message_id": snow(now_ms() - 9_000_000).to_string() },
+            // a friend's dm opened a day ago with nothing said in it: the Wave button
+            { "id": snow(now_ms() - 86_400_000).to_string(), "type": 1, "recipient_ids": ["102"], "last_message_id": null },
         ],
         "read_state": { "entries": reads, "partial": false, "version": 1 },
         "user_guild_settings": { "entries": [
@@ -615,7 +1053,16 @@ fn channel(w: &W, id: &str) -> Option<Value> {
     if let Some(c) = w.edits.get(id) {
         return Some(c.clone());
     }
+    if id == THREAD.to_string() {
+        return Some(thread());
+    }
+    if id == THREAD_B.to_string() {
+        return Some(thread_b());
+    }
     let r = ready(0);
+    if let Some(c) = r["private_channels"].as_array().and_then(|l| l.iter().find(|c| c["id"] == id)) {
+        return Some(c.clone());
+    }
     let (g, c) = r["guilds"].as_array()?.iter().find_map(|g| g["channels"].as_array()?.iter().find(|c| c["id"] == id).map(|c| (g["id"].clone(), c.clone())))?;
     let mut c = c;
     c["guild_id"] = g;
@@ -633,7 +1080,31 @@ fn channel(w: &W, id: &str) -> Option<Value> {
     Some(c)
 }
 
-fn member_list() -> Value {
+/// Everyone else's servers: the same few people, as many of them as that server would plausibly have.
+fn roster_list(gid: &str) -> Value {
+    let n: u64 = gid.parse().unwrap_or(0);
+    let mut ids: Vec<u64> = vec![ME];
+    ids.extend((0..if n <= 1002 { 6 } else { 3 }).map(|i| 101 + (n + i) % 6));
+    ids.dedup();
+    let status = |id: u64| ["online", "idle", "dnd", "offline"][((id + n) % 4) as usize];
+    let roles = |id: u64| if id == ME && n == 1003 { json!(["1201"]) } else { json!([]) };
+    let item = |id: u64, s: &str| json!({ "member": { "user": user(id), "roles": roles(id), "nick": null, "premium_since": null, "presence": { "status": s } } });
+    let (on, off): (Vec<u64>, Vec<u64>) = ids.into_iter().partition(|id| status(*id) != "offline");
+    let mut items = vec![json!({ "group": { "id": "online", "count": on.len() } })];
+    items.extend(on.iter().map(|id| item(*id, status(*id))));
+    items.push(json!({ "group": { "id": "offline", "count": off.len() } }));
+    items.extend(off.iter().map(|id| item(*id, "offline")));
+    json!({
+        "guild_id": gid, "id": "everyone", "member_count": on.len() + off.len(), "online_count": on.len(),
+        "groups": [{ "id": "online", "count": on.len() }, { "id": "offline", "count": off.len() }],
+        "ops": [{ "op": "SYNC", "range": [0, 99], "items": items }]
+    })
+}
+
+fn member_list(gid: &str) -> Value {
+    if gid != "1000" {
+        return roster_list(gid);
+    }
     let item = |id: u64, status: &str| json!({ "member": { "user": user(id), "roles": member(id)["roles"], "nick": null, "premium_since": member(id)["premium_since"], "presence": { "status": status } } });
     json!({
         "guild_id": "1000", "id": "everyone", "member_count": 6, "online_count": 4,
@@ -644,6 +1115,44 @@ fn member_list() -> Value {
             { "group": { "id": "offline", "count": 2 } }, item(104, "offline"), item(105, "offline"),
         ]}]
     })
+}
+
+/// An effect layer: sparkles orbiting on nothing, so a profile shows through it.
+fn fx_gif(w: u32, h: u32, hue: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut enc = image::codecs::gif::GifEncoder::new(&mut out);
+        enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+        let frames = (0..8u32).map(|f| {
+            let spin = f as f32 / 8.0 * std::f32::consts::TAU;
+            let tint = [(255, 230, 120), (160, 220, 255), (255, 170, 220)][(hue % 3) as usize];
+            let img = image::RgbaImage::from_fn(w, h, |x, y| {
+                let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+                for k in 0..6u32 {
+                    let a = spin + k as f32 * std::f32::consts::TAU / 6.0;
+                    let (cx, cy) = (0.5 + 0.38 * a.cos(), 0.5 + 0.42 * a.sin());
+                    if ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() < 0.04 {
+                        return image::Rgba([tint.0, tint.1, tint.2, 235]);
+                    }
+                }
+                image::Rgba([0, 0, 0, 0])
+            });
+            image::Frame::from_parts(img, 0, 0, image::Delay::from_numer_denom_ms(100, 1))
+        });
+        enc.encode_frames(frames).unwrap();
+    }
+    out
+}
+
+/// A profile frame: a coloured border round a clear middle.
+fn fx_frame(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let edge = x.min(w - 1 - x).min(y.min(h - 1 - y));
+        if edge < 8 { image::Rgba([0xfa, 0xa6, 0x1a, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
 }
 
 fn png(w: u32, h: u32, seed: u64, round: bool) -> Vec<u8> {
@@ -668,6 +1177,23 @@ fn png(w: u32, h: u32, seed: u64, round: bool) -> Vec<u8> {
     let mut out = std::io::Cursor::new(Vec::new());
     img.write_to(&mut out, image::ImageFormat::Png).unwrap();
     out.into_inner()
+}
+
+fn query_str(path: &str, key: &str) -> String {
+    let q = path.split_once('?').map_or("", |p| p.1);
+    q.split('&').find_map(|kv| kv.strip_prefix(&format!("{key}="))).unwrap_or("").replace('+', " ").replace("%20", " ")
+}
+
+/// Thirty discoverable servers, the first eight of them the featured ones; names carry "rust" in every third.
+fn discoverable(i: u64) -> Value {
+    let base = ["Crab Chess Club", "Pixel Painters", "Synthwave Radio", "Mock Quest Guild", "Speedrun Central", "Lofi Study Hall"];
+    let name = if i % 3 == 0 { format!("Rust Learners {i}") } else { format!("{} {i}", base[(i % 6) as usize]) };
+    let cat = [1, 2, 3, 5, 6][(i % 5) as usize];
+    json!({ "id": (9000 + i).to_string(), "name": name, "description": format!("A mock community for the discovery page, number {i}."),
+            "icon": format!("dg{i}"), "discovery_splash": format!("ds{i}"), "banner": null, "splash": null,
+            "features": if i % 2 == 0 { json!(["VERIFIED", "DISCOVERABLE"]) } else { json!(["DISCOVERABLE"]) },
+            "approximate_member_count": 120_000 + i * 1111, "approximate_presence_count": 9_000 + i * 37,
+            "primary_category_id": cat })
 }
 
 fn query(path: &str, key: &str) -> Option<u64> {
@@ -703,10 +1229,277 @@ fn gg_stand_in(face: &str) -> Vec<u8> {
     woff2
 }
 
-async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
+fn default_sounds() -> Value {
+    json!([
+        { "sound_id": "5001", "name": "airhorn", "emoji_name": "\u{1f4ef}", "emoji_id": null, "volume": 1.0, "user": user(101) },
+        { "sound_id": "5002", "name": "quack", "emoji_name": "\u{1f986}", "emoji_id": null, "volume": 1.0, "user": user(102) },
+    ])
+}
+
+/// A guild the way `GET /guilds/<id>` gives it: READY's, filled out, with what was saved over it.
+fn guild_full(w: &W, gid: &str) -> Option<Value> {
+    let mut g = ready(0)["guilds"].as_array()?.iter().find(|g| g["id"] == gid)?.clone();
+    for (k, v) in [("system_channel_id", Value::Null), ("system_channel_flags", json!(0)), ("default_message_notifications", json!(0)), ("afk_channel_id", Value::Null),
+                   ("afk_timeout", json!(300)), ("verification_level", json!(0)), ("explicit_content_filter", json!(0)), ("rules_channel_id", Value::Null),
+                   ("public_updates_channel_id", Value::Null), ("owner_configured_content_level", json!(0)), ("premium_progress_bar_enabled", json!(false)),
+                   ("premium_tier", json!(0)), ("features", json!([]))] {
+        if g.get(k).is_none() {
+            g[k] = v;
+        }
+    }
+    if let Some(e) = w.lock().unwrap().edits.get(&format!("g:{gid}")).and_then(|e| e.as_object()) {
+        for (k, v) in e {
+            g[k] = v.clone();
+        }
+    }
+    Some(g)
+}
+
+/// What a server's profile page gets: its name, icon and traits, with what was saved over it.
+fn profile_full(w: &W, gid: &str) -> Option<Value> {
+    let g = guild_full(w, gid)?;
+    let mut p = json!({ "id": gid, "name": g["name"], "description": "", "icon_hash": g["icon"], "brand_color_primary": null, "visibility": 1, "traits": [],
+                        "game_application_ids": ["7100"], "games": [{ "id": "7100", "name": "Mockcord Quest" }], "member_count": g["member_count"], "online_count": 3,
+                        "tag": "", "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
+    if let Some(e) = w.lock().unwrap().edits.get(&format!("p:{gid}")).and_then(|e| e.as_object()) {
+        for (k, v) in e {
+            p[k] = v.clone();
+        }
+    }
+    Some(p)
+}
+
+/// Merge a PATCH body into what's kept under `key`.
+fn keep(w: &W, key: String, body: &[u8]) {
+    let b: Value = serde_json::from_slice(body).unwrap_or_default();
+    let mut w = w.lock().unwrap();
+    let e = w.edits.entry(key).or_insert_with(|| json!({}));
+    for (k, v) in b.as_object().into_iter().flatten() {
+        e[k] = v.clone();
+    }
+}
+
+/// GUILD_UPDATE for a guild after a save: its fields, without the lists READY sends.
+fn guild_update(w: &W, gid: &str) {
+    let mut up = guild_full(w, gid).unwrap();
+    for k in ["channels", "threads", "voice_states", "roles", "emojis"] {
+        up.as_object_mut().map(|o| o.remove(k));
+    }
+    let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_UPDATE", "d": up }));
+}
+
+static BILL: Mutex<Value> = Mutex::new(Value::Null);
+
+fn bill_state() -> Value {
+    let now = now_ms();
+    let day = 86_400_000;
+    let addr = json!({ "name": "You", "line_1": "12 Nguyen Hue", "line_2": null, "city": "Ho Chi Minh City", "state": null, "postal_code": "700000", "country": "VN" });
+    let source = |id: &str, brand: &str, last4: &str, month: u64, year: u64, invalid: bool, default: bool| {
+        json!({ "id": id, "type": 1, "brand": brand, "last_4": last4, "expires_month": month, "expires_year": year, "invalid": invalid, "default": default, "country": "VN", "billing_address": addr })
+    };
+    let payments: Vec<Value> = (0..12u64)
+        .map(|i| {
+            let gift = i % 3 == 1;
+            json!({ "id": (9900 + i).to_string(), "amount": if gift { 227045 } else { 113000 }, "currency": "vnd", "description": "Nitro", "status": if i == 2 { 2 } else { 1 },
+                    "gift": gift, "created_at": iso(now - (i + 1) * 9 * day), "amount_refunded": 0, "tax": 0, "tax_inclusive": true,
+                    "sku_id": "521842831262875670", "sku_price": if gift { 227045 } else { 113000 }, "subscription_id": if gift { Value::Null } else { json!("9601") }, "flags": 0,
+                    "payment_source": { "id": "9501", "brand": "visa", "last_4": "4487" } })
+        })
+        .collect();
+    let applied = |sub: &str, guild: &str| json!({ "id": sub, "guild_id": guild, "user_id": ME.to_string(), "ended": false });
+    json!({
+        "sources": [source("9501", "visa", "4487", 9, 2029, false, true), source("9502", "visa", "7790", 8, 2023, true, false), source("9503", "mastercard", "4683", 4, 2028, false, false)],
+        "subs": [{ "id": "9601", "type": 1, "status": 1, "payment_source_id": "9501", "payment_gateway": 1, "payment_gateway_plan_id": "premium_month", "currency": "vnd",
+                  "created_at": iso(now - 400 * day), "current_period_start": iso(now - 10 * day), "current_period_end": iso(now + 20 * day), "canceled_at": null, "trial_ends_at": null,
+                  "plan_id": "511651880837840896", "items": [{ "id": "9611", "plan_id": "511651880837840896", "quantity": 1 }], "metadata": null }],
+        "slots": [
+            { "id": "9701", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": null, "premium_guild_subscription": applied("9801", "1002") },
+            { "id": "9702", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": null, "premium_guild_subscription": null },
+            { "id": "9703", "subscription_id": "9601", "canceled": false, "cooldown_ends_at": iso(now + 5 * day), "premium_guild_subscription": applied("9803", "1001") },
+        ],
+        "payments": payments,
+        "gifts": [{ "id": "9950", "sku_id": "521842831262875670", "sku": { "id": "521842831262875670", "name": "Nitro" }, "subscription_plan_id": "511651880837840896", "gifter_id": null }],
+        "codes": [{ "code": "Zx81QpLmK3vT", "sku_id": "521842831262875670", "store_listing": { "sku": { "name": "Nitro" } }, "uses": 0, "max_uses": 1 }],
+    })
+}
+
+fn billing(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
+    let mut g = BILL.lock().unwrap();
+    if g.is_null() {
+        *g = bill_state();
+    }
+    let b: Value = serde_json::from_slice(body).unwrap_or_default();
+    let (now, day) = (now_ms(), 86_400_000);
+    let find = |list: &str, key: &str, id: &str, g: &Value| g[list].as_array().and_then(|l| l.iter().position(|x| x[key] == id));
+    let missing = || Some((404, json!({ "message": "Unknown", "code": 10000 })));
+    match (method, parts) {
+        ("GET", ["api", "v9", "users", "@me", "billing", "subscriptions"]) => Some((200, g["subs"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "billing", "payment-sources"]) => Some((200, g["sources"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "billing", "payments"]) => Some((200, g["payments"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "guilds", "premium", "subscription-slots"]) => Some((200, g["slots"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "guilds", "premium", "subscriptions", "cooldown"]) => Some((200, json!({ "ends_at": null }))),
+        ("GET", ["api", "v9", "users", "@me", "entitlements"]) => Some((200, json!([{
+            "id": "1290000000000009001", "type": 11, "user_id": ME.to_string(), "sku_id": "521842831262875670", "application_id": "521842831262875670", "parent_id": null,
+            "promotion_id": "1290000000000009100", "subscription_id": null, "gift_code_flags": 0, "gifter_user_id": null, "deleted": false, "consumed": false,
+            "starts_at": iso(now - 3 * day), "ends_at": iso(now + 27 * day) }]))),
+        ("GET", ["api", "v9", "users", "@me", "billing", "country-code"]) => Some((200, json!({ "country_code": "VN" }))),
+        ("GET", ["api", "v9", "users", "@me", "billing", "localized-pricing-promo"]) => Some((200, json!({ "country_code": "VN", "localized_pricing_promo": null }))),
+        ("GET", ["api", "v9", "users", "@me", "billing", "nitro-affinity"]) => Some((200, json!({ "is_nitro_affinity": false, "nitro_affinity_score": 0.0 }))),
+        ("GET", ["api", "v9", "users", "@me", "entitlements", "gifts"]) => Some((200, g["gifts"].clone())),
+        ("GET", ["api", "v9", "users", "@me", "entitlements", "gift-codes"]) => Some((200, g["codes"].clone())),
+        ("GET", ["api", "v9", "users", "%40me" | "@me", "badges", "17"]) => Some((200, json!({ "badge_id": "17", "progress": { "current": 4 } }))),
+        ("DELETE", ["api", "v9", "users", "@me", "billing", "payment-sources", id]) => {
+            let i = find("sources", "id", id, &g)?;
+            g["sources"].as_array_mut()?.remove(i);
+            Some((204, Value::Null))
+        }
+        ("PATCH", ["api", "v9", "users", "@me", "billing", "payment-sources", id]) => {
+            let i = find("sources", "id", id, &g)?;
+            if let Some(a) = b.get("billing_address") {
+                let text = |k: &str| a.get(k).is_none_or(|v| v.is_string());
+                let known = ["name", "line_1", "line_2", "city", "state", "postal_code", "country"];
+                let country = a["country"].as_str().is_some_and(|c| c.len() == 2 && c.chars().all(|c| c.is_ascii_uppercase()));
+                if !a.is_object() || a.as_object()?.keys().any(|k| !known.contains(&k.as_str())) || !known.iter().all(|k| text(k)) || !country || a["line_1"].as_str().is_none_or(str::is_empty) {
+                    return Some((400, json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "billing_address": { "_errors": [{ "code": "INVALID", "message": "Enter a complete billing address." }] } } })));
+                }
+                g["sources"][i]["billing_address"] = a.clone();
+            }
+            for k in ["expires_month", "expires_year"] {
+                if let Some(v) = b.get(k) {
+                    if !v.is_u64() || (k == "expires_month" && !(1..=12).contains(&v.as_u64()?)) {
+                        return Some((400, json!({ "message": "Invalid Form Body", "code": 50035, "errors": { k: { "_errors": [{ "code": "INVALID", "message": "Something is wrong with your expiration date" }] } } })));
+                    }
+                    g["sources"][i][k] = v.clone();
+                }
+            }
+            if b["default"] == true {
+                g["sources"].as_array_mut()?.iter_mut().for_each(|s| s["default"] = json!(false));
+                g["sources"][i]["default"] = json!(true);
+            }
+            Some((200, g["sources"][i].clone()))
+        }
+        ("DELETE", ["api", "v9", "users", "@me", "billing", "subscriptions", id]) => {
+            let i = find("subs", "id", id, &g)?;
+            g["subs"][i]["canceled_at"] = json!(iso(now));
+            Some((204, Value::Null))
+        }
+        ("DELETE", ["api", "v9", "guilds", _, "premium", "subscriptions", sub]) => {
+            let Some(slot) = g["slots"].as_array_mut()?.iter_mut().find(|s| s["premium_guild_subscription"]["id"] == *sub) else { return missing() };
+            if slot["cooldown_ends_at"].as_str().is_some() {
+                return Some((400, json!({ "message": "Boost is on cooldown", "code": 50122 })));
+            }
+            slot["premium_guild_subscription"] = Value::Null;
+            Some((204, Value::Null))
+        }
+        ("PUT", ["api", "v9", "guilds", guild, "premium", "subscriptions"]) => {
+            let ids = b["user_premium_guild_subscription_slot_ids"].as_array()?.clone();
+            let mut out = Vec::new();
+            for id in ids {
+                let Some(slot) = g["slots"].as_array_mut()?.iter_mut().find(|s| s["id"] == id) else { return missing() };
+                if !slot["premium_guild_subscription"].is_null() {
+                    return Some((400, json!({ "message": "Boost is already applied", "code": 50122 })));
+                }
+                let sub = json!({ "id": (now % 100_000).to_string(), "guild_id": guild, "user_id": ME.to_string(), "ended": false });
+                slot["premium_guild_subscription"] = sub.clone();
+                slot["cooldown_ends_at"] = json!(iso(now + 7 * day));
+                out.push(sub);
+            }
+            Some((200, json!(out)))
+        }
+        ("POST", ["api", "v9", "users", "@me", "entitlements", "gift-codes"]) => {
+            let sku = b["sku_id"].as_str().unwrap_or("");
+            let i = g["gifts"].as_array()?.iter().position(|x| x["sku_id"] == sku)?;
+            let gift = g["gifts"].as_array_mut()?.remove(i);
+            let code = json!({ "code": format!("Gen{}", now % 1_000_000_000), "sku_id": sku, "store_listing": { "sku": { "name": gift["sku"]["name"] } }, "uses": 0, "max_uses": 1 });
+            g["codes"].as_array_mut()?.push(code.clone());
+            Some((200, code))
+        }
+        ("DELETE", ["api", "v9", "users", "@me", "entitlements", "gift-codes", code]) => {
+            let i = find("codes", "code", code, &g)?;
+            g["codes"].as_array_mut()?.remove(i);
+            Some((204, Value::Null))
+        }
+        ("POST", ["api", "v9", "entitlements", "gift-codes", code, "redeem"]) => {
+            if *code == "WUMP-AAAAA-BBBBB-CCCCC" {
+                Some((200, json!({})))
+            } else {
+                Some((404, json!({ "message": "Unknown Gift Code", "code": 10038 })))
+            }
+        }
+        _ => None,
+    }
+}
+
+async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
     let ok = |v: Value| (200, "application/json", v.to_string().into_bytes());
     let clean = path.split('?').next().unwrap_or("");
+    if let Some((code, v)) = auth::route(method, clean, body) {
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
     let parts: Vec<&str> = clean.trim_matches('/').split('/').collect();
+    if !clean.contains("/mock/") {
+        let mut w = w.lock().unwrap();
+        if let Some(i) = w.fails.iter().position(|f| f.0 == method && clean.contains(f.1.as_str())) {
+            let (status, reply) = (w.fails[i].2, w.fails[i].3.clone());
+            w.fails[i].4 -= 1;
+            if w.fails[i].4 == 0 {
+                w.fails.remove(i);
+            }
+            return (status, "application/json", reply.to_string().into_bytes());
+        }
+    }
+    let base = members::Base { user, member, iso, now: now_ms() };
+    if let Some((code, v, event)) = members::route(method, &parts, path.split_once('?').map(|q| q.1), body, &base) {
+        if let Some((t, d)) = event {
+            let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+        }
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
+    if let Some((code, v)) = acks::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = buy::route(w, method, &parts, path, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v, event)) = joins::route(method, &parts, path.split_once('?').map(|q| q.1), body, user, iso, now_ms()) {
+        if let Some((t, d)) = event {
+            let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+        }
+        return (code, "application/json", v.map(|v| v.to_string().into_bytes()).unwrap_or_default());
+    }
+    let cdn = format!("http://127.0.0.1:{}/cdn", PORT.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some((code, v)) = perms::route(w, method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, mut v)) = shop::route(method, &parts, path.split_once('?').map_or("", |q| q.1), body) {
+        // one catalog: the shop's pages and the profile editor's pickers read the same list
+        if parts.ends_with(&["collectibles-categories", "v2"])
+            && let (Some((_, more)), Some(list)) = (profiles::route(method, &parts, &Value::Null, &cdn), v["categories"].as_array_mut())
+        {
+            list.extend(more["categories"].as_array().cloned().unwrap_or_default());
+        }
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v)) = roleconn::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = profiles::route(method, &parts, &serde_json::from_slice(body).unwrap_or_default(), &cdn) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if let Some((code, v)) = servers::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = billing(method, &parts, body) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
+    if method == "GET" && parts.first() == Some(&"cdn") {
+        if let Some(refusal) = cdn_shape::check(path) {
+            return refusal;
+        }
+    }
+    if let Some((code, v)) = prefs::route(method, &parts, body).or_else(|| prefs::friend_request(method, &parts, body).or_else(|| prefs::install(method, &parts, path, body)).or_else(|| prefs::guide(method, &parts)).or_else(|| prefs::discovery(method, &parts))) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     match (method, parts.as_slice()) {
         ("GET", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
@@ -727,58 +1520,106 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             list.reverse();
             ok(json!(list))
         }
-        ("POST", ["api", "v9", "interactions"]) => {
-            let b = payload_json(body);
-            let ch: u64 = b["channel_id"].as_str().unwrap_or("0").parse().unwrap_or(0);
-            let text = if b["type"] == json!(2) {
-                format!("⏰ Reminder set: **{}**", b["data"]["options"][0]["value"].as_str().unwrap_or("?"))
-            } else {
-                "😴 Snoozed for 10 minutes.".to_string()
-            };
-            let mut m = msg(fresh(), ch, 104, &text);
-            m["type"] = json!(20);
-            m["application_id"] = json!("104");
-            if b["type"] == json!(2) {
-                m["components"] = bot_buttons();
-            }
-            let tx = {
-                let mut w = w.lock().unwrap();
-                w.msgs.push(m.clone());
-                w.events.clone()
-            };
-            let _ = tx.send(json!({ "t": "MESSAGE_CREATE", "d": m }));
-            (204, "application/json", Vec::new())
-        }
+        ("POST", ["api", "v9", "interactions"]) => bot::handle(w, body),
         ("GET", ["api", "v9", "gifs", "trending"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
-            let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/attachments/gif{i}.png");
+            let src = |i: u32| format!("http://127.0.0.1:{port}/cdn/media/gif{i}.png");
             let cats: Vec<Value> = ["hello", "lol", "love", "happy birthday"].iter().enumerate().map(|(i, n)| json!({ "name": n, "src": src(i as u32) })).collect();
             ok(json!({ "categories": cats, "gifs": [{ "src": src(5), "width": 220, "height": 160 }] }))
         }
         ("GET", ["api", "v9", "gifs", _]) => {
             let gifs: Vec<Value> = (0..8)
                 .map(|i| json!({ "id": i.to_string(), "title": format!("mock {i}"), "url": format!("https://tenor.com/view/mock-{i}"),
-                                 "src": format!("http://127.0.0.1:{}/cdn/attachments/gif{i}.png", PORT.load(std::sync::atomic::Ordering::Relaxed)),
+                                 "src": format!("http://127.0.0.1:{}/cdn/media/gif{i}.png", PORT.load(std::sync::atomic::Ordering::Relaxed)),
                                  "width": 220 + (i % 3) * 40, "height": 160 + (i % 2) * 60 }))
                 .collect();
             ok(json!(gifs))
         }
-        ("GET", ["api", "v9", "guilds", _, "application-command-index"]) => ok(json!({
-            "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
-            "application_commands": [
-                { "id": "9001", "application_id": "104", "version": "1", "type": 1, "name": "remind", "description": "Set a reminder",
-                  "options": [{ "type": 3, "name": "what", "description": "What to remind you about", "required": true },
-                              { "type": 4, "name": "minutes", "description": "In how many minutes", "required": false }] },
-                { "id": "9002", "application_id": "104", "version": "1", "type": 1, "name": "poll", "description": "Start a poll",
-                  "options": [{ "type": 3, "name": "question", "description": "What to ask", "required": true }] },
-            ],
-        })),
+        ("GET", ["api", "v9", "guilds", _, "application-command-index"]) => ok(bot::index()),
+        ("GET", ["api", "v9", "reporting", "menu", "message"]) => ok(serde_json::from_str(REPORT_MENU).unwrap()),
+        ("POST", ["api", "v9", "reporting", "message"]) => ok(json!({ "report_id": "1" })),
+        // the people behind a reaction: as many as it has, from a fixed cast
+        ("GET", ["api", "v9", "channels", ch, "messages", id, "reactions", emoji]) => {
+            let (ch, id) = (ch.to_string(), id.to_string());
+            let emoji = unesc(emoji);
+            let w = w.lock().unwrap();
+            let n = w.msgs.iter().find(|m| m["channel_id"] == ch && m["id"] == id).and_then(|m| {
+                m["reactions"].as_array()?.iter().find(|r| r["emoji"]["name"].as_str().is_some_and(|n| emoji.starts_with(n))).and_then(|r| r["count"].as_u64())
+            });
+            ok(json!([101, 102, 103, 105, 106].iter().take(n.unwrap_or(0) as usize).map(|u| user(*u)).collect::<Vec<_>>()))
+        }
+        ("POST", ["api", "v9", "channels", _, "attachments"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let files = b["files"].as_array().cloned().unwrap_or_default();
+            let bad = |f: &Value| f["filename"].as_str().is_none_or(str::is_empty) || f["file_size"].as_u64().is_none();
+            if files.is_empty() || files.iter().any(bad) {
+                return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035 }).to_string().into_bytes());
+            }
+            if files.iter().any(|f| f["file_size"].as_u64().unwrap_or(0) > 10 << 20) {
+                return (413, "application/json", json!({ "message": "Request entity too large", "code": 40005 }).to_string().into_bytes());
+            }
+            let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+            let slots: Vec<Value> = files
+                .iter()
+                .map(|f| {
+                    let name = f["filename"].as_str().unwrap_or("file");
+                    let key = format!("{:x}/{name}", fresh());
+                    let id: u64 = f["id"].as_str().and_then(|i| i.parse().ok()).or(f["id"].as_u64()).unwrap_or(0);
+                    json!({ "id": id, "upload_url": format!("http://127.0.0.1:{port}/upload/{key}"), "upload_filename": key })
+                })
+                .collect();
+            ok(json!({ "attachments": slots }))
+        }
+        ("PUT", ["upload", token, name]) => {
+            w.lock().unwrap().uploads.insert(format!("{token}/{name}"), body.len());
+            (200, "text/plain", Vec::new())
+        }
         ("POST", ["api", "v9", "channels", ch, "messages"]) => {
             let ch: u64 = ch.parse().unwrap_or(0);
             let b: Value = serde_json::from_slice(body).unwrap_or_else(|_| payload_json(body));
+            // a send that fails the first time its nonce arrives, and goes through when sent again
+            if b["content"] == "e2e-fail-once" && failed_once().lock().unwrap().insert(b["nonce"].to_string()) {
+                return (403, "application/json", json!({ "message": "Missing Permissions", "code": 50013 }).to_string().into_bytes());
+            }
+            if let Some(ids) = b.get("sticker_ids")
+                && !ids.as_array().is_some_and(|a| a.len() <= 3 && a.iter().all(|i| i.as_str().is_some_and(|i| i.parse::<u64>().is_ok())))
+            {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "sticker_ids": { "_errors": [{ "code": "BASE_TYPE_BAD_LENGTH", "message": "Must be between 0 and 3 in length." }] } } }).to_string().into_bytes());
+            }
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
+            if let Some(list) = b["attachments"].as_array() {
+                let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+                let mut out = Vec::new();
+                for a in list {
+                    let name = a["filename"].as_str().unwrap_or("file");
+                    let key = a["uploaded_filename"].as_str().unwrap_or("");
+                    let Some(size) = w.lock().unwrap().uploads.get(key).copied() else {
+                        return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "attachments": { "_errors": [{ "code": "ATTACHMENT_NOT_UPLOADED", "message": "Attachment was not uploaded" }] } } }).to_string().into_bytes());
+                    };
+                    let url = format!("http://127.0.0.1:{port}/cdn/attachments/{ch}/{}/{name}", fresh());
+                    let image = matches!(name.rsplit('.').next(), Some("png" | "jpg" | "jpeg" | "gif"));
+                    let mut att = json!({ "id": fresh().to_string(), "filename": name, "size": size, "url": url, "proxy_url": url, "content_type": if image { "image/png" } else { "application/octet-stream" } });
+                    if image {
+                        att["width"] = json!(800);
+                        att["height"] = json!(450);
+                    }
+                    out.push(att);
+                }
+                m["attachments"] = json!(out);
+            }
+            if let Some(rid) = b["message_reference"]["message_id"].as_str() {
+                m["type"] = json!(19);
+                m["message_reference"] = b["message_reference"].clone();
+                m["referenced_message"] = w.lock().unwrap().msgs.iter().find(|x| x["id"] == rid).cloned().unwrap_or(Value::Null);
+            }
+            if let Some(p) = b["poll"].as_object() {
+                let answers: Vec<Value> = p["answers"].as_array().into_iter().flatten().enumerate().map(|(i, a)| json!({ "answer_id": i + 1, "poll_media": a["poll_media"] })).collect();
+                let hours = p["duration"].as_u64().unwrap_or(24);
+                m["poll"] = json!({ "question": p["question"], "answers": answers, "allow_multiselect": p["allow_multiselect"], "expiry": iso(now_ms() + hours * 3_600_000),
+                                    "results": { "is_finalized": false, "answer_counts": [] } });
+            }
             let tx = {
                 let mut w = w.lock().unwrap();
                 w.msgs.push(m.clone());
@@ -811,6 +1652,60 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": false } }));
             ok(json!({}))
         }
+        // another device of the account changing what it plays people at: {"users":[{"id":102,"volume":35.0,"muted":true}]}
+        ("POST", ["api", "v9", "mock", "peers"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut group = Vec::new();
+            for u in b["users"].as_array().into_iter().flatten() {
+                let mut setting = Vec::new();
+                if u["muted"].as_bool().unwrap_or(false) {
+                    setting.extend(pb_int(1, 1));
+                }
+                setting.extend([varint(2 << 3 | 5), (u["volume"].as_f64().unwrap_or(100.0) as f32).to_le_bytes().to_vec()].concat());
+                let entry = [varint(1 << 3 | 1), u["id"].as_u64().unwrap_or(0).to_le_bytes().to_vec(), pb_len(2, &setting)].concat();
+                group.extend(pb_len(1, &entry));
+            }
+            let proto = base64::engine::general_purpose::STANDARD.encode(pb_len(16, &group));
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 1, "proto": proto }, "partial": true } }));
+            ok(json!({}))
+        }
+        ("GET", ["api", "v9", "users", "@me", "settings-proto", "2"]) => {
+            use base64::Engine;
+            ok(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(frecency::get()) }))
+        }
+        ("PATCH", ["api", "v9", "users", "@me", "settings-proto", "2"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let patch = base64::engine::general_purpose::STANDARD.decode(b["settings"].as_str().unwrap_or("")).unwrap_or_default();
+            let Some(merged) = frecency::patch(&patch) else {
+                return (400, "application/json", json!({ "message": "Invalid user settings data", "code": 50035 }).to_string().into_bytes());
+            };
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 2, "proto": base64::engine::general_purpose::STANDARD.encode(&patch) }, "partial": true } }));
+            ok(json!({ "settings": base64::engine::general_purpose::STANDARD.encode(merged) }))
+        }
+        // another client of the account changing its favourites
+        ("POST", ["api", "v9", "mock", "frecency"]) => {
+            use base64::Engine;
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let patch = base64::engine::general_purpose::STANDARD.decode(b["settings"].as_str().unwrap_or("")).unwrap_or_default();
+            if frecency::patch(&patch).is_none() {
+                return (400, "application/json", json!({ "message": "Invalid user settings data", "code": 50035 }).to_string().into_bytes());
+            }
+            let tx = w.lock().unwrap().events.clone();
+            let _ = tx.send(json!({ "t": "USER_SETTINGS_PROTO_UPDATE", "d": { "settings": { "type": 2, "proto": b["settings"] }, "partial": true } }));
+            ok(json!({}))
+        }
+        ("PATCH", ["api", "v9", "users", "@me", "settings-proto", _]) => ok(json!({})),
+        ("GET", ["api", "v9", "users", "@me", "custom-themes"]) => ok(json!([])),
+        ("GET", ["api", "v9", "soundboard-default-sounds"]) => ok(json!([
+            { "sound_id": "1", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0, "available": true },
+            { "sound_id": "2", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0, "available": true },
+        ])),
+        ("POST", ["api", "v9", "channels", _, "send-soundboard-sound"]) => (204, "application/json", Vec::new()),
+        ("POST", ["api", "v9", "streams", _, "preview"]) => (204, "application/json", Vec::new()),
         // e2e/bench.py: a busy account's background traffic for `secs`, `rate` events a second:
         // presences in the open server, typing and messages in another one
         ("POST", ["api", "v9", "mock", "busy"]) => {
@@ -850,6 +1745,30 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             });
             ok(json!({}))
         }
+        // any gateway event, after `after_ms`: calls ringing, voice states, call messages
+        ("POST", ["api", "v9", "mock", "event"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let after = Duration::from_millis(b["after_ms"].as_u64().unwrap_or(0));
+            let (t, d) = (b["t"].clone(), b["d"].clone());
+            let w = w.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(after).await;
+                let _ = w.lock().unwrap().events.send(json!({ "t": t, "d": d }));
+            });
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "fail"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let status = b["status"].as_u64().unwrap_or(403) as u16;
+            let reply = if b["body"].is_null() { fail_body(status) } else { b["body"].clone() };
+            let f = (b["method"].as_str().unwrap_or("GET").to_string(), b["path"].as_str().unwrap_or("").to_string(), status, reply, b["times"].as_u64().unwrap_or(1) as u32);
+            w.lock().unwrap().fails.push(f);
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "fail", "clear"]) => {
+            w.lock().unwrap().fails.clear();
+            ok(json!({}))
+        }
         ("POST", ["api", "v9", "mock", "premium"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let tx = w.lock().unwrap().events.clone();
@@ -858,22 +1777,25 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ok(json!({}))
         }
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
-        ("POST", ["api", "v9", "channels", _, "messages", _, "ack"]) => ok(json!({ "token": null })),
+        ("PUT", ["api", "v9", "channels", _, "recipients", _]) => (204, "application/json", Vec::new()),
+        ("POST", ["api", "v9", "channels", ch, "followers"]) => ok(json!({ "channel_id": ch, "webhook_id": "9100" })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
-        ("GET", ["api", "v9", "channels", ch, "pins"]) => {
+        ("GET", ["api", "v9", "channels", ch, "messages", "pins"]) => {
             let w = w.lock().unwrap();
-            let list: Vec<&Value> = w.msgs.iter().filter(|m| m["channel_id"] == *ch && m["pinned"] == json!(true)).rev().collect();
-            ok(json!(list))
+            let limit = query(path, "limit").map_or(50, |l| l as usize);
+            let list: Vec<Value> = w.msgs.iter().filter(|m| m["channel_id"] == *ch && m["pinned"] == json!(true)).rev().map(|m| json!({ "pinned_at": m["timestamp"], "message": m })).collect();
+            ok(json!({ "items": list.iter().take(limit).collect::<Vec<_>>(), "has_more": list.len() > limit }))
         }
-        ("GET", ["api", "v9", "guilds", _, "messages", "search"]) => {
+        ("GET", ["api", "v9", "guilds", _, "messages", "search"]) | ("GET", ["api", "v9", "users", "@me", "messages", "search"]) => {
             let q = path.split("content=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_lowercase();
+            let author = path.split("author_id=").nth(1).unwrap_or("").split('&').next().unwrap_or("").to_string();
             let w = w.lock().unwrap();
             let hits: Vec<Value> = w
                 .msgs
                 .iter()
                 .rev()
-                .filter(|m| !q.is_empty() && m["content"].as_str().unwrap_or("").to_lowercase().contains(&q))
+                .filter(|m| (!q.is_empty() && m["content"].as_str().unwrap_or("").to_lowercase().contains(&q)) || (!author.is_empty() && m["author"]["id"] == author.as_str()))
                 .take(25)
                 .map(|m| json!([m]))
                 .collect();
@@ -881,21 +1803,59 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         ("GET", ["api", "v9", "users", id, "profile"]) => {
             let id: u64 = id.parse().unwrap_or(0);
-            ok(json!({ "user": user(id), "user_profile": { "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" } }))
+            let mut prof = json!({ "bio": "rustacean. writes too many side projects.", "accent_color": 0xE67E22, "pronouns": "" });
+            if id == 101 {
+                prof["bio"] = json!("rustacean. writes too many side projects, reads every changelog twice, and has opinions about linkers that nobody asked for. also bakes bread on weekends and will tell you about it at length.");
+                prof["profile_effect"] = json!({ "id": "7003", "expires_at": null });
+                prof["profile_frame"] = json!({ "id": "7005" });
+                prof["theme_colors"] = json!([0x1b6b5a, 0x0b3a52]);
+            }
+            let widgets = if id == 101 { json!([
+                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
+                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
+            ]) } else { json!([]) };
+            ok(json!({
+                "user": user(id), "user_profile": prof, "widgets": widgets,
+                "wishlist_settings": if id == 101 { json!({ "101": { "visibility": 1, "updated_at": "2026-11-01T10:00:00+00:00" } }) } else { json!({}) },
+                "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
+                           { "id": "hypesquad_house_2", "description": "HypeSquad Brilliance", "icon": "011940fd013da3f7fb926e4a1cd2e618", "link": "https://support.discord.com/hc/en-us/articles/360035962891" },
+                           { "id": "quest_completed", "description": "Completed a Quest", "icon": "7d9ae358c8c5e118768335dbe68b4fb8", "link": "https://discord.com/quests" }],
+                "connected_accounts": [{ "type": "github", "id": "9", "name": "alice-codes", "verified": true }],
+                "mutual_friends": [user(102), user(103)], "mutual_friends_count": 2,
+                "mutual_guilds": [{ "id": "1000", "nick": null }, { "id": "1001", "nick": null }],
+                "guild_member": { "roles": member(id)["roles"], "joined_at": "2025-06-01T10:00:00+00:00", "premium_since": null },
+            }))
         }
+        ("GET", ["api", "v9", "content-inventory", "users", _, "outbox"]) => ok(json!({ "entries": [
+            { "content": { "id": snow(now_ms() - 7_200_000).to_string(), "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
+            { "content": { "id": snow(now_ms() - 259_200_000).to_string(), "content_type": 6, "author_id": "101", "extra": { "artist": { "name": "marQ" } } } },
+        ] })),
+        ("GET", ["api", "v9", "guild-profile", id]) => ok(json!({
+            "id": id, "name": "Rustaceans", "icon_hash": null, "description": "Crabs only.", "member_count": 4200, "online_count": 321,
+            "tag": "RUST", "badge_hash": "", "premium_tier": 2, "premium_subscription_count": 14, "game_application_ids": [], "brand_color_primary": "#e67e22",
+        })),
         ("GET", ["api", "v9", "users", "@me", "mentions"]) => {
             let w = w.lock().unwrap();
             let list: Vec<&Value> = w.msgs.iter().rev().filter(|m| m["mentions"].as_array().is_some_and(|u| !u.is_empty())).take(25).collect();
             ok(json!(list))
         }
         // settings pages
-        ("GET", ["api", "v9", "users", "@me", "settings"]) => ok(json!({
-            "explicit_content_filter": 1, "default_guilds_restricted": false, "show_current_game": true,
-            "allow_accessibility_detection": false, "friend_source_flags": { "all": true },
-        })),
-        ("PATCH", ["api", "v9", "users", "@me", "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
         ("PATCH", ["api", "v9", "users", "@me", "profile"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("PATCH", ["api", "v9", "users", "@me", "guilds", _, "settings"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "users", "@me", "guilds", "@me", "settings"]) | ("PATCH", ["api", "v9", "users", "@me", "guilds", "settings"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let bad = |b: &Value| {
+                let bad_flags = b.get("flags").is_some_and(|f| !f.is_u64());
+                let bad_over = match b.get("channel_overrides") {
+                    None => false,
+                    Some(o) => o.as_object().is_none_or(|o| o.iter().any(|(k, v)| k.parse::<u64>().is_err() || !v.is_object() || v.get("flags").is_some_and(|f| !f.is_u64()))),
+                };
+                !b.is_object() || bad_flags || bad_over
+            };
+            if b.get("guilds").and_then(Value::as_object).map_or(bad(&b), |g| g.values().any(bad)) {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body" }).to_string().into_bytes());
+            }
+            ok(b)
+        }
         ("PATCH", ["api", "v9", "users", "@me"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let mut u = user(ME);
@@ -904,6 +1864,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             }
             ok(u)
         }
+        ("GET", ["api", "v9", "users", "@me", "email-settings"]) => ok(json!({ "initialized": true, "categories": { "communication": true, "social": true, "updates_and_announcements": false, "tips": false, "recommendations_and_events": false } })),
+        ("PATCH", ["api", "v9", "users", "@me", "email-settings"]) => ok(json!({ "initialized": true, "categories": serde_json::from_slice::<Value>(body).unwrap_or_default()["settings"]["categories"] })),
         ("GET", ["api", "v9", "users", "@me", "consent"]) => ok(json!({ "usage_statistics": { "consented": true }, "personalization": { "consented": false } })),
         ("GET", ["api", "v9", "auth", "sessions"]) => ok(json!({ "user_sessions": [
             { "id_hash": "aaa", "approx_last_used_time": "2026-10-07T10:00:00+00:00", "client_info": { "os": "Windows", "platform": "Discord Client", "location": "Bangkok, Thailand" } },
@@ -912,10 +1874,138 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["api", "v9", "content-inventory", "users", "@me"]) => ok(feed()),
         // Create Channel: the new channel, sent back and over the gateway as discord does
         ("POST", ["api", "v9", "channels", _, "invites"]) => ok(json!({ "code": "e2eInv1", "max_age": 2592000 })),
+        ("PATCH", ["api", "v9", "guilds", g, "voice-states", who]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let u: u64 = if *who == "@me" { ME } else { who.parse().unwrap_or(0) };
+            let mut wl = w.lock().unwrap();
+            if let Some(s) = b["suppress"].as_bool() {
+                if s { wl.speakers.remove(&u) } else { wl.speakers.insert(u) };
+            }
+            if b.get("request_to_speak_timestamp").is_some() {
+                match b["request_to_speak_timestamp"].as_str() {
+                    Some(t) => wl.hands.insert(u, t.to_string()),
+                    None => wl.hands.remove(&u),
+                };
+            }
+            let mut m = member(u);
+            m["user"] = user(u);
+            if u == ME && *g == "1003" {
+                m["roles"] = json!(["1201"]);
+            }
+            let vs = json!({ "guild_id": g, "channel_id": b["channel_id"], "user_id": u.to_string(), "session_id": "mock-voice-session", "mute": false, "deaf": false,
+                "self_mute": false, "self_deaf": false, "suppress": !wl.speakers.contains(&u), "request_to_speak_timestamp": wl.hands.get(&u), "member": m });
+            let _ = wl.events.send(json!({ "t": "VOICE_STATE_UPDATE", "d": vs }));
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "activities", "shelf"]) => {
+            let apps: Vec<Value> = ACTIVITY_APPS.iter().map(|(id, name, desc)| json!({ "id": id.to_string(), "name": name, "description": desc, "icon": null, "flags": 0 })).collect();
+            let acts: Vec<Value> = ACTIVITY_APPS
+                .iter()
+                .enumerate()
+                .map(|(i, (id, ..))| json!({ "application_id": id.to_string(), "shelf_rank": i + 1, "client_platform_config": { "desktop": { "label_type": if i == 0 { 1 } else { 0 } } } }))
+                .collect();
+            ok(json!({ "activities": acts, "applications": apps, "assets": {} }))
+        }
+        ("POST", ["api", "v9", "activities", ch, app]) => {
+            let (ch, app): (u64, u64) = (ch.parse().unwrap_or(0), app.parse().unwrap_or(0));
+            activity_join(&mut w.lock().unwrap(), ch, app, ME);
+            (204, "application/json", Vec::new())
+        }
+        ("POST", ["api", "v9", "applications", app, "activities", ch, "instances", _, "leave"]) => {
+            let (ch, app): (u64, u64) = (ch.parse().unwrap_or(0), app.parse().unwrap_or(0));
+            let mut wl = w.lock().unwrap();
+            if let Some(a) = wl.acts.iter_mut().find(|a| a.0 == ch && a.1 == app) {
+                a.3.retain(|u| *u != ME);
+            }
+            activity_update(&mut wl, ch, app);
+            wl.acts.retain(|a| !a.3.is_empty());
+            (204, "application/json", Vec::new())
+        }
+        ("POST", ["api", "v9", "applications", _, "proxy-tickets"]) => ok(json!({ "ticket": "mock-ticket" })),
+        ("GET", ["api", "v9", "oauth2", "authorize"]) => {
+            let app: u64 = query(path, "client_id").unwrap_or(0);
+            match ACTIVITY_APPS.iter().find(|a| a.0 == app) {
+                Some(a) => {
+                    let done = w.lock().unwrap().authorized.contains(&app);
+                    ok(json!({ "application": { "id": app.to_string(), "name": a.1, "icon": null }, "authorized": done, "user": user(ME) }))
+                }
+                None => ok(json!({ "application": { "id": "7200", "name": "Mock Arena" }, "authorized": false, "scopes": ["identify"] })),
+            }
+        }
+        ("POST", ["api", "v9", "oauth2", "authorize"]) => {
+            let app: u64 = query(path, "client_id").unwrap_or(0);
+            if ACTIVITY_APPS.iter().any(|a| a.0 == app) {
+                let state = path.split(['?', '&']).find_map(|p| p.strip_prefix("state=")).unwrap_or("");
+                w.lock().unwrap().authorized.insert(app);
+                return ok(json!({ "location": format!("https://127.0.0.1/activity-redirect?code=mock-code&state={state}") }));
+            }
+            let token = query_str(path, "response_type") == "token";
+            let location = if token { "https://localhost/#access_token=mock-rpc-token&token_type=Bearer&expires_in=604800&scope=identify" } else { "https://localhost/?code=mock-code" };
+            ok(json!({ "location": location }))
+        }
+        ("GET", ["api", "v9", "oauth2", "@me"]) if auth.contains("mock-access-token") => {
+            ok(json!({ "application": { "id": "9100", "name": "Mock Quiz" }, "user": user(ME), "scopes": ["identify", "guilds"], "expires": iso(now_ms() + 3_600_000) }))
+        }
+        ("GET", ["api", "v9", "oauth2", "@me"]) => ok(json!({
+            "application": { "id": "7200", "name": "Mock Arena", "description": "", "icon": null }, "user": user(ME), "scopes": ["identify"], "expires": "2099-01-01T00:00:00.000000+00:00",
+        })),
+        ("POST", ["api", "v9", "mock", "activity", "token"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["code"] == "mock-code" { ok(json!({ "access_token": "mock-access-token" })) } else { (400, "application/json", b"{}".to_vec()) }
+        }
+        ("POST", ["api", "v9", "mock", "activity", "join"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let n = |k: &str| b[k].as_u64().unwrap_or(0);
+            activity_join(&mut w.lock().unwrap(), n("channel"), n("app"), n("user"));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "activity", "forget"]) => {
+            let mut w = w.lock().unwrap();
+            w.authorized.clear();
+            w.acts.clear();
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "mock", "activity"]) => ok(json!({})),
+        ("GET", ["hcaptcha", "1", "api.js"]) => (200, "application/javascript", include_bytes!("fixtures/hcaptcha.js").to_vec()),
+        ("GET", ["hcaptcha", _]) => (204, "text/plain", Vec::new()),
+        ("GET", ["activity", _]) => (200, "text/html", activity_page()),
+        ("GET", ["embed", "player"]) => (200, "text/html", include_bytes!("fixtures/embed.html").to_vec()),
+        ("POST", ["api", "v9", "mock", "embed"]) => ok(json!({})),
+        ("POST", ["api", "v9", "stage-instances"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let ch: u64 = b["channel_id"].as_str().and_then(|c| c.parse().ok()).unwrap_or(0);
+            let inst = json!({ "id": snow(now_ms()).to_string(), "guild_id": stage_guild(ch).map(|g| g.to_string()), "channel_id": ch.to_string(), "topic": b["topic"], "privacy_level": 2 });
+            let mut wl = w.lock().unwrap();
+            wl.speakers.insert(ME);
+            let _ = wl.events.send(json!({ "t": "STAGE_INSTANCE_CREATE", "d": inst.clone() }));
+            ok(inst)
+        }
+        ("PATCH", ["api", "v9", "stage-instances", ch]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let inst = json!({ "id": "1", "guild_id": ch.parse::<u64>().ok().and_then(stage_guild).map(|g| g.to_string()), "channel_id": ch, "topic": b["topic"], "privacy_level": 2 });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "STAGE_INSTANCE_UPDATE", "d": inst.clone() }));
+            ok(inst)
+        }
+        ("DELETE", ["api", "v9", "stage-instances", ch]) => {
+            let inst = json!({ "id": "1", "guild_id": ch.parse::<u64>().ok().and_then(stage_guild).map(|g| g.to_string()), "channel_id": ch, "topic": "", "privacy_level": 2 });
+            let _ = w.lock().unwrap().events.send(json!({ "t": "STAGE_INSTANCE_DELETE", "d": inst }));
+            (204, "application/json", Vec::new())
+        }
         ("POST", ["api", "v9", "users", "@me", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
-            let to: u64 = b["recipients"][0].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
-            ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to)] }))
+            let to: Vec<u64> = b["recipients"].as_array().into_iter().flatten().filter_map(|s| s.as_str().and_then(|s| s.parse().ok())).collect();
+            if to.len() > 1 {
+                return ok(json!({ "id": "3011", "type": 3, "name": null, "owner_id": ME.to_string(), "last_message_id": null, "recipients": to.iter().map(|u| user(*u)).collect::<Vec<_>>() }));
+            }
+            ok(json!({ "id": "3010", "type": 1, "last_message_id": null, "recipients": [user(to.first().copied().unwrap_or(0))] }))
+        }
+        ("PUT", ["api", "v9", "guilds", "9000", "members", "@me"]) => {
+            let g = json!({ "id": "9000", "name": "Preview Land", "owner_id": "102", "member_count": 40, "emojis": [], "roles": [{ "id": "9000", "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" }],
+                            "channels": [{ "id": "9001", "type": 0, "guild_id": "9000", "name": "welcome", "position": 0, "permission_overwrites": [], "last_message_id": null }] });
+            if path.contains("lurker=true") {
+                let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_CREATE", "d": g }));
+            }
+            ok(json!({}))
         }
         ("POST", ["api", "v9", "guilds", "1000", "channels"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
@@ -924,29 +2014,202 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             let _ = w.lock().unwrap().events.send(json!({ "t": "CHANNEL_CREATE", "d": c.clone() }));
             ok(c)
         }
+        ("GET", ["api", "v9", "discovery", "categories"]) => ok(json!([
+            { "id": 1, "name": "Gaming", "is_primary": true }, { "id": 2, "name": "Music", "is_primary": true }, { "id": 3, "name": "Entertainment", "is_primary": true },
+            { "id": 5, "name": "Science & Tech", "is_primary": true }, { "id": 6, "name": "Education", "is_primary": true }, { "id": 4, "name": "Anime", "is_primary": false },
+        ])),
+        ("GET", ["api", "v9", "discoverable-guilds"]) => ok(json!({ "guilds": (0..8).map(discoverable).collect::<Vec<_>>(), "total": 8, "offset": 0, "limit": 30 })),
+        ("GET", ["api", "v9", "discoverable-guilds", "search"]) => {
+            let (q, cat) = (query_str(path, "query").to_lowercase(), query(path, "category_id"));
+            let hits: Vec<Value> = (0..30).map(discoverable).filter(|g| g["name"].as_str().unwrap().to_lowercase().contains(&q) && cat.is_none_or(|c| g["primary_category_id"] == c)).collect();
+            let (offset, limit) = (query(path, "offset").unwrap_or(0) as usize, query(path, "limit").unwrap_or(24) as usize);
+            ok(json!({ "guilds": hits.iter().skip(offset).take(limit).collect::<Vec<_>>(), "total_count": hits.len(), "categories": [] }))
+        }
+        ("PUT", ["api", "v9", "guilds", _, "members", "@me"]) => (201, "application/json", b"{}".to_vec()),
         ("GET", ["api", "v9", "application-directory-static", "categories"]) => ok(json!([{ "id": 6, "name": "Games" }, { "id": 9, "name": "Social" }])),
         ("GET", ["api", "v9", "application-directory-static", "collections"]) => {
             let app = |id: &str, name: &str| json!({ "application": { "id": id, "name": name, "icon": "icon".to_string() + id, "cover_image": "cover".to_string() + id,
-                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6] } });
+                                                     "description": format!("{name}, a mock app for the directory."), "categories": [6],
+                                                     "install_params": if id == "9101" { json!({ "scopes": ["bot", "applications.commands"], "permissions": "68608" }) } else { json!({ "scopes": ["applications.commands"], "permissions": "0" }) } } });
             ok(json!([{ "id": "1", "title": "Promoted Games", "position": 1, "application_directory_collection_items": [app("9101", "Rusty Racers"), app("9102", "Crab Chess")] }]))
         }
         ("GET", ["api", "v9", "application-directory-static", "search"]) => ok(json!({ "results": [], "num_pages": 0, "result_count": 0 })),
-        ("GET", ["api", "v9", "guilds", "1000", "scheduled-events"]) => ok(json!([{
-            "id": "6100", "guild_id": "1000", "name": "Rust release party", "description": "Watching the release notes together, then a quiz.",
-            "channel_id": "2021", "creator_id": "101", "creator": user(101), "scheduled_start_time": iso(now_ms() + 26 * 3_600_000),
-            "scheduled_end_time": null, "status": 1, "entity_type": 2, "entity_metadata": null, "user_count": 4,
-        }])),
+        ("GET", ["api", "v9", "guilds", g, "scheduled-events"]) => ok(json!(event_list(w, g))),
+        ("POST", ["api", "v9", "guilds", g, "scheduled-events"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let id = snow(now_ms()).to_string();
+            let mut e = json!({ "id": id, "guild_id": g, "creator_id": ME.to_string(), "creator": user(ME), "status": 1, "user_count": 0,
+                                "entity_metadata": null, "scheduled_end_time": null });
+            for (k, v) in b.as_object().into_iter().flatten() {
+                e[k] = v.clone();
+            }
+            w.lock().unwrap().edits.insert(format!("event:{id}"), e.clone());
+            ok(e)
+        }
+        ("PATCH", ["api", "v9", "guilds", g, "scheduled-events", id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let Some(mut e) = event_list(w, g).into_iter().find(|e| e["id"] == *id) else { return (404, "text/plain", b"not found".to_vec()) };
+            for (k, v) in b.as_object().into_iter().flatten() {
+                e[k] = v.clone();
+            }
+            w.lock().unwrap().edits.insert(format!("event:{id}"), e.clone());
+            ok(e)
+        }
+        ("DELETE", ["api", "v9", "guilds", _, "scheduled-events", id]) => {
+            w.lock().unwrap().gone.push(format!("event:{id}"));
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "guilds", _, "scheduled-events", id, "users"]) => ok(json!([101, 103].map(|u| json!({ "guild_scheduled_event_id": id, "user": user(u), "member": { "nick": null } })))),
+        ("GET", ["api", "v9", "quests", "@me"]) => ok(json!({ "quests": quest_list(w).into_iter().filter(|q| q["user_status"]["claimed_at"].is_null()).collect::<Vec<_>>(), "excluded_quests": [], "quest_enrollment_blocked_until": null })),
+        ("GET", ["api", "v9", "quests", "@me", "claimed"]) => ok(json!({ "quests": quest_list(w).into_iter().filter(|q| q["user_status"]["claimed_at"].is_string()).collect::<Vec<_>>() })),
+        ("POST", ["api", "v9", "quests", id, "enroll"]) => {
+            let status = json!({ "user_id": ME.to_string(), "quest_id": id, "enrolled_at": iso(now_ms()), "completed_at": null, "claimed_at": null, "progress": {} });
+            w.lock().unwrap().edits.insert(format!("quest:{id}"), status.clone());
+            ok(status)
+        }
+        ("POST", ["api", "v9", "quests", id, "claim-reward"]) => {
+            let Some(q) = quest_list(w).into_iter().find(|q| q["id"] == *id) else { return (404, "text/plain", b"not found".to_vec()) };
+            let mut status = q["user_status"].clone();
+            status["claimed_at"] = json!(iso(now_ms()));
+            w.lock().unwrap().edits.insert(format!("quest:{id}"), status.clone());
+            ok(json!({ "claimed_at": status["claimed_at"], "entitlements": [], "errors": [] }))
+        }
         ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
+        ("GET", ["api", "v9", "games", "autocomplete"]) => {
+            let q = query_str(path, "q").to_lowercase();
+            if q.is_empty() || query_str(path, "filter_group") != "default" {
+                return (400, "application/json", json!({ "code": 50035, "message": "Invalid Form Body" }).to_string().into_bytes());
+            }
+            let all = [("7100", "Mockcord Quest"), ("9001", "Mock Racers"), ("9002", "Crab Quest"), ("9005", "Rust Simulator")];
+            ok(json!(all.iter().filter(|g| g.1.to_lowercase().contains(&q)).map(|g| json!({ "id": g.0, "name": g.1, "icon": null, "platform_availability": ["win32"] })).collect::<Vec<_>>()))
+        }
         // the mock itself is the running game the client should spot
         ("GET", ["api", "v9", "applications", "detectable"]) => ok(json!([
             { "id": "7100", "name": "Mockcord Quest", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": false }] },
             { "id": "7101", "name": "Launcher Only", "icon_hash": null, "executables": [{ "name": "mockcord.exe", "os": "win32", "is_launcher": true }] },
         ])),
+        // what a game's rich presence and a website's invite and template need to look up
+        ("GET", ["api", "v9", "oauth2", "applications", id, "rpc"]) => match *id {
+            "7100" | "7200" => ok(json!({ "id": id, "name": if *id == "7100" { "Mockcord Quest" } else { "Mock Arena" }, "icon": null, "description": "", "rpc_origins": [] })),
+            _ => (404, "application/json", json!({ "message": "Unknown Application", "code": 10002 }).to_string().into_bytes()),
+        },
+        ("GET", ["api", "v9", "oauth2", "applications", _, "assets"]) => ok(json!([{ "id": "9001", "type": 1, "name": "logo" }, { "id": "9002", "type": 1, "name": "badge" }])),
+        ("POST", ["api", "v9", "applications", _, "external-assets"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let list: Vec<Value> = b["urls"].as_array().into_iter().flatten().map(|u| json!({ "url": u, "external_asset_path": format!("external/mock/{}", u.as_str().unwrap_or("").replace("https://", "")) })).collect();
+            ok(json!(list))
+        }
+        ("GET", ["api", "v9", "invites", "e2eChat1"]) => ok(json!({
+            "code": "e2eChat1", "type": 0, "channel": { "id": "3050", "name": "general", "type": 0 }, "inviter": user(103),
+            "guild": { "id": "3000", "name": "Rustaceans Hangout", "icon": "icon3000", "features": ["COMMUNITY"] },
+            "approximate_presence_count": 709, "approximate_member_count": 4668,
+            "profile": { "id": "3000", "name": "Rustaceans Hangout", "icon_hash": "icon3000", "member_count": 4668, "online_count": 709, "brand_color_primary": "#5865F2",
+                "description": "Welcome to the home of everyone who writes Rust! Hang out in our global chats, get live help from people who know the borrow checker, and share what you built this week.",
+                "features": ["COMMUNITY"] },
+        })),
+        ("GET", ["api", "v9", "invites", "e2eHere1"]) => ok(json!({
+            "code": "e2eHere1", "type": 0, "channel": { "id": "2011", "name": "general", "type": 0 }, "inviter": user(101),
+            "guild": { "id": "1000", "name": "Rust Lounge", "icon": "icon1000", "features": [] },
+            "approximate_presence_count": 3, "approximate_member_count": 6,
+        })),
+        ("POST", ["api", "v9", "invites", "e2eChat1"]) => {
+            let g = json!({ "id": "3000", "name": "Rustaceans Hangout", "owner_id": "102", "member_count": 4669, "emojis": [], "roles": [{ "id": "3000", "name": "@everyone", "color": 0, "position": 0, "permissions": "1051648" }],
+                            "channels": [{ "id": "3050", "type": 0, "guild_id": "3000", "name": "general", "position": 0, "permission_overwrites": [], "last_message_id": null }] });
+            let tx = w.lock().unwrap().events.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let _ = tx.send(json!({ "t": "GUILD_CREATE", "d": g }));
+            });
+            ok(json!({ "code": "e2eChat1", "guild": { "id": "3000", "name": "Rustaceans Hangout" } }))
+        }
+        ("GET", ["api", "v9", "emojis", "9999", "source"]) => ok(json!({ "type": 1, "guild": { "id": "3000", "name": "Rustaceans Hangout", "icon": "icon3000", "features": ["DISCOVERABLE"], "approximate_presence_count": 709 } })),
+        ("GET", ["api", "v9", "emojis", _, "source"]) => (404, "application/json", json!({ "message": "Unknown Emoji", "code": 10014 }).to_string().into_bytes()),
+        ("GET", ["api", "v9", "stickers", "7777", "guild"]) => ok(json!({ "id": "3000", "name": "Rustaceans Hangout", "icon": "icon3000", "features": ["DISCOVERABLE"], "approximate_presence_count": 6287 })),
+        ("GET", ["api", "v9", "guilds", _, "top-emojis"]) => ok(json!({ "items": [{ "emoji_id": "5100", "emoji_rank": 2 }, { "emoji_id": "5000", "emoji_rank": 1 }] })),
+        ("GET", ["api", "v9", "channels", "2085", "polls", _, "answers", n]) => {
+            let who: &[u64] = if *n == "1" { &[101, 102, 103] } else { &[] };
+            ok(json!({ "users": who.iter().map(|u| user(*u)).collect::<Vec<_>>() }))
+        }
+        ("GET", ["api", "v9", "invites", "e2eRpc1"]) => ok(json!({
+            "code": "e2eRpc1", "guild": { "id": "1000", "name": "Mock Server", "icon": null }, "channel": { "id": "2010", "name": "general" },
+            "inviter": user(101), "approximate_presence_count": 2, "approximate_member_count": 5,
+        })),
+        ("POST", ["api", "v9", "invites", code]) if *code == "e2eRpc1" => ok(json!({ "code": code, "guild": { "id": "1000", "name": "Mock Server" } })),
+        ("GET", ["api", "v9", "guilds", "templates", "e2eTpl1"]) => ok(json!({ "code": "e2eTpl1", "name": "Mock Template", "description": "A starting point.", "usage_count": 3 })),
+        ("POST", ["api", "v9", "guilds", "templates", "e2eTpl1"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            ok(json!({ "id": "1999", "name": b["name"] }))
+        }
+        ("GET", ["api", "v9", "invites", _]) | ("GET", ["api", "v9", "guilds", "templates", _]) => {
+            (404, "application/json", json!({ "message": "Unknown Invite", "code": 10006 }).to_string().into_bytes())
+        }
         ("GET", ["api", "v9", "guilds", "1000", "roles", "member-counts"]) => ok(json!({ "1100": 1, "1101": 3, "1102": 1, "1103": 1, "1104": 1 })),
-        ("GET", ["api", "v9", "guilds", _, "soundboard-sounds"]) => ok(json!({ "items": [
-            { "sound_id": "5001", "name": "airhorn", "emoji_name": "📯", "emoji_id": null, "volume": 1.0 },
-            { "sound_id": "5002", "name": "quack", "emoji_name": "🦆", "emoji_id": null, "volume": 1.0 },
-        ] })),
+        ("GET", ["api", "v9", "guilds", "1000", "roles", _, "member-ids"]) => ok(json!(["101", "102"])),
+        ("PATCH", ["api", "v9", "guilds", "1000", "roles", _, "members"]) => (204, "application/json", Vec::new()),
+        ("POST", ["api", "v9", "guilds", "1000", "roles"]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!("1105");
+            b["color"] = json!(0);
+            b["position"] = json!(1);
+            b["permissions"] = json!("1071698660929");
+            ok(b)
+        }
+        ("PATCH", ["api", "v9", "guilds", "1000", "roles"]) => ok(json!([])),
+        ("PATCH", ["api", "v9", "guilds", "1000", "roles", id]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!(id);
+            b["name"] = b.get("name").cloned().unwrap_or(json!("Role"));
+            b["color"] = b.get("color").cloned().unwrap_or(json!(0));
+            b["position"] = json!(1);
+            b["permissions"] = b.get("permissions").cloned().unwrap_or(json!("0"));
+            ok(b)
+        }
+        ("DELETE", ["api", "v9", "guilds", "1000", "roles", _]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "guilds", "1000", "emojis"]) => ok(json!([
+            { "id": "5300", "name": "omgMods", "animated": false, "user": user(102) },
+        ])),
+        ("PATCH", ["api", "v9", "guilds", "1000", "emojis", _]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", "1000", "stickers"]) => ok(json!([
+            { "id": "5400", "name": "wave", "tags": "wave", "description": "", "format_type": 1, "user": user(102) },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000", "invites"]) => ok(json!([
+            { "code": "e2eInv1", "uses": 3, "max_uses": 0, "inviter": user(102), "channel": { "name": "general" }, "expires_at": iso(now_ms() + 86_400_000) },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000"]) => ok(json!({ "id": "1000", "verification_level": 1, "explicit_content_filter": 0, "mfa_level": 0, "owner_id": "102", "safety_alerts_channel_id": null })),
+        ("PATCH", ["api", "v9", "guilds", "1000"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("POST", ["api", "v9", "guilds", "1000", "mfa"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
+        ("GET", ["api", "v9", "guilds", "1000", "audit-logs"]) => ok(json!({
+            "users": [user(102), user(103)],
+            "audit_log_entries": [
+                { "id": "1500000000000000100", "user_id": "102", "target_id": "103", "action_type": 25, "changes": [{ "key": "$add", "new_value": [{ "id": "1101", "name": "Mods" }] }] },
+                { "id": "1500000000000000000", "user_id": "102", "target_id": "1100", "action_type": 31, "reason": "tidy up", "changes": [{ "key": "name", "old_value": "Old", "new_value": "Admins" }] },
+            ],
+        })),
+        ("GET", ["api", "v9", "guilds", "1000", "integrations"]) => ok(json!([
+            { "id": "7700", "name": "Dyno", "type": "discord", "user": user(102), "scopes": ["bot", "applications.commands"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot.", "bot": { "id": "104", "public_flags": 65536 } } },
+        ])),
+        ("GET", ["api", "v9", "guilds", "1000", "webhooks"]) => ok(json!([
+            { "id": "8800", "type": 1, "name": "Deploys", "avatar": null, "channel_id": "2001", "token": "tok" },
+        ])),
+        ("POST", ["api", "v9", "channels", _, "webhooks"]) => ok(json!({ "id": "8801", "type": 1, "name": "Spidey Bot", "avatar": null, "channel_id": "2001", "token": "tok2" })),
+        ("PATCH", ["api", "v9", "webhooks", _]) | ("DELETE", ["api", "v9", "webhooks", _]) => ok(json!({})),
+        ("GET", ["api", "v9", "guilds", "1000", "auto-moderation", "rules"]) => ok(json!([
+            { "id": "9100", "name": "Bad words", "enabled": true, "event_type": 1, "trigger_type": 1, "trigger_metadata": { "keyword_filter": ["heck", "darn"] }, "actions": [{ "type": 1 }], "exempt_roles": [], "exempt_channels": [] },
+        ])),
+        ("POST", ["api", "v9", "guilds", "1000", "auto-moderation", "rules"]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!("9101");
+            ok(b)
+        }
+        ("PATCH", ["api", "v9", "guilds", "1000", "auto-moderation", "rules", id]) => {
+            let mut b: Value = serde_json::from_slice(body).unwrap_or_default();
+            b["id"] = json!(id);
+            ok(b)
+        }
+        ("GET", ["api", "v9", "guilds", g, "soundboard-sounds"]) => {
+            let kept = w.lock().unwrap().edits.get(&format!("s:{g}")).cloned();
+            ok(json!({ "items": kept.unwrap_or_else(default_sounds) }))
+        }
         // the boosts page: discord's powerups catalogue, what Rust Lounge has on, and its boosters
         ("GET", ["api", "v9", "store", "published-listings", "skus"]) => {
             let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
@@ -978,6 +2241,8 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             { "id": "9001", "name": "Factorio", "icon": "appicon9001" },
             { "id": "9002", "name": "Wordle", "icon": "appicon9002" },
             { "id": "9004", "name": "Genshin Impact", "icon": "appicon9004" },
+            { "id": "9100", "name": "Mock Quiz", "icon": null, "description": "A quiz for the whole call" },
+            { "id": "9101", "name": "Mock Draw", "icon": null, "description": "Draw something together" },
         ])),
         ("GET", ["api", "v9", "oauth2", "tokens"]) => ok(json!([
             { "id": "77", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } },
@@ -985,13 +2250,35 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("GET", ["api", "v9", "users", "@me", "connections"]) => ok(json!([
             { "type": "github", "id": "1", "name": "you-on-github", "visibility": 1, "show_activity": true, "verified": true },
         ])),
-        ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => ok(json!([])),
+        ("GET", ["api", "v9", "users", "@me", "billing", ..]) | ("GET", ["api", "v9", "users", "@me", "entitlements", ..]) => {
+            (404, "application/json", json!({ "message": "404: Not Found", "code": 0 }).to_string().into_bytes())
+        }
         // a thread from a message or from nothing: the new channel back, and over the gateway
         ("POST", ["api", "v9", "channels", ch, "messages", _, "threads"]) | ("POST", ["api", "v9", "channels", ch, "threads"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let parent = channel(w, ch);
+            let mut applied = Vec::new();
+            if parent.as_ref().is_some_and(|p| p["type"] == 15) {
+                let tags: Vec<Value> = b["applied_tags"].as_array().cloned().unwrap_or_default();
+                let known = parent.as_ref().and_then(|p| p["available_tags"].as_array()).cloned().unwrap_or_default();
+                let required = parent.as_ref().is_some_and(|p| p["flags"].as_u64().unwrap_or(0) & 16 != 0);
+                let refuse = |code: u64, message: &str| (400, "application/json", json!({ "code": code, "message": message }).to_string().into_bytes());
+                if required && tags.is_empty() {
+                    return refuse(40067, "A tag is required to create a forum post in this channel");
+                }
+                if tags.len() > 5 || tags.iter().any(|t| !t.is_string() || !known.iter().any(|k| k["id"] == *t)) {
+                    return refuse(50035, "Invalid Form Body");
+                }
+                applied = tags;
+                for a in b["message"]["attachments"].as_array().into_iter().flatten() {
+                    if !w.lock().unwrap().uploads.contains_key(a["uploaded_filename"].as_str().unwrap_or("")) {
+                        return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035, "errors": { "message": { "attachments": { "_errors": [{ "code": "ATTACHMENT_NOT_UPLOADED", "message": "Attachment was not uploaded" }] } } } }).to_string().into_bytes());
+                    }
+                }
+            }
             let t = json!({ "id": snow(now_ms()).to_string(), "type": 11, "guild_id": "1000", "parent_id": ch, "name": b["name"],
-                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null,
-                            "thread_metadata": { "archived": false, "auto_archive_duration": 4320 }, "member": { "user_id": ME.to_string() } });
+                            "owner_id": ME.to_string(), "message_count": 0, "member_count": 1, "last_message_id": null, "applied_tags": applied,
+                            "thread_metadata": { "archived": false, "auto_archive_duration": b["auto_archive_duration"] }, "member": { "user_id": ME.to_string() } });
             let _ = w.lock().unwrap().events.send(json!({ "t": "THREAD_CREATE", "d": t.clone() }));
             ok(t)
         }
@@ -1019,23 +2306,25 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ok(json!({ "bookmark_ids": ids, "reminders": reminders }))
         }
         ("PUT", ["api", "v9", "users", "@me", "notes", _]) => (204, "application/json", Vec::new()),
-        // the members table: everyone, or the usernames asked for, newest first
-        ("POST", ["api", "v9", "guilds", g, "members-search"]) => {
-            let b: Value = serde_json::from_slice(body).unwrap_or_default();
-            let words: Vec<String> = b["and_query"]["usernames"]["or_query"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_lowercase)).collect();
-            let list: Vec<Value> = [101u64, 102, 103, 104, 105]
-                .iter()
-                .enumerate()
-                .filter(|(_, id)| words.is_empty() || words.iter().any(|w| user(**id)["username"].as_str().unwrap_or("").contains(w.as_str())))
-                .map(|(i, id)| {
-                    let mut m = member(*id);
-                    m["user"] = user(*id);
-                    m["joined_at"] = json!(iso(now_ms() - (i as u64 + 1) * 5 * 86_400_000));
-                    let code = (*id != 104).then_some("e2eInv1");
-                    json!({ "member": m, "source_invite_code": code, "join_source_type": if code.is_some() { 5 } else { 1 }, "inviter_id": code.map(|_| "102") })
+        ("PATCH", ["api", "v9", "users", "@me", "relationships", _]) => (204, "application/json", Vec::new()),
+        ("PUT" | "DELETE", ["api", "v9", "users", "@me", "relationships", _, "ignore"]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "users", "@me", "application-command-index"]) => ok(json!({
+            "applications": [{ "id": "104", "name": "Dyno", "icon": null }],
+            "application_commands": [{ "id": "9101", "application_id": "104", "version": "1", "type": 2, "name": "Warn User", "options": [] }],
+        })),
+        ("GET", ["api", "v9", "sticker-packs"]) => {
+            let pack = |id: u64, name: &str, list: &[(u64, &str, &str, u8)]| {
+                json!({
+                    "id": id.to_string(), "name": name, "sku_id": (id + 1).to_string(), "cover_sticker_id": list[0].0.to_string(), "description": "", "banner_asset_id": null,
+                    "stickers": list.iter().enumerate().map(|(i, (sid, n, tags, fmt))| json!({
+                        "id": sid.to_string(), "name": n, "tags": tags, "type": 1, "format_type": fmt, "description": "", "pack_id": id.to_string(), "sort_value": i,
+                    })).collect::<Vec<_>>(),
                 })
-                .collect();
-            ok(json!({ "guild_id": g, "members": list, "page_result_count": list.len(), "total_result_count": list.len() }))
+            };
+            ok(json!({ "sticker_packs": [
+                pack(8100, "Wumpus Beyond", &[(8101, "Wave", "hi, hello", 2), (8102, "Thumbs Up", "yes, like", 1), (8103, "Sleepy", "sleep, tired", 3)]),
+                pack(8200, "Hello Wumpus", &[(8201, "Cheers", "drink, toast", 1), (8202, "Hug", "love", 2)]),
+            ] }))
         }
         ("GET", ["api", "v9", "guilds", "1001", "onboarding"]) => ok(json!({
             "guild_id": "1001", "enabled": true, "mode": 0, "default_channel_ids": ["2100"], "responses": ["7101"],
@@ -1045,7 +2334,6 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
             ] }],
         })),
         ("PUT", ["api", "v9", "guilds", _, "onboarding-responses"]) => ok(serde_json::from_slice(body).unwrap_or_default()),
-        ("GET", ["api", "v9", "guilds", _, "prune"]) => ok(json!({ "pruned": 2 })),
         ("GET", ["api", "v9", "guilds", _, "regions"]) => ok(json!([
             { "id": "us-east", "name": "US East", "optimal": true, "deprecated": false },
             { "id": "rotterdam", "name": "Rotterdam", "optimal": false, "deprecated": false },
@@ -1062,27 +2350,198 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         ("PATCH", ["api", "v9", "channels", ch]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let Some(mut c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
+            let thread = c["type"] == 11;
             for (k, v) in b.as_object().into_iter().flatten() {
-                c[k] = v.clone();
+                if thread && (k == "archived" || k == "locked") {
+                    c["thread_metadata"][k] = v.clone();
+                } else {
+                    c[k] = v.clone();
+                }
             }
             let mut w = w.lock().unwrap();
             w.edits.insert(ch.to_string(), c.clone());
-            let _ = w.events.send(json!({ "t": "CHANNEL_UPDATE", "d": c.clone() }));
+            let _ = w.events.send(json!({ "t": if thread { "THREAD_UPDATE" } else { "CHANNEL_UPDATE" }, "d": c.clone() }));
             ok(c)
         }
+        ("PUT" | "DELETE", ["api", "v9", "channels", _, "thread-members", "@me"]) => (204, "application/json", Vec::new()),
         ("DELETE", ["api", "v9", "channels", ch]) => {
             let Some(c) = channel(w, ch) else { return (404, "text/plain", b"not found".to_vec()) };
             let mut w = w.lock().unwrap();
             w.gone.push(ch.to_string());
-            let _ = w.events.send(json!({ "t": "CHANNEL_DELETE", "d": c.clone() }));
+            let _ = w.events.send(json!({ "t": if c["type"] == 11 { "THREAD_DELETE" } else { "CHANNEL_DELETE" }, "d": c.clone() }));
             ok(c)
+        }
+        ("GET", ["api", "v9", "guilds", g]) if guild_full(w, g).is_some() => ok(guild_full(w, g).unwrap()),
+        ("PATCH", ["api", "v9", "guilds", g]) if guild_full(w, g).is_some() => {
+            keep(w, format!("g:{g}"), body);
+            guild_update(w, g);
+            ok(guild_full(w, g).unwrap())
+        }
+        ("POST", ["api", "v9", "guilds", g, "delete"]) => {
+            let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_DELETE", "d": { "id": g } }));
+            (204, "application/json", Vec::new())
+        }
+        ("GET", ["api", "v9", "guilds", g, "profile"]) => ok(profile_full(w, g).unwrap_or_default()),
+        ("PATCH", ["api", "v9", "guilds", g, "profile"]) => {
+            keep(w, format!("p:{g}"), body);
+            ok(profile_full(w, g).unwrap_or_default())
+        }
+        ("PUT", ["api", "v9", "guilds", g, "incident-actions"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            keep(w, format!("g:{g}"), json!({ "incidents_data": { "invites_disabled_until": b["invites_disabled_until"], "dms_disabled_until": b["dms_disabled_until"] } }).to_string().as_bytes());
+            guild_update(w, g);
+            ok(guild_full(w, g).unwrap_or_default()["incidents_data"].clone())
+        }
+        ("GET", ["api", "v9", "guilds", g, "widget"]) => ok(w.lock().unwrap().edits.get(&format!("w:{g}")).cloned().unwrap_or(json!({ "enabled": false, "channel_id": null }))),
+        ("PATCH", ["api", "v9", "guilds", g, "widget"]) => {
+            keep(w, format!("w:{g}"), body);
+            ok(w.lock().unwrap().edits.get(&format!("w:{g}")).cloned().unwrap_or_default())
+        }
+        ("GET", ["api", "v9", "guilds", g, "vanity-url"]) => ok(w.lock().unwrap().edits.get(&format!("v:{g}")).cloned().unwrap_or(json!({ "code": null, "uses": 0 }))),
+        ("PATCH", ["api", "v9", "guilds", g, "vanity-url"]) => {
+            keep(w, format!("v:{g}"), body);
+            ok(w.lock().unwrap().edits.get(&format!("v:{g}")).cloned().unwrap_or_default())
+        }
+        ("GET", ["api", "v9", "guilds", g, "member-verification"]) => ok(w.lock().unwrap().edits.get(&format!("m:{g}")).cloned().unwrap_or(json!({ "version": "1", "description": null, "form_fields": [] }))),
+        ("PATCH", ["api", "v9", "guilds", g, "member-verification"]) => {
+            keep(w, format!("m:{g}"), body);
+            let form = w.lock().unwrap().edits.get(&format!("m:{g}")).cloned().unwrap_or_default();
+            let apply = form["form_fields"].as_array().is_some_and(|f| f.iter().any(|x| x["field_type"] != "TERMS"));
+            let mut feats: Vec<Value> = guild_full(w, g).map(|f| f["features"].as_array().cloned().unwrap_or_default()).unwrap_or_default();
+            feats.retain(|f| f != "MEMBER_VERIFICATION_MANUAL_APPROVAL" && f != "MEMBER_VERIFICATION_GATE_ENABLED");
+            if form["enabled"] == json!(true) {
+                feats.push(json!(if apply { "MEMBER_VERIFICATION_MANUAL_APPROVAL" } else { "MEMBER_VERIFICATION_GATE_ENABLED" }));
+            }
+            keep(w, format!("g:{g}"), json!({ "features": feats }).to_string().as_bytes());
+            let (w, g) = (w.clone(), g.to_string());
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                guild_update(&w, &g);
+            });
+            ok(form)
+        }
+        ("GET", ["api", "v9", "guilds", g, "templates"]) => ok(w.lock().unwrap().edits.get(&format!("t:{g}")).map(|t| json!([t])).unwrap_or(json!([]))),
+        ("POST", ["api", "v9", "guilds", g, "templates"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let t = json!({ "code": format!("mock{g}"), "name": b["name"], "description": b["description"], "usage_count": 0, "is_dirty": false });
+            w.lock().unwrap().edits.insert(format!("t:{g}"), t.clone());
+            ok(t)
+        }
+        ("PATCH", ["api", "v9", "guilds", g, "templates", _]) => {
+            keep(w, format!("t:{g}"), body);
+            ok(w.lock().unwrap().edits.get(&format!("t:{g}")).cloned().unwrap_or_default())
+        }
+        ("PUT", ["api", "v9", "guilds", g, "templates", _]) => ok(w.lock().unwrap().edits.get(&format!("t:{g}")).cloned().unwrap_or_default()),
+        ("DELETE", ["api", "v9", "guilds", g, "templates", _]) => {
+            w.lock().unwrap().edits.remove(&format!("t:{g}"));
+            ok(json!({}))
+        }
+        ("POST", ["api", "v9", "guilds", g, "soundboard-sounds"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let s = json!({ "sound_id": snow(now_ms()).to_string(), "name": b["name"], "volume": b["volume"], "emoji_name": b["emoji_name"], "emoji_id": b["emoji_id"], "user": user(ME) });
+            let mut w = w.lock().unwrap();
+            let list = w.edits.entry(format!("s:{g}")).or_insert_with(|| default_sounds());
+            list.as_array_mut().unwrap().push(s.clone());
+            ok(s)
+        }
+        ("PATCH", ["api", "v9", "guilds", g, "soundboard-sounds", id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut w = w.lock().unwrap();
+            let list = w.edits.entry(format!("s:{g}")).or_insert_with(|| default_sounds());
+            for s in list.as_array_mut().unwrap().iter_mut().filter(|s| s["sound_id"] == *id) {
+                for (k, v) in b.as_object().into_iter().flatten() {
+                    s[k] = v.clone();
+                }
+            }
+            ok(json!({}))
+        }
+        ("DELETE", ["api", "v9", "guilds", g, "soundboard-sounds", id]) => {
+            let mut w = w.lock().unwrap();
+            let list = w.edits.entry(format!("s:{g}")).or_insert_with(|| default_sounds());
+            list.as_array_mut().unwrap().retain(|s| s["sound_id"] != *id);
+            (204, "application/json", Vec::new())
+        }
+        ("PATCH", ["api", "v9", "channels", ch, "messages", id]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["content"].as_str().is_some_and(|c| c.chars().count() > 2000) {
+                return (400, "application/json", fail_body(400).to_string().into_bytes());
+            }
+            let mut w = w.lock().unwrap();
+            let Some(m) = w.msgs.iter_mut().find(|m| m["channel_id"] == *ch && m["id"] == *id) else {
+                return ok(json!({}));
+            };
+            if let Some(c) = b.get("content") {
+                m["content"] = c.clone();
+                m["edited_timestamp"] = json!(iso(now_ms()));
+            }
+            if let Some(f) = b["flags"].as_u64() {
+                m["flags"] = json!(f);
+                if f & 4 != 0 {
+                    m["embeds"] = json!([]);
+                }
+            }
+            let m = m.clone();
+            let _ = w.events.send(json!({ "t": "MESSAGE_UPDATE", "d": m }));
+            ok(m)
+        }
+        ("DELETE", ["api", "v9", "channels", ch, "messages", id]) => {
+            let mut w = w.lock().unwrap();
+            let Some(at) = w.msgs.iter().position(|m| m["channel_id"] == *ch && m["id"] == *id) else {
+                return (204, "application/json", Vec::new());
+            };
+            w.msgs.remove(at);
+            let _ = w.events.send(json!({ "t": "MESSAGE_DELETE", "d": { "id": id, "channel_id": ch } }));
+            (204, "application/json", Vec::new())
+        }
+        ("PUT" | "DELETE", ["api", "v9", "channels", ch, "messages", "pins", id]) => {
+            let mut w = w.lock().unwrap();
+            let Some(m) = w.msgs.iter_mut().find(|m| m["channel_id"] == *ch && m["id"] == *id) else {
+                return (204, "application/json", Vec::new());
+            };
+            m["pinned"] = json!(method == "PUT");
+            let _ = w.events.send(json!({ "t": "CHANNEL_PINS_UPDATE", "d": { "channel_id": ch, "last_pin_timestamp": iso(now_ms()) } }));
+            (204, "application/json", Vec::new())
+        }
+        ("DELETE", ["api", "v9", "guilds", _, "members", _]) | ("PUT", ["api", "v9", "guilds", _, "bans", _]) | ("PATCH", ["api", "v9", "guilds", _, "members", _]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["nick"].as_str().is_some_and(|n| n.chars().count() > 32) {
+                let reply = json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "nick": { "_errors": [{ "code": "BASE_TYPE_MAX_LENGTH", "message": "Must be 32 or fewer in length." }] } } });
+                return (400, "application/json", reply.to_string().into_bytes());
+            }
+            (204, "application/json", Vec::new())
         }
         (_, ["api", ..]) => ok(json!({})),
         ("GET", ["cdn", "emojis", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(48, 48, 0)),
+        ("GET", ["cdn", "media", "clip.mp4"]) if query(path, "width").is_some() => (200, "image/png", png(320, 180, 5, false)),
+        ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", std::env::var("MOCK_CLIP_HD").ok().and_then(|f| std::fs::read(f).ok()).unwrap_or_else(|| include_bytes!("fixtures/clip.mp4").to_vec())),
+        ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
+        ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
+        ("GET", ["cdn", "media", f]) if f.starts_with("effect_") && f.ends_with(".gif") => (200, "image/gif", fx_gif(300, 400, f.len() as u32)),
+        ("GET", ["cdn", "media", f]) if f.starts_with("frame_") && f.ends_with("_a.png") => (200, "image/png", fx_frame(300, 400)),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
+        ("GET", ["cdn", "media", "still.png"]) => (200, "image/png", png(480, 270, 7, false)),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
+        ("GET", ["cdn", "assets", "content", f]) if f.starts_with("a5a35112") => (
+            200,
+            "image/svg+xml",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="28" viewBox="0 0 20 28"><path d="M1 1 L1 22 L7 17 L11 26 L14 25 L10 16 L18 16 Z" fill="#fee75c" stroke="#111" stroke-width="2" stroke-linejoin="round"/></svg>"##.to_vec(),
+        ),
+        ("GET", ["cdn", "assets", "content", f]) if f.starts_with("99d372f8") => (
+            200,
+            "image/svg+xml",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="28" viewBox="0 0 20 28"><path d="M1 1 L1 22 L7 17 L11 26 L14 25 L10 16 L18 16 Z" fill="#eb459e" stroke="#111" stroke-width="2" stroke-linejoin="round"/></svg>"##.to_vec(),
+        ),
+        ("GET", ["cdn", "assets", "content", f]) if f.ends_with(".svg") => (
+            200,
+            "image/svg+xml",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="117" height="69" viewBox="0 0 117 69"><rect width="117" height="69" rx="6" fill="#5865f2"/><circle cx="82" cy="34" r="22" fill="#eb459e"/><circle cx="82" cy="34" r="10" fill="#faa61a"/></svg>"##.to_vec(),
+        ),
+        ("GET", ["cdn", "assets", f]) if f.ends_with(".webp") => (200, "image/png", png(96, 96, f.bytes().map(u64::from).sum(), false)),
+        ("GET", ["cdn", "assets", "content", f]) => (200, "image/png", png(640, 360, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "soundboard-sounds", _]) => (200, "audio/ogg", b"OggS".to_vec()),
+        ("GET", ["robots.txt"]) => (200, "text/plain", b"User-agent: *".to_vec()),
+        ("GET", ["billing", ..]) => shop::billing_page(&parts).unwrap_or((404, "text/plain", b"not found".to_vec())),
         ("GET", ["app"]) => (200, "text/html", br#"<link href="/assets/other.css" rel="stylesheet"><link href="/assets/fonts.css" rel="stylesheet">"#.to_vec()),
         ("GET", ["assets", "other.css"]) => (200, "text/css", b"body{margin:0}".to_vec()),
         ("GET", ["assets", "fonts.css"]) => {
@@ -1103,8 +2562,33 @@ async fn route(w: &W, method: &str, path: &str, body: &[u8]) -> (u16, &'static s
         }
         // the nitro display name fonts, by their real asset names
         ("GET", ["assets", f]) if NAME_FONT_ASSETS.iter().any(|h| f.strip_suffix(".woff2") == Some(*h)) => (200, "font/woff2", gg_stand_in("sans400normal")),
+        // discord's sounds: whichever of the mp3s in MOCK_SOUNDS the asset name lands on
+        ("GET", ["assets", f]) if f.ends_with(".mp3") => {
+            let mut files: Vec<_> = std::env::var_os("MOCK_SOUNDS").and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).collect();
+            files.sort();
+            let pick = f.bytes().fold(0usize, |a, b| a.wrapping_mul(31).wrapping_add(b as usize));
+            match files.get(pick % files.len().max(1)).and_then(|p| std::fs::read(p).ok()) {
+                Some(b) => (200, "audio/mpeg", b),
+                None => (404, "text/plain", Vec::new()),
+            }
+        }
         ("GET", ["assets", f]) if f.starts_with("mock-") && f.ends_with(".woff2") => (200, "font/woff2", gg_stand_in(&f[5..f.len() - 6])),
-        ("GET", ["cdn", "attachments", ..]) => (200, "image/png", png(800, 450, 2, false)),
+        ("GET", ["cdn", "attachments", _, _, name]) => {
+            let natural = cdn_shape::attachment_size(name);
+            let (w, h) = cdn_shape::fitted(natural, path);
+            let seed = name.bytes().map(u64::from).sum();
+            match name.rsplit('.').next() {
+                Some("mp4") if query(path, "width").is_some() => (200, "image/png", png(w, h, seed, false)),
+                Some("mp4") => (200, "video/mp4", include_bytes!("fixtures/clip.mp4").to_vec()),
+                Some("txt") => (200, "text/plain", b"release notes
+- faster startup
+".to_vec()),
+                _ => (200, "image/png", png(w, h, seed, false)),
+            }
+        }
+        ("GET", ["cdn", "stickers", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(160, 160, f.len() as u32)),
+        ("GET", ["cdn", "stickers", f]) if f.ends_with(".json") => (200, "application/json", include_bytes!("fixtures/sticker.json").to_vec()),
+        ("GET", ["cdn", "stickers", f]) => (200, "image/png", png(160, 160, f.bytes().map(u64::from).sum(), false)),
         ("GET", ["cdn", "emoji", ..]) | ("GET", ["cdn", "emojis", ..]) => (200, "image/png", png(72, 72, 0, true)),
         ("GET", ["cdn", kind, id, ..]) => {
             let size = query(path, "size").unwrap_or(128).clamp(16, 256) as u32;
@@ -1139,6 +2623,9 @@ async fn http_conn(mut s: TcpStream, w: W) {
         let len: usize = header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
         let locale = header("x-discord-locale").unwrap_or_default();
         while buf.len() < head_end + len {
+            if path.starts_with("/upload/") && path.contains("slow") {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
             match s.read(&mut tmp).await {
                 Ok(0) | Err(_) => return,
                 Ok(n) => buf.extend_from_slice(&tmp[..n]),
@@ -1149,16 +2636,48 @@ async fn http_conn(mut s: TcpStream, w: W) {
 
         {
             let mut wl = w.lock().unwrap();
-            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "locale": locale });
+            let text: String = if path.starts_with("/upload/") { format!("{} bytes", body.len()) } else { String::from_utf8_lossy(&body).chars().filter(|c| !matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')).collect() };
+            let line = json!({ "t": now_ms(), "method": method, "path": path, "body": text, "locale": locale, "auth": header("authorization"), "reason": header("x-audit-log-reason"), "context": header("x-context-properties"), "range": header("range") });
             let _ = writeln!(wl.log, "{line}");
         }
-        let (code, ctype, out) = route(&w, &method, &path, &body).await;
+        let mfa = header("x-discord-mfa-authorization");
+        let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
+        let (mut code, ctype, mut out) = match (rules::check(&method, &parts, &body).or_else(|| header("x-context-properties").and_then(|c| rules::context(&c))), account::route(&method, &path, &body, mfa.as_deref(), &user(ME), &user)) {
+            (Some(refusal), _) => {
+                log(&w, json!({ "t": now_ms(), "method": method, "path": path, "body": String::from_utf8_lossy(&body), "refused": refusal }));
+                (400, "application/json", refusal.to_string().into_bytes())
+            }
+            (None, Some((code, v))) => (code, "application/json", if v.is_null() { Vec::new() } else { v.to_string().into_bytes() }),
+            (None, None) => route(&w, &method, &path, &header("authorization").unwrap_or_default(), &body).await,
+        };
+        if code >= 400 && path.starts_with("/cdn/") {
+            log(&w, json!({ "t": now_ms(), "cdn_refused": path, "code": code }));
+        }
+        let mut extra = String::new();
+        if code == 200 && path.starts_with("/cdn/media/") {
+            extra.push_str("Accept-Ranges: bytes\r\n");
+            let span = header("range").and_then(|r| r.strip_prefix("bytes=").and_then(|r| r.split_once('-').map(|(a, b)| (a.parse::<usize>().ok(), b.parse::<usize>().ok()))));
+            if let Some((Some(from), to)) = span {
+                let total = out.len();
+                let to = to.unwrap_or(total.saturating_sub(1)).min(total.saturating_sub(1));
+                if from > to {
+                    (code, out) = (416, Vec::new());
+                } else {
+                    extra.push_str(&format!("Content-Range: bytes {from}-{to}/{total}\r\n"));
+                    (code, out) = (206, out[from..=to].to_vec());
+                }
+            }
+        }
         let reason = match code {
             200 => "OK",
+            206 => "Partial Content",
+            416 => "Range Not Satisfiable",
             204 => "No Content",
+            400 => "Bad Request",
+            401 => "Unauthorized",
             _ => "Not Found",
         };
-        let head = format!("HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n", out.len());
+        let head = format!("HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n{extra}Connection: keep-alive\r\n\r\n", out.len());
         if s.write_all(head.as_bytes()).await.is_err() || s.write_all(&out).await.is_err() {
             return;
         }
@@ -1182,7 +2701,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                 {
                     let mut wl = w.lock().unwrap();
                     let mut line = json!({ "t": now_ms(), "gateway_op": v["op"] });
-                    if matches!(v["op"].as_u64(), Some(3 | 4 | 18..=22)) {
+                    if matches!(v["op"].as_u64(), Some(3 | 4 | 18..=22 | 37)) {
                         line["d"] = v["d"].clone();
                     }
                     let _ = writeln!(wl.log, "{line}");
@@ -1203,7 +2722,15 @@ async fn ws_conn(s: TcpStream, w: W) {
                         }
                         let last = w.lock().unwrap().msgs.last().map(|m| m["id"].as_str().unwrap().parse::<u64>().unwrap()).unwrap_or(0);
                         vec![
-                            ("READY".into(), ready(last)),
+                            ("READY".into(), {
+                                let mut r = ready(last);
+                                if std::env::var_os("MOCK_SETTINGS_LIVE").is_some()
+                                    && let Some(b) = account::blob()
+                                {
+                                    r["user_settings_proto"] = json!(b);
+                                }
+                                r
+                            }),
                             ("READY_SUPPLEMENTAL".into(), json!({ "merged_presences": { "friends": [
                                 { "user_id": "101", "status": "online" }, { "user_id": "102", "status": "idle" }, { "user_id": "103", "status": "dnd" }
                             ], "guilds": [] }, "guilds": [] })),
@@ -1212,7 +2739,19 @@ async fn ws_conn(s: TcpStream, w: W) {
                     Some(6) => vec![("RESUMED".into(), json!({}))],
                     Some(4) => voice_state(&w, &v["d"]),
                     Some(op @ 18..=22) => stream_op(&w, op, &v["d"]),
-                    Some(37) => vec![("GUILD_MEMBER_LIST_UPDATE".into(), member_list())],
+                    Some(37) => {
+                        let mut out: Vec<(String, Value)> = Vec::new();
+                        if v["d"]["subscriptions"].as_object().is_none_or(|o| o.is_empty()) {
+                            out.push(("GUILD_MEMBER_LIST_UPDATE".into(), member_list("1000")));
+                        }
+                        for (g, s) in v["d"]["subscriptions"].as_object().into_iter().flatten() {
+                            out.push(("GUILD_MEMBER_LIST_UPDATE".into(), member_list(g)));
+                            for t in s["thread_member_lists"].as_array().into_iter().flatten() {
+                                out.push(("THREAD_MEMBER_LIST_UPDATE".into(), thread_members(t.as_str().unwrap_or_default(), g)));
+                            }
+                        }
+                        out
+                    }
                     // voice channel statuses and when their calls began, as discord answers op 43
                     Some(43) => vec![("CHANNEL_INFO".into(), json!({ "guild_id": v["d"]["guild_id"], "channels": [
                         { "id": "2021", "status": null, "voice_start_time": now_ms() / 1000 - 3725 },
@@ -1226,7 +2765,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                             .filter_map(|id| id.as_str()?.parse::<u64>().ok())
                             .map(|id| { let mut m = member(id); m["user"] = user(id); m })
                             .collect();
-                        vec![("GUILD_MEMBERS_CHUNK".into(), json!({ "guild_id": "1000", "members": members, "chunk_index": 0, "chunk_count": 1 }))]
+                        vec![("GUILD_MEMBERS_CHUNK".into(), json!({ "guild_id": v["d"]["guild_id"].as_str().unwrap_or("1000"), "members": members, "chunk_index": 0, "chunk_count": 1 }))]
                     }
                     _ => vec![],
                 };
@@ -1255,12 +2794,22 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
     let mut wl = w.lock().unwrap();
     let moved = chan.map(|c| (guild, c)) != wl.voice_chan;
     wl.voice_chan = chan.map(|c| (guild, c));
+    wl.clip_flags = d["flags"].as_u64().unwrap_or(0);
+    let stage = chan.and_then(stage_guild);
+    if moved {
+        wl.speakers.remove(&ME);
+        wl.hands.remove(&ME);
+    }
     let mut m = member(ME);
     m["user"] = user(ME);
+    if guild == Some(1003) {
+        m["roles"] = json!(["1201"]);
+    }
     let me = json!({
         "guild_id": guild.map(|g| g.to_string()), "channel_id": chan.map(|c| c.to_string()), "user_id": ME.to_string(),
         "session_id": "mock-voice-session", "self_mute": d["self_mute"], "self_deaf": d["self_deaf"], "self_video": d["self_video"],
-        "mute": false, "deaf": false, "suppress": false, "member": m,
+        "mute": false, "deaf": false, "suppress": stage.is_some() && !wl.speakers.contains(&ME),
+        "request_to_speak_timestamp": wl.hands.get(&ME), "member": m,
     });
     let mut out = vec![("VOICE_STATE_UPDATE".to_string(), me)];
     let Some(ch) = chan else { return out };
@@ -1283,6 +2832,18 @@ fn voice_state(w: &W, d: &Value) -> Vec<(String, Value)> {
             out.push(("CALL_CREATE".into(), json!({ "channel_id": ch.to_string(), "message_id": "1", "region": "local",
                 "ringing": [], "voice_states": [{ "user_id": ME.to_string(), "channel_id": ch.to_string(), "session_id": "mock-voice-session" }] })));
             out.push(("VOICE_SERVER_UPDATE".into(), json!({ "token": "mock-voice-token", "guild_id": null, "channel_id": ch.to_string(), "endpoint": endpoint })));
+        }
+    }
+    if stage.is_some() {
+        alice["self_video"] = json!(false);
+        alice["self_stream"] = json!(false);
+        alice["mute"] = json!(false);
+        alice["suppress"] = json!(false);
+        for (u, hand) in [(102u64, Some("2026-11-05T10:00:00.000Z")), (103, None)] {
+            let mut m = member(u);
+            m["user"] = user(u);
+            out.push(("VOICE_STATE_UPDATE".into(), json!({ "guild_id": guild.map(|g| g.to_string()), "channel_id": ch.to_string(), "user_id": u.to_string(),
+                "session_id": format!("other{u}"), "self_mute": false, "self_deaf": false, "mute": false, "deaf": false, "suppress": true, "request_to_speak_timestamp": hand, "member": m })));
         }
     }
     out.push(("VOICE_STATE_UPDATE".into(), alice));
@@ -1437,6 +2998,7 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
     let live = Arc::new(AtomicBool::new(true));
     let gw = Gw::new();
     let (mut channel, mut dm, mut kind, mut cssrc) = (0u64, false, Kind::Voice, CLIENT_SSRC);
+    let mut told_clips = false;
     let _ = tx.send(Ws::text(json!({ "op": 8, "d": { "heartbeat_interval": 1000.0 } }).to_string())).await;
     while let Some(Ok(m)) = rx.next().await {
         let mut out: Vec<Reply> = Vec::new();
@@ -1514,7 +3076,13 @@ async fn voice_conn(s: TcpStream, w: W, udp: Arc<UdpSocket>) {
                     }
                     Some(3) => {
                         line["seq_ack"] = d["seq_ack"].clone();
+                        tokio::time::sleep(Duration::from_millis(40)).await;
                         let _ = tx.send(Ws::text(json!({ "op": 6, "d": { "t": d["t"] } }).to_string())).await;
+                        // once the client's voice state says it's clipping, the other speaker says so too
+                        if kind == Kind::Voice && !told_clips && w.lock().unwrap().clip_flags & 1 != 0 {
+                            told_clips = true;
+                            out.push(Reply::Json(json!({ "op": 18, "d": { "user_id": SPEAKER.to_string(), "flags": 3 } })));
+                        }
                     }
                     Some(5) => line["speaking"] = d["speaking"].clone(),
                     Some(7) => out.push(Reply::Json(json!({ "op": 9, "d": null }))),
@@ -1699,7 +3267,8 @@ async fn speaker(w: W, udp: Arc<UdpSocket>, live: Arc<AtomicBool>, cssrc: u32) {
         let Some(to) = to else { continue };
         let (assrc, vssrc) = if kind == Kind::Voice { (SPEAKER_SSRC, SPEAKER_SSRC + 1) } else { (SPEAKER_SSRC + 100, SPEAKER_SSRC + 101) };
         if i % 3 == 0 {
-            let (wd, ht) = (320usize, 180usize);
+            // MOCK_STREAM_HD: a Go Live the size of a real one, to measure watching it
+            let (wd, ht) = if kind != Kind::Voice && std::env::var_os("MOCK_STREAM_HD").is_some() { (1920usize, 1080usize) } else { (320, 180) };
             let shift = (i / 3) as usize * 4;
             let rgb: Vec<u8> = (0..wd * ht)
                 .flat_map(|p| {
@@ -1777,8 +3346,12 @@ async fn main() {
     let ws_port: u16 = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(7702);
     let log = args.get(3).cloned().unwrap_or_else(|| "mock_requests.jsonl".into());
     let voice_port: u16 = args.get(4).and_then(|p| p.parse().ok()).unwrap_or(ws_port + 1);
+    if let Some(port) = args.get(5).and_then(|p| p.parse().ok()) {
+        tokio::spawn(auth::gateway(port));
+    }
     let cdn = format!("http://127.0.0.1:{http_port}/cdn");
     PORT.store(http_port, std::sync::atomic::Ordering::Relaxed);
+    account::init(&settings_proto(1, true));
     let (events, _) = broadcast::channel(256);
     let w: W = Arc::new(Mutex::new(World {
         msgs: seed(&cdn),
@@ -1786,10 +3359,17 @@ async fn main() {
         events,
         voice_port,
         voice_chan: None,
+        clip_flags: 0,
         voices: Vec::new(),
         saved: Vec::new(),
         edits: Default::default(),
         gone: Vec::new(),
+        speakers: Default::default(),
+        uploads: Default::default(),
+        hands: Default::default(),
+        acts: Vec::new(),
+        authorized: Default::default(),
+        fails: Vec::new(),
     }));
 
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.expect("bind http");

@@ -35,6 +35,28 @@ pub fn cdn() -> &'static str {
     V.get_or_init(|| env_or("RUSTCORD_CDN", "https://cdn.discordapp.com"))
 }
 
+/// Stickers and proxied pictures live on media.discordapp.net, unless RUSTCORD_CDN moves the CDN.
+pub fn media() -> &'static str {
+    static V: OnceLock<String> = OnceLock::new();
+    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://media.discordapp.net".into() })
+}
+
+/// Where discord.com's own static files live, unless RUSTCORD_CDN moves them (Lottie stickers are json there).
+pub fn asset() -> &'static str {
+    static V: OnceLock<String> = OnceLock::new();
+    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://discord.com".into() })
+}
+
+/// A sticker's picture: Lottie (format 3) is json on the asset host and drawn by `lottie`, a gif
+/// stays a gif, png and apng come as png.
+pub fn sticker(id: u64, fmt: u8, size: u32) -> String {
+    match fmt {
+        3 => format!("{}/stickers/{id}.json", asset()),
+        4 => format!("{}/stickers/{id}.gif?size={size}", media()),
+        _ => format!("{}/stickers/{id}.png?size={size}", media()),
+    }
+}
+
 pub fn emoji_cdn() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
     V.get_or_init(|| env_or("RUSTCORD_EMOJI_CDN", "https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72"))
@@ -43,6 +65,11 @@ pub fn emoji_cdn() -> &'static str {
 pub fn gateway() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
     V.get_or_init(|| env_or("RUSTCORD_GATEWAY", "wss://gateway.discord.gg"))
+}
+
+pub fn remote_auth() -> &'static str {
+    static V: OnceLock<String> = OnceLock::new();
+    V.get_or_init(|| env_or("RUSTCORD_REMOTE_AUTH", "wss://remote-auth-gateway.discord.gg"))
 }
 
 pub fn props() -> Value {
@@ -69,6 +96,39 @@ fn super_props() -> &'static str {
     V.get_or_init(|| base64::engine::general_purpose::STANDARD.encode(props().to_string()))
 }
 
+pub const RATE_LIMITED: &str = "You are being rate limited.";
+
+pub fn explain(status: u16, v: &Value) -> String {
+    let mut fields = Vec::new();
+    collect_errors(&v["errors"], &mut fields);
+    if !fields.is_empty() {
+        return fields.join(" ");
+    }
+    if let Some(m) = v["message"].as_str().filter(|m| !m.is_empty()) {
+        return m.to_string();
+    }
+    match status {
+        400 => "A bad network request has occurred, please try again.",
+        403 => "A forbidden network request has occurred, please try again.",
+        429 => RATE_LIMITED,
+        500 => "An internal server error has occurred, please try again.",
+        502..=504 => "Oh no, it looks like the Discord servers are having issues. Please try again in a little bit.",
+        _ => "A network error has occurred. Please check your connection and try again.",
+    }
+    .to_string()
+}
+
+fn collect_errors(v: &Value, out: &mut Vec<String>) {
+    let Some(o) = v.as_object() else { return };
+    for (k, x) in o {
+        if k == "_errors" {
+            out.extend(x.as_array().into_iter().flatten().filter_map(|e| e["message"].as_str().map(str::to_string)));
+        } else {
+            collect_errors(x, out);
+        }
+    }
+}
+
 /// Whether an error means discord couldn't be reached at all, rather than that it said no.
 pub fn offline(err: &str) -> bool {
     err.starts_with("error sending request")
@@ -82,7 +142,7 @@ pub fn http() -> reqwest::Client {
         .expect("http client")
 }
 
-fn esc(s: &str) -> String {
+pub fn esc(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || b"-_.~:".contains(&b) {
@@ -94,14 +154,55 @@ fn esc(s: &str) -> String {
     out
 }
 
+pub struct Reply {
+    pub status: u16,
+    pub body: Value,
+}
+
+/// A refused request: the line to show (the first field error, else discord's message), each
+/// field error with its dotted path, and the answer as it came for the details view.
+pub struct Failure {
+    pub message: String,
+    pub fields: Vec<(String, String)>,
+    pub raw: String,
+}
+
+impl Failure {
+    fn plain(message: String) -> Self {
+        Failure { message, fields: Vec::new(), raw: String::new() }
+    }
+
+    fn new(status: StatusCode, v: &Value) -> Self {
+        let mut fields = Vec::new();
+        field_errors(&v["errors"], "", &mut fields);
+        Failure { message: explain(status.as_u16(), v), fields, raw: format!("{status}
+{v}") }
+    }
+}
+
+fn field_errors(v: &Value, path: &str, out: &mut Vec<(String, String)>) {
+    for e in v["_errors"].as_array().into_iter().flatten() {
+        out.push((path.to_string(), e["message"].as_str().unwrap_or_default().to_string()));
+    }
+    for (k, c) in v.as_object().into_iter().flatten().filter(|(k, _)| *k != "_errors") {
+        field_errors(c, &if path.is_empty() { k.clone() } else { format!("{path}.{k}") }, out);
+    }
+}
+
+pub struct Captcha {
+    pub key: String,
+    pub rqtoken: Option<String>,
+}
+
 pub struct Api {
     http: reqwest::Client,
     token: String,
+    ack_token: std::sync::Mutex<Option<String>>,
 }
 
 impl Api {
     pub fn new(http: reqwest::Client, token: String) -> Self {
-        Api { http, token }
+        Api { http, token, ack_token: Default::default() }
     }
 
     fn build(&self, m: Method, path: &str) -> reqwest::RequestBuilder {
@@ -118,17 +219,40 @@ impl Api {
     }
 
     pub async fn call(&self, m: Method, path: &str, body: Option<Value>) -> Result<Value, String> {
+        self.call_mfa(m, path, body, None).await
+    }
+
+    /// `call` for the requests discord guards with a second factor: the token from /mfa/finish
+    /// rides in X-Discord-MFA-Authorization, and a 60003 answer comes back as `mfa:<ticket and methods>`.
+    pub async fn call_mfa(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>) -> Result<Value, String> {
+        self.try_call(m, path, body, mfa, None, None).await.map_err(|f| f.message)
+    }
+
+    /// The same request with the whole refusal kept: the field errors and the raw answer.
+    pub async fn try_call(&self, m: Method, path: &str, body: Option<Value>, mfa: Option<&str>, reason: Option<&str>, context: Option<&Value>) -> Result<Value, Failure> {
         for _ in 0..4 {
             let mut req = self.build(m.clone(), path);
+            if let Some(c) = context {
+                req = req.header("X-Context-Properties", base64::engine::general_purpose::STANDARD.encode(c.to_string()));
+            }
+            if let Some(t) = mfa {
+                req = req.header("X-Discord-MFA-Authorization", t);
+            }
+            if let Some(r) = reason.filter(|r| !r.is_empty()) {
+                req = req.header("X-Audit-Log-Reason", esc(r));
+            }
             if let Some(b) = &body {
                 req = req.json(b);
             }
-            let res = req.send().await.map_err(|e| e.to_string())?;
+            let res = req.send().await.map_err(|e| Failure::plain(e.to_string()))?;
             let status = res.status();
             if status == StatusCode::TOO_MANY_REQUESTS {
                 let v: Value = res.json().await.unwrap_or_default();
                 let wait = v["retry_after"].as_f64().unwrap_or(1.0);
-                tokio::time::sleep(Duration::from_secs_f64(wait.min(30.0))).await;
+                if wait > 5.0 {
+                    return Err(Failure::plain(RATE_LIMITED.into()));
+                }
+                tokio::time::sleep(Duration::from_secs_f64(wait)).await;
                 continue;
             }
             if status == StatusCode::NO_CONTENT {
@@ -138,9 +262,28 @@ impl Api {
             if status.is_success() {
                 return Ok(v);
             }
-            return Err(v["message"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string()));
+            if v["code"].as_u64() == Some(60003) && v["mfa"].is_object() {
+                return Err(Failure::plain(format!("mfa:{}", v["mfa"])));
+            }
+            return Err(Failure::new(status, &v));
         }
-        Err("rate limited".into())
+        Err(Failure::plain(RATE_LIMITED.into()))
+    }
+
+    /// One request that spends money: never retried, and the reply is kept whole, so the caller
+    /// can tell a refusal from a result it never saw (`Err`).
+    pub async fn charge(&self, m: Method, path: &str, body: &Value) -> Result<Value, String> {
+        let res = self.build(m, path).json(body).timeout(Duration::from_secs(60)).send().await.map_err(|e| e.to_string())?;
+        let status = res.status().as_u16();
+        let text = res.text().await.unwrap_or_default();
+        Ok(json!({ "status": status, "body": serde_json::from_str::<Value>(&text).unwrap_or(Value::Null) }))
+    }
+
+    pub async fn bearer(&self, path: &str, token: &str) -> Result<Value, String> {
+        let res = self.http.get(format!("{}{}", base(), path)).header("Authorization", format!("Bearer {token}")).send().await.map_err(|e| e.to_string())?;
+        let status = res.status();
+        let v: Value = res.json().await.unwrap_or(Value::Null);
+        if status.is_success() { Ok(v) } else { Err(explain(status.as_u16(), &v)) }
     }
 
     pub async fn messages(&self, ch: Id, page: Page) -> Result<Value, String> {
@@ -161,7 +304,7 @@ impl Api {
         content: &str,
         nonce: &str,
         reply: Option<(Id, bool)>,
-        files: &[(PathBuf, String)],
+        files: &[(PathBuf, String, String)],
         stickers: &[Id],
         tts: bool,
     ) -> Result<Value, String> {
@@ -177,72 +320,243 @@ impl Api {
         if files.is_empty() {
             return self.call(Method::POST, &path, Some(body)).await;
         }
-        let mut atts = Vec::new();
-        let mut form = multipart::Form::new();
-        for (i, (f, name)) in files.iter().enumerate() {
-            let bytes = tokio::fs::read(f).await.map_err(|e| e.to_string())?;
-            let name = name.clone();
-            atts.push(json!({ "id": i, "filename": name }));
-            form = form.part(format!("files[{i}]"), multipart::Part::bytes(bytes).file_name(name));
-        }
+        let job = crate::upload::get(nonce);
+        let atts = self.upload_files(ch, files, job.as_ref()).await?;
         body["attachments"] = Value::Array(atts);
-        form = form.text("payload_json", body.to_string());
-        let res = self
-            .build(Method::POST, &path)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let ok = res.status().is_success();
+        self.call(Method::POST, &path, Some(body)).await
+    }
+
+    /// Files up to the storage urls discord hands out for `ch`; the attachment objects that name them.
+    async fn upload_files(&self, ch: Id, files: &[(PathBuf, String, String)], job: Option<&std::sync::Arc<crate::upload::Job>>) -> Result<Vec<Value>, String> {
+        let stopped = || job.is_some_and(|j| j.cancelled());
+        let mut asks = Vec::new();
+        let mut atts = Vec::new();
+        for (i, (f, name, alt)) in files.iter().enumerate() {
+            let size = tokio::fs::metadata(f).await.map_err(|e| e.to_string())?.len();
+            let mut att = json!({ "id": i, "filename": name });
+            if !alt.is_empty() {
+                att["description"] = json!(alt);
+            }
+            let mut ask = json!({ "filename": name, "file_size": size, "id": i.to_string(), "is_clip": false, "original_content_type": crate::upload::mime(name) });
+            if let Some(c) = crate::clips::library::read(f) {
+                ask["is_clip"] = json!(true);
+                att["is_clip"] = json!(true);
+                if !c.title.is_empty() {
+                    att["title"] = json!(c.title);
+                }
+                att["clip_created_at"] = json!(chrono::DateTime::from_timestamp_millis(c.created).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)));
+                att["clip_participant_ids"] = json!(c.users.iter().map(|u| u.to_string()).collect::<Vec<_>>());
+            }
+            asks.push(ask);
+            atts.push(att);
+        }
+        let slots = self.call(Method::POST, &format!("/channels/{ch}/attachments"), Some(json!({ "files": asks }))).await?;
+        let slots = slots["attachments"].as_array().ok_or("upload refused")?;
+        for (i, (f, name, _)) in files.iter().enumerate() {
+            if stopped() {
+                return Err("cancelled".into());
+            }
+            let slot = slots.iter().find(|s| slot_id(s) == Some(i as u64)).ok_or("upload refused")?;
+            let url = slot["upload_url"].as_str().ok_or("upload refused")?;
+            self.put_file(url, f, name, job).await?;
+            atts[i]["uploaded_filename"] = slot["upload_filename"].clone();
+        }
+        Ok(atts)
+    }
+
+    /// A forum post with its first message's files: they go up first, then the thread names them.
+    pub async fn forum_post(&self, ch: Id, mut body: Value, files: &[(PathBuf, String, String)]) -> Result<Value, String> {
+        body["message"]["attachments"] = Value::Array(self.upload_files(ch, files, None).await?);
+        self.call(Method::POST, &format!("/channels/{ch}/threads?use_nested_fields=true"), Some(body)).await
+    }
+
+    /// One file to the storage url discord handed out, read off the disk as it goes so a big one
+    /// costs no memory, counting what's gone for the progress bar and stopping when cancelled.
+    async fn put_file(&self, url: &str, file: &std::path::Path, name: &str, job: Option<&std::sync::Arc<crate::upload::Job>>) -> Result<(), String> {
+        use tokio::io::AsyncReadExt;
+        let f = tokio::fs::File::open(file).await.map_err(|e| e.to_string())?;
+        let len = f.metadata().await.map_err(|e| e.to_string())?.len();
+        let job = job.cloned();
+        let seen = job.clone();
+        let body = reqwest::Body::wrap_stream(futures_util::stream::unfold((f, job), |(mut f, job)| async move {
+            if job.as_ref().is_some_and(|j| j.cancelled()) {
+                return Some((Err(std::io::Error::other("cancelled")), (f, job)));
+            }
+            let mut buf = vec![0u8; 64 << 10];
+            match f.read(&mut buf).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    buf.truncate(n);
+                    if let Some(j) = &job {
+                        j.sent.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Some((Ok(buf), (f, job)))
+                }
+                Err(e) => Some((Err(e), (f, job))),
+            }
+        }));
+        let res = self.http.put(url).header("Content-Length", len).header("Content-Type", crate::upload::mime(name)).body(body).send().await;
+        if seen.as_ref().is_some_and(|j| j.cancelled()) {
+            return Err("cancelled".into());
+        }
+        let res = res.map_err(|e| e.to_string())?;
+        if res.status().is_success() { Ok(()) } else { Err(format!("upload failed ({})", res.status())) }
+    }
+
+    pub async fn sticker(&self, gid: Id, fields: [(&'static str, String); 3], file: PathBuf) -> Result<Value, String> {
+        let bytes = tokio::fs::read(&file).await.map_err(|e| e.to_string())?;
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let mime = match file.extension().and_then(|e| e.to_str()).map(str::to_lowercase).as_deref() {
+            Some("gif") => "image/gif",
+            Some("json") => "application/json",
+            _ => "image/png",
+        };
+        let mut form = multipart::Form::new();
+        for (k, v) in fields {
+            form = form.text(k, v);
+        }
+        form = form.part("file", multipart::Part::bytes(bytes).file_name(name).mime_str(mime).map_err(|e| e.to_string())?);
+        let res = self.build(Method::POST, &format!("/guilds/{gid}/stickers")).multipart(form).send().await.map_err(|e| e.to_string())?;
+        let status = res.status();
         let v: Value = res.json().await.unwrap_or_default();
-        if ok { Ok(v) } else { Err(v["message"].as_str().unwrap_or("upload failed").to_string()) }
+        if status.is_success() { Ok(v) } else { Err(explain(status.as_u16(), &v)) }
     }
 
     // the official client posts interactions as multipart with a payload_json part
-    pub async fn interact(&self, payload: Value) -> Result<Value, String> {
+    pub async fn interact(&self, mut payload: Value) -> Result<(), (u16, String)> {
+        let fail = |e: String| (0, e);
+        if let Some(files) = payload["data"]["attachments"].as_array().filter(|a| !a.is_empty()).cloned() {
+            let ch = payload["channel_id"].as_str().unwrap_or_default().to_string();
+            let mut listing = Vec::new();
+            let mut bytes = Vec::new();
+            for f in &files {
+                let b = tokio::fs::read(f["path"].as_str().unwrap_or_default()).await.map_err(|e| fail(e.to_string()))?;
+                listing.push(json!({ "id": f["id"], "filename": f["filename"], "file_size": b.len() }));
+                bytes.push(b);
+            }
+            let slots = self.call(Method::POST, &format!("/channels/{ch}/attachments"), Some(json!({ "files": listing }))).await.map_err(fail)?;
+            let mut staged = Vec::new();
+            for (f, b) in files.iter().zip(bytes) {
+                let slot = slots["attachments"].as_array().and_then(|a| a.iter().find(|s| slot_id(s).is_some() && slot_id(s) == slot_id(f))).ok_or_else(|| fail("no upload slot".into()))?;
+                let put = self.http.put(slot["upload_url"].as_str().unwrap_or_default()).body(b).send().await.map_err(|e| fail(e.to_string()))?;
+                if !put.status().is_success() {
+                    return Err(fail("upload failed".into()));
+                }
+                staged.push(json!({ "id": f["id"], "filename": f["filename"], "uploaded_filename": slot["upload_filename"] }));
+            }
+            payload["data"]["attachments"] = Value::Array(staged);
+        }
         let form = multipart::Form::new().text("payload_json", payload.to_string());
-        let res = self.build(Method::POST, "/interactions").multipart(form).send().await.map_err(|e| e.to_string())?;
+        let res = self.build(Method::POST, "/interactions").multipart(form).send().await.map_err(|e| (0, e.to_string()))?;
+        let status = res.status().as_u16();
         if res.status().is_success() {
-            return Ok(Value::Null);
+            return Ok(());
         }
         let v: Value = res.json().await.unwrap_or_default();
-        Err(v["message"].as_str().unwrap_or("the application did not respond").to_string())
+        let nested = first_error(&v["errors"]);
+        Err((status, nested.or_else(|| v["message"].as_str().map(str::to_string)).unwrap_or_default()))
     }
 
-    pub async fn edit(&self, ch: Id, id: Id, content: &str) -> Result<Value, String> {
-        self.call(Method::PATCH, &format!("/channels/{ch}/messages/{id}"), Some(json!({ "content": content })))
-            .await
-    }
-
-    pub async fn delete(&self, ch: Id, id: Id) -> Result<Value, String> {
-        self.call(Method::DELETE, &format!("/channels/{ch}/messages/{id}"), None).await
-    }
-
-    pub async fn react(&self, ch: Id, id: Id, emoji: &str, add: bool) -> Result<Value, String> {
-        let p = format!("/channels/{ch}/messages/{id}/reactions/{}/@me?location=Message&type=0", esc(emoji));
-        self.call(if add { Method::PUT } else { Method::DELETE }, &p, None).await
-    }
-
-    pub async fn ack(&self, ch: Id, id: Id) -> Result<Value, String> {
-        self.call(Method::POST, &format!("/channels/{ch}/messages/{id}/ack"), Some(json!({ "token": null })))
-            .await
+    /// Acks send the token the last ack came back with, one for the whole session.
+    pub async fn ack(&self, ch: Id, id: Id, last_viewed: u64, flags: Option<u8>) -> Result<Value, String> {
+        let sent = self.ack_token.lock().ok().and_then(|t| t.clone());
+        let mut body = json!({ "token": sent, "last_viewed": last_viewed });
+        if let Some(f) = flags {
+            body["flags"] = json!(f);
+        }
+        let res = self.call(Method::POST, &format!("/channels/{ch}/messages/{id}/ack"), Some(body)).await?;
+        if let (Some(new), Ok(mut cur)) = (res["token"].as_str(), self.ack_token.lock())
+            && *cur == sent
+        {
+            *cur = Some(new.to_string());
+        }
+        Ok(res)
     }
 
     pub async fn typing(&self, ch: Id) -> Result<Value, String> {
         self.call(Method::POST, &format!("/channels/{ch}/typing"), None).await
     }
 
-    // auth endpoints put the interesting bits (captcha, mfa ticket) in error bodies
-    async fn raw(&self, path: &str, body: Value) -> Result<Value, String> {
-        let res = self.build(Method::POST, path).json(&body).send().await.map_err(|e| e.to_string())?;
-        Ok(res.json().await.unwrap_or_default())
+    async fn auth_post(&self, path: &str, mut body: Value, cap: Option<Captcha>) -> Result<Reply, String> {
+        let mut req = self.build(Method::POST, path);
+        if let Some(c) = cap {
+            body["captcha_key"] = json!(c.key);
+            if let Some(rq) = c.rqtoken {
+                req = req.header("X-Captcha-Rqtoken", rq);
+            }
+        }
+        let res = req.json(&body).send().await.map_err(|e| e.to_string())?;
+        let status = res.status().as_u16();
+        Ok(Reply { status, body: res.json().await.unwrap_or(Value::Null) })
     }
 
-    pub async fn login(&self, login: &str, password: &str) -> Result<Value, String> {
-        self.raw("/auth/login", json!({ "login": login, "password": password, "undelete": false })).await
+    pub async fn login(&self, login: &str, password: &str, undelete: bool, cap: Option<Captcha>) -> Result<Reply, String> {
+        self.auth_post("/auth/login", json!({ "login": login, "password": password, "undelete": undelete }), cap).await
     }
 
-    pub async fn mfa(&self, ticket: &str, code: &str) -> Result<Value, String> {
-        self.raw("/auth/mfa/totp", json!({ "code": code, "ticket": ticket })).await
+    pub async fn mfa(&self, kind: &str, ticket: &str, code: &str) -> Result<Reply, String> {
+        self.auth_post(&format!("/auth/mfa/{kind}"), json!({ "code": code, "ticket": ticket }), None).await
+    }
+
+    pub async fn passwordless_start(&self) -> Result<Reply, String> {
+        self.auth_post("/auth/passwordless/start", json!({}), None).await
+    }
+
+    pub async fn passwordless_finish(&self, ticket: &str, credential: &str) -> Result<Reply, String> {
+        self.auth_post("/auth/conditional/finish", json!({ "ticket": ticket, "credential": credential }), None).await
+    }
+
+    pub async fn sms(&self, ticket: &str) -> Result<Reply, String> {
+        self.auth_post("/auth/mfa/sms/send", json!({ "ticket": ticket }), None).await
+    }
+
+    pub async fn register(&self, body: &Value, cap: Option<Captcha>) -> Result<Reply, String> {
+        self.auth_post("/auth/register", body.clone(), cap).await
+    }
+
+    pub async fn username_taken(&self, name: &str) -> Result<Reply, String> {
+        self.auth_post("/unique-username/username-attempt-unauthed", json!({ "username": name }), None).await
+    }
+
+    pub async fn forgot(&self, login: &str, cap: Option<Captcha>) -> Result<Reply, String> {
+        self.auth_post("/auth/forgot", json!({ "login": login }), cap).await
+    }
+
+    pub async fn remote_login(&self, ticket: &str) -> Result<Reply, String> {
+        self.auth_post("/users/@me/remote-auth/login", json!({ "ticket": ticket }), None).await
+    }
+}
+
+fn slot_id(v: &Value) -> Option<u64> {
+    v["id"].as_u64().or_else(|| v["id"].as_str()?.parse().ok())
+}
+
+fn first_error(v: &Value) -> Option<String> {
+    if let Some(m) = v["_errors"][0]["message"].as_str() {
+        return Some(m.to_string());
+    }
+    v.as_object()?.values().find_map(first_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_errors_win_over_the_generic_message() {
+        let v = json!({ "code": 50035, "message": "Invalid Form Body", "errors": { "nick": { "_errors": [{ "code": "BASE_TYPE_MAX_LENGTH", "message": "Must be 32 or fewer in length." }] } } });
+        assert_eq!(explain(400, &v), "Must be 32 or fewer in length.");
+    }
+
+    #[test]
+    fn the_body_message_is_used_when_there_are_no_fields() {
+        assert_eq!(explain(403, &json!({ "message": "Missing Permissions", "code": 50013 })), "Missing Permissions");
+    }
+
+    #[test]
+    fn a_bare_status_gets_a_line_of_its_own() {
+        assert!(explain(502, &Value::Null).starts_with("Oh no, it looks like the Discord servers"));
+        assert_eq!(explain(429, &Value::Null), RATE_LIMITED);
+        assert_eq!(explain(401, &json!({ "message": "401: Unauthorized", "code": 0 })), "401: Unauthorized");
     }
 }

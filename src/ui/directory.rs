@@ -19,6 +19,8 @@ pub struct Dir {
     pub searched: String,
     pub data: HashMap<String, Value>,
     pub card: Option<Value>,
+    pub servers: bool,
+    pub sv: super::discover::Servers,
 }
 
 impl App {
@@ -42,26 +44,31 @@ impl App {
 
 pub fn loaded(app: &mut App, key: String, v: Value) {
     if let Some(d) = &mut app.directory {
-        d.data.insert(key, v);
+        if key.starts_with("sv:") {
+            super::discover::loaded(d, &key, v);
+        } else {
+            d.data.insert(key, v);
+        }
     }
 }
 
-fn faint(a: u8) -> Color32 {
+pub fn faint(a: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(151, 151, 159, a)
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let side_w = if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
-    let mut goto: Option<&'static str> = None;
+    let servers = app.directory.as_ref().is_some_and(|d| d.servers);
+    let mut goto: Option<Option<bool>> = None;
     egui::Panel::left("discover_side").exact_size(side_w).resizable(false).show_separator_line(false).frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| {
         let r = ui.max_rect();
         ui.painter().text(pos2(r.left() + 20.0, r.top() + 29.0), Align2::LEFT_CENTER, "Discover", semi(20.0), pal().header_primary);
         ui.painter().hline(r.x_range(), r.top() + 57.5, Stroke::new(1.0, pal().border_subtle));
         ui.add_space(66.0);
-        for (icon, name, url) in [(Icon::Apps, "Apps", None), (Icon::Discover, "Servers", Some("https://discord.com/discovery/servers")), (Icon::Quests, "Quests", Some("https://discord.com/discovery/quests"))] {
+        for (icon, name, page) in [(Icon::Apps, "Apps", Some(false)), (Icon::Discover, "Servers", Some(true)), (Icon::Quests, "Quests", None)] {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::click());
             let inner = row.shrink2(vec2(8.0, 2.0));
-            let on = url.is_none();
+            let on = page == Some(servers);
             if on {
                 ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
             } else if resp.hovered() {
@@ -73,67 +80,91 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if resp.clicked() {
-                goto = url;
+            if resp.clicked() && !on {
+                goto = Some(page);
             }
         }
     });
-    if let Some(u) = goto {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(u));
+    match goto {
+        Some(Some(true)) => return app.open_servers(),
+        Some(Some(false)) => return app.open_directory(),
+        Some(None) => return app.open_quests(),
+        None => {}
     }
+
     let Some(d) = app.directory.as_mut() else { return };
-    let cats: Vec<(u64, String)> = d.data.get("categories").and_then(|v| v.as_array()).into_iter().flatten().map(|c| (c["id"].as_u64().unwrap_or(0), c["name"].as_str().unwrap_or_default().to_string())).collect();
+    let cats: Vec<(u64, String)> = if d.servers { d.sv.cats.clone() } else { d.data.get("categories").and_then(|v| v.as_array()).into_iter().flatten().map(|c| (c["id"].as_u64().unwrap_or(0), c["name"].as_str().unwrap_or_default().to_string())).collect() };
     let mut fetch: Option<(String, String)> = None;
     egui::Panel::top("discover_tabs").exact_size(49.0).resizable(false).show_separator_line(false).frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 20, right: 8, top: 0, bottom: 1 })).show(ui, |ui| {
         let r = ui.max_rect();
         ui.painter().hline(r.left() - 20.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
         ui.horizontal_centered(|ui| {
             let (ir, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-            icons::draw(ui.painter(), Icon::Apps, ir, pal().header_primary);
+            icons::draw(ui.painter(), if d.servers { Icon::Discover } else { Icon::Apps }, ir, pal().header_primary);
             ui.add_space(20.0);
-            let names: Vec<String> = std::iter::once("Featured".to_string()).chain(cats.iter().map(|c| c.1.clone())).collect();
-            for (i, n) in names.iter().enumerate() {
-                let g = ui.painter().layout_no_wrap(n.clone(), medium(16.0), Color32::WHITE);
-                let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
-                let on = d.tab == i && d.searched.is_empty();
-                let col = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
-                ui.painter().galley(pos2(tr.left(), tr.center().y - g.size().y / 2.0), g, col);
-                if on {
-                    ui.painter().rect_filled(Rect::from_min_max(pos2(tr.left(), tr.bottom() - 2.0), tr.max), CornerRadius::same(1), pal().header_primary);
-                }
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if resp.clicked() {
-                    d.tab = i;
-                    d.searched.clear();
-                    d.query.clear();
-                }
-                ui.add_space(28.0);
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let r = Frame::new()
-                    .fill(Color32::from_black_alpha(31))
-                    .stroke(Stroke::new(1.0, faint(51)))
-                    .corner_radius(8)
-                    .inner_margin(Margin::symmetric(12, 6))
-                    .show(ui, |ui| {
-                        ui.set_width(256.0);
-                        ui.horizontal(|ui| {
-                            let (sr, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                            icons::draw(ui.painter(), Icon::Search, sr, pal().header_secondary);
-                            ui.add_space(8.0);
-                            ui.add(egui::TextEdit::singleline(&mut d.query).frame(Frame::NONE).font(reg(16.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
-                        })
-                        .inner
-                    })
-                    .inner;
-                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    d.searched = d.query.trim().to_string();
+            let names: Vec<String> = std::iter::once(if d.servers { "Home" } else { "Featured" }.to_string()).chain(cats.iter().map(|c| c.1.clone())).collect();
+            let search = Rect::from_min_size(pos2(r.right() - 240.0, r.center().y - 16.0), vec2(240.0, 32.0));
+            let strip = Rect::from_min_max(pos2(ui.cursor().left(), r.top()), pos2(search.left() - 16.0, r.bottom()));
+            let mut tabs = ui.new_child(egui::UiBuilder::new().max_rect(strip).layout(egui::Layout::left_to_right(egui::Align::Center)));
+            egui::ScrollArea::horizontal().id_salt("discover_tabs_scroll").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(&mut tabs, |ui| {
+                for (i, n) in names.iter().enumerate() {
+                    let g = ui.painter().layout_no_wrap(n.clone(), medium(16.0), Color32::WHITE);
+                    let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
+                    app.rects.insert(format!("discover:tab:{i}"), tr);
+                    let on = d.tab == i && d.searched.is_empty();
+                    let col = if on || resp.hovered() { pal().header_primary } else { pal().header_secondary };
+                    ui.painter().galley(pos2(tr.left(), tr.center().y - g.size().y / 2.0), g, col);
+                    if on {
+                        ui.painter().rect_filled(Rect::from_min_max(pos2(tr.left(), tr.bottom() - 2.0), tr.max), CornerRadius::same(1), pal().header_primary);
+                    }
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        d.tab = i;
+                        d.searched.clear();
+                        d.query.clear();
+                    }
+                    ui.add_space(28.0);
                 }
             });
+            let mut field = ui.new_child(egui::UiBuilder::new().max_rect(search));
+            let hit = Frame::new()
+                .fill(Color32::from_black_alpha(31))
+                .stroke(Stroke::new(1.0, faint(51)))
+                .corner_radius(8)
+                .inner_margin(Margin::symmetric(10, 4))
+                .show(&mut field, |ui| {
+                    ui.set_width(search.width() - 22.0);
+                    ui.horizontal(|ui| {
+                        let (sr, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                        icons::draw(ui.painter(), Icon::Search, sr, pal().header_secondary);
+                        ui.add_space(8.0);
+                        ui.add(egui::TextEdit::singleline(&mut d.query).frame(Frame::NONE).font(reg(16.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
+                    })
+                    .inner
+                })
+                .inner;
+            app.rects.insert("discover:search".into(), search);
+            if hit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                d.searched = d.query.trim().to_string();
+            }
         });
     });
+    if d.servers {
+        let mut out = None;
+        egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| out = Some(super::discover::main(d, ui, &mut app.rects)));
+        if let Some(o) = out {
+            if let Some((k, p)) = o.fetch {
+                app.rest("GET", p, None, Tag::Directory(k));
+            }
+            if let Some(id) = o.pick {
+                super::lurk::start(app, id, 0);
+
+            }
+        }
+        return;
+    }
     // what the main area shows: the featured collections, a category, or a search
     let key = if !d.searched.is_empty() {
         format!("search:{}", d.searched)
@@ -162,7 +193,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             Frame::new().inner_margin(Margin { left: 52, right: 52, top: 32, bottom: 48 }).show(ui, |ui| {
                 match data {
                     None | Some(Value::Null) => {
-                        ui.add(egui::Spinner::new().color(pal().text_muted));
+                        crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                     }
                     Some(v) if key == "collections" => {
                         let mut cols: Vec<&Value> = v.as_array().into_iter().flatten().collect();
@@ -174,6 +205,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             grid(ui, &apps, &cat_name, &mut pick);
                             ui.add_space(40.0);
                         }
+                        help_card(ui);
                     }
                     Some(v) => {
                         let apps: Vec<(Value, bool)> = v["results"].as_array().into_iter().flatten().map(|r| (r["data"].clone(), false)).collect();
@@ -199,8 +231,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(c) = card {
         let ctx = ui.ctx().clone();
         let mut close = false;
+        let mut add = false;
         let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
-        let m = egui::Modal::new("app_card".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
+        let m = crate::ui::motion::Modal::new("app_card".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
             ui.set_width(560.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             let id = c["id"].as_str().unwrap_or_default();
@@ -229,15 +262,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if super::settings::primary(ui, "Add App").clicked() {
-                        let url = match c["custom_install_url"].as_str() {
-                            Some(u) => u.to_string(),
-                            None => {
-                                let scopes = c["install_params"]["scopes"].as_array().map(|s| s.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("%20")).unwrap_or_else(|| "applications.commands".into());
-                                let perms = c["install_params"]["permissions"].as_str().unwrap_or("0");
-                                format!("https://discord.com/oauth2/authorize?client_id={id}&scope={scopes}&permissions={perms}")
-                            }
-                        };
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        match c["custom_install_url"].as_str() {
+                            Some(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+                            None => add = true,
+                        }
                     }
                     if super::settings::secondary(ui, "Close").clicked() {
                         close = true;
@@ -245,7 +273,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 });
             });
         });
-        if close || m.should_close() {
+        if add {
+            super::addapp::open(app, &c);
+        }
+        if close || add || m.should_close() {
             if let Some(d) = &mut app.directory {
                 d.card = None;
             }
@@ -253,11 +284,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 }
 
-fn urlencode(s: &str) -> String {
+pub fn urlencode(s: &str) -> String {
     s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 /// The blue banner over the featured collections.
+/// The Apps page's last card: where to read how apps are found and added.
+fn help_card(ui: &mut Ui) {
+    let w = ui.available_width();
+    let (r, _) = ui.allocate_exact_size(vec2(w, 88.0), Sense::hover());
+    ui.painter().rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    ui.painter().text(pos2(r.left() + 24.0, r.top() + 28.0), Align2::LEFT_CENTER, "Have Questions?", bold(20.0), pal().header_primary);
+    ui.painter().text(pos2(r.left() + 24.0, r.top() + 58.0), Align2::LEFT_CENTER, "Visit our help center to learn more about using and discovering apps on Discord.", reg(12.0), pal().text_normal);
+    let label = "Learn More";
+    let bw = ui.painter().layout_no_wrap(label.into(), medium(14.0), egui::Color32::WHITE).size().x + 32.0;
+    let b = Rect::from_center_size(pos2(r.right() - 24.0 - bw / 2.0, r.center().y), vec2(bw, 36.0));
+    let resp = ui.interact(b, ui.id().with("apps_learn_more"), Sense::click());
+    ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { egui::Color32::from_rgb(0x44, 0x52, 0xbb) } else { pal().blurple });
+    ui.painter().text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), egui::Color32::WHITE);
+    super::settings::mark(ui, "apps:learn_more", b);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/26592957841303-How-to-Discover-and-Add-Apps"));
+    }
+}
+
 fn hero(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 350.0), Sense::hover());
     let mut m = egui::Mesh::default();
@@ -287,7 +340,7 @@ fn grid(ui: &mut Ui, apps: &[(Value, bool)], cat_name: &dyn Fn(&Value) -> Option
             let r = Rect::from_min_size(pos2(row.left() + i as f32 * (w + 24.0), row.top()), vec2(w, cover_h + 160.0));
             let resp = ui.interact(r, ui.id().with(("app", a["id"].as_str().unwrap_or_default())), Sense::click());
             let p = ui.painter();
-            p.rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().bg_floating } else { pal().bg_secondary });
+            p.rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_floating, crate::ui::motion::hot(ui.ctx(), &resp)));
             p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
             let id = a["id"].as_str().unwrap_or_default();
             let cover = Rect::from_min_size(r.min, vec2(w, cover_h));

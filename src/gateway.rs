@@ -121,7 +121,6 @@ async fn connect(
                         return match code {
                             4004 => End::Fatal,
                             4007 | 4009 => End::Fresh,
-                            4010..=4014 => End::Fatal,
                             _ => End::Retry,
                         };
                     }

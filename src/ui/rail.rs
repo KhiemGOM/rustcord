@@ -1,7 +1,8 @@
-use egui::{Align2, Color32, CornerRadius, Image, Rect, Sense, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Frame, Image, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, avatar, badge, text};
+use super::{App, avatar, badge, motion, text};
+use super::folders::{self, Drop, Src};
 use crate::state::{Folder, Id};
 use crate::theme::*;
 
@@ -20,30 +21,29 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
-            let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, hot| {
-                let fill = if hot { BLURPLE } else { subtle() };
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
-                icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
+            let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, _, k| {
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().blurple, k));
+                icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             if incoming > 0 {
                 badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), incoming, Some(pal().bg_tertiary));
             }
             app.rects.insert("guild:home".into(), r.rect);
-            let r = r.on_hover_text("Direct Messages");
+            let r = tip(r, "Direct Messages");
             if r.clicked() {
                 app.select_guild(None);
                 app.home_clicked();
             }
 
-            // dms with something waiting get their own bubble under home, like the official client;
-            // a muted one waits quietly in the list instead
+            // dms with something waiting or a call going get their own bubble under home, like the
+            // official client; a muted one waits quietly in the list instead
             let waiting: Vec<(Id, u32)> = app
                 .store
                 .dms
                 .iter()
-                .filter(|c| !app.store.dm_muted(**c))
+                .filter(|c| !app.store.dm_muted(**c) || app.voice.chan == Some(**c))
                 .map(|c| (*c, app.store.mentions(*c)))
-                .filter(|(_, n)| *n > 0)
+                .filter(|(c, n)| *n > 0 || app.voice.chan == Some(*c) || app.voice.calls.get(c).is_some_and(|u| !u.is_empty()) || app.voice.ringing == Some(*c))
                 .take(8)
                 .collect();
             for (c, n) in waiting {
@@ -53,15 +53,27 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     _ => ch.icon.as_ref().map(|i| format!("{}/channel-icons/{c}/{i}.png?size=96", crate::api::cdn())),
                 };
                 let title = super::channel_title(&app.store, c);
-                let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _| {
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), BLURPLE);
+                let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _, _| {
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), pal().blurple);
                     if let Some(u) = &url {
                         Image::from_uri(u.clone()).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
                     } else {
                         icons::draw(ui.painter(), Icon::People, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), Color32::WHITE);
                     }
                 });
-                badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(pal().bg_tertiary));
+                if n > 0 {
+                    badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), n, Some(pal().bg_tertiary));
+                }
+                let mine = app.voice.chan == Some(c);
+                if mine || app.voice.ringing == Some(c) || app.voice.calls.get(&c).is_some_and(|u| !u.is_empty()) {
+                    let at = upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)), Icon::Speaker, mine, pal().bg_tertiary);
+                    app.rects.insert(format!("dmcall:{c}"), Rect::from_center_size(at, vec2(16.0, 16.0)));
+                }
+                if app.voice.ringing == Some(c) {
+                    let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
+                    ui.painter().rect_stroke(r.rect.expand(2.0 + 4.0 * k), CornerRadius::same(RADIUS + 2), egui::Stroke::new(2.0, pal().green.gamma_multiply(1.0 - k)), egui::StrokeKind::Outside);
+                    ui.ctx().request_repaint_after_secs(0.033);
+                }
                 app.rects.insert(format!("dmbubble:{c}"), r.rect);
                 if tip(r, &title).clicked() {
                     app.ui.guild = None;
@@ -84,25 +96,44 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     folder(app, ui, f);
                 }
             }
+            drag(app, ui, &folders);
 
             separator(ui);
-            let r = item(ui, egui::Id::new("add_server"), false, false, |ui, rect, radius, hot| {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot { GREEN } else { pal().bg_primary });
-                icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot { Color32::WHITE } else { pal().interactive_hover });
+            let r = button(ui, egui::Id::new("add_server"), false, |ui, rect, radius, _, k| {
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
+                icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
-            if r.on_hover_text("Add a Server").clicked() {
-                app.invite = Some(String::new());
+            let r = tip(r, "Add a Server");
+            if r.clicked() {
+                app.wizard = Some(super::newserver::Wizard::new(app));
+            }
+            let mut add = None;
+            egui::Popup::context_menu(&r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| {
+                super::menu_body(ui, |ui| {
+                    if super::menu_item(ui, None, "Join a server", false) {
+                        add = Some(false);
+                    }
+                    if super::menu_item(ui, None, "Create a server", false) {
+                        add = Some(true);
+                    }
+                })
+            });
+            match add {
+                Some(false) => app.invite = Some(String::new()),
+                Some(true) => app.wizard = Some(super::newserver::Wizard::new(app)),
+                None => {}
             }
             // discord's last two rail buttons: discover opens in the app, the downloads page in the browser
             for (key, icon, tip, url) in [("discover", Icon::Discover, "Discover", ""), ("download", Icon::Download, "Download Apps", "https://discord.com/download")] {
                 let on = key == "discover" && app.directory.is_some();
-                let r = item(ui, egui::Id::new(key), on, false, |ui, rect, radius, hot| {
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), if hot || on { GREEN } else { pal().bg_primary });
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), if hot || on { Color32::WHITE } else { pal().interactive_hover });
+                let r = button(ui, egui::Id::new(key), on, |ui, rect, radius, _, k| {
+                    let k = if on { 1.0 } else { k };
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
                 });
-                if r.on_hover_text(tip).clicked() {
+                if self::tip(r, tip).clicked() {
                     if url.is_empty() {
-                        app.open_directory();
+                        app.open_servers();
                     } else {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                     }
@@ -117,7 +148,7 @@ fn separator(ui: &mut Ui) {
     ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 1.0)), CornerRadius::same(1), pal().frame_border);
 }
 
-fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool) {
+fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool, k: f32) {
     let Some(g) = app.store.guilds.get(&gid) else { return };
     let radius = radius.into();
     match g.icon_url() {
@@ -125,7 +156,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
             crate::gif::paint_still(ui, &url, rect, radius, hot);
         }
         None => {
-            ui.painter().rect_filled(rect, radius, if hot { BLURPLE } else { pal().bg_mod_selected });
+            ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, pal().blurple, k));
             let acr = g.acronym();
             let size = match acr.chars().count() {
                 0..=2 => 17.0,
@@ -134,7 +165,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
                 _ => 11.0,
             } * rect.width()
                 / ICON;
-            let col = if hot { Color32::WHITE } else { pal().text_normal };
+            let col = motion::mix(pal().text_normal, Color32::WHITE, k);
             text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
         }
     }
@@ -145,11 +176,11 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
     let Some(name) = app.store.guilds.get(&gid).map(|g| g.name.clone()) else { return };
     let (unread, mentions) = app.store.guild_badge(gid);
     let selected = app.ui.guild == Some(gid);
-    let r = item(ui, egui::Id::new(("guild", gid)), selected, unread, |ui, rect, radius, hot| {
-        guild_icon(app, ui, gid, rect, radius, hot)
+    let r = item(ui, egui::Id::new(("guild", gid)), selected, unread, |ui, rect, radius, hot, k| {
+        guild_icon(app, ui, gid, rect, radius, hot, k)
     });
     if mentions > 0 {
-        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
+        super::badge_in(ui, egui::Id::new(("rail_badge", gid)), r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(hole));
     }
     if let Some((icon, mine)) = voice_badge(app, gid) {
         let at = upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)), icon, mine, hole);
@@ -162,6 +193,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
     if r.clicked() {
         app.select_guild(Some(gid));
     }
+    grab(ui, &r, Held::Guild(gid));
     guild_menu(app, &r, gid, unread);
 }
 
@@ -171,7 +203,8 @@ enum Act {
     Mute(bool, Option<i64>),
     Notifs,
     HideMuted,
-    Web,
+    Privacy,
+    Profile,
     Leave,
     CopyId,
 }
@@ -220,10 +253,11 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             act = Some(Act::HideMuted);
         }
         menu_sep(ui);
-        for label in ["Privacy Settings", "Edit Per-server Profile"] {
-            if menu_item(ui, None, label, false) {
-                act = Some(Act::Web);
-            }
+        if menu_item(ui, None, "Privacy Settings", false) {
+            act = Some(Act::Privacy);
+        }
+        if menu_item(ui, None, "Edit Per-server Profile", false) {
+            act = Some(Act::Profile);
         }
         if !owner {
             menu_sep(ui);
@@ -244,12 +278,13 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             app.mark_read(&chans);
         }
         Some(Act::Invite(c)) => {
-            app.invite_people(c);
+            app.invite_people(c, "Guild Context Menu");
         }
         Some(Act::Mute(m, secs)) => app.mute_for(gid, true, m, secs),
         Some(Act::Notifs) => app.guild_notifs = Some(gid),
         Some(Act::HideMuted) => super::side::toggle_hide_muted(app, gid),
-        Some(Act::Web) => r.ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{gid}"))),
+        Some(Act::Privacy) => app.guild_modal = Some(super::guildmodal::Modal::Privacy(gid)),
+        Some(Act::Profile) => app.edit_server_profile(gid),
         Some(Act::Leave) => super::side::leave(app, gid),
         Some(Act::CopyId) => r.ctx.copy_text(gid.to_string()),
         None => {}
@@ -302,7 +337,7 @@ fn voice_badge(app: &App, gid: Id) -> Option<(Icon, bool)> {
 fn upper_badge(ui: &Ui, icon_rect: Rect, icon: Icon, mine: bool, hole: Color32) -> egui::Pos2 {
     let at = icon_rect.right_top() + vec2(-8.0, 8.0);
     ui.painter().circle_filled(at, 10.0, hole);
-    ui.painter().circle_filled(at, 8.0, if mine { GREEN } else { Color32::BLACK });
+    ui.painter().circle_filled(at, 8.0, if mine { pal().green } else { Color32::BLACK });
     icons::draw(ui.painter(), icon, Rect::from_center_size(at, vec2(12.0, 12.0)), Color32::WHITE);
     at
 }
@@ -326,13 +361,13 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     if open {
         ui.spacing_mut().item_spacing.y = 4.0;
     }
-    let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, |ui, rect, radius, hot| {
+    let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, 0.1, |ui, rect, radius, hot, _| {
         if open {
             let rect = rect.shrink(4.0);
             if hot {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), subtle());
             }
-            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), color.unwrap_or(BLURPLE));
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), color.unwrap_or(pal().blurple));
             return;
         }
         let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
@@ -350,7 +385,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
                 2 => cr.sw = 10,
                 _ => cr.se = 10,
             }
-            guild_icon(app, ui, *g, cell, cr, false);
+            guild_icon(app, ui, *g, cell, cr, false, 0.0);
         }
     });
     ui.spacing_mut().item_spacing.y = 8.0;
@@ -369,14 +404,38 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     if r.clicked() && !app.ui.open_folders.remove(&f.id) {
         app.ui.open_folders.insert(f.id);
     }
-    let mut read = false;
-    r.context_menu(|ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        read = ui.add_enabled_ui(unread, |ui| super::menu_item(ui, None, "Mark Folder As Read", false)).inner;
+    grab(ui, &r, Held::Folder(f.id));
+    use super::{Trail, menu_item, menu_row, menu_sep};
+    let mut act = None;
+    egui::Popup::context_menu(&r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| {
+        super::menu_body(ui, |ui| {
+            if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark Folder As Read", false)).inner {
+                act = Some(0);
+            }
+            menu_sep(ui);
+            let m = menu_row(ui, None, "Move to...", None, false, Trail::Caret);
+            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+                if menu_item(ui, None, "First in List", false) {
+                    act = Some(1);
+                }
+                if menu_item(ui, None, "Last in List", false) {
+                    act = Some(2);
+                }
+            });
+            menu_sep(ui);
+            if menu_item(ui, None, "Folder Settings", false) {
+                act = Some(3);
+            }
+        })
     });
-    if read {
-        let chans: Vec<Id> = f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).flat_map(|g| g.channels.iter().copied()).collect();
-        app.mark_read(&chans);
+    match act {
+        Some(0) => {
+            let chans: Vec<Id> = f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).flat_map(|g| g.channels.iter().copied()).collect();
+            app.mark_read(&chans);
+        }
+        Some(n @ (1 | 2)) => super::folders::move_folder(app, f.id, n == 2),
+        Some(_) => super::folders::settings(app, f.id),
+        None => {}
     }
     if open {
         let fill = color.map_or(subtle(), |c| c.gamma_multiply(0.15));
@@ -400,8 +459,12 @@ fn subtle() -> Color32 {
     Color32::from_rgba_unmultiplied(0x97, 0x97, 0x9f, 31)
 }
 
-fn item(ui: &mut Ui, id: egui::Id, selected: bool, unread: bool, paint: impl FnOnce(&Ui, Rect, u8, bool)) -> egui::Response {
-    item_sized(ui, id, ICON, selected, unread, paint)
+fn item(ui: &mut Ui, id: egui::Id, selected: bool, unread: bool, paint: impl FnOnce(&Ui, Rect, u8, bool, f32)) -> egui::Response {
+    item_sized(ui, id, ICON, selected, unread, 0.1, paint)
+}
+
+fn button(ui: &mut Ui, id: egui::Id, selected: bool, paint: impl FnOnce(&Ui, Rect, u8, bool, f32)) -> egui::Response {
+    item_sized(ui, id, ICON, selected, false, 0.15, paint)
 }
 
 fn item_sized(
@@ -410,9 +473,10 @@ fn item_sized(
     size: f32,
     selected: bool,
     unread: bool,
-    paint: impl FnOnce(&Ui, Rect, u8, bool),
+    fade: f32,
+    paint: impl FnOnce(&Ui, Rect, u8, bool, f32),
 ) -> egui::Response {
-    let (row, resp) = ui.allocate_exact_size(vec2(72.0, size), Sense::click());
+    let (row, resp) = ui.allocate_exact_size(vec2(72.0, size), Sense::click_and_drag());
     let rect = Rect::from_center_size(row.center(), vec2(size, size));
     let hovered = resp.hovered();
     let hot = hovered || selected;
@@ -421,24 +485,21 @@ fn item_sized(
         40.0
     } else if hovered {
         20.0
-    } else if unread {
-        8.0
     } else {
-        0.0
+        8.0
     };
-    let pill = ui.ctx().animate_value_with_time(id.with("p"), pill_target, anim(0.15));
-    if pill > 0.5 {
-        let p = Rect::from_min_size(pos2(row.left(), row.center().y - pill / 2.0), vec2(4.0, pill));
-        ui.painter().rect_filled(
-            p,
-            CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 },
-            pal().header_primary,
-        );
+    let ctx = ui.ctx();
+    let pill = motion::follow(ctx, id.with("p"), pill_target, 0.2, motion::EASE_OUT);
+    let seen = motion::tween(ctx, id.with("seen"), hot || unread, 0.2, motion::EASE_OUT);
+    if seen > 0.0 {
+        let p = Rect::from_min_size(pos2(row.left() - 4.0 * (1.0 - seen), row.center().y - pill / 2.0), vec2(4.0, pill));
+        ui.painter().rect_filled(p, CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().header_primary.gamma_multiply(seen));
     }
+    let k = motion::tween(ctx, id.with("hot"), hot, fade, motion::EASE_OUT);
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    paint(ui, rect, radius, hot);
+    paint(ui, rect, radius, hot, k);
     resp
 }
 
@@ -465,7 +526,7 @@ fn in_voice(app: &App, gid: Id) -> Vec<(Id, String)> {
 /// overlapping beside it, six at most and a count for the rest.
 fn guild_tip(app: &mut App, r: egui::Response, name: &str, talking: &[(Id, String)]) -> egui::Response {
     let rects = &mut app.rects;
-    r.on_hover_ui(|ui| {
+    beside(r, |ui| {
         ui.set_max_width(196.0);
         text::label(ui, name, semi(16.0), pal().text_normal, Sense::hover());
         if talking.is_empty() {
@@ -496,7 +557,156 @@ fn guild_tip(app: &mut App, r: egui::Response, name: &str, talking: &[(Id, Strin
 
 // the server-name bubble to the right of the rail, with emoji
 fn tip(r: egui::Response, name: &str) -> egui::Response {
-    r.on_hover_ui(|ui| {
+    beside(r, |ui| {
         text::label(ui, name, semi(16.0), pal().header_primary, Sense::hover());
     })
+}
+
+fn beside(r: egui::Response, content: impl FnOnce(&mut Ui)) -> egui::Response {
+    if !r.hovered() || r.dragged() {
+        return r;
+    }
+    let ctx = r.ctx.clone();
+    let frame = Frame::popup(&ctx.global_style());
+    let (fill, edge) = (frame.fill, frame.stroke);
+    let shown = egui::Popup::from_response(&r)
+        .id(r.id.with("rail_tip"))
+        .kind(egui::PopupKind::Tooltip)
+        .align(egui::RectAlign::RIGHT)
+        .gap(0.0)
+        .open(true)
+        .frame(frame)
+        .show(content);
+    if let Some(s) = shown {
+        let b = s.response.rect;
+        crate::ui::settings::mark_in(&ctx, "rail_icon", r.rect);
+        crate::ui::settings::mark_in(&ctx, "rail_tip", b);
+        let tip = pos2(b.left() - 6.0, b.center().y);
+        let p = ctx.layer_painter(s.response.layer_id);
+        let tri = [pos2(b.left() + 1.0, b.center().y - 6.0), tip, pos2(b.left() + 1.0, b.center().y + 6.0)];
+        p.add(egui::Shape::convex_polygon(tri.to_vec(), fill, Stroke::NONE));
+        p.line_segment([tri[0], tri[1]], edge);
+        p.line_segment([tri[1], tri[2]], edge);
+    }
+    r
+}
+
+#[derive(Clone, Copy)]
+enum Held {
+    Guild(Id),
+    Folder(Id),
+}
+
+fn grab(ui: &Ui, r: &egui::Response, held: Held) {
+    if r.drag_started() {
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("rail_held"), held));
+    }
+}
+
+fn spot(app: &App, folders: &[Folder], held: Held, p: egui::Pos2) -> Option<Drop> {
+    let band = |r: &Rect| r.expand2(vec2(0.0, 4.0));
+    for (i, f) in folders.iter().enumerate() {
+        let lone = f.id == 0 && f.guilds.len() == 1;
+        let head = app.rects.get(&if lone { format!("guild:{}", f.guilds[0]) } else { format!("folder:{}", f.id) })?;
+        let open = !lone && app.ui.open_folders.contains(&f.id);
+        if band(head).contains(p) {
+            let rel = (p.y - head.top()) / head.height();
+            return match held {
+                Held::Folder(_) => Some(Drop::Before(i + (rel >= 0.5) as usize)),
+                Held::Guild(g) if lone && f.guilds[0] == g => None,
+                Held::Guild(_) if open => Some(if rel < 0.5 { Drop::Before(i) } else { Drop::In(i, 0) }),
+                Held::Guild(_) if rel < 0.28 => Some(Drop::Before(i)),
+                Held::Guild(_) if rel > 0.72 => Some(Drop::Before(i + 1)),
+                Held::Guild(_) => Some(Drop::Combine(i)),
+            };
+        }
+        if open && let Held::Guild(_) = held {
+            for (n, g) in f.guilds.iter().enumerate() {
+                let Some(r) = app.rects.get(&format!("guild:{g}")) else { continue };
+                if band(r).contains(p) {
+                    return Some(Drop::In(i, n + ((p.y - r.top()) / r.height() >= 0.5) as usize));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn drag(app: &mut App, ui: &mut Ui, folders: &[Folder]) {
+    let ctx = ui.ctx().clone();
+    if let Some((g, _)) = app.folders.pick
+        && let Some(r) = app.rects.get(&format!("guild:{g}"))
+    {
+        let ring = Rect::from_center_size(r.center(), vec2(ICON + 8.0, ICON + 8.0));
+        ui.painter().rect_stroke(ring, CornerRadius::same(16), egui::Stroke::new(2.0, pal().blurple), egui::StrokeKind::Outside);
+    }
+    let key = egui::Id::new("rail_held");
+    let Some(held) = ctx.data(|d| d.get_temp::<Held>(key)) else { return };
+    let src = match held {
+        Held::Guild(g) => Src::Guild(g),
+        Held::Folder(id) => match folders.iter().position(|f| f.id == id) {
+            Some(i) => Src::Folder(i),
+            None => return,
+        },
+    };
+    let pos = ctx.pointer_interact_pos();
+    let target = pos.and_then(|p| spot(app, folders, held, p));
+    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+    let top = ui.clip_rect();
+    if let Some(p) = pos {
+        if p.y < top.top() + 48.0 {
+            ui.scroll_with_delta(vec2(0.0, 14.0));
+        } else if p.y > top.bottom() - 48.0 {
+            ui.scroll_with_delta(vec2(0.0, -14.0));
+        }
+        egui::Area::new(egui::Id::new("rail_ghost")).order(egui::Order::Tooltip).fixed_pos(p - vec2(20.0, 20.0)).interactable(false).show(&ctx, |ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(ICON, ICON), Sense::hover());
+            match held {
+                Held::Guild(g) => guild_icon(app, ui, g, r, RADIUS, true, 1.0),
+                Held::Folder(_) => {
+                    ui.painter().rect_filled(r, CornerRadius::same(16), subtle());
+                    icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(r.center(), vec2(18.0, 18.0)), pal().blurple);
+                }
+            }
+        });
+    }
+    let paint = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("rail_drop")));
+    let bar = |y: f32, x: f32| paint.rect_filled(Rect::from_center_size(pos2(x, y), vec2(32.0, 4.0)), CornerRadius::same(2), pal().blurple);
+    let head = |i: usize| folders.get(i).and_then(|f| app.rects.get(&if f.id == 0 && f.guilds.len() == 1 { format!("guild:{}", f.guilds[0]) } else { format!("folder:{}", f.id) }));
+    match target {
+        Some(Drop::Before(i)) => {
+            if let Some(r) = head(i) {
+                bar(r.top() - 4.0, r.center().x);
+            } else if let Some(f) = folders.last() {
+                let end = app.rects.get(&format!("folderbg:{}", f.id)).map(|r| r.bottom() + 4.0).or_else(|| head(folders.len() - 1).map(|r| r.bottom() + 4.0));
+                if let (Some(y), Some(r)) = (end, head(folders.len() - 1)) {
+                    bar(y, r.center().x);
+                }
+            }
+        }
+        Some(Drop::Combine(i)) => {
+            if let Some(r) = head(i) {
+                paint.rect_stroke(r.shrink2(vec2(12.0, 0.0)).expand(2.0), CornerRadius::same(16), egui::Stroke::new(2.0, pal().blurple), egui::StrokeKind::Outside);
+            }
+        }
+        Some(Drop::In(i, n)) => {
+            if let Some(f) = folders.get(i) {
+                let at = f.guilds.get(n).and_then(|g| app.rects.get(&format!("guild:{g}"))).map(|r| (r.top() - 4.0, r.center().x)).or_else(|| {
+                    f.guilds.last().and_then(|g| app.rects.get(&format!("guild:{g}"))).map(|r| (r.bottom() + 4.0, r.center().x))
+                });
+                if let Some((y, x)) = at {
+                    bar(y, x);
+                }
+            }
+        }
+        None => {}
+    }
+    let done = !ctx.input(|i| i.pointer.primary_down());
+    let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    if done || esc {
+        ctx.data_mut(|d| d.remove::<Held>(key));
+        if done && !esc && let Some(t) = target {
+            folders::drop(app, src, t);
+        }
+    }
 }

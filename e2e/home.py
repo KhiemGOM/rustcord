@@ -17,7 +17,8 @@ def checks(runs, reqs, data):
     sent = lambda method, part: [r for r in reqs if r.get("method") == method and part in r.get("path", "")]
     searches = [body(r) for r in sent("POST", "/guilds/1001/members-search")]
     hangout = [body(r) for r in sent("PATCH", "/channels/2102")]
-    browse = [body(r) for r in sent("PATCH", "/users/@me/guilds/1001/settings")]
+    overwrites = [body(r) for r in sent("PUT", "/channels/2102/permissions/")]
+    browse = [body(r)["guilds"]["1001"] for r in sent("PATCH", "/users/@me/guilds/settings") if "1001" in body(r).get("guilds", {})]
     return {
         "home: voice rows show muted, deafened and server muted": both("home_voice_states"),
         "home: a hovered perk card shows its button": both("home_perk_hover"),
@@ -34,7 +35,8 @@ def checks(runs, reqs, data):
             and sum(body(r).get("content") == "hello vc" for r in sent("POST", "/channels/2102/messages")) == 2,
         "home: Edit Channel saved a new name, then View Channel denied to everyone": both("home_chanset_save") and both("home_chanset_perms")
             and sum(b.get("name") == "Hangout 2" for b in hangout) == 2
-            and sum(any(o.get("id") == "1001" and int(o.get("deny", "0")) & (1 << 10) for o in b.get("permission_overwrites", [])) for b in hangout) == 2,
+            and sum(b.get("id") == "1001" and b.get("type") == 0 and bool(int(b.get("deny", "0")) & (1 << 10)) for b in overwrites) == 2
+            and not any("permission_overwrites" in b for b in hangout),
         "home: Delete Channel asked, then deleted it": both("home_chanset_delete") and len(sent("DELETE", "/channels/2102")) == 2,
         "home: a profile card pushed up to fit kept a click in it, and its box sent a dm": both("home_profile_stays") and both("home_profile_dm")
             and sum(body(r).get("content") == "hey from profile" for r in sent("POST", "/channels/3000/messages")) == 2,

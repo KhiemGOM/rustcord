@@ -26,19 +26,36 @@ impl App {
     /// A dialog over everything, whose Enter and Escape nothing underneath may take.
     pub fn modal_open(&self) -> bool {
         self.confirm.is_some()
+            || self.shop.as_ref().is_some_and(|s| s.product.is_some())
             || self.forward.is_some()
+            || self.reactors.is_some()
+            || self.report.is_some()
             || self.invite.is_some()
             || self.made_invite.is_some()
+            || self.links.modal()
+            || self.interactions.modal.is_some()
             || self.status_edit.is_some()
             || self.share.is_some()
             || self.switcher.is_some()
             || self.new_thread.is_some()
+            || self.poll.is_some()
+            || self.follow.is_some()
+            || self.modify.is_some()
+            || self.group_pick.is_some()
+            || self.topic.is_some()
+            || self.crop.is_some()
+            || self.status_text.is_some()
             || self.leaving.is_some()
             || self.timeout.is_some()
+            || self.kickban.is_some()
+            || self.prune.is_some()
             || self.combos.is_some()
             || self.breathe.is_some()
             || self.demon.is_some()
             || self.create.is_some()
+            || self.folders.edit.is_some()
+            || self.wizard.is_some()
+            || self.guild_modal.is_some()
             || self.active_threads.is_some()
             || self.server.is_some()
             || self.chan_settings.is_some()
@@ -50,16 +67,21 @@ impl App {
     /// Whatever's open over the app that takes Escape (and most shortcuts) for itself.
     pub fn layered(&self, ctx: &egui::Context) -> bool {
         self.viewer.is_some()
+            || self.folders.edit.is_some()
+            || self.wizard.is_some()
+            || self.guild_modal.is_some()
             || self.profile.is_some()
             || self.picker.is_some()
             || self.stickers.is_some()
             || self.gifs.is_some()
             || self.menu.is_some()
             || self.user_menu.is_some()
+            || self.user_dialog.is_some()
             || self.confirm.is_some()
             || self.forward.is_some()
             || self.invite.is_some()
             || self.made_invite.is_some()
+            || self.links.modal()
             || self.status_edit.is_some()
             || self.share.is_some()
             || self.switcher.is_some()
@@ -67,8 +89,16 @@ impl App {
             || self.inbox.is_some()
             || self.guild_notifs.is_some()
             || self.new_thread.is_some()
+            || self.poll.is_some()
+            || self.launcher.is_some()
+            || self.follow.is_some()
+            || self.modify.is_some()
+            || self.group_pick.is_some()
+            || self.topic.is_some()
+            || self.crop.is_some()
+            || self.status_text.is_some()
             || self.leaving.is_some()
-            || self.emoji_pop.is_some()
+            || self.source_pop.is_some()
             || self.create.is_some()
             || self.active_threads.is_some()
             || self.server.is_some()
@@ -78,6 +108,8 @@ impl App {
             || self.breathe.is_some()
             || self.demon.is_some()
             || self.timeout.is_some()
+            || self.kickban.is_some()
+            || self.prune.is_some()
             || self.settings_page.is_some()
             || egui::Popup::is_any_open(ctx)
     }
@@ -89,6 +121,9 @@ impl App {
         let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
         let ctrl_alt = Modifiers::COMMAND | Modifiers::ALT;
         let all3 = Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT;
+        if !layered {
+            super::folders::keys(self, ctx);
+        }
 
         // a call ringing comes before anything: Ctrl+Enter answers, Escape declines
         if let Some(ch) = self.voice.ringing {
@@ -137,7 +172,7 @@ impl App {
             return;
         }
         if k(Modifiers::NONE, Key::Escape) || k(Modifiers::SHIFT, Key::PageDown) {
-            self.escape();
+            self.escape(ctx);
         }
 
         let (up, down, uup, udown, mup, mdown) =
@@ -185,9 +220,22 @@ impl App {
         {
             self.mark_read(&[c]);
         }
+        if k(ctrl_shift, Key::B)
+            && let Some(ch) = self.voice.chan
+        {
+            let guild = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+            if self.soundboard.is_some() {
+                self.soundboard = None;
+            } else if guild != 0 {
+                self.rest("GET", format!("/guilds/{guild}/soundboard-sounds"), None, crate::net::Tag::Soundboard(guild));
+                self.soundboard = Some((guild, None));
+            }
+        }
         if k(Modifiers::COMMAND, Key::U) {
-            let dm = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| c.kind == 1);
-            if dm {
+            let (dm, voice) = self.cur().and_then(|c| self.store.channels.get(&c)).map_or((false, false), |c| (c.kind == 1, c.is_voice()));
+            if voice {
+                self.voice_chat = !self.voice_chat;
+            } else if dm {
                 self.ui.hide_dm_profile = !self.ui.hide_dm_profile;
             } else {
                 self.ui.hide_members = !self.ui.hide_members;
@@ -216,7 +264,7 @@ impl App {
         }
         if k(ctrl_shift, Key::T) {
             self.select_guild(None);
-            self.switcher = Some(String::new());
+            self.group_pick = Some(super::dmpick::Pick::new(None));
         }
         if k(all3, Key::N)
             && let Some(c) = self.cur().filter(|c| self.store.channels.get(c).is_some_and(|c| c.guild != 0 && matches!(c.kind, 0 | 5)))
@@ -252,15 +300,16 @@ impl App {
         if k(ctrl_shift, Key::U)
             && let Some(files) = rfd::FileDialog::new().pick_files()
         {
-            self.files.extend(files.into_iter().map(super::composer::Upload::new));
+            self.attach_files(files);
         }
     }
 
     /// Escape, once nothing open took it: search results close; a chat scrolled well back
     /// jumps to the present; an unread one is marked read; otherwise it scrolls to the bottom.
-    fn escape(&mut self) {
+    fn escape(&mut self, ctx: &egui::Context) {
         if self.search.is_some() {
             self.search = None;
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("search_q"), String::new()));
             return;
         }
         let Some(ch) = self.cur() else { return };
@@ -272,6 +321,9 @@ impl App {
             self.mark_read(&[ch]);
             self.marker = None;
             self.hold_ack = None;
+        } else if self.side_thread.take().is_some() {
+        } else if self.voice_chat && self.store.channels.get(&ch).is_some_and(|c| c.is_voice()) {
+            self.voice_chat = false;
         } else {
             self.jump_to_present(ch);
         }
@@ -327,6 +379,8 @@ impl App {
 
     pub fn answer(&mut self, ch: Id) {
         self.voice.ringing = None;
+        self.ui.guild = None;
+        self.open(ch);
         self.voice.join(&self.net, &self.store, ch, false);
     }
 
@@ -354,6 +408,17 @@ impl App {
         self.confirm = Some(c);
     }
 
+    /// Watch a friend's stream from outside the call: joins their voice channel first, as discord's
+    /// Watch Stream does (select the channel, then start the stream).
+    pub fn watch_stream(&mut self, ch: Id, user: Id) {
+        if self.voice.chan == Some(ch) {
+            self.voice.watch(&self.net, user);
+            return;
+        }
+        self.voice.watch_next = Some((ch, user, Instant::now()));
+        self.join_voice(ch, false);
+    }
+
     /// The home button clicked sixteen times, each within half a second of the last, turns on
     /// discord's hidden ディスコード sounds; sixteen more turn them off.
     pub fn home_clicked(&mut self) {
@@ -364,7 +429,8 @@ impl App {
             self.home_clicks = (0, None);
             self.settings.discodo = !self.settings.discodo;
             crate::cache::set_settings(&self.settings);
-            crate::sound::cue(if self.settings.discodo { "discodo" } else { "leave" });
+            crate::sound::configure(&self.settings);
+            crate::sound::cue(if self.settings.discodo { "discodo" } else { "user_leave" });
             self.discodo_at = Some(now);
             // the font for the katakana comes in on demand
             crate::theme::CJK_WANTED.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -393,7 +459,7 @@ fn ddr_arrow(p: &egui::Painter, r: Rect, turn: f32, col: Color32, lit: bool) {
 }
 
 /// A key as discord draws it in the sheet: a dark rounded cap with the name in caps.
-fn keycap(ui: &mut Ui, label: &str) {
+pub(super) fn keycap(ui: &mut Ui, label: &str) {
     let arrow = match label {
         "↑" => Some(Icon::ChevronUp),
         "↓" => Some(Icon::ChevronDown),
@@ -415,7 +481,7 @@ fn keycap(ui: &mut Ui, label: &str) {
 }
 
 /// Discord's sheet, section by section: a card for each combo, its keys under the name.
-const SHEET: [(&str, Option<&str>, &[(&str, &[&[&str]])]); 5] = [
+pub(super) const SHEET: [(&str, Option<&str>, &[(&str, &[&[&str]])]); 5] = [
     (
         "Messages",
         Some("These shortcuts work when focused on a message."),
@@ -527,13 +593,14 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
     }
     let lit = c.lit;
     let screen = ctx.content_rect();
-    let area = Rect::from_min_max(pos2(screen.left() + 440.0, screen.top() + super::titlebar::HEIGHT + 56.0), pos2(screen.right() - 160.0, screen.bottom() - 90.0));
+    let width = (screen.width() * 0.8).clamp(800.0, 950.0).min(screen.width());
     let mut close = false;
-    let modal = egui::Modal::new("combos".into())
+    let modal = crate::ui::motion::Modal::new("combos".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)))
         .show(ctx, |ui| {
-            ui.set_width(area.width().clamp(560.0, 1100.0));
+            ui.set_width(width);
             ui.spacing_mut().item_spacing.y = 0.0;
+            let top = ui.cursor().top();
             Frame::new().inner_margin(Margin { left: 36, right: 36, top: 32, bottom: 24 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
@@ -553,14 +620,16 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                         for (i, turn) in [(3, 1.0), (2, 0.0), (1, 2.0), (0, 3.0)] {
                             let (r, _) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::hover());
                             let glow = lit[i].map_or(0.0, |t| (1.0 - t.elapsed().as_secs_f32() / 0.3).max(0.0));
-                            let col = Color32::WHITE.lerp_to_gamma(BLURPLE, glow);
+                            let col = Color32::WHITE.lerp_to_gamma(pal().blurple, glow);
                             ddr_arrow(ui.painter(), r.shrink(6.0), turn, col, glow > 0.0);
-                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "ddr", i)), (glow > 0.0, r)));
+                            if glow > 0.0 {
+                                crate::ui::settings::mark(ui, &format!("ddr_lit:{i}"), r);
+                            }
                         }
                     });
                 });
             });
-            let max_h = (screen.height() - 240.0).max(200.0);
+            let max_h = (screen.height() * 0.8 - (ui.cursor().top() - top)).max(100.0);
             egui::ScrollArea::vertical().max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
                 Frame::new().inner_margin(Margin { left: 36, right: 36, top: 8, bottom: 32 }).show(ui, |ui| {
                     ui.set_width(ui.available_width());
@@ -584,18 +653,20 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                                 ui.spacing_mut().item_spacing.x = 16.0;
                                 for (label, combos) in row {
                                     Frame::new().fill(pal().bg_tertiary).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                                        ui.set_width(w - 24.0);
-                                        ui.set_min_height(70.0);
-                                        ui.spacing_mut().item_spacing.y = 8.0;
-                                        ui.label(RichText::new(*label).font(medium(14.0)).color(pal().header_primary));
-                                        for combo in combos.iter() {
-                                            ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing.x = 4.0;
-                                                for key in combo.iter() {
-                                                    keycap(ui, key);
-                                                }
-                                            });
-                                        }
+                                        ui.vertical(|ui| {
+                                            ui.set_width(w - 24.0);
+                                            ui.set_min_height(70.0);
+                                            ui.spacing_mut().item_spacing.y = 8.0;
+                                            ui.add(egui::Label::new(RichText::new(*label).font(medium(14.0)).color(pal().header_primary)).wrap());
+                                            for combo in combos.iter() {
+                                                ui.horizontal(|ui| {
+                                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                                    for key in combo.iter() {
+                                                        keycap(ui, key);
+                                                    }
+                                                });
+                                            }
+                                        });
                                     });
                                 }
                             });
@@ -605,6 +676,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                 });
             });
         });
+    super::settings::mark_in(ctx, "combos:panel", modal.response.rect);
     if lit.iter().flatten().any(|t| t.elapsed() < Duration::from_millis(300)) {
         ctx.request_repaint();
     }
@@ -689,7 +761,7 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
         p.circle_filled(head, 5.0, Color32::from_rgb(0x5d, 0xd8, 0xe8));
     }
     let (mut close, mut pause) = (false, false);
-    let modal = egui::Modal::new("breathe".into())
+    let modal = crate::ui::motion::Modal::new("breathe".into())
         .backdrop_color(Color32::TRANSPARENT)
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
@@ -703,7 +775,7 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
             let k = 0.5 - 0.5 * (t * std::f32::consts::TAU / 8.0).cos();
             let c = r.center() + vec2(0.0, 10.0);
             for (grow, a) in [(1.0, 18), (0.75, 26), (0.5, 34)] {
-                ui.painter().circle_filled(c, 50.0 + 30.0 * k * grow, Color32::from_rgba_unmultiplied(0x58, 0x65, 0xf2, a));
+                ui.painter().circle_filled(c, 50.0 + 30.0 * k * grow, wash(pal().blurple, a));
             }
             let img = egui::Image::new(egui::include_image!("../../assets/wumpus.png"));
             let h = 150.0 * (0.96 + 0.04 * k);
@@ -719,7 +791,7 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Back to conversation", 192.0).clicked();
                 let label = if b.paused.is_some() { "Resume" } else { "Pause" };
-                pause = super::button(ui, label, BLURPLE, 192.0).clicked();
+                pause = super::button(ui, label, pal().blurple, 192.0).clicked();
             });
         });
     if pause {

@@ -4,13 +4,58 @@
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, ViewportCommand, pos2, vec2};
 use serde_json::json;
 use std::collections::VecDeque;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+mod activity;
+mod bots;
+mod embed;
+mod call;
+mod web;
+mod buy;
+mod shop;
+mod stage;
+mod clips;
+mod composer;
+mod fixes;
+mod motion;
+mod members;
+mod tour;
+pub use tour::scrolled;
+mod login;
+mod camera;
+mod gallery;
+mod watchdog;
+
+pub use watchdog::beat;
+mod chatx;
+mod forum;
+mod stickers;
+mod chatcheck;
+mod p1b;
 
 use super::{App, side};
 use crate::net::Conn;
 use crate::state::Id;
 use crate::voice::{State, audio};
+
+mod menus;
+mod more;
+mod players;
+mod perms;
+mod p3b;
+mod p4b;
+mod p4c;
+mod p5;
+mod p5b;
+mod themes;
+mod serverx;
+mod shopx;
+mod tidy;
+mod refusals;
+mod live;
+mod local;
 
 
 // sidebar entries that sit low enough to need a scroll down to reach
@@ -20,11 +65,15 @@ const PAGES_BELOW: [&str; 10] = [
 ];
 
 // the settings sidebar top to bottom
-const SIDEBAR: [&str; 18] = [
-    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
+const SIDEBAR: [&str; 19] = [
+    "Account", "Data & Privacy", "Messaging Permissions", "Notifications", "Clips", "Nitro", "Server Boost", "Subscriptions", "Gift Inventory",
     "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time", "Activity Privacy", "Connected Apps",
     "Developer", "Log Out",
 ];
+
+mod profed;
+mod spell_discover;
+mod system;
 
 pub struct Run {
     dir: PathBuf,
@@ -32,6 +81,8 @@ pub struct Run {
     marks: Vec<(String, f64)>,
     step: u32,
     step_at: Instant,
+    sub: u8,
+    picking: bool,
     wait: Instant,
     queue: VecDeque<Vec<Event>>,
     frames: Vec<f32>,
@@ -40,6 +91,7 @@ pub struct Run {
     voice: serde_json::Value,
     target: (Id, Id),
     call: Id,
+    cues: usize,
     loaded: usize,
     text: String,
     error: Option<String>,
@@ -50,6 +102,13 @@ pub struct Run {
     // RUSTCORD_BENCH: nothing scripted, the frame counts written down for e2e/bench.py
     bench: Option<Instant>,
     spin: bool,
+    scroll: bool,
+    wheel_at: Instant,
+    notches: u32,
+    costs: Vec<f32>,
+    chat_open: bool,
+    travel: f32,
+    last_off: f32,
     // the channels a "browse" file has us open one after another, the next one, and when
     browse: Option<(Vec<Id>, usize, Instant)>,
     causes: std::collections::HashMap<String, u32>,
@@ -70,6 +129,7 @@ pub struct Run {
     dnd: Option<(usize, Id)>,
     // the toasts those would have been, and the message each opens
     pub pings: Vec<(String, (Id, Id))>,
+    pub call_toasts: Vec<String>,
     // toasts so far and the title's count when the window was minimized for a ping
     hidden: Option<(usize, i32)>,
     // what Speak Message would have read out
@@ -85,6 +145,10 @@ pub struct Run {
     live: Option<Id>,
     live_at: Option<Instant>,
     samples: Vec<serde_json::Value>,
+    local: local::State,
+    fx: live::State,
+    sweep: tour::State,
+    local_log: Option<String>,
 }
 
 /// A spot to read back from a screenshot: one pixel, or the brightest pixel in a rect (text colour).
@@ -100,12 +164,15 @@ impl Run {
         let dir = PathBuf::from(std::env::var_os("RUSTCORD_E2E").or_else(|| std::env::var_os("RUSTCORD_TOUR")).or_else(|| std::env::var_os("RUSTCORD_BENCH"))?);
         let _ = std::fs::create_dir_all(&dir);
         crate::gif::trace();
+        watchdog::start(dir.clone());
         Some(Run {
             dir,
             t0,
             marks: Vec::new(),
-            step: 0,
+            step: if std::env::var_os("RUSTCORD_E2E_LOGIN").is_some() { 1500 } else { 0 },
             step_at: Instant::now(),
+            sub: 0,
+            picking: false,
             wait: Instant::now(),
             queue: VecDeque::new(),
             frames: Vec::new(),
@@ -114,6 +181,7 @@ impl Run {
             voice: serde_json::Value::Null,
             target: (0, 0),
             call: 0,
+            cues: 0,
             loaded: 0,
             text: format!("hello from the e2e run **bold** 🎉 #{}", std::process::id()),
             error: None,
@@ -123,6 +191,13 @@ impl Run {
             tour,
             bench: bench.then(Instant::now),
             spin: false,
+            scroll: false,
+            wheel_at: Instant::now(),
+            notches: 0,
+            costs: Vec::new(),
+            chat_open: false,
+            travel: 0.0,
+            last_off: 0.0,
             browse: None,
             causes: Default::default(),
             cache_guilds: None,
@@ -137,6 +212,7 @@ impl Run {
             rtc: 0,
             share_at: None,
             pings: Vec::new(),
+            call_toasts: Vec::new(),
             said: Vec::new(),
             heard: Vec::new(),
             y0: 0.0,
@@ -145,6 +221,10 @@ impl Run {
             live: std::env::var("RUSTCORD_LIVE").ok().and_then(|v| v.parse().ok()),
             live_at: None,
             samples: Vec::new(),
+            local: Default::default(),
+            fx: Default::default(),
+            sweep: Default::default(),
+            local_log: None,
         })
     }
 
@@ -160,6 +240,9 @@ impl Run {
     pub fn mark(&mut self, name: &str) {
         let t = self.ms();
         self.marks.push((name.to_string(), t));
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("marks.log")) {
+            let _ = writeln!(f, "{name}\t{t:.1}");
+        }
         if name == "first_frame" {
             let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
             let _ = std::fs::write(self.dir.join("first_frame_epoch_ms"), epoch.as_millis().to_string());
@@ -175,7 +258,14 @@ impl Run {
             }
             return;
         }
-        let Some((pings, title)) = self.hidden else { return };
+        let Some((pings, title)) = self.hidden else {
+            // minimized from outside, by something at the machine: step() would never run again
+            if ctx.input(|i| i.viewport().minimized == Some(true)) {
+                self.rects.insert("minimized_from_outside".into(), json!(self.step));
+                crate::winsys::show_quietly(false);
+            }
+            return;
+        };
         let n = app.title_count.unwrap_or(0) as i32;
         let left = Duration::from_secs(8).saturating_sub(self.step_at.elapsed());
         if self.pings.len() > pings && n > title && crate::winsys::badge() == n {
@@ -204,6 +294,9 @@ impl Run {
             let step = self.step;
             self.slow.push(json!({ "at_ms": at.round(), "ms": ms.round(), "step": step }));
         }
+        if self.scroll {
+            self.costs.push(ms);
+        }
         self.frames.push(ms);
     }
 
@@ -228,7 +321,19 @@ impl Run {
                     | Event::Zoom(_)
             )
         });
-        if self.bench.is_none() {
+        if self.bench.is_some() && self.scroll {
+            if let Some(r) = raw.screen_rect {
+                raw.events.push(Event::PointerMoved(r.center()));
+            }
+            if Instant::now() >= self.wheel_at {
+                self.wheel_at = Instant::now() + Duration::from_millis(90);
+                self.notches += 1;
+                let dy = if (self.notches / 12) % 2 == 0 { 1.0 } else { -1.0 };
+                raw.events.push(Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+            }
+        }
+        // an event every frame is a frame drawn every vsync, which a measurement mustn't have
+        if self.bench.is_none() && std::env::var_os("RUSTCORD_E2E_HOLD").is_none() {
             raw.events.push(Event::ModifiersChanged(Modifiers { shift: self.shift, alt: self.alt, ..Default::default() }));
         }
         if let Some(batch) = self.queue.pop_front() {
@@ -328,12 +433,32 @@ impl Run {
         if self.done {
             return;
         }
+        if self.step == 4327 {
+            let n = ctx.repaint_causes().iter().filter(|c| c.file.ends_with("gif.rs") || c.file.ends_with("lottie.rs")).count();
+            let k = self.rects.get("lottie_idle_wakes").and_then(|v| v.as_u64()).unwrap_or(0) + n as u64;
+            self.rects.insert("lottie_idle_wakes".into(), json!(k));
+        }
         if let Some(at) = self.bench {
             for c in ctx.repaint_causes() {
                 *self.causes.entry(format!("{}:{} {}", c.file.rsplit(['/', '\\']).next().unwrap_or(c.file), c.line, c.reason)).or_default() += 1;
             }
             if self.spin {
                 ctx.request_repaint();
+            }
+            if self.scroll
+                && !self.chat_open
+                && let Some(&g) = app.store.guild_order.first()
+                && let Some(ch) = side::first_channel(&app.store, g)
+            {
+                self.chat_open = true;
+                app.select_guild(Some(g));
+                app.open(ch);
+            }
+            if self.scroll
+                && let Some(off) = app.cur().and_then(|c| app.offsets.get(&c).copied())
+            {
+                self.travel += (off - self.last_off).abs();
+                self.last_off = off;
             }
             if let Some((list, i, when)) = &mut self.browse
                 && when.elapsed() > Duration::from_secs(3)
@@ -355,6 +480,7 @@ impl Run {
                 }
                 self.bench = Some(Instant::now());
                 self.spin = self.dir.join("spin").exists();
+                self.scroll = self.dir.join("scroll").exists();
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
                 let loaders = ctx.loaders();
                 let mut images = serde_json::Map::new();
@@ -364,7 +490,7 @@ impl Run {
                 {
                     images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
                 }
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1) });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel });
                 let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
             }
             return;
@@ -376,7 +502,20 @@ impl Run {
             self.finish(ctx);
             return;
         }
-        ctx.request_repaint();
+        // holding still to be measured, only what the app itself asks for gets drawn, and who asked is written down
+        if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() {
+            for c in ctx.repaint_causes() {
+                *self.causes.entry(format!("{}:{}", c.file.rsplit(['/', '\\']).next().unwrap_or(c.file), c.line)).or_default() += 1;
+            }
+            let mut top: Vec<_> = self.causes.iter().collect();
+            top.sort_by_key(|c| std::cmp::Reverse(*c.1));
+            top.truncate(14);
+            let _ = std::fs::write(self.dir.join("hold"), format!("{} {:?}", self.frames.len(), top));
+        }
+        match self.wait.checked_duration_since(Instant::now()).filter(|_| std::env::var_os("RUSTCORD_E2E_HOLD").is_some()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => ctx.request_repaint(),
+        }
         // layout snapshot for alignment checks against discord's metrics
         for k in ["composer", "composer_text", "gear", "search", "friends"] {
             if let Some(r) = app.rects.get(k) {
@@ -397,8 +536,8 @@ impl Run {
                 ("viewer", app.viewer.is_some()), ("profile", app.profile.is_some()), ("picker", app.picker.is_some()), ("stickers", app.stickers.is_some()),
                 ("gifs", app.gifs.is_some()), ("menu", app.menu.is_some()), ("user_menu", app.user_menu.is_some()), ("confirm", app.confirm.is_some()),
                 ("forward", app.forward.is_some()), ("switcher", app.switcher.is_some()), ("pins", app.pins.is_some()), ("inbox", app.inbox.is_some()),
-                ("emoji_pop", app.emoji_pop.is_some()), ("leaving", app.leaving.is_some()), ("new_thread", app.new_thread.is_some()), ("combos", app.combos.is_some()),
-                ("settings", app.settings_page.is_some()), ("egui_popup", egui::Popup::is_any_open(ctx)), ("reply", app.reply.is_some()),
+                ("source_pop", app.source_pop.is_some()), ("leaving", app.leaving.is_some()), ("new_thread", app.new_thread.is_some()), ("combos", app.combos.is_some()),
+                ("settings", app.settings_page.is_some()), ("egui_popup", egui::Popup::is_any_open(ctx)), ("reply", app.reply.is_some()), ("timeout", app.timeout.is_some()),
                 ("editing", app.editing.is_some()), ("focus_msg", app.focus_msg.is_some()), ("files", !app.files.is_empty()),
             ]
             .into_iter()
@@ -451,6 +590,7 @@ impl Run {
                     };
                     self.target = (g, ch);
                     self.next(100);
+
                 }
             }
             1 => {
@@ -460,6 +600,13 @@ impl Run {
             }
             2 => {
                 let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let head = app.rects.get("guildmenu").map_or(0.0, |h| h.bottom());
+                if r.top() < head {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, head + 200.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
                 self.click(r.center());
                 self.next(50);
             }
@@ -469,6 +616,13 @@ impl Run {
                     self.mark("messages");
                     self.loaded = n;
                     self.next(1500);
+                    if let Some(from) = std::env::var("RUSTCORD_E2E_FROM").ok().and_then(|v| v.parse().ok()) {
+                        self.step = from;
+                        // the step that sends a message is skipped, and alice's reply to it is what the toast steps read
+                        if from > 5 {
+                            app.rest("POST", "/mock/dm".into(), Some(json!({ "channel": 3000, "from": 101, "text": "hey, saw your message — got a sec?", "after_ms": 500 })), crate::net::Tag::Quiet);
+                        }
+                    }
                 }
             }
             4 => {
@@ -579,7 +733,7 @@ impl Run {
             16 => {
                 self.shot(ctx, "forum.png");
                 let g = self.target.0;
-                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined).map(|c| c.id);
+                let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.name == "release planning").map(|c| c.id);
                 let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
                     return self.fail("no joined thread in the sidebar".into());
                 };
@@ -658,11 +812,16 @@ impl Run {
                 if app.settings_page.is_some() {
                     self.mark("settings");
                     self.shot(ctx, "settings.png");
+                    let s = ctx.content_rect();
+                    self.click(pos2(s.left() + 36.0, s.bottom() - 36.0));
                     self.next(300);
                 }
             }
             26 => {
-                self.key(Key::Escape);
+                if app.settings_page.is_some() {
+                    return self.fail("clicking outside settings didn't close it".into());
+                }
+                self.mark("settings_backdrop");
                 let general = app.store.guilds.get(&self.target.0).and_then(|g| {
                     g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "general"))
                 });
@@ -922,6 +1081,13 @@ impl Run {
                     return self.fail("no voice channel".into());
                 };
                 let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                let covered = ["game:panel", "userpanel"].iter().filter_map(|k| app.rects.get(*k)).map(|p| p.top()).fold(ctx.content_rect().bottom(), f32::min);
+                if r.bottom() > covered {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, covered - 100.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
                 self.call = vc;
                 self.click(r.center());
                 self.mark("voice_click");
@@ -984,10 +1150,7 @@ impl Run {
                 }
                 self.next(1500);
             }
-            60 => {
-                self.shot(ctx, "settings_voice.png");
-                self.next(300);
-            }
+            60 => self.step = 2800,
             61 => {
                 self.key(Key::Escape);
                 self.next(400);
@@ -999,9 +1162,14 @@ impl Run {
                 }
             }
             63 => {
+                // measuring a stream on its own: no camera going out beside it
+                if std::env::var_os("RUSTCORD_E2E_HOLD").is_some() {
+                    self.step = 65;
+                    return;
+                }
                 let Some(r) = app.rects.get("voice:camera").copied() else { return };
                 self.click(r.center());
-                self.next(0);
+                self.step = 2819;
             }
             64 => {
                 if app.voice.camera && app.voice.video.contains_key(&me) && n(&sh.video_out) > 10 {
@@ -1018,7 +1186,7 @@ impl Run {
             66 => {
                 if app.voice.stream.as_ref().is_some_and(|l| !l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_in");
-                    self.next(500);
+                    self.next(std::env::var("RUSTCORD_E2E_HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(500));
                 }
             }
             67 => {
@@ -1047,7 +1215,10 @@ impl Run {
                 // would land on the call once the picker shuts
                 if let Some(p) = &app.share {
                     self.mark("share_picker");
-                    if self.share_at.is_none_or(|t| t.elapsed() > Duration::from_millis(600)) {
+                    if self.share_at.is_none() {
+                        self.share_at = Some(Instant::now());
+                    }
+                    if self.share_at.is_some_and(|t| t.elapsed() > Duration::from_millis(600)) {
                         let key = if p.tab == 1 { "share:item:0" } else { "share:tab:1" };
                         if let Some(r) = app.rects.get(key).copied() {
                             if p.tab == 1 {
@@ -1134,6 +1305,7 @@ impl Run {
             81 => {
                 if app.voice.state == State::Idle && app.voice.chan.is_none() {
                     self.mark("voice_left");
+                    self.step = 699;
                     self.next(200);
                 }
             }
@@ -1231,10 +1403,18 @@ impl Run {
             }
             94 => {
                 if crate::winsys::shown() {
-                    self.step = 100;
+                    self.step = 900;
                 }
             }
+            900..=919 => self.web_steps(),
+            3200..=3299 => self.shop_steps(app, ctx),
+            4200..=4299 => self.buy_steps(app, ctx),
+            2200..=2299 => self.activity_steps(app, ctx),
+            3500..=3599 => self.bot_steps(app, ctx),
+            3300..=3399 => self.embed_steps(app, ctx),
             100..=199 => self.settings_steps(app, ctx),
+            700..=759 => self.stage_steps(app, ctx),
+            2100..=2199 => self.call_steps(app, ctx),
             200..=219 => self.media_steps(app, ctx),
             220..=239 => self.side_steps(app, ctx),
             240..=259 => self.layout_steps(app, ctx),
@@ -1245,8 +1425,59 @@ impl Run {
             370..=449 => self.emoji_steps(app, ctx),
             450..=519 => self.qol_steps(app, ctx),
             520..=559 => self.home_steps(app, ctx),
+            600..=699 => self.server_steps(app, ctx),
+            2000..=2059 => self.account_steps(app, ctx),
+            2700..=2799 => self.system_steps(app, ctx),
+            560..=599 => self.composer_steps(app, ctx),
+            800..=839 => self.messages_steps(app, ctx),
+            1200..=1219 => self.people_steps(app, ctx),
+            1300..=1399 => self.item_steps(app, ctx),
+            1400..=1419 => self.scroll_steps(app, ctx),
+            1700..=1719 => self.spell_steps(app, ctx),
+            2800..=2829 => self.camera_steps(app, ctx),
+            2900..=2959 => self.clips_steps(app, ctx),
+            4100..=4199 => self.gallery_steps(app, ctx),
+            4300..=4319 => self.forum_steps(app, ctx),
+            4320..=4339 => self.sticker_steps(app, ctx),
+            4340..=4364 => self.chat_check_steps(app, ctx),
+            4365..=4399 => self.p1b_steps(app, ctx),
+            4400..=4499 => self.perms_steps(app, ctx),
+            4500..=4599 => self.themes_steps(app, ctx),
+            4600..=4649 => self.p3b_steps(app, ctx),
+            4650..=4699 => self.shopx_steps(app, ctx),
+            5000..=5049 => self.p4b_steps(app, ctx),
+            4700..=4799 => self.tidy_steps(app, ctx),
+            5050..=5099 => self.p4c_steps(app, ctx),
+            5100..=5119 => self.p5_steps(app, ctx),
+            5120..=5199 => self.p5b_steps(app, ctx),
+            4800..=4899 => self.serverx_steps(app, ctx),
+            3600..=3699 => self.gateway_steps(app, ctx),
+            3000..=3099 => self.fixes_steps(app, ctx),
+            3110..=3189 => self.members_steps(app, ctx),
+            3700..=3799 => self.chatx_steps(app, ctx),
+            3900..=4099 => self.profed_steps(app, ctx),
+            1720..=1739 => self.discover_steps(app, ctx),
+            1500..=1599 => self.login_steps(app, ctx),
+            1800..=1899 => self.player_steps(app, ctx),
+            2300..=2319 => self.sound_steps(),
+            1900..=1999 => self.more_steps(app, ctx),
+            2400..=2499 => self.voice_steps(app, ctx),
+            2500..=2549 => self.person_steps(app, ctx),
+            1600..=1699 => self.local_steps(app, ctx),
+            2600..=2619 => self.motion_steps(app, ctx),
+            3400..=3449 => self.refusal_steps(app, ctx),
+            3800..=3899 => self.menu_steps(app, ctx),
             _ => {
                 if self.pending_shots == 0 {
+                    if !self.rects.contains_key("layout_side_final") {
+                        self.rects.insert("layout_side_final".into(), json!(if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 }));
+                        self.rects.insert("layout_members_final".into(), json!(if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 }));
+                        if std::env::var_os("RUSTCORD_E2E_MEMBERS").is_some() {
+                            app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
+                        }
+                        self.wait = Instant::now() + Duration::from_millis(1000);
+                        return;
+                    }
                     self.finish(ctx);
                 }
             }
@@ -1254,6 +1485,25 @@ impl Run {
     }
 
     /// Click a settings sidebar entry, scrolling the sidebar first if it's below the fold.
+    /// Marks are kept for rows scrolled out of the settings window, where a click would miss.
+    fn click_mark(&mut self, ctx: &egui::Context, key: &str, pause: u64) {
+        let window = ctx.content_rect().shrink2(egui::vec2(0.0, 80.0));
+        let Some(r) = Self::at(ctx, key) else { return };
+        if !window.contains_rect(r) {
+            self.queue.push_back(vec![Event::PointerMoved(window.center())]);
+            self.queue.push_back(vec![Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, if r.top() > window.top() { -200.0 } else { 200.0 }),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            }]);
+            self.wait = Instant::now() + Duration::from_millis(250);
+            return;
+        }
+        self.click(r.center());
+        self.next(pause);
+    }
+
     fn open_page(&mut self, app: &App, label: &str) -> bool {
         let key = if label == "Profiles" { "Edit Profiles" } else { label };
         if let Some(r) = app.rects.get(&format!("settings:{key}")).copied() {
@@ -1286,8 +1536,30 @@ impl Run {
         false
     }
 
+    /// Opens a dropdown and clicks one of its items; true once the item is clicked.
+    fn pick(&mut self, ctx: &egui::Context, head: &str, item: &str) -> bool {
+        if !self.picking {
+            let Some(r) = Self::at(ctx, head) else { return false };
+            ctx.data_mut(|d| d.remove::<(egui::Rect, u64)>(egui::Id::new(("e2e", item))));
+            self.click(r.center());
+            self.picking = true;
+            self.wait = Instant::now() + Duration::from_millis(500);
+            return false;
+        }
+        let Some(r) = Self::at(ctx, item) else { return false };
+        self.click(r.center());
+        self.picking = false;
+        true
+    }
+
     fn at(ctx: &egui::Context, key: &str) -> Option<egui::Rect> {
-        ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("e2e", key))))
+        let (r, pass) = ctx.data(|d| d.get_temp::<(egui::Rect, u64)>(egui::Id::new(("e2e", key))))?;
+        (pass == ctx.cumulative_pass_nr()).then_some(r)
+    }
+
+    fn said(ctx: &egui::Context, key: &str) -> Option<String> {
+        let (text, pass) = ctx.data(|d| d.get_temp::<(String, u64)>(egui::Id::new(("e2e_note", key))))?;
+        (pass == ctx.cumulative_pass_nr()).then_some(text)
     }
 
     /// Settings: a screenshot of every page, then a few real round trips.
@@ -1315,11 +1587,13 @@ impl Run {
                 self.next(900);
             }
             102 => {
-                if app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded]) {
+                let editor = PAGES[self.loaded] == "Profiles";
+                if (editor && app.profed.is_none()) || (!editor && app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded])) {
                     return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
                 }
                 let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
                 self.shot(ctx, &format!("settings_{slug}.png"));
+                app.profed = None;
                 self.loaded += 1;
                 self.step = 101;
                 self.wait = Instant::now() + Duration::from_millis(200);
@@ -1343,9 +1617,10 @@ impl Run {
                 self.next(0);
             }
             106 => {
-                let saved = app.sform.profile_base.as_ref().is_some_and(|_| app.sform.profile == app.sform.profile_base) && !app.sform.saving;
+                let saved = app.profed.as_ref().is_some_and(|e| e.ready && !super::profed::dirty(e) && !e.saving);
                 if saved {
                     self.mark("profile_saved");
+                    app.profed = None;
                     self.next(300);
                 }
             }
@@ -1386,10 +1661,10 @@ impl Run {
                 self.next(400);
             }
             113 => {
-                if !self.open_page(app, "Messages") {
-                    return;
+                let label = if app.rects.contains_key("settings:Visual Density") { "Visual Density" } else { "Accessibility" };
+                if self.open_page(app, label) && label == "Visual Density" {
+                    self.next(800);
                 }
-                self.next(800);
             }
             114 => {
                 let Some(r) = Self::at(ctx, "radio:Compact") else { return };
@@ -1421,10 +1696,10 @@ impl Run {
                 self.next(600);
             }
             118 => {
-                if !self.open_page(app, "Messages") {
-                    return;
+                let label = if app.rects.contains_key("settings:Visual Density") { "Visual Density" } else { "Accessibility" };
+                if self.open_page(app, label) && label == "Visual Density" {
+                    self.next(800);
                 }
-                self.next(800);
             }
             119 => {
                 let Some(r) = Self::at(ctx, "radio:Cozy") else { return };
@@ -1432,10 +1707,10 @@ impl Run {
                 self.next(300);
             }
             120 => {
-                if !self.open_page(app, "Streamer Mode") {
-                    return;
+                let label = if app.settings_page == Some(crate::ui::settings::Page::Appearance) { "Streamer Mode" } else { "Appearance" };
+                if self.open_page(app, label) && label == "Streamer Mode" {
+                    self.next(800);
                 }
-                self.next(800);
             }
             121 => {
                 let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
@@ -1454,12 +1729,8 @@ impl Run {
                 if !self.open_page(app, "Messaging Permissions") {
                     return;
                 }
+                self.step = 124;
                 self.next(900);
-            }
-            124 => {
-                let Some(r) = Self::at(ctx, "radio:Keep me safe") else { return };
-                self.click(r.center());
-                self.next(500);
             }
             125 => {
                 if !self.open_page(app, "Language & Time") {
@@ -1468,8 +1739,9 @@ impl Run {
                 self.next(600);
             }
             126 => {
-                let Some(r) = Self::at(ctx, "lang:de") else { return };
-                self.click(r.center());
+                if !self.pick(ctx, "lang", "lang:de") {
+                    return;
+                }
                 self.next(400);
             }
             127 => {
@@ -1485,10 +1757,8 @@ impl Run {
                 self.next(800);
             }
             129 => {
-                let Some(r) = Self::at(ctx, "house:Bravery") else { return };
                 self.shot(ctx, "settings_account_family.png");
-                self.click(r.center());
-                self.next(600);
+                self.click_mark(ctx, "house:Bravery", 600);
             }
             130 => {
                 self.mark("hypesquad");
@@ -1498,8 +1768,9 @@ impl Run {
                 self.next(600);
             }
             131 => {
-                let Some(r) = Self::at(ctx, "lang:en-US") else { return };
-                self.click(r.center());
+                if !self.pick(ctx, "lang", "lang:en-US") {
+                    return;
+                }
                 self.next(300);
             }
             132 => {
@@ -1515,14 +1786,22 @@ impl Run {
                 self.next(800);
             }
             134 => {
-                let Some(r) = Self::at(ctx, "edit:Display Name") else { return };
+                let Some(r) = Self::at(ctx, "edit:Username") else { return };
                 self.click(r.center());
                 self.next(500);
             }
             135 => {
-                let Some(r) = Self::at(ctx, "modal_input") else { return };
-                self.click(r.right_center() - vec2(4.0, 0.0));
-                self.queue.push_back(vec![Event::Text("!".into())]);
+                let (Some(r), Some(p)) = (Self::at(ctx, "modal_input"), Self::at(ctx, "modal_password")) else { return };
+                if self.sub == 0 {
+                    self.click(r.right_center() - vec2(4.0, 0.0));
+                    self.queue.push_back(vec![Event::Text("_".into())]);
+                    self.sub = 1;
+                    self.wait = Instant::now() + Duration::from_millis(800);
+                    return;
+                }
+                self.sub = 0;
+                self.click(p.center());
+                self.queue.push_back(vec![Event::Text("hunter2".into())]);
                 self.next(400);
             }
             136 => {
@@ -1532,7 +1811,7 @@ impl Run {
                 self.next(0);
             }
             137 => {
-                if app.sform.modal.is_none() && app.store.user(app.store.me).and_then(|u| u.global_name.as_deref()) == Some("You!") {
+                if app.sform.modal_closed() && app.store.user(app.store.me).map(|u| u.username.as_str()) == Some("you_") {
                     self.mark("display_name");
                     self.next(300);
                 }
@@ -1550,11 +1829,12 @@ impl Run {
             }
             140 => {
                 self.shot(ctx, "settings_devices.png");
+                self.step = 1999;
                 self.next(400);
             }
             141 => {
-                self.key(Key::Escape);
-                self.step = 350;
+                self.step = 143;
+                self.next(0);
             }
             142 => {
                 let Some(r) = Self::at(ctx, "toggle:Enable Streamer Mode") else { return };
@@ -1567,7 +1847,239 @@ impl Run {
                 self.step = 109;
                 self.next(900);
             }
+            144 => {
+                if !self.open_page(app, "Server Boost") {
+                    return;
+                }
+                self.next(900);
+            }
+            145 => {
+                if Self::at(ctx, "billing:boost_menu").is_none() || Self::at(ctx, "billing:faq8").is_none() {
+                    return;
+                }
+                self.mark("boost_page");
+                let Some(r) = Self::at(ctx, "billing:boost_banner") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            146 => {
+                if Self::at(ctx, "billing:Boost").is_none() {
+                    return;
+                }
+                self.mark("boost_picker");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            147 => {
+                if !self.open_page(app, "Gift Inventory") {
+                    return;
+                }
+                self.next(900);
+            }
+            148 => {
+                let Some(r) = Self::at(ctx, "gift_input") else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("WUMP-AAAAA-BBBBB-CCCCC".into())]);
+                self.next(400);
+            }
+            149 => {
+                let Some(r) = Self::at(ctx, "billing:Redeem") else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            150 => {
+                if Self::at(ctx, "gift_ok").is_none() {
+                    return;
+                }
+                self.mark("gift_redeemed");
+                self.next(0);
+            }
+            151 => {
+                if !self.open_page(app, "Billing") {
+                    return;
+                }
+                self.next(900);
+            }
+            152 => {
+                let Some(r) = Self::at(ctx, "billing:Edit") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            153 => {
+                let Some(r) = Self::at(ctx, "billing:delete_source") else { return };
+                self.mark("billing_edit");
+                if let Some(d) = Self::at(ctx, "billing:make_default") {
+                    self.click(d.center());
+                    self.mark("billing_manage");
+                    self.step = 155;
+                    return self.next(600);
+                }
+                self.click(r.center());
+                self.next(500);
+            }
+            154 => {
+                if Self::at(ctx, "billing_confirm").is_none() {
+                    return;
+                }
+                self.mark("billing_manage");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            155 => {
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            156 => {
+                if Self::at(ctx, "billing:Next").is_some() && Self::at(ctx, "billing:Previous").is_some() {
+                    self.mark("billing_tx");
+                }
+                self.key(Key::Escape);
+                self.step = 2699;
+                self.next(400);
+            }
             _ => self.step = 99,
+        }
+    }
+
+    /// Account settings that talk to the second factor and the privacy blob: turn on the
+    /// authenticator, log a device out through the ticket, then flip a few switches and read
+    /// the blob back.
+    fn account_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let mfa_on = app.store.me_raw["mfa_enabled"].as_bool() == Some(true);
+        let click_at = |this: &mut Self, key: &str, pause: u64| this.click_mark(ctx, key, pause);
+        let typed = |this: &mut Self, key: &str, text: &str| {
+            let Some(r) = Self::at(ctx, key) else { return };
+            this.click(r.center());
+            this.queue.push_back(vec![Event::Text(text.into())]);
+            this.next(300);
+        };
+        match self.step {
+            2000 => {
+                app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
+                app.remote.clear();
+                self.step = 2009;
+                self.next(400);
+            }
+            2010 => click_at(self, "crumb", 500),
+            2011 => click_at(self, "nav:Multi-Factor Authentication", 700),
+            2012 => click_at(self, "action:Enable Authenticator App", 600),
+            2013 => typed(self, "modal_input", "123456"),
+            2014 => click_at(self, "modal_done", 800),
+            2015 => typed(self, "verify_input", "hunter2"),
+            2016 => click_at(self, "verify_done", 0),
+            2017 => {
+                if mfa_on {
+                    self.mark("mfa_on");
+                    self.next(300);
+                }
+            }
+            2018 => click_at(self, "modal_cancel", 500),
+            2019 => click_at(self, "crumb", 500),
+            2020 => click_at(self, "nav:Logged-in Devices", 900),
+            2021 => click_at(self, "logout:bbb", 800),
+            2022 => typed(self, "verify_input", "123456"),
+            2023 => click_at(self, "verify_done", 0),
+            2024 => {
+                let left = match app.remote.get("sessions") {
+                    Some(Some(Ok(v))) => v["user_sessions"].as_array().map(Vec::len),
+                    _ => None,
+                };
+                if left == Some(2) {
+                    self.mark("sessions_logout");
+                    self.next(300);
+                }
+            }
+            2025 => {
+                if self.open_page(app, "Messaging Permissions") {
+                    self.next(900);
+                }
+            }
+            2026 if crate::ui::settings::proto_num(app, 6, 27) != Some(3) => {
+                click_at(self, "radio:Filter all spam", 600);
+                self.step = 2026;
+            }
+            2026 => click_at(self, "toggle:Message requests", 600),
+            2027 => {
+                if crate::ui::settings::proto_ids(app, 8, 16) > 0 && crate::ui::settings::proto_num(app, 6, 27) == Some(3) {
+                    self.mark("messaging_privacy");
+                    self.next(200);
+                }
+            }
+            2028 => {
+                if self.open_page(app, "Activity Privacy") {
+                    self.next(900);
+                }
+            }
+            2029 => click_at(self, "toggle_all", 600),
+            2030 => {
+                if crate::ui::settings::proto_ids(app, 8, 13) == app.store.guilds.len() {
+                    self.mark("activity_servers");
+                    self.next(200);
+                }
+            }
+            2031 => click_at(self, "toggle:Allow friends to join my game", 600),
+            2032 => {
+                if crate::ui::settings::proto_flag(app, 8, 1) == Some(false) {
+                    self.mark("activity_join");
+                    self.next(200);
+                }
+            }
+            2033 => {
+                if self.open_page(app, "Data & Privacy") {
+                    self.next(900);
+                }
+            }
+            2034 => click_at(self, "action:Request all of my Data", 600),
+            2035 => {
+                if self.open_page(app, "Connected Apps") {
+                    self.next(900);
+                }
+            }
+            2036 => click_at(self, "provider:github", 500),
+            2037 => click_at(self, "deauthorize:Dyno", 500),
+            2038 => click_at(self, "disconnect:github", 600),
+            2039 => {
+                self.mark("connected_apps");
+                click_at(self, "join:ghostie's graveyard", 400);
+            }
+            2040 => {
+                if self.open_page(app, "Profiles") {
+                    self.next(1200);
+                }
+            }
+            2041 => click_at(self, "tile:decoration", 500),
+            2042 => click_at(self, "collectible:7001", 300),
+            2043 => click_at(self, "pick:apply", 300),
+            2044 => {
+                let Some(r) = Self::at(ctx, "save_changes") else { return };
+                self.click(r.center());
+                self.next(0);
+            }
+            2045 => {
+                if app.store.user(app.store.me).and_then(|u| u.decoration.as_deref()) == Some("a_deco7001") {
+                    self.mark("profile_decoration");
+                    app.profed = None;
+                    self.next(300);
+                }
+            }
+            2046 => {
+                if self.open_page(app, "Account") {
+                    self.next(800);
+                }
+            }
+            2047 => click_at(self, "action:Disable your account", 500),
+            2048 => {
+                if app.sform.modal_open() {
+                    self.mark("owner_modal");
+                    self.next(100);
+                }
+            }
+            2049 => click_at(self, "modal_done", 400),
+            2050 => {
+                self.step = 140;
+                self.next(200);
+            }
+            _ => self.step = 2050,
         }
     }
 
@@ -1769,6 +2281,53 @@ impl Run {
                 self.shot(ctx, "side_members.png");
                 self.next(300);
             }
+            226 => {
+                app.select_guild(Some(1003));
+                self.next(400);
+            }
+            227 => {
+                if rect(app, "chan:2302").is_none() {
+                    return;
+                }
+                app.chan_flag(2302, super::PINNED, true);
+                self.next(400);
+            }
+            228 => {
+                let (Some(head), Some(ch), Some(cat)) = (rect(app, "side:pinned"), rect(app, "chan:2302"), app.rects.iter().filter(|(k, _)| k.starts_with("cat:")).map(|(_, r)| r.top()).reduce(f32::min)) else { return };
+                if head.bottom() <= ch.top() && ch.bottom() <= cat {
+                    self.mark("side_pinned");
+                }
+                app.chan_flag(2302, super::PINNED, false);
+                self.next(400);
+            }
+            229 => {
+                if rect(app, "side:pinned").is_some() {
+                    return;
+                }
+                self.mark("side_unpinned");
+                super::lurk::start(app, 9000, 9001);
+                self.next(400);
+            }
+            230 => {
+                let Some(r) = rect(app, "lurk:join") else { return };
+                if app.ui.guild != Some(9000) {
+                    return;
+                }
+                self.mark("lurk_preview");
+                self.shot(ctx, "lurk_preview.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            231 => {
+                if app.store.lurking.contains(&9000) {
+                    return;
+                }
+                self.mark("lurk_join");
+                app.store.apply("GUILD_DELETE", &json!({ "id": "9000" }));
+                app.select_guild(Some(self.target.0));
+                app.open(self.target.1);
+                self.next(300);
+            }
             _ => {
                 self.mark("side");
                 self.step = 240;
@@ -1815,6 +2374,15 @@ impl Run {
             242 => {
                 let Some(w) = chat_w(app) else { return };
                 if app.cur() != Some(self.target.1) {
+                    return;
+                }
+                if !self.rects.contains_key("layout_side_boot") {
+                    self.rects.insert("layout_side_boot".into(), json!(side_w(app)));
+                    self.rects.insert("layout_members_boot".into(), json!(members_w(app)));
+                }
+                if side_w(app) < 250.0 {
+                    drag(self, pos2(72.0 + side_w(app), 400.0), 120.0);
+                    self.wait = Instant::now() + Duration::from_millis(700);
                     return;
                 }
                 self.rects.insert("layout_side_start".into(), json!(side_w(app)));
@@ -1967,6 +2535,7 @@ impl Run {
                 ];
                 self.probes.push(("polish_code.png".into(), probes));
                 save(self, app, "codeblock");
+                save(self, app, "codeblock_tinted");
                 self.shot(ctx, "polish_code.png");
                 self.mark("polish");
                 self.next(400);
@@ -2087,11 +2656,6 @@ impl Run {
     /// Read-only walk through a real account (RUSTCORD_TOUR + RUSTCORD_READONLY):
     /// look at things, screenshot them, change nothing.
     fn tour_steps(&mut self, app: &mut App, ctx: &egui::Context) {
-        const PAGES: [&str; 18] = [
-            "Account", "Profiles", "Data & Privacy", "Messaging Permissions", "Notifications", "Nitro", "Server Boost", "Subscriptions",
-            "Gift Inventory", "Billing", "Voice & Video", "Appearance", "Accessibility", "System", "Language & Time",
-            "Activity Privacy", "Connected Apps", "Developer",
-        ];
         if self.cache_guilds.is_none() {
             // the snapshot written by the previous build, before READY replaces it
             self.cache_guilds = Some(app.store.guilds.len());
@@ -2100,6 +2664,7 @@ impl Run {
         let cur_msgs = |app: &App| app.cur().and_then(|c| app.store.msgs.get(&c)).map(|e| (e.list.len(), e.fresh && !e.loading)).unwrap_or((0, false));
         let skip_after = |s: &Self, secs: u64| s.step_at.elapsed() > Duration::from_secs(secs);
         if self.step == 0 {
+            self.tour_setup(app, ctx);
             self.step = 300;
         }
         match self.step {
@@ -2432,33 +2997,10 @@ impl Run {
                 self.shot(ctx, "10_friends.png");
                 let Some(r) = app.rects.get("gear").copied() else { return };
                 self.click(r.center());
-                self.loaded = 0;
-                self.next(800);
+                self.step = 3100;
+                self.wait = Instant::now() + Duration::from_millis(800);
             }
-            327 => {
-                let Some(label) = PAGES.get(self.loaded) else {
-                    self.mark("settings_tour");
-                    self.step = 329;
-                    return;
-                };
-                if self.open_page(app, label) {
-                    self.next(2500);
-                }
-            }
-            328 => {
-                if app.settings_page.map(crate::ui::settings::label) != Some(PAGES[self.loaded]) {
-                    return self.fail(format!("clicked {} but another page is open", PAGES[self.loaded]));
-                }
-                let slug: String = PAGES[self.loaded].to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
-                self.shot(ctx, &format!("settings_{:02}_{slug}.png", self.loaded + 1));
-                self.loaded += 1;
-                self.step = 327;
-                self.wait = Instant::now() + Duration::from_millis(200);
-            }
-            329 => {
-                self.key(Key::Escape);
-                self.step = 99;
-            }
+            3100..=3109 => self.sweep_steps(app, ctx),
             _ => self.step = 99,
         }
     }
@@ -2629,7 +3171,16 @@ impl Run {
                 self.next(500);
             }
             274 => {
-                self.shot(ctx, "inbox_unreads.png");
+                if let Some(tip) = app.rects.get("inbox:tip").copied().filter(|_| !app.settings.inbox_tip) {
+                    self.shot(ctx, "inbox_unreads.png");
+                    self.click(tip.center());
+                    self.wait = Instant::now() + Duration::from_millis(500);
+                    return;
+                }
+                if app.settings.inbox_tip {
+                    self.mark("inbox_tip_dismissed");
+                }
+                self.shot(ctx, "inbox_unreads_after_tip.png");
                 let Some(r) = app.rects.get("inbox:mentions").copied() else { return };
                 self.click(r.center());
                 self.next(400);
@@ -2810,7 +3361,7 @@ impl Run {
                 }
                 self.shot(ctx, &format!("{name}.png"));
                 // a dropdown item that hands off to the browser has to actually ask for it
-                match ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", "Server Boost")))) {
+                match Self::at(ctx, &format!("menu_row:{}", "Server Boost")) {
                     Some(r) if self.step == 388 => self.click(r.center()),
                     _ => self.key(Key::Escape),
                 }
@@ -2864,12 +3415,15 @@ impl Run {
             }
             399 => {
                 let Some(r) = app.rects.get("quick:3").copied() else { return };
+                self.shot(ctx, "quick_before.png");
                 self.rclick(r.center());
                 self.next(600);
             }
             400 => {
                 if !matches!(app.picker, Some((super::Pick::Quick(3), _))) {
-                    return self.fail("right-clicking a quick reaction didn't open the picker for it".into());
+                    self.shot(ctx, "quick_after.png");
+                    let at = app.rects.get("quick:3").copied();
+                    return self.fail(format!("right-clicking a quick reaction didn't open the picker for it: menu={} picker={} tile={at:?}", app.menu.is_some(), app.picker.is_some()));
                 }
                 self.queue.push_back(vec![Event::Text("skull".into())]);
                 self.queue.push_back(vec![]);
@@ -3116,8 +3670,21 @@ impl Run {
                 if app.server.as_ref().is_none_or(|s| s.data.get("role_counts").is_none_or(|v| v.is_null())) {
                     return;
                 }
-                self.shot(ctx, "server_roles.png");
-                self.mark("server_settings");
+                if self.sub == 0 {
+                    self.shot(ctx, "server_roles.png");
+                    self.mark("server_settings");
+                    self.sub = 1;
+                }
+                match super::server::probe(app, self.sub - 1) {
+                    super::server::Probe::Wait => return,
+                    super::server::Probe::Shot(name) => {
+                        self.shot(ctx, name);
+                        self.sub += 1;
+                        self.step_at = Instant::now();
+                        return;
+                    }
+                    super::server::Probe::Done => self.mark("server_pages"),
+                }
                 app.server = None;
                 app.open_events(1000);
                 self.next(800);
@@ -3181,7 +3748,7 @@ impl Run {
             // Invite People on a server none of our friends are known to be in: the dms and
             // friends list under the search, and Invite on a friend with no dm makes one first
             437 => {
-                app.invite_people(2400);
+                app.invite_people(2400, "Guild Context Menu");
                 self.next(800);
             }
             438 => {
@@ -3236,6 +3803,133 @@ impl Run {
                 self.key(Key::Escape);
                 self.mark("profile_more");
                 self.next(500);
+                self.step = 1200;
+            }
+            _ => self.step = 99,
+        }
+    }
+
+    /// The profile family: Active Now's cards, the popout's Mod View, role add and remove, the
+    /// full profile and its tabs, a server tag's popout and a role mention's.
+    fn people_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        match self.step {
+            1200 => {
+                use crate::state::{BAN_MEMBERS, KICK_MEMBERS, MANAGE_ROLES, MODERATE_MEMBERS};
+                if let Some(r) = app.store.guilds.get_mut(&self.target.0).and_then(|g| g.roles.get_mut(&1101)) {
+                    r.perms |= MANAGE_ROLES | KICK_MEMBERS | BAN_MEMBERS | MODERATE_MEMBERS;
+                }
+                let now = chrono::Utc::now().timestamp_millis();
+                app.store.apply("PRESENCE_UPDATE", &json!({ "user": { "id": "101" }, "status": "online", "activities": [
+                    { "type": 2, "name": "Spotify", "details": "Farewell", "state": "marQ", "sync_id": "abc", "timestamps": { "start": now - 99000, "end": now + 14000 }, "assets": { "large_image": "spotify:xyz" } },
+                    { "type": 0, "name": "Rust Simulator", "application_id": "900", "details": "In the lab", "state": "Solo", "timestamps": { "start": now - 1000000 } },
+                ] }));
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021" }));
+                app.select_guild(None);
+                app.friends = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
+                self.next(1200);
+            }
+            1201 => {
+                let (Some(card), Some(bodies)) = (Self::at(ctx, "now_card:101"), Self::said(ctx, "now_rows:101").and_then(|n| n.parse::<usize>().ok())) else { return };
+                if bodies < 3 || card.height() < 68.0 + 3.0 * 68.0 {
+                    return self.fail(format!("alice's Active Now card had {bodies} rows over {}px", card.height()));
+                }
+                self.shot(ctx, "active_now.png");
+                self.mark("active_now_cards");
+                self.next(400);
+                self.step = 1211;
+            }
+            1211 => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
+                app.open_profile(101, self.target.0, pos2(300.0, 160.0));
+                self.step = 1201;
+                self.next(900);
+            }
+            1202 => {
+                if app.profiles.get(&101).is_none_or(|p| p.is_null()) {
+                    return;
+                }
+                let Some(b) = Self::at(ctx, "banner:Open in Mod View") else { return };
+                self.shot(ctx, "profile_popout_extras.png");
+                self.click(b.center());
+                self.next(700);
+            }
+            1203 => {
+                if !app.mod_view.as_ref().is_some_and(|m| m.msgs.is_some()) {
+                    return;
+                }
+                let Some(b) = Self::at(ctx, "role_add") else { return };
+                self.shot(ctx, "modview.png");
+                self.mark("modview");
+                self.click(b.center());
+                self.next(500);
+            }
+            1204 => {
+                let Some(r) = Self::at(ctx, "role_pick") else { return };
+                self.shot(ctx, "role_picker.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            1205 => {
+                if !app.store.members.get(&self.target.0).and_then(|m| m.get(&101)).is_some_and(|m| m.roles.contains(&1102)) {
+                    return;
+                }
+                self.mark("role_added");
+                let Some(x) = Self::at(ctx, "role_x:1102") else { return };
+                self.click(x.center());
+                self.next(600);
+            }
+            1206 => {
+                if app.store.members.get(&self.target.0).and_then(|m| m.get(&101)).is_some_and(|m| m.roles.contains(&1102)) {
+                    return;
+                }
+                self.mark("role_removed");
+                app.mod_view = None;
+                app.open_full(101, self.target.0, super::profile::Tab::Activity);
+                self.next(900);
+            }
+            1207 => {
+                if app.profiles.get(&101).is_none_or(|p| p.is_null()) || app.outbox.get(&101).is_none_or(|o| o.is_empty()) || app.mod_view.is_some() {
+                    return;
+                }
+                let Some(t) = Self::at(ctx, &format!("fp_tab:{}", super::profile::Tab::Friends as u8)) else { return };
+                self.shot(ctx, "full_profile.png");
+                self.mark("full_profile");
+                self.click(t.center());
+                self.next(500);
+            }
+            1208 => {
+                if !app.full_profile.as_ref().is_some_and(|f| f.tab == super::profile::Tab::Friends) {
+                    return self.fail("the Mutual Friends tab didn't open".into());
+                }
+                self.shot(ctx, "full_profile_friends.png");
+                self.mark("full_profile_tabs");
+                self.key(Key::Escape);
+                app.tag_pop = Some((1001, pos2(400.0, 300.0)));
+                self.next(900);
+            }
+            1209 => {
+                if app.guild_profiles.get(&1001).is_none_or(|p| p.is_null()) {
+                    return;
+                }
+                self.shot(ctx, "tag_popout.png");
+                self.mark("tag_popout");
+                app.tag_pop = None;
+                app.role_pop = Some((self.target.0, 1100, pos2(400.0, 300.0)));
+                self.next(600);
+            }
+            1210 => {
+                self.shot(ctx, "role_popout.png");
+                self.mark("role_popout");
+                app.role_pop = None;
+                if let Some(r) = app.store.guilds.get_mut(&self.target.0).and_then(|g| g.roles.get_mut(&1101)) {
+                    r.perms = 0;
+                }
+                app.store.apply("PRESENCE_UPDATE", &json!({ "user": { "id": "101" }, "status": "online", "activities": [] }));
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": null }));
+                self.step = 420;
             }
             _ => self.step = 99,
         }
@@ -3258,7 +3952,7 @@ impl Run {
             me.queue.push_back(vec![Event::Text(text.into())]);
             me.key(Key::Enter);
         };
-        let menu_row = |label: &str| ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("menu_row", label))));
+        let menu_row = |label: &str| Self::at(ctx, &format!("menu_row:{}", label));
         match self.step {
             450 => {
                 app.select_guild(Some(self.target.0));
@@ -3638,7 +4332,7 @@ impl Run {
                 self.next(60);
             }
             497 => {
-                if ctx.data(|d| d.get_temp::<(bool, egui::Rect)>(egui::Id::new(("e2e", "ddr", 0usize)))).is_some_and(|(lit, _)| lit) {
+                if Self::at(ctx, "ddr_lit:0").is_some() {
                     self.mark("qol_combos");
                     self.shot(ctx, "qol_combos.png");
                     // H H → N K: the Raging Demon
@@ -3695,6 +4389,14 @@ impl Run {
         let mine = |app: &App, ch: Id, text: &str| app.store.msgs.get(&ch).is_some_and(|e| e.list.iter().any(|m| m.author == app.store.me && m.content == text));
         match self.step {
             520 => {
+                // alice only sits in the lounge once an earlier step has put her there, server muted, and the stage steps took carol's own mute off
+                for d in [
+                    json!({ "guild_id": self.target.0.to_string(), "user_id": "101", "channel_id": "2021", "mute": true }),
+                    json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": "2021", "self_mute": true, "self_deaf": true }),
+                ] {
+                    app.voice.dispatch(&app.net, app.store.me, "VOICE_STATE_UPDATE", &d);
+                    app.store.apply("VOICE_STATE_UPDATE", &d);
+                }
                 app.select_guild(Some(self.target.0));
                 app.open(general);
                 self.next(1200);
@@ -3702,6 +4404,12 @@ impl Run {
             // carol muted and deafened herself, alice was muted by the server
             521 => {
                 let seen = ["voice_state:103:Muted", "voice_state:103:Deafened", "voice_state:101:Server Muted"].iter().all(|k| Self::at(ctx, k).is_some());
+                if !seen && self.step_at.elapsed() > Duration::from_secs(2) && Instant::now() >= self.wait {
+                    // the voice rows sit under the text channels: bring the sidebar down to them
+                    self.queue.push_back(vec![Event::PointerMoved(pos2(150.0, 400.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                }
                 if seen {
                     self.mark("home_voice_states");
                     self.shot(ctx, "home_voice_states.png");
@@ -3853,6 +4561,9 @@ impl Run {
                 }
             }
             539 => {
+                if let Some(s) = &mut app.chan_settings {
+                    s.advanced = true;
+                }
                 let Some(r) = Self::at(ctx, "perm:View Channel:-1") else { return };
                 self.click(r.center());
                 self.next(500);
@@ -3985,8 +4696,7 @@ impl Run {
                     .store
                     .msgs
                     .get(&general)
-                    .and_then(|e| e.list.iter().find_map(|m| m.poll.as_ref()))
-                    .is_some_and(|p| p.answers.iter().any(|a| a.id == 2 && a.me));
+                    .is_some_and(|e| e.list.iter().filter_map(|m| m.poll.as_ref()).any(|p| p.answers.iter().any(|a| a.id == 2 && a.me)));
                 if voted {
                     self.mark("home_poll");
                     self.shot(ctx, "home_poll.png");
@@ -3995,9 +4705,1009 @@ impl Run {
             }
             _ => {
                 if app.viewer.is_none() {
-                    self.step = 99;
+                    self.step = 600;
                 }
             }
+        }
+    }
+
+    fn type_end(&mut self, text: &str) {
+        self.key(Key::End);
+        self.queue.push_back(vec![Event::Text(text.into())]);
+    }
+
+    /// Server settings pages on the mock: edit, see the bar, save, and what went to discord.
+    fn server_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use super::server::Page;
+        let page = |app: &mut App, p: Page| {
+            if let Some(s) = &mut app.server {
+                s.page = p;
+            }
+        };
+        let loaded = |app: &App, k: &str| app.server.as_ref().is_some_and(|s| s.data.get(k).is_some_and(|v| !v.is_null()));
+        match self.step {
+            600 => {
+                app.open_server_settings(1001);
+                self.next(800);
+            }
+            601 => {
+                if !loaded(app, "profile") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "field:server_name") else { return };
+                self.click(r.center());
+                self.type_end(" X");
+                self.next(800);
+            }
+            602 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                let name = app.server.as_ref().and_then(|s| s.draft.get("profile")).and_then(|d| d["name"].as_str().map(str::to_string)).unwrap_or_default();
+                if !name.ends_with(" X") {
+                    return self.fail(format!("server profile name draft is {name:?}"));
+                }
+                self.shot(ctx, "server_profile_dirty.png");
+                self.mark("server_bar");
+                self.click(r.center());
+                self.next(600);
+            }
+            603 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) || !app.server.as_ref().and_then(|s| s.data.get("profile")).is_some_and(|p| p["name"].as_str().is_some_and(|n| n.ends_with(" X"))) {
+                    return;
+                }
+                self.mark("server_profile_saved");
+                page(app, Page::Tag);
+                self.next(500);
+            }
+            604 => {
+                let Some(r) = Self::at(ctx, "field:tag") else { return };
+                self.click(r.center());
+                self.type_end("RUST");
+                self.next(300);
+            }
+            605 => {
+                let Some(r) = Self::at(ctx, "badge:sword") else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            606 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                self.shot(ctx, "server_tag.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            607 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) {
+                    return;
+                }
+                self.mark("server_tag");
+                page(app, Page::Engagement);
+                self.next(600);
+            }
+            608 => {
+                if !loaded(app, "guild") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "toggle:Send helpful tips for server setup.") else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            609 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                self.shot(ctx, "server_engagement.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            610 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) {
+                    return;
+                }
+                self.mark("server_engagement");
+                page(app, Page::Perks);
+                self.next(500);
+            }
+            611 => {
+                let Some(r) = Self::at(ctx, "toggle:Show Boost progress bar") else { return };
+                self.shot(ctx, "server_perks.png");
+                self.click(r.center());
+                self.next(400);
+            }
+            612 => {
+                self.mark("server_perks");
+                page(app, Page::Soundboard);
+                self.next(600);
+            }
+            613 => {
+                let Some(r) = Self::at(ctx, "sound:airhorn") else { return };
+                self.shot(ctx, "server_soundboard.png");
+                self.click(egui::pos2(r.center().x, r.center().y));
+                self.next(400);
+            }
+            614 => {
+                if app.server.as_ref().is_none_or(|s| s.sound.is_none()) {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "field:Name your sound") else { return };
+                self.shot(ctx, "server_sound_edit.png");
+                self.click(r.center());
+                self.type_end("2");
+                self.next(300);
+            }
+            615 => {
+                let Some(r) = Self::at(ctx, "plate:Save") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            616 => {
+                let renamed = app.server.as_ref().and_then(|s| s.data.get("sounds")).is_some_and(|v| v["items"].as_array().is_some_and(|l| l.iter().any(|s| s["name"] == "airhorn2")));
+                if !renamed {
+                    return;
+                }
+                self.mark("server_soundboard");
+                page(app, Page::Access);
+                self.next(600);
+            }
+            617 => {
+                if !loaded(app, "verification") || !loaded(app, "guild") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "join:Apply to Join") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            618 => {
+                let Some(r) = Self::at(ctx, "button:Add a question") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            619 => {
+                let Some(r) = Self::at(ctx, "question:0") else { return };
+                self.click(r.center());
+                self.type_end("Why do you want to join?");
+                self.next(700);
+            }
+            620 => {
+                let Some(r) = Self::at(ctx, "bar:Save Changes") else { return };
+                self.shot(ctx, "server_access.png");
+                self.click(r.center());
+                self.next(700);
+            }
+            621 => {
+                if app.server.as_ref().is_some_and(|s| s.dirty) {
+                    return;
+                }
+                self.mark("server_access");
+                app.open_server_settings(1002);
+                page(app, Page::Community);
+                self.next(600);
+            }
+            622 => {
+                let Some(r) = Self::at(ctx, "button:Enable Community") else { return };
+                self.shot(ctx, "server_enable_community.png");
+                self.click(r.center());
+                self.next(500);
+            }
+            623 => {
+                let Some(r) = Self::at(ctx, "check:Verified email required.") else { return };
+                self.click(r.center());
+                self.next(200);
+            }
+            624 => {
+                let Some(r) = Self::at(ctx, "check:Scan media content from all members.") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            625 => {
+                let Some(r) = Self::at(ctx, "plate:Next") else { return };
+                self.shot(ctx, "server_community_setup.png");
+                self.click(r.center());
+                self.next(400);
+            }
+            626 => {
+                if let Some(s) = &mut app.server {
+                    if let Some(d) = s.draft.get_mut("community") {
+                        d["rules"] = json!("2200");
+                        d["updates"] = json!("2201");
+                    }
+                }
+                let Some(r) = Self::at(ctx, "plate:Next") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            627 => {
+                let Some(r) = Self::at(ctx, "check:I agree to follow Discord's Community Guidelines.") else { return };
+                self.click(r.center());
+                self.next(300);
+            }
+            628 => {
+                let Some(r) = Self::at(ctx, "plate:Finish Setup") else { return };
+                self.click(r.center());
+                self.next(700);
+            }
+            629 => {
+                if app.server.as_ref().is_none_or(|s| s.sub != 4) {
+                    return;
+                }
+                self.mark("server_community");
+                if let Some(s) = &mut app.server {
+                    s.sub = 0;
+                    s.page = Page::Template;
+                }
+                self.next(500);
+            }
+            630 => {
+                if !loaded(app, "template") {
+                    return;
+                }
+                let Some(r) = Self::at(ctx, "field:template_title") else { return };
+                self.click(r.center());
+                self.type_end("Design fans");
+                self.next(300);
+            }
+            631 => {
+                let Some(r) = Self::at(ctx, "button:Generate Template") else { return };
+                let me = app.store.me;
+                if let Some(g) = app.store.guilds.get_mut(&1002) {
+                    g.owner = me;
+                }
+                self.shot(ctx, "server_template.png");
+                self.click(r.center());
+                self.next(600);
+            }
+            632 => {
+                if !app.server.as_ref().and_then(|s| s.data.get("template")).is_some_and(|t| t.as_array().is_some_and(|a| !a.is_empty())) {
+                    return;
+                }
+                self.mark("server_template");
+                let Some(r) = Self::at(ctx, "side:Delete Server") else { return };
+                if r.bottom() > ctx.content_rect().bottom() - 10.0 {
+                    self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, 300.0))]);
+                    self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    return;
+                }
+                self.click(r.center());
+                self.next(400);
+            }
+            633 => {
+                if app.confirm.is_none() {
+                    return;
+                }
+                self.shot(ctx, "server_delete.png");
+                self.mark("server_delete");
+                self.next(500);
+            }
+            634 => {
+                app.confirm = None;
+                app.server = None;
+                if let Some(g) = app.store.guilds.get_mut(&1002) {
+                    g.owner = 102;
+                }
+                self.step = 560;
+                self.step_at = Instant::now();
+            }
+            _ => {}
+        }
+    }
+
+    /// Messages: every kind discord draws specially, who reacted, each message menu, a failed send, Report
+    /// Message, the search sort menu and the inbox's filter and friend requests.
+    fn messages_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        const SYSTEM: Id = 2070;
+        const LABELS: [&str; 22] = [
+            "Add Reaction", "View Reactions", "Edit Message", "Reply", "Forward", "Create Thread", "Copy Text", "Pin Message", "Bookmark Message", "Create Reminder", "Apps",
+            "Resend message", "Mark Unread", "Configure", "Copy Message Link", "Speak Message", "View Interaction Info", "Remove Reactions", "Remove All Reactions",
+            "Delete Message", "Report Message", "Save File",
+        ];
+        let guild = self.target.0;
+        let list = |app: &App| app.store.msgs.get(&SYSTEM).map(|e| e.list.clone()).unwrap_or_default();
+        let row = |ctx: &egui::Context, label: &str| Self::at(ctx, &format!("menu_row:{}", label));
+        let case = |app: &App, i: usize| -> Option<Id> {
+            let l = list(app);
+            let found = match i {
+                0 => l.iter().find(|m| !m.reactions.is_empty()),
+                1 => l.iter().find(|m| m.kind == 7 && m.author == 102),
+                2 => l.iter().find(|m| m.kind == 20),
+                3 => l.iter().find(|m| m.flags & 8192 != 0),
+                4 => l.iter().find(|m| m.kind == 6),
+                _ => None,
+            };
+            found.map(|m| m.id)
+        };
+        let open_menu = |me: &mut Self, app: &mut App, id: Id| {
+            app.menu = Some((SYSTEM, id, egui::pos2(300.0, 100.0)));
+            me.next(400);
+        };
+        let labels = |ctx: &egui::Context| LABELS.iter().filter(|l| row(ctx, l).is_some()).collect::<Vec<_>>();
+        match self.step {
+            800 => {
+                app.select_guild(Some(guild));
+                app.open(SYSTEM);
+                self.next(1200);
+            }
+            801 => {
+                let ready = app.store.msgs.get(&SYSTEM).is_some_and(|e| e.list.len() >= 29 && e.fresh && !e.loading);
+                if app.cur() == Some(SYSTEM) && ready {
+                    let mut texts = serde_json::Map::new();
+                    for m in list(app).iter().filter(|m| !matches!(m.kind, 0 | 19 | 20 | 23)) {
+                        let t = super::system::describe(&app.store, guild, m).map(|s| s.plain()).unwrap_or_default();
+                        texts.insert(format!("{}:{}", m.kind, m.author), json!(t));
+                    }
+                    self.rects.insert("system_texts".into(), json!(texts));
+                    self.mark("msg_system_texts");
+                    self.shot(ctx, "msg_system.png");
+                    self.next(300);
+                }
+            }
+            802 => {
+                let Some(id) = case(app, 0) else { return };
+                let m = app.store.find_msg(SYSTEM, id).cloned().unwrap_or_default();
+                for r in &m.reactions {
+                    app.ask_reactors(SYSTEM, id, &r.emoji, false, r.count);
+                }
+                self.next(600);
+            }
+            803 => {
+                let Some(id) = case(app, 0) else { return };
+                let m = app.store.find_msg(SYSTEM, id).cloned().unwrap_or_default();
+                let loaded = m.reactions.iter().all(|r| app.store.reactors.get(&(id, r.emoji.api_name(), false)).is_some_and(|e| e.1.is_some()));
+                if loaded {
+                    let tips: Vec<String> = m.reactions.iter().map(|r| super::reactions::tooltip(&app.store, guild, &m, r, false)).collect();
+                    self.rects.insert("reaction_tooltips".into(), json!(tips));
+                    self.mark("msg_reaction_tooltip");
+                    app.reactors = Some(super::reactions::Reactors::new(SYSTEM, id));
+                    self.next(800);
+                }
+            }
+            804 => {
+                if app.reactors.is_some() {
+                    self.mark("msg_reactors_modal");
+                    self.shot(ctx, "msg_reactors.png");
+                    app.reactors = None;
+                    self.loaded = 0;
+                    self.next(300);
+                }
+            }
+            805 => {
+                let Some(id) = case(app, self.loaded) else {
+                    self.step = 808;
+                    return;
+                };
+                open_menu(self, app, id);
+            }
+            806 => {
+                self.rects.insert(format!("menu:{}", self.loaded), json!(labels(ctx)));
+                if self.loaded == 0 {
+                    self.shot(ctx, "msg_menu.png");
+                }
+                app.menu = None;
+                self.loaded += 1;
+                self.step = 805;
+                self.wait = Instant::now() + Duration::from_millis(250);
+            }
+            808 => {
+                app.send_text(SYSTEM, "e2e-fail-once".into());
+                self.next(900);
+            }
+            809 => {
+                let Some(m) = list(app).into_iter().find(|m| m.failed && m.content == "e2e-fail-once") else { return };
+                self.mark("msg_failed");
+                self.shot(ctx, "msg_failed.png");
+                open_menu(self, app, m.id);
+            }
+            810 => {
+                self.rects.insert("menu:failed".into(), json!(labels(ctx)));
+                app.menu = None;
+                let Some(m) = list(app).into_iter().find(|m| m.failed) else { return };
+                app.resend(SYSTEM, m.id);
+                self.next(900);
+            }
+            811 => {
+                let me = app.store.me;
+                if list(app).iter().any(|m| m.content == "e2e-fail-once" && m.author == me && !m.failed && !m.pending) {
+                    self.mark("msg_resent");
+                    self.next(200);
+                }
+            }
+            812 => {
+                let Some(id) = list(app).iter().find(|m| m.kind == 0 && m.author == 102).map(|m| m.id) else { return };
+                app.open_report(SYSTEM, id);
+                self.next(800);
+            }
+            813 | 814 | 815 | 817 => {
+                let key = ["report_child0", "report_check0", "report_button", "", "report_button"][(self.step - 813) as usize];
+                let Some(r) = Self::at(ctx, key) else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            816 => {
+                if app.report.as_ref().is_some_and(|r| r.done()) {
+                    self.mark("msg_report_sent");
+                    self.next(300);
+                }
+            }
+            818 => {
+                if app.report.is_none() {
+                    self.mark("msg_report_closed");
+                    self.next(200);
+                }
+            }
+            819 => {
+                app.start_search(SYSTEM, "release".into());
+                self.next(900);
+            }
+            820 => {
+                let Some(r) = Self::at(ctx, "search_sort") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            821 => {
+                let Some(r) = row(ctx, "Oldest") else { return };
+                self.click(r.center());
+                self.next(800);
+            }
+            822 => {
+                if app.search.as_ref().is_some_and(|s| s.sort == 1 && s.results.is_some()) {
+                    self.mark("msg_search_sort");
+                    self.shot(ctx, "msg_search_sort.png");
+                    app.search = None;
+                    self.next(200);
+                }
+            }
+            823 => {
+                app.toggle_inbox();
+                self.next(900);
+            }
+            824 => {
+                let Some(r) = app.rects.get("inbox:filter").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            825 => {
+                let Some(r) = row(ctx, "Show Role Mentions") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            826 => {
+                if app.settings.inbox_roles {
+                    return;
+                }
+                self.mark("msg_inbox_filter");
+                app.settings.inbox_roles = true;
+                let Some(r) = app.rects.get("inbox:friends").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            827 => {
+                if app.inbox.as_ref().is_some_and(|i| i.friends) {
+                    self.mark("msg_inbox_friends");
+                    self.shot(ctx, "msg_inbox_friends.png");
+                    app.inbox = None;
+                    self.next(200);
+                }
+            }
+            828 => {
+                app.configure_joins(guild);
+                if app.server.as_ref().is_some_and(|s| matches!(s.page, super::server::Page::Engagement)) {
+                    self.mark("msg_configure");
+                }
+                app.server = None;
+                self.step = 1300;
+            }
+            _ => self.step = 1300,
+        }
+    }
+
+    /// Threads in split view and their menu, events managed, following an announcement channel and
+    /// the quests hub, each against the mock's own server (1001 is ours).
+    fn item_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let click_at = |this: &mut Self, key: &str| -> bool {
+            let Some(r) = Self::at(ctx, key) else { return false };
+            this.click(r.center());
+            true
+        };
+        match self.step {
+            1300 => {
+                if app.conn != Conn::Online || app.store.guilds.is_empty() {
+                    return;
+                }
+                app.select_guild(Some(1001));
+                app.open(2100);
+                self.next(700);
+            }
+            // shift on a channel-list thread opens it beside its parent, with who is in it
+            1301 => {
+                if !app.store.channels.contains_key(&2160) {
+                    return;
+                }
+                app.open_thread(2160, true, true);
+                self.next(700);
+            }
+            1302 => {
+                let loaded = app.store.msgs.get(&2160).is_some_and(|e| !e.list.is_empty());
+                if app.side_thread != Some(2160) || !loaded || app.store.thread_members.get(&2160).is_none_or(|l| l.len() != 3) {
+                    return;
+                }
+                self.mark("thread_split");
+                self.mark("thread_members");
+                self.shot(ctx, "thread_split.png");
+                if click_at(self, "side_thread:more") {
+                    self.next(400);
+                }
+            }
+            1303 => {
+                if click_at(self, "thread_menu:Join Thread") {
+                    self.next(600);
+                }
+            }
+            1304 => {
+                if !app.store.channels.get(&2160).is_some_and(|c| c.joined) {
+                    return;
+                }
+                self.mark("thread_join");
+                if click_at(self, "side_thread:more") {
+                    self.next(400);
+                }
+            }
+            1305 => {
+                if click_at(self, "thread_menu:Close Thread") {
+                    self.next(600);
+                }
+            }
+            1306 => {
+                if !app.store.channels.get(&2160).is_some_and(|c| c.archived) {
+                    return;
+                }
+                self.mark("thread_close");
+                if click_at(self, "side_thread:more") {
+                    self.next(400);
+                }
+            }
+            1307 => {
+                if click_at(self, "thread_menu:Lock Thread") {
+                    self.next(600);
+                }
+            }
+            1308 => {
+                if !app.store.channels.get(&2160).is_some_and(|c| c.locked) {
+                    return;
+                }
+                self.mark("thread_lock");
+                app.side_thread = None;
+                app.open_events(1001);
+                self.next(700);
+            }
+            // the Events window of a server we run: both events, a card's details with who's interested
+            1309 => {
+                if app.events.as_ref().is_none_or(|e| e.list.as_ref().is_none_or(|l| l.len() != 2)) {
+                    return;
+                }
+                self.shot(ctx, "events_manage.png");
+                let Some(r) = Self::at(ctx, "event_card:6200") else { return };
+                self.click(r.min + vec2(120.0, 24.0));
+                self.next(700);
+            }
+            1310 => {
+                let users = app.events.as_ref().and_then(|e| e.users.get(&6200)).is_some_and(|u| u.as_ref().is_some_and(|l| l.len() == 2));
+                if app.events.as_ref().is_none_or(|e| e.detail != Some(6200)) || !users {
+                    return;
+                }
+                self.mark("event_detail");
+                self.shot(ctx, "event_detail.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            1311 => {
+                if app.events.as_ref().is_some_and(|e| e.detail.is_some()) {
+                    return;
+                }
+                if click_at(self, "event_more:6201") {
+                    self.next(400);
+                }
+            }
+            1312 => {
+                if click_at(self, "event_menu:Start Event") {
+                    self.next(500);
+                }
+            }
+            1313 => {
+                if app.confirm.as_ref().is_some_and(|c| c.title == "Start Event") {
+                    self.key(Key::Enter);
+                    self.next(700);
+                }
+            }
+            1314 => {
+                if app.confirm.is_some() {
+                    return;
+                }
+                self.mark("event_start");
+                if click_at(self, "event_more:6200") {
+                    self.next(400);
+                }
+            }
+            1315 => {
+                if click_at(self, "event_menu:Cancel Event") {
+                    self.next(500);
+                }
+            }
+            1316 => {
+                if app.confirm.as_ref().is_some_and(|c| c.title == "Cancel Event?") {
+                    self.key(Key::Enter);
+                    self.next(900);
+                }
+            }
+            1317 => {
+                if app.confirm.is_some() || app.events.as_ref().is_none_or(|e| e.list.as_ref().is_none_or(|l| l.len() != 1)) {
+                    return;
+                }
+                self.mark("event_cancel");
+                if click_at(self, "event_more:6201") {
+                    self.next(400);
+                }
+            }
+            // Edit Event fills the wizard from the event
+            1318 => {
+                if click_at(self, "event_menu:Edit Event") {
+                    self.next(500);
+                }
+            }
+            1319 => {
+                if app.create.as_ref().is_some_and(|f| f.edit == Some(6201) && f.name == "Map review" && !f.voice && f.location == "the community hall") {
+                    self.mark("event_edit");
+                    self.shot(ctx, "event_edit.png");
+                    app.create = None;
+                    self.next(300);
+                }
+            }
+            // the Events row's menu mutes new events
+            1320 => {
+                let Some(r) = Self::at(ctx, "home_row:Events") else { return };
+                self.rclick(r.center());
+                self.next(400);
+            }
+            1321 => {
+                if click_at(self, "events_menu:mute") {
+                    self.next(600);
+                }
+            }
+            1322 => {
+                if !app.store.events_muted.contains(&1001) {
+                    return;
+                }
+                self.mark("events_mute");
+                app.select_guild(Some(1000));
+                app.open(2002);
+                self.next(700);
+            }
+            // an announcement channel: Follow in its header opens the dialog; Follow sends it
+            1323 => {
+                if app.cur() != Some(2002) {
+                    return;
+                }
+                let Some(r) = app.rects.get("follow").copied() else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            1324 => {
+                let Some(f) = &mut app.follow else { return };
+                f.guild = Some(1001);
+                f.target = Some(2100);
+                self.next(300);
+            }
+            1325 => {
+                self.shot(ctx, "follow.png");
+                if click_at(self, "follow:Follow") {
+                    self.next(700);
+                }
+            }
+            1326 => {
+                if app.follow.is_some() {
+                    return;
+                }
+                self.mark("follow");
+                app.publish_msg(2002, 1);
+                self.next(400);
+            }
+            // the quests hub: accept one, claim the finished one
+            1327 => {
+                app.open_quests();
+                self.next(800);
+            }
+            1328 => {
+                let Some(q) = &app.quests else { return };
+                if q.offered.as_ref().is_none_or(|l| l.len() != 3) || q.orbs != Some(1500) {
+                    return;
+                }
+                self.mark("quests");
+                self.shot(ctx, "quests.png");
+                self.queue.push_back(vec![Event::PointerMoved(egui::pos2(800.0, 500.0))]);
+                self.queue.push_back(vec![Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -600.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Modifiers::NONE,
+                }]);
+                self.next(900);
+            }
+            1329 => {
+                if click_at(self, "quest:Accept Quest") {
+                    self.next(900);
+                }
+            }
+            1330 => {
+                let enrolled = app.quests.as_ref().and_then(|q| q.offered.as_ref()).is_some_and(|l| l.iter().any(|q| q["id"] == "9002" && q["user_status"]["enrolled_at"].is_string()));
+                if !enrolled {
+                    return;
+                }
+                self.mark("quest_accept");
+                if click_at(self, "quest:Claim Reward") {
+                    self.next(900);
+                }
+            }
+            1331 => {
+                let Some(q) = &app.quests else { return };
+                if q.claimed.as_ref().is_none_or(|l| l.len() != 1) || q.orbs != Some(2340) {
+                    return;
+                }
+                self.mark("quest_claim");
+                app.quests = None;
+                self.step = 1400;
+            }
+            _ => self.step = 1400,
+        }
+    }
+
+    /// The wheel and the paging keys move the chat as far as Chromium would.
+    fn scroll_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let general = self.target.1;
+        let offset = |app: &App| app.offsets.get(&general).copied().unwrap_or(0.0);
+        match self.step {
+            1400 => {
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(1200);
+            }
+            1401 => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                self.click(c.center());
+                self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, c.top() - 200.0))]);
+                self.next(500);
+            }
+            // up and back once first, so the rows it crosses are measured and no height fix shifts the second pass
+            1402 | 1403 | 1404 => {
+                let dy = if self.step == 1403 { -1.0 } else { 1.0 };
+                if self.step == 1404 {
+                    self.y0 = offset(app);
+                }
+                self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                self.next(700);
+            }
+            1405 => {
+                let want = super::wheel::notch(ctx.zoom_factor(), ctx.content_rect().height());
+                if (self.y0 - offset(app) - want).abs() < 2.0 {
+                    self.mark("feel_wheel_notch");
+                }
+                self.y0 = offset(app);
+                self.key(Key::PageUp);
+                self.next(700);
+            }
+            _ => {
+                let Some(c) = app.rects.get("composer").copied() else { return };
+                let moved = self.y0 - offset(app);
+                if moved > c.top() * 0.5 && moved < c.top() {
+                    self.mark("feel_page_key");
+                }
+                self.step = 1700;
+            }
+        }
+    }
+
+    /// Voice & Video: the mic test, input profiles, settings reaching the engine, a switch and
+    /// a sound toggle clicked, and what goes to the account.
+    fn voice_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::cache::{InputProfile, Noise};
+        use crate::ui::settings::Page;
+        use std::sync::atomic::Ordering::Relaxed;
+        let sh = app.voice.shared.clone();
+        let late = self.step_at.elapsed() > Duration::from_secs(3);
+        let goto = |ctx: &egui::Context, name: &str| ctx.data_mut(|d| d.insert_temp(egui::Id::new("settings_goto"), name.to_string()));
+        match self.step {
+            2400 => {
+                app.settings_page = Some(Page::Voice);
+                self.next(900);
+            }
+            2401 => {
+                let Some(r) = Self::at(ctx, "mic_test") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            2402 => {
+                if crate::voice::probe::testing() {
+                    self.mark("voice_test_on");
+                }
+                let Some(r) = Self::at(ctx, "mic_test") else { return };
+                self.click(r.center());
+                self.next(600);
+            }
+            2403 => {
+                if !crate::voice::probe::testing() {
+                    self.mark("voice_test_off");
+                }
+                app.settings.input_profile = InputProfile::Studio;
+                app.save_settings(ctx);
+                self.next(300);
+            }
+            2404 => {
+                if sh.open_mic.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 0 {
+                    self.mark("voice_studio");
+                }
+                app.settings.input_profile = InputProfile::Custom;
+                app.save_settings(ctx);
+                self.next(300);
+            }
+            2405 => {
+                if !sh.open_mic.load(Relaxed) && sh.echo.load(Relaxed) {
+                    self.mark("voice_custom");
+                }
+                let gen_before = sh.dev_gen.load(Relaxed);
+                app.settings.attenuation = 40;
+                app.settings.atten_self = true;
+                app.settings.agc = false;
+                app.settings.echo_cancel = false;
+                app.settings.noise = Noise::Standard;
+                app.settings.mic = Some("e2e microphone".into());
+                app.save_settings(ctx);
+                let applied = sh.atten.load(Relaxed) == 40 && sh.atten_self.load(Relaxed) && !sh.agc.load(Relaxed) && !sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 2;
+                if applied {
+                    self.mark("voice_engine_flags");
+                }
+                if sh.dev_gen.load(Relaxed) != gen_before {
+                    self.mark("voice_device_live");
+                }
+                app.settings.reset_voice();
+                app.save_settings(ctx);
+                if app.settings.mic.is_none() && sh.atten.load(Relaxed) == 0 && sh.agc.load(Relaxed) && sh.echo.load(Relaxed) && sh.noise.load(Relaxed) == 1 {
+                    self.mark("voice_reset");
+                }
+                goto(ctx, "Streaming");
+                self.next(800);
+            }
+            2406 => {
+                match Self::at(ctx, "toggle:Show Stream Previews") {
+                    Some(r) => self.click(r.center()),
+                    None if !late => return,
+                    None => {}
+                }
+                self.next(800);
+            }
+            2407 => {
+                if !app.settings.stream_previews {
+                    self.mark("voice_previews_off");
+                }
+                goto(ctx, "Sounds");
+                self.next(800);
+            }
+            2408 => {
+                match Self::at(ctx, "sound:mute") {
+                    Some(r) => self.click(r.center()),
+                    None if !late => return,
+                    None => {}
+                }
+                self.next(500);
+            }
+            2409 => {
+                if app.settings.muted_sounds.iter().any(|m| m == "mute") {
+                    self.mark("voice_sound_off");
+                }
+                app.settings.stream_previews = true;
+                app.settings.muted_sounds.clear();
+                app.save_settings(ctx);
+                app.settings_page = None;
+                self.step = 2500;
+            }
+            _ => self.step = 99,
+        }
+    }
+
+    /// The person menu from a voice row, a friend row and a dm row, a user's volume reaching the
+    /// mixer, Pin through the menu, switching accounts and the custom status.
+    fn person_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        use crate::ui::usermenu::Origin;
+        let row = |ctx: &egui::Context, label: &str| Self::at(ctx, &format!("menu_row:{label}"));
+        let at = egui::pos2(400.0, 200.0);
+        const VOICE: [&str; 8] = ["Profile", "Start a Call", "User Volume", "Mute", "Mute Soundboard", "Invite to Server", "Ignore", "Block"];
+        const FRIEND: [&str; 5] = ["Profile", "Message", "Start a Call", "Add Friend Nickname", "Remove Friend"];
+        const DM: [&str; 6] = ["Mark As Read", "Pin", "Profile", "Close DM", "Ignore", "Block"];
+        match self.step {
+            2500 => {
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
+                app.open(self.target.1);
+                self.next(800);
+            }
+            2501 => {
+                // the only server we can invite from is ours, and the activity steps met Alice there
+                if let Some(den) = app.store.members.get_mut(&1008) {
+                    den.remove(&101);
+                }
+                app.user_menu = Some((101, self.target.0, None, at));
+                app.menu_from = Origin::Voice(2021);
+                self.next(600);
+            }
+            2502 => {
+                if let Some(l) = VOICE.into_iter().find(|l| row(ctx, l).is_none()) {
+                    return self.fail(format!("a voice user's menu has no {l}"));
+                }
+                self.shot(ctx, "menu_voice_user.png");
+                self.next(300);
+            }
+            2503 => {
+                app.set_peer(101, crate::cache::Peer { volume: 70.0, ..Default::default() }, false);
+                let gain = app.voice.shared.peers.lock().ok().and_then(|g| g.get(&101).copied());
+                if gain != Some(0.7) {
+                    return self.fail(format!("a user's volume never reached the mixer: {gain:?}"));
+                }
+                app.set_peer(101, Default::default(), false);
+                app.user_menu = None;
+                app.menu_from = Origin::Plain;
+                self.mark("person_menu");
+                self.next(300);
+            }
+            2504 => {
+                app.select_guild(None);
+                app.friends = true;
+                app.user_menu = Some((102, 0, None, at));
+                app.menu_from = Origin::Friends;
+                self.next(600);
+            }
+            2505 => {
+                if let Some(l) = FRIEND.into_iter().find(|l| row(ctx, l).is_none()) {
+                    return self.fail(format!("a friend's menu has no {l}"));
+                }
+                self.shot(ctx, "menu_friend.png");
+                self.next(300);
+            }
+            2506 => {
+                app.user_menu = None;
+                app.menu_from = Origin::Plain;
+                self.mark("friend_menu");
+                let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1)) else { return self.fail("no dm to open the menu on".into()) };
+                self.loaded = dm as usize;
+                app.friends = false;
+                let who = app.store.channels[&dm].recipients[0];
+                app.user_menu = Some((who, 0, Some(dm), at));
+                self.next(600);
+            }
+            2507 => {
+                if let Some(l) = DM.into_iter().find(|l| row(ctx, l).is_none()) {
+                    return self.fail(format!("a dm's menu has no {l}"));
+                }
+                self.shot(ctx, "menu_dm.png");
+                let Some(r) = row(ctx, "Pin") else { return };
+                self.click(r.center());
+                self.next(400);
+            }
+            2508 => {
+                if !app.store.pinned.contains(&(self.loaded as Id)) {
+                    return;
+                }
+                self.mark("pin_dm");
+                app.set_custom_status("mock status", None, 2);
+                crate::cache::remember_account(&crate::cache::SavedAccount { id: 4242, name: "Second".into(), avatar: None }, "mock-token");
+                app.accounts = crate::cache::accounts();
+                app.switch_account(4242);
+                self.next(600);
+            }
+            2509 => {
+                if app.store.me == 0 || app.token.is_none() {
+                    return;
+                }
+                if app.accounts.len() < 2 {
+                    return self.fail("signing in didn't keep the account for Switch Accounts".into());
+                }
+                crate::cache::forget_account(4242);
+                self.mark("accounts");
+                self.next(300);
+            }
+            _ => self.step = 2600,
         }
     }
 
@@ -4127,12 +5837,14 @@ impl Run {
             288 => {
                 // the seeded gradient authors sit above everything the earlier steps sent
                 let seen = |w: u64| app.rects.contains_key(&format!("name:{w}"));
-                if !(seen(103) && seen(105) && seen(106)) && self.tries < 14 {
-                    self.tries += 1;
+                if !(seen(103) && seen(105) && seen(106)) {
+                    if self.step_at.elapsed() > Duration::from_secs(17) {
+                        return self.fail("the seeded gradient authors never scrolled into view".into());
+                    }
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(640.0, 400.0))]);
                     self.queue.push_back(vec![Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Point,
-                        delta: vec2(0.0, 150.0),
+                        delta: vec2(0.0, 250.0),
                         phase: egui::TouchPhase::Move,
                         modifiers: Modifiers::NONE,
                     }]);
@@ -4211,6 +5923,38 @@ impl Run {
                 self.mark("look");
                 self.step = 260;
             }
+        }
+    }
+}
+
+impl Run {
+    /// Discord's sounds: fetched from the mock, decoded, and queued for a play that
+    /// RUSTCORD_SILENT keeps off the speakers. Without ffmpeg the mock has no files to serve, so
+    /// the marks are left off instead of failing the run.
+    fn sound_steps(&mut self) {
+        let late = self.step_at.elapsed() > Duration::from_secs(8);
+        match self.step {
+            2300 => {
+                if crate::cache::dir().join("sounds").join("message1.mp3").exists() || late {
+                    if crate::sound::stats().0 > 0 {
+                        self.mark("sound_fetched");
+                    }
+                    self.rects.insert("sound_queued_before".into(), json!(crate::sound::stats().2));
+                    crate::sound::play("message");
+                    self.next(0);
+                }
+            }
+            2301 => {
+                let (_, decoded, queued) = crate::sound::stats();
+                if decoded > 0 && queued as u64 > self.rects.get("sound_queued_before").and_then(|v| v.as_u64()).unwrap_or(0) {
+                    self.mark("sound_decoded");
+                    self.mark("sound_queued");
+                    self.next(0);
+                } else if late {
+                    self.next(0);
+                }
+            }
+            _ => self.step = 2400,
         }
     }
 }

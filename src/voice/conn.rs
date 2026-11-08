@@ -43,6 +43,7 @@ struct Sess {
     tx: Tx,
     shared: Arc<Shared>,
     udp: Arc<UdpSocket>,
+    qos: Option<super::qos::Qos>,
     ssrc: u32,
     cipher: Option<Cipher>,
     seq_ack: i64,
@@ -108,6 +109,7 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         tx: tx.clone(),
         shared,
         udp: Arc::new(udp),
+        qos: None,
         ssrc: 0,
         cipher: None,
         seq_ack: -1,
@@ -186,6 +188,13 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
 
 impl Sess {
     fn emit(&self, k: Kind) {
+        match &k {
+            Kind::State(s) => super::log::line(&format!("{:?} state {s:?}", self.c.kind)),
+            Kind::Error(e) => super::log::line(&format!("{:?} error {e}", self.c.kind)),
+            Kind::Closed(e) => super::log::line(&format!("{:?} closed {e:?}", self.c.kind)),
+            Kind::Loss(p) => super::log::line(&format!("{:?} loss {p:.1}%", self.c.kind)),
+            _ => {}
+        }
         self.tx.send(net::Ev::Voice(Ev { tag: self.c.tag, kind: k }));
     }
 
@@ -236,6 +245,8 @@ impl Sess {
             return Err("no supported encryption mode".into());
         };
         self.udp.connect((ip.as_str(), port)).await.map_err(|e| e.to_string())?;
+        self.qos = self.shared.qos.load(Relaxed).then(|| super::qos::mark(&self.udp)).flatten();
+        super::log::line(&format!("{:?} ready ssrc {} udp {ip}:{port} mode {mode}", self.c.kind, self.ssrc));
         let (addr, port) = discover(&self.udp, self.ssrc).await?;
         send(&mut ws, &json!({ "op": 1, "d": {
             "protocol": "udp",
@@ -324,7 +335,7 @@ impl Sess {
     ) -> End {
         let udp = self.udp.clone();
         let mut buf = vec![0u8; 2048];
-        let mut next_beat = Instant::now() + beat;
+        let mut next_beat = Instant::now() + Duration::from_secs(1);
         let mut unacked = 0;
         let mut tick = interval(Duration::from_millis(100));
         loop {
@@ -431,6 +442,10 @@ impl Sess {
                 if let Some(t) = d["t"].as_i64().or(d.as_i64()) {
                     self.emit(Kind::Ping((chrono::Utc::now().timestamp_millis() - t).clamp(0, 60_000) as u32));
                 }
+            }
+            18 if self.c.kind == Media::Voice => {
+                crate::clips::set_flags(sid(&d["user_id"]), d["flags"].as_u64().unwrap_or(0) as u32);
+                self.emit(Kind::Clips);
             }
             11 => {
                 for u in d["user_ids"].as_array().into_iter().flatten() {
@@ -571,7 +586,8 @@ impl Sess {
             Out::Voice(opus) => {
                 if !self.talking {
                     self.talking = true;
-                    send(ws, &json!({ "op": 5, "d": { "speaking": 1, "delay": 0, "ssrc": self.ssrc } })).await?;
+                    let flags = 1 | if crate::hotkeys::PRIORITY_HELD.load(Relaxed) { 4 } else { 0 };
+                    send(ws, &json!({ "op": 5, "d": { "speaking": flags, "delay": 0, "ssrc": self.ssrc } })).await?;
                     self.emit(Kind::Speaking(self.c.me, true));
                 }
                 self.shared.voiced.fetch_add(1, Relaxed);
@@ -713,8 +729,13 @@ impl Sess {
             return;
         }
         self.shared.decoded.fetch_add(1, Relaxed);
-        push(&mut i.out, pcm);
+        crate::clips::voice(i.user, pcm);
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
+        let gain = self.shared.peers.lock().ok().and_then(|p| p.get(&i.user).copied()).unwrap_or(1.0);
+        if gain != 1.0 {
+            pcm.iter_mut().for_each(|x| *x *= gain);
+        }
+        push(&mut i.out, pcm);
         if rms > 0.001 {
             i.voice_at = Some(Instant::now());
             if !i.speaking && i.user != 0 && i.user != me {
@@ -801,10 +822,20 @@ impl Sess {
         self.cam = None;
         if let Some((src, q)) = src {
             let (tx, tag, me) = (self.tx.clone(), self.c.tag, self.c.me);
-            let preview = move |img| tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }));
+            let clip = src != Source::Camera;
+            let preview = move |img: std::sync::Arc<egui::ColorImage>| {
+                if clip {
+                    crate::clips::look(&img);
+                }
+                tx.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }))
+            };
             match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
                 Ok(s) => self.cam = Some(s),
-                Err(e) => self.emit(Kind::Error(format!("couldn't start {}: {e}", if src == Source::Camera { "the camera" } else { "screen capture" }))),
+                Err(e) if src == Source::Camera => {
+                    super::log::line(&format!("camera error {e}"));
+                    self.emit(Kind::Error(super::CAMERA_FAILED.into()));
+                }
+                Err(e) => self.emit(Kind::Error(format!("couldn't start screen capture: {e}"))),
             }
         }
         if self.cam.is_none() {

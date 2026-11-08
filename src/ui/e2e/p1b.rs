@@ -1,0 +1,260 @@
+//! The rest of the P1 round: the forum's Post Guidelines card, the DM list's Wave button, Listen
+//! Along on a song in a profile popout and the built-in commands as pills. Steps 4360 and up.
+
+use super::*;
+
+const FORUM: Id = 2030;
+const FRIEND: Id = 102;
+const SINGER: Id = 101;
+
+impl Run {
+    fn wave_dm(app: &App) -> Option<Id> {
+        app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [FRIEND]))
+    }
+
+    pub(super) fn p1b_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        let general = self.target.1;
+        match self.step {
+            4365 => {
+                app.select_guild(Some(self.target.0));
+                app.open(FORUM);
+                self.next(1200);
+            }
+            4366 => {
+                let Some(card) = app.rects.get("forum:guidelines").copied() else { return };
+                let Some(x) = app.rects.get("forum:guidelines_close").copied() else { return };
+                self.mark("forum_guidelines_card");
+                self.rects.insert("forum_guidelines".into(), json!([card.min.x, card.min.y, card.width(), card.height()]));
+                self.shot(ctx, "forum_guidelines.png");
+                self.click(x.center());
+                self.next(500);
+            }
+            4367 => {
+                if app.rects.contains_key("forum:guidelines") {
+                    return;
+                }
+                self.mark("forum_guidelines_closed");
+                self.shot(ctx, "forum_guidelines_closed.png");
+                self.next(300);
+                self.step = 4393;
+            }
+            4370 => {
+                app.select_guild(None);
+                app.friends = true;
+                self.next(900);
+            }
+            4371 => {
+                let Some(dm) = Self::wave_dm(app) else { return };
+                let Some(b) = Self::at(ctx, &format!("dm_wave:{dm}")) else { return };
+                if Self::at(ctx, "dm_wave:3000").is_none() {
+                    self.mark("wave_only_new_dm");
+                }
+                self.shot(ctx, "wave_button.png");
+                self.queue.push_back(vec![Event::PointerMoved(b.center() + vec2(1.0, 0.0))]);
+                self.queue.push_back(vec![Event::PointerMoved(b.center())]);
+                self.next(1100);
+            }
+            4372 => {
+                let Some(dm) = Self::wave_dm(app) else { return };
+                let Some(b) = Self::at(ctx, &format!("dm_wave:{dm}")) else { return };
+                if Self::tooltip_near(ctx, b) {
+                    self.mark("wave_tooltip");
+                }
+                self.shot(ctx, "wave_tooltip.png");
+                self.click(b.center());
+                self.next(900);
+            }
+            4373 => {
+                let Some(dm) = Self::wave_dm(app) else { return };
+                if app.cur() != Some(dm) || app.store.channels.get(&dm).is_none_or(|c| c.last_msg == 0) {
+                    return;
+                }
+                self.mark("wave_sent");
+                self.shot(ctx, "wave_sent.png");
+                self.next(400);
+                self.step = 4375;
+            }
+            4375 => {
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                self.next(2500);
+            }
+            4376 => {
+                let now = chrono::Utc::now().timestamp_millis();
+                app.store.apply("PRESENCE_UPDATE", &json!({ "user": { "id": SINGER.to_string() }, "status": "online", "activities": [
+                    { "type": 2, "name": "Spotify", "details": "Farewell", "state": "marQ", "sync_id": "abc", "timestamps": { "start": now - 99000, "end": now + 14000 }, "assets": { "large_image": "spotify:xyz" } },
+                ] }));
+                app.open_profile(SINGER, self.target.0, pos2(300.0, 160.0));
+                self.next(1200);
+            }
+            4377 => {
+                if app.profiles.get(&SINGER).is_none_or(|p| p.is_null()) {
+                    return;
+                }
+                let Some(b) = Self::at(ctx, "spotify:listen") else {
+                    if self.step_at.elapsed() > Duration::from_secs(10) {
+                        let acts = app.store.activities.get(&SINGER).map(|a| a.iter().map(|a| (a.kind, a.name.clone())).collect::<Vec<_>>());
+                        self.fail(format!("no Listen Along button in the popout: activities={acts:?}"));
+                    }
+                    return;
+                };
+                self.shot(ctx, "listen_along_popout.png");
+                self.loaded = self.opened.len();
+                self.queue.push_back(vec![Event::PointerMoved(b.center() + vec2(1.0, 0.0))]);
+                self.queue.push_back(vec![Event::PointerMoved(b.center())]);
+                self.next(1100);
+            }
+            4378 => {
+                let Some(b) = Self::at(ctx, "spotify:listen") else { return };
+                if Self::said(ctx, "listen_tip").is_some_and(|t| t.starts_with("Listen along with ")) && Self::tooltip_near(ctx, b) {
+                    self.mark("listen_along_tip");
+                }
+                self.shot(ctx, "listen_along_tip.png");
+                self.click(b.center());
+                self.next(600);
+            }
+            4379 => {
+                if self.opened.len() > self.loaded {
+                    self.mark("listen_along_click");
+                }
+                self.key(Key::Escape);
+                self.next(400);
+                self.step = 4380;
+            }
+            4380 => {
+                app.side_thread = None;
+                app.open(general);
+                self.next(700);
+            }
+            4381 => {
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("/shrug".into())]);
+                self.next(600);
+            }
+            4382 => {
+                if !app.ac_open {
+                    return;
+                }
+                self.key(Key::Enter);
+                self.next(600);
+            }
+            4383 => {
+                if !app.slash.get(&general).is_some_and(|s| s.cmd["builtin"] == true) {
+                    return;
+                }
+                self.mark("builtin_pill");
+                self.shot(ctx, "builtin_pill.png");
+                self.queue.push_back(vec![Event::Text("pill hello".into())]);
+                self.key(Key::Enter);
+                self.next(1000);
+            }
+            4384 => {
+                if !app.store.msgs.get(&general).is_some_and(|e| e.list.iter().any(|m| m.content.starts_with("pill hello") && m.content.contains("¯\\_(ツ)_/¯"))) {
+                    return;
+                }
+                self.mark("builtin_pill_sent");
+                self.next(300);
+            }
+            4385 => {
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("/gif".into())]);
+                self.next(600);
+            }
+            4386 => {
+                if !app.ac_open {
+                    return;
+                }
+                self.key(Key::Enter);
+                self.next(500);
+            }
+            4387 => {
+                if !app.slash.get(&general).is_some_and(|s| s.cmd["name"] == "gif") {
+                    return;
+                }
+                self.queue.push_back(vec![Event::Text("cat".into())]);
+                self.key(Key::Enter);
+                self.next(900);
+            }
+            4388 => {
+                if app.gifs.is_none() {
+                    return;
+                }
+                self.mark("builtin_gif_pill");
+                self.shot(ctx, "builtin_gif_pill.png");
+                self.key(Key::Escape);
+                self.next(400);
+            }
+            4393 => {
+                let Some(b) = app.rects.get("forum:new_post").copied() else { return };
+                self.click(b.center());
+                self.next(500);
+            }
+            4394 => {
+                let Some(r) = app.rects.get("forum:post_title").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("Media post".into())]);
+                self.next(300);
+            }
+            4395 => {
+                let Some(r) = app.rects.get("forum:post_body").copied() else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![Event::Text("with a picture".into())]);
+                self.next(400);
+            }
+            4396 => {
+                let Some(m) = app.rects.get("forum:post_media").copied() else { return };
+                self.rects.insert("forum_media".into(), json!([m.min.x, m.min.y, m.width(), m.height()]));
+                self.mark("forum_add_media_button");
+                let path = self.dir.join("forum_media.png");
+                let _ = image::RgbaImage::from_pixel(64, 64, image::Rgba([40, 120, 200, 255])).save(&path);
+                if let Some(p) = app.post.as_mut() {
+                    p.files.push(path);
+                }
+                self.next(300);
+            }
+            4397 => {
+                let (Some(x), Some(send)) = (app.rects.get("forum:post_file_x:0").copied(), app.rects.get("forum:post_send").copied()) else { return };
+                self.mark("forum_media_chip");
+                self.shot(ctx, "forum_media.png");
+                let _ = x;
+                self.click(send.center());
+                self.next(1500);
+            }
+            4398 => {
+                if app.post.is_some() || !app.store.channels.values().any(|c| c.name == "Media post") {
+                    return;
+                }
+                self.mark("forum_media_posted");
+                self.next(300);
+                self.step = 4370;
+            }
+            4389 => self.step = 4390,
+            4390 => {
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": "2021", "self_stream": true }));
+                app.select_guild(None);
+                app.friends = true;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1600.0, 900.0)));
+                self.next(1300);
+            }
+            4391 => {
+                let Some(shot) = Self::at(ctx, "now_stream:103") else { return };
+                if Self::said(ctx, "now_stream:103").as_deref() == Some("Sharing their screen") {
+                    self.mark("sharing_their_screen");
+                }
+                self.rects.insert("now_stream".into(), json!([shot.min.x, shot.min.y, shot.width(), shot.height()]));
+                self.shot(ctx, "active_now_stream.png");
+                self.next(400);
+            }
+            4392 => {
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
+                app.store.apply("VOICE_STATE_UPDATE", &json!({ "guild_id": self.target.0.to_string(), "user_id": "103", "channel_id": null }));
+                self.next(600);
+                self.step = 4400;
+            }
+            _ => self.step = 4400,
+        }
+    }
+}

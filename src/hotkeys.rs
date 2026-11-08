@@ -13,14 +13,27 @@ static POLLER: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::n
 /// Held while any push-to-talk bind is down. The mic thread reads it directly
 /// so talking doesn't wait for a UI frame.
 pub static PTT_HELD: AtomicBool = AtomicBool::new(false);
+/// Held while push to mute or a priority bind is down: the mic stays shut, or speaks over the room.
+pub static MUTE_HELD: AtomicBool = AtomicBool::new(false);
+pub static PRIORITY_HELD: AtomicBool = AtomicBool::new(false);
+// the keybinds page is open: discord stops the binds while you pick one
+static PAUSED: AtomicBool = AtomicBool::new(false);
+
+pub fn pause(on: bool) {
+    PAUSED.store(on, Ordering::Relaxed);
+}
 
 fn down(vk: u32) -> bool {
     unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
 }
 
+pub fn watching() -> bool {
+    BINDS.lock().is_ok_and(|b| !b.is_empty())
+}
+
 pub fn set(binds: &[(String, Vec<u32>)]) {
     if let Ok(mut b) = BINDS.lock() {
-        *b = binds.iter().filter(|(_, k)| !k.is_empty()).cloned().collect();
+        *b = binds.iter().filter(|(a, k)| !k.is_empty() && !a.starts_with('!')).cloned().collect();
     }
     if let Some(t) = POLLER.get() {
         t.unpark();
@@ -37,6 +50,8 @@ pub fn start(ctx: egui::Context, tx: Sender<(String, bool)>) {
             loop {
                 if BINDS.lock().is_ok_and(|b| b.is_empty()) {
                     PTT_HELD.store(false, Ordering::Relaxed);
+                    MUTE_HELD.store(false, Ordering::Relaxed);
+                    PRIORITY_HELD.store(false, Ordering::Relaxed);
                     held.clear();
                     std::thread::park();
                     continue;
@@ -44,11 +59,19 @@ pub fn start(ctx: egui::Context, tx: Sender<(String, bool)>) {
                 std::thread::sleep(Duration::from_millis(10));
                 let Ok(binds) = BINDS.lock() else { continue };
                 held.resize(binds.len(), false);
-                let mut ptt = false;
+                let (mut ptt, mut mute, mut priority) = (false, false, false);
+                let paused = PAUSED.load(Ordering::Relaxed);
                 for (i, (action, keys)) in binds.iter().enumerate() {
-                    let now = keys.iter().all(|k| down(*k));
-                    if action == "ptt" {
-                        ptt |= now;
+                    let now = !paused && keys.iter().all(|k| down(*k));
+                    match action.as_str() {
+                        "ptt" => ptt |= now,
+                        "ptt_priority" => {
+                            ptt |= now;
+                            priority |= now;
+                        }
+                        "vad_priority" => priority |= now,
+                        "push_to_mute" => mute |= now,
+                        _ => {}
                     }
                     if now != held[i] {
                         held[i] = now;
@@ -57,6 +80,8 @@ pub fn start(ctx: egui::Context, tx: Sender<(String, bool)>) {
                     }
                 }
                 PTT_HELD.store(ptt, Ordering::Relaxed);
+                MUTE_HELD.store(mute, Ordering::Relaxed);
+                PRIORITY_HELD.store(priority, Ordering::Relaxed);
             }
         })
         .ok();

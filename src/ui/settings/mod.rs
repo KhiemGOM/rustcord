@@ -2,20 +2,68 @@
 //! grouped sidebar on the left that unfolds the open page's sections, the page on the
 //! right, ESC to close.
 
+mod account;
+mod modals;
 mod activity;
 mod app;
+pub use app::backfill;
+mod theme;
+pub mod apps;
+pub mod billing;
+pub mod camera;
+mod clips;
+mod privacy;
+pub use privacy::send;
+mod keybinds;
+mod notify;
+mod search;
+mod system;
+mod testmode;
 mod user;
 mod voice;
+mod wire;
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
 
 use super::App;
+use super::motion;
 use super::icons::{self, Icon};
 use crate::net::Tag;
 use crate::theme::*;
 
+pub use system::combo;
+pub use testmode::banner as test_mode_banner;
+
+/// A request discord may answer with a second-factor challenge, from outside the settings.
+pub fn guarded(app: &mut App, method: &'static str, path: &str, body: Option<serde_json::Value>) {
+    modals::send(app, modals::Done::Toast, method, path, body);
+}
+
+/// `guarded` for a change shown before the answer: a refusal drops `key` from the open server page so it reads again.
+pub fn guarded_or(app: &mut App, key: &'static str, method: &'static str, path: &str, body: Option<serde_json::Value>) {
+    modals::send(app, modals::Done::Stale(key), method, path, body);
+}
+
+pub fn verify(app: &mut App, ctx: &egui::Context) {
+    if app.settings_page.is_none() {
+        modals::verify_modal(app, ctx);
+    }
+}
 pub use user::Forms;
+
+/// Read back what a settings page wrote, for the e2e.
+pub fn proto_flag(app: &App, g: u64, f: u64) -> Option<bool> {
+    wire::flag(&privacy::current(app), g, f)
+}
+
+pub fn proto_num(app: &App, g: u64, f: u64) -> Option<u64> {
+    wire::num(&privacy::current(app), g, f)
+}
+
+pub fn proto_ids(app: &App, g: u64, f: u64) -> usize {
+    wire::ids(&privacy::current(app), g, f).len()
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Page {
@@ -24,6 +72,7 @@ pub enum Page {
     Privacy,
     Messaging,
     Notifications,
+    Clips,
     Nitro,
     Boost,
     Subscriptions,
@@ -51,12 +100,13 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Privacy, "Data & Privacy", Icon::SidePrivacy, &["How Discord Uses My Data", "Profile Privacy"]),
     Item::Page(Page::Messaging, "Messaging Permissions", Icon::SideMessaging, &[]),
     Item::Page(Page::Notifications, "Notifications", Icon::SideBell, &["Overview", "Sounds", "Badges", "Email", "Advanced"]),
+    Item::Page(Page::Clips, "Clips", Icon::Clips, &["Clipping", "Capture Settings", "Storage"]),
     Item::Head("Billing"),
     Item::Page(Page::Nitro, "Nitro", Icon::SideNitro, &[]),
     Item::Page(Page::Boost, "Server Boost", Icon::SideBoost, &[]),
     Item::Page(Page::Subscriptions, "Subscriptions", Icon::SideSubs, &[]),
     Item::Page(Page::Gifts, "Gift Inventory", Icon::SideGift, &["Redeem Codes", "The Gifting Badge", "Gifts I Purchased"]),
-    Item::Page(Page::Billing, "Billing", Icon::SideBilling, &[]),
+    Item::Page(Page::Billing, "Billing", Icon::SideBilling, &["Payment Methods", "Transaction History"]),
     Item::Head("Experience"),
     Item::Page(Page::Voice, "Voice & Video", Icon::SideVoice, &["Voice", "Camera", "Streaming", "Sounds", "Soundboard", "Advanced"]),
     Item::Page(Page::Appearance, "Appearance", Icon::SideAppearance, &["Theme", "App Icon", "Messages", "Chat Box", "Search", "Streamer Mode"]),
@@ -66,7 +116,7 @@ const SIDEBAR: &[Item] = &[
         Icon::SideAccess,
         &["Text Readability", "Visual Density", "Color & Contrast", "Reduced Motion", "Audio & Screen Reader"],
     ),
-    Item::Page(Page::System, "System", Icon::SideSystem, &[]),
+    Item::Page(Page::System, "System", Icon::SideSystem, &["General", "Custom Keybinds", "Default Keybinds"]),
     Item::Page(Page::Language, "Language & Time", Icon::SideLanguage, &[]),
     Item::Head("Games & Apps"),
     Item::Page(Page::Activity, "Activity Privacy", Icon::SideActivity, &["What Activity I Share", "Where I Share Activity", "Who Can Join My Games"]),
@@ -75,6 +125,7 @@ const SIDEBAR: &[Item] = &[
     Item::Page(Page::Developer, "Developer", Icon::SideDev, &[]),
 ];
 
+const SIDE: f32 = 253.0;
 const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
 pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
@@ -94,11 +145,13 @@ fn faint(a: u8) -> Color32 {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let Some(page) = app.settings_page else { return };
+    let Some(mut page) = app.settings_page else { return };
     let ctx = ui.ctx().clone();
-    if app.sform.modal.is_none() && !app.sform.recording() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
-        app.settings_page = None;
-        return;
+    if page == Page::Profiles {
+        let guild = app.sform.profile_guild.take();
+        crate::ui::profed::open(app, guild);
+        page = Page::Account;
+        app.settings_page = Some(page);
     }
     // reopening starts every list at the top, and so does moving to another page
     let now = ctx.cumulative_frame_nr();
@@ -113,27 +166,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let screen = ctx.content_rect();
     let size = vec2((screen.width() - 144.0).min(1400.0), screen.height() - 144.0);
-    let frame = Frame::new().fill(pal().bg_primary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
+    let frame = Frame::new().fill(solid(pal().bg_primary)).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
     let mut changed = false;
     let mut logout = false;
     // sections register themselves as they draw; the sidebar reads last frame's list
     let seen: Vec<(String, f32)> = ctx.data_mut(|d| d.remove_temp(Id::new("settings_secs"))).unwrap_or_default();
     ctx.data_mut(|d| d.insert_temp(Id::new("settings_secs_seen"), seen));
-    egui::Modal::new("settings".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
+    let modal = crate::ui::motion::Modal::new("settings".into()).layer().backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(&ctx, |ui| {
         ui.set_min_size(size - vec2(2.0, 2.0));
         ui.set_max_size(size - vec2(2.0, 2.0));
         let area = ui.max_rect();
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        logout = sidebar(app, ui, Rect::from_min_size(area.min, vec2(253.0, area.height())), page);
-        changed = body(app, ui, Rect::from_min_max(pos2(area.left() + 253.0, area.top()), area.max), page);
+        logout = sidebar(app, ui, Rect::from_min_size(area.min, vec2(SIDE, area.height())), page);
+        changed = body(app, ui, Rect::from_min_max(pos2(area.left() + SIDE, area.top()), area.max), page);
     });
-    user::modal(app, &ctx);
+    modals::modals(app, &ctx);
+    crate::ui::profed::show(app, &ctx);
     if changed {
         app.save_settings(&ctx);
     }
-    if logout {
+    if !app.sform.recording() && modal.should_close() {
         app.settings_page = None;
-        app.logout();
+    }
+    if logout {
+        app.confirm = Some(crate::ui::Confirm::new("Log Out", "Are you sure you want to logout?", "Log Out", |app: &mut App| {
+            app.settings_page = None;
+            app.logout();
+        }));
     }
 }
 
@@ -199,7 +258,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     sep(ui, left);
                     ui.add_space(4.0);
                 }
-                Item::Page(p, name, icon, subs) if q.is_empty() || name.to_lowercase().contains(&q) || subs.iter().any(|s| s.to_lowercase().contains(&q)) => {
+                Item::Page(p, name, icon, subs) if q.is_empty() || name.to_lowercase().contains(&q) || subs.iter().any(|s| s.to_lowercase().contains(&q)) || search::hits(*p, &q) => {
                     let (r, resp) = row(ui, name);
                     if ui.clip_rect().contains_rect(r) {
                         app.rects.insert(format!("settings:{name}"), r);
@@ -207,8 +266,8 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     let on = *p == page;
                     if on {
                         ui.painter().rect_filled(r, CornerRadius::same(8), faint(51));
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(8), faint(20));
+                    } else {
+                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), faint(20), 0.05);
                     }
                     let col = if on { pal().header_primary } else { pal().text_muted };
                     icons::draw(ui.painter(), *icon, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), col);
@@ -218,7 +277,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     }
                     if resp.clicked() && !on {
                         app.settings_page = Some(*p);
-                        app.sform.devices_open = false;
+                        app.sform.sub = account::Sub::None;
                     }
                     if on && !subs.is_empty() {
                         let top = ui.cursor().top();
@@ -261,9 +320,19 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 ui.painter().rect_filled(r, CornerRadius::same(8), faint(20));
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            icons::draw(ui.painter(), Icon::SideLogout, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), LOGOUT);
-            ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, "Log Out", medium(16.0), LOGOUT);
+            icons::draw(ui.painter(), Icon::SideLogout, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), sat(LOGOUT));
+            ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, "Log Out", medium(16.0), sat(LOGOUT));
             logout = resp.clicked();
+            ui.add_space(12.0);
+            let version = format!("Rustcord {}", env!("CARGO_PKG_VERSION"));
+            let (vr, vresp) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::click());
+            ui.painter().text(pos2(vr.left() + 10.0, vr.center().y), Align2::LEFT_CENTER, &version, reg(12.0), pal().text_muted);
+            if vresp.hovered() {
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if vresp.on_hover_text("Click to copy version").clicked() {
+                ctx.copy_text(version);
+            }
             ui.add_space(20.0);
         }
     });
@@ -280,7 +349,7 @@ fn sep(ui: &mut Ui, left: f32) {
 
 fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     let head = Rect::from_min_size(area.min, vec2(area.width(), 49.0));
-    ui.painter().text(pos2(head.left() + 16.0, head.top() + 24.0), Align2::LEFT_CENTER, label(page), medium(16.0), pal().text_normal);
+    account::crumbs(app, ui, head, label(page));
     ui.painter().hline(head.x_range(), head.bottom() - 0.5, Stroke::new(1.0, faint(51)));
     let x = Rect::from_min_size(pos2(head.right() - 40.0, head.top() + 8.0), vec2(32.0, 32.0));
     let resp = ui.interact(x, Id::new("settings_close"), Sense::click());
@@ -294,11 +363,13 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     }
 
     let view = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
+    let cols = super::sidebar_view::column(area.left() - SIDE, area.width() + SIDE, SIDE, super::sidebar_view::Kind::Wide, false);
+    ui.ctx().data_mut(|d| d.insert_temp(Id::new("notice"), cols.notice));
     let mut changed = false;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(view));
-    egui::ScrollArea::vertical().id_salt(("settings_page", app.sform.visit)).auto_shrink([false, false]).show(&mut scroll, |ui| {
+    let out = egui::ScrollArea::vertical().id_salt(("settings_page", app.sform.visit)).auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.add_space(64.0);
-        let col = Rect::from_x_y_ranges(view.center().x - 348.0..=view.center().x + 348.0, ui.cursor().top()..=f32::INFINITY);
+        let col = Rect::from_x_y_ranges(cols.left..=cols.right, ui.cursor().top()..=f32::INFINITY);
         ui.scope_builder(UiBuilder::new().max_rect(col), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             // dropdowns the way discord draws them in settings
@@ -313,29 +384,30 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
             v.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
             ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
             changed = match page {
-                Page::Account => user::account(app, ui),
-                Page::Profiles => user::profiles(app, ui),
-                Page::Privacy => user::privacy(app, ui),
-                Page::Messaging => user::messaging(app, ui),
-                Page::Notifications => app::notifications(app, ui),
-                Page::Nitro => user::nitro(app, ui),
-                Page::Boost => user::boost(ui),
-                Page::Subscriptions => user::subscriptions(app, ui),
-                Page::Gifts => user::gifts(app, ui),
-                Page::Billing => user::billing(app, ui),
+                Page::Account => account::account(app, ui),
+                Page::Profiles => account::account(app, ui),
+                Page::Privacy => privacy::data(app, ui),
+                Page::Messaging => privacy::messaging(app, ui),
+                Page::Notifications => notify::page(app, ui),
+                Page::Clips => clips::page(app, ui),
+                Page::Nitro => billing::nitro(app, ui),
+                Page::Boost => billing::boost(app, ui),
+                Page::Subscriptions => billing::subscriptions(app, ui),
+                Page::Gifts => billing::gifts(app, ui),
+                Page::Billing => billing::billing(app, ui),
                 Page::Voice => voice::page(app, ui),
-                Page::Appearance => app::appearance(app, ui),
+                Page::Appearance => theme::page(app, ui) | app::appearance(app, ui),
                 Page::Accessibility => app::accessibility(app, ui),
-                Page::System => app::system(app, ui),
-                Page::Language => app::language(app, ui),
+                Page::System => system::system(app, ui),
+                Page::Language => system::language(app, ui),
                 Page::Activity => activity::privacy(app, ui),
-                Page::Apps => user::apps(app, ui),
-                Page::Developer => app::developer(app, ui),
+                Page::Apps => apps::page(app, ui),
+                Page::Developer => system::developer(app, ui),
             };
         });
         ui.add_space(96.0);
     });
-    user::save_bar(app, ui, view);
+    crate::ui::e2e::scrolled(ui.ctx(), &out);
     changed
 }
 
@@ -354,8 +426,12 @@ pub fn refetch(app: &mut App, key: &'static str) {
 
 pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
     match key {
-        "modal" => user::modal_done(app, res),
-        "profile_save" | "nick_save" => user::profile_saved(app, key, res),
+        "guard" => modals::guard_done(app, res),
+        "mfa_finish" => modals::finish_done(app, res),
+        "profile_save" => crate::ui::profed::saved(app, res),
+        "widgets_save" => crate::ui::profed::widgets_saved(app, res),
+        "proto_set" => privacy::proto_done(app, res),
+        "conn_auth" => apps::authorize_done(app, res),
         "action" => match res {
             Ok(_) => {}
             Err(e) => app.toast(e),
@@ -370,7 +446,17 @@ pub fn on_remote(app: &mut App, key: &str, res: Result<Value, String>) {
 
 /// Remember where a control is, for the scripted e2e run to click.
 pub fn mark(ui: &Ui, key: &str, r: Rect) {
-    ui.data_mut(|d| d.insert_temp(Id::new(("e2e", key)), r));
+    mark_in(ui.ctx(), key, r);
+}
+
+pub fn mark_in(ctx: &egui::Context, key: &str, r: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(Id::new(("e2e", key)), (r, pass)));
+}
+
+pub fn said(ctx: &egui::Context, key: &str, text: &str) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(Id::new(("e2e_note", key)), (text.to_string(), pass)));
 }
 
 // widgets every page is built from. Each one starts with whatever gap the one above left
@@ -388,6 +474,11 @@ fn end(ui: &Ui, g: f32) {
 /// A page section: the 24px heading, with a rule above it unless it's the first. Its name
 /// is what the sidebar's sub-rows scroll to.
 pub fn section(ui: &mut Ui, title: &str) {
+    section_with(ui, title, None);
+}
+
+/// `section` with a secondary button at the right end of the heading row; true when it's clicked.
+pub fn section_with(ui: &mut Ui, title: &str, button: Option<&str>) -> bool {
     let id = Id::new("settings_secs");
     let first = ui.data(|d| d.get_temp::<Vec<(String, f32)>>(id)).is_none_or(|v| v.is_empty());
     if !first {
@@ -407,7 +498,14 @@ pub fn section(ui: &mut Ui, title: &str) {
         ui.data_mut(|d| d.remove_temp::<String>(Id::new("settings_goto")));
         ui.scroll_to_rect(r.translate(vec2(0.0, -64.0)), Some(Align::TOP));
     }
+    let mut clicked = false;
+    if let Some(text) = button {
+        let row = Rect::from_min_max(pos2(r.left(), r.center().y - 20.0), pos2(ui.max_rect().right(), r.center().y + 20.0));
+        let mut c = ui.new_child(UiBuilder::new().max_rect(row).layout(Layout::right_to_left(Align::Center)));
+        clicked = secondary(&mut c, text).clicked();
+    }
     end(ui, 33.0);
+    clicked
 }
 
 /// A rule inside a section.
@@ -455,15 +553,17 @@ pub fn switch(ui: &mut Ui, on: bool) -> egui::Response {
     resp
 }
 
-fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
-    let t = ui.ctx().animate_bool_with_time(resp.id, on, 0.12);
-    if on {
-        ui.painter().rect_filled(r, CornerRadius::same(12), BLURPLE);
-    } else {
-        ui.painter().rect(r, CornerRadius::same(12), Color32::from_black_alpha(31), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
-    }
+pub(super) fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
+    let t = motion::tween(ui.ctx(), resp.id, on, 0.25, motion::SWITCH);
+    let k = t.clamp(0.0, 1.0);
+    let edge = Stroke::new(1.0, faint(51).gamma_multiply(1.0 - k));
+    ui.painter().rect(r, CornerRadius::same(12), motion::mix(Color32::from_black_alpha(31), pal().blurple, k), edge, egui::StrokeKind::Inside);
     let x = egui::lerp(r.left() + 13.0..=r.right() - 13.0, t);
     ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
+    if view().switch_icons {
+        let glyph = Rect::from_center_size(pos2(x, r.center().y), vec2(12.0, 12.0));
+        icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Close }, glyph, if on { pal().blurple } else { pal().grey });
+    }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -497,19 +597,34 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
     for (v, label, desc) in options {
         lead(ui);
         let on = *value == *v;
-        let h = if desc.is_empty() { 24.0 } else { 43.0 };
+        let text = (!desc.is_empty()).then(|| ui.painter().layout(desc.to_string(), reg(14.0), pal().header_secondary, (ui.available_width() - 32.0).max(0.0)));
+        let h = text.as_ref().map_or(24.0, |g| (25.0 + g.size().y).max(43.0));
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         mark(ui, &format!("radio:{label}"), r);
         let c = pos2(r.left() + 11.0, r.top() + 10.5);
-        if on {
-            ui.painter().circle_filled(c, 11.0, BLURPLE);
-            ui.painter().circle_filled(c, 4.5, Color32::WHITE);
+        let fill_curve = motion::Curve::Bezier(0.33, 0.0, 0.67, 1.0);
+        let (fu, du) = (motion::flip(ui.ctx(), resp.id.with("fill"), on, 0.225, 0.16), motion::flip(ui.ctx(), resp.id.with("dot"), on, 0.333, 0.25));
+        let (fill, dot) = if on {
+            (
+                motion::keys_eased(&[(0.0, 0.0), (0.35, 0.33), (0.4, 1.15), (1.0, 1.0)], fu, fill_curve),
+                motion::keys_eased(&[(0.0, 0.0), (0.4, 1.2), (0.75, 1.0), (1.0, 1.0)], du, motion::Curve::Bezier(0.26, 0.21, 0.67, 1.0)),
+            )
         } else {
-            ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));
+            (
+                if fu < 0.99 { motion::keys_eased(&[(0.0, 1.0), (1.0, 0.0)], fu, fill_curve) } else { 0.0 },
+                motion::keys_eased(&[(0.0, 1.0), (0.4, 1.0), (1.0, 0.0)], du, motion::Curve::Bezier(0.33, 0.0, 0.25, 1.0)),
+            )
+        };
+        ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));
+        if fill > 0.0 {
+            ui.painter().circle_filled(c, 11.0 * fill, pal().blurple);
+        }
+        if dot > 0.0 {
+            ui.painter().circle_filled(c, 4.5 * dot, Color32::WHITE);
         }
         ui.painter().text(pos2(r.left() + 32.0, r.top()), Align2::LEFT_TOP, *label, reg(16.0), pal().text_normal);
-        if !desc.is_empty() {
-            ui.painter().text(pos2(r.left() + 32.0, r.top() + 25.0), Align2::LEFT_TOP, *desc, reg(14.0), pal().header_secondary);
+        if let Some(g) = text {
+            ui.painter().galley(pos2(r.left() + 32.0, r.top() + 25.0), g, pal().header_secondary);
         }
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -535,7 +650,7 @@ pub fn slider(ui: &mut Ui, w: f32, value: &mut f32, lo: f32, hi: f32) -> bool {
     let t = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
     let x = r.left() + 8.0 + t * (w - 16.0);
     ui.painter().rect_filled(rail, CornerRadius::same(2), TRACK);
-    ui.painter().rect_filled(Rect::from_min_max(rail.min, pos2(x, rail.bottom())), CornerRadius::same(2), BLURPLE);
+    ui.painter().rect_filled(Rect::from_min_max(rail.min, pos2(x, rail.bottom())), CornerRadius::same(2), pal().blurple);
     knob(ui, pos2(x, r.center().y));
     if (resp.dragged() || resp.clicked())
         && let Some(p) = resp.interact_pointer_pos()
@@ -561,7 +676,7 @@ pub fn markers(ui: &mut Ui, value: &mut f32, stops: &[f32], label: impl Fn(f32) 
     let rail = Rect::from_min_size(pos2(r.left(), r.top() + 34.0), vec2(w, 4.0));
     let p = ui.painter();
     p.rect_filled(rail, CornerRadius::same(2), TRACK);
-    p.rect_filled(Rect::from_min_max(rail.min, pos2(x_of(stops[at]), rail.bottom())), CornerRadius::same(2), BLURPLE);
+    p.rect_filled(Rect::from_min_max(rail.min, pos2(x_of(stops[at]), rail.bottom())), CornerRadius::same(2), pal().blurple);
     for s in stops {
         let x = x_of(*s);
         let g = p.layout_no_wrap(label(*s), medium(12.0), if (*s - default).abs() < 0.001 { Color32::from_rgb(65, 160, 99) } else { pal().header_secondary });
@@ -596,20 +711,16 @@ pub fn button(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.into(), medium(16.0), Color32::WHITE);
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(100.0), 40.0), Sense::click());
     let (fill, ink, line) = match look {
-        Look::Primary => (BLURPLE, Color32::WHITE, Color32::from_white_alpha(20)),
-        Look::Filled => (RED, Color32::WHITE, Color32::from_white_alpha(20)),
+        Look::Primary => (pal().blurple, Color32::WHITE, Color32::from_white_alpha(20)),
+        Look::Filled => (pal().red, Color32::WHITE, Color32::from_white_alpha(20)),
         Look::Secondary => (faint(31), pal().header_primary, faint(61)),
-        Look::Danger => (faint(31), LOGOUT, faint(61)),
+        Look::Danger => (faint(31), sat(LOGOUT), faint(61)),
     };
-    let fill = if !resp.hovered() {
-        fill
-    } else if matches!(look, Look::Secondary | Look::Danger) {
-        faint(51)
-    } else {
-        fill.gamma_multiply(0.85)
-    };
+    let over = if matches!(look, Look::Secondary | Look::Danger) { faint(51) } else { fill.gamma_multiply(0.85) };
+    let fill = motion::mix(fill, over, motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(16.0), ink);
+    mark(ui, &format!("button:{text}"), r);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -691,7 +802,14 @@ pub fn dropdown(ui: &mut Ui, w: f32, icon: Option<Icon>, shown: &str, menu: impl
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    egui::Popup::menu(&resp).width(w).show(|ui| menu(ui));
+    let id = egui::Popup::default_response_id(&resp);
+    if resp.has_focus() && !egui::Popup::is_id_open(ui.ctx(), id) && ui.input_mut(|i| super::take_key(i, egui::Modifiers::ALT, Key::ArrowDown)) {
+        egui::Popup::open_id(ui.ctx(), id);
+    }
+    let mut rows = Vec::new();
+    egui::Popup::menu(&resp).width(w).show(|ui| rows = super::rows_of(|| menu(ui)));
+    super::select_keys(ui.ctx(), &rows, id);
+    mark(ui, &format!("dropdown:{shown}"), r);
     resp
 }
 
@@ -715,11 +833,11 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 pub fn loading(ui: &mut Ui, r: Option<&Result<Value, String>>) -> Option<Value> {
     match r {
         None => {
-            ui.add(egui::Spinner::new().color(pal().text_muted));
+            crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
             None
         }
         Some(Err(e)) => {
-            ui.label(RichText::new(format!("Couldn't load this from Discord: {e}")).font(reg(14.0)).color(RED));
+            ui.label(RichText::new(format!("Couldn't load this from Discord: {e}")).font(reg(14.0)).color(pal().red));
             None
         }
         Some(Ok(v)) => Some(v.clone()),

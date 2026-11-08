@@ -3,6 +3,8 @@ what each did on screen, and what it asked the mock to do."""
 
 import json
 
+import protowire
+
 
 def body(r):
     try:
@@ -42,4 +44,18 @@ def checks(runs, reqs, data):
         "qol: alt+click starred an emoji in the picker": both("qol_fav_emoji"),
         "qol: ctrl+/ opened the sheet, its arrows lit, and H H right N K played the Raging Demon": both("qol_combos") and both("qol_demon"),
         "qol: Escape well back in the history jumped to the present": both("qol_esc_present"),
+        "feel: one wheel notch moved the chat by Windows' lines setting times 100/3": both("feel_wheel_notch"),
+        "feel: PageUp with the composer focused scrolled the chat most of a screen": both("feel_page_key"),
+        "qol: clicking the dark round any dialog closed it": both("qol_backdrops"),
+        "qol: @time 5pm listed the timestamp styles and Enter wrote the first": both("qol_time_list") and both("qol_time"),
+        "qol: an error toast opened its details on shift+click": both("qol_error_details"),
+        "qol: Enter on Leaving Discord visited the site": both("qol_enter_dialog"),
+        "qol: a select jumped to a row by its letter and Enter picked it": both("qol_select_keys"),
+        "qol: the image cropper took keys and a drag, and Apply handed back a png": both("qol_crop"),
+        "qol: E on an upload card opened Modify Attachment and Save renamed the file": both("qol_modify"),
+        "qol: D on an upload card took it off": both("qol_card_keys"),
+        "qol: the custom status ignored Shift+Enter, saved on Enter and went to discord": both("qol_status_shift_enter") and both("qol_custom_status")
+            and sum(s.get("custom", {}).get("text") == "e2e status" for s in protowire.status_writes(reqs)) == 2,
+        "qol: Select Friends picked two, Backspace took the last off, and Create Group DM made the group": both("qol_newdm_pick") and both("qol_newdm_backspace")
+            and both("qol_group_dm") and sum(len(body(r).get("recipients", [])) == 2 for r in sent("POST", "/users/@me/channels")) == 2,
     }

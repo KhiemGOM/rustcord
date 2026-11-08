@@ -4,7 +4,7 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::io::Cursor;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct Current {
@@ -16,6 +16,12 @@ struct Current {
 }
 
 static CUR: Mutex<Option<Current>> = Mutex::new(None);
+static SOUNDBOARD: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+/// How loud soundboard clips play, 0.0..=1.0 (voice messages stay at full).
+pub fn set_soundboard_volume(v: f32) {
+    SOUNDBOARD.store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+}
 
 /// If `key` is the clip playing, pause/resume it and return false. Otherwise stop whatever's
 /// playing and return true — the caller should fetch the bytes and hand them to `play_bytes`.
@@ -30,6 +36,12 @@ pub fn toggle(key: &str) -> bool {
         c.stop.store(true, Ordering::Relaxed);
     }
     true
+}
+
+pub fn stop() {
+    if let Some(c) = CUR.lock().unwrap().take() {
+        c.stop.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Decode and play the fetched bytes for `key`.
@@ -74,6 +86,7 @@ fn spawn(key: String, bytes: Vec<u8>) {
             *cur = Some(Current { key: key.clone(), pos: pos.clone(), len, paused: paused.clone(), stop: stop.clone() });
         }
         let (p, at, pause) = (pcm.clone(), pos.clone(), paused.clone());
+        let board = key.contains("/soundboard-sounds/");
         let stream = dev.build_output_stream::<f32, _, _>(
             conf,
             move |data, _| {
@@ -83,7 +96,8 @@ fn spawn(key: String, bytes: Vec<u8>) {
                 }
                 for s in data.iter_mut() {
                     let i = at.fetch_add(1, Ordering::Relaxed);
-                    *s = p.get(i).copied().unwrap_or(0.0);
+                    let gain = if board { f32::from_bits(SOUNDBOARD.load(Ordering::Relaxed)) } else { 1.0 };
+                    *s = p.get(i).copied().unwrap_or(0.0) * gain;
                 }
             },
             |_| {},
@@ -136,7 +150,7 @@ fn decode(bytes: &[u8]) -> Option<(Vec<f32>, usize)> {
 }
 
 /// Linear resample + channel map from the decoded clip to the device's format.
-fn resample(src: &[f32], in_ch: usize, in_rate: usize, out_rate: usize, out_ch: usize) -> Vec<f32> {
+pub(crate) fn resample(src: &[f32], in_ch: usize, in_rate: usize, out_rate: usize, out_ch: usize) -> Vec<f32> {
     let frames = src.len() / in_ch;
     if frames == 0 {
         return Vec::new();

@@ -15,7 +15,7 @@ pub struct Auto {
 }
 
 // how far the pointer can stray from the anchor before anything moves
-const DEAD: f32 = 12.0;
+const DEAD: f32 = 15.0;
 
 /// Runs on the raw input before egui sees it. While scrolling, egui is told the pointer stays at
 /// the anchor, so the pane it started in keeps getting the scroll wherever the cursor wanders.
@@ -60,10 +60,9 @@ pub fn filter(st: &mut Option<Auto>, raw: &mut egui::RawInput) {
         let dt = (now - a.tick).as_secs_f32().min(0.1);
         a.tick = now;
         let dy = a.at.y - a.anchor.y;
-        let past = dy.abs() - DEAD;
-        if past > 0.0 {
-            // points a second, a little steeper than linear so a long reach really goes
-            let speed = past * 6.0 + past * past * 0.04;
+        if dy.abs() > DEAD {
+            // chromium's autoscroll: 8e-6 * distance^2.2 px a millisecond
+            let speed = dy.abs().powf(2.2) * 0.008;
             out.push(Event::MouseWheel { unit: MouseWheelUnit::Point, delta: vec2(0.0, -dy.signum() * speed * dt), phase: TouchPhase::Move, modifiers: egui::Modifiers::NONE });
         }
     }

@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src __ORIGIN__">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style>
+<body>
+<script id="cfg" type="application/json">__CFG__</script>
+<script>
+const cfg = JSON.parse(document.getElementById('cfg').textContent);
+const f = document.createElement('iframe');
+f.allow = 'autoplay; fullscreen';
+f.scrolling = 'no';
+f.referrerPolicy = 'origin';
+f.setAttribute('sandbox', 'allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts');
+f.src = cfg.src;
+document.body.append(f);
+</script>

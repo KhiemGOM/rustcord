@@ -1,116 +1,154 @@
-use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
-use super::{Look, action, button, caption, divider, dropdown, markers, note, primary, radio, section, sub, toggle};
-use crate::cache::{RoleColors, Spoilers};
+use super::privacy::write;
+use super::wire::Patch;
+use super::{Page, caption, dropdown, markers, radio, section, sub, toggle};
+use crate::cache::{Animate, Density, RoleColors, Settings, Spoilers, VideoBg};
 use crate::theme::*;
 use crate::ui::App;
+use crate::ui::icons::{self, Icon};
 
 pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
     let mut changed = false;
-    section(ui, "Theme");
-    let mut sync = app.settings.theme == Theme::Sync;
-    if toggle(ui, &mut sync, "Same as Device Theme", "Match your device's light or dark mode.") {
-        app.settings.theme = if sync { Theme::Sync } else { Theme::Dark };
-        set_theme(ui.ctx(), app.settings.theme);
-        changed = true;
-    }
-    super::end(ui, 32.0);
-    sub(ui, "Default Themes");
-    let themes = [
-        (Theme::Light, "Light", Color32::WHITE),
-        (Theme::Ash, "Ash", Color32::from_rgb(50, 51, 57)),
-        (Theme::Dark, "Dark", Color32::from_rgb(29, 29, 33)),
-        (Theme::Onyx, "Onyx", Color32::BLACK),
-        (Theme::Sync, "Sync with computer", Color32::WHITE),
-    ];
-    super::lead(ui);
-    let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
-    for (i, (t, name, fill)) in themes.into_iter().enumerate() {
-        let r = Rect::from_min_size(strip.min + vec2(56.0 * i as f32, 0.0), vec2(48.0, 48.0));
-        let resp = ui.interact(r, egui::Id::new(("theme", name)), Sense::click());
-        let on = app.settings.theme == t;
-        ui.painter().rect_filled(r, CornerRadius::same(8), fill);
-        if t == Theme::Sync {
-            let half = Rect::from_min_max(pos2(r.center().x, r.top()), r.max);
-            ui.painter().rect_filled(half, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, Color32::from_rgb(29, 29, 33));
-        }
-        let ring = if on { BLURPLE } else if resp.hovered() { pal().bg_accent } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
-        ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
-        if on {
-            let tick = pos2(r.right() - 3.0, r.top() + 3.0);
-            ui.painter().circle_filled(tick, 8.0, BLURPLE);
-            crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Check, Rect::from_center_size(tick, vec2(10.0, 10.0)), Color32::WHITE);
-        }
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        app.rects.insert(format!("theme:{name}"), r);
-        if resp.clicked() && !on {
-            app.settings.theme = t;
-            set_theme(ui.ctx(), t);
-            changed = true;
-        }
-    }
-
-    section(ui, "App Icon");
-    note(ui, "Rustcord ships with a single icon.");
-
     section(ui, "Messages");
-    caption(ui, "Message Display", "");
-    super::end(ui, 15.0);
-    let mut compact = app.settings.compact;
-    if radio(ui, &mut compact, &[(false, "Cozy", "Modern, beautiful, and easy on your eyes."), (true, "Compact", "Fit more messages on screen at one time. #IRC")]) {
-        app.settings.compact = compact;
-        app.heights.clear();
-        changed = true;
-    }
-    if app.settings.compact {
-        changed |= toggle(ui, &mut app.settings.compact_avatars, "Show avatars in Compact mode", "");
-    }
-    let s = &mut app.settings;
-    sub(ui, "Display images, videos, and lolcats");
-    let mut chat = toggle(ui, &mut s.inline_links, "When posted as links to chat", "");
-    chat |= toggle(ui, &mut s.inline_uploads, "When uploaded directly to Discord", "Uploads larger than 10MB will not be previewed.");
-    sub(ui, "Embeds and link previews");
-    chat |= toggle(ui, &mut s.embeds, "Show embeds and preview website links pasted into chat", "");
-    sub(ui, "Emoji");
-    chat |= toggle(ui, &mut s.reactions, "Show emoji reactions on messages", "");
+    sub(ui, "Show images, videos, and lolcats...");
+    let mut chat = synced(app, ui, "When posted as links to chat", "", |s| &mut s.inline_links, 10);
+    chat |= synced(app, ui, "When uploaded directly to Discord", "Uploads larger than 10MB will not be previewed.", |s| &mut s.inline_uploads, 9);
+    chat |= synced(app, ui, "Show embeds and link previews", "", |s| &mut s.embeds, 12);
+    chat |= synced(app, ui, "Show emoji reactions", "", |s| &mut s.reactions, 13);
     changed |= quick_reactions(app, ui);
     let s = &mut app.settings;
-    sub(ui, "Spoiler content");
-    note(ui, "This controls when spoiler content is displayed.");
-    chat |= radio(
-        ui,
-        &mut s.spoilers,
-        &[(Spoilers::OnClick, "On click", ""), (Spoilers::Moderated, "On servers I moderate", ""), (Spoilers::Always, "Always", "")],
-    );
+    let shown = match s.spoilers {
+        Spoilers::OnClick => "On click",
+        Spoilers::Moderated => "On servers I moderate",
+        Spoilers::Always => "Always",
+    };
+    let mut spoilers = s.spoilers;
+    if choice(ui, "Show spoiler content", shown, |ui| {
+        for (v, name) in [(Spoilers::OnClick, "On click"), (Spoilers::Moderated, "On servers I moderate"), (Spoilers::Always, "Always")] {
+            if ui.selectable_label(spoilers == v, name).clicked() {
+                spoilers = v;
+            }
+        }
+    }) {
+        chat = true;
+    }
+    if spoilers != s.spoilers {
+        s.spoilers = spoilers;
+        let name = match spoilers {
+            Spoilers::OnClick => "ON_CLICK",
+            Spoilers::Moderated => "IF_MODERATOR",
+            Spoilers::Always => "ALWAYS",
+        };
+        write(app, Patch::new().text(6, 4, name));
+    }
+    let s = &mut app.settings;
+    let compact = s.compact;
+    let mut avatars = !compact || s.compact_avatars;
+    let desc = "To hide avatars, go to Accessibility and select Compact under Chat Message Display.";
+    ui.add_enabled_ui(compact, |ui| {
+        if toggle(ui, &mut avatars, "Show user avatars", desc) {
+            chat = true;
+        }
+    });
+    if compact && avatars != s.compact_avatars {
+        s.compact_avatars = avatars;
+        write(app, Patch::new().flag(6, 41, avatars));
+    }
+    related(app, ui, Page::Accessibility, "Accessibility", "Adjust the visual density of chat messages and UI");
+
+    sub(ui, "Threads");
+    changed |= synced(app, ui, "Open threads in split view", "", |s| &mut s.thread_sidebar, 3);
+
 
     section(ui, "Chat Box");
-    chat |= toggle(
-        ui,
-        &mut s.emoticons,
-        "Automatically convert emoticons in your messages into emoji",
-        "For example, when you type :-) Rustcord will convert it to 🙂",
-    );
-    chat |= toggle(ui, &mut s.send_button, "Show send message button", "");
+    chat |= synced(app, ui, "Preview emoji, mentions, and markdown syntax as you type", "", |s| &mut s.md_preview, 2);
+    chat |= synced(app, ui, "Automatically convert emoticons in your messages to emoji", "For example, when you type :) Rustcord will convert it to 🙂", |s| &mut s.emoticons, 21);
+    chat |= synced(app, ui, "Show stickers in autocomplete results", "", |s| &mut s.sticker_suggestions, 28);
+    chat |= synced(app, ui, "Show games in autocomplete results", "", |s| &mut s.game_suggestions, 39);
+    chat |= toggle(ui, &mut app.settings.send_button, "Show send message button", "");
     if chat {
         app.heights.clear();
     }
 
     section(ui, "Search");
-    note(ui, "Search has no display options in Rustcord yet.");
+    sub(ui, "By default, searching in DMs...");
+    let s = &mut app.settings;
+    let mut all = s.search_all_dms;
+    if radio(ui, &mut all, &[(false, "Searches only in the selected DM", ""), (true, "Searches across all my DMs", "")]) {
+        s.search_all_dms = all;
+        write(app, Patch::new().flag(6, 36, all));
+        changed = true;
+    }
 
     section(ui, "Streamer Mode");
-    note(ui, "If you're a streamer and don't want to show personal information on stream, Streamer Mode hides it for you.");
     let s = &mut app.settings;
-    let mut streamer = toggle(ui, &mut s.streamer, "Enable Streamer Mode", "You can also toggle it with a keybind.");
+    let mut streamer = toggle(ui, &mut s.streamer, "Enable Streamer Mode", "Streamer Mode hides your personal info so others watching your stream can’t see it.");
     streamer |= toggle(ui, &mut s.streamer_auto, "Automatically enable/disable", "Turns Streamer Mode on while OBS or XSplit is running, and off again when they close.");
-    streamer |= toggle(ui, &mut s.hide_personal, "Hide Personal Information", "Hides your email, phone number, connected accounts and username.");
-    streamer |= toggle(ui, &mut s.hide_invites, "Hide Invite Links", "Recommended if you don't want random people accessing your servers.");
-    streamer |= toggle(ui, &mut s.streamer_no_sounds, "Disable Sounds", "All sound effects will be disabled.");
-    streamer |= toggle(ui, &mut s.streamer_no_notifications, "Disable Notifications", "All desktop notifications will be disabled.");
+    sub(ui, "If Streamer Mode is enabled...");
+    streamer |= toggle(ui, &mut s.hide_personal, "Hide my personal information, such as email, connected accounts, and notes", "");
+    streamer |= toggle(ui, &mut s.hide_invites, "Hide invite links to my Discord servers", "");
+    streamer |= toggle(ui, &mut s.streamer_no_sounds, "Disable all sound effects", "");
+    streamer |= toggle(ui, &mut s.streamer_no_notifications, "Disable notifications", "");
     streamer |= toggle(ui, &mut s.hide_window, "Hide Rustcord Window from Screen Capture", "Your stream or recording shows a blank area where Rustcord's window is.");
     changed | chat | streamer
+}
+
+/// A theme swatch's ring, tick and click; true when it was clicked.
+pub(super) fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
+    let resp = ui.interact(r, egui::Id::new(("theme", name)), Sense::click());
+    let ring = if on { pal().blurple } else { crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 61), pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp)) };
+    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
+    if on {
+        let tick = pos2(r.right() - 3.0, r.top() + 3.0);
+        ui.painter().circle_filled(tick, 8.0, pal().blurple);
+        icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(tick, vec2(10.0, 10.0)), Color32::WHITE);
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    app.rects.insert(format!("theme:{name}"), r);
+    resp.clicked()
+}
+
+/// The link row to a neighbouring page: its icon, a name, one line, a chevron.
+pub(super) fn related(app: &mut App, ui: &mut Ui, page: Page, name: &str, desc: &str) {
+    super::lead(ui);
+    ui.add_space(24.0);
+    ui.add(egui::Label::new(RichText::new("Related Settings").font(semi(16.0)).color(pal().text_normal)).selectable(false));
+    ui.add_space(16.0);
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::click());
+    let icon = Rect::from_min_size(r.min, vec2(56.0, 56.0));
+    ui.painter().rect_filled(icon, CornerRadius::same(8), pal().control);
+    let glyph = match page {
+        Page::Accessibility => Icon::SideAccess,
+        _ => Icon::SideAppearance,
+    };
+    icons::draw(ui.painter(), glyph, Rect::from_center_size(icon.center(), vec2(24.0, 24.0)), pal().header_primary);
+    ui.painter().text(pos2(r.left() + 70.0, r.top() + 10.0), Align2::LEFT_TOP, name, medium(16.0), pal().header_primary);
+    ui.painter().text(pos2(r.left() + 70.0, r.top() + 31.0), Align2::LEFT_TOP, desc, reg(14.0), pal().header_secondary);
+    icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(24.0, 24.0)), pal().header_secondary);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        app.settings_page = Some(page);
+    }
+    super::end(ui, 16.0);
+}
+
+/// A label on the left and a dropdown on the right; true when the menu's pick changed something.
+pub(super) fn choice(ui: &mut Ui, label: &str, shown: &str, menu: impl FnOnce(&mut Ui)) -> bool {
+    super::lead(ui);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+    ui.painter().text(pos2(r.left(), r.center().y), Align2::LEFT_CENTER, label, medium(16.0), pal().header_primary);
+    let right = Rect::from_min_size(pos2(r.right() - 296.0, r.top()), vec2(296.0, 40.0));
+    let mut resp = None;
+    ui.scope_builder(UiBuilder::new().max_rect(right), |ui| {
+        resp = Some(dropdown(ui, 296.0, None, shown, menu));
+    });
+    super::end(ui, 24.0);
+    resp.is_some_and(|r| r.clicked())
 }
 
 /// The four reactions on top of the message menu. They're changed from there, by right-clicking
@@ -161,7 +199,7 @@ fn preview(ui: &mut Ui, app: &App) {
         ui.painter().text(pos2(r.left() + 81.0, top + 22.0), Align2::LEFT_TOP, line, reg(size), pal().text_normal);
     }
     let b = Rect::from_min_size(pos2(r.right() - 41.0 - 120.0, r.top() + 153.0), vec2(120.0, 32.0));
-    ui.painter().rect(b, CornerRadius::same(8), BLURPLE, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    ui.painter().rect(b, CornerRadius::same(8), pal().blurple, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     ui.painter().text(b.center(), Align2::CENTER_CENTER, "Example Button", medium(14.0), Color32::WHITE);
     ui.add_space(48.0);
 }
@@ -173,9 +211,24 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
     caption(ui, "Text size in chat", "Adjust the size of the chat font.");
     let mut changed = markers(ui, &mut s.font_size, &[12.0, 14.0, 15.0, 16.0, 18.0, 20.0, 24.0], |v| format!("{v}px"), 16.0);
     changed |= toggle(ui, &mut s.underline_links, "Always underline links", "Make links stand out more.");
+    changed |= toggle(ui, &mut s.name_styles, "Display Name Styles", "Enable display name styles — including font, effect, and color — across Discord.");
 
     section(ui, "Visual Density");
-    caption(ui, "Space between message groups", "");
+    caption(ui, "UI Density", "Adjust the space between server, channel, and member lists.");
+    let mut density = s.density;
+    let density_changed = radio(ui, &mut density, &[(Density::Compact, "Compact", ""), (Density::Default, "Default", ""), (Density::Spacious, "Spacious", "")]);
+    if density_changed {
+        s.density = density;
+    }
+    caption(ui, "Chat Message Display", "Change the appearance of chat messages.");
+    let mut compact = s.compact;
+    let mut flipped = false;
+    if radio(ui, &mut compact, &[(false, "Cozy", "Modern, beautiful, and easy on your eyes."), (true, "Compact", "Fit more messages on screen at one time. #IRC")]) {
+        s.compact = compact;
+        changed = true;
+        flipped = true;
+    }
+    caption(ui, "Space Between Message Groups", "Adjust the spacing between message groups.");
     changed |= markers(ui, &mut s.group_space, &[0.0, 4.0, 8.0, 16.0, 24.0], |v| format!("{v}px"), 16.0);
     caption(ui, "Zoom level", "You can change the zoom level with Ctrl +/- or Ctrl and the scroll wheel, and reset to the default with Ctrl+0.");
     let mut pct = (s.zoom * 100.0).round();
@@ -183,353 +236,160 @@ pub fn accessibility(app: &mut App, ui: &mut Ui) -> bool {
         s.zoom = pct / 100.0;
         changed = true;
     }
+    if flipped {
+        write(app, Patch::new().flag(6, 17, app.settings.compact));
+    }
+    if density_changed {
+        let v = match app.settings.density {
+            Density::Compact => 1,
+            Density::Spacious => 2,
+            Density::Default => 4,
+        };
+        write(app, Patch::new().num(13, 12, v));
+    }
+    changed |= density_changed;
     if changed {
         app.heights.clear();
     }
 
     section(ui, "Color & Contrast");
     let s = &mut app.settings;
-    sub(ui, "Role colors");
-    let roles = radio(
-        ui,
-        &mut s.role_colors,
-        &[
-            (RoleColors::InNames, "Show role colors in names", ""),
-            (RoleColors::NextToNames, "Show role colors next to names", ""),
-            (RoleColors::Hidden, "Don't show role colors", ""),
-        ],
-    );
+    caption(ui, "Saturation", "Reduce the saturation of colors within the app, for those with color sensitivities. This does not affect the saturation of images, videos, role colors or other user content.");
+    let mut pct = (s.saturation * 100.0).round();
+    let stops: Vec<f32> = (0..=10).map(|i| i as f32 * 10.0).collect();
+    let moved = markers(ui, &mut pct, &stops, |v| format!("{v}%"), 100.0);
+    if moved {
+        s.saturation = pct / 100.0;
+    }
+    let mut colors = moved;
+    colors |= toggle(ui, &mut s.saturate_custom, "Apply saturation setting to custom colors", "Apply the above setting to custom color choices, like role colors.");
+    colors |= toggle(ui, &mut s.high_contrast, "Enable High Contrast Mode", "Enhance visibility with bold colors and sharp contrast.");
+    colors |= toggle(ui, &mut s.shop_cursor, "Enable custom cursor in shop", "Use a custom cursor design when browsing the shop. Can be turned off if the cursor feels distracting or interferes with navigation.");
+    colors |= toggle(ui, &mut s.sync_contrast, "Sync contrast settings", "This allows Discord to use your computer's contrast theme.");
+    let mut role = s.role_colors;
+    let shown = match role {
+        RoleColors::InNames => "In names",
+        RoleColors::NextToNames => "Next to names",
+        RoleColors::Hidden => "Hidden",
+    };
+    let picked = choice(ui, "Role Colors", shown, |ui| {
+        for (v, name) in [(RoleColors::InNames, "In names"), (RoleColors::NextToNames, "Next to names"), (RoleColors::Hidden, "Hidden")] {
+            if ui.selectable_label(role == v, name).clicked() {
+                role = v;
+            }
+        }
+    });
+    let roles = picked || role != s.role_colors;
+    s.role_colors = role;
+    colors |= toggle(ui, &mut s.switch_icons, "Show on/off indicators", "On forms, menus and settings, on/off toggles will have icons.");
+    related(app, ui, Page::Appearance, "Appearance", "Change your app theme");
 
     section(ui, "Reduced Motion");
+    let s = &mut app.settings;
     let mut motion = toggle(
         ui,
         &mut s.reduced_motion,
         "Enable Reduced Motion",
-        "Reduces the amount and intensity of animations, hover effects and other moving effects across Rustcord.",
+        "Reduce the amount and intensity of animations, hover effects, and other moving effects.",
     );
-    motion |= toggle(ui, &mut s.gif_autoplay, "Automatically play GIFs when Rustcord is focused", "");
-    motion |= toggle(ui, &mut s.animate_emoji, "Play animated emoji", "");
+    motion |= toggle(ui, &mut s.sync_motion, "Sync with computer setting", "");
+    caption(ui, "Minimum notification duration", "Keep pop-up notifications on screen for at least this long. Notifications that already stay longer are unaffected.");
+    motion |= markers(ui, &mut s.min_toast_secs, &[3.0, 5.0, 10.0, 15.0, 20.0], |v| format!("{v}s"), 5.0);
+    motion |= synced(app, ui, "Play GIFs when Rustcord is focused", "", |s| &mut s.gif_autoplay, 11);
+    motion |= synced(app, ui, "Play animated emoji", "", |s| &mut s.animate_emoji, 14);
+    sub(ui, "Play sticker animations");
+    let mut stickers = app.settings.stickers;
+    if radio(
+        ui,
+        &mut stickers,
+        &[
+            (Animate::Always, "Always animate", ""),
+            (Animate::OnInteraction, "Animate on interaction", "On the desktop client, stickers will animate on hover or focus. On mobile clients, stickers will animate on long-press."),
+            (Animate::Never, "Never animate", ""),
+        ],
+    ) {
+        app.settings.stickers = stickers;
+        write(app, Patch::new().sub(6, 15, &[(1, stickers as u64)]));
+        motion = true;
+    }
 
     section(ui, "Audio & Screen Reader");
-    if let Some(v) = super::user::legacy(app, ui) {
-        let mut sr = v["allow_accessibility_detection"].as_bool().unwrap_or(false);
-        if toggle(ui, &mut sr, "Allow Discord to track screen reader usage", "Lets Discord know whether you use a screen reader, to improve accessibility features.") {
-            super::user::set_legacy(app, serde_json::json!({ "allow_accessibility_detection": sr }));
-        }
-    }
-    if roles | motion {
+    let s = &mut app.settings;
+    caption(ui, "Text-to-Speech rate", "Control the speed at which text is read aloud when using Speak Message or other text-to-speech features.");
+    let mut audio = speech_rate(ui, &mut s.tts_rate);
+    audio |= synced(app, ui, "Show image descriptions", "Image descriptions are used to describe images for screen readers.", |s| &mut s.image_descriptions, 7);
+    audio |= synced(app, ui, "Use the legacy chat input", "Disables most chat features but may work better with screen readers.", |s| &mut s.legacy_input, 24);
+    if audio {
         app.heights.clear();
     }
-    changed | roles | motion
+    if roles | motion | colors {
+        app.heights.clear();
+    }
+    changed | roles | motion | colors | audio
 }
 
-pub const SOUNDS: [(&str, &str); 9] = [
-    ("message", "Message"),
-    ("deafen", "Deafen"),
-    ("undeafen", "Undeafen"),
-    ("mute", "Mute"),
-    ("unmute", "Unmute"),
-    ("disconnect", "Voice Disconnected"),
-    ("join", "User Join"),
-    ("leave", "User Leave"),
-    ("ring", "Incoming Ring"),
-];
-
-pub fn notifications(app: &mut App, ui: &mut Ui) -> bool {
-    section(ui, "Overview");
-    let s = &mut app.settings;
-    let mut changed = toggle(ui, &mut s.notify, "Enable Desktop Notifications", "If you're looking for per-channel or per-server notifications, right-click the desired server icon and select Mute.");
-
-    section(ui, "Sounds");
-    let mut on = s.sounds;
-    if toggle(ui, &mut on, "Enable", "") {
-        s.sounds = on;
-        changed = true;
+/// What the account has never been told: settings that used to stay on this machine and differ from
+/// Discord's default are sent up at login rather than lost to it.
+pub fn backfill(app: &mut App) {
+    let (a, s) = (&app.store.account, &app.settings);
+    let mut patch = Patch::new();
+    if a.image_descriptions.is_none() && s.image_descriptions {
+        patch = patch.flag(6, 7, true);
     }
-    let mut preview = None;
-    for (key, label) in SOUNDS {
-        super::lead(ui);
-        let mut on = !s.muted_sounds.iter().any(|m| m == key);
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-        ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, medium(16.0), if s.sounds { pal().header_primary } else { pal().text_muted });
-        let mut c = ui.new_child(UiBuilder::new().max_rect(r).layout(Layout::right_to_left(Align::Center)));
-        if super::switch(&mut c, on).clicked() && s.sounds {
-            on = !on;
-            s.muted_sounds.retain(|m| m != key);
-            if !on {
-                s.muted_sounds.push(key.to_string());
-            }
-            changed = true;
+    if a.stickers.is_none() && s.stickers != Animate::Always {
+        patch = patch.sub(6, 15, &[(1, s.stickers as u64)]);
+    }
+    if a.search_all_dms.is_none() && s.search_all_dms {
+        patch = patch.flag(6, 36, true);
+    }
+    if a.density.is_none() && s.density != Density::Default {
+        patch = patch.num(13, 12, if s.density == Density::Compact { 1 } else { 2 });
+    }
+    if a.preview_video.is_none() && s.preview_video {
+        patch = patch.flag(5, 5, true);
+    }
+    if a.video_bg.is_none() {
+        match s.video_bg {
+            VideoBg::Blur => patch = patch.sub(5, 1, &[(1, 1)]),
+            VideoBg::Preset(n) => patch = patch.num(5, 2, n as u64),
+            VideoBg::None | VideoBg::Custom => {}
         }
-        c.add_space(16.0);
-        if crate::ui::icon_button(&mut c, crate::ui::icons::Icon::Play, 24.0, "Preview").clicked() {
-            preview = Some(key);
-        }
-        super::end(ui, 32.0);
     }
-    if let Some(k) = preview {
-        crate::sound::play(k);
+    let peers = (a.peers.is_none() && !s.peers.is_empty()).then(|| crate::proto::peers_patch(&s.peers, 0));
+    if !patch.is_empty() {
+        write(app, patch);
     }
-
-    section(ui, "Badges");
-    changed |= toggle(ui, &mut s.badge, "Enable Unread Message Badge", "Shows a red badge on the app icon when you have unread messages.");
-    changed |= toggle(ui, &mut s.flash, "Enable Taskbar Flashing", "Flashes the taskbar button when you get a new notification.");
-
-    section(ui, "Email");
-    if action(ui, "Email Notifications", "Email preferences live with your account on discord.com.", "Manage", Look::Secondary) {
-        super::open_web("/settings/notifications");
-    }
-
-    section(ui, "Advanced");
-    changed |= toggle(ui, &mut s.notify_all_dms, "Notify me about every direct message", "Otherwise only direct messages that mention you notify.");
-    changed
-}
-
-pub const ACTIONS: [(&str, &str); 4] = [("ptt", "Push to Talk"), ("mute", "Toggle Mute"), ("deafen", "Toggle Deafen"), ("streamer", "Toggle Streamer Mode")];
-
-pub fn key_name(vk: u32) -> String {
-    match vk {
-        0x08 => "BACKSPACE".into(),
-        0x09 => "TAB".into(),
-        0x0D => "ENTER".into(),
-        0x10 | 0xA0 | 0xA1 => "SHIFT".into(),
-        0x11 | 0xA2 | 0xA3 => "CTRL".into(),
-        0x12 | 0xA4 | 0xA5 => "ALT".into(),
-        0x13 => "PAUSE".into(),
-        0x14 => "CAPS LOCK".into(),
-        0x1B => "ESC".into(),
-        0x20 => "SPACE".into(),
-        0x21 => "PAGE UP".into(),
-        0x22 => "PAGE DOWN".into(),
-        0x23 => "END".into(),
-        0x24 => "HOME".into(),
-        0x25 => "LEFT".into(),
-        0x26 => "UP".into(),
-        0x27 => "RIGHT".into(),
-        0x28 => "DOWN".into(),
-        0x2D => "INSERT".into(),
-        0x2E => "DELETE".into(),
-        0x30..=0x39 | 0x41..=0x5A => char::from(vk as u8).to_string(),
-        0x5B | 0x5C => "WIN".into(),
-        0x60..=0x69 => format!("NUMPAD {}", vk - 0x60),
-        0x70..=0x87 => format!("F{}", vk - 0x6F),
-        0x05 => "MOUSE 4".into(),
-        0x06 => "MOUSE 5".into(),
-        0x04 => "MIDDLE MOUSE".into(),
-        0xC0 => "`".into(),
-        _ => format!("KEY {vk}"),
+    if let Some(bytes) = peers {
+        super::privacy::send(app, bytes);
     }
 }
 
-pub fn combo(keys: &[u32]) -> String {
-    if keys.is_empty() {
-        return "No Keybind Set".into();
+fn synced(app: &mut App, ui: &mut Ui, label: &str, desc: &str, field: fn(&mut Settings) -> &mut bool, f: u64) -> bool {
+    let mut on = *field(&mut app.settings);
+    let hit = toggle(ui, &mut on, label, desc);
+    if hit {
+        *field(&mut app.settings) = on;
+        write(app, Patch::new().flag(6, f, on));
     }
-    keys.iter().map(|k| key_name(*k)).collect::<Vec<_>>().join(" + ")
+    hit
 }
 
-const LOCALES: [(&str, &str, &str); 32] = [
-    ("id", "Bahasa Indonesia", "Indonesian"),
-    ("da", "Dansk", "Danish"),
-    ("de", "Deutsch", "German"),
-    ("en-GB", "English, UK", "English, UK"),
-    ("en-US", "English, US", "English, US"),
-    ("es-ES", "Español", "Spanish"),
-    ("es-419", "Español, LATAM", "Spanish, LATAM"),
-    ("fr", "Français", "French"),
-    ("hr", "Hrvatski", "Croatian"),
-    ("it", "Italiano", "Italian"),
-    ("lt", "Lietuviškai", "Lithuanian"),
-    ("hu", "Magyar", "Hungarian"),
-    ("nl", "Nederlands", "Dutch"),
-    ("no", "Norsk", "Norwegian"),
-    ("pl", "Polski", "Polish"),
-    ("pt-BR", "Português do Brasil", "Portuguese, Brazilian"),
-    ("ro", "Română", "Romanian"),
-    ("fi", "Suomi", "Finnish"),
-    ("sv-SE", "Svenska", "Swedish"),
-    ("vi", "Tiếng Việt", "Vietnamese"),
-    ("tr", "Türkçe", "Turkish"),
-    ("cs", "Čeština", "Czech"),
-    ("el", "Ελληνικά", "Greek"),
-    ("bg", "български", "Bulgarian"),
-    ("ru", "Pусский", "Russian"),
-    ("uk", "Українська", "Ukrainian"),
-    ("hi", "हिन्दी", "Hindi"),
-    ("th", "ไทย", "Thai"),
-    ("zh-CN", "中文", "Chinese, China"),
-    ("ja", "日本語", "Japanese"),
-    ("zh-TW", "繁體中文", "Chinese, Taiwan"),
-    ("ko", "한국어", "Korean"),
-];
-
-pub fn system(app: &mut App, ui: &mut Ui) -> bool {
-    section(ui, "General");
-    let mut changed = false;
-    let s = &mut app.settings;
-    if toggle(ui, &mut s.open_on_startup, "Automatically open Rustcord when your computer starts up", "") {
-        crate::winsys::set_startup(s.open_on_startup);
-        changed = true;
-    }
-    if s.open_on_startup {
-        changed |= toggle(ui, &mut s.start_minimized, "Start Rustcord minimized", "Start Rustcord in the background, out of your way.");
-    }
-    changed |= toggle(ui, &mut s.minimize_to_tray, "Minimize Rustcord to System Tray", "Clicking X minimizes Rustcord instead of closing it completely.");
-
-    section(ui, "Keybinds");
-    note(ui, "Global keybinds work even when Rustcord isn't focused.");
+/// The slider from "Slower" to "Faster" with the speed beside it, and a button that reads a line aloud.
+fn speech_rate(ui: &mut Ui, rate: &mut f32) -> bool {
     super::lead(ui);
-    if primary(ui, "Add a Keybind").clicked() {
-        app.settings.keybinds.push(("ptt".into(), Vec::new()));
-        app.sform.recording = Some(app.settings.keybinds.len() - 1);
-        app.sform.rec_keys.clear();
-        changed = true;
+    let w = ui.available_width();
+    let (r, _) = ui.allocate_exact_size(vec2(w, 20.0), Sense::hover());
+    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, "Slower", medium(12.0), pal().header_secondary);
+    ui.painter().text(r.center(), Align2::CENTER_CENTER, format!("x{rate:.1}"), medium(12.0), pal().header_secondary);
+    ui.painter().text(r.right_center(), Align2::RIGHT_CENTER, "Faster", medium(12.0), pal().header_secondary);
+    ui.add_space(8.0);
+    let mut moved = super::slider(ui, w, rate, 0.5, 2.0);
+    *rate = (*rate * 10.0).round() / 10.0;
+    ui.add_space(16.0);
+    if super::secondary(ui, "Preview").clicked() {
+        crate::speech::say("This is how fast Rustcord reads text aloud.".into());
+        moved = false;
     }
     super::end(ui, 24.0);
-    if let Some(i) = app.sform.recording
-        && let Some(done) = crate::hotkeys::record(&mut app.sform.rec_keys)
-    {
-        if let Some(k) = app.settings.keybinds.get_mut(i) {
-            k.1 = done;
-        }
-        app.sform.recording = None;
-        changed = true;
-    }
-    if app.sform.recording.is_some() {
-        ui.ctx().request_repaint();
-    }
-    let mut remove = None;
-    for i in 0..app.settings.keybinds.len() {
-        let recording = app.sform.recording == Some(i);
-        super::card(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 16.0;
-            ui.columns(2, |cols| {
-                cols[0].label(RichText::new("Action").font(medium(14.0)).color(pal().header_secondary));
-                cols[0].add_space(8.0);
-                let (action, keys) = &mut app.settings.keybinds[i];
-                let shown = ACTIONS.iter().find(|a| a.0 == action).map(|a| a.1).unwrap_or("Push to Talk");
-                let w = cols[0].available_width();
-                dropdown(&mut cols[0], w, None, shown, |ui| {
-                    for (k, l) in ACTIONS {
-                        if ui.selectable_label(action == k, l).clicked() {
-                            *action = k.to_string();
-                            changed = true;
-                        }
-                    }
-                });
-                cols[1].label(RichText::new("Keybind").font(medium(14.0)).color(pal().header_secondary));
-                cols[1].add_space(8.0);
-                let shown = if recording { combo(&app.sform.rec_keys) } else { combo(keys) };
-                let label = if recording { "Stop Recording" } else { "Record Keybind" };
-                let bw = cols[1].painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE).size().x + 32.0;
-                let (r, _) = cols[1].allocate_exact_size(vec2(cols[1].available_width(), 40.0), Sense::hover());
-                let field = Rect::from_min_max(r.min, pos2(r.right() - bw - 8.0, r.bottom()));
-                let stroke = if recording { RED } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
-                cols[1].painter().rect(field, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-                cols[1].painter().text(pos2(field.left() + 12.0, field.center().y), Align2::LEFT_CENTER, shown, medium(14.0), pal().header_primary);
-                let mut b = cols[1].new_child(UiBuilder::new().max_rect(r).layout(Layout::right_to_left(Align::Center)));
-                if button(&mut b, label, if recording { Look::Filled } else { Look::Secondary }).clicked() {
-                    if recording {
-                        app.sform.recording = None;
-                    } else {
-                        app.sform.recording = Some(i);
-                        app.sform.rec_keys.clear();
-                    }
-                }
-            });
-            ui.add_space(8.0);
-            if super::link(ui, "Remove Keybind").clicked() {
-                remove = Some(i);
-            }
-        });
-    }
-    if let Some(i) = remove {
-        app.settings.keybinds.remove(i);
-        app.sform.recording = None;
-        changed = true;
-    }
-    divider(ui);
-    sub(ui, "Default keybinds");
-    for (what, keys) in [
-        ("Quick Switcher", "CTRL + K"),
-        ("Navigate between channels", "ALT + UP / DOWN"),
-        ("Navigate between unread channels", "ALT + SHIFT + UP / DOWN"),
-        ("Mark channel as read", "ESC"),
-        ("Edit your last message", "UP"),
-        ("Insert a new line", "SHIFT + ENTER"),
-        ("Open emoji picker", "CTRL + E"),
-        ("Upload a file", "CTRL + SHIFT + U"),
-        ("Mark message unread", "ALT + CLICK"),
-        ("Delete without confirmation", "SHIFT + CLICK"),
-        ("Zoom in / out / reset", "CTRL + = / - / 0"),
-    ] {
-        super::lead(ui);
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-        ui.painter().text(r.left_center(), Align2::LEFT_CENTER, what, reg(16.0), pal().text_normal);
-        let g = ui.painter().layout_no_wrap(keys.into(), medium(12.0), pal().header_secondary);
-        let chip = Rect::from_min_size(pos2(r.right() - g.size().x - 16.0, r.top()), vec2(g.size().x + 16.0, 28.0));
-        ui.painter().rect(chip, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61)), egui::StrokeKind::Inside);
-        ui.painter().galley(chip.min + vec2(8.0, 6.0), g, pal().header_secondary);
-        super::end(ui, 12.0);
-    }
-    if changed {
-        crate::hotkeys::set(&app.settings.keybinds);
-    }
-    changed
-}
-
-pub fn language(app: &mut App, ui: &mut Ui) -> bool {
-    section(ui, "Language & Time");
-    note(ui, "Rustcord's own interface is English for now. This tells Discord which language to use for text it sends, like system messages and bot commands.");
-    let mut changed = false;
-    for (code, native, english) in LOCALES {
-        super::lead(ui);
-        let on = app.settings.locale == code;
-        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-        super::mark(ui, &format!("lang:{code}"), r);
-        let c = pos2(r.left() + 11.0, r.center().y);
-        if on {
-            ui.painter().circle_filled(c, 11.0, BLURPLE);
-            ui.painter().circle_filled(c, 4.5, Color32::WHITE);
-        } else {
-            ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));
-        }
-        crate::ui::text::paint(ui.painter(), pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, native, reg(16.0), pal().text_normal, 300.0);
-        ui.painter().text(pos2(r.right(), r.center().y), Align2::RIGHT_CENTER, english, reg(14.0), pal().header_secondary);
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        super::end(ui, 12.0);
-        if resp.clicked() && !on {
-            app.settings.locale = code.to_string();
-            changed = true;
-        }
-    }
-    super::end(ui, 24.0);
-    sub(ui, "Time Format");
-    changed |= toggle(ui, &mut app.settings.clock24, "Use 24-hour clock", "Show timestamps like 16:20 instead of 4:20 PM.");
-    changed
-}
-
-pub fn developer(app: &mut App, ui: &mut Ui) -> bool {
-    section(ui, "Developer Mode");
-    let mut changed = toggle(
-        ui,
-        &mut app.settings.dev,
-        "Developer Mode",
-        "Developer Mode exposes context menu items helpful for people writing bots using the Discord API.",
-    );
-    section(ui, "Cache");
-    if action(
-        ui,
-        "Image Cache",
-        "Avatars, emoji and images are cached on disk so they appear instantly. Clearing it frees space; everything downloads again as needed.",
-        "Clear",
-        Look::Danger,
-    ) {
-        let _ = std::fs::remove_dir_all(crate::cache::dir().join("img"));
-        app.toast("Image cache cleared.");
-        changed = true;
-    }
-    changed
+    moved
 }

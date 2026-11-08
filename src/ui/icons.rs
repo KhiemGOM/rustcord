@@ -22,6 +22,8 @@ pub enum Icon {
     Gear,
     Mic,
     Headphones,
+    ListenAlong,
+    AddMedia,
     Plus,
     Smile,
     AddReaction,
@@ -76,6 +78,7 @@ pub enum Icon {
     Media,
     Crown,
     HangUp,
+    Phone,
     MoreVertical,
     CirclePlus,
     Copy,
@@ -90,6 +93,12 @@ pub enum Icon {
     Leave,
     EyeOff,
     Lock,
+    PopOut,
+    Fullscreen,
+    Hand,
+    Music,
+    MusicOff,
+    Waveform,
     Person,
     At,
     Clock,
@@ -120,6 +129,10 @@ pub enum Icon {
     Location,
     NavBack,
     VideoSlash,
+    Camera,
+    BackgroundNone,
+    BackgroundBlur,
+    BackgroundCustom,
     FlowerStar,
     BoostGem,
     Bug,
@@ -146,6 +159,8 @@ pub enum Icon {
     Underline,
     Strike,
     Eye,
+    Tag,
+    ArrowUp,
     CheckAll,
     Jump,
     SideLanguage,
@@ -153,6 +168,24 @@ pub enum Icon {
     SideApps,
     SideDev,
     SideLogout,
+    Poll,
+    Clips,
+    Timer,
+    FileUpload,
+    Filter,
+    LinkExternal,
+    Pause,
+    Volume,
+    VolumeOff,
+    Expand,
+    ExpandExit,
+    Code,
+    Heart,
+    Dice,
+    Minus,
+    Eyedropper,
+    Moon,
+    Sun,
 }
 
 macro_rules! svg {
@@ -177,6 +210,8 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Gear => svg!("gear"),
         Icon::Mic => svg!("mic"),
         Icon::Headphones => svg!("headphones"),
+        Icon::ListenAlong => svg!("listen_along"),
+        Icon::AddMedia => svg!("add_media"),
         Icon::Plus => svg!("plus"),
         Icon::Smile => svg!("smile"),
         Icon::AddReaction => svg!("add_reaction"),
@@ -203,6 +238,12 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Bell => svg!("bell"),
         Icon::BellOff => svg!("bell_off"),
         Icon::Gift => svg!("gift"),
+        Icon::Heart => svg!("heart"),
+        Icon::Dice => svg!("dice"),
+        Icon::Minus => svg!("minus"),
+        Icon::Eyedropper => svg!("eyedropper"),
+        Icon::Moon => svg!("moon"),
+        Icon::Sun => svg!("sun"),
         Icon::Gif => svg!("gif"),
         Icon::Sticker => svg!("sticker"),
         Icon::Apps => svg!("apps"),
@@ -226,6 +267,7 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::NewDm => svg!("new_dm"),
         Icon::Media => svg!("media"),
         Icon::HangUp => svg!("hang_up"),
+        Icon::Phone => svg!("phone"),
         Icon::Crown => svg!("crown"),
         Icon::MoreVertical => svg!("more_vertical"),
         Icon::CirclePlus => svg!("circle_plus"),
@@ -251,10 +293,18 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::BadgePartner => svg!("badge_partner"),
         Icon::Sort => svg!("sort"),
         Icon::Controller => svg!("controller"),
+        Icon::PopOut => svg!("popout"),
+        Icon::Fullscreen => svg!("fullscreen"),
+        Icon::Hand => svg!("hand"),
+        Icon::Music => svg!("music"),
+        Icon::MusicOff => svg!("music_off"),
+        Icon::Waveform => svg!("waveform"),
         Icon::Trophy => svg!("trophy"),
         Icon::Streak => svg!("streak"),
         Icon::Fire => svg!("fire"),
         Icon::Retry => svg!("retry"),
+        Icon::Filter => svg!("filter"),
+        Icon::LinkExternal => svg!("link_external"),
         Icon::Launched => svg!("launched"),
         Icon::Marathon => svg!("marathon"),
         Icon::NewRelease => svg!("new_release"),
@@ -271,6 +321,10 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Location => svg!("location"),
         Icon::NavBack => svg!("nav_back"),
         Icon::VideoSlash => svg!("video_slash"),
+        Icon::Camera => svg!("camera"),
+        Icon::BackgroundNone => svg!("background_none"),
+        Icon::BackgroundBlur => svg!("background_blur"),
+        Icon::BackgroundCustom => svg!("background_custom"),
         Icon::FlowerStar => svg!("flower_star"),
         Icon::BoostGem => svg!("boost_gem"),
         Icon::Bug => svg!("bug"),
@@ -298,6 +352,8 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::Underline => svg!("underline"),
         Icon::Strike => svg!("strike"),
         Icon::Eye => svg!("eye"),
+        Icon::Tag => svg!("tag"),
+        Icon::ArrowUp => svg!("arrow_up"),
         Icon::CheckAll => svg!("check_all"),
         Icon::Jump => svg!("jump"),
         Icon::SideLanguage => svg!("s_language"),
@@ -305,6 +361,16 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::SideApps => svg!("s_apps"),
         Icon::SideDev => svg!("s_dev"),
         Icon::SideLogout => svg!("s_logout"),
+        Icon::Poll => svg!("poll"),
+        Icon::Clips => svg!("clips"),
+        Icon::Timer => svg!("timer"),
+        Icon::FileUpload => svg!("file_upload"),
+        Icon::Pause => svg!("pause"),
+        Icon::Volume => svg!("volume"),
+        Icon::VolumeOff => svg!("volume_off"),
+        Icon::Expand => svg!("expand"),
+        Icon::ExpandExit => svg!("expand_exit"),
+        Icon::Code => svg!("code"),
         Icon::Minimize | Icon::Maximize | Icon::Restore => return None,
     })
 }
@@ -438,6 +504,25 @@ pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) 
             g.fill(&[(18.5, 0.5), (23.5, 10.5), (13.5, 10.5)]);
         }
     }
+}
+
+/// `draw`, turned by `angle` radians (clockwise) about its centre.
+pub fn draw_turned(p: &Painter, icon: Icon, rect: Rect, c: Color32, angle: f32) {
+    if angle != 0.0
+        && let Some((uri, bytes)) = discord(icon)
+    {
+        let side = rect.width().min(rect.height());
+        let r = Rect::from_center_size(rect.center(), vec2(side, side));
+        let src = egui::ImageSource::Bytes { uri: uri.into(), bytes: egui::load::Bytes::Static(bytes) };
+        if let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src).load_for_size(p.ctx(), r.size()) {
+            let mut m = egui::Mesh::with_texture(texture.id);
+            m.add_rect_with_uv(r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), c);
+            m.rotate(egui::emath::Rot2::from_angle(angle), r.center());
+            p.add(Shape::mesh(m));
+            return;
+        }
+    }
+    draw(p, icon, rect, c);
 }
 
 pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {

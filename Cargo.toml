@@ -15,6 +15,7 @@ dirs = "7.0.0"
 # wgpu on vulkan: on an AMD card an empty window costs 58 MB there, 91 MB through OpenGL
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts"] }
 egui = "0.36.2"
+resvg = { version = "0.45.1", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false, features = ["image", "gif", "webp", "file", "svg"] }
 emojis = "0.9.0"
 flate2 = "1.1.10"
@@ -28,7 +29,8 @@ open = "5.4.4"
 openh264 = "0.9.8"
 opus-rs = "0.1.37"
 raw-window-handle = "0.6"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "multipart", "gzip", "http2"] }
+realfft = "3.5.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "multipart", "stream", "gzip", "http2"] }
 # ring for TLS: aws-lc, rustls' default, is several times the size
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 rfd = "0.17.2"
@@ -37,16 +39,25 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "io-util"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
+webview2-com = "0.39"
+velato = { version = "0.12.0", default-features = false }
+vello_cpu = { version = "0.1.0", default-features = false, features = ["std", "u8_pipeline", "f32_pipeline"] }
 wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
 windows = { version = "0.62.2", features = [
     "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite", "Win32_Graphics_Imaging",
-    "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Win32_Media_Speech", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant",
+    "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_NetworkManagement_QoS", "Win32_Networking_WinSock", "Win32_Media_MediaFoundation", "Win32_Media_Speech", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Variant",
     "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Data_Xml_Dom", "Foundation", "UI_Notifications",
-    "Graphics", "Graphics_Capture", "Graphics_DirectX", "Graphics_DirectX_Direct3D11", "Win32_Graphics_Gdi",
-    "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
+    "AI_MachineLearning", "Foundation_Collections", "Storage", "Storage_Streams",
+    "Graphics", "Graphics_Capture", "Graphics_DirectX", "Graphics_DirectX_Direct3D11", "Win32_Graphics_Gdi", "Win32_Globalization",
+    "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture", "Win32_Networking_WindowsWebServices",
 ] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_HiDpi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_System_Memory"] }
+windows-core = "0.62.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_HiDpi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Memory"] }
+qrcode = { version = "0.14.1", default-features = false }
+sha2 = "0.10.9"
+getrandom = "0.3"
+symphonia = { version = "0.6.1", default-features = false, features = ["mp3"] }
 
 [build-dependencies]
 # the exe's icon: discord's own
@@ -55,6 +66,8 @@ winresource = "0.1"
 [dev-dependencies]
 # the mock serves a system font as woff2 so the client's gg sans download path runs for real
 ttf2woff2 = { version = "0.13.3", default-features = false }
+# the mock remote-auth gateway encrypts to the client's rsa key
+num-bigint = "0.4.8"
 # the mock voice server plays Discord's part in DAVE: MLS external sender plus a second member
 openmls = "0.8.2"
 openmls_basic_credential = "0.5.0"

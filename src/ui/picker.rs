@@ -2,8 +2,10 @@ use egui::{Align2, Color32, CornerRadius, Frame, Image, Pos2, Rect, RichText, Se
 
 use super::{App, Pick};
 use crate::markdown::twemoji;
+use crate::net::Tag;
 use crate::state::{Emoji, Id, ReactEmoji};
 use crate::theme::*;
+use std::time::{Duration, Instant};
 
 
 /// Every name that types an emoji, default skin tone only. Gemoji gives several per emoji
@@ -117,11 +119,11 @@ pub fn toggle(app: &mut App, tab: Tab) {
 pub fn shell(ctx: &egui::Context, at: Pos2, pivot: Align2, tab: Option<Tab>, body: impl FnOnce(&mut Ui)) -> (egui::Response, Option<Tab>) {
     let mut to = None;
     let h = if tab.is_some() { 486.0 } else { 396.0 };
-    let area = egui::Area::new(egui::Id::new("expression"))
+    let area = super::motion::popout(ctx, egui::Area::new(egui::Id::new("expression"))
         .order(egui::Order::Foreground)
         .pivot(pivot)
         .fixed_pos(at)
-        .constrain(true)
+        .constrain(true), vec2(0.0, -1.0))
         .show(ctx, |ui| {
             let shadow = ui.style().visuals.popup_shadow;
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
@@ -139,7 +141,7 @@ pub fn shell(ctx: &egui::Context, at: Pos2, pivot: Align2, tab: Option<Tab>, bod
                             if on || resp.hovered() {
                                 ui.painter().rect_filled(r, 8, if on { pal().control_hover } else { MENU_HOVER });
                             }
-                            let col = if on { pal().header_primary } else if resp.hovered() { pal().interactive_hover } else { pal().text_normal };
+                            let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().text_normal, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                             ui.painter().galley(r.center() - g.size() / 2.0, g, col);
                             if resp.clicked() && !on {
                                 to = Some(t);
@@ -175,13 +177,13 @@ pub fn search_box_in(ui: &mut Ui, q: &mut String, hint: &str, back: Option<&mut 
             .frame(Frame::NONE)
             .margin(egui::Margin::ZERO),
     );
-    let ring = if resp.has_focus() { BLURPLE } else { pal().border_subtle };
+    let ring = if resp.has_focus() { pal().blurple } else { pal().border_subtle };
     ui.painter().rect_stroke(field, 8, Stroke::new(1.0, ring), egui::StrokeKind::Inside);
     let ir = Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0));
     match back {
         Some(b) => {
             let hit = ui.interact(ir.expand(6.0), ui.id().with("picker_back"), Sense::click());
-            super::icons::draw(ui.painter(), super::icons::Icon::ArrowLeft, ir, if hit.hovered() { pal().interactive_hover } else { pal().header_primary });
+            super::icons::draw(ui.painter(), super::icons::Icon::ArrowLeft, ir, crate::ui::motion::mix(pal().header_primary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
             *b = hit.clicked();
         }
         None => super::icons::draw(ui.painter(), super::icons::Icon::Search, ir, pal().header_primary),
@@ -208,6 +210,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             _ => servers.push((g.id, g.name.clone(), g.icon_url(), vec![(e.clone(), ok)])),
         }
     }
+    if guild != 0 && !app.top_emojis.contains_key(&guild) {
+        app.top_emojis.insert(guild, Vec::new());
+        app.rest("GET", format!("/guilds/{guild}/top-emojis"), None, Tag::TopEmojis(guild));
+    }
+    let top_ids: Vec<Id> = app.top_emojis.get(&guild).cloned().unwrap_or_default();
+    let top_title = app.store.guilds.get(&guild).map(|g| format!("Top Emoji in {}", g.name)).unwrap_or_default();
     let query_id = egui::Id::new("picker_q");
     let jump_id = egui::Id::new("picker_jump");
     let tops_id = egui::Id::new("picker_tops");
@@ -264,16 +272,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         // discord's skin tone hand and its add emoji button, right of the search box
         let hand = Rect::from_min_size(pos2(ui.max_rect().right() - 16.0 - 108.0 - 8.0 - 40.0, row.y), vec2(40.0, 40.0));
         let hr = ui.interact(hand, ui.id().with("skin"), Sense::click());
-        if hr.hovered() {
-            ui.painter().rect_filled(hand, 8, MENU_HOVER);
-        }
+        crate::ui::motion::wash(ui, &hr, hand, 8, MENU_HOVER, 0.05);
         Image::from_uri(twemoji(tinted("👏", tone))).show_loading_spinner(false).paint_at(ui, hand.shrink(8.0));
         if hr.on_hover_text("Default Skin Tone").clicked() {
             tones_open = !tones_open;
         }
         let add = Rect::from_min_size(pos2(hand.right() + 8.0, row.y), vec2(108.0, 40.0));
         let ar = ui.interact(add, ui.id().with("add_emoji"), Sense::click());
-        ui.painter().rect(add, 8, if ar.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+        ui.painter().rect(add, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &ar)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(add.center(), Align2::CENTER_CENTER, "Add Emoji", medium(16.0), pal().header_primary);
         add_emoji = ar.clicked();
         header_rule(ui);
@@ -298,10 +304,22 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         } else {
             Vec::new()
         };
+        let popular: Vec<(ReactEmoji, Chosen)> = if ql.is_empty() {
+            top_ids
+                .iter()
+                .filter_map(|id| {
+                    let (e, _) = servers.iter().flat_map(|(_, _, _, l)| l).find(|(x, ok)| x.id == *id && *ok)?;
+                    Some((ReactEmoji { id: e.id, name: e.name.clone(), animated: e.animated }, Chosen::Custom(e.clone())))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         // one mark per section down the left: frequently used, servers by their icon, then discord's categories
         enum Mark<'a> {
             Star,
             Clock,
+            Top(&'a str),
             Server(Option<&'a str>, &'a str),
             Group(&'a str),
         }
@@ -327,6 +345,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         if !recent.is_empty() {
             marks.push(Mark::Clock);
         }
+        if !popular.is_empty() {
+            marks.push(Mark::Top(&top_title));
+        }
         marks.extend(servers.iter().map(|(_, name, icon, _)| Mark::Server(icon.as_deref(), name.as_str())));
         marks.extend(GROUPS.iter().map(|(_, t)| Mark::Group(t)));
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail.shrink2(vec2(8.0, 8.0))), |ui| {
@@ -334,9 +355,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for (i, mark) in marks.iter().enumerate() {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r.expand(2.0), 8, MENU_HOVER);
-                    }
+                    super::motion::wash(ui, &resp, r.expand(2.0), 8, MENU_HOVER, 0.1);
                     let tip = match mark {
                         Mark::Star => {
                             super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary);
@@ -345,6 +364,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         Mark::Clock => {
                             super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary);
                             "Frequently Used"
+                        }
+                        Mark::Top(title) => {
+                            super::icons::draw(ui.painter(), super::icons::Icon::Fire, r.shrink(6.0), pal().header_secondary);
+                            title
                         }
                         Mark::Server(Some(url), name) => {
                             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);
@@ -376,11 +399,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             sa.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 let top = ui.min_rect().top();
-                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent)] {
+                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent), (top_title.as_str(), super::icons::Icon::Fire, &popular)] {
                     if list.is_empty() {
                         continue;
                     }
                     new_tops.push(ui.cursor().top() - top);
+                    if icon == super::icons::Icon::Fire {
+                        super::settings::mark(ui, "picker:top", ui.cursor());
+                    }
                     if section(ui, title, Lead::Icon(icon), &mut shut) {
                         let base = order.len();
                         order.extend(list.iter().map(|(_, c)| c.clone()));
@@ -392,7 +418,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }, |i, hot| {
                             if hot {
                                 let e = &list[i].0;
-                                let name = if e.id != 0 { e.name.clone() } else { emojis::get(&e.name).and_then(|x| x.shortcode()).unwrap_or(&e.name).to_string() };
+                                let name = if e.id != 0 { e.name.clone() } else { super::reactions::unicode_name(&e.name).to_string() };
                                 hovered = Some((super::chat::emoji_url(e), format!(":{name}:"), None));
                             }
                         }, |i, at| menu_at = Some((list[i].0.clone(), at)));
@@ -495,7 +521,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         tones_open = false;
     }
     if add_emoji {
-        ctx.open_url(egui::OpenUrl::new_tab(format!("https://discord.com/channels/{guild}")));
+        app.open_server_settings(guild);
+        if let Some(s) = &mut app.server {
+            s.page = super::server::Page::Emoji;
+        }
+        app.picker = None;
+        return;
     }
     ctx.data_mut(|d| {
         d.insert_temp(shut_id, shut);
@@ -531,15 +562,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let mut act = None;
         let open = super::float_menu(ctx, "picker_menu", at, |ui| {
             if super::menu_item(ui, Some(super::icons::Icon::Star), if fav { "Unfavorite Emoji" } else { "Favorite Emoji" }, false) {
-                act = Some(true);
+                act = Some(0);
             }
             if em.id != 0 && super::menu_item(ui, Some(super::icons::Icon::Id), "Copy Emoji ID", false) {
-                act = Some(false);
+                act = Some(1);
+            }
+            if em.id != 0 && super::menu_item(ui, Some(super::icons::Icon::Link), "Copy Emoji Image Link", false) {
+                act = Some(2);
             }
         });
         match act {
-            Some(true) => toggle_fav(app, ctx, em),
-            Some(false) => ctx.copy_text(em.id.to_string()),
+            Some(0) => toggle_fav(app, ctx, em),
+            Some(1) => ctx.copy_text(em.id.to_string()),
+            Some(_) => ctx.copy_text(format!("{}/emojis/{}.webp?size=32{}", crate::api::cdn(), em.id, if em.animated { "&animated=true" } else { "" })),
             None => {}
         }
         if act.is_some() || !open {
@@ -580,6 +615,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     app.react(ch, id, em, true);
                 }
             }
+            Pick::Poll(i) => {
+                let em = match c {
+                    Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },
+                    Chosen::Unicode(s) => ReactEmoji { id: 0, name: s.to_string(), animated: false },
+                };
+                let i = *i;
+                if let Some(a) = app.poll.as_mut().and_then(|p| p.answers.get_mut(i)) {
+                    a.1 = Some(em);
+                }
+            }
+            Pick::Status => super::cstatus::chose(app, c.react()),
             Pick::Quick(slot) => {
                 let em = match c {
                     Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },
@@ -611,7 +657,7 @@ fn section(ui: &mut Ui, title: &str, lead: Lead, shut: &mut Vec<String>) -> bool
     let open = !shut.iter().any(|s| s == title);
     ui.add_space(12.0);
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-    let col = if resp.hovered() { pal().header_primary } else { pal().header_secondary };
+    let col = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
     let mut x = r.left() + 12.0;
     let lr = Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0));
     match lead {
@@ -626,8 +672,7 @@ fn section(ui: &mut Ui, title: &str, lead: Lead, shut: &mut Vec<String>) -> bool
         }
     }
     let t = ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, title, semi(14.0), col);
-    let chev = if open { super::icons::Icon::ChevronDown } else { super::icons::Icon::ChevronRight };
-    super::icons::draw(ui.painter(), chev, Rect::from_center_size(pos2(t.right() + 10.0, r.center().y), vec2(12.0, 12.0)), col);
+    super::motion::chevron(ui, resp.id, open, Rect::from_center_size(pos2(t.right() + 10.0, r.center().y), vec2(12.0, 12.0)), col);
     if resp.clicked() {
         if open {
             shut.push(title.to_string());
@@ -672,10 +717,12 @@ fn grid(
                 let (r, resp) = ui.allocate_exact_size(vec2(cell, cell), Sense::click());
                 let on = kbd.sel == Some(base + i);
                 if base + i == 0 {
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("e2e", "emoji0")), r));
+                    super::settings::mark(ui, "emoji0", r);
                 }
-                if resp.hovered() || on {
+                if on {
                     ui.painter().rect_filled(r, CornerRadius::same(4), pal().control_hover);
+                } else {
+                    super::motion::wash(ui, &resp, r, 4, pal().control_hover, 0.15);
                 }
                 if on && kbd.moved {
                     ui.scroll_to_rect(r, None);
@@ -706,24 +753,72 @@ fn toggle_fav(app: &mut App, ctx: &egui::Context, em: ReactEmoji) {
     app.save_settings(ctx);
 }
 
+/// One of discord's own sticker packs, as `GET /sticker-packs` lists it.
+pub struct Pack {
+    pub name: String,
+    pub cover: Id,
+    pub stickers: Vec<(Id, String, u8)>,
+    pub tags: Vec<String>,
+}
+
+impl App {
+    pub fn load_packs(&mut self) {
+        let keep = if self.packs.is_empty() { 10 } else { 3600 };
+        if self.packs_at.is_some_and(|t| t.elapsed() < Duration::from_secs(keep)) {
+            return;
+        }
+        self.packs_at = Some(Instant::now());
+        self.rest("GET", "/sticker-packs?locale=en-US".into(), None, Tag::StickerPacks);
+    }
+
+    pub fn set_packs(&mut self, v: &serde_json::Value) {
+        self.packs = v["sticker_packs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| {
+                let list = p["stickers"].as_array().map(Vec::as_slice).unwrap_or_default();
+                Pack {
+                    name: p["name"].as_str().unwrap_or_default().to_string(),
+                    cover: crate::state::sid(&p["cover_sticker_id"]),
+                    stickers: list.iter().map(|s| (crate::state::sid(&s["id"]), s["name"].as_str().unwrap_or_default().to_string(), s["format_type"].as_u64().unwrap_or(1) as u8)).collect(),
+                    tags: list.iter().map(|s| s["tags"].as_str().unwrap_or_default().to_lowercase()).collect(),
+                }
+            })
+            .filter(|p| !p.stickers.is_empty())
+            .collect();
+    }
+}
+
 /// Discord's sticker picker: every server's stickers, the current one first; another
-/// server's need nitro.
+/// server's need nitro. Discord's own packs follow, every one of them sendable.
 pub fn stickers(app: &mut App, ctx: &egui::Context) {
-    let Some(at) = app.stickers else { return };
+    let Some(at) = app.stickers else { return ctx.data_mut(|d| d.remove::<String>(egui::Id::new("sticker_q"))) };
     let Some(ch) = app.cur() else { return };
+    app.load_packs();
     let here = app.store.channels.get(&ch).map_or(0, |c| c.guild);
     let nitro = app.store.nitro();
     let order = std::iter::once(here).chain(app.store.guild_order.iter().copied().filter(|g| *g != here));
     // (server, its icon, its stickers, whether we may send them here)
-    let groups: Vec<(String, Option<String>, Vec<(Id, String, u8)>, bool)> = order
+    let mut groups: Vec<(String, Option<String>, Vec<(Id, String, u8)>, bool)> = order
         .filter_map(|g| app.store.guilds.get(&g))
         .filter(|g| !g.stickers.is_empty())
         .map(|g| (g.name.clone(), g.icon_url(), g.stickers.clone(), nitro || g.id == here))
         .collect();
+    let url = |id: &Id, fmt: u8| crate::api::sticker(*id, fmt, 160);
+    let mut tags: std::collections::HashMap<Id, &str> = std::collections::HashMap::new();
+    for p in &app.packs {
+        let cover = p.stickers.iter().find(|s| s.0 == p.cover).or(p.stickers.first()).map(|s| url(&s.0, s.2));
+        groups.push((p.name.clone(), cover, p.stickers.clone(), true));
+        tags.extend(p.stickers.iter().zip(&p.tags).map(|(s, t)| (s.0, t.as_str())));
+    }
     let qid = egui::Id::new("sticker_q");
     let jump_id = egui::Id::new("sticker_jump");
     let tops_id = egui::Id::new("sticker_tops");
     let shut_id = egui::Id::new("sticker_shut");
+    if let Some(first) = app.sticker_q.take() {
+        ctx.data_mut(|d| d.insert_temp(qid, first));
+    }
     let mut q: String = ctx.data(|d| d.get_temp(qid)).unwrap_or_default();
     let jump: Option<f32> = ctx.data_mut(|d| d.remove_temp(jump_id));
     let tops: Vec<f32> = ctx.data(|d| d.get_temp(tops_id)).unwrap_or_default();
@@ -732,10 +827,11 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
     let ql = q.to_lowercase();
     let find = |id: Id| groups.iter().find_map(|(name, icon, l, ok)| l.iter().find(|s| s.0 == id).map(|s| (s.clone(), name.clone(), icon.clone(), *ok)));
     let recent: Vec<_> = if ql.is_empty() { app.ui.frequent_stickers.iter().filter_map(|id| find(*id)).filter(|s| s.3).collect() } else { Vec::new() };
+    let favs: Vec<_> = if ql.is_empty() { app.ui.fav_stickers.iter().filter_map(|id| find(*id)).collect() } else { Vec::new() };
+    let mut fav_toggle = None;
     let mut chosen = None;
     let mut go = None;
     let mut hovered: Option<((Id, String, u8), String)> = None;
-    let url = |id: &Id, fmt: u8| format!("https://media.discordapp.net/stickers/{id}.{}?size=160", if fmt == 4 { "gif" } else { "png" });
     let (area, to) = shell(ctx, at, Align2::RIGHT_BOTTOM, Some(Tab::Stickers), |ui| {
         search_box(ui, &mut q, "Find the perfect sticker", None).request_focus();
         header_rule(ui);
@@ -746,23 +842,28 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         ui.painter().rect_filled(rail, CornerRadius::ZERO, pal().bg_tertiary);
         // the left column: frequently used, then each server by its icon
         let mut marks: Vec<(Option<&str>, &str)> = Vec::new();
+        if !favs.is_empty() {
+            marks.push((None, "Favorites"));
+        }
         if !recent.is_empty() {
             marks.push((None, "Frequently Used"));
         }
         marks.extend(groups.iter().map(|(name, icon, _, _)| (icon.as_deref(), name.as_str())));
+        if go.is_none() && !tops.is_empty() && let Some(n) = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::new("sticker_goto"))) {
+            go = marks.iter().position(|(_, m)| *m == n);
+        }
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail.shrink2(vec2(8.0, 8.0))), |ui| {
             egui::ScrollArea::vertical().id_salt("sticker_rail").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for (i, (icon, name)) in marks.iter().enumerate() {
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r.expand(2.0), 8, MENU_HOVER);
-                    }
+                    crate::ui::motion::wash(ui, &resp, r.expand(2.0), 8, MENU_HOVER, 0.05);
                     match icon {
                         Some(url) => {
                             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);
                         }
-                        None if i == 0 && !recent.is_empty() => super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary),
+                        None if *name == "Favorites" => super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary),
+                        None if *name == "Frequently Used" => super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary),
                         None => {
                             ui.painter().rect_filled(r, 8, pal().bg_accent);
                             let initial: String = name.chars().filter(|c| !c.is_whitespace()).take(2).collect();
@@ -788,11 +889,18 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                     ui.vertical_centered(|ui| ui.label(RichText::new("No stickers here yet.").color(pal().text_muted)));
                 }
                 let mut sections: Vec<(&str, Lead, Vec<((Id, String, u8), String, bool)>)> = Vec::new();
+                if !favs.is_empty() {
+                    sections.push(("Favorites", Lead::Icon(super::icons::Icon::Star), favs.iter().map(|(s, g, _, ok)| (s.clone(), g.clone(), *ok)).collect()));
+                }
                 if !recent.is_empty() {
                     sections.push(("Frequently Used", Lead::Icon(super::icons::Icon::Clock), recent.iter().map(|(s, g, _, ok)| (s.clone(), g.clone(), *ok)).collect()));
                 }
                 for (name, icon, l, ok) in &groups {
-                    let l = l.iter().filter(|(_, n, _)| ql.is_empty() || n.to_lowercase().contains(&ql)).map(|s| (s.clone(), name.clone(), *ok)).collect();
+                    let l = l
+                        .iter()
+                        .filter(|(id, n, _)| ql.is_empty() || n.to_lowercase().contains(&ql) || name.to_lowercase().contains(&ql) || tags.get(id).is_some_and(|t| t.contains(&ql)))
+                        .map(|s| (s.clone(), name.clone(), *ok))
+                        .collect();
                     sections.push((name, icon.as_deref().map_or(Lead::None, Lead::Image), l));
                 }
                 for (title, lead, l) in sections {
@@ -807,17 +915,30 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                             ui.spacing_mut().item_spacing.x = 4.0;
                             for (st, from, ok) in row {
                                 let (r, resp) = ui.allocate_exact_size(vec2(104.0, 104.0), Sense::click());
+                                super::settings::mark(ui, &format!("sticker:{}", st.0), r);
                                 if resp.hovered() {
                                     ui.painter().rect_filled(r, CornerRadius::same(8), pal().control_hover);
                                     hovered = Some((st.clone(), format!("from {from}")));
                                 }
-                                // lottie stickers (format 3) have no still image to show
-                                if st.2 != 3 && ui.is_rect_visible(r) {
+                                if ui.is_rect_visible(r) {
                                     let tint = if *ok { Color32::WHITE } else { Color32::from_white_alpha(90) };
-                                    Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), true)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
+                                    let play = match app.settings.stickers {
+                                        crate::cache::Animate::Always => true,
+                                        crate::cache::Animate::OnInteraction => resp.hovered(),
+                                        crate::cache::Animate::Never => false,
+                                    };
+                                    Image::from_uri(crate::gif::uri(ui.ctx(), &url(&st.0, st.2), play)).tint(tint).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
                                 }
                                 let resp = resp.on_hover_text(if *ok { st.1.clone() } else { format!("{} needs Nitro here", st.1) });
-                                if resp.clicked() && *ok {
+                                let fav = app.ui.fav_stickers.contains(&st.0);
+                                resp.context_menu(|ui| {
+                                    if super::menu_item(ui, Some(super::icons::Icon::Star), if fav { "Unfavorite Sticker" } else { "Favorite Sticker" }, false) {
+                                        fav_toggle = Some(st.0);
+                                    }
+                                });
+                                if resp.clicked() && ui.input(|i| i.modifiers.alt) {
+                                    fav_toggle = Some(st.0);
+                                } else if resp.clicked() && *ok {
                                     chosen = Some(st.0);
                                 }
                             }
@@ -852,13 +973,19 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
         toggle(app, t);
         return;
     }
+    if let Some(id) = fav_toggle {
+        if app.ui.fav_stickers.contains(&id) {
+            app.ui.fav_stickers.retain(|s| *s != id);
+        } else {
+            app.ui.fav_stickers.insert(0, id);
+        }
+        return;
+    }
     if let Some(id) = chosen {
         let nonce = crate::state::make_nonce();
         app.net.send(crate::net::Cmd::Send { channel: ch, content: String::new(), nonce, reply: app.reply.take().map(|r| (r, app.reply_ping)), files: Vec::new(), stickers: vec![id], tts: false });
         app.jump_to_present(ch);
-        app.ui.frequent_stickers.retain(|s| *s != id);
-        app.ui.frequent_stickers.insert(0, id);
-        app.ui.frequent_stickers.truncate(12);
+        super::favs::used_sticker(app, id);
         app.stickers = None;
     } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || (super::popups::pressed_outside(ctx, &area) && !on_picker_button(app, ctx)) {
         app.stickers = None;

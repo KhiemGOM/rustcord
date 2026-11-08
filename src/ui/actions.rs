@@ -7,10 +7,65 @@ use super::{App, Confirm};
 use crate::net::{Cmd, Tag};
 use crate::state::Id;
 
+/// What a send was made of, kept until it lands so a failed one can go out again as it was.
+#[derive(Clone)]
+pub struct Unsent {
+    pub content: String,
+    pub reply: Option<(Id, bool)>,
+    pub files: Vec<(std::path::PathBuf, String, String)>,
+    pub tts: bool,
+}
+
 impl App {
+    pub fn remember_send(&mut self, nonce: &str, u: Unsent) {
+        if self.unsent.len() > 20 {
+            let live: Vec<String> = self.store.msgs.values().flat_map(|e| e.list.iter()).filter(|m| m.pending || m.failed).filter_map(|m| m.nonce.clone()).collect();
+            self.unsent.retain(|n, _| live.contains(n));
+        }
+        self.unsent.insert(nonce.to_string(), u);
+    }
+
+    /// Resend message: the failed one goes out again under its own nonce, so discord can't post it twice.
+    pub fn resend(&mut self, ch: Id, id: Id) {
+        let Some(m) = self.store.find_msg(ch, id).filter(|m| m.failed) else { return };
+        let Some(nonce) = m.nonce.clone() else { return };
+        let u = self.unsent.get(&nonce).cloned().unwrap_or(Unsent { content: m.content.clone(), reply: m.reply.map(|r| (r, false)), files: Vec::new(), tts: false });
+        if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+            m.failed = false;
+            m.pending = true;
+        }
+        self.net.send(Cmd::Send { channel: ch, content: u.content, nonce, reply: u.reply, files: u.files, stickers: Vec::new(), tts: u.tts });
+    }
+
+    pub fn edit_msg(&mut self, ch: Id, id: Id, text: String) {
+        let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) else { return };
+        let (was, edited) = (std::mem::replace(&mut m.content, text.clone()), std::mem::replace(&mut m.edited, true));
+        self.rest("PATCH", format!("/channels/{ch}/messages/{id}"), Some(json!({ "content": text })), Tag::undo("Failed to update message", move |app: &mut App| {
+            if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                m.content = was.clone();
+                m.edited = edited;
+            }
+        }));
+    }
+
     pub fn delete_msg(&mut self, ch: Id, id: Id, ask: bool) {
+        if let Some(m) = self.store.find_msg(ch, id).filter(|m| m.failed) {
+            if let Some(n) = &m.nonce {
+                self.unsent.remove(n);
+            }
+            if let Some(e) = self.store.msgs.get_mut(&ch) {
+                e.list.retain(|m| m.id != id);
+            }
+            return;
+        }
         if !ask {
-            self.net.send(Cmd::Delete { channel: ch, id });
+            let gone = self.store.find_msg(ch, id).cloned();
+            self.rest("DELETE", format!("/channels/{ch}/messages/{id}"), None, Tag::undo("Failed to delete message", move |app: &mut App| {
+                if let (Some(m), Some(e)) = (&gone, app.store.msgs.get_mut(&ch)) {
+                    let at = e.list.partition_point(|x| x.id < m.id);
+                    e.list.insert(at, m.clone());
+                }
+            }));
             if let Some(m) = self.store.msgs.get_mut(&ch) {
                 m.list.retain(|m| m.id != id);
             }
@@ -29,7 +84,12 @@ impl App {
         let pinned = listed || self.store.find_msg(ch, id).is_some_and(|m| m.pinned);
         if !ask {
             let method = if pinned { "DELETE" } else { "PUT" };
-            self.rest(method, format!("/channels/{ch}/messages/pins/{id}"), None, Tag::Quiet);
+            let say = if pinned { "Discord failed to unpin that message for some reason. Sorry about that." } else { "Failed to pin message" };
+            self.rest(method, format!("/channels/{ch}/messages/pins/{id}"), None, Tag::undo(say, move |app: &mut App| {
+                if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                    m.pinned = pinned;
+                }
+            }));
             if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
                 m.pinned = !pinned;
             }
@@ -58,7 +118,13 @@ impl App {
     /// The ✕ over your own message's embeds: they go for everyone (SUPPRESS_EMBEDS).
     pub fn clear_embeds(&mut self, ch: Id, id: Id, ask: bool) {
         if !ask {
-            self.rest("PATCH", format!("/channels/{ch}/messages/{id}"), Some(json!({ "flags": 4 })), Tag::Quiet);
+            let (flags, embeds) = self.store.find_msg(ch, id).map(|m| (m.flags, m.embeds.clone())).unwrap_or_default();
+            self.rest("PATCH", format!("/channels/{ch}/messages/{id}"), Some(json!({ "flags": 4 })), Tag::undo("Failed to remove embeds", move |app: &mut App| {
+                if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                    m.flags = flags;
+                    m.embeds = embeds.clone();
+                }
+            }));
             if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
                 m.flags |= 4;
                 m.embeds.clear();
@@ -71,9 +137,12 @@ impl App {
 
     /// Submitting a poll vote: set our picks locally and send discord the whole set (empty clears).
     pub fn vote(&mut self, ch: Id, id: Id, picks: Vec<u8>) {
+        let before: Vec<u8> = self.store.find_msg(ch, id).and_then(|m| m.poll.as_ref()).map(|p| p.answers.iter().filter(|a| a.me).map(|a| a.id).collect()).unwrap_or_default();
         if self.store.set_votes(ch, id, &picks) {
-            let ids: Vec<String> = picks.iter().map(|a| a.to_string()).collect();
-            self.rest("PUT", format!("/channels/{ch}/polls/{id}/answers/@me"), Some(json!({ "answer_ids": ids })), Tag::Quiet);
+            let ids: Vec<u8> = picks.to_vec();
+            self.rest("PUT", format!("/channels/{ch}/polls/{id}/answers/@me"), Some(json!({ "answer_ids": ids })), Tag::undo("Failed to vote", move |app: &mut App| {
+                app.store.set_votes(ch, id, &before);
+            }));
         }
     }
 
@@ -81,6 +150,7 @@ impl App {
     /// one already going. The bytes are fetched off the ui thread.
     pub fn play_audio(&mut self, url: String) {
         if crate::audioplay::toggle(&url) {
+            crate::media::stop();
             let http = crate::api::http();
             self.net.rt.spawn(async move {
                 if let Ok(r) = http.get(&url).send().await {
@@ -92,9 +162,28 @@ impl App {
         }
     }
 
+    pub fn copy_image(&mut self, url: String) {
+        let http = crate::api::http();
+        self.net.rt.spawn(async move {
+            let Ok(b) = http.get(&url).send().await else { return };
+            let Ok(b) = b.bytes().await else { return };
+            let Ok(img) = image::load_from_memory(&b) else { return };
+            let img = img.to_rgba8();
+            let (width, height) = (img.width() as usize, img.height() as usize);
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let _ = cb.set_image(arboard::ImageData { width, height, bytes: img.into_raw().into() });
+            }
+        });
+    }
+
     pub fn clear_reactions(&mut self, ch: Id, id: Id, ask: bool) {
         if !ask {
-            self.rest("DELETE", format!("/channels/{ch}/messages/{id}/reactions"), None, Tag::Quiet);
+            let kept = self.store.find_msg(ch, id).map(|m| m.reactions.clone()).unwrap_or_default();
+            self.rest("DELETE", format!("/channels/{ch}/messages/{id}/reactions"), None, Tag::undo("Failed to remove reactions", move |app: &mut App| {
+                if let Some(m) = app.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
+                    m.reactions = kept.clone();
+                }
+            }));
             if let Some(m) = self.store.msgs.get_mut(&ch).and_then(|e| e.list.iter_mut().find(|m| m.id == id)) {
                 m.reactions.clear();
             }
@@ -107,11 +196,15 @@ impl App {
     /// Bookmark Message, or Remove Bookmark on one that's saved already.
     pub fn bookmark(&mut self, ch: Id, id: Id) {
         if self.bookmarks.remove(&id) {
-            self.rest("DELETE", format!("/users/@me/saved-messages/{ch}/{id}"), None, Tag::Quiet);
+            self.rest("DELETE", format!("/users/@me/saved-messages/{ch}/{id}"), None, Tag::undo("Failed to remove bookmark!", move |app: &mut App| {
+                app.bookmarks.insert(id);
+            }));
             self.toast("Bookmark removed.");
         } else {
             self.bookmarks.insert(id);
-            self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "source": "message_context_menu" })), Tag::Quiet);
+            self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "source": "context_menu" })), Tag::undo("Failed to save message!", move |app: &mut App| {
+                app.bookmarks.remove(&id);
+            }));
             self.toast("Bookmark added.");
         }
         if let Some(i) = &mut self.inbox {
@@ -119,9 +212,28 @@ impl App {
         }
     }
 
+    /// Files into the composer, the ones past what this account may upload here turned away with
+    /// discord's "Your files are too powerful".
+    pub fn attach_files(&mut self, paths: Vec<std::path::PathBuf>) {
+        let tier = self.cur().and_then(|c| self.store.channels.get(&c)).and_then(|c| self.store.guilds.get(&c.guild)).map_or(0, |g| g.tier);
+        let max = crate::upload::max_bytes(self.store.me_raw["premium_type"].as_u64().unwrap_or(0), tier);
+        let mut big = false;
+        for p in paths {
+            if std::fs::metadata(&p).is_ok_and(|m| m.len() > max) {
+                big = true;
+            } else {
+                self.files.push(super::composer::Upload::new(p));
+            }
+        }
+        if big {
+            let body = format!("Max file size is {} please.", crate::upload::size_text(max));
+            self.confirm = Some(super::Confirm::new("Your files are too powerful", body, "Okay", |_: &mut App| {}).blurple());
+        }
+    }
+
     pub fn remind(&mut self, ch: Id, id: Id, at: chrono::DateTime<chrono::Utc>) {
         let due = at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "due_at": due, "source": "message_context_menu" })), Tag::Quiet);
+        self.rest("PUT", format!("/users/@me/saved-messages/{ch}/{id}"), Some(json!({ "due_at": due, "source": "context_menu" })), Tag::fail("Failed to save message!"));
         self.toast("Reminder added.");
         if let Some(i) = &mut self.inbox {
             i.saved = None;
@@ -178,5 +290,15 @@ impl App {
         self.aliases.entry(ch).or_default().push((shown, format!("<@{uid}>")));
         self.focus_composer = true;
         self.caret_end = true;
+    }
+}
+
+impl App {
+    /// Configure on a join message: the server's engagement settings, where its welcome messages live.
+    pub fn configure_joins(&mut self, guild: Id) {
+        self.open_server_settings(guild);
+        if let Some(s) = &mut self.server {
+            s.page = super::server::Page::Engagement;
+        }
     }
 }

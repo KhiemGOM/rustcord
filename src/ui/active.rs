@@ -22,7 +22,7 @@ fn ago(ms: i64) -> String {
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(gid) = app.active_threads else { return };
     let s = &app.store;
-    let mut threads: Vec<&crate::state::Channel> = s.channels.values().filter(|c| c.guild == gid && c.is_thread() && !c.archived && s.can_view(c)).collect();
+    let mut threads: Vec<&crate::state::Channel> = s.threads_in(gid).filter(|c| !c.archived && s.can_view(c)).collect();
     threads.sort_by_key(|t| std::cmp::Reverse(t.last_msg.max(t.id)));
     let rows: Vec<(Id, String, String, String, Option<String>)> = threads
         .iter()
@@ -43,7 +43,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let h = (screen.height() - 112.0).min(800.0);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = egui::Modal::new("active_threads".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("active_threads".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(480.0);
         ui.set_height(h);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -52,7 +52,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         p.text(pos2(top.left() + 24.0, top.top() + 38.0), Align2::LEFT_CENTER, "All Active Threads", semi(20.0), pal().header_primary);
         let x = Rect::from_min_size(pos2(top.right() - 50.0, top.top() + 10.0), vec2(40.0, 40.0));
         let xr = ui.interact(x, ui.id().with("close"), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), if xr.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &xr)));
         close |= xr.clicked();
         ui.painter().hline(top.x_range(), top.top() + 74.5, Stroke::new(1.0, pal().border_subtle));
         let list = Rect::from_min_max(pos2(top.left(), top.top() + 75.0), pos2(top.right(), top.bottom() - 88.0));
@@ -66,7 +66,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 for (id, name, parent, line, avatar) in &rows {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
                     let p = ui.painter();
-                    p.rect_filled(r, CornerRadius::same(8), if resp.hovered() { pal().bg_mod_hover } else { pal().bg_floating });
+                    p.rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_floating, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                     p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     let n = super::text::paint_em(p, pos2(r.left() + 16.0, r.top() + 26.0), Align2::LEFT_CENTER, name, semi(16.0), pal().text_normal, r.width() - 140.0, 1.0);
                     p.text(pos2(n.right() + 8.0, r.top() + 27.0), Align2::LEFT_CENTER, parent, medium(14.0), pal().text_muted);
@@ -86,7 +86,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         });
         let b = Rect::from_min_size(pos2(top.left() + 24.0, top.bottom() - 64.0), vec2(top.width() - 48.0, 40.0));
         let br = ui.interact(b, ui.id().with("close_button"), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(8), if br.hovered() { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+        ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &br)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Close", medium(16.0), Color32::WHITE);
         close |= br.clicked();
     });
@@ -96,6 +96,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     if let Some(t) = open {
         app.active_threads = None;
-        app.open(t);
+        let shift = ctx.input(|i| i.modifiers.shift);
+        app.open_thread(t, true, shift);
     }
 }

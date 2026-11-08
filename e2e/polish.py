@@ -29,7 +29,7 @@ def checks(runs, reqs, data):
             cam[3] == 32 and scr[3] == 32 and abs(cam[2] - scr[2]) <= 0.6 and abs(scr[0] - cam[0] - cam[2] - 8) <= 0.6
             and abs(user[1] - (cam[1] + cam[3]) - 13) <= 0.6)
         out[f"polish: {tag}: disconnect sits on the status row, flush with the buttons' right edge"] = (
-            abs(off[1] - (cam[1] - 12 - 32)) <= 0.6 and abs(scr[0] + scr[2] - (off[0] + off[2])) <= 0.6)
+            abs(off[1] - (cam[1] - 12 - 32)) <= 0.6 and abs(cam[0] + 4 * cam[2] + 3 * 8 - (off[0] + off[2])) <= 0.6)
         out[f"polish: {tag}: voice panel floats on the user card's colour, buttons are the 0.122 overlay"] = (
             near(px("polish_voice:gap"), "#36373e", 3) and near(px("polish_voice:button"), over("97979f", 0.122, "36373e"), 4))
 
@@ -38,4 +38,5 @@ def checks(runs, reqs, data):
         out[f"polish: {tag}: code block is --background-code over the chat with a --border-normal outline"] = (
             code[2] > 100 and near(chat, "#323339", 2) and near(fill, over("5865f2", 0.078, "323339"), 4)
             and near(edge, over("97979f", 0.2, over("5865f2", 0.078, "323339")), 14))
+        out[f"polish: {tag}: the ```rust block is coloured by its language"] = g("codeblock_tinted")[2] > 0
     return out

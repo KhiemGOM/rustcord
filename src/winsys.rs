@@ -5,7 +5,66 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-fn wide(s: &str) -> Vec<u16> {
+// the hook below while it's watching, and what it's watching for: width in points, and colour
+static EARLY: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static EARLY_FOR: std::sync::Mutex<([f32; 2], [u8; 3])> = std::sync::Mutex::new(([0.0; 2], [0; 3]));
+
+/// The window exists within a few ms, but eframe keeps it hidden until the first frame, which the
+/// graphics driver holds up for 200 ms more. So it's shown as soon as it has its size, filled with
+/// the theme's background, and the first frame lands on that. Showing it takes the main thread,
+/// which only a hook on its messages can run on before the driver starts loading.
+pub fn show_early(size: [f32; 2], color: [u8; 3]) {
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowsHookExW, WH_CALLWNDPROCRET};
+    *EARLY_FOR.lock().unwrap() = (size, color);
+    let hook = unsafe { SetWindowsHookExW(WH_CALLWNDPROCRET, Some(early_hook), std::ptr::null_mut(), GetCurrentThreadId()) };
+    EARLY.store(hook as isize, Ordering::Relaxed);
+}
+
+/// Stops watching, for a window that never turned out the size it was expected to be.
+pub fn show_early_over() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx;
+    let hook = EARLY.swap(0, Ordering::Relaxed);
+    if hook != 0 {
+        unsafe { UnhookWindowsHookEx(hook as _) };
+    }
+}
+
+unsafe extern "system" fn early_hook(code: i32, wp: usize, lp: isize) -> isize {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect, GetDC, ReleaseDC};
+    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CWPRETSTRUCT, CallNextHookEx, GetClassNameW, SW_SHOW, ShowWindow, WM_SIZE};
+    unsafe {
+        let m = &*(lp as *const CWPRETSTRUCT);
+        if code >= 0 && m.message == WM_SIZE {
+            let mut class = [0u16; 32];
+            let n = GetClassNameW(m.hwnd, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
+            let (w, h) = ((m.lParam & 0xffff) as i32, (m.lParam >> 16 & 0xffff) as i32);
+            let ([points, _], [r, g, b]) = *EARLY_FOR.lock().unwrap();
+            if String::from_utf16_lossy(&class[..n]) == "Window Class" && (w - (points * GetDpiForWindow(m.hwnd) as f32 / 96.0).round() as i32).abs() <= 2 {
+                show_early_over();
+                ShowWindow(m.hwnd, SW_SHOW);
+                let dc = GetDC(m.hwnd);
+                let brush = CreateSolidBrush(r as u32 | (g as u32) << 8 | (b as u32) << 16);
+                FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, brush);
+                DeleteObject(brush);
+                ReleaseDC(m.hwnd, dc);
+            }
+        }
+        CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
+    }
+}
+
+/// The thread drawing the window, while the window's in use, goes ahead of whatever else wants the
+/// cpu, or a build in the background shows up as hitches in scrolling. It only wants a millisecond
+/// or so a frame. Out of focus it goes back to normal, to stay out of a game's way.
+pub fn set_ui_priority(focused: bool) {
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_NORMAL};
+    unsafe { SetThreadPriority(GetCurrentThread(), if focused { THREAD_PRIORITY_ABOVE_NORMAL } else { THREAD_PRIORITY_NORMAL }) };
+}
+
+pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -24,6 +83,40 @@ pub fn set_startup(on: bool) {
             RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr());
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct Prefs {
+    pub animations: bool,
+    pub high_contrast: bool,
+}
+
+/// What Windows' own ease-of-access settings say: animations in the client area, and a contrast theme.
+pub fn preferences() -> Prefs {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SystemParametersInfoW;
+    let mut anim = 1i32;
+    let mut flags = [0u16; 16];
+    let mut len = std::mem::size_of_val(&flags) as u32;
+    let (key, name) = (wide("Control Panel\\Accessibility\\HighContrast"), wide("Flags"));
+    unsafe {
+        SystemParametersInfoW(0x1042, 0, (&mut anim as *mut i32).cast(), 0);
+        RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), flags.as_mut_ptr().cast(), &mut len);
+    }
+    let text = String::from_utf16_lossy(&flags);
+    let flags: u32 = text.trim_matches('\0').trim().parse().unwrap_or(0);
+    Prefs { animations: anim != 0, high_contrast: flags & 1 != 0 }
+}
+
+/// Whether windows' own clock is set to 24 hours (iTime 1).
+pub fn system_24h() -> bool {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    let key = wide("Control Panel\\International");
+    let name = wide("iTime");
+    let mut buf = [0u16; 4];
+    let mut len = size_of_val(&buf) as u32;
+    let ok = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut len) };
+    ok == 0 && buf[0] == b'1' as u16
 }
 
 /// Hands back every page nothing is touching, as Windows itself used to for a minimized window:
@@ -91,10 +184,18 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 static BUTTON_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+pub static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 // width of the invisible resize border, in points
 const EDGE: f32 = 6.0;
+
+static BACKDROP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The colour the window is wiped with before a frame lands, the one egui clears to, so the strip
+/// a drag uncovers is the app's background rather than the system's.
+pub fn set_backdrop(c: [u8; 3]) {
+    BACKDROP.store(u32::from(c[0]) | u32::from(c[1]) << 8 | u32::from(c[2]) << 16, Ordering::Relaxed);
+}
 
 /// winit leaves an undecorated window with no resize border at all, so answer
 /// WM_NCHITTEST ourselves; the system then does the cursor, the drag and Aero Snap.
@@ -109,6 +210,20 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     // a new taskbar button (shown again from the tray, or explorer restarted) has no badge yet
     if msg != 0 && msg == BUTTON_CREATED.load(Ordering::Relaxed) {
         crate::tray::send("badge");
+    }
+    if msg == WM_SETCURSOR && lp as u16 as u32 == HTCLIENT && crate::cursor::apply() {
+        return 1;
+    }
+    if msg == WM_ERASEBKGND {
+        use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect};
+        let mut r: RECT = unsafe { std::mem::zeroed() };
+        unsafe {
+            GetClientRect(hwnd, &mut r);
+            let b = CreateSolidBrush(BACKDROP.load(Ordering::Relaxed));
+            FillRect(wp as _, &r, b);
+            DeleteObject(b as _);
+        }
+        return 1;
     }
     if msg == WM_NCHITTEST && unsafe { IsZoomed(hwnd) } == 0 {
         let (x, y) = (lp as i16 as i32, ((lp >> 16) as i16) as i32);

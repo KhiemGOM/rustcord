@@ -61,7 +61,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut quality = None;
     let mut rects = Vec::new();
     // measured from discord's: 958 wide, 24 in, 438 by 246 tiles two to a row
-    let modal = egui::Modal::new("share_picker".into())
+    let modal = crate::ui::motion::Modal::new("share_picker".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(910.0);
@@ -120,7 +120,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             }
                         }
                         if resp.hovered() {
-                            ui.painter().rect_stroke(tile, 8, Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+                            ui.painter().rect_stroke(tile, 8, Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
                         let y = tile.bottom() + 18.0;
@@ -147,7 +147,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.painter().text(foot.left_bottom(), Align2::LEFT_BOTTOM, format!("{res} · {fps}fps"), reg(12.0), pal().text_muted);
             let gear = Rect::from_min_size(pos2(foot.right() - 40.0, foot.top()), vec2(40.0, 40.0));
             let resp = ui.interact(gear, ui.id().with("share_gear"), Sense::click());
-            ui.painter().rect_filled(gear, 8, if resp.hovered() { pal().control_hover } else { pal().control });
+            ui.painter().rect_filled(gear, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             icons::draw(ui.painter(), Icon::Gear, Rect::from_center_size(gear.center(), vec2(20.0, 20.0)), pal().header_primary);
             rects.push(("share:gear".into(), gear));
             egui::Popup::menu(&resp.on_hover_text("Stream Quality")).show(|ui| {

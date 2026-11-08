@@ -1,4 +1,4 @@
-//! Animated gifs, animated webp and gifv mp4 clips, decoded off the UI thread.
+//! Animated gifs, animated webp, gifv mp4 clips and Lottie stickers, decoded off the UI thread.
 //! egui_extras' loader decodes every frame inline the first time an image is
 //! drawn, which froze the window for ~0.4s when the GIF picker filled up.
 //! Registered after egui_extras' loaders, so it's asked first.
@@ -29,6 +29,7 @@ enum Kind {
     Webp,
     Mp4,
     Apng,
+    Lottie,
 }
 
 fn kind(b: &[u8]) -> Option<Kind> {
@@ -41,6 +42,8 @@ fn kind(b: &[u8]) -> Option<Kind> {
     } else if b.starts_with(&[0x89, b'P', b'N', b'G']) && b[..b.len().min(4096)].windows(4).any(|w| w == b"acTL") {
         // an animated png says so in a chunk ahead of its image data
         Some(Kind::Apng)
+    } else if crate::lottie::sniff(b) {
+        Some(Kind::Lottie)
     } else {
         None
     }
@@ -50,6 +53,16 @@ struct Anim {
     frames: Vec<Arc<ColorImage>>,
     // the longest side the frames were scaled down to, if they were
     side: Option<u32>,
+    lottie: Option<Arc<crate::lottie::Player>>,
+}
+
+impl Anim {
+    fn frame(&self, ctx: &egui::Context, i: usize) -> Arc<ColorImage> {
+        match &self.lottie {
+            Some(p) => p.frame(ctx, i),
+            None => self.frames[i % self.frames.len()].clone(),
+        }
+    }
 }
 
 type Entry = Poll<Result<Arc<Anim>, String>>;
@@ -103,11 +116,16 @@ fn collect(frames: impl Iterator<Item = image::ImageResult<image::Frame>>, side:
 }
 
 fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Duration>), String> {
+    if let Kind::Lottie = kind {
+        let (player, durations) = crate::lottie::Player::new(data, side.unwrap_or(320))?;
+        return Ok((Anim { frames: Vec::new(), side: Some(player.side()), lottie: Some(Arc::new(player)) }, durations));
+    }
     let (frames, mut durations) = match kind {
         Kind::Gif => collect(image::codecs::gif::GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
         Kind::Webp => collect(image::codecs::webp::WebPDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
         Kind::Mp4 => crate::mp4::frames(data, BUDGET)?.into_iter().map(|(img, d)| (Arc::new(shrink(img, side)), d)).unzip(),
         Kind::Apng => collect(image::codecs::png::PngDecoder::new(Cursor::new(data)).and_then(|d| d.apng()).map_err(|e| e.to_string())?.into_frames(), side)?,
+        Kind::Lottie => unreachable!(),
     };
     if frames.is_empty() {
         return Err("no frames".into());
@@ -118,7 +136,7 @@ fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Durat
             *d = Duration::from_millis(100);
         }
     }
-    Ok((Anim { frames, side }, durations))
+    Ok((Anim { frames, side, lottie: None }, durations))
 }
 
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a
@@ -136,6 +154,7 @@ pub fn uri(ctx: &egui::Context, url: &str, play: bool) -> String {
         let e = shown.entry(url.to_string()).or_default();
         e.0.insert(i);
         e.1 = i;
+        e.2 += 1;
     }
     format!("{url}{SEP}{i}")
 }
@@ -151,23 +170,53 @@ pub fn paint_still(ui: &egui::Ui, url: &str, rect: egui::Rect, radius: egui::Cor
 }
 
 fn frame_at(ctx: &egui::Context, url: &str) -> usize {
+    let t = (ctx.input(|i| i.time) * 1000.0) as u128;
+    frame_for(ctx, url, t, true)
+}
+
+fn frame_for(ctx: &egui::Context, url: &str, t: u128, wake: bool) -> usize {
     let Some(durs) = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))) else { return 0 };
     let total = durs.all().map(|d| d.as_millis()).sum::<u128>().max(1);
-    let t = (ctx.input(|i| i.time) * 1000.0) as u128 % total;
+    let t = t % total;
     let mut end = 0;
     for (i, d) in durs.all().enumerate() {
         end += d.as_millis();
         if t < end {
-            ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
+            if wake {
+                ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
+            }
             return i;
         }
     }
     0
 }
 
+/// `uri` for an animation that has been running `ms` since it was started, rather than since
+/// the app was: the frame for that moment, and the last one once a single play is over.
+pub fn uri_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> String {
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return url.to_string() };
+    if kind(&bytes).is_none() {
+        return url.to_string();
+    }
+    let total = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).map_or(0, |d| d.all().map(|d| d.as_millis()).sum::<u128>());
+    let i = if once && total > 0 && ms >= total { last_frame(ctx, url) } else { frame_for(ctx, url, ms, false) };
+    if TRACE.load(Relaxed) {
+        let mut shown = SHOWN.lock();
+        let e = shown.entry(url.to_string()).or_default();
+        e.0.insert(i);
+        e.1 = i;
+        e.2 += 1;
+    }
+    format!("{url}{SEP}{i}")
+}
+
+fn last_frame(ctx: &egui::Context, url: &str) -> usize {
+    ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).map_or(0, |d| d.all().count().saturating_sub(1))
+}
+
 // the e2e run asks which frames of an animation actually reached the screen
 static TRACE: AtomicBool = AtomicBool::new(false);
-static SHOWN: LazyLock<Mutex<BTreeMap<String, (HashSet<usize>, usize)>>> = LazyLock::new(Default::default);
+static SHOWN: LazyLock<Mutex<BTreeMap<String, (HashSet<usize>, usize, u64)>>> = LazyLock::new(Default::default);
 
 pub fn trace() {
     TRACE.store(true, Relaxed);
@@ -176,6 +225,11 @@ pub fn trace() {
 /// Most distinct frames shown so far of any url containing `part`.
 pub fn shown(part: &str) -> usize {
     SHOWN.lock().iter().filter(|(u, _)| u.contains(part)).map(|(_, f)| f.0.len()).max().unwrap_or(0)
+}
+
+/// How many times a url containing `part` was asked for a frame to draw, repeats included.
+pub fn draws(part: &str) -> u64 {
+    SHOWN.lock().iter().filter(|(u, _)| u.contains(part)).map(|(_, f)| f.2).sum()
 }
 
 /// The frame most recently shown for a url containing `part`.
@@ -218,7 +272,7 @@ impl ImageLoader for GifLoader {
         };
         let want = side(hint);
         let have = match self.cache.lock().get(uri) {
-            Some(Poll::Ready(Ok(a))) => Some((a.frames[index % a.frames.len()].clone(), a.side)),
+            Some(Poll::Ready(Ok(a))) => Some((a.frame(ctx, index), a.side)),
             Some(Poll::Ready(Err(e))) => return Err(LoadError::Loading(e.clone())),
             Some(Poll::Pending) => return Ok(ImagePoll::Pending { size: None }),
             None => None,
@@ -260,7 +314,7 @@ impl ImageLoader for GifLoader {
             .lock()
             .values()
             .map(|e| match e {
-                Poll::Ready(Ok(a)) => a.frames.iter().map(|f| f.pixels.len() * 4).sum(),
+                Poll::Ready(Ok(a)) => a.frames.iter().map(|f| f.pixels.len() * 4).sum::<usize>() + a.lottie.as_ref().map_or(0, |p| p.bytes()),
                 _ => 0,
             })
             .sum()

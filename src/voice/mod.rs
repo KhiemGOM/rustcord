@@ -1,15 +1,25 @@
 //! Voice channels and DM calls. The UI side (`VoiceUi`) lives on `App` and
 //! talks to the main gateway; the session itself runs on the net runtime.
 
+mod aec;
 pub mod audio;
 mod capture;
 mod conn;
+mod dsp;
+mod duck;
+pub mod effects;
+pub mod hwdec;
 mod hwenc;
+mod log;
+pub mod preview;
+pub mod probe;
+mod qos;
 mod rtp;
+pub mod stage;
 mod video;
 
 pub use capture::cameras;
-pub use video::{Quality, Source};
+pub use video::{Quality, Source, shown};
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -43,6 +53,8 @@ pub enum Media {
 pub enum Ctl {
     Camera(bool),
 }
+
+pub const CAMERA_FAILED: &str = "Failed to start camera";
 
 pub struct Connect {
     pub kind: Media,
@@ -84,6 +96,7 @@ pub enum Kind {
     Loss(f32),
     /// DAVE's privacy code for the call, while it's end-to-end encrypted
     Privacy(Option<String>),
+    Clips,
 }
 
 /// Net-side handles on the running sessions (voice, and at most one stream); dropping a sender ends it.
@@ -129,11 +142,13 @@ pub struct Live {
     endpoint: Option<(String, String)>,
     tag: u64,
     share: Option<(video::Source, video::Quality)>,
+    preview_at: Option<std::time::Instant>,
 }
 
 #[derive(Default)]
 pub struct VoiceUi {
     pub state: State,
+    clip_flags: u32,
     pub guild: Id,
     pub chan: Option<Id>,
     pub mute: bool,
@@ -148,17 +163,35 @@ pub struct VoiceUi {
     pub calls: HashMap<Id, Vec<Id>>,
     /// a dm call ringing for us, while we're in no call
     pub ringing: Option<Id>,
+    /// who is being rung in each DM call
+    pub rung: HashMap<Id, Vec<Id>>,
+    /// who is watching the stream we own or watch
+    pub viewers: HashSet<Id>,
+    /// the channel we're in is a stage, which has no join or leave sounds
+    pub stage_room: bool,
     pub camera: bool,
     /// latest camera frame per user, ours included
     pub video: HashMap<Id, Arc<egui::ColorImage>>,
+    /// frames shown per second for each person's video, counted over the last whole second
+    pub video_rate: HashMap<Id, (std::time::Instant, u32, u32)>,
     /// who has their camera on / is streaming, from voice states
     pub cams: HashSet<Id>,
     pub live: HashSet<Id>,
     /// muted, server muted, deafened, server deafened, for whoever is any of them
     pub muted: HashMap<Id, [bool; 4]>,
     pub stream: Option<Live>,
+    /// a stream to start watching once the call we're joining connects: (channel, streamer, asked at)
+    pub watch_next: Option<(Id, Id, std::time::Instant)>,
+    pub stage: stage::Stage,
+    pub suppressed: bool,
+    /// a video call was asked for: the camera goes on once the call connects
+    pub video_call: bool,
     pub tex: HashMap<String, (egui::TextureHandle, usize)>,
     pub shared: Arc<Shared>,
+    /// set when a call connects, for the entrance sound
+    pub entrance_due: bool,
+    /// our own stream's picture, when it's time to send Discord a preview of it
+    pub preview_job: Option<(String, Arc<egui::ColorImage>)>,
     session: Option<String>,
     server: Option<(String, String, Id)>,
     joined: Option<(String, String)>,
@@ -183,6 +216,10 @@ impl VoiceUi {
             self.camera = false;
             self.video.clear();
             self.tex.clear();
+        }
+        self.stage_room = c.kind == 13;
+        if !self.stage_room {
+            crate::sound::cue("user_join");
         }
         let ring = ring && c.guild == 0 && !self.calls.get(&ch).is_some_and(|u| !u.is_empty());
         self.chan = Some(ch);
@@ -211,10 +248,16 @@ impl VoiceUi {
         if self.chan.is_none() {
             return;
         }
-        crate::sound::cue("disconnect");
+        self.dropped();
         self.chan = None;
         self.op4(net);
         self.reset(net);
+    }
+
+    fn dropped(&self) {
+        if !self.stage_room {
+            crate::sound::cue("disconnect");
+        }
     }
 
     /// The voice server's name, like discord shows it: the endpoint's first label.
@@ -234,23 +277,29 @@ impl VoiceUi {
             net.send(net::Cmd::Gateway(json!({ "op": 19, "d": { "stream_key": l.key } })));
         }
         self.camera = false;
+        crate::clips::forget_flags();
         self.video.clear();
         self.tex.clear();
+        self.viewers.clear();
         self.chan = None;
+        self.watch_next = None;
         self.state = State::Idle;
         self.session = None;
         self.server = None;
         self.joined = None;
         self.speaking.clear();
+        self.suppressed = false;
         self.tag = self.next_tag();
     }
 
     pub fn set_mute(&mut self, net: &Net, on: bool) {
-        crate::sound::cue(if on { "mute" } else { "unmute" });
         self.mute = on;
-        // undeafening by unmuting matches the official client
+        // undeafening by unmuting matches the official client, which plays the undeafen sound
         if !on && self.deaf {
             self.deaf = false;
+            crate::sound::cue("undeafen");
+        } else {
+            crate::sound::cue(if on { "mute" } else { "unmute" });
         }
         self.sync(net);
     }
@@ -262,7 +311,7 @@ impl VoiceUi {
     }
 
     fn sync(&mut self, net: &Net) {
-        self.shared.mute.store(self.mute, Relaxed);
+        self.shared.mute.store(self.mute || self.suppressed, Relaxed);
         self.shared.deaf.store(self.deaf, Relaxed);
         if self.chan.is_some() {
             self.op4(net);
@@ -277,10 +326,23 @@ impl VoiceUi {
             "self_mute": self.mute || self.deaf,
             "self_deaf": self.deaf,
             "self_video": self.camera,
+            "flags": self.clip_flags,
         }})));
     }
 
+    pub fn set_clip_flags(&mut self, net: &Net, flags: u32) {
+        if self.clip_flags != flags {
+            self.clip_flags = flags;
+            if self.chan.is_some() {
+                self.op4(net);
+            }
+        }
+    }
+
     pub fn set_camera(&mut self, net: &Net, me: Id, on: bool) {
+        if self.chan.is_some() {
+            crate::sound::cue(if on { "camera_on" } else { "camera_off" });
+        }
         self.camera = on;
         if !on {
             self.video.remove(&me);
@@ -303,7 +365,7 @@ impl VoiceUi {
         let key = self.stream_key(user)?;
         let tag = self.next_tag();
         let mine = share.is_some();
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share });
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share, preview_at: None });
         Some(key)
     }
 
@@ -379,6 +441,7 @@ impl VoiceUi {
     }
 
     pub fn dispatch(&mut self, net: &Net, me: Id, t: &str, d: &Value) {
+        self.stage.dispatch(t, d);
         match t {
             "READY" | "READY_SUPPLEMENTAL" => {
                 for g in d["guilds"].as_array().into_iter().flatten() {
@@ -420,6 +483,7 @@ impl VoiceUi {
             }
             "VOICE_STATE_UPDATE" => {
                 self.flags(d);
+                self.stage.seat(d);
                 let uid = sid(&d["user_id"]);
                 let ch = sid(&d["channel_id"]);
                 if sid(&d["guild_id"]) == 0 {
@@ -435,14 +499,26 @@ impl VoiceUi {
                 }
                 if ch == 0 {
                     // the server dropped us (kicked, or we joined from another device)
+                    self.dropped();
                     self.reset(net);
                     return;
                 }
                 if Some(ch) != self.chan {
                     self.chan = Some(ch);
                 }
+                let audience = d["suppress"].as_bool() == Some(true);
+                if audience != self.suppressed {
+                    self.suppressed = audience;
+                    self.sync(net);
+                }
                 self.session = d["session_id"].as_str().map(str::to_string);
                 self.connect(net, me);
+                if let Some((c, u, at)) = self.watch_next.take()
+                    && c == ch
+                    && at.elapsed().as_secs() < 30
+                {
+                    self.watch(net, u);
+                }
             }
             "VOICE_SERVER_UPDATE" => {
                 let Some(ch) = self.chan else { return };
@@ -462,6 +538,9 @@ impl VoiceUi {
                 if let Some(vs) = d["voice_states"].as_array() {
                     self.calls.insert(ch, vs.iter().map(|v| sid(&v["user_id"])).collect());
                 }
+                if let Some(r) = d["ringing"].as_array() {
+                    self.rung.insert(ch, r.iter().map(sid).collect());
+                }
                 let rung = d["ringing"].as_array().is_some_and(|r| r.iter().any(|u| sid(u) == me));
                 if rung && self.chan != Some(ch) {
                     self.ringing = Some(ch);
@@ -472,6 +551,7 @@ impl VoiceUi {
             "CALL_DELETE" => {
                 let ch = sid(&d["channel_id"]);
                 self.calls.remove(&ch);
+                self.rung.remove(&ch);
                 if self.ringing == Some(ch) {
                     self.ringing = None;
                 }
@@ -514,7 +594,13 @@ impl VoiceUi {
         {
             match e.kind {
                 Kind::State(s) => l.state = s,
-                Kind::Frame(_, img) => l.frame = Some(img),
+                Kind::Frame(_, img) => {
+                    if l.mine && l.preview_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300)) {
+                        l.preview_at = Some(std::time::Instant::now());
+                        self.preview_job = Some((l.key.clone(), img.clone()));
+                    }
+                    l.frame = Some(img);
+                }
                 Kind::Error(err) => return Some(err),
                 Kind::Closed(err) => {
                     self.stream = None;
@@ -530,13 +616,22 @@ impl VoiceUi {
         match e.kind {
             Kind::Frame(u, img) => {
                 self.video.insert(u, img);
+                let (since, count, fps) = self.video_rate.entry(u).or_insert((std::time::Instant::now(), 0, 0));
+                *count += 1;
+                if since.elapsed() >= std::time::Duration::from_secs(1) {
+                    (*since, *fps, *count) = (std::time::Instant::now(), *count, 0);
+                }
             }
             Kind::VideoOff(u) => {
                 self.video.remove(&u);
+                self.video_rate.remove(&u);
                 self.tex.remove(&format!("cam:{u}"));
             }
             Kind::Error(err) => return Some(err),
-            Kind::State(s) => self.state = s,
+            Kind::State(s) => {
+                self.entrance_due |= s == State::Connected && matches!(self.state, State::Joining | State::Connecting);
+                self.state = s;
+            }
             Kind::Speaking(u, true) => {
                 self.speaking.insert(u);
             }
@@ -552,10 +647,12 @@ impl VoiceUi {
             }
             Kind::Loss(p) => self.loss = Some(p),
             Kind::Privacy(c) => self.privacy = c,
+            Kind::Clips => {}
             Kind::Closed(err) => {
                 self.state = State::Idle;
                 self.speaking.clear();
                 if err.is_some() {
+                    self.dropped();
                     self.chan = None;
                     self.session = None;
                     self.server = None;
@@ -567,18 +664,17 @@ impl VoiceUi {
         None
     }
 
-    /// Device choice is read when a call starts; the VAD threshold applies live.
+    /// Everything on Voice & Video that acts live, devices included.
     pub fn configure(&self, s: &crate::cache::Settings) {
-        self.shared.vad_db.store(s.vad_db, Relaxed);
-        self.shared.auto_vad.store(s.auto_sensitivity, Relaxed);
-        self.shared.denoise.store(s.noise_suppression, Relaxed);
-        self.shared.ptt.store(s.ptt, Relaxed);
-        self.shared.ptt_delay_ms.store(s.ptt_delay_ms, Relaxed);
-        self.shared.in_gain.store(s.input_volume.to_bits(), Relaxed);
-        self.shared.out_gain.store(s.output_volume.to_bits(), Relaxed);
-        if let Ok(mut d) = self.shared.devices.lock() {
-            *d = (s.mic.clone(), s.speaker.clone());
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(duck::recover);
+        self.shared.apply(s);
+        if let Ok(mut p) = self.shared.peers.lock() {
+            *p = s.peers.iter().filter(|(_, v)| v.muted || v.volume != 100.0).map(|(u, v)| (*u, if v.muted { 0.0 } else { v.volume / 100.0 })).collect();
         }
+        log::set(s.debug_log);
+        video::set_codecs(s.hw_accel, s.openh264);
+        crate::audioplay::set_soundboard_volume(s.soundboard_volume);
     }
 
     pub fn is_speaking(&self, u: Id) -> bool {

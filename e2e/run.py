@@ -24,12 +24,53 @@ import subprocess
 import sys
 import tempfile
 import time
+from base64 import b64decode
 from pathlib import Path
 
+import auth
 import look
 import polish
+import call
+import discover
+import gallery
+import motion
+import fixes
 import home
+import composer
+import messages
+import rail
+import menus
+import people
+import players
+import voice_settings
+import rpc
 import qol
+import buy
+import shop
+import web
+import sound
+import activity
+import clips
+import perms
+import themes
+import refusals
+import live
+import members
+import chatx
+import forum
+import p1b
+import stickers
+import bots
+import embed
+import profed
+import protowire
+import serverx
+import shopx
+import p3b
+import p4b
+import tidy
+import p4c
+import p5
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -53,7 +94,7 @@ def free_both():
 
 
 # random ports so parallel runs (other worktrees, other agents) can't cross wires
-HTTP, WS, VOICE = free_port(), free_port(), free_both()
+HTTP, WS, VOICE, REMOTE = free_port(), free_port(), free_both(), free_port()
 BUDGET_MS = 1000
 
 
@@ -74,6 +115,42 @@ def prime():
         p.wait()
 
 
+STALL = int(os.environ.get("RUSTCORD_E2E_STALL", "180"))
+CAP = int(os.environ.get("RUSTCORD_E2E_CAP", "7200"))
+
+
+def wait_for(p, out):
+    """A run is hung when its step counter stops moving, not when it has taken long: the suite keeps growing."""
+    began = last = time.time()
+    seen = None
+    while True:
+        try:
+            return p.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+        mark = out / "progress"
+        now = mark.stat().st_mtime if mark.exists() else None
+        if now != seen:
+            seen, last = now, time.time()
+        why = "stalled" if time.time() - last > STALL else "over the cap" if time.time() - began > CAP else None
+        if why:
+            p.kill()
+            p.wait()
+            (out / "killed").write_text(why)
+            return f"killed ({why})"
+
+
+def partial(out):
+    """What a run got through before it died: the last step and every mark it set."""
+    read = lambda n: (out / n).read_text(encoding="utf-8").strip() if (out / n).exists() else ""
+    marks = {}
+    for line in read("marks.log").splitlines():
+        name, _, ms = line.partition("\t")
+        marks[name] = float(ms)
+    last = read("progress") or "before the first step"
+    return {"ok": False, "error": f"no results.json; last step finished: {last}; {read('killed') or 'client exited'}", "marks_ms": marks, "partial": True}
+
+
 def run_client(name, data_dir, extra=None):
     out = ART / name
     out.mkdir(parents=True, exist_ok=True)
@@ -83,21 +160,27 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_CDN": f"http://127.0.0.1:{HTTP}/cdn",
         "RUSTCORD_EMOJI_CDN": f"http://127.0.0.1:{HTTP}/cdn/emoji",
         "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_SOUNDS": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_ACTIVITY": f"http://127.0.0.1:{HTTP}/activity/{{app}}",
+        "RUSTCORD_HCAPTCHA": f"http://127.0.0.1:{HTTP}/hcaptcha",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
+        "RUSTCORD_REMOTE_AUTH": f"ws://127.0.0.1:{REMOTE}",
         "RUSTCORD_TOKEN": "mock-token",
         "RUSTCORD_DATA": str(data_dir),
         "RUSTCORD_E2E": str(out),
+        "RUSTCORD_SPELL_WORDS": str(ROOT / "e2e" / "spell_words.txt"),
     })
     env.update(extra or {})
-    exe = ROOT / "target" / "release" / "rustcord.exe"
+    env = {k: v for k, v in env.items() if v is not None}
+    exe = Path(os.environ.get("RUSTCORD_EXE") or ROOT / "target" / "release" / "rustcord.exe")
     spawned = time.time() * 1000
     p = subprocess.Popen([str(exe)], env=env)
-    try:
-        code = p.wait(timeout=300)
-    except subprocess.TimeoutExpired:
-        p.kill()
-        code = "timeout"
-    res = json.loads((out / "results.json").read_text()) if (out / "results.json").exists() else {"ok": False, "error": "no results.json"}
+    code = wait_for(p, out)
+    if (out / "results.json").exists():
+        res = json.loads((out / "results.json").read_text(encoding="utf-8"))
+    else:
+        res = partial(out)
     ff = out / "first_frame_epoch_ms"
     res["spawn_to_first_frame_ms"] = round(float(ff.read_text()) - spawned, 1) if ff.exists() else None
     res["exit_code"] = code
@@ -114,16 +197,19 @@ def main():
     log = ART / "mock_requests.jsonl"
 
     prime()
-    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE)])
+    served = sound.make(ART / "sounds")
+    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)],
+                            env=dict(os.environ, MOCK_SOUNDS=str(served or "")))
     time.sleep(0.5)
     try:
         # real mic, speakers, desktop and webcam are all opt-in
         fake = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1"}
         cam = {} if "--real-camera" in sys.argv else {"RUSTCORD_FAKE_CAM": "1"}
-        cold = run_client("cold", data, {**fake, **cam})
+        cold = run_client("cold", data, {**fake, **cam, "RUSTCORD_E2E_MEMBERS": "1"})
         # --real-video: the warm run captures a real screen for go live, mic and speakers stay fake
         real_video = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_SILENT": "1", **cam}
         warm = run_client("warm", data, cam if "--real-devices" in sys.argv else real_video if "--real-video" in sys.argv else {**fake, **cam})
+        signin = run_client("login", ART / "login_data", {"RUSTCORD_TOKEN": None, "RUSTCORD_E2E_LOGIN": "1", "RUSTCORD_FAKE_PASSKEY": "mock-assertion", **fake})
     finally:
         mock.kill()
 
@@ -143,8 +229,8 @@ def main():
             return None
 
     sent_bodies = [content(r["body"]) for r in sends]
-    interactions = [r for r in reqs if r.get("path", "").endswith("/interactions")]
-    uploads = [r for r in sends if 'filename="image.png"' in r.get("body", "")]
+    interactions = [r for r in reqs if r.get("path", "").endswith("/interactions") and ('"name":"remind"' in r.get("body", "") or '"custom_id":"snooze"' in r.get("body", ""))]
+    uploads = [r for r in sends if '"filename":"image.png"' in r.get("body", "")]
     acks = [r for r in reqs if "/ack" in r.get("path", "")]
     history = [r for r in reqs if "before=" in r.get("path", "")]
     subs = [r for r in reqs if r.get("gateway_op") == 37]
@@ -216,16 +302,41 @@ def main():
                               ("image opened in the in-app viewer", "viewer"),
                               ("unread dm shows as a bubble in the rail", "dm_bubble"), ("alt+arrow channel navigation", "alt_nav"),
                               ("gif picked from the picker was sent", "gif"), ("reply sent with ping off", "reply_quiet")]},
-        "reply with @ OFF told discord not to ping": sum('"replied_user":false' in r.get("body", "") for r in sends) == 2,
+        "reply with @ OFF told discord not to ping": sum('"replied_user":false' in r.get("body", "") and "quiet reply" in r.get("body", "") for r in sends) == 2,
         "shift+enter made a newline instead of sending": sum("quiet reply\nsecond line" in b for b in sent_bodies) == 2,
         **{f"settings: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("every page opened and was captured", "settings_tour"), ("profile edit saved via the unsaved-changes bar", "profile_saved"),
                               ("sidebar sub-section scrolled its section into view", "settings_scrolled_to"), ("light theme applied", "theme_light"), ("compact mode applied", "compact"), ("streamer mode toggled", "streamer"),
-                              ("display name changed through the modal", "display_name")]},
-        "settings: profile pronouns PATCHed": sum('"pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
-        "settings: content filter PATCHed to the legacy settings": sum('"explicit_content_filter":2' in r.get("body", "") for r in reqs if r.get("method") == "PATCH") == 2,
+                              ("username changed through the modal with the password", "display_name"),
+                              ("authenticator enabled through a sudo ticket", "mfa_on"), ("device logged out once the second factor was given", "sessions_logout"),
+                              ("message requests and spam filter written to the settings blob", "messaging_privacy"), ("activity sharing switched off for every server", "activity_servers"),
+                              ("who can join my games written", "activity_join"), ("authorized app and connection removed", "connected_apps"),
+                              ("avatar decoration picked and saved", "profile_decoration"), ("disable account says you own servers", "owner_modal"),
+                              ("hardware acceleration switched off", "hw_accel_off"), ("notifications, system, language and developer pages were driven", "system_pages"),
+                              ("settings search found a control by its label", "settings_search"), ("a keybind was added", "keybind_added")]},
+        "settings: profile pronouns PATCHed": sum('"bio":"rustacean. writes too many side projects.","pronouns":"they/them"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/profile")) == 2,
+        "settings: privacy switches PATCHed to the settings blob": sum(1 for r in reqs if r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/settings-proto/1")) >= 2 * 4,
         "settings: language switch reached the locale header (hypesquad join sent as de)": sum(1 for r in reqs if r.get("path", "").endswith("/hypesquad/online") and r.get("locale") == "de" and '"house_id":1' in r.get("body", "")) == 2,
-        "settings: display name PATCHed": sum('"global_name":"You!"' in r.get("body", "") for r in reqs) == 2,
+        "settings: username PATCHed with the password": sum('"username":"you_"' in r.get("body", "") and '"password":"hunter2"' in r.get("body", "") for r in reqs) == 2,
+        "settings: sudo ticket finished and the token sent on the retry": sum(1 for r in reqs if r.get("path", "").endswith("/mfa/finish")) == 4,
+        "settings: data request, connection sign-in, app and connection removal, integration join reached discord": all(
+            sum(1 for r in reqs if r.get("method") == m and p in r.get("path", "")) == 2
+            for m, p in [("POST", "/users/@me/harvest"), ("GET", "/connections/github/authorize"), ("DELETE", "/oauth2/tokens/"), ("DELETE", "/users/@me/connections/github/1"), ("POST", "/integrations/7001/join")]),
+        "settings: decoration sku sent with the profile": sum('"avatar_decoration_sku_id":"7001"' in r.get("body", "") for r in reqs) == 2,
+        **{f"billing: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
+           for name, what in [("server boost page showed the boosts, perks and faq", "boost_page"), ("boost any server opened the server picker", "boost_picker"),
+                              ("gift code redeemed natively", "gift_redeemed"), ("payment method edit modal opened", "billing_edit"),
+                              ("payment method made default, or delete asked first", "billing_manage"), ("transactions paged", "billing_tx")]},
+        "billing: gift code redeem POSTed": sum(r.get("method") == "POST" and r.get("path", "").endswith("/entitlements/gift-codes/WUMP-AAAAA-BBBBB-CCCCC/redeem") for r in reqs) == 2,
+        "billing: default payment method PATCHed": any(r.get("method") == "PATCH" and "/billing/payment-sources/" in r.get("path", "") and '"default":true' in r.get("body", "") for r in reqs),
+        "billing: nothing was bought or deleted": not any(
+            (r.get("method") != "GET" and "/billing/" in r.get("path", "") and "/payment-sources/" not in r.get("path", "")) or (r.get("method") == "DELETE" and "/payment-sources/" in r.get("path", ""))
+            or (r.get("method") != "GET" and any(k in r.get("path", "") for k in ("/billing/premium", "guild-subscriptions/purchase", "/purchase", "/subscribe"))) for r in reqs if not buy.of_the_buy_group(r)),
+        **{f"settings: {name} PATCHed to the account's settings proto": sum(b64decode(json.loads(r["body"])["settings"]) == want for r in reqs
+                                                                            if r.get("method") == "PATCH" and "/settings-proto/" in r.get("path", "") and r.get("body")) == n
+           for name, want, n in [("friends online off", bytes([0x3a, 2, 0x62, 0]), 4), ("tts command off", bytes([0x32, 3, 0x82, 1, 0]), 2),
+                                 ("24-hour clock", bytes([0x6a, 2, 0x48, 2]), 4), ("developer mode", bytes([0x6a, 2, 0x10, 1]), 2)]},
+        "settings: email category PATCHed natively": sum('"social":false' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/email-settings") and r.get("method") == "PATCH") == 2,
         "settings: devices, apps and connections were fetched": all(any(r.get("path", "").endswith(p) for r in reqs) for p in ("/auth/sessions", "/oauth2/tokens", "/users/@me/connections")),
         **{f"media: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("animated emoji, mp4 gifv, gif upload and ?query gif each cycled through 3+ distinct frames", "media_animates"),
@@ -260,6 +371,10 @@ def main():
                               ("role-locked and unavailable emojis stayed literal even with nitro", ":omgMods: :omgLapsed: no")]},
         "emoji: popup opened for both the locked and the nitro run": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("emoji_locked_ac", "emoji")),
         "menus: channel, server dropdown, search filters and person menu all opened, and Server Boost opened its page": all("menus" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "person menu: a voice user's menu had volume, mute and soundboard rows, and their volume reached the mixer": all("person_menu" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "friend menu: right-clicking a friend gave the whole menu": all("friend_menu" in r.get("marks_ms", {}) for r in (cold, warm)),
+        "pinned dm: Pin sent the dm's override flags": all("pin_dm" in r.get("marks_ms", {}) for r in (cold, warm)) and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/@me/settings") and "2048" in r.get("body", "") for r in reqs),
+        "accounts: the signed-in account is in the Switch Accounts list, and a custom status went to the server": all("accounts" in r.get("marks_ms", {}) for r in (cold, warm)) and any(s.get("custom", {}).get("text") == "mock status" for s in protowire.status_writes(reqs)),
         "quick reactions: right-clicking one in the message menu and picking an emoji replaced it": all("quick_reactions" in r.get("marks_ms", {}) for r in (cold, warm)),
         "new messages bar: a wheel down at the bottom of the channel takes it away": all("bar_read" in r.get("marks_ms", {}) for r in (cold, warm)),
         "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),
@@ -268,7 +383,7 @@ def main():
         "name fonts: a nitro display name font was fetched and the user's name uses it": all("name_font" in r.get("marks_ms", {}) for r in (cold, warm)),
         "profile: the avatar on a server profile opens the main one, and its \"...\" opens the menu with the profile still up": all("profile_more" in r.get("marks_ms", {}) for r in (cold, warm)),
         "opt-in: an onboarding server lists only picked channels, Add to Channel List brings one back": all("opt_in" in r.get("marks_ms", {}) for r in (cold, warm))
-            and sum('"flags":4096' in r.get("body", "") and '"2101"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/1001/settings")) >= 2,
+            and sum('"flags":4096' in r.get("body", "") and '"2101"' in r.get("body", "") for r in reqs if r.get("path", "").endswith("/users/@me/guilds/settings") and '{"guilds":{"1001"' in r.get("body", "")) >= 2,
         "poll: rendered in #general, an answer picked and Vote pressed": all("home_poll" in r.get("marks_ms", {}) for r in (cold, warm)),
         "poll: the vote was PUT to discord's poll answers endpoint": any(
             r.get("method") == "PUT" and "/polls/" in r.get("path", "") and r.get("path", "").endswith("/answers/@me") for r in reqs),
@@ -283,6 +398,7 @@ def main():
            for name, what in [("quick switcher (ctrl+k) jumped to #help", "switcher"), ("forum posts loaded", "forum"),
                               ("thread opened from sidebar", "thread"), ("profile popout loaded", "profile"),
                               ("search returned results", "search"), ("pins loaded", "pins"), ("settings opened", "settings"),
+                              ("clicking outside settings closes it", "settings_backdrop"),
                               ("dm from someone else raised a notification", "notified"),
                               ("a muted dm's message neither pinged nor popped up in the rail", "muted_dm"),
                               ("toast: a dm's ping is the sender's name over the text, with their avatar, silent", "toast"),
@@ -301,7 +417,22 @@ def main():
                               ("active threads: the modal lists the server's threads and a card opens one", "active_threads"),
                               ("app directory: discover opens in the app with the featured collections", "directory"),
                               ("server settings: the layer opens on Roles with discord's member counts", "server_settings"),
+                              ("server settings: the role editor, members, emoji, stickers, invites, integrations, safety, audit log, bans and AutoMod each drew with their data", "server_pages"),
                               ("events: the window lists the server's event and Interested marks it", "events"),
+                              ("threads: Open in Split View's twin, Shift on the channel list, puts the thread beside its parent", "thread_split"),
+                              ("threads: the member list asks for the thread's members and shows them", "thread_members"),
+                              ("threads: Join Thread from the header's menu joined it", "thread_join"),
+                              ("threads: Close Thread archived it", "thread_close"),
+                              ("threads: Lock Thread locked it", "thread_lock"),
+                              ("events: a card opens Event Details with who is interested", "event_detail"),
+                              ("events: Start Event asks first and starts it", "event_start"),
+                              ("events: Cancel Event asks first and takes it off the list", "event_cancel"),
+                              ("events: Edit Event fills the wizard from the event", "event_edit"),
+                              ("events: Mute New Events from the Events row's menu", "events_mute"),
+                              ("announcements: Follow opens the dialog and sends the follow", "follow"),
+                              ("quests: the hub lists the quests with the Orbs balance", "quests"),
+                              ("quests: Accept Quest enrolled one", "quest_accept"),
+                              ("quests: Claim Reward claimed the finished one", "quest_claim"),
                               ("escape cancels a reply even with the composer unfocused", "reply_escape"),
                               ("game: the running mockcord.exe got discord's panel over the account card", "game_panel"),
                               ("game: with activity sharing off the panel says Not Sharing", "game_hidden"),
@@ -310,7 +441,18 @@ def main():
                               ("go live: the share button opens discord's picker and a screen from it goes live", "share_picker"),
                               ("rail: a server's tooltip shows who's in voice beside a speaker", "guild_tip_voice"),
                               ("do not disturb: a dm arriving raised no notification", "dnd_quiet"),
-                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout")]},
+                              ("voice: Voice Connected opens the connection popout with pings graphed", "rtc_popout"),
+                              ("camera settings: Test Video shows the live camera in its box", "camera_test_video"),
+                              ("camera settings: Blur went behind the person in the preview", "camera_background"),
+                              ("camera settings: Always preview video switched on", "camera_always_preview"),
+                              ("camera settings: a blur picked with the camera off loaded no model and ran no thread", "camera_idle_no_load"),
+                              ("camera settings: leaving the page stopped the preview's camera", "camera_preview_stops"),
+                              ("camera settings: a custom upload showed in the preview", "camera_bg_custom"),
+                              ("camera settings: a preset fetched from the cdn showed in the preview", "camera_bg_preset"),
+                              ("camera: with it on, the camera button opens the preview and Turn On Camera starts it", "camera_preview_modal"),
+                              ("camera: the device chosen in settings is the one the call opened", "camera_device"),
+                              ("camera: the background went into the stream that was sent", "camera_stream_bg"),
+                              ("camera: the call bar's menu switched the live camera to another device", "camera_callbar_menu")]},
         "voice: channel info was asked for with op 43": any(r.get("gateway_op") == 43 for r in reqs),
         "invite: the link was made for 30 days and sent to the friend's new dm": any(
             r.get("method") == "POST" and r.get("path", "").endswith("/channels/2400/invites") and '"max_age":2592000' in r.get("body", "") for r in reqs)
@@ -320,10 +462,47 @@ def main():
             and op3[played[0]]["activities"][0].get("type") == 0
             and any(not d.get("activities") for d in op3[played[0] + 1:]),
         "events: Interested was sent to discord": any(r.get("method") == "PUT" and r.get("path", "").endswith("/guilds/1000/scheduled-events/6100/users/@me") for r in reqs),
+        "server settings: editing the profile raised the unsaved bar, and Save sent the name to the profile": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("server_bar", "server_profile_saved"))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and ' X"' in r.get("body", "") for r in reqs),
+        "server settings: Server Tag saved the tag and badge to the profile": all("server_tag" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/profile") and '"tag":"RUST"' in r.get("body", "") and '"badge":0' in r.get("body", "") and '"badge_color_primary":"#8a43ff"' in r.get("body", "") for r in reqs),
+        "server settings: Engagement saved the system message flags": all("server_engagement" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001") and '"system_channel_flags":4' in r.get("body", "") for r in reqs),
+        "server settings: Boost Perks toggled the progress bar": all("server_perks" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001") and "premium_progress_bar_enabled" in r.get("body", "") for r in reqs),
+        "server settings: Soundboard renamed a sound through its edit modal": all("server_soundboard" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/soundboard-sounds/5001") and "airhorn2" in r.get("body", "") for r in reqs),
+        "server settings: Access sent the join questions to the membership screening form": all("server_access" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/member-verification") and "Why do you want to join?" in r.get("body", "") and '"enabled":true' in r.get("body", "") for r in reqs),
+        "server settings: Enable Community walked its three steps and sent the community features": all("server_community" in r.get("marks_ms", {}) for r in (cold, warm))
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1002") and '"COMMUNITY"' in r.get("body", "") and '"explicit_content_filter":2' in r.get("body", "") for r in reqs),
+        "server settings: Server Template generated a template, and Delete Server asked first": all(m in r.get("marks_ms", {}) for r in (cold, warm) for m in ("server_template", "server_delete"))
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1002/templates") and "Design fans" in r.get("body", "") for r in reqs),
+        "threads: Join Thread was sent": any(r.get("method") == "PUT" and r.get("path", "").endswith("/channels/2160/thread-members/@me") for r in reqs),
+        "threads: Close and Lock Thread were patched": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/channels/2160") and '"archived":true' in r.get("body", "") for r in reqs)
+            and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/channels/2160") and '"locked":true' in r.get("body", "") for r in reqs),
+        "threads: the thread's members were asked for over the gateway": any(d.get("subscriptions", {}).get("1001", {}).get("thread_member_lists") == ["2160"] for d in gw(37)),
+        "events: opening the window read the event notifications": any(r.get("method") == "POST" and r.get("path", "").endswith("/read-states/ack-bulk") and '"read_state_type":1' in r.get("body", "") for r in reqs),
+        "events: the interested users were fetched": any("/guilds/1001/scheduled-events/6200/users" in r.get("path", "") for r in reqs),
+        "events: start and cancel went to discord": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1001/scheduled-events/6201") and '"status":2' in r.get("body", "") for r in reqs)
+            and any(r.get("method") == "DELETE" and r.get("path", "").endswith("/guilds/1001/scheduled-events/6200") for r in reqs),
+        "events: muting new events was saved to the server's settings": any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/settings") and '{"guilds":{"1001":{"mute_scheduled_events":true' in r.get("body", "") for r in reqs),
+        "announcements: the follow went to the channel's followers with the picked channel": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/followers") and '"webhook_channel_id":"2100"' in r.get("body", "") for r in reqs),
+        "announcements: Publish crossposted the message": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/messages/1/crosspost") for r in reqs),
+        "quests: accept and claim went to discord": any(r.get("method") == "POST" and r.get("path", "").endswith("/quests/9002/enroll") for r in reqs)
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/quests/9003/claim-reward") for r in reqs),
         "create channel: posted the lowercased name to the server": any(
             r.get("method") == "POST" and r.get("path", "").endswith("/guilds/1000/channels") and '"e2e-room"' in r.get("body", "") for r in reqs),
         "boosts: the page fetched the powerups catalogue, what's applied and the server's boosts": all(
             any(k in r.get("path", "") for r in reqs) for k in ("/store/published-listings/skus", "/guilds/1000/powerups", "/guilds/1000/premium/subscriptions")),
+        "server settings: the role editor's save sent only the changed name, hoist and permissions": any(
+            r.get("method") == "PATCH" and r.get("path", "").endswith("/guilds/1000/roles/1100") and '"name":"Admins"' in r.get("body", "")
+            and '"hoist"' in r.get("body", "") and '"permissions"' in r.get("body", "") and '"mentionable"' not in r.get("body", "") for r in reqs),
+        "server settings: the pages fetched the role's members, emoji, stickers, invites, integrations, webhooks, bans, audit log and AutoMod rules": all(
+            any(r.get("method") == "GET" and r.get("path", "").endswith(p) for r in reqs)
+            for p in ("/roles/1100/member-ids", "/guilds/1000/emojis", "/guilds/1000/stickers", "/guilds/1000/invites", "/guilds/1000/webhooks",
+                      "/guilds/1000/bans?limit=1000", "/guilds/1000/auto-moderation/rules")) and any("/guilds/1000/audit-logs" in r.get("path", "") for r in reqs)
+            and any("/guilds/1000/integrations" in r.get("path", "") for r in reqs),
         "pins: opening them acked them": any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2050/pins/ack") for r in reqs),
         "activity: the feed and its apps' icons were fetched": any("/content-inventory/users/@me" in r.get("path", "") for r in reqs)
             and any("/applications/public" in r.get("path", "") for r in reqs),
@@ -375,7 +554,7 @@ def main():
         "layout: dragging the channel list far past its limit stops at discord's 359 and leaves the chat column >= 400 (both runs)":
             all(lay(r, "side_max") <= 359.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
         "layout: warm run starts with the panel widths the cold run left":
-            abs(lay(warm, "side_start") - lay(cold, "side_end")) < 1 and abs(lay(warm, "members_start") - lay(cold, "members_dragged")) < 1,
+            abs(lay(warm, "side_boot") - lay(cold, "side_final")) < 1 and abs(lay(warm, "members_boot") - lay(cold, "members_final")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         "frame cpu p99 < 8ms (warm)": warm.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
         **{f"account sync: {name}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
@@ -389,14 +568,53 @@ def main():
         **look.checks({"cold": cold, "warm": warm}, reqs, data),
         **polish.checks({"cold": cold, "warm": warm}, reqs, data),
         **qol.checks({"cold": cold, "warm": warm}, reqs, data),
+        **composer.checks({"cold": cold, "warm": warm}, reqs, data),
+        **people.checks({"cold": cold, "warm": warm}, reqs, data),
+        **menus.checks({"cold": cold, "warm": warm}, reqs, data),
         **home.checks({"cold": cold, "warm": warm}, reqs, data),
+        **fixes.checks({"cold": cold, "warm": warm}, reqs, data),
+        **web.checks({"cold": cold, "warm": warm}, reqs, data),
+        **shop.checks({"cold": cold, "warm": warm}, reqs, data),
+        **buy.checks({"cold": cold, "warm": warm}, reqs, data),
+        **clips.checks({"cold": cold, "warm": warm}, reqs, data),
+        **refusals.checks({"cold": cold, "warm": warm}, reqs, data),
+        **live.checks({"cold": cold, "warm": warm}, reqs, data),
+        **members.checks({"cold": cold, "warm": warm}, reqs, data),
+        **chatx.checks({"cold": cold, "warm": warm}, reqs, data),
+        **forum.checks({"cold": cold, "warm": warm}, reqs, data),
+        **stickers.checks({"cold": cold, "warm": warm}, reqs, data),
+        **p1b.checks({"cold": cold, "warm": warm}, reqs, data),
+        **bots.checks({"cold": cold, "warm": warm}, reqs, data),
+        **embed.checks({"cold": cold, "warm": warm}, reqs, data),
+        **profed.checks({"cold": cold, "warm": warm}, reqs, data),
+        **call.checks({"cold": cold, "warm": warm}, reqs, data),
+        **messages.checks({"cold": cold, "warm": warm}, reqs, data),
+        **rail.checks({"cold": cold, "warm": warm}, reqs, data),
+        **discover.checks({"cold": cold, "warm": warm}, reqs, data),
+        **gallery.checks({"cold": cold, "warm": warm}, reqs, data),
+        **perms.checks({"cold": cold, "warm": warm}, reqs, data),
+        **themes.checks({"cold": cold, "warm": warm}, reqs),
+        **serverx.checks({"cold": cold, "warm": warm}, reqs, data),
+        **shopx.checks({"cold": cold, "warm": warm}, reqs, data),
+        **p3b.checks({"cold": cold, "warm": warm}, reqs),
+        **p4b.checks({"cold": cold, "warm": warm}, reqs),
+        **tidy.checks({"cold": cold, "warm": warm}, reqs, data),
+        **p4c.checks({"cold": cold, "warm": warm}, reqs),
+        **p5.checks({"cold": cold, "warm": warm}, reqs),
+        **motion.checks({"cold": cold, "warm": warm}, reqs, data),
+        **auth.checks(signin, reqs),
+        **players.checks({"cold": cold, "warm": warm}, reqs, data),
+        **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),
+        **voice_settings.checks({"cold": cold, "warm": warm}, reqs, data),
+        **rpc.checks({"cold": cold, "warm": warm}, reqs, data),
+        **activity.checks({"cold": cold, "warm": warm}, reqs, data),
     }
-    report = {"checks": checks, "cold": cold, "warm": warm, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
+    report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
 
     md = ["# rustcord e2e report", ""]
     md += [f"- [{'x' if ok else ' '}] {name}" for name, ok in checks.items()]
-    for name, r in (("cold", cold), ("warm", warm)):
+    for name, r in (("cold", cold), ("warm", warm), ("login", signin)):
         md += ["", f"## {name} start", "", f"- spawn -> first frame: {r.get('spawn_to_first_frame_ms')} ms"]
         md += [f"- {k}: {v} ms" for k, v in r.get("marks_ms", {}).items()]
         f = r.get("frame_cpu_ms", {})
