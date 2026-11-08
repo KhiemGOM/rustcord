@@ -125,6 +125,7 @@ impl Run {
             }
             2721 => {
                 app.settings.keybinds.clear();
+                app.save_settings(ctx);
                 app.sform.recording = None;
                 if !self.open_page(app, "Notifications") {
                     return;
