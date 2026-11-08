@@ -370,6 +370,8 @@ pub struct App {
     shared: (Option<Id>, u64),
     // servers we've asked for their voice channels' statuses and start times this session
     info_asked: Set<Id>,
+    // members we've asked the gateway for this connection; a cached member is as old as the last session
+    members_asked: Set<(Id, Id)>,
     // the taskbar badge's count, and when unreads were last looked over for its dot
     badge: Option<i32>,
     // when the activity feed is next fetched
@@ -607,6 +609,7 @@ impl App {
             links: Default::default(),
             shared: (None, 0),
             info_asked: Default::default(),
+            members_asked: Default::default(),
             badge: None,
             feed_at: None,
             synced: None,
@@ -734,16 +737,16 @@ impl App {
         }
     }
 
-    // history from REST has no member objects; ask the gateway for the authors we haven't seen,
-    // and whoever they mention, bots' embeds included, so mentions show nicknames like discord's
+    // history from REST has no member objects; ask the gateway for the authors it hasn't sent this
+    // connection (the cache's roles and nicknames may be old), and whoever they mention, bots'
+    // embeds included, so names show nicknames and role colours like discord's
     fn request_members(&mut self, ch: Id) {
         let Some(guild) = self.store.channels.get(&ch).map(|c| c.guild).filter(|g| *g != 0) else { return };
-        let known = self.store.members.get(&guild);
+        let asked = &mut self.members_asked;
         let mut ids: Vec<String> = Vec::new();
         let mut want = |id: Id| {
-            let s = id.to_string();
-            if id != 0 && !known.is_some_and(|k| k.contains_key(&id)) && !ids.contains(&s) {
-                ids.push(s);
+            if id != 0 && ids.len() < 100 && asked.insert((guild, id)) {
+                ids.push(id.to_string());
             }
         };
         for m in self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default() {
@@ -761,7 +764,6 @@ impl App {
         if ids.is_empty() {
             return;
         }
-        ids.truncate(100);
         self.net.send(Cmd::Gateway(json!({
             "op": 8,
             "d": { "guild_id": [guild.to_string()], "user_ids": ids, "presences": false }
@@ -1922,6 +1924,7 @@ impl App {
                             crate::rpc::signed_in(tk, &d["user"], d["session_id"].as_str().unwrap_or(""));
                         }
                         self.info_asked.clear();
+                        self.members_asked.clear();
                         self.feed_at = Some(Instant::now());
                         self.save_at = Some(Instant::now() + Duration::from_secs(5));
                         // which messages are bookmarked, for the menus' Remove Bookmark
