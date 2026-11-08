@@ -6,6 +6,7 @@ whole run. The steps before it that open the first channel still run.
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,8 @@ def main():
     art = Path(tempfile.mkdtemp(prefix="rustcord_from_step_"))
     run.ART = art
     log = art / "mock_requests.jsonl"
-    mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)])
+    mock_exe = os.environ.get("RUSTCORD_MOCK_EXE") or run.ROOT / "target" / "release" / "examples" / "mockcord.exe"
+    mock = subprocess.Popen([str(mock_exe), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)])
     time.sleep(0.5)
     try:
         if sys.argv[1] == "login":
@@ -37,6 +39,7 @@ def main():
         mock.kill()
     print(json.dumps({"ok": res.get("ok"), "error": res.get("error"), "marks": sorted(res.get("marks_ms", {}))}, indent=1))
     print("artifacts:", art)
+    sys.exit(0 if res.get("ok") and res.get("exit_code") == 0 else 1)
 
 
 if __name__ == "__main__":
