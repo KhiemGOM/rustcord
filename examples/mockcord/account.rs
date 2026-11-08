@@ -185,6 +185,7 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
     match (method, p.as_slice()) {
         ("POST", ["mock", "account-reset"]) => {
             *a = fresh(a.initial.clone());
+            super::shop::reset();
             ok(json!({}))
         }
         ("GET", ["users", "@me", "settings-proto", "1"]) => ok(json!({ "settings": b64(&a.settings) })),
