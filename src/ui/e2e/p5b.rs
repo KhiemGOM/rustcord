@@ -267,6 +267,16 @@ impl Run {
                     }
                     return;
                 };
+                let screen = ctx.content_rect();
+                if r.top() < 150.0 || r.bottom() > screen.bottom() - 8.0 {
+                    if self.step_at.elapsed() > Duration::from_secs(12) {
+                        self.shot(ctx, "p5b_filter_not_in_view.png");
+                        return self.fail(format!("the Profile Frames tile {r:?} never scrolled into the filter list"));
+                    }
+                    self.scroll_by(pos2(screen.right() - 150.0, screen.center().y), if r.top() < 150.0 { 240.0 } else { -240.0 });
+                    self.wait = std::time::Instant::now() + Duration::from_millis(500);
+                    return;
+                }
                 self.click(r.center());
                 self.next(900);
             }
