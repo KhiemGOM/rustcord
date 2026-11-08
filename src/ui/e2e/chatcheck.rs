@@ -152,7 +152,14 @@ impl Run {
                 self.next(500);
             }
             4357 => {
-                let Some(id) = Self::thread_message(app, general).map(|m| m.0) else { return };
+                let Some(id) = Self::thread_message(app, general).map(|m| m.0) else {
+                    if let Some(c) = app.rects.get("composer").copied() {
+                        let wheel = Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 600.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
+                        self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, c.top() - 200.0)), wheel]);
+                        self.wait = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    }
+                    return;
+                };
                 app.jump_to(general, id);
                 self.next(900);
             }
