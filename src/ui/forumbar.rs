@@ -39,7 +39,7 @@ pub fn show(ui: &mut Ui, post: &Channel, forum: &Channel, first: Option<&Message
         let g = ui.painter().layout_no_wrap(r.count.to_string(), semi(14.0), if r.me { pal().mention_fg } else { pal().header_secondary });
         let b = Rect::from_min_size(pos2(x, mid - 15.0), vec2(6.0 + 20.0 + 6.0 + g.size().x + 8.0, 30.0));
         let resp = ui.interact(b, id.with(("react", r.emoji.id, &r.emoji.name)), Sense::click());
-        let (fill, edge) = if r.me { (Color32::from_rgba_premultiplied(13, 15, 36, 38), pal().blurple) } else { (pal().bg_secondary, if resp.hovered() { pal().bg_accent } else { Color32::TRANSPARENT }) };
+        let (fill, edge) = if r.me { (wash(pal().blurple, 38), pal().blurple) } else { (pal().bg_secondary, if resp.hovered() { pal().bg_accent } else { Color32::TRANSPARENT }) };
         ui.painter().rect(b, 8, fill, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
         let er = Rect::from_min_size(pos2(b.left() + 7.0, mid - 10.0), vec2(20.0, 20.0));
         egui::Image::from_uri(crate::gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);

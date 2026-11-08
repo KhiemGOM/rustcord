@@ -419,7 +419,7 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             let hot = crate::ui::motion::hot(ui.ctx(), &resp);
             let idle = (pal().bg_secondary, crate::ui::motion::mix(Color32::TRANSPARENT, pal().bg_accent, hot));
             let (fill, stroke) = (
-                crate::ui::motion::mix(idle.0, Color32::from_rgba_premultiplied(13, 15, 36, 38), on),
+                crate::ui::motion::mix(idle.0, wash(pal().blurple, 38), on),
                 crate::ui::motion::mix(idle.1, pal().blurple, on),
             );
             ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);

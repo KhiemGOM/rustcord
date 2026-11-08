@@ -36,7 +36,7 @@ pub(super) fn button(ui: &mut Ui, app: &mut App, at: Rect, id: &str, icon: Icon,
     let hot = look != Look::Off && resp.hovered();
     if hot || look == Look::Active {
         let fill = match (look, hot) {
-            (Look::Active, true) => ACTIVE_HOVER,
+            (Look::Active, true) => sat(ACTIVE_HOVER),
             (Look::Active, false) => ACTIVE,
             _ => pal().bg_mod_hover,
         };
@@ -44,7 +44,7 @@ pub(super) fn button(ui: &mut Ui, app: &mut App, at: Rect, id: &str, icon: Icon,
     }
     let ink = match look {
         Look::Active if hot => Color32::WHITE,
-        Look::Active => ACTIVE_INK,
+        Look::Active => sat(ACTIVE_INK),
         _ => ink,
     };
     icons::draw(ui.painter(), icon, Rect::from_center_size(at.center(), vec2(20.0, 20.0)), ink);

@@ -509,6 +509,19 @@ pub fn rounded_gradient(preset: &Preset, r: egui::Rect, radius: f32) -> egui::Me
     mesh
 }
 
+/// A token colour as discord's css would give it at the saturation set in Accessibility.
+pub fn sat(c: Color32) -> Color32 {
+    match SATURATION.load(std::sync::atomic::Ordering::Relaxed) {
+        100.. => c,
+        k => desaturate(c, k as f32 / 100.0),
+    }
+}
+
+/// `c` at `a` out of 255 opacity, for the washes drawn from a brand colour.
+pub fn wash(c: Color32, a: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
+}
+
 /// `c` with the see-through taken out, for surfaces that must hide what's behind them.
 pub fn solid(c: Color32) -> Color32 {
     let [r, g, b, _] = c.to_srgba_unmultiplied();

@@ -206,7 +206,7 @@ pub fn small(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(60.0), 32.0), Sense::click());
     let (fill, ink) = match look {
         Look::Primary => (pal().blurple, Color32::WHITE),
-        Look::Danger => (faint(31), LOGOUT),
+        Look::Danger => (faint(31), sat(LOGOUT)),
         _ => (faint(31), pal().header_primary),
     };
     let fill = if resp.hovered() { if look == Look::Primary { fill.gamma_multiply(0.85) } else { faint(51) } } else { fill };

@@ -367,7 +367,7 @@ fn panel_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, panel: Rect, user: &cra
 fn notice(app: &mut App, ui: &mut Ui, x: f32, w: f32, y: &mut f32) {
     let g = ui.painter().layout("You can customize styles, display name, pronouns, and bio for each server.".into(), reg(14.0), pal().text_normal, w - 52.0);
     let r = Rect::from_min_size(pos2(x, *y), vec2(w, g.size().y + 20.0));
-    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(88, 101, 242, 12));
+    ui.painter().rect_filled(r, CornerRadius::same(8), wash(pal().blurple, 12));
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
     ui.painter().galley(r.min + vec2(10.0, 10.0), g, pal().text_normal);
     let b = Rect::from_center_size(pos2(r.right() - 20.0, r.top() + 20.0), vec2(20.0, 20.0));

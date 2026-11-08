@@ -250,7 +250,7 @@ fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str) -> O
     let resp = ui.interact(b, egui::Id::new(("invite_join", code)), Sense::click());
     super::settings::mark(ui, &format!("invite:{code}:join"), b);
     let hot = resp.hovered() && !joining;
-    let fill = if member { pal().control } else { super::motion::mix(JOIN, JOIN.gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)) };
+    let fill = if member { pal().control } else { super::motion::mix(sat(JOIN), sat(JOIN).gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)) };
     p.rect_filled(b, CornerRadius::same(8), if member && hot { pal().control_hover } else { fill });
     p.rect_stroke(b, CornerRadius::same(8), Stroke::new(1.0, Color32::from_white_alpha(20)), StrokeKind::Inside);
     let label = if member { "Joined" } else if joining { "Joining..." } else { "Join" };

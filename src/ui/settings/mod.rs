@@ -320,8 +320,8 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 ui.painter().rect_filled(r, CornerRadius::same(8), faint(20));
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            icons::draw(ui.painter(), Icon::SideLogout, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), LOGOUT);
-            ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, "Log Out", medium(16.0), LOGOUT);
+            icons::draw(ui.painter(), Icon::SideLogout, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), sat(LOGOUT));
+            ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, "Log Out", medium(16.0), sat(LOGOUT));
             logout = resp.clicked();
             ui.add_space(12.0);
             let version = format!("Rustcord {}", env!("CARGO_PKG_VERSION"));
@@ -714,7 +714,7 @@ pub fn button(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
         Look::Primary => (pal().blurple, Color32::WHITE, Color32::from_white_alpha(20)),
         Look::Filled => (pal().red, Color32::WHITE, Color32::from_white_alpha(20)),
         Look::Secondary => (faint(31), pal().header_primary, faint(61)),
-        Look::Danger => (faint(31), LOGOUT, faint(61)),
+        Look::Danger => (faint(31), sat(LOGOUT), faint(61)),
     };
     let over = if matches!(look, Look::Secondary | Look::Danger) { faint(51) } else { fill.gamma_multiply(0.85) };
     let fill = motion::mix(fill, over, motion::hot(ui.ctx(), &resp));
