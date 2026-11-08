@@ -9,6 +9,10 @@ const CONFIRM: &str = r#"<title>Confirm payment</title><style>body{background:#1
 
 static WISH: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+pub fn reset() {
+    WISH.lock().unwrap().clear();
+}
+
 const POPULAR: [&str; 8] = ["5104", "5101", "5201", "5103", "5102", "5202", "5203", "5204"];
 
 fn tags(sku: &str) -> (&'static [&'static str], &'static [&'static str]) {
