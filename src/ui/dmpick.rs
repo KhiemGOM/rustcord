@@ -69,7 +69,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     let at = Rect::from_min_size(pos2(row.right() - 112.0, row.top()), vec2(112.0, 40.0));
                     let ready = !p.picked.is_empty();
                     let resp = ui.interact(at, ui.id().with("pick_add"), if ready { Sense::click() } else { Sense::hover() });
-                    ui.painter().rect_filled(at, 8, BLURPLE.gamma_multiply(if ready { 1.0 } else { 0.5 }));
+                    ui.painter().rect_filled(at, 8, pal().blurple.gamma_multiply(if ready { 1.0 } else { 0.5 }));
                     ui.painter().text(at.center(), Align2::CENTER_CENTER, "Add", medium(16.0), egui::Color32::WHITE);
                     super::settings::mark(ui, "pick:go", at);
                     go |= resp.clicked();
@@ -79,7 +79,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     Rect::from_min_max(pos2(field.left() + 12.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0)),
                     egui::TextEdit::singleline(&mut p.q).hint_text(RichText::new("Search").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
-                ui.painter().rect_stroke(field, 8, Stroke::new(1.0, BLURPLE), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(field, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
                 if std::mem::take(&mut p.fresh) || ui.memory(|m| m.focused().is_none()) {
                     e.request_focus();
                 }
@@ -102,7 +102,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         let n = text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y - 8.0), Align2::LEFT_CENTER, &store.name_in(0, *u), semi(16.0), pal().header_primary, 300.0);
                         ui.painter().text(pos2(n.left(), r.center().y + 10.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().header_secondary);
                         let cb = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(24.0, 24.0));
-                        ui.painter().rect(cb, 4, if on { BLURPLE } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if on { BLURPLE } else { pal().header_secondary }), egui::StrokeKind::Inside);
+                        ui.painter().rect(cb, 4, if on { pal().blurple } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if on { pal().blurple } else { pal().header_secondary }), egui::StrokeKind::Inside);
                         if on {
                             icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), egui::Color32::WHITE);
                         }
@@ -130,7 +130,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, "https://discord.gg/example", reg(16.0), pal().text_muted);
                     let b = Rect::from_center_size(pos2(r.right() - 36.0, r.center().y), vec2(60.0, 32.0));
                     let resp = ui.interact(b, ui.id().with("pick_link"), Sense::click());
-                    ui.painter().rect_filled(b, 4, BLURPLE);
+                    ui.painter().rect_filled(b, 4, pal().blurple);
                     ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create", medium(14.0), egui::Color32::WHITE);
                     super::settings::mark(ui, "pick:link", b);
                     link = resp.clicked();
@@ -139,7 +139,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| button(ui, button_text, BLURPLE, 212.0)).inner;
+                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| button(ui, button_text, pal().blurple, 212.0)).inner;
                     super::settings::mark(ui, "pick:go", b.rect);
                     go = b.clicked();
                 });

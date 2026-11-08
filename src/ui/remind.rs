@@ -44,7 +44,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let inner = r.shrink2(vec2(12.0, 10.0));
             let e = ui.put(inner, egui::TextEdit::singleline(&mut c.text).hint_text(RichText::new("5pm, tomorrow 9am, in 2 hours, friday").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(egui::Margin::ZERO));
             super::settings::mark(ui, "remind_custom:input", r);
-            ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
             if std::mem::take(&mut c.fresh) {
                 e.request_focus();
             }
@@ -60,7 +60,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.label(RichText::new(line).font(reg(14.0)).color(if when.is_some() { pal().text_normal } else { pal().text_muted }));
             ui.add_space(16.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let b = ui.add_enabled_ui(when.is_some(), |ui| button(ui, "Set Reminder", BLURPLE, 130.0)).inner;
+                let b = ui.add_enabled_ui(when.is_some(), |ui| button(ui, "Set Reminder", pal().blurple, 130.0)).inner;
                 super::settings::mark(ui, "remind_custom:set", b.rect);
                 set |= b.clicked();
             });

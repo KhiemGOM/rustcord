@@ -42,7 +42,7 @@ fn code(ui: &mut Ui, qr: &mut State, text: &str, ready: bool) -> Rect {
     }
     let badge = Rect::from_center_size(rect.center(), vec2(44.0, 44.0));
     ui.painter().rect_filled(badge, CornerRadius::same(8), Color32::WHITE);
-    icons::draw(ui.painter(), icons::Icon::Discord, Rect::from_center_size(rect.center(), vec2(32.0, 32.0)), BLURPLE);
+    icons::draw(ui.painter(), icons::Icon::Discord, Rect::from_center_size(rect.center(), vec2(32.0, 32.0)), pal().blurple);
     rect
 }
 

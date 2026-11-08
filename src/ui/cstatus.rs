@@ -126,7 +126,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                 });
                 ui.add_space(16.0 - ui.spacing().item_spacing.x);
-                let b = button(ui, "Save", BLURPLE, 136.0);
+                let b = button(ui, "Save", pal().blurple, 136.0);
                 settings::mark_in(ui.ctx(), "cstatus_save", b.rect);
                 save |= b.clicked();
             });

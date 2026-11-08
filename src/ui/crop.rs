@@ -194,7 +194,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= grey_button(ui, "Cancel", (VIEW_W - 8.0) / 2.0).clicked();
                 ui.add_enabled_ui(!busy, |ui| {
-                    let b = button(ui, if busy { "Applying…" } else { "Apply" }, BLURPLE, (VIEW_W - 8.0) / 2.0);
+                    let b = button(ui, if busy { "Applying…" } else { "Apply" }, pal().blurple, (VIEW_W - 8.0) / 2.0);
                     super::settings::mark(ui, "crop_apply", b.rect);
                     apply |= b.clicked();
                 });

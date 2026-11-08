@@ -709,7 +709,7 @@ fn get_started(ui: &mut Ui, total: usize, done: usize) -> bool {
     let track = Rect::from_min_max(pos2(x, r.top() + 31.0), pos2(right, r.top() + 35.0));
     p.rect_filled(track, 3, pal().border_subtle);
     let filled = Rect::from_min_size(track.min, vec2(track.width() * done as f32 / total.max(1) as f32, track.height()));
-    p.rect_filled(filled, 3, GREEN);
+    p.rect_filled(filled, 3, pal().green);
     p.hline(r.x_range(), r.bottom() - 1.0, egui::Stroke::new(1.0, pal().border_subtle));
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -962,7 +962,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         );
     }
     let icon_col = if here {
-        GREEN
+        pal().green
     } else if selected {
         pal().header_primary
     } else if muted {
@@ -1009,7 +1009,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         right = n.left() - 6.0;
     }
     if let Some(t) = timer.filter(|_| x == inner.right() - 16.0 && mentions == 0) {
-        let r = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, t, mono(13.0), GREEN);
+        let r = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, t, mono(13.0), pal().green);
         right = r.left() - 6.0;
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
@@ -1278,7 +1278,7 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
     }
     if voice.ringing == Some(c.id) {
         let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
-        ui.painter().circle_stroke(av.center(), 18.0 + 4.0 * k, egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)));
+        ui.painter().circle_stroke(av.center(), 18.0 + 4.0 * k, egui::Stroke::new(2.0, pal().green.gamma_multiply(1.0 - k)));
         ui.ctx().request_repaint_after_secs(0.033);
     }
     if muted {
@@ -1345,14 +1345,14 @@ fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, c: &Channel
 }
 
 fn group_color(id: Id) -> Color32 {
-    const C: [Color32; 5] = [
-        Color32::from_rgb(0x58, 0x65, 0xf2),
+    let c = [
+        pal().blurple,
         Color32::from_rgb(0x3b, 0xa5, 0x5c),
         Color32::from_rgb(0xfa, 0xa6, 0x1a),
         Color32::from_rgb(0xed, 0x42, 0x45),
         Color32::from_rgb(0xeb, 0x45, 0x9e),
     ];
-    C[(id % 5) as usize]
+    c[(id % 5) as usize]
 }
 
 /// The game's panel: its icon and name, "Not Sharing" while activity sharing is off (a click
@@ -1382,7 +1382,7 @@ fn game_panel(app: &mut App, ui: &mut Ui, area: Rect) {
         ui.painter().rect_filled(btn, CornerRadius::same(8), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let col = if live { GREEN } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+    let col = if live { pal().green } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     icons::draw(ui.painter(), Icon::ScreenArrow, Rect::from_center_size(btn.center(), vec2(20.0, 20.0)), col);
     app.rects.insert("game:live".into(), btn);
     let tip = match (app.voice.chan.is_some(), live) {
@@ -1473,7 +1473,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
                     let stage = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
-                    icons::draw(ui.painter(), if stage { Icon::Stage } else { Icon::Speaker }, r, GREEN);
+                    icons::draw(ui.painter(), if stage { Icon::Stage } else { Icon::Speaker }, r, pal().green);
                     ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().header_secondary)).selectable(false));
                 });
             } else if let Some(e) = app.store.custom_emoji.clone().filter(|e| e.id != 0 && matches!(app.conn, crate::net::Conn::Online) && !hot && !app.settings.hiding_personal()) {

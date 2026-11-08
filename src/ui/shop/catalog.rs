@@ -259,7 +259,7 @@ fn feed_block(ui: &mut Ui, all: &[&Value], b: &Value, title: &str, left: f32, y:
         *y += SPACE_32;
         let label = "Shop All";
         let r = Rect::from_min_size(pos2(left, *y), vec2(cw, 40.0));
-        if button(ui, r, label, BLURPLE, Color32::WHITE, "shop_all") {
+        if button(ui, r, label, pal().blurple, Color32::WHITE, "shop_all") {
             acts.push(Act::Go(1));
         }
         *y += 40.0;

@@ -94,7 +94,7 @@ pub fn backdrop(p: &Value) -> (Color32, Color32) {
 }
 
 pub fn accent(p: &Value) -> Color32 {
-    hex(&p["styles"]["button_colors"], 0, BLURPLE)
+    hex(&p["styles"]["button_colors"], 0, pal().blurple)
 }
 
 fn cdn_asset(path: &str) -> String {
@@ -175,7 +175,7 @@ fn price_row(ui: &Ui, at: Pos2, p: &Price, size: f32, orbs: bool) {
     };
     let t = painter.text(pos2(at.x + 24.0, at.y), Align2::LEFT_CENTER, text, bold(size), Color32::WHITE);
     if let Some(off) = p.off {
-        painter.text(pos2(t.right() + 6.0, at.y), Align2::LEFT_CENTER, format!("(-{off}%)"), bold(size), GREEN);
+        painter.text(pos2(t.right() + 6.0, at.y), Align2::LEFT_CENTER, format!("(-{off}%)"), bold(size), pal().green);
     }
 }
 
@@ -218,7 +218,7 @@ pub fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, member: bool, wished: b
     if ui.rect_contains_pointer(r) || wished {
         let hr = ui.interact(heart, Id::new(("shop_heart", salt, &id)), Sense::click());
         ui.painter().rect_filled(heart, CornerRadius::same(RADIUS_LG), Color32::from_black_alpha(if hr.hovered() { 170 } else { 130 }));
-        icons::draw(ui.painter(), Icon::Heart, Rect::from_center_size(heart.center(), vec2(16.0, 16.0)), if wished { RED } else { Color32::WHITE });
+        icons::draw(ui.painter(), Icon::Heart, Rect::from_center_size(heart.center(), vec2(16.0, 16.0)), if wished { pal().red } else { Color32::WHITE });
         mark(ui, &format!("shop:heart:{id}"), heart);
         if hr.clicked() {
             return Some(Hit::Wish);
@@ -341,7 +341,7 @@ pub fn detail(ctx: &egui::Context, p: &Value, member: bool, wished: bool, avatar
         let heart = Rect::from_min_size(pos2(buy.right() + SPACE_8, buy.top()), vec2(40.0, 40.0));
         let hr = ui.interact(heart, Id::new("shop_detail_heart"), Sense::click());
         painter.rect_filled(heart, CornerRadius::same(RADIUS_SM), Color32::from_rgba_unmultiplied(151, 151, 159, if hr.hovered() { 51 } else { 31 }));
-        icons::draw(&painter, Icon::Heart, Rect::from_center_size(heart.center(), vec2(18.0, 18.0)), if wished { RED } else { pal().header_primary });
+        icons::draw(&painter, Icon::Heart, Rect::from_center_size(heart.center(), vec2(18.0, 18.0)), if wished { pal().red } else { pal().header_primary });
         mark(ui, "shop:detail_heart", heart);
         if hr.clicked() {
             out = Some(Act::Wish);

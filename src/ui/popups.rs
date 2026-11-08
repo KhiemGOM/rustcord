@@ -317,11 +317,11 @@ fn gifs(app: &mut App, ctx: &egui::Context) {
                             let sr = Rect::from_min_size(pos2(r.right() - 36.0, r.top() + 8.0), vec2(28.0, 28.0));
                             if resp.hovered() || starred {
                                 ui.painter().circle_filled(sr.center(), 14.0, egui::Color32::from_black_alpha(150));
-                                let col = if starred { YELLOW } else { egui::Color32::WHITE };
+                                let col = if starred { pal().yellow } else { egui::Color32::WHITE };
                                 super::icons::draw(ui.painter(), Icon::Star, sr.shrink(6.0), col);
                             }
                             if resp.hovered() {
-                                ui.painter().rect_stroke(r, CornerRadius::same(5), egui::Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+                                ui.painter().rect_stroke(r, CornerRadius::same(5), egui::Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
                             if i == 0 {
@@ -498,7 +498,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
             super::settings::mark(ui, "invite:discover", r);
             ui.painter().rect(r, 8, if resp.hovered() { pal().bg_mod_hover } else { pal().input_bg }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             let c = pos2(r.left() + 36.0, r.center().y);
-            ui.painter().circle_filled(c, 18.0, GREEN);
+            ui.painter().circle_filled(c, 18.0, pal().green);
             super::icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(c, vec2(20.0, 20.0)), egui::Color32::WHITE);
             ui.painter().text(pos2(r.left() + 68.0, r.center().y - 11.0), Align2::LEFT_CENTER, "Don't have an invite?", semi(16.0), pal().header_primary);
             let g = ui.painter().layout("Check out Discoverable communities in Server Discovery.".into(), reg(14.0), pal().text_normal, r.width() - 140.0);
@@ -507,7 +507,7 @@ fn invite(app: &mut App, ctx: &egui::Context) {
             discover = resp.clicked();
             ui.add_space(16.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if button(ui, "Join Server", BLURPLE, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                if button(ui, "Join Server", pal().blurple, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                     join = Some(text.clone());
                 }
                 if ui.add(egui::Label::new(RichText::new("Back").color(pal().header_primary)).sense(Sense::click())).clicked() {
@@ -634,14 +634,14 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
                         .frame(Frame::NONE)
                         .margin(Margin::ZERO),
                 );
-                ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 super::icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0)), pal().header_primary);
                 // discord's warning circle: yellow with the "!" cut out of it
                 if store.locked(chan) {
                     ui.add_space(8.0);
                     let (line, _) = ui.allocate_exact_size(vec2(432.0, 16.0), Sense::hover());
                     let c = pos2(line.left() + 6.0, line.center().y);
-                    ui.painter().circle_filled(c, 6.0, YELLOW);
+                    ui.painter().circle_filled(c, 6.0, pal().yellow);
                     ui.painter().rect_filled(Rect::from_center_size(c - vec2(0.0, 1.25), vec2(1.6, 4.5)), 1, pal().bg_secondary);
                     ui.painter().circle_filled(c + vec2(0.0, 2.75), 0.9, pal().bg_secondary);
                     let note = "This channel is private, only select members and roles can view this channel.";
@@ -677,7 +677,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
                                     egui::Image::from_uri(url).corner_radius(CornerRadius::same(16)).show_loading_spinner(false).paint_at(ui, pic);
                                 }
                                 None => {
-                                    ui.painter().circle_filled(pic.center(), 16.0, BLURPLE);
+                                    ui.painter().circle_filled(pic.center(), 16.0, pal().blurple);
                                     super::icons::draw(ui.painter(), Icon::People, pic.shrink(8.0), egui::Color32::WHITE);
                                 }
                             },
@@ -729,7 +729,7 @@ fn made_invite(app: &mut App, ctx: &egui::Context) {
                 let shown = link.clone().unwrap_or_else(|| "Generating link…".into());
                 text::paint(ui.painter(), pos2(field.left() + 10.0, field.center().y), Align2::LEFT_CENTER, &shown, reg(16.0), pal().text_normal, b.left() - field.left() - 18.0);
                 let resp = ui.interact(b, ui.id().with("invite_copy"), Sense::click());
-                ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+                ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
                 ui.painter().text(b.center(), Align2::CENTER_CENTER, "Copy", medium(14.0), egui::Color32::WHITE);
                 copy = link.is_some() && resp.clicked();
                 ui.add_space(14.0);
@@ -794,7 +794,7 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
             r.request_focus();
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                save |= button(ui, "Set Status", BLURPLE, 104.0).clicked();
+                save |= button(ui, "Set Status", pal().blurple, 104.0).clicked();
                 ui.add_space(8.0);
                 close |= button(ui, "Cancel", pal().control, 88.0).clicked();
             });
@@ -947,7 +947,7 @@ fn switcher(app: &mut App, ctx: &egui::Context) {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
+                ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(pal().green));
                 ui.label(RichText::new("Start searches with @ # ! * $ to narrow results.").font(reg(14.0)).color(pal().header_secondary));
                 let learn = ui.add(egui::Label::new(RichText::new("Learn more").font(reg(14.0)).color(pal().link)).sense(Sense::click()));
                 if learn.hovered() {
@@ -1524,7 +1524,7 @@ pub fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::
         .map(|c| role_color(c as u32))
         // no banner colour set: discord's pick from the avatar, as in call tiles
         .or_else(|| super::palette::avatar(ui.ctx(), &user.avatar_url()))
-        .unwrap_or(BLURPLE);
+        .unwrap_or(pal().blurple);
     let banner = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
     let pronouns = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty());
     let (top, _) = ui.allocate_exact_size(vec2(300.0, 105.0), Sense::hover());
@@ -1809,7 +1809,7 @@ pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
                                 ui.painter().hline(sep.x_range(), sep.center().y, egui::Stroke::new(1.0, pal().border_subtle));
                                 ui.add_space(12.0);
                                 ui.vertical_centered(|ui| {
-                                    ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
+                                    ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(pal().green));
                                     ui.label(
                                         RichText::new("Users with the 'Pin Messages' permission can pin a message from its context menu.")
                                             .font(reg(14.0))
@@ -2189,13 +2189,13 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
                 .frame(Frame::NONE)
                 .margin(Margin::ZERO),
         );
-        let ring = if edit.has_focus() { BLURPLE } else { pal().border_subtle };
+        let ring = if edit.has_focus() { pal().blurple } else { pal().border_subtle };
         ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, ring), egui::StrokeKind::Inside);
         super::icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 16.0, field.center().y), vec2(12.0, 12.0)), pal().header_primary);
         ui.ctx().data_mut(|d| d.insert_temp(qid, q.clone()));
         let b = Rect::from_min_size(pos2(head.right() - 80.0, head.top() + 8.0), vec2(64.0, 32.0));
         let br = ui.interact(b, ui.id().with("thread_create"), Sense::click());
-        ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
+        ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create", medium(14.0), egui::Color32::WHITE);
         create |= br.clicked();
 
@@ -2217,7 +2217,7 @@ pub fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
             p.text(pos2(c.x, body.top() + 215.0), Align2::CENTER_CENTER, "Stay focused on a conversation with a thread - a temporary text channel.", reg(16.0), pal().text_normal);
             let b = Rect::from_center_size(pos2(c.x, body.top() + 259.0), vec2(130.0, 40.0));
             let br = ui.interact(b, ui.id().with("thread_create_big"), Sense::click());
-            ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
+            ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
             ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create Thread", medium(16.0), egui::Color32::WHITE);
             create |= br.clicked();
             if create {
@@ -2399,7 +2399,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
                     let (r, resp) = ui.allocate_exact_size(vec2(72.0, 36.0), Sense::click());
                     let cr = CornerRadius { nw: if i == 0 { 8 } else { 0 }, sw: if i == 0 { 8 } else { 0 }, ne: if i == 5 { 8 } else { 0 }, se: if i == 5 { 8 } else { 0 } };
                     let on = t.secs == secs;
-                    ui.painter().rect(r, cr, if on { BLURPLE } else { crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)) }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                    ui.painter().rect(r, cr, if on { pal().blurple } else { crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)) }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     ui.painter().text(r.center(), Align2::CENTER_CENTER, label, semi(14.0), if on { egui::Color32::WHITE } else { pal().header_primary });
                     if resp.clicked() {
                         t.secs = secs;
@@ -2422,7 +2422,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                let t = button(ui, "Timeout", BLURPLE, 212.0);
+                let t = button(ui, "Timeout", pal().blurple, 212.0);
                 super::settings::mark(ui, "timeout:go", t.rect);
                 go = t.clicked();
             });
@@ -2525,7 +2525,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                         .margin(Margin::ZERO),
                 );
                 r.request_focus();
-                ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 super::icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0)), pal().header_primary);
             });
             let room = (ui.ctx().content_rect().height() - 360.0).clamp(144.0, 400.0);
@@ -2565,7 +2565,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                         }
                         let b = Rect::from_center_size(pos2(r.right() - 10.0, r.center().y), vec2(20.0, 20.0));
                         if on {
-                            ui.painter().rect_filled(b, 6, BLURPLE);
+                            ui.painter().rect_filled(b, 6, pal().blurple);
                             super::icons::draw(ui.painter(), Icon::Check, b.shrink(3.0), egui::Color32::WHITE);
                         } else {
                             ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -2616,7 +2616,7 @@ fn forward(app: &mut App, ctx: &egui::Context) {
                     super::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(field.right() - 22.0, field.center().y), vec2(20.0, 20.0)), pal().header_secondary);
                     let b = Rect::from_min_size(pos2(field.right() + 10.0, row.top()), vec2(100.0, 40.0));
                     let resp = ui.interact(b, ui.id().with("forward_send"), Sense::click());
-                    let fill = if n == 0 { BLURPLE.gamma_multiply(0.5) } else { crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)) };
+                    let fill = if n == 0 { pal().blurple.gamma_multiply(0.5) } else { crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)) };
                     ui.painter().rect_filled(b, 8, fill);
                     let label = if n > 1 { format!("Send ({n})") } else { "Send".to_string() };
                     let g = ui.painter().layout_no_wrap(label, medium(16.0), egui::Color32::WHITE);
@@ -2705,7 +2705,7 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
                     r.shrink2(vec2(12.0, 10.0)),
                     egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
-                ui.painter().rect_stroke(r, 8, egui::Stroke::new(1.0, if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, 8, egui::Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 if focus {
                     e.request_focus();
                 }
@@ -2721,7 +2721,7 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
                 super::settings::mark(ui, "new_thread:private", r);
                 let b = Rect::from_min_size(r.min, vec2(24.0, 24.0));
                 if t.private {
-                    ui.painter().rect_filled(b, 6, BLURPLE);
+                    ui.painter().rect_filled(b, 6, pal().blurple);
                     super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
                 } else {
                     ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -2742,7 +2742,7 @@ fn new_thread(app: &mut App, ctx: &egui::Context) {
             let enter = (n.lost_focus() || f.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
             ui.add_space(24.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let create = button(ui, "Create Thread", BLURPLE, 128.0);
+                let create = button(ui, "Create Thread", pal().blurple, 128.0);
                 super::settings::mark(ui, "new_thread:create", create.rect);
                 make = create.clicked() || enter;
                 ui.add_space(8.0);
@@ -2853,7 +2853,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             let (r, resp) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::click());
             let b = Rect::from_min_size(r.left_top(), vec2(24.0, 24.0));
             if *trust {
-                ui.painter().rect_filled(b, 6, BLURPLE);
+                ui.painter().rect_filled(b, 6, pal().blurple);
                 super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
             } else {
                 ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -2869,7 +2869,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Go Back", 212.0).clicked();
-                let v = button(ui, "Visit Site", BLURPLE, 212.0);
+                let v = button(ui, "Visit Site", pal().blurple, 212.0);
                 app.rects.insert("leaving:visit".into(), v.rect);
                 go = v.clicked();
             });

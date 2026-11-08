@@ -58,7 +58,7 @@ pub fn bans(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.painter().text(pos2(r.left() + 52.0, r.center().y + 11.0), Align2::LEFT_CENTER, id.to_string(), reg(12.0), pal().header_secondary);
             crate::ui::text::paint(ui.painter(), pos2(r.left() + r.width() * 0.4, r.center().y), Align2::LEFT_CENTER, &reason, reg(14.0), pal().text_normal, r.width() * 0.4);
             if hot {
-                ui.painter().text(pos2(r.right() - 12.0, r.center().y), Align2::RIGHT_CENTER, "Revoke Ban", medium(14.0), RED);
+                ui.painter().text(pos2(r.right() - 12.0, r.center().y), Align2::RIGHT_CENTER, "Revoke Ban", medium(14.0), pal().red);
             }
         });
         if resp.clicked() {

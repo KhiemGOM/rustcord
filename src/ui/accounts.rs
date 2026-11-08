@@ -86,7 +86,7 @@ pub fn manage_modal(app: &mut App, ctx: &egui::Context) {
             }
         }
         ui.add_space(16.0);
-        if button(ui, "Add an account", BLURPLE, 384.0).clicked() {
+        if button(ui, "Add an account", pal().blurple, 384.0).clicked() {
             add = true;
         }
     });

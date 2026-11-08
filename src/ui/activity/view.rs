@@ -51,7 +51,7 @@ pub fn stage(app: &mut App, ui: &mut Ui, area: Rect) {
     ui.painter().text(pos2(x, head.center().y), Align2::LEFT_CENTER, &info.name, semi(14.0), pal().header_primary);
     let leave = Rect::from_center_size(pos2(head.right() - 12.0 - 52.0, head.center().y), vec2(104.0, 28.0));
     app.rects.insert("activity:leave".into(), leave);
-    if button(ui, leave, "activity_leave", "Leave Activity", RED).clicked() {
+    if button(ui, leave, "activity_leave", "Leave Activity", pal().red).clicked() {
         return super::leave(app);
     }
     let body = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
@@ -98,7 +98,7 @@ pub fn join_tile(app: &mut App, ui: &mut Ui, ch: Id, r: Rect, app_id: Id, users:
     if app.activity.busy() || app.voice.chan != Some(ch) {
         return;
     }
-    if button(ui, b, ("activity_join_tile", app_id), "Join Activity", GREEN).clicked() {
+    if button(ui, b, ("activity_join_tile", app_id), "Join Activity", pal().green).clicked() {
         super::launch(app, app_id);
     }
 }
@@ -129,7 +129,7 @@ pub fn consent(app: &mut App, ctx: &Context) {
         for s in &scopes {
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-                icons::draw(ui.painter(), Icon::Check, r, GREEN);
+                icons::draw(ui.painter(), Icon::Check, r, pal().green);
                 ui.add_space(8.0);
                 ui.add(egui::Label::new(RichText::new(bridge::scope_text(s)).font(reg(14.0)).color(pal().text_normal)).wrap());
             });
@@ -141,7 +141,7 @@ pub fn consent(app: &mut App, ctx: &Context) {
             if crate::ui::grey_button(ui, "Cancel", 192.0).clicked() {
                 answer = Some(false);
             }
-            let ok = crate::ui::button(ui, "Authorize", BLURPLE, 192.0);
+            let ok = crate::ui::button(ui, "Authorize", pal().blurple, 192.0);
             app.rects.insert("activity:authorize".into(), ok.rect);
             if ok.clicked() {
                 answer = Some(true);
@@ -176,7 +176,7 @@ pub fn list_rows(ui: &mut Ui, store: &crate::state::Store, act: &super::Activity
             continue;
         }
         let resp = ui.interact(b, egui::Id::new(("activity_join_row", i.app)), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(4), crate::ui::motion::mix(GREEN, GREEN.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+        ui.painter().rect_filled(b, CornerRadius::same(4), crate::ui::motion::mix(pal().green, pal().green.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Join", semi(12.0), Color32::WHITE);
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("activity_join_row_rect", i.app)), b));
         if resp.hovered() {

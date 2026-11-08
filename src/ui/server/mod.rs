@@ -355,8 +355,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
                     crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
                     super::settings::mark(ui, "side:Delete Server", r);
-                    ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Delete Server", medium(16.0), RED);
-                    icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(16.0, 16.0)), RED);
+                    ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Delete Server", medium(16.0), pal().red);
+                    icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), vec2(16.0, 16.0)), pal().red);
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }

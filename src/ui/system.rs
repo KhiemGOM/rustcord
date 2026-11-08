@@ -135,12 +135,12 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
         1 => {
             let to = other.map(|o| who(store, guild, o)).unwrap_or(Text("someone".into()));
             let tail = if thread { " to the thread." } else { " to the group." };
-            sys(Icon::ArrowRight, GREEN, vec![u, Text(" added ".into()), to, Text(tail.into())])
+            sys(Icon::ArrowRight, pal().green, vec![u, Text(" added ".into()), to, Text(tail.into())])
         }
         2 => match other.filter(|o| *o != m.author) {
-            Some(o) if thread => sys(Icon::ArrowLeft, RED, vec![u, Text(" removed ".into()), who(store, guild, o), Text(" from the thread.".into())]),
-            Some(o) => sys(Icon::ArrowLeft, RED, vec![u, Text(" removed ".into()), who(store, guild, o), Text(" from the group.".into())]),
-            None => sys(Icon::ArrowLeft, RED, vec![u, Text(" left the group.".into())]),
+            Some(o) if thread => sys(Icon::ArrowLeft, pal().red, vec![u, Text(" removed ".into()), who(store, guild, o), Text(" from the thread.".into())]),
+            Some(o) => sys(Icon::ArrowLeft, pal().red, vec![u, Text(" removed ".into()), who(store, guild, o), Text(" from the group.".into())]),
+            None => sys(Icon::ArrowLeft, pal().red, vec![u, Text(" left the group.".into())]),
         },
         3 => {
             let call = m.call.as_ref();
@@ -150,10 +150,10 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
             let (icon, tint, spans) = if missed {
                 let mut s = vec![Text("You missed a call from ".into()), u];
                 s.push(Text(dur.map(|d| format!(" that lasted {d}.")).unwrap_or_else(|| ".".into())));
-                (Icon::Phone, RED, s)
+                (Icon::Phone, pal().red, s)
             } else {
                 let tail = dur.map(|d| format!(" started a call that lasted {d}.")).unwrap_or_else(|| " started a call.".into());
-                (Icon::Phone, GREEN, vec![u, Text(tail)])
+                (Icon::Phone, pal().green, vec![u, Text(tail)])
             };
             Some(Sys { icon, tint, spans, button: active.then(|| ("Join the call".to_string(), Go::JoinCall(m.channel))), card: Card::None })
         }
@@ -184,7 +184,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
         }
         7 => {
             if store.user(m.author).is_some_and(|u| u.bot) {
-                sys(Icon::ArrowRight, GREEN, vec![u, Text(" was added to the server.".into())])
+                sys(Icon::ArrowRight, pal().green, vec![u, Text(" was added to the server.".into())])
             } else {
                 let (a, b) = JOINS[(m.ts().unsigned_abs() % 13) as usize];
                 let mut s = Vec::new();
@@ -193,7 +193,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
                 }
                 s.push(u);
                 s.push(Text(b.into()));
-                sys(Icon::ArrowRight, GREEN, s)
+                sys(Icon::ArrowRight, pal().green, s)
             }
         }
         8..=11 => {
@@ -215,7 +215,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
         }
         12 => {
             let hook = m.content.rsplit_once(' ').map_or(m.content.as_str(), |_| m.content.as_str());
-            sys(Icon::ArrowRight, GREEN, vec![u, Text(" has added ".into()), Bold(hook.to_string()), Text(" to this channel. Its most important updates will show up here.".into())])
+            sys(Icon::ArrowRight, pal().green, vec![u, Text(" has added ".into()), Bold(hook.to_string()), Text(" to this channel. Its most important updates will show up here.".into())])
         }
         14 | 16 | 17 => {
             let g = store.guilds.get(&guild).map(|g| g.name.clone()).unwrap_or_default();
@@ -225,9 +225,9 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
                 16 => vec![link, Text(" has failed Discovery activity requirements for 1 week. If it fails for 4 weeks in a row, it will be automatically removed from Discovery.".into())],
                 _ => vec![link, Text(" has failed Discovery activity requirements for 3 weeks in a row. If it fails for 1 more week, it will be removed from Discovery.".into())],
             };
-            sys(if m.kind == 14 { Icon::Flag } else { Icon::Help }, if m.kind == 14 { RED } else { YELLOW }, s)
+            sys(if m.kind == 14 { Icon::Flag } else { Icon::Help }, if m.kind == 14 { pal().red } else { pal().yellow }, s)
         }
-        15 => sys(Icon::Check, GREEN, vec![Text("This server is eligible for Server Discovery again and has been automatically relisted!".into())]),
+        15 => sys(Icon::Check, pal().green, vec![Text("This server is eligible for Server Discovery again and has been automatically relisted!".into())]),
         18 => {
             let name = if m.content.is_empty() { "a thread".to_string() } else { m.content.clone() };
             let t = m.refer.map(|(c, _)| c).filter(|c| *c != 0);
@@ -247,7 +247,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
             }
             Some(Sys {
                 icon: Icon::Shield,
-                tint: RED,
+                tint: pal().red,
                 spans: s,
                 button: None,
                 card: Card::AutoMod { content: m.content.clone(), keyword: field(m, "keyword").map(str::to_string), rule: field(m, "rule_name").map(str::to_string) },
@@ -265,7 +265,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
                 (false, false) => s.extend([Text(" as a subscriber of ".into()), Span::Link(g, Go::Guild(guild)), Text("!".into())]),
                 _ => s.extend([Text(" and has been a subscriber of ".into()), Span::Link(g, Go::Guild(guild)), Text(format!(" for {}!", months(total)))]),
             }
-            sys(Icon::ArrowRight, GREEN, s)
+            sys(Icon::ArrowRight, pal().green, s)
         }
         27 => sys(Icon::Stage, muted, vec![u, Text(" started ".into()), Bold(m.content.clone())]),
         28 => sys(Icon::Stage, muted, vec![u, Text(" ended ".into()), Bold(m.content.clone())]),
@@ -281,7 +281,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
         }
         33 | 34 => {
             let verb = if m.kind == 33 { " added" } else { " removed" };
-            let icon = if m.kind == 33 { (Icon::ArrowRight, GREEN) } else { (Icon::ArrowLeft, RED) };
+            let icon = if m.kind == 33 { (Icon::ArrowRight, pal().green) } else { (Icon::ArrowLeft, pal().red) };
             let s = match m.extra["application"].as_str() {
                 Some(a) => vec![u, Text(format!("{verb} the ")), Bold(a.to_string()), Text(" app. See our Help Centre for more info.".into())],
                 None => vec![u, Text(format!("{verb} a deleted application. See our Help Centre for more info."))],
@@ -295,16 +295,16 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
             } else {
                 vec![u, Text(" disabled security actions.".into())]
             };
-            sys(Icon::Shield, RED, s)
+            sys(Icon::Shield, pal().red, s)
         }
         38 => {
             let g = store.guilds.get(&guild).map(|g| g.name.clone()).unwrap_or_default();
-            sys(Icon::Shield, RED, vec![u, Text(format!(" reported a raid in {g}."))])
+            sys(Icon::Shield, pal().red, vec![u, Text(format!(" reported a raid in {g}."))])
         }
-        39 => sys(Icon::Shield, GREEN, vec![u, Text(" resolved an Activity Alert.".into())]),
+        39 => sys(Icon::Shield, pal().green, vec![u, Text(" resolved an Activity Alert.".into())]),
         44 => {
             let product = m.extra["guild_product_purchase"]["product_name"].as_str().unwrap_or("a product").to_string();
-            sys(Icon::ArrowRight, GREEN, vec![u, Text(" has purchased ".into()), Bold(product), Text("!".into())])
+            sys(Icon::ArrowRight, pal().green, vec![u, Text(" has purchased ".into()), Bold(product), Text("!".into())])
         }
         46 => {
             let q = field(m, "poll_question_text").unwrap_or("").to_string();
@@ -321,12 +321,12 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
             Some(Sys { icon: Icon::Rules, tint: muted, spans: s, button: None, card })
         }
         49 => match m.extra["application"].as_str() {
-            Some(a) => sys(Icon::Refresh, GREEN, vec![u, Text(" has linked this channel to ".into()), Bold(a.to_string()), Text(". Messages are now syncing.".into())]),
+            Some(a) => sys(Icon::Refresh, pal().green, vec![u, Text(" has linked this channel to ".into()), Bold(a.to_string()), Text(". Messages are now syncing.".into())]),
             None => None,
         },
-        52 => sys(Icon::ArrowRight, GREEN, vec![Text("This application was approved! Welcome!".into())]),
-        53 => sys(Icon::ArrowLeft, RED, vec![Text("This application was rejected.".into())]),
-        54 => sys(Icon::ArrowLeft, RED, vec![Text("This application has been withdrawn.".into())]),
+        52 => sys(Icon::ArrowRight, pal().green, vec![Text("This application was approved! Welcome!".into())]),
+        53 => sys(Icon::ArrowLeft, pal().red, vec![Text("This application was rejected.".into())]),
+        54 => sys(Icon::ArrowLeft, pal().red, vec![Text("This application has been withdrawn.".into())]),
         67 => {
             let s = match (m.author == me, m.content.is_empty()) {
                 (true, true) => vec![Text("You accepted a friend request.".into())],
@@ -334,7 +334,7 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
                 (false, false) => vec![u, Text(" accepted your friend request. You said: ".into()), Bold(m.content.clone())],
                 (true, false) => vec![Text("You accepted a friend request. They said: ".into()), Bold(m.content.clone())],
             };
-            sys(Icon::ArrowRight, GREEN, s)
+            sys(Icon::ArrowRight, pal().green, s)
         }
         _ => None,
     }

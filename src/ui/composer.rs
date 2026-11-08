@@ -683,7 +683,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         apps_click = ar.clicked();
                         if app.settings.send_button {
                             let (sr, sresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
-                            let col = crate::ui::motion::mix(pal().header_secondary, BLURPLE, crate::ui::motion::hot(ui.ctx(), &sresp));
+                            let col = crate::ui::motion::mix(pal().header_secondary, pal().blurple, crate::ui::motion::hot(ui.ctx(), &sresp));
                             icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(20.0, 20.0)), col);
                             if sresp.on_hover_text("Send Message").clicked() {
                                 send_click = true;
@@ -711,7 +711,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let used = app.drafts.get(&ch).map_or(0, |d| d.chars().count());
     let left = limit as i64 - used as i64;
     if left <= 200 || (limit > 2000 && used > 2000) {
-        let col = if left < 0 { RED } else { pal().text_muted };
+        let col = if left < 0 { pal().red } else { pal().text_muted };
         let g = ui.painter().layout_no_wrap(left.to_string(), reg(12.0), col);
         let at = pos2(crect.right() - 16.0 - g.size().x, crect.bottom() - 4.0 - g.size().y);
         let r = Rect::from_min_size(at, g.size());
@@ -829,7 +829,7 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     let p = ui.painter();
     p.rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     if card.has_focus() {
-        p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+        p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
     }
     let thumb = Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(200.0, 160.0));
     if let Some(bytes) = &f.thumb {
@@ -844,7 +844,7 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
             p.text(thumb.center(), Align2::CENTER_CENTER, "SPOILER", semi(14.0), Color32::WHITE);
         }
     } else {
-        icons::draw(p, Icon::File, Rect::from_center_size(thumb.center(), vec2(72.0, 72.0)), BLURPLE);
+        icons::draw(p, Icon::File, Rect::from_center_size(thumb.center(), vec2(72.0, 72.0)), pal().blurple);
         if f.spoiler {
             p.text(thumb.center() + vec2(0.0, 52.0), Align2::CENTER_CENTER, "SPOILER", semi(12.0), pal().header_secondary);
         }
@@ -858,12 +858,12 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     let buttons = [
         (if f.spoiler { Icon::EyeOff } else { Icon::Eye }, "Spoiler Attachment", CardAct::Spoiler, pal().header_secondary),
         (Icon::Pencil, "Modify Attachment", CardAct::Modify, pal().header_secondary),
-        (Icon::Trash, "Remove Attachment", CardAct::Remove, RED),
+        (Icon::Trash, "Remove Attachment", CardAct::Remove, pal().red),
     ];
     for (k, (icon, tip, what, ink)) in buttons.into_iter().enumerate() {
         let cell = Rect::from_min_size(bar.min + vec2(32.0 * k as f32, 0.0), vec2(32.0, 32.0));
         let resp = ui.interact(cell, ui.id().with(("upload_btn", i, k)), Sense::click());
-        let ink = if ink == RED { ink } else { crate::ui::motion::mix(ink, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+        let ink = if ink == pal().red { ink } else { crate::ui::motion::mix(ink, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
         icons::draw(ui.painter(), icon, Rect::from_center_size(cell.center(), vec2(20.0, 20.0)), ink);
         super::settings::mark(ui, &format!("card:{i}:{k}"), cell);
         if resp.hovered() {
@@ -1019,7 +1019,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             match icon {
                 Some(h) => avatar(ui, ir, &format!("{}/app-icons/{app_id}/{h}.png?size=64", crate::api::cdn())),
                 None => {
-                    p.circle_filled(ir.center(), 16.0, BLURPLE);
+                    p.circle_filled(ir.center(), 16.0, pal().blurple);
                 }
             }
             let name = slash::form_name(c, path);
@@ -1044,7 +1044,7 @@ fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
             let (name, args, desc) = BUILT_IN[*i];
             super::settings::said(ui.ctx(), &format!("builtin:{name}"), desc);
             let ir = Rect::from_center_size(pos2(x + 16.0, y), vec2(32.0, 32.0));
-            p.circle_filled(ir.center(), 16.0, BLURPLE);
+            p.circle_filled(ir.center(), 16.0, pal().blurple);
             icons::draw(p, Icon::Discord, ir.shrink(8.0), Color32::WHITE);
             let nr = p.text(pos2(x + 44.0, y - 9.0), Align2::LEFT_CENTER, format!("/{name}"), semi(15.0), pal().header_primary);
             p.text(pos2(nr.right() + 6.0, y - 9.0), Align2::LEFT_CENTER, args, reg(14.0), pal().header_secondary);

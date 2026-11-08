@@ -50,9 +50,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let g = ui.painter().layout_no_wrap("Add Friend".into(), medium(16.0), egui::Color32::WHITE);
                 let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::click());
                 let fill = if add {
-                    BLURPLE.gamma_multiply(0.24)
+                    pal().blurple.gamma_multiply(0.24)
                 } else {
-                    super::motion::mix(BLURPLE, egui::Color32::from_rgb(0x44, 0x52, 0xbb), super::motion::hover(ui.ctx(), &resp, 0.3))
+                    super::motion::mix(pal().blurple, egui::Color32::from_rgb(0x44, 0x52, 0xbb), super::motion::hover(ui.ctx(), &resp, 0.3))
                 };
                 ui.painter().rect_filled(r, CornerRadius::same(8), fill);
                 ui.painter().galley(r.center() - g.size() / 2.0, g, if add { pal().link } else { egui::Color32::WHITE });
@@ -89,7 +89,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
     let mut send = false;
     let seen = egui::Id::new("add_friend_seen");
     let edge = match &app.add_friend_note {
-        Some((true, _)) => GREEN,
+        Some((true, _)) => pal().green,
         Some((false, _)) => pal().critical,
         None => pal().border_subtle,
     };
@@ -113,14 +113,14 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
                 send = true;
                 r.request_focus();
             }
-            if button(ui, "Send Friend Request", BLURPLE, 180.0).clicked() {
+            if button(ui, "Send Friend Request", pal().blurple, 180.0).clicked() {
                 send = true;
             }
         });
     });
     if let Some((ok, text)) = &app.add_friend_note {
         ui.add_space(8.0);
-        let ink = if *ok { GREEN } else { pal().critical };
+        let ink = if *ok { pal().green } else { pal().critical };
         ui.label(ui.painter().layout_job(super::bolded(text, 14.0, ink, ui.available_width())));
     }
     let name = app.add_friend.trim().to_string();

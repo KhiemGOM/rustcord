@@ -15,7 +15,6 @@ pub const HEIGHT: f32 = 32.0;
 const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 31);
 // background-mod-normal
 const NAV_HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 51);
-const CLOSE: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
 
 const INBOX_W: f32 = 597.0;
 
@@ -337,7 +336,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let rect = at(x - 32.0, 32.0, HEIGHT);
                     let (hit, on) = press(ui, app, name, rect, true);
                     let (fill, col) = match (name, on) {
-                        ("close", true) => (CLOSE, Color32::WHITE),
+                        ("close", true) => (pal().danger, Color32::WHITE),
                         (_, true) => (HOVER, lit),
                         _ => (Color32::TRANSPARENT, idle),
                     };
@@ -424,12 +423,12 @@ fn keys(app: &mut App, ctx: &egui::Context) {
 /// Discord's inbox tabs each take a quarter of the width, the open one underlined in brand.
 fn tab(ui: &mut Ui, app: &mut App, name: &str, label: &str, on: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(vec2(INBOX_W / 4.0, 40.0), Sense::click());
-    let col = if on { BLURPLE } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+    let col = if on { pal().blurple } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     let galley = ui.painter().layout_no_wrap(label.into(), medium(14.0), col);
     app.rects.insert(format!("inbox:{name}"), rect);
     if on {
         let w = galley.size().x + 32.0;
-        ui.painter().rect_filled(Rect::from_center_size(pos2(rect.center().x, rect.bottom() - 1.0), vec2(w, 2.0)), CornerRadius::same(1), BLURPLE);
+        ui.painter().rect_filled(Rect::from_center_size(pos2(rect.center().x, rect.bottom() - 1.0), vec2(w, 2.0)), CornerRadius::same(1), pal().blurple);
     }
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, col);
     if resp.hovered() {
@@ -656,7 +655,7 @@ fn friend_requests(ui: &mut Ui, app: &mut App) {
             let b = Rect::from_center_size(pos2(r.right() - 20.0 - 40.0 * i as f32, r.center().y), vec2(32.0, 32.0));
             let resp = ui.interact(b, ui.id().with(("friend_req", u, i)), Sense::click());
             ui.painter().circle_filled(b.center(), 16.0, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
-            icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if i == 1 { GREEN } else { pal().header_secondary });
+            icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if i == 1 { pal().green } else { pal().header_secondary });
             if resp.on_hover_text(tip).clicked() {
                 if i == 1 { accept = Some(u) } else { ignore = Some(u) }
             }
@@ -816,7 +815,7 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
                     let g = ui.painter().layout_no_wrap("Got it!".into(), medium(14.0), Color32::WHITE);
                     let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 32.0, 32.0), Sense::click());
                     app.rects.insert("inbox:tip".into(), b);
-                    ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+                    ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
                     ui.painter().galley(b.center() - g.size() / 2.0, g, Color32::WHITE);
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

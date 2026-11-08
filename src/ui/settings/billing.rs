@@ -163,7 +163,7 @@ fn confirm(ctx: &egui::Context, id: &str, head: &str, body: &str, ok: &str, red:
             ui.add_space(16.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let w = ui.painter().layout_no_wrap(ok.into(), semi(14.0), Color32::WHITE).size().x + 32.0;
-                let b = crate::ui::button(ui, ok, if red { RED } else { BLURPLE }, w);
+                let b = crate::ui::button(ui, ok, if red { pal().red } else { pal().blurple }, w);
                 mark(ui, "billing_confirm", b.rect);
                 if b.clicked() {
                     out = Some(true);
@@ -205,7 +205,7 @@ pub fn small(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.into(), medium(14.0), Color32::WHITE);
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(60.0), 32.0), Sense::click());
     let (fill, ink) = match look {
-        Look::Primary => (BLURPLE, Color32::WHITE),
+        Look::Primary => (pal().blurple, Color32::WHITE),
         Look::Danger => (faint(31), LOGOUT),
         _ => (faint(31), pal().header_primary),
     };
@@ -374,7 +374,7 @@ fn features(app: &mut App, ui: &mut Ui, basic_plans: &[Value], nitro_plans: &[Va
             let bw = (ui.painter().layout_no_wrap(text.clone(), medium(16.0), Color32::WHITE).size().x + 32.0).max(144.0);
             let left = (r.left() + x + 80.0 - bw / 2.0).min(right - bw);
             let b = Rect::from_min_size(pos2(left, r.center().y - 20.0), vec2(bw, 40.0));
-            if solid(ui, b, &text, BLURPLE, Color32::WHITE) {
+            if solid(ui, b, &text, pal().blurple, Color32::WHITE) {
                 subscribe(app, plans);
             }
             right = b.left() - 16.0;
@@ -484,9 +484,9 @@ pub fn subscriptions(app: &mut App, ui: &mut Ui) -> bool {
         };
         let source = sources.iter().find(|x| x["id"] == s["payment_source_id"]).map(pay_label);
         let (word, fill) = match (status, ending) {
-            (2, _) => ("PAST DUE", RED),
+            (2, _) => ("PAST DUE", pal().red),
             (_, true) => ("CANCELED", Color32::from_rgb(0x6d, 0x6f, 0x78)),
-            _ => ("ACTIVE", GREEN),
+            _ => ("ACTIVE", pal().green),
         };
         card(ui, |ui| {
             ui.horizontal(|ui| {
@@ -571,7 +571,7 @@ fn source_row(ui: &mut Ui, s: &Value, in_use: bool) -> bool {
     let w = g.size().x;
     p.galley(pos2(r.left() + 56.0, top), g, pal().header_primary);
     let mut x = r.left() + 56.0 + w + 8.0;
-    for (on, text, fill) in [(s["default"] == true, "DEFAULT", Color32::from_rgb(0x4e, 0x50, 0x58)), (in_use, "SUBSCRIPTION", BLURPLE), (s["invalid"] == true, "INVALID", RED)] {
+    for (on, text, fill) in [(s["default"] == true, "DEFAULT", Color32::from_rgb(0x4e, 0x50, 0x58)), (in_use, "SUBSCRIPTION", pal().blurple), (s["invalid"] == true, "INVALID", pal().red)] {
         if on {
             x += pill(&p, pos2(x, top + 3.0), text, fill) + 6.0;
         }
@@ -615,7 +615,7 @@ fn edit_source(app: &mut App, ui: &mut Ui, sources: &[Value]) {
                 let boxr = Rect::from_center_size(pos2(row.left() + 12.0, row.center().y), vec2(20.0, 20.0));
                 let on: bool = get(ui, "form_default");
                 if on {
-                    ui.painter().rect_filled(boxr, CornerRadius::same(4), BLURPLE);
+                    ui.painter().rect_filled(boxr, CornerRadius::same(4), pal().blurple);
                     icons::draw(ui.painter(), Icon::Check, boxr.shrink(3.0), Color32::WHITE);
                 } else {
                     ui.painter().rect(boxr, CornerRadius::same(4), Color32::TRANSPARENT, Stroke::new(2.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -630,13 +630,13 @@ fn edit_source(app: &mut App, ui: &mut Ui, sources: &[Value]) {
         Frame::new().fill(pal().bg_secondary).corner_radius(CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }).inner_margin(16).show(ui, |ui| {
             ui.set_width(408.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let b = crate::ui::button(ui, "Save Changes", BLURPLE, 130.0);
+                let b = crate::ui::button(ui, "Save Changes", pal().blurple, 130.0);
                 mark(ui, "billing:save", b.rect);
                 make = b.clicked();
                 ui.add_space(8.0);
                 close = super::secondary(ui, "Cancel").clicked();
                 ui.add_space(8.0);
-                let d = crate::ui::button(ui, "Delete Payment Method", RED, 170.0);
+                let d = crate::ui::button(ui, "Delete Payment Method", pal().red, 170.0);
                 mark(ui, "billing:delete_source", d.rect);
                 delete = d.clicked();
             });
@@ -677,7 +677,7 @@ fn payment_row(ui: &mut Ui, p: &Value, sources: &[Value], open: bool) -> bool {
     let cy = r.center().y;
     pt.text(pos2(r.left() + 20.0, cy), Align2::LEFT_CENTER, mdy(p["created_at"].as_str().unwrap_or("")), reg(14.0), pal().text_normal);
     let tile = Rect::from_center_size(pos2(r.left() + 162.0, cy), vec2(28.0, 28.0));
-    pt.rect_filled(tile, 6, BLURPLE);
+    pt.rect_filled(tile, 6, pal().blurple);
     icons::draw(&pt, Icon::Nitro, tile.shrink(5.0), Color32::WHITE);
     let name = p["description"].as_str().unwrap_or("Payment");
     let g = pt.layout_no_wrap(name.into(), reg(16.0), pal().header_primary);
@@ -689,7 +689,7 @@ fn payment_row(ui: &mut Ui, p: &Value, sources: &[Value], open: bool) -> bool {
         pt.text(pos2(r.left() + 206.0, cy + 8.0), Align2::LEFT_CENTER, "This was a gift", reg(12.0), pal().header_secondary);
     }
     if p["status"] == 2 {
-        pill(&pt, pos2(r.left() + 196.0 + gw, cy - 8.0), "FAILED", RED);
+        pill(&pt, pos2(r.left() + 196.0 + gw, cy - 8.0), "FAILED", pal().red);
     }
     let amount = money(p["amount"].as_i64().unwrap_or(0), p["currency"].as_str().unwrap_or("usd"));
     pt.text(pos2(r.right() - 64.0, cy), Align2::RIGHT_CENTER, amount, reg(16.0), pal().header_primary);

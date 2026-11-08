@@ -120,7 +120,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             }
                         }
                         if resp.hovered() {
-                            ui.painter().rect_stroke(tile, 8, Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+                            ui.painter().rect_stroke(tile, 8, Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
                         let y = tile.bottom() + 18.0;

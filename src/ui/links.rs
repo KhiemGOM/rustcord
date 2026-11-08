@@ -219,7 +219,7 @@ fn consent(app: &mut App, ctx: &egui::Context) {
         }
         ui.add_space(12.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let b = button(ui, "Authorize", BLURPLE, 120.0);
+            let b = button(ui, "Authorize", pal().blurple, 120.0);
             rect = Some(b.rect);
             if b.clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                 answer = Some(true);
@@ -264,7 +264,7 @@ fn template(app: &mut App, ctx: &egui::Context) {
                 });
                 ui.add_space(16.0);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let b = button(ui, "Create", BLURPLE, 120.0);
+                    let b = button(ui, "Create", pal().blurple, 120.0);
                     rect = Some(b.rect);
                     if (b.clicked() || ui.input(|i| i.key_pressed(Key::Enter))) && !t.busy && !t.name.trim().is_empty() {
                         make = Some((t.code.clone(), t.name.trim().to_string()));
@@ -277,7 +277,7 @@ fn template(app: &mut App, ctx: &egui::Context) {
                 heading(ui, "Invalid server template", "This template link is invalid or has expired.");
                 ui.add_space(16.0);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    close = button(ui, "Okay", BLURPLE, 120.0).clicked();
+                    close = button(ui, "Okay", pal().blurple, 120.0).clicked();
                 });
             }
             (None, false) => {

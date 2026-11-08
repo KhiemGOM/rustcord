@@ -157,7 +157,7 @@ fn visibility(ui: &mut Ui, value: &mut i32, options: &[(i32, &str, &str)]) -> bo
         let (r, resp) = ui.allocate_exact_size(vec2(w, 26.0 + g.size().y), Sense::click());
         let c = pos2(r.left() + 12.0, r.top() + 12.0);
         if *value == *v {
-            ui.painter().circle_filled(c, 12.0, BLURPLE);
+            ui.painter().circle_filled(c, 12.0, pal().blurple);
             ui.painter().circle_filled(c, 5.0, Color32::WHITE);
         } else {
             ui.painter().circle_stroke(c, 11.0, Stroke::new(1.5, pal().header_secondary));
@@ -306,7 +306,7 @@ fn tags(ui: &mut Ui, d: &mut Value, tag: &mut Option<TagEdit>) {
         }
         if list.len() < 20 {
             let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-            ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+            ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
             icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(r.center(), vec2(18.0, 18.0)), Color32::WHITE);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -332,7 +332,7 @@ fn check(ui: &mut Ui, on: &mut bool, label: &str, key: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
     let b = Rect::from_min_size(pos2(r.left(), r.center().y - 10.0), vec2(20.0, 20.0));
     if *on {
-        ui.painter().rect_filled(b, CornerRadius::same(4), BLURPLE);
+        ui.painter().rect_filled(b, CornerRadius::same(4), pal().blurple);
         icons::draw(ui.painter(), Icon::Check, b.shrink(3.0), Color32::WHITE);
     } else {
         ui.painter().rect_stroke(b, CornerRadius::same(4), Stroke::new(2.0, pal().header_secondary), egui::StrokeKind::Inside);

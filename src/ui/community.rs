@@ -204,7 +204,7 @@ fn checkbox(ui: &Ui, id: egui::Id, r: Rect, on: bool, hot: bool) {
     let ctx = ui.ctx();
     let k = motion::tween(ctx, id.with("fill"), on, 0.15, motion::EASE);
     let edge = Stroke::new(1.0, faint(if hot { 200 } else { 163 }).gamma_multiply(1.0 - k));
-    ui.painter().rect(r, 4, motion::mix(Color32::from_black_alpha(20), BLURPLE, k), edge, egui::StrokeKind::Inside);
+    ui.painter().rect(r, 4, motion::mix(Color32::from_black_alpha(20), pal().blurple, k), edge, egui::StrokeKind::Inside);
     let u = motion::flip(ctx, id.with("tick"), on, 0.3, 0.0);
     if on && u > 0.25 {
         let s = motion::keys_eased(&[(0.0, 0.7), (0.25, 0.7), (0.75, 1.1), (1.0, 1.0)], u, motion::Curve::Bezier(0.65, 0.0, 0.83, 0.83));
@@ -390,7 +390,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
         let sig = Rect::from_center_size(pos2(col(5) + sig_text + 16.0, hr.center().y), vec2(24.0, 24.0));
         let sr = cu.interact(sig, cu.id().with("signal_filter"), Sense::click());
         app.rects.insert("members:signal".into(), sig);
-        icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { BLURPLE } else { pal().text_normal });
+        icons::draw(cu.painter(), Icon::Sort, Rect::from_center_size(sig.center(), vec2(14.0, 14.0)), if tb.signal != 0 { pal().blurple } else { pal().text_normal });
         egui::Popup::menu(&sr.on_hover_text("Filter based on safety info, such as timed out or engaging in unusual DM activity.")).show(|ui| {
             super::menu_body(ui, |ui| {
                 for (v, l) in [(0, "All members"), (1, "Timed out"), (2, "Unusual DM activity")] {
@@ -676,7 +676,7 @@ fn channels(app: &mut App, ui: &mut Ui, gid: Id, tab: u8) {
                     ui.painter().galley(pos2(pill.left() + 4.0, pill.center().y - c.size().y / 2.0), c, pal().header_primary);
                 }
                 if on {
-                    ui.painter().rect_filled(Rect::from_min_max(pos2(r.left(), bar.bottom() - 2.0), pos2(r.right(), bar.bottom())), 0, BLURPLE);
+                    ui.painter().rect_filled(Rect::from_min_max(pos2(r.left(), bar.bottom() - 2.0), pos2(r.right(), bar.bottom())), 0, pal().blurple);
                 }
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -736,11 +736,11 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
                             let label = format!("{}{title}", emoji.map(|e| format!("{e} ")).unwrap_or_default());
                             let g = super::text::layout_em(ui.ctx(), &label, medium(16.0), pal().text_normal, f32::INFINITY, 1.0);
                             let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 40.0).max(270.0), 48.0), Sense::click());
-                            ui.painter().rect(r, 8, crate::ui::motion::mix(Color32::from_black_alpha(31), faint(31), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(if on { 2.0 } else { 1.0 }, if on { BLURPLE } else { faint(61) }), egui::StrokeKind::Inside);
+                            ui.painter().rect(r, 8, crate::ui::motion::mix(Color32::from_black_alpha(31), faint(31), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(if on { 2.0 } else { 1.0 }, if on { pal().blurple } else { faint(61) }), egui::StrokeKind::Inside);
                             g.paint(ui.painter(), pos2(r.left() + 20.0, r.center().y - g.size().y / 2.0));
                             if on {
                                 let c = pos2(r.right(), r.top());
-                                ui.painter().circle_filled(c, 9.0, BLURPLE);
+                                ui.painter().circle_filled(c, 9.0, pal().blurple);
                                 ui.painter().add(egui::Shape::line(vec![c + vec2(-4.0, 0.0), c + vec2(-1.0, 3.0), c + vec2(4.0, -3.0)], Stroke::new(1.6, Color32::WHITE)));
                             }
                             if resp.hovered() {
@@ -902,7 +902,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 .desired_width(field.width()),
         );
         ui.add_space(20.0);
-        create = super::button(ui, "+ Create", BLURPLE, 120.0).clicked();
+        create = super::button(ui, "+ Create", pal().blurple, 120.0).clicked();
     });
     let q = h.browse.trim().to_lowercase();
     ui.add_space(16.0);

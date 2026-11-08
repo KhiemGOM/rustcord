@@ -14,7 +14,7 @@ use crate::theme::*;
 fn check(ui: &mut Ui, ok: bool, text: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
     let c = pos2(r.left() + 12.0, r.center().y);
-    ui.painter().circle_filled(c, 10.0, if ok { GREEN } else { RED });
+    ui.painter().circle_filled(c, 10.0, if ok { pal().green } else { pal().red });
     icons::draw(ui.painter(), if ok { Icon::Check } else { Icon::Close }, egui::Rect::from_center_size(c, vec2(12.0, 12.0)), Color32::WHITE);
     ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, text, reg(14.0), pal().text_normal);
 }

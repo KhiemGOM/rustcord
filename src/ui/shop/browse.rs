@@ -324,7 +324,7 @@ fn check(ui: &mut Ui, o: Pos2, y: f32, label: &str, on: bool) -> bool {
     let resp = ui.interact(row, Id::new(("shop_check", label)), Sense::click());
     let boxr = Rect::from_min_size(o + vec2(0.0, y), vec2(20.0, 20.0));
     if on {
-        ui.painter().rect_filled(boxr, CornerRadius::same(4), BLURPLE);
+        ui.painter().rect_filled(boxr, CornerRadius::same(4), pal().blurple);
         icons::draw(ui.painter(), Icon::Check, boxr.shrink(2.0), Color32::WHITE);
     } else {
         ui.painter().rect(boxr, CornerRadius::same(4), Color32::from_black_alpha(20), Stroke::new(1.0, pal().header_secondary.gamma_multiply(0.7)), StrokeKind::Inside);
@@ -419,7 +419,7 @@ pub fn bar(ui: &mut Ui, f: &mut Filters, query: &str) -> bool {
         let resp = ui.interact(r, Id::new(("shop_theme", i)), Sense::click());
         let on = f.themes[i];
         if on {
-            ui.painter().rect_filled(r, CornerRadius::same(RADIUS_SM), BLURPLE);
+            ui.painter().rect_filled(r, CornerRadius::same(RADIUS_SM), pal().blurple);
         } else {
             button_box(ui, r, resp.hovered());
         }

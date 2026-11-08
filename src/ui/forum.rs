@@ -149,7 +149,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                                 icons::draw(ui.painter(), Icon::Timer, t, pal().header_secondary);
                             }
                             if filled && needs_tag {
-                                let r = ui.add(egui::Label::new(RichText::new("A tag is required to create a post in this channel").font(medium(14.0)).color(RED)));
+                                let r = ui.add(egui::Label::new(RichText::new("A tag is required to create a post in this channel").font(medium(14.0)).color(pal().red)));
                                 rects.push(("forum:post_tag_required".into(), r.rect));
                             }
                         });
@@ -291,9 +291,9 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool, rects: &mut Vec<(Stri
     let resp = ui.interact(b, ui.id().with("new_post"), if can_post { Sense::click() } else { Sense::hover() });
     rects.push(("forum:new_post".into(), b));
     let fill = match (can_post, resp.hovered()) {
-        (false, _) => BLURPLE.gamma_multiply(0.5),
-        (true, true) => BLURPLE.gamma_multiply(0.85),
-        (true, false) => BLURPLE,
+        (false, _) => pal().blurple.gamma_multiply(0.5),
+        (true, true) => pal().blurple.gamma_multiply(0.85),
+        (true, false) => pal().blurple,
     };
     ui.painter().rect_filled(b, 8, fill);
     icons::draw(ui.painter(), Icon::Bubble, Rect::from_min_size(pos2(b.left() + 12.0, b.center().y - 8.0), vec2(16.0, 16.0)), ink);
@@ -376,7 +376,7 @@ fn post_button(ui: &mut Ui, ok: bool) -> egui::Response {
     let ink = if ok { Color32::WHITE } else { Color32::from_white_alpha(128) };
     let g = ui.painter().layout_no_wrap("Post".into(), medium(14.0), ink);
     let (b, resp) = ui.allocate_exact_size(vec2(12.0 + 16.0 + 4.0 + g.size().x + 12.0, 32.0), if ok { Sense::click() } else { Sense::hover() });
-    let fill = if ok { crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)) } else { BLURPLE.gamma_multiply(0.5) };
+    let fill = if ok { crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)) } else { pal().blurple.gamma_multiply(0.5) };
     ui.painter().rect_filled(b, 8, fill);
     icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(b.left() + 20.0, b.center().y), vec2(16.0, 16.0)), ink);
     ui.painter().galley(pos2(b.left() + 32.0, b.center().y - g.size().y / 2.0), g, ink);
@@ -394,7 +394,7 @@ fn chip_width(ui: &Ui, t: &crate::state::Tag) -> f32 {
 fn chip(ui: &mut Ui, r: Rect, t: &crate::state::Tag, on: bool, click: bool, id: egui::Id) -> egui::Response {
     let resp = ui.interact(r, id, if click { Sense::click() } else { Sense::hover() });
     let (fill, edge) = if on {
-        (BLURPLE.gamma_multiply(0.3), BLURPLE)
+        (pal().blurple.gamma_multiply(0.3), pal().blurple)
     } else {
         (Color32::from_rgba_unmultiplied(151, 151, 159, if click && resp.hovered() { 51 } else { 31 }), Color32::from_rgba_unmultiplied(151, 151, 159, 51))
     };
@@ -460,7 +460,7 @@ fn pill(ui: &mut Ui, at: Pos2, icon: Option<Icon>, lead: Option<&str>, label: &s
     let r = Rect::from_min_size(at, vec2(w, 32.0));
     let resp = ui.interact(r, id, Sense::click());
     let (fill, edge) = if on {
-        (BLURPLE.gamma_multiply(0.3), BLURPLE)
+        (pal().blurple.gamma_multiply(0.3), pal().blurple)
     } else if resp.hovered() {
         (Color32::from_rgba_unmultiplied(151, 151, 159, 51), pal().border_subtle)
     } else {
@@ -585,7 +585,7 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
     if fresh {
         let g = paint.layout_no_wrap("NEW".into(), bold(12.0), Color32::WHITE);
         let b = Rect::from_min_max(pos2(r.right() - 11.0 - g.size().x - 16.0, r.top() + 13.5), pos2(r.right() - 11.0, r.top() + 29.5));
-        paint.rect_filled(b, 8, BLURPLE);
+        paint.rect_filled(b, 8, pal().blurple);
         paint.galley(b.center() - g.size() / 2.0, g, Color32::WHITE);
     }
     let title = if p.joined && app.store.unread(p) { pal().header_primary } else { pal().text_muted };

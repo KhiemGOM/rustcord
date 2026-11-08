@@ -48,14 +48,14 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
             let box_ = Rect::from_min_size(pr.min + vec2(16.0, 0.0), vec2(160.0, 160.0));
             match preview {
                 Some(b) => egui::Image::from_bytes(uri, b).corner_radius(80).maintain_aspect_ratio(true).show_loading_spinner(false).paint_at(ui, box_),
-                None => icons::draw(ui.painter(), Icon::File, Rect::from_center_size(box_.center(), vec2(72.0, 72.0)), BLURPLE),
+                None => icons::draw(ui.painter(), Icon::File, Rect::from_center_size(box_.center(), vec2(72.0, 72.0)), pal().blurple),
             }
             label(ui, "Filename");
             let single = |ui: &mut egui::Ui, text: &mut String, focus: bool| -> egui::Response {
                 let (r, _) = ui.allocate_exact_size(vec2(432.0, 40.0), Sense::hover());
                 ui.painter().rect_filled(r, 8, pal().input_bg);
                 let e = ui.put(r.shrink2(vec2(12.0, 10.0)), egui::TextEdit::singleline(text).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
-                ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 if focus {
                     e.request_focus();
                 }
@@ -70,7 +70,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 r.shrink2(vec2(12.0, 10.0)),
                 egui::TextEdit::multiline(&mut m.alt).hint_text(RichText::new("Add a description").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO).desired_rows(3),
             );
-            ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
             if m.alt.chars().count() > 1024 {
                 m.alt = m.alt.chars().take(1024).collect();
             }
@@ -80,7 +80,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                let b = button(ui, "Save", BLURPLE, 212.0);
+                let b = button(ui, "Save", pal().blurple, 212.0);
                 super::settings::mark(ui, "modify:save", b.rect);
                 save |= b.clicked();
             });
@@ -131,7 +131,7 @@ pub fn dragging(app: &App, ctx: &egui::Context) {
     let r = ctx.content_rect();
     p.rect_filled(r, 0, Color32::from_rgba_unmultiplied(0, 0, 0, 200));
     let inner = r.shrink(16.0);
-    p.rect_stroke(inner, 8, Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+    p.rect_stroke(inner, 8, Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
     let c = inner.center();
     icons::draw(&p, Icon::Upload, Rect::from_center_size(pos2(c.x, c.y - 48.0), vec2(48.0, 48.0)), Color32::WHITE);
     p.text(pos2(c.x, c.y - 4.0), Align2::CENTER_CENTER, to, semi(24.0), Color32::WHITE);

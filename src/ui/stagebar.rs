@@ -7,7 +7,7 @@ use egui::{Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui,
 use super::callbar::{audio_popup, frame as popup_frame, more_popup};
 use super::icons::{self, Icon};
 use super::stage::is_mod;
-use super::{App, DANGER, menu_item};
+use super::{App, menu_item};
 use crate::state::{Channel, Id};
 use crate::theme::*;
 
@@ -78,7 +78,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, chan: &Channel, bar: Rect) {
         let s = section(ui, x, cy, 1, 28.0);
         let mute = app.voice.mute || app.voice.deaf;
         let mic = Rect::from_min_size(pos2(s.left() + 5.0, s.top() + 5.0), vec2(40.0, 40.0));
-        let mic = button(ui, app, mic, "mic", if mute { Icon::MicOff } else { Icon::Mic }, if mute { "Unmute" } else { "Mute" }, Look::Plain, if mute { DANGER } else { Color32::WHITE });
+        let mic = button(ui, app, mic, "mic", if mute { Icon::MicOff } else { Icon::Mic }, if mute { "Unmute" } else { "Mute" }, Look::Plain, if mute { pal().danger } else { Color32::WHITE });
         if mic.clicked() {
             app.voice.set_mute(&app.net, !mute);
         }
@@ -128,7 +128,7 @@ fn disconnect(app: &mut App, ui: &mut Ui, chan: &Channel, x: f32, cy: f32, can_e
     let end = Rect::from_min_size(pos2(x, cy - 25.0), vec2(66.0, 50.0));
     let r = ui.interact(end, egui::Id::new(("stage_tray", "leave")), Sense::click());
     let shape = if can_end { CornerRadius { nw: 12, sw: 12, ne: 0, se: 0 } } else { CornerRadius::same(12) };
-    ui.painter().rect_filled(end, shape, if r.hovered() { DANGER.gamma_multiply(0.85) } else { DANGER });
+    ui.painter().rect_filled(end, shape, if r.hovered() { pal().danger.gamma_multiply(0.85) } else { pal().danger });
     icons::draw(ui.painter(), Icon::HangUp, Rect::from_center_size(end.center(), vec2(20.0, 20.0)), Color32::WHITE);
     app.rects.insert("voice:leave_big".into(), end);
     if r.hovered() {
@@ -142,7 +142,7 @@ fn disconnect(app: &mut App, ui: &mut Ui, chan: &Channel, x: f32, cy: f32, can_e
     }
     let caret = Rect::from_min_size(pos2(end.right(), end.top()), vec2(24.0, 50.0));
     let c = ui.interact(caret, egui::Id::new(("stage_tray", "end_more")), Sense::click());
-    ui.painter().rect_filled(caret, CornerRadius { nw: 0, sw: 0, ne: 12, se: 12 }, if c.hovered() { DANGER.gamma_multiply(0.85) } else { DANGER });
+    ui.painter().rect_filled(caret, CornerRadius { nw: 0, sw: 0, ne: 12, se: 12 }, if c.hovered() { pal().danger.gamma_multiply(0.85) } else { pal().danger });
     icons::draw(ui.painter(), Icon::ChevronUp, Rect::from_center_size(caret.center(), vec2(16.0, 16.0)), Color32::WHITE);
     app.rects.insert("stage:ctl:End Stage".into(), caret);
     if c.hovered() {

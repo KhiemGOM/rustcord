@@ -368,7 +368,7 @@ fn notice(app: &mut App, ui: &mut Ui, x: f32, w: f32, y: &mut f32) {
     let g = ui.painter().layout("You can customize styles, display name, pronouns, and bio for each server.".into(), reg(14.0), pal().text_normal, w - 52.0);
     let r = Rect::from_min_size(pos2(x, *y), vec2(w, g.size().y + 20.0));
     ui.painter().rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(88, 101, 242, 12));
-    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, BLURPLE), egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
     ui.painter().galley(r.min + vec2(10.0, 10.0), g, pal().text_normal);
     let b = Rect::from_center_size(pos2(r.right() - 20.0, r.top() + 20.0), vec2(20.0, 20.0));
     let resp = ui.interact(b, ui.id().with("profed_notice_x"), Sense::click());
@@ -496,7 +496,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     let (a, b) = (ed.draft.theme[0], ed.draft.theme[1]);
     let paint = ui.painter();
     paint.rect_filled(rt, CornerRadius::same(8), Color32::from_gray(30));
-    let top = a.map_or(Color32::from_rgb(0x58, 0x65, 0xf2), |c| role_color(c));
+    let top = a.map_or(pal().blurple, |c| role_color(c));
     let bot = b.map_or(top, |c| role_color(c));
     gradient(ui, rt, top, bot, 8);
     ui.painter().rect_stroke(rt, CornerRadius::same(8), Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
@@ -612,7 +612,7 @@ fn save_bar(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect) {
     ui.painter().rect_filled(r, CornerRadius::same(5), pal().bg_floating);
     ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful \u{2014} you have unsaved changes!", semi(16.0), pal().header_primary);
     let mut b = ui.new_child(UiBuilder::new().max_rect(r.shrink2(vec2(12.0, 7.0))).layout(Layout::right_to_left(Align::Center)));
-    let save_r = super::button(&mut b, if ed.saving { "\u{2026}" } else { "Save Changes" }, GREEN, 120.0);
+    let save_r = super::button(&mut b, if ed.saving { "\u{2026}" } else { "Save Changes" }, pal().green, 120.0);
     mark(ui, "save_changes", save_r.rect);
     let save = save_r.clicked();
     b.add_space(12.0);

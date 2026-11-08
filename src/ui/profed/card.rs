@@ -111,7 +111,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let back = ui.painter().add(Shape::Noop);
     let banner = Rect::from_min_size(o, vec2(w, 140.0));
     let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
-    let accent = ed.draft.accent.or(ed.draft.theme[0]).map(role_color).or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url())).unwrap_or(BLURPLE);
+    let accent = ed.draft.accent.or(ed.draft.theme[0]).map(role_color).or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url())).unwrap_or(pal().blurple);
     ui.painter().rect_filled(banner, cr, accent);
     match (&ed.draft.banner, &ed.draft.banner_url) {
         (Pic::New(u), _) => paint_data_image(ui, u, banner, cr),
@@ -182,7 +182,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     for (i, (t, wd)) in [("Message", 96.0), ("", 32.0), ("", 32.0)].into_iter().enumerate() {
         let r = Rect::from_min_size(pos2(x + [0.0, 104.0, 144.0][i], y), vec2(wd, 32.0));
         let resp = ui.interact(r, ui.id().with(("card_btn", i)), Sense::click());
-        let fill = if i == 0 { GREEN.gamma_multiply(0.5) } else { Color32::WHITE.gamma_multiply(if resp.hovered() { 0.14 } else { 0.08 }) };
+        let fill = if i == 0 { pal().green.gamma_multiply(0.5) } else { Color32::WHITE.gamma_multiply(if resp.hovered() { 0.14 } else { 0.08 }) };
         ui.painter().rect_filled(r, CornerRadius::same(8), fill);
         if i == 0 {
             icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(16.0, 16.0)), Color32::WHITE.gamma_multiply(0.6));

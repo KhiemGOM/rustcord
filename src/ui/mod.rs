@@ -2203,7 +2203,7 @@ impl App {
                 }
                 if let Some([a, b, rest]) = c.tip {
                     ui.add_space(16.0);
-                    ui.label(egui::RichText::new("PROTIP:").font(bold(12.0)).color(GREEN));
+                    ui.label(egui::RichText::new("PROTIP:").font(bold(12.0)).color(pal().green));
                     ui.add_space(2.0);
                     ui.label(ui.painter().layout_job(bolded(&format!("{a}**{b}**{rest}"), 14.0, pal().text_normal, 432.0)));
                 }
@@ -2219,7 +2219,7 @@ impl App {
                         let (r, resp) = ui.allocate_exact_size(vec2(160.0, 38.0), Sense::click());
                         let b = Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(24.0, 24.0));
                         if *on {
-                            ui.painter().rect_filled(b, 6, BLURPLE);
+                            ui.painter().rect_filled(b, 6, pal().blurple);
                             icons::draw(ui.painter(), icons::Icon::Check, b.shrink(4.0), Color32::WHITE);
                         } else {
                             ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -2624,7 +2624,7 @@ fn badge_scaled(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Color32>, k: f
     if let Some(ring) = ring {
         ui.painter().rect_filled(rect.expand(3.0 * k), CornerRadius::same(11), ring);
     }
-    ui.painter().rect_filled(rect, CornerRadius::same(8), RED);
+    ui.painter().rect_filled(rect, CornerRadius::same(8), pal().red);
     // centre the digits' ink, not the line box, which keeps room under them for descenders
     let mut ink = (f32::MAX, f32::MIN);
     for r in &galley.rows {
@@ -2695,15 +2695,13 @@ pub struct Confirm {
     shown: bool,
 }
 
-pub const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
-
 impl Confirm {
     pub fn new(title: impl Into<String>, body: impl Into<String>, button: &'static str, run: impl FnOnce(&mut App) + 'static) -> Self {
-        Confirm { title: title.into(), body: body.into(), button, fill: DANGER, msg: None, tip: None, check: None, run: Box::new(run), shown: false }
+        Confirm { title: title.into(), body: body.into(), button, fill: pal().danger, msg: None, tip: None, check: None, run: Box::new(run), shown: false }
     }
 
     pub fn blurple(mut self) -> Self {
-        self.fill = BLURPLE;
+        self.fill = pal().blurple;
         self
     }
 
@@ -2933,14 +2931,14 @@ pub fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, dang
         Trail::None => {}
         Trail::Caret => icons::draw(p, icons::Icon::ChevronRight, at, pal().text_muted),
         Trail::Check(true) => {
-            p.rect_filled(at.shrink(1.0), CornerRadius::same(4), BLURPLE);
+            p.rect_filled(at.shrink(1.0), CornerRadius::same(4), pal().blurple);
             icons::draw(p, icons::Icon::Check, at.shrink(3.0), Color32::WHITE);
         }
         Trail::Check(false) => {
             p.rect_stroke(at.shrink(1.0), CornerRadius::same(4), egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
         }
         Trail::Radio(true) => {
-            p.circle_filled(at.center(), 9.0, BLURPLE);
+            p.circle_filled(at.center(), 9.0, pal().blurple);
             p.circle_filled(at.center(), 4.0, Color32::WHITE);
         }
         Trail::Image(url) => {
@@ -2981,7 +2979,7 @@ pub fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32) -> Rect {
     let g = p.layout_no_wrap("APP".into(), semi(12.0), Color32::WHITE);
     let w = 8.0 + if verified { 16.0 } else { 0.0 } + g.size().x;
     let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(w, 16.0));
-    p.rect_filled(r, CornerRadius::same(4), BLURPLE.gamma_multiply(fade.max(0.5)));
+    p.rect_filled(r, CornerRadius::same(4), pal().blurple.gamma_multiply(fade.max(0.5)));
     let mut x = r.left() + 4.0;
     if verified {
         icons::draw(p, icons::Icon::Verified, Rect::from_min_size(pos2(x - 2.0, at.y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);

@@ -78,7 +78,7 @@ fn radio(ui: &mut Ui, key: &str, on: bool, parts: &[(&str, bool)]) -> bool {
 
 fn ring(ui: &Ui, c: egui::Pos2, on: bool) {
     if on {
-        ui.painter().circle_filled(c, 10.0, BLURPLE);
+        ui.painter().circle_filled(c, 10.0, pal().blurple);
         ui.painter().circle_filled(c, 4.0, egui::Color32::WHITE);
     } else {
         ui.painter().circle_stroke(c, 9.0, Stroke::new(2.0, pal().header_secondary));
@@ -269,7 +269,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let on = store.muted.contains(id);
                 let b = Rect::from_center_size(cell.center(), vec2(20.0, 20.0));
                 if on {
-                    ui.painter().rect_filled(b, 4, BLURPLE);
+                    ui.painter().rect_filled(b, 4, pal().blurple);
                     icons::draw(ui.painter(), icons::Icon::Check, b.shrink(3.0), egui::Color32::WHITE);
                 } else {
                     ui.painter().rect_stroke(b, 4, Stroke::new(2.0, pal().header_secondary), egui::StrokeKind::Inside);

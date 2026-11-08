@@ -96,7 +96,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= grey_button(ui, "Cancel", 212.0).clicked();
-                let b = button(ui, "Prune", super::DANGER, 212.0);
+                let b = button(ui, "Prune", crate::theme::pal().danger, 212.0);
                 settings::mark(ui, "prune:go", b.rect);
                 go = b.clicked();
             });

@@ -426,7 +426,7 @@ fn people(app: &mut App, ui: &mut Ui) {
             match u["avatar"].as_str() {
                 Some(h) => avatar(ui, av, &format!("{}/avatars/{uid}/{h}.png?size=64", crate::api::cdn())),
                 None => {
-                    ui.painter().circle_filled(av.center(), 16.0, BLURPLE);
+                    ui.painter().circle_filled(av.center(), 16.0, pal().blurple);
                 }
             }
             text::paint(ui.painter(), pos2(row.left() + 48.0, row.center().y), Align2::LEFT_CENTER, name, medium(16.0), pal().header_primary, 300.0);

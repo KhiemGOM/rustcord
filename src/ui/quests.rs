@@ -151,7 +151,7 @@ fn plate(ui: &mut Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
     }
     let fade = if on { 1.0 } else { 0.5 };
     let fill = if primary {
-        if resp.hovered() && on { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE }
+        if resp.hovered() && on { Color32::from_rgb(0x44, 0x52, 0xbb) } else { pal().blurple }
     } else if resp.hovered() && on {
         Color32::from_rgba_unmultiplied(151, 151, 159, 51)
     } else {
@@ -168,7 +168,7 @@ fn plate(ui: &mut Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
 fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut Vec<Act>) {
     let id = q["id"].as_str().unwrap_or_default().to_string();
     let cfg = config(q);
-    let accent = colour(&cfg["colors"]["primary"], BLURPLE);
+    let accent = colour(&cfg["colors"]["primary"], pal().blurple);
     let edge = colour(&cfg["colors"]["secondary"], Color32::from_rgb(0x40, 0x4a, 0x7b)).gamma_multiply(0.7);
     ui.painter().rect_filled(r, CornerRadius::same(10), pal().bg_floating);
     let banner = Rect::from_min_size(r.min, vec2(r.width(), 150.0));
@@ -186,7 +186,7 @@ fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut V
     }
     let y = banner.bottom() - 26.0;
     let promoted = ui.painter().text(pos2(r.left() + 49.0, y), Align2::LEFT_CENTER, "Promoted by", medium(14.0), pal().text_muted);
-    icons::draw(ui.painter(), Icon::Verified, Rect::from_center_size(pos2(promoted.right() + 14.0, y), vec2(16.0, 16.0)), GREEN);
+    icons::draw(ui.painter(), Icon::Verified, Rect::from_center_size(pos2(promoted.right() + 14.0, y), vec2(16.0, 16.0)), pal().green);
     let who = cfg["messages"]["game_publisher"].as_str().unwrap_or_default();
     text::paint(ui.painter(), pos2(promoted.right() + 26.0, y), Align2::LEFT_CENTER, who, medium(14.0), pal().header_primary, r.width() - 49.0 - promoted.width() - 130.0);
     let when = if claimed { format!("Claimed {}", date(&status["claimed_at"], "%-m/%-d")) } else { format!("Ends {}", date(&cfg["expires_at"], "%-m/%-d")) };
@@ -221,7 +221,7 @@ fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut V
         let bar = Rect::from_min_size(pos2(x, foot - 14.0), vec2(w, 6.0));
         ui.painter().rect_filled(bar, CornerRadius::same(3), pal().bg_accent);
         let fill = Rect::from_min_size(bar.min, vec2(bar.width() * progress(q), 6.0));
-        ui.painter().rect_filled(fill, CornerRadius::same(3), GREEN);
+        ui.painter().rect_filled(fill, CornerRadius::same(3), pal().green);
     }
     let label = if claimed {
         "Claimed"
@@ -258,7 +258,7 @@ fn hero(ui: &mut Ui, acts: &mut Vec<Act>) {
     let (r, _) = ui.allocate_exact_size(vec2(w, 420.0), Sense::hover());
     let round = CornerRadius::same(24);
     ui.painter().rect_filled(r, round, Color32::from_rgb(0x0b, 0x0b, 0x1f));
-    for (c, rad, a) in [(Color32::from_rgb(0x58, 0x65, 0xf2), 260.0, 70u8), (Color32::from_rgb(0xeb, 0x45, 0x9e), 150.0, 40)] {
+    for (c, rad, a) in [(pal().blurple, 260.0, 70u8), (Color32::from_rgb(0xeb, 0x45, 0x9e), 150.0, 40)] {
         let at = pos2(r.right() - 220.0 - if rad > 200.0 { 0.0 } else { 240.0 }, r.center().y - if rad > 200.0 { 20.0 } else { -120.0 });
         for i in 0..8 {
             ui.painter().with_clip_rect(r).circle_filled(at, rad * (1.0 - i as f32 / 9.0), Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a / 4));

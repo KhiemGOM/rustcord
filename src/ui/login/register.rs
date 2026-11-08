@@ -95,7 +95,7 @@ fn check(ui: &mut Ui, on: &mut bool, text: &str) -> egui::Response {
         let (rect, r) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::click());
         let p = ui.painter();
         if *on {
-            p.rect_filled(rect, 4.0, BLURPLE);
+            p.rect_filled(rect, 4.0, pal().blurple);
             let c = rect.center();
             let stroke = egui::Stroke::new(2.0, egui::Color32::WHITE);
             p.line_segment([c + vec2(-4.5, 0.0), c + vec2(-1.5, 3.5)], stroke);
@@ -130,11 +130,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let name = f.reg.username.clone();
     if !name.is_empty() && f.error("username").is_none() {
         if !name_ok(&name) {
-            status(ui, "Please only use numbers, letters, underscores _ , or periods.", RED);
+            status(ui, "Please only use numbers, letters, underscores _ , or periods.", pal().red);
         } else if let Some((n, taken)) = f.reg.known.as_ref().filter(|(n, _)| *n == name) {
             let _ = n;
             if *taken {
-                status(ui, "Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED);
+                status(ui, "Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", pal().red);
             } else {
                 status(ui, "Username is available. Nice!", pal().positive);
             }
@@ -190,7 +190,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let c = check(ui, &mut f.reg.consent, "I have read and agree to Discord's Terms of Service and Privacy Policy.");
     f.rects.insert("consent", c.rect);
     if let Some(e) = f.error("consent") {
-        status(ui, e, RED);
+        status(ui, e, pal().red);
     }
     ui.add_space(8.0);
     check(ui, &mut f.reg.promo, "(Optional) It's okay to send me emails with Discord updates, tips, and special offers. You can opt out at any time.");

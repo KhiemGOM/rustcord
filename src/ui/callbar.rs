@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Response, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, DANGER, Trail, menu_body, menu_item, menu_row, menu_sep};
+use super::{App, Trail, menu_body, menu_item, menu_row, menu_sep};
 use crate::cache::InputProfile;
 use crate::state::Id;
 use crate::theme::*;
@@ -79,7 +79,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     if !inside {
         let b = Rect::from_center_size(bar.center(), vec2(140.0, 40.0));
         let r = ui.interact(b, egui::Id::new(("join", ch)), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(20), crate::ui::motion::mix(GREEN, GREEN.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &r)));
+        ui.painter().rect_filled(b, CornerRadius::same(20), crate::ui::motion::mix(pal().green, pal().green.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &r)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, join_text, semi(14.0), Color32::WHITE);
         app.rects.insert("voice:join".into(), b);
         if r.clicked() {
@@ -105,7 +105,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     p.rect_filled(s2, CornerRadius::same(25), BAR);
 
     let (m, mc) = unit(ui, "mic", s1.left(), cy, true);
-    glyph(ui, &m, if mute { Icon::MicOff } else { Icon::Mic }, false, if mute { DANGER } else { Color32::WHITE });
+    glyph(ui, &m, if mute { Icon::MicOff } else { Icon::Mic }, false, if mute { pal().danger } else { Color32::WHITE });
     app.rects.insert("voice:mute_big".into(), m.rect);
     app.rects.insert("voice:mic_more".into(), mc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
     if m.on_hover_text(if mute { "Unmute" } else { "Mute" }).clicked() {
@@ -172,7 +172,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
 
     let end = Rect::from_min_size(pos2(s2.right() + 12.0, cy - 25.0), vec2(66.0, 50.0));
     let r = ui.interact(end, egui::Id::new(("ctl", "end")), Sense::click());
-    p.rect_filled(end, CornerRadius::same(25), if r.hovered() { DANGER.gamma_multiply(0.85) } else { DANGER });
+    p.rect_filled(end, CornerRadius::same(25), if r.hovered() { pal().danger.gamma_multiply(0.85) } else { pal().danger });
     icons::draw(&p, Icon::HangUp, Rect::from_center_size(end.center(), vec2(20.0, 20.0)), Color32::WHITE);
     app.rects.insert("voice:leave_big".into(), end);
     if r.hovered() {
@@ -379,7 +379,7 @@ pub(super) fn more_popup(app: &mut App, at: &Response) {
 
 fn switch(ui: &mut Ui, on: bool) -> Response {
     let (r, resp) = ui.allocate_exact_size(vec2(48.0, 24.0), Sense::click());
-    ui.painter().rect_filled(r, CornerRadius::same(12), if on { BLURPLE } else { Color32::from_rgb(0x80, 0x84, 0x8e) });
+    ui.painter().rect_filled(r, CornerRadius::same(12), if on { pal().blurple } else { Color32::from_rgb(0x80, 0x84, 0x8e) });
     let x = if on { r.right() - 12.0 } else { r.left() + 12.0 };
     ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
     if resp.hovered() {
@@ -438,7 +438,7 @@ pub fn krisp(app: &mut App, ui: &mut Ui, center: egui::Pos2) {
                 let lit = ((level + 60.0) / 60.0).clamp(0.0, 1.0) * 24.0;
                 for i in 0..24 {
                     let seg = Rect::from_min_size(pos2(m.left() + i as f32 * 7.4 + 1.0, m.top()), vec2(3.0, 20.0));
-                    ui.painter().rect_filled(seg, CornerRadius::same(1), if (i as f32) < lit { GREEN } else { pal().bg_mod_selected });
+                    ui.painter().rect_filled(seg, CornerRadius::same(1), if (i as f32) < lit { pal().green } else { pal().bg_mod_selected });
                 }
                 if app.call.mic_test {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));

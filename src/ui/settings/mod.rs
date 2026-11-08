@@ -557,12 +557,12 @@ pub(super) fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
     let t = motion::tween(ui.ctx(), resp.id, on, 0.25, motion::SWITCH);
     let k = t.clamp(0.0, 1.0);
     let edge = Stroke::new(1.0, faint(51).gamma_multiply(1.0 - k));
-    ui.painter().rect(r, CornerRadius::same(12), motion::mix(Color32::from_black_alpha(31), BLURPLE, k), edge, egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(12), motion::mix(Color32::from_black_alpha(31), pal().blurple, k), edge, egui::StrokeKind::Inside);
     let x = egui::lerp(r.left() + 13.0..=r.right() - 13.0, t);
     ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
     if view().switch_icons {
         let glyph = Rect::from_center_size(pos2(x, r.center().y), vec2(12.0, 12.0));
-        icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Close }, glyph, if on { BLURPLE } else { GREY });
+        icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Close }, glyph, if on { pal().blurple } else { pal().grey });
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -617,7 +617,7 @@ pub fn radio<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
         };
         ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));
         if fill > 0.0 {
-            ui.painter().circle_filled(c, 11.0 * fill, BLURPLE);
+            ui.painter().circle_filled(c, 11.0 * fill, pal().blurple);
         }
         if dot > 0.0 {
             ui.painter().circle_filled(c, 4.5 * dot, Color32::WHITE);
@@ -650,7 +650,7 @@ pub fn slider(ui: &mut Ui, w: f32, value: &mut f32, lo: f32, hi: f32) -> bool {
     let t = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
     let x = r.left() + 8.0 + t * (w - 16.0);
     ui.painter().rect_filled(rail, CornerRadius::same(2), TRACK);
-    ui.painter().rect_filled(Rect::from_min_max(rail.min, pos2(x, rail.bottom())), CornerRadius::same(2), BLURPLE);
+    ui.painter().rect_filled(Rect::from_min_max(rail.min, pos2(x, rail.bottom())), CornerRadius::same(2), pal().blurple);
     knob(ui, pos2(x, r.center().y));
     if (resp.dragged() || resp.clicked())
         && let Some(p) = resp.interact_pointer_pos()
@@ -676,7 +676,7 @@ pub fn markers(ui: &mut Ui, value: &mut f32, stops: &[f32], label: impl Fn(f32) 
     let rail = Rect::from_min_size(pos2(r.left(), r.top() + 34.0), vec2(w, 4.0));
     let p = ui.painter();
     p.rect_filled(rail, CornerRadius::same(2), TRACK);
-    p.rect_filled(Rect::from_min_max(rail.min, pos2(x_of(stops[at]), rail.bottom())), CornerRadius::same(2), BLURPLE);
+    p.rect_filled(Rect::from_min_max(rail.min, pos2(x_of(stops[at]), rail.bottom())), CornerRadius::same(2), pal().blurple);
     for s in stops {
         let x = x_of(*s);
         let g = p.layout_no_wrap(label(*s), medium(12.0), if (*s - default).abs() < 0.001 { Color32::from_rgb(65, 160, 99) } else { pal().header_secondary });
@@ -711,8 +711,8 @@ pub fn button(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.into(), medium(16.0), Color32::WHITE);
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(100.0), 40.0), Sense::click());
     let (fill, ink, line) = match look {
-        Look::Primary => (BLURPLE, Color32::WHITE, Color32::from_white_alpha(20)),
-        Look::Filled => (RED, Color32::WHITE, Color32::from_white_alpha(20)),
+        Look::Primary => (pal().blurple, Color32::WHITE, Color32::from_white_alpha(20)),
+        Look::Filled => (pal().red, Color32::WHITE, Color32::from_white_alpha(20)),
         Look::Secondary => (faint(31), pal().header_primary, faint(61)),
         Look::Danger => (faint(31), LOGOUT, faint(61)),
     };
@@ -837,7 +837,7 @@ pub fn loading(ui: &mut Ui, r: Option<&Result<Value, String>>) -> Option<Value> 
             None
         }
         Some(Err(e)) => {
-            ui.label(RichText::new(format!("Couldn't load this from Discord: {e}")).font(reg(14.0)).color(RED));
+            ui.label(RichText::new(format!("Couldn't load this from Discord: {e}")).font(reg(14.0)).color(pal().red));
             None
         }
         Some(Ok(v)) => Some(v.clone()),

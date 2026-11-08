@@ -36,7 +36,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, chan: &Channel) {
         let b = egui::Rect::from_center_size(egui::pos2(r.right() - 56.0, r.center().y), vec2(112.0, 32.0));
         ui.painter().text(r.left_center(), Align2::LEFT_CENTER, "You are in preview mode. Join this server to talk.", reg(16.0), pal().text_normal);
         let resp = ui.interact(b, ui.id().with("lurk_join"), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(4), crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+        ui.painter().rect_filled(b, CornerRadius::same(4), crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Join Server", semi(14.0), egui::Color32::WHITE);
         app.rects.insert("lurk:join".into(), b);
         join = resp.clicked();

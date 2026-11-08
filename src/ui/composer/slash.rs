@@ -762,7 +762,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
         match icon {
             Some(h) => avatar(ui, ir, &format!("{}/app-icons/{app_id}/{h}.png?size=64", crate::api::cdn())),
             None if s.cmd["builtin"] == true => {
-                ui.painter().circle_filled(ir.center(), 12.0, BLURPLE);
+                ui.painter().circle_filled(ir.center(), 12.0, pal().blurple);
                 icons::draw(ui.painter(), Icon::Discord, ir.shrink(5.0), Color32::WHITE);
             }
             None => {
@@ -820,7 +820,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
         clip.rect_filled(kr, CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 }, pal().bg_tertiary);
         clip.galley(pos2(kr.left() + KEY_PAD / 2.0, kr.center().y - kg.size().y / 2.0), kg, pal().text_normal);
         let vr = Rect::from_min_max(pos2(kr.right() + 8.0, pill.top() + 2.0), pos2(pill.right() - 9.0, pill.bottom() - 2.0));
-        let border = if err.is_some() { RED } else if is_active { Color32::from_rgb(0, 120, 212) } else { Color32::TRANSPARENT };
+        let border = if err.is_some() { pal().red } else if is_active { Color32::from_rgb(0, 120, 212) } else { Color32::TRANSPARENT };
         clip.rect_stroke(pill, CornerRadius::same(4), Stroke::new(1.0, border), egui::StrokeKind::Inside);
         app.rects.insert(format!("slash_pill:{key}"), pill);
         let resp = ui.interact(pill.intersect(area), egui::Id::new(("slash_pill", ch, *i)), Sense::CLICK);

@@ -149,7 +149,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                             x += 18.0;
                         } else if plain == "Playing " {
                             // discord: a green controller and the game, no verb
-                            super::icons::draw(ui.painter(), super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), GREEN);
+                            super::icons::draw(ui.painter(), super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
                             x += 18.0;
                         }
                         // watching and playing show just the name

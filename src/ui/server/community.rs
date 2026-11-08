@@ -41,7 +41,7 @@ fn pitch(app: &mut App, ui: &mut Ui, _gid: Snow) {
         ui.painter().text(pos2(c.x - 28.0, c.y), Align2::LEFT_CENTER, name, semi(12.0), if i % 2 == 0 { Color32::WHITE } else { pal().header_secondary });
     }
     let hub = Rect::from_center_size(art.center(), vec2(96.0, 96.0));
-    ui.painter().rect_filled(hub, CornerRadius::same(24), BLURPLE);
+    ui.painter().rect_filled(hub, CornerRadius::same(24), pal().blurple);
     icons::draw(ui.painter(), Icon::BadgeCommunity, hub.shrink(24.0), Color32::WHITE);
     ui.add_space(24.0);
     centered(ui, RichText::new("Are you building a Community?").font(semi(24.0)).color(pal().header_primary));
@@ -78,7 +78,7 @@ fn pitch(app: &mut App, ui: &mut Ui, _gid: Snow) {
     ui.add_space(40.0);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
-        for (head, body, ink) in [("Grow your community", "Apply to be in Server Discovery so more people can find your server directly on Discord.", Color32::from_rgb(0x23, 0xa5, 0x5a)), ("Keep members engaged", "Access tools like Server Insights that can better help you moderate and keep your server engaged.", Color32::from_rgb(0x58, 0x65, 0xf2)), ("Stay informed", "Get direct updates about new features built for communities from Discord.", RED)] {
+        for (head, body, ink) in [("Grow your community", "Apply to be in Server Discovery so more people can find your server directly on Discord.", pal().green), ("Keep members engaged", "Access tools like Server Insights that can better help you moderate and keep your server engaged.", pal().blurple), ("Stay informed", "Get direct updates about new features built for communities from Discord.", pal().red)] {
             ui.vertical(|ui| {
                 ui.set_width(200.0);
                 let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
@@ -145,7 +145,7 @@ fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
     let b = Rect::from_min_size(pos2(r.left(), r.center().y - 12.0), vec2(24.0, 24.0));
     if *on {
-        ui.painter().rect_filled(b, CornerRadius::same(4), BLURPLE);
+        ui.painter().rect_filled(b, CornerRadius::same(4), pal().blurple);
         icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), Color32::WHITE);
     } else {
         ui.painter().rect_stroke(b, CornerRadius::same(4), Stroke::new(2.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -211,7 +211,7 @@ pub fn modal(app: &mut App, ctx: &egui::Context) {
             let on = n == step.min(3);
             let c = pos2(left.left() + 36.0, y);
             ui.painter().circle_filled(c, 12.0, if on { Color32::WHITE } else { Color32::from_white_alpha(46) });
-            ui.painter().text(c, Align2::CENTER_CENTER, n.to_string(), medium(12.0), if on { BLURPLE } else { Color32::WHITE });
+            ui.painter().text(c, Align2::CENTER_CENTER, n.to_string(), medium(12.0), if on { pal().blurple } else { Color32::WHITE });
             ui.painter().text(pos2(left.left() + 58.0, y), Align2::LEFT_CENTER, name, if on { bold(16.0) } else { medium(16.0) }, Color32::WHITE);
         }
         let right = Rect::from_min_max(pos2(left.right() + 32.0, all.top()), pos2(all.right() - 32.0, all.bottom()));

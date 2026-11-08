@@ -37,7 +37,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
     let active = app.settings.test_app.as_ref().is_some_and(|a| a.id == f.id);
     let valid = f.id.bytes().all(|b| b.is_ascii_digit());
     let ready = valid && !f.id.is_empty() && (f.proxy || !f.port.is_empty());
-    let (go, fill) = if active { ("Clear", RED) } else { ("Activate", if ready { BLURPLE } else { BLURPLE.gamma_multiply(0.5) }) };
+    let (go, fill) = if active { ("Clear", pal().red) } else { ("Activate", if ready { pal().blurple } else { pal().blurple.gamma_multiply(0.5) }) };
     let act = show(
         ctx,
         "settings_test_mode",
@@ -52,7 +52,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             f.id.truncate(19);
             mark(ui, "test_mode:id", r.rect);
             if !valid {
-                ui.label(egui::RichText::new("Invalid application ID").font(reg(14.0)).color(RED));
+                ui.label(egui::RichText::new("Invalid application ID").font(reg(14.0)).color(pal().red));
             }
             ui.add_space(16.0);
             label(ui, "Select URL Origin Type (Embedded Apps Only)");

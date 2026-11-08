@@ -190,7 +190,7 @@ fn button(ui: &Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
     super::settings::mark(ui, &format!("follow:{label}"), r);
     let fade = if on { 1.0 } else { 0.5 };
     let fill = if primary {
-        if resp.hovered() && on { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE }
+        if resp.hovered() && on { Color32::from_rgb(0x44, 0x52, 0xbb) } else { pal().blurple }
     } else if resp.hovered() {
         pal().control_hover
     } else {

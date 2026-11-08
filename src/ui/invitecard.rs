@@ -77,7 +77,7 @@ impl Card {
         match &s.icon {
             Some(url) => avatar(ui, icon, url),
             None => {
-                ui.painter().circle_filled(icon.center(), 24.0, BLURPLE);
+                ui.painter().circle_filled(icon.center(), 24.0, pal().blurple);
                 let letter: String = s.name.chars().take(1).collect();
                 ui.painter().text(icon.center(), Align2::CENTER_CENTER, letter, medium(18.0), Color32::WHITE);
             }

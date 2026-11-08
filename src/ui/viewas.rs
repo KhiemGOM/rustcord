@@ -60,7 +60,7 @@ pub fn bar(app: &mut App, ui: &mut Ui) {
         .exact_size(40.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(BLURPLE).inner_margin(egui::Margin::symmetric(16, 0)))
+        .frame(Frame::new().fill(pal().blurple).inner_margin(egui::Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;

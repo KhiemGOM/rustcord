@@ -10,7 +10,7 @@ pub fn unsaved(ui: &mut Ui, saving: bool) -> (bool, bool) {
     ui.painter().rect_filled(r, CornerRadius::same(5), pal().bg_floating);
     ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful \u{2014} you have unsaved changes!", semi(16.0), pal().header_primary);
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(12.0, 7.0))).layout(Layout::right_to_left(Align::Center)));
-    let save = crate::ui::button(&mut b, if saving { "\u{2026}" } else { "Save Changes" }, GREEN, 120.0);
+    let save = crate::ui::button(&mut b, if saving { "\u{2026}" } else { "Save Changes" }, pal().green, 120.0);
     b.add_space(12.0);
     let reset = b.add(egui::Label::new(RichText::new("Reset").font(semi(14.0)).color(pal().header_primary)).sense(Sense::click())).clicked();
     (reset, save.clicked() && !saving)

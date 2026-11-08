@@ -58,7 +58,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
     let tag = p["tag"].as_str().unwrap_or("").to_string();
     let badge = p["badge_hash"].as_str().or(p["badge"].as_str()).filter(|b| !b.is_empty()).map(|b| format!("{}/guild-tag-badges/{gid}/{b}.png?size=32", crate::api::cdn()));
     let icon = p["icon_hash"].as_str().or(p["icon"].as_str()).map(|h| format!("{}/icons/{gid}/{h}.png?size=128", crate::api::cdn()));
-    let brand = p["brand_color_primary"].as_str().and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()).map(role_color).unwrap_or(BLURPLE);
+    let brand = p["brand_color_primary"].as_str().and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()).map(role_color).unwrap_or(pal().blurple);
     let (online, members) = (p["online_count"].as_u64().unwrap_or(0), p["member_count"].as_u64().unwrap_or(0));
     let (tier, boosts) = (p["premium_tier"].as_u64().unwrap_or(0), p["premium_subscription_count"].as_u64().unwrap_or(0));
     let gated = p["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "MEMBER_VERIFICATION_GATE_ENABLED"));
@@ -132,7 +132,7 @@ fn tag(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(16.0);
                 let (b, resp) = ui.allocate_exact_size(vec2(268.0, 32.0), Sense::click());
                 let label = if member { "Go to Server" } else if gated { "Apply to Join" } else { "Join Server" };
-                ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)));
+                ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)));
                 ui.painter().text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), Color32::WHITE);
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

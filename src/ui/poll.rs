@@ -59,7 +59,7 @@ pub fn check_row(ui: &mut Ui, on: &mut bool, label: &str) {
     let g = ui.painter().layout_no_wrap(label.into(), reg(16.0), pal().header_primary);
     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 36.0, 24.0), Sense::click());
     let cb = Rect::from_min_size(r.min, vec2(24.0, 24.0));
-    ui.painter().rect(cb, 4, if *on { BLURPLE } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if *on { BLURPLE } else { pal().header_secondary }), egui::StrokeKind::Inside);
+    ui.painter().rect(cb, 4, if *on { pal().blurple } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if *on { pal().blurple } else { pal().header_secondary }), egui::StrokeKind::Inside);
     if *on {
         icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), egui::Color32::WHITE);
     }
@@ -77,7 +77,7 @@ fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f
     ui.painter().rect_filled(r, 8, pal().input_bg);
     let inner = Rect::from_min_max(pos2(r.left() + left, r.top() + (h - 20.0) / 2.0), pos2(r.right() - right, r.bottom() - (h - 20.0) / 2.0));
     let e = ui.put(inner, egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
-    ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
     if focus {
         e.request_focus();
     }
@@ -171,7 +171,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 check_row(ui, &mut d.multi, "Allow Multiple Answers");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let b = ui.add_enabled_ui(ready, |ui| button(ui, "Post", BLURPLE, 100.0)).inner;
+                    let b = ui.add_enabled_ui(ready, |ui| button(ui, "Post", pal().blurple, 100.0)).inner;
                     super::settings::mark(ui, "poll:post", b.rect);
                     post = b.clicked();
                 });

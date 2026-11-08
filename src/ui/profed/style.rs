@@ -124,7 +124,7 @@ pub fn paint_name(ui: &Ui, at: Pos2, align: Align2, name: &str, style: Option<&S
 fn chip(ui: &mut Ui, r: Rect, id: &str, on: bool) -> egui::Response {
     let resp = tile(ui, r, id, on);
     if on {
-        ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
     }
     resp
 }
@@ -246,7 +246,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
             e.surprise();
         }
         let resp = ui.interact(ap, ui.id().with("apply"), Sense::click());
-        ui.painter().rect_filled(ap, CornerRadius::same(8), motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), motion::hot(ui.ctx(), &resp)));
+        ui.painter().rect_filled(ap, CornerRadius::same(8), motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), motion::hot(ui.ctx(), &resp)));
         ui.painter().text(ap.center(), Align2::CENTER_CENTER, "Apply", medium(16.0), Color32::WHITE);
         crate::ui::settings::mark(ui, "style:apply", ap);
         if resp.hovered() {

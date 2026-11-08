@@ -162,7 +162,7 @@ fn hover_button(ui: &Ui, r: Rect, on: bool, cost: &str, on_label: &str) -> egui:
     let resp = ui.interact(b, ui.id().with(("perk_btn", r.left() as i32, r.top() as i32)), Sense::click());
     super::settings::mark(ui, "perk_btn", b);
     let p = ui.painter();
-    p.rect(b, 8, crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    p.rect(b, 8, crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     if on {
         p.text(b.center(), Align2::CENTER_CENTER, on_label, medium(16.0), Color32::WHITE);
     } else {

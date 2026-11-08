@@ -263,7 +263,7 @@ pub(super) fn verify_modal(app: &mut App, ctx: &egui::Context) {
     let alt: Vec<&'static str> = v.methods.iter().copied().filter(|m| *m != method).collect();
     let mut swap = None;
     let go = if method == "webauthn" { "Try Again" } else { "Verify" };
-    let act = dialog(ctx, "settings_verify", head, sub, go, BLURPLE, None, |ui| {
+    let act = dialog(ctx, "settings_verify", head, sub, go, pal().blurple, None, |ui| {
         if method == "webauthn" {
             if waiting {
                 para(ui, "Follow the prompts from Windows to use your passkey or security key.");
@@ -274,7 +274,7 @@ pub(super) fn verify_modal(app: &mut App, ctx: &egui::Context) {
         }
         if let Some(e) = &v.err {
             ui.add_space(6.0);
-            ui.label(RichText::new(e).font(reg(14.0)).color(RED));
+            ui.label(RichText::new(e).font(reg(14.0)).color(pal().red));
         }
         ui.add_space(8.0);
         for m in &alt {
@@ -446,15 +446,15 @@ fn pomelo(app: &mut App, ctx: &egui::Context) -> Option<(&'static str, Color32)>
     }
     let ok_chars = name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.');
     if name.contains("..") {
-        return Some(("Username cannot contain repeating dots.", RED));
+        return Some(("Username cannot contain repeating dots.", pal().red));
     }
     if !ok_chars || name.chars().count() < 2 || name.chars().count() > 32 {
-        return Some(("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED));
+        return Some(("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", pal().red));
     }
     let key = format!("pomelo:{name}");
     match app.keyed.get(&key) {
-        Some(Some(Ok(v))) => Some(if v["taken"].as_bool().unwrap_or(false) { ("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED) } else { ("Username is available. Nice!", GREEN) }),
-        Some(Some(Err(_))) => Some(("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", RED)),
+        Some(Some(Ok(v))) => Some(if v["taken"].as_bool().unwrap_or(false) { ("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", pal().red) } else { ("Username is available. Nice!", pal().green) }),
+        Some(Some(Err(_))) => Some(("Username is unavailable. Try adding numbers, letters, underscores _ , or periods.", pal().red)),
         Some(None) => Some(("Checking if username is available", pal().header_secondary)),
         None => {
             let due = m.name.since.is_some_and(|t| t.elapsed() >= std::time::Duration::from_millis(400));
@@ -508,22 +508,22 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         (Edit::SmsOff, _) => ("Remove SMS Authentication", "This removes the ability to log in with an authentication code through SMS. Are you sure you want to remove this?"),
     };
     let (go, fill, alt) = match (m.kind, step) {
-        (Edit::Username, _) | (Edit::Password, _) => ("Done", BLURPLE, None),
-        (Edit::Totp, 0) => ("Activate", BLURPLE, None),
-        (Edit::Email, 0) => ("Send Verification Code", BLURPLE, None),
-        (Edit::Email, 1) | (Edit::Phone, 2) | (Edit::Codes, 1) => ("Verify", BLURPLE, None),
-        (Edit::Email, _) | (Edit::Phone, 3) => ("Done", BLURPLE, None),
-        (Edit::Phone, 0) => ("Edit", BLURPLE, Some(("Remove", RED))),
-        (Edit::Phone, 1) => ("Send", BLURPLE, None),
-        (Edit::Phone, _) | (Edit::Codes, 0) | (Edit::Key, _) => ("Done", if m.kind == Edit::Phone { RED } else { BLURPLE }, None),
-        (Edit::Disable, _) => ("Disable Account", RED, None),
-        (Edit::Delete, _) => ("Delete Account", RED, None),
-        (Edit::Owner, _) => ("Okay", BLURPLE, None),
-        (Edit::Standing, _) => ("", BLURPLE, None),
-        (Edit::TotpOff, _) => ("Remove", RED, None),
-        (Edit::Totp, _) | (Edit::Codes, _) | (Edit::AddKey, 1..) => ("", BLURPLE, None),
-        (Edit::AddKey, _) => ("Continue", BLURPLE, None),
-        (Edit::SmsOff, _) => ("Remove", RED, None),
+        (Edit::Username, _) | (Edit::Password, _) => ("Done", pal().blurple, None),
+        (Edit::Totp, 0) => ("Activate", pal().blurple, None),
+        (Edit::Email, 0) => ("Send Verification Code", pal().blurple, None),
+        (Edit::Email, 1) | (Edit::Phone, 2) | (Edit::Codes, 1) => ("Verify", pal().blurple, None),
+        (Edit::Email, _) | (Edit::Phone, 3) => ("Done", pal().blurple, None),
+        (Edit::Phone, 0) => ("Edit", pal().blurple, Some(("Remove", pal().red))),
+        (Edit::Phone, 1) => ("Send", pal().blurple, None),
+        (Edit::Phone, _) | (Edit::Codes, 0) | (Edit::Key, _) => ("Done", if m.kind == Edit::Phone { pal().red } else { pal().blurple }, None),
+        (Edit::Disable, _) => ("Disable Account", pal().red, None),
+        (Edit::Delete, _) => ("Delete Account", pal().red, None),
+        (Edit::Owner, _) => ("Okay", pal().blurple, None),
+        (Edit::Standing, _) => ("", pal().blurple, None),
+        (Edit::TotpOff, _) => ("Remove", pal().red, None),
+        (Edit::Totp, _) | (Edit::Codes, _) | (Edit::AddKey, 1..) => ("", pal().blurple, None),
+        (Edit::AddKey, _) => ("Continue", pal().blurple, None),
+        (Edit::SmsOff, _) => ("Remove", pal().red, None),
     };
     let act = dialog(ctx, "settings_modal", head, sub, if m.busy && !go.is_empty() { "…" } else { go }, fill, alt, |ui| {
         match (m.kind, step) {
@@ -671,7 +671,7 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         }
         if let Some(e) = &m.err {
             ui.add_space(6.0);
-            ui.label(RichText::new(e).font(reg(14.0)).color(RED));
+            ui.label(RichText::new(e).font(reg(14.0)).color(pal().red));
         }
     });
     match act {

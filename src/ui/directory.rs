@@ -300,7 +300,7 @@ fn help_card(ui: &mut Ui) {
     let bw = ui.painter().layout_no_wrap(label.into(), medium(14.0), egui::Color32::WHITE).size().x + 32.0;
     let b = Rect::from_center_size(pos2(r.right() - 24.0 - bw / 2.0, r.center().y), vec2(bw, 36.0));
     let resp = ui.interact(b, ui.id().with("apps_learn_more"), Sense::click());
-    ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { egui::Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE });
+    ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { egui::Color32::from_rgb(0x44, 0x52, 0xbb) } else { pal().blurple });
     ui.painter().text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), egui::Color32::WHITE);
     super::settings::mark(ui, "apps:learn_more", b);
     if resp.hovered() {

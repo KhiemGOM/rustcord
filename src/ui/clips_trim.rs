@@ -137,7 +137,7 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             let x = |ms: i64| bar.left() + bar.width() * ms as f32 / whole;
             ui.painter().rect_filled(track, 4, pal().bg_mod_selected);
             let kept = Rect::from_min_max(pos2(x(t.start), track.top()), pos2(x(t.end), track.bottom()));
-            ui.painter().rect_filled(kept, 4, BLURPLE);
+            ui.painter().rect_filled(kept, 4, pal().blurple);
             if let Some(p) = resp.interact_pointer_pos().filter(|_| resp.clicked() || resp.drag_started() || resp.dragged()) {
                 let ms = ((p.x - bar.left()) / bar.width() * t.len as f32) as i64;
                 if resp.drag_started() || resp.clicked() {
@@ -149,7 +149,7 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             for (ms, end) in [(t.start, false), (t.end, true)] {
                 let h = Rect::from_center_size(pos2(x(ms), bar.center().y), vec2(10.0, 32.0));
                 let on = t.end_active == end;
-                ui.painter().rect(h, 4, Color32::WHITE, Stroke::new(if on { 3.0 } else { 0.0 }, BLURPLE), egui::StrokeKind::Outside);
+                ui.painter().rect(h, 4, Color32::WHITE, Stroke::new(if on { 3.0 } else { 0.0 }, pal().blurple), egui::StrokeKind::Outside);
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
@@ -177,7 +177,7 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
                 if grey_button(ui, "Cancel", 96.0).clicked() {
                     close = true;
                 }
-                save = super::button(ui, "Save", BLURPLE, 96.0).clicked();
+                save = super::button(ui, "Save", pal().blurple, 96.0).clicked();
             });
         });
     close |= modal.should_close();

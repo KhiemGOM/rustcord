@@ -195,7 +195,7 @@ fn picture_tile(ui: &mut Ui, r: Rect, url: &str, selected: bool, id: Id) -> bool
 
 fn ring(ui: &Ui, r: Rect, selected: bool, resp: &egui::Response) {
     if selected {
-        ui.painter().rect_stroke(r.expand(4.0), CornerRadius::same(4), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(r.expand(4.0), CornerRadius::same(4), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -314,7 +314,7 @@ fn backgrounds(app: &mut App, ui: &mut Ui) -> bool {
     }
     if effects::BROKEN.load(Relaxed) {
         ui.add_space(12.0);
-        ui.add(egui::Label::new(RichText::new("Uh oh! Something went wrong when setting your background. Please try again or use a different background.").font(reg(14.0)).color(RED)));
+        ui.add(egui::Label::new(RichText::new("Uh oh! Something went wrong when setting your background. Please try again or use a different background.").font(reg(14.0)).color(pal().red)));
     }
     changed
 }
@@ -461,7 +461,7 @@ fn modal(app: &mut App, ctx: &Context) {
                 let on = app.settings.preview_video;
                 let b = Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(24.0, 24.0));
                 if on {
-                    ui.painter().rect_filled(b, 6, BLURPLE);
+                    ui.painter().rect_filled(b, 6, pal().blurple);
                     icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), Color32::WHITE);
                 } else {
                     ui.painter().rect_stroke(b, 6, Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -474,7 +474,7 @@ fn modal(app: &mut App, ctx: &Context) {
                     changed = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let resp = crate::ui::button(ui, "Turn On Camera", BLURPLE, 140.0);
+                    let resp = crate::ui::button(ui, "Turn On Camera", pal().blurple, 140.0);
                     mark(ui, "camera:modal:on", resp.rect);
                     go = resp.clicked();
                 });

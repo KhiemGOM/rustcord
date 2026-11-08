@@ -35,7 +35,7 @@ const PROVIDERS: [(&str, &str, u32); 21] = [
 const ACTIVITY: [&str; 4] = ["spotify", "xbox", "playstation", "crunchyroll"];
 
 pub fn provider(kind: &str) -> (&'static str, Color32) {
-    PROVIDERS.iter().find(|p| p.0 == kind).map_or(("Account", BLURPLE), |p| (p.1, role_color(p.2)))
+    PROVIDERS.iter().find(|p| p.0 == kind).map_or(("Account", pal().blurple), |p| (p.1, role_color(p.2)))
 }
 
 pub fn badge(ui: &Ui, r: Rect, name: &str, fill: Color32) {
@@ -248,7 +248,7 @@ fn authorized(app: &mut App, ui: &mut Ui) {
                 match a["icon"].as_str() {
                     Some(h) => avatar(ui, r, &format!("{}/app-icons/{}/{h}.png?size=80", crate::api::cdn(), sid(&a["id"]))),
                     None => {
-                        ui.painter().circle_filled(r.center(), 20.0, BLURPLE);
+                        ui.painter().circle_filled(r.center(), 20.0, pal().blurple);
                     }
                 }
                 ui.add_space(12.0);
