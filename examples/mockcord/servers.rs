@@ -50,6 +50,10 @@ fn regex_fault(p: &str) -> Option<&'static str> {
 
 pub fn route(method: &str, parts: &[&str], body: &[u8]) -> Option<(u16, Value)> {
     match (method, parts) {
+        ("POST", ["api", "v9", "mock", "servers-reset"]) => {
+            *META.lock().unwrap() = None;
+            Some((200, json!({})))
+        }
         ("POST", ["api", "v9", "guilds", _, "auto-moderation", "rules", "validate"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let patterns: Vec<&str> = b["trigger_metadata"]["regex_patterns"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
