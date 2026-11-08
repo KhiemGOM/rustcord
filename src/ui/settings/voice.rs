@@ -32,7 +32,7 @@ fn device_row(ui: &mut Ui, icon: Icon, label: &str, on: bool) -> bool {
     crate::ui::text::paint(ui.painter(), pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, label, medium(16.0), pal().text_normal, r.width() - 80.0);
     if on {
         let c = pos2(r.right() - 20.0, r.center().y);
-        ui.painter().circle_filled(c, 10.0, BLURPLE);
+        ui.painter().circle_filled(c, 10.0, pal().blurple);
         icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(c, vec2(14.0, 14.0)), Color32::WHITE);
     }
     resp.clicked()
@@ -73,7 +73,7 @@ fn bars(ui: &mut Ui, w: f32, level: i32, live: bool) {
     let on = if live { (((level as f32 + 80.0) / 80.0).clamp(0.0, 1.0) * n as f32).round() as usize } else { 0 };
     for i in 0..n {
         let x = r.left() + i as f32 * w / n as f32;
-        let col = if i < on { GREEN } else { super::TRACK };
+        let col = if i < on { pal().green } else { super::TRACK };
         ui.painter().rect_filled(Rect::from_min_size(pos2(x, r.center().y - 12.0), vec2(3.0, 24.0)), CornerRadius::same(1), col);
     }
 }
@@ -122,8 +122,8 @@ fn accordion(ui: &mut Ui, key: &str, closed: &str, open: &str, subtitle: &str) -
 fn warning(ui: &mut Ui, before: &str, text: &str, after: &str, url: &str) {
     super::lead(ui);
     Frame::new()
-        .fill(YELLOW.gamma_multiply(0.1))
-        .stroke(Stroke::new(1.0, YELLOW))
+        .fill(pal().yellow.gamma_multiply(0.1))
+        .stroke(Stroke::new(1.0, pal().yellow))
         .corner_radius(8)
         .inner_margin(Margin::symmetric(12, 10))
         .show(ui, |ui| {
@@ -144,7 +144,7 @@ fn sensitivity(ui: &mut Ui, w: f32, db: &mut f32, level: f32, live: bool) -> boo
     let x_of = |v: f32| r.left() + 8.0 + ((v + 100.0) / 100.0).clamp(0.0, 1.0) * (w - 16.0);
     let (knob, lit) = (x_of(*db), if live { x_of(level) } else { r.left() });
     let rail = Rect::from_center_size(r.center(), vec2(w, 4.0));
-    for (from, to, col) in [(rail.left(), knob, YELLOW), (knob, rail.right(), GREEN)] {
+    for (from, to, col) in [(rail.left(), knob, pal().yellow), (knob, rail.right(), pal().green)] {
         let dim = col.gamma_multiply(0.45);
         let cut = lit.clamp(from, to);
         ui.painter().rect_filled(Rect::from_min_max(pos2(from, rail.top()), pos2(cut, rail.bottom())), 0, col);
@@ -165,7 +165,7 @@ fn sensitivity(ui: &mut Ui, w: f32, db: &mut f32, level: f32, live: bool) -> boo
 
 fn speaking_bar(ui: &mut Ui, w: f32, on: bool) {
     let (r, _) = ui.allocate_exact_size(vec2(w, 8.0), Sense::hover());
-    ui.painter().rect_filled(r, CornerRadius::same(4), if on { GREEN } else { super::TRACK });
+    ui.painter().rect_filled(r, CornerRadius::same(4), if on { pal().green } else { super::TRACK });
 }
 
 pub fn page(app: &mut App, ui: &mut Ui) -> bool {
@@ -447,7 +447,7 @@ fn sounds(app: &mut App, ui: &mut Ui) -> bool {
         }
         let sw = Rect::from_min_size(pos2(r.right() - 48.0, r.top()), vec2(48.0, 24.0));
         let resp = ui.interact(sw, Id::new(("voice_sound", *key)), Sense::click());
-        ui.painter().rect_filled(sw, CornerRadius::same(12), if on { BLURPLE } else { Color32::from_black_alpha(31) });
+        ui.painter().rect_filled(sw, CornerRadius::same(12), if on { pal().blurple } else { Color32::from_black_alpha(31) });
         if !on {
             ui.painter().rect_stroke(sw, CornerRadius::same(12), Stroke::new(1.0, super::faint(51)), egui::StrokeKind::Inside);
         }

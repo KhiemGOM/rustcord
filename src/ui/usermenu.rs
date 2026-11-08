@@ -73,7 +73,7 @@ pub fn menu_slider(ui: &mut Ui, label: &str, at: f32, value: Option<&str>) -> Op
     }
     p.rect_filled(track, 2, pal().bg_mod_selected);
     let x = track.left() + track.width() * at.clamp(0.0, 1.0);
-    p.rect_filled(Rect::from_min_max(track.min, pos2(x, track.bottom())), 2, BLURPLE);
+    p.rect_filled(Rect::from_min_max(track.min, pos2(x, track.bottom())), 2, pal().blurple);
     p.circle(pos2(x, track.center().y), 7.0, egui::Color32::WHITE, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(40)));
     if resp.hovered() || resp.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

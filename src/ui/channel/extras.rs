@@ -52,7 +52,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
     let mut pause = false;
     ui.horizontal(|ui| {
         if perms & MANAGE_GUILD != 0 {
-            let b = if paused { sm(ui, "Enable Invites", BLURPLE) } else { sm(ui, "Pause Invites", RED) };
+            let b = if paused { sm(ui, "Enable Invites", pal().blurple) } else { sm(ui, "Pause Invites", pal().red) };
             settings::mark(ui, "chanset:pause", b.rect);
             pause = b.clicked();
         }
@@ -95,7 +95,7 @@ pub fn invites(app: &mut App, ui: &mut Ui, c: &Channel) {
         }
         if resp.hovered() {
             let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(20.0, 20.0));
-            ui.painter().circle_filled(x.center(), 10.0, RED);
+            ui.painter().circle_filled(x.center(), 10.0, pal().red);
             icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), Color32::WHITE);
             if resp.clicked() && resp.interact_pointer_pos().is_some_and(|q| q.x > r.right() - 32.0) {
                 revoke = Some(code.clone());
@@ -216,7 +216,7 @@ pub fn integrations(app: &mut App, ui: &mut Ui, c: &Channel) {
             let wsub = plural(hooks.len(), "webhook");
             let made = card(ui, Icon::Link, "Webhooks", &wsub, "chanset:webhooks", |ui| {
                 if hooks.is_empty() {
-                    let b = sm(ui, "Create Webhook", BLURPLE);
+                    let b = sm(ui, "Create Webhook", pal().blurple);
                     settings::mark(ui, "chanset:create_webhook", b.rect);
                     b.clicked()
                 } else {
@@ -228,7 +228,7 @@ pub fn integrations(app: &mut App, ui: &mut Ui, c: &Channel) {
             let fsub = plural(follow.len(), "channel");
             let more = card(ui, Icon::Forward, "Channels Followed", &fsub, "chanset:followed", |ui| {
                 if follow.is_empty() {
-                    sm(ui, "Learn More", BLURPLE).clicked()
+                    sm(ui, "Learn More", pal().blurple).clicked()
                 } else {
                     go = chevron(ui).then_some(Sub::Followed);
                     false
@@ -281,10 +281,10 @@ fn webhooks(app: &mut App, ui: &mut Ui, c: &Channel, hooks: &[Value]) {
         ui.vertical_centered(|ui| {
             ui.label(RichText::new("You have no webhooks!").font(semi(16.0)).color(pal().header_primary));
             ui.add_space(12.0);
-            make = sm(ui, "Create Webhook", BLURPLE).clicked();
+            make = sm(ui, "Create Webhook", pal().blurple).clicked();
         });
     } else {
-        let b = sm(ui, "New Webhook", BLURPLE);
+        let b = sm(ui, "New Webhook", pal().blurple);
         settings::mark(ui, "chanset:new_webhook", b.rect);
         make = b.clicked();
         ui.add_space(16.0);
@@ -306,7 +306,7 @@ fn webhooks(app: &mut App, ui: &mut Ui, c: &Channel, hooks: &[Value]) {
             ui.set_width(ui.available_width());
             let top = ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-                ui.painter().circle_filled(r.center(), 20.0, BLURPLE);
+                ui.painter().circle_filled(r.center(), 20.0, pal().blurple);
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, name.chars().next().unwrap_or('W'), semi(18.0), Color32::WHITE);
                 ui.add_space(8.0);
                 ui.vertical(|ui| {

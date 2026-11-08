@@ -13,9 +13,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let Some(ch) = app.voice.chan else { return };
     let video = app.voice.camera || app.voice.video_call || app.voice.stream.as_ref().is_some_and(|l| l.mine);
     let (text, col) = match app.voice.state {
-        State::Connected => (if video { "Video Connected" } else { "Voice Connected" }, GREEN),
-        State::Reconnecting => ("Reconnecting", YELLOW),
-        _ => ("RTC Connecting", YELLOW),
+        State::Connected => (if video { "Video Connected" } else { "Voice Connected" }, pal().green),
+        State::Reconnecting => ("Reconnecting", pal().yellow),
+        _ => ("RTC Connecting", pal().yellow),
     };
     let place = match app.store.channels.get(&ch) {
         Some(c) if c.guild != 0 => {
@@ -31,9 +31,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     // its bars lit and coloured by the last ping
     let ping = app.voice.pings.back().map(|(_, ms)| *ms).filter(|_| app.voice.state == State::Connected);
     let (lit, bars) = match ping {
-        Some(0..=100) => (3, GREEN),
-        Some(101..=250) => (2, YELLOW),
-        Some(_) => (1, RED),
+        Some(0..=100) => (3, pal().green),
+        Some(101..=250) => (2, pal().yellow),
+        Some(_) => (1, pal().red),
         None => (3, col),
     };
     let tile = Rect::from_min_size(r.min, vec2(32.0, 32.0));
@@ -97,13 +97,13 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         };
         let resp = ui.interact(b, egui::Id::new(("voice_panel_btn", i)), Sense::click());
         let fill = match (on, resp.hovered()) {
-            (true, false) => GREEN.gamma_multiply(0.12),
-            (true, true) => GREEN.gamma_multiply(0.24),
+            (true, false) => pal().green.gamma_multiply(0.12),
+            (true, true) => pal().green.gamma_multiply(0.24),
             (false, false) => pal().control,
             (false, true) => pal().control_hover,
         };
         ui.painter().rect_filled(b, CornerRadius::same(8), fill);
-        let fg = if on { GREEN } else { pal().header_primary };
+        let fg = if on { pal().green } else { pal().header_primary };
         // discord's buttons: the camera crossed out while it's off, the screen with its arrow
         let icon = match (i, on) {
             (0, false) => Icon::VideoSlash,
@@ -156,7 +156,7 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
                 let col = if on { Color32::from_rgb(0x94, 0x9c, 0xf7) } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 ui.painter().galley(pos2(x, bar.top()), g, col);
                 if on {
-                    ui.painter().rect_filled(Rect::from_min_size(pos2(r.left(), bar.bottom() + 6.0), vec2(r.width(), 2.0)), 1, BLURPLE);
+                    ui.painter().rect_filled(Rect::from_min_size(pos2(r.left(), bar.bottom() + 6.0), vec2(r.width(), 2.0)), 1, pal().blurple);
                 }
                 if resp.clicked() {
                     tab = i as u8;
@@ -233,10 +233,10 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
             }
             ui.add_space(8.0);
             let (b, _) = ui.allocate_exact_size(vec2(256.0, 24.0), Sense::hover());
-            ui.painter().rect_filled(b, 4, GREEN.gamma_multiply(0.12));
-            icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), GREEN);
+            ui.painter().rect_filled(b, 4, pal().green.gamma_multiply(0.12));
+            icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), pal().green);
             let kind = if app.voice.privacy.is_some() { "End-to-end encrypted" } else { "Secure Connection" };
-            ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, kind, medium(12.0), GREEN);
+            ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, kind, medium(12.0), pal().green);
         });
     if let Some(r) = shown.as_ref().map(|s| s.response.rect) {
         app.rects.insert("rtc:popout".into(), r);
@@ -285,9 +285,9 @@ fn ping_graph(ui: &mut Ui, pings: &std::collections::VecDeque<(f64, u32)>) {
     }
     let pts: Vec<egui::Pos2> = pings.iter().filter(|(t, _)| now - t <= span).map(|(t, ms)| pos2(x(*t), plot.bottom() - plot.height() * (*ms).min(top) as f32 / top as f32)).collect();
     if pts.len() > 1 {
-        p.add(egui::Shape::line(pts, Stroke::new(2.0, BLURPLE)));
+        p.add(egui::Shape::line(pts, Stroke::new(2.0, pal().blurple)));
     } else if let Some(pt) = pts.first() {
-        p.circle_filled(*pt, 2.0, BLURPLE);
+        p.circle_filled(*pt, 2.0, pal().blurple);
     }
 }
 
@@ -358,15 +358,13 @@ pub fn user_buttons(app: &mut App, ui: &mut Ui) {
     }
 }
 
-const DANGER: Color32 = Color32::from_rgb(0xd2, 0x2d, 0x39);
-
 /// The left half of Discord's mic/headphone split button; washed red with a red icon while off.
 fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let k = super::motion::hover(ui.ctx(), &resp, 0.2);
-    let bg = if off { DANGER.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
+    let bg = if off { pal().danger.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
     ui.painter().rect_filled(r, CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 }, bg);
-    let col = if off { DANGER } else { super::motion::mix(pal().header_secondary, pal().interactive_hover, k) };
+    let col = if off { pal().danger } else { super::motion::mix(pal().header_secondary, pal().interactive_hover, k) };
     icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), col);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -378,7 +376,7 @@ fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
 pub fn ring(ui: &Ui, av: Rect, u: Id, speaking: bool) {
     let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", u, av.width() as i32)), speaking, 0.15, super::motion::EASE);
     if k > 0.0 {
-        ui.painter().circle_stroke(av.center(), av.width() / 2.0 + 1.5, Stroke::new(2.0, GREEN.gamma_multiply(k)));
+        ui.painter().circle_stroke(av.center(), av.width() / 2.0 + 1.5, Stroke::new(2.0, pal().green.gamma_multiply(k)));
     }
 }
 
@@ -448,7 +446,7 @@ fn frame(app: &mut App, ui: &Ui, key: String, img: &Arc<ColorImage>, r: Rect) {
 pub fn live_badge(ui: &Ui, right_top: egui::Pos2) {
     let g = ui.painter().layout_no_wrap("LIVE".into(), semi(11.0), Color32::WHITE);
     let r = Rect::from_min_size(pos2(right_top.x - g.size().x - 12.0, right_top.y), g.size() + vec2(12.0, 4.0));
-    ui.painter().rect_filled(r, CornerRadius::same(8), RED);
+    ui.painter().rect_filled(r, CornerRadius::same(8), pal().red);
     ui.painter().galley(r.min + vec2(6.0, 2.0), g, Color32::WHITE);
 }
 
@@ -518,7 +516,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             frame(app, ui, format!("cam:{u}"), &img, a);
                             let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "cam")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
                             if k > 0.0 {
-                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, GREEN.gamma_multiply(k)), egui::StrokeKind::Outside);
+                                ui.painter().rect_stroke(a, CornerRadius::same(6), Stroke::new(3.0, pal().green.gamma_multiply(k)), egui::StrokeKind::Outside);
                             }
                         }
                         None => {
@@ -527,7 +525,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             }
                             let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "stage")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
                             if k > 0.0 {
-                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, GREEN.gamma_multiply(k)));
+                                ui.painter().circle_stroke(a.center(), s.x / 2.0 + 3.0, Stroke::new(3.0, pal().green.gamma_multiply(k)));
                             }
                         }
                     }
@@ -588,7 +586,7 @@ fn stage(app: &mut App, ui: &mut Ui, r: Rect, img: Option<Arc<ColorImage>>) {
     live_badge(ui, pos2(tag.right() + 52.0, tag.top() + 3.0));
     let stop = Rect::from_min_size(pos2(r.right() - 130.0, r.top() + 10.0), vec2(120.0, 30.0));
     let resp = ui.interact(stop, egui::Id::new("stop_stream"), Sense::click());
-    ui.painter().rect_filled(stop, CornerRadius::same(4), crate::ui::motion::mix(RED, RED.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+    ui.painter().rect_filled(stop, CornerRadius::same(4), crate::ui::motion::mix(pal().red, pal().red.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
     ui.painter().text(stop.center(), Align2::CENTER_CENTER, if mine { "Stop Streaming" } else { "Stop Watching" }, semi(13.0), Color32::WHITE);
     app.rects.insert("voice:stopstream".into(), stop);
     if resp.clicked() {
@@ -777,7 +775,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "tile")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
             if k > 0.0 {
-                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN.gamma_multiply(k)), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, pal().green.gamma_multiply(k)), egui::StrokeKind::Inside);
             }
             super::tile::options(app, ui, chan, *u, tile, shown);
         }
@@ -875,9 +873,9 @@ pub fn devices(ctx: &egui::Context) -> (Vec<String>, Vec<String>) {
 fn device_menu(app: &mut App, ui: &mut Ui, output: bool, off: bool) {
     let (r, resp) = ui.allocate_exact_size(vec2(16.0, 32.0), Sense::click());
     let k = super::motion::hover(ui.ctx(), &resp, 0.2);
-    let bg = if off { DANGER.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
+    let bg = if off { pal().danger.gamma_multiply(0.12 + 0.08 * k) } else { pal().control_hover.gamma_multiply(k) };
     ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
-    let col = if off { DANGER } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+    let col = if off { pal().danger } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
     let resp = resp.on_hover_text(if output { "Output Options" } else { "Input Options" });
     let mut res = (false, false);
@@ -909,11 +907,11 @@ pub fn incoming(app: &mut App, ctx: &egui::Context) {
                 let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
                 // a ring that pulses out while it rings
                 let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
-                ui.painter().circle_stroke(r.center(), 40.0 + 12.0 * k, Stroke::new(3.0, GREEN.gamma_multiply(1.0 - k)));
+                ui.painter().circle_stroke(r.center(), 40.0 + 12.0 * k, Stroke::new(3.0, pal().green.gamma_multiply(1.0 - k)));
                 match (&caller, chan.kind) {
                     (Some(u), 1) => avatar(ui, r, &u.avatar_url()),
                     _ => {
-                        ui.painter().circle_filled(r.center(), 40.0, BLURPLE);
+                        ui.painter().circle_filled(r.center(), 40.0, pal().blurple);
                         icons::draw(ui.painter(), Icon::People, r.shrink(20.0), Color32::WHITE);
                     }
                 }
@@ -925,7 +923,7 @@ pub fn incoming(app: &mut App, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.add_space(30.0);
                     ui.spacing_mut().item_spacing.x = 32.0;
-                    for (fill, tip, yes) in [(RED, "Decline", false), (GREEN, "Accept", true)] {
+                    for (fill, tip, yes) in [(pal().red, "Decline", false), (pal().green, "Accept", true)] {
                         let (r, resp) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::click());
                         ui.painter().circle_filled(r.center(), 28.0, if resp.hovered() { fill.gamma_multiply(0.85) } else { fill });
                         if yes {

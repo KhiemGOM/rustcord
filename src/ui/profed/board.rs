@@ -149,7 +149,7 @@ pub fn paint_wishlist(ui: &mut Ui, r: Rect, w: &Wish, ink: Color32) -> (f32, boo
         let lw = ui.painter().layout_no_wrap(label.into(), medium(14.0), Color32::WHITE).size().x;
         let b = Rect::from_center_size(pos2(c, r.top() + 96.0 + gh + 36.0), vec2(lw + 56.0, 36.0));
         let resp = ui.interact(b, ui.id().with("wish_explore"), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { crate::theme::GREEN.gamma_multiply(0.85) } else { crate::theme::GREEN });
+        ui.painter().rect_filled(b, CornerRadius::same(8), if resp.hovered() { crate::theme::pal().green.gamma_multiply(0.85) } else { crate::theme::pal().green });
         icons::draw(ui.painter(), Icon::Shop, Rect::from_center_size(pos2(b.left() + 22.0, b.center().y), vec2(16.0, 16.0)), Color32::WHITE);
         ui.painter().text(pos2(b.left() + 38.0, b.center().y), Align2::LEFT_CENTER, label, medium(14.0), Color32::WHITE);
         mark(ui, "wish:explore", b);
@@ -393,7 +393,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         });
         ui.add_space(16.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let b = crate::ui::button(ui, "Save", BLURPLE, 100.0);
+            let b = crate::ui::button(ui, "Save", pal().blurple, 100.0);
             mark(ui, "widget:save", b.rect);
             save = b.clicked();
             close |= crate::ui::grey_button(ui, "Cancel", 100.0).clicked();

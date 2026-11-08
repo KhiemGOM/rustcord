@@ -22,7 +22,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
             let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, _, k| {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), BLURPLE, k));
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().blurple, k));
                 icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             if incoming > 0 {
@@ -54,7 +54,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 };
                 let title = super::channel_title(&app.store, c);
                 let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _, _| {
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), BLURPLE);
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), pal().blurple);
                     if let Some(u) = &url {
                         Image::from_uri(u.clone()).corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, rect);
                     } else {
@@ -71,7 +71,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 }
                 if app.voice.ringing == Some(c) {
                     let k = (ui.input(|i| i.time) as f32 * 1.5).fract();
-                    ui.painter().rect_stroke(r.rect.expand(2.0 + 4.0 * k), CornerRadius::same(RADIUS + 2), egui::Stroke::new(2.0, GREEN.gamma_multiply(1.0 - k)), egui::StrokeKind::Outside);
+                    ui.painter().rect_stroke(r.rect.expand(2.0 + 4.0 * k), CornerRadius::same(RADIUS + 2), egui::Stroke::new(2.0, pal().green.gamma_multiply(1.0 - k)), egui::StrokeKind::Outside);
                     ui.ctx().request_repaint_after_secs(0.033);
                 }
                 app.rects.insert(format!("dmbubble:{c}"), r.rect);
@@ -100,7 +100,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
             separator(ui);
             let r = button(ui, egui::Id::new("add_server"), false, |ui, rect, radius, _, k| {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, GREEN, k));
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
                 icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             let r = tip(r, "Add a Server");
@@ -128,7 +128,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let on = key == "discover" && app.directory.is_some();
                 let r = button(ui, egui::Id::new(key), on, |ui, rect, radius, _, k| {
                     let k = if on { 1.0 } else { k };
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, GREEN, k));
+                    ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
                     icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
                 });
                 if self::tip(r, tip).clicked() {
@@ -156,7 +156,7 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
             crate::gif::paint_still(ui, &url, rect, radius, hot);
         }
         None => {
-            ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, BLURPLE, k));
+            ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, pal().blurple, k));
             let acr = g.acronym();
             let size = match acr.chars().count() {
                 0..=2 => 17.0,
@@ -337,7 +337,7 @@ fn voice_badge(app: &App, gid: Id) -> Option<(Icon, bool)> {
 fn upper_badge(ui: &Ui, icon_rect: Rect, icon: Icon, mine: bool, hole: Color32) -> egui::Pos2 {
     let at = icon_rect.right_top() + vec2(-8.0, 8.0);
     ui.painter().circle_filled(at, 10.0, hole);
-    ui.painter().circle_filled(at, 8.0, if mine { GREEN } else { Color32::BLACK });
+    ui.painter().circle_filled(at, 8.0, if mine { pal().green } else { Color32::BLACK });
     icons::draw(ui.painter(), icon, Rect::from_center_size(at, vec2(12.0, 12.0)), Color32::WHITE);
     at
 }
@@ -367,7 +367,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
             if hot {
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), subtle());
             }
-            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), color.unwrap_or(BLURPLE));
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), color.unwrap_or(pal().blurple));
             return;
         }
         let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
@@ -638,7 +638,7 @@ fn drag(app: &mut App, ui: &mut Ui, folders: &[Folder]) {
         && let Some(r) = app.rects.get(&format!("guild:{g}"))
     {
         let ring = Rect::from_center_size(r.center(), vec2(ICON + 8.0, ICON + 8.0));
-        ui.painter().rect_stroke(ring, CornerRadius::same(16), egui::Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(ring, CornerRadius::same(16), egui::Stroke::new(2.0, pal().blurple), egui::StrokeKind::Outside);
     }
     let key = egui::Id::new("rail_held");
     let Some(held) = ctx.data(|d| d.get_temp::<Held>(key)) else { return };
@@ -665,13 +665,13 @@ fn drag(app: &mut App, ui: &mut Ui, folders: &[Folder]) {
                 Held::Guild(g) => guild_icon(app, ui, g, r, RADIUS, true, 1.0),
                 Held::Folder(_) => {
                     ui.painter().rect_filled(r, CornerRadius::same(16), subtle());
-                    icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(r.center(), vec2(18.0, 18.0)), BLURPLE);
+                    icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(r.center(), vec2(18.0, 18.0)), pal().blurple);
                 }
             }
         });
     }
     let paint = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("rail_drop")));
-    let bar = |y: f32, x: f32| paint.rect_filled(Rect::from_center_size(pos2(x, y), vec2(32.0, 4.0)), CornerRadius::same(2), BLURPLE);
+    let bar = |y: f32, x: f32| paint.rect_filled(Rect::from_center_size(pos2(x, y), vec2(32.0, 4.0)), CornerRadius::same(2), pal().blurple);
     let head = |i: usize| folders.get(i).and_then(|f| app.rects.get(&if f.id == 0 && f.guilds.len() == 1 { format!("guild:{}", f.guilds[0]) } else { format!("folder:{}", f.id) }));
     match target {
         Some(Drop::Before(i)) => {
@@ -686,7 +686,7 @@ fn drag(app: &mut App, ui: &mut Ui, folders: &[Folder]) {
         }
         Some(Drop::Combine(i)) => {
             if let Some(r) = head(i) {
-                paint.rect_stroke(r.shrink2(vec2(12.0, 0.0)).expand(2.0), CornerRadius::same(16), egui::Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
+                paint.rect_stroke(r.shrink2(vec2(12.0, 0.0)).expand(2.0), CornerRadius::same(16), egui::Stroke::new(2.0, pal().blurple), egui::StrokeKind::Outside);
             }
         }
         Some(Drop::In(i, n)) => {

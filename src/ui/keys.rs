@@ -620,7 +620,7 @@ pub fn combos(app: &mut App, ctx: &egui::Context) {
                         for (i, turn) in [(3, 1.0), (2, 0.0), (1, 2.0), (0, 3.0)] {
                             let (r, _) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::hover());
                             let glow = lit[i].map_or(0.0, |t| (1.0 - t.elapsed().as_secs_f32() / 0.3).max(0.0));
-                            let col = Color32::WHITE.lerp_to_gamma(BLURPLE, glow);
+                            let col = Color32::WHITE.lerp_to_gamma(pal().blurple, glow);
                             ddr_arrow(ui.painter(), r.shrink(6.0), turn, col, glow > 0.0);
                             if glow > 0.0 {
                                 crate::ui::settings::mark(ui, &format!("ddr_lit:{i}"), r);
@@ -791,7 +791,7 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= super::grey_button(ui, "Back to conversation", 192.0).clicked();
                 let label = if b.paused.is_some() { "Resume" } else { "Pause" };
-                pause = super::button(ui, label, BLURPLE, 192.0).clicked();
+                pause = super::button(ui, label, pal().blurple, 192.0).clicked();
             });
         });
     if pause {

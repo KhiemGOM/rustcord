@@ -123,7 +123,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                 let on = color.map(str::to_lowercase) == cur;
                 swatch(ui, r, *top, *bot);
                 if on {
-                    ui.painter().rect_stroke(r.expand(2.0), CornerRadius::same(6), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+                    ui.painter().rect_stroke(r.expand(2.0), CornerRadius::same(6), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
                 }
                 super::super::settings::mark(ui, &format!("banner:{name}"), r);
                 if resp.hovered() {
@@ -236,7 +236,7 @@ fn swatch(ui: &Ui, r: Rect, top: [u8; 3], bot: [u8; 3]) {
 
 fn paint_switch(ui: &Ui, r: Rect, on: bool) {
     if on {
-        ui.painter().rect_filled(r, CornerRadius::same(12), BLURPLE);
+        ui.painter().rect_filled(r, CornerRadius::same(12), pal().blurple);
     } else {
         ui.painter().rect(r, CornerRadius::same(12), Color32::from_black_alpha(31), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
     }
@@ -336,7 +336,7 @@ fn games(app: &mut App, ui: &mut Ui, raw: &Value, d: &mut Value) {
                     }
                     if resp.hovered() {
                         let x = Rect::from_center_size(pos2(r.right() - 14.0, r.top() + 14.0), vec2(20.0, 20.0));
-                        ui.painter().circle_filled(x.center(), 10.0, if on { RED } else { GREEN });
+                        ui.painter().circle_filled(x.center(), 10.0, if on { pal().red } else { pal().green });
                         icons::draw(ui.painter(), if on { Icon::Close } else { Icon::Check }, x.shrink(4.0), Color32::WHITE);
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -432,9 +432,9 @@ fn preview(ctx: &egui::Context, g: &crate::state::Guild, d: &Value, raw: &Value)
                         let (r, _) = ui.allocate_exact_size(vec2(8.0, 14.0), Sense::hover());
                         ui.painter().circle_filled(r.center(), 4.0, c);
                     };
-                    dot(ui, GREEN);
+                    dot(ui, pal().green);
                     ui.label(RichText::new(format!("{online} Online")).font(reg(14.0)).color(pal().header_secondary));
-                    dot(ui, GREY);
+                    dot(ui, pal().grey);
                     ui.label(RichText::new(format!("{members} Members")).font(reg(14.0)).color(pal().header_secondary));
                 });
                 let est = chrono::DateTime::from_timestamp_millis(snowflake_ms(g.id)).map(|t| t.format("Est. %b %Y").to_string()).unwrap_or_default();

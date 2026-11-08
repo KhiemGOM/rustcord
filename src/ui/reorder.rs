@@ -143,7 +143,7 @@ pub fn drag(app: &mut App, ctx: &egui::Context) {
     ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     let paint = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("chan_drop")));
     if let Some((_, _, (r, y))) = target {
-        paint.hline(r.x_range().shrink(8.0), y, egui::Stroke::new(2.0, crate::theme::BLURPLE));
+        paint.hline(r.x_range().shrink(8.0), y, egui::Stroke::new(2.0, crate::theme::pal().blurple));
     }
     if let Some(p) = pos {
         paint.text(p + egui::vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, &c.name, crate::theme::medium(14.0), crate::theme::pal().header_primary);

@@ -151,7 +151,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
     let btn = Rect::from_min_size(pos2(r.right() - 180.0, r.center().y - 20.0), vec2(160.0, 40.0));
     let label = if free.is_empty() { "Get more Boosts" } else { "Boost any server" };
     mark(ui, "billing:boost_banner", btn);
-    if solid(ui, btn, label, BLURPLE, Color32::WHITE) {
+    if solid(ui, btn, label, pal().blurple, Color32::WHITE) {
         match (ready.as_ref(), free.is_empty()) {
             (Some(slot), _) => pick = Some(Pick { slot: slot.clone(), from: None }),
             (None, true) => crate::ui::settings::open_web("/settings/premium-guild-subscriptions"),
@@ -247,7 +247,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
             let sub = if blocked { format!("You can use this Boost again on {}", long(&epoch_iso(wait))) } else { "Just waiting here until you choose a server to give it to!".to_string() };
             ui.painter().text(pos2(head.left() + 64.0, head.center().y + 12.0), Align2::LEFT_CENTER, sub, reg(12.0), pal().header_secondary);
             let b = Rect::from_center_size(pos2(head.right() - 80.0, head.center().y), vec2(160.0, 40.0));
-            if solid(ui, b, "Boost any server", if blocked { faint(61) } else { BLURPLE }, Color32::WHITE) && !blocked {
+            if solid(ui, b, "Boost any server", if blocked { faint(61) } else { pal().blurple }, Color32::WHITE) && !blocked {
                 pick = Some(Pick { slot: s.id.clone(), from: None });
             }
             ui.add_space(12.0);
@@ -277,7 +277,7 @@ pub fn boost(app: &mut App, ui: &mut Ui) -> bool {
                 let text = levels(g.boosts, g.tier);
                 ui.painter().text(pos2(row.left() + 74.0, row.center().y + 12.0), Align2::LEFT_CENTER, text, medium(12.0), pal().header_secondary);
                 let b = Rect::from_center_size(pos2(row.right() - 70.0, row.center().y), vec2(140.0, 40.0));
-                if solid(ui, b, "Boost this server", BLURPLE, Color32::WHITE) {
+                if solid(ui, b, "Boost this server", pal().blurple, Color32::WHITE) {
                     match &ready {
                         Some(slot) => {
                             act(app, ui, vec![apply(slot, &gid.to_string())]);
@@ -418,7 +418,7 @@ fn picker(app: &mut App, ui: &mut Ui, p: &Pick) -> (Option<Vec<Step>>, bool) {
                     let text = levels(g.boosts, g.tier);
                     ui.painter().text(pos2(row.left() + 52.0, row.center().y + 12.0), Align2::LEFT_CENTER, text, reg(12.0), pal().header_secondary);
                     let b = Rect::from_center_size(pos2(row.right() - 56.0, row.center().y), vec2(112.0, 32.0));
-                    if solid(ui, b, go, BLURPLE, Color32::WHITE) {
+                    if solid(ui, b, go, pal().blurple, Color32::WHITE) {
                         let mut s = Vec::new();
                         if let Some((og, osub)) = &p.from {
                             s.push(("DELETE", format!("/guilds/{og}/premium/subscriptions/{osub}"), None));

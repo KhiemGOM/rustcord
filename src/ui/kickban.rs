@@ -61,7 +61,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.add_space(8.0);
             if d.ban {
                 if d.need {
-                    ui.label(RichText::new("Ban reason must be provided").font(medium(14.0)).color(RED));
+                    ui.label(RichText::new("Ban reason must be provided").font(medium(14.0)).color(pal().red));
                     ui.add_space(8.0);
                 }
                 let shown = d.pick.map_or("Select a reason", |i| REASONS[i]).to_string();
@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 close |= grey_button(ui, "Cancel", 212.0).clicked();
-                let b = button(ui, if d.ban { "Ban" } else { "Kick" }, super::DANGER, 212.0);
+                let b = button(ui, if d.ban { "Ban" } else { "Kick" }, crate::theme::pal().danger, 212.0);
                 settings::mark(ui, "kickban:go", b.rect);
                 go = b.clicked();
             });

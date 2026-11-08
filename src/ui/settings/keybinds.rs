@@ -160,7 +160,7 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
                 let bw = cols[1].painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE).size().x + 32.0;
                 let (r, _) = cols[1].allocate_exact_size(vec2(cols[1].available_width(), 40.0), Sense::hover());
                 let field = Rect::from_min_max(r.min, pos2(r.right() - bw - 8.0, r.bottom()));
-                let stroke = if recording { RED } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
+                let stroke = if recording { pal().red } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
                 cols[1].painter().rect(field, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
                 cols[1].painter().text(pos2(field.left() + 12.0, field.center().y), Align2::LEFT_CENTER, shown, medium(14.0), pal().header_primary);
                 let mut b = cols[1].new_child(UiBuilder::new().max_rect(r).layout(Layout::right_to_left(Align::Center)));

@@ -64,7 +64,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let Some(sh) = &mut app.activity.shelf else { return };
         let (bar, _) = ui.allocate_exact_size(vec2(WIDTH, 40.0), Sense::hover());
-        ui.painter().rect(bar, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+        ui.painter().rect(bar, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
         crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Search, Rect::from_center_size(pos2(bar.left() + 20.0, bar.center().y), vec2(16.0, 16.0)), pal().header_secondary);
         let field = Rect::from_min_max(pos2(bar.left() + 40.0, bar.top() + 4.0), pos2(bar.right() - 8.0, bar.bottom() - 4.0));
         let r = ui.put(field, egui::TextEdit::singleline(&mut sh.query).frame(Frame::NONE).hint_text("Search").font(reg(16.0)).desired_width(field.width()));

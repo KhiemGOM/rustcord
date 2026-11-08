@@ -200,7 +200,7 @@ fn list(app: &mut App, ui: &mut Ui, gid: Id) {
             let from = rects.iter().position(|(r, _)| *r == id).unwrap_or(0);
             let y = rects.get(to).map_or_else(|| rects.last().map_or(0.0, |(_, r)| r.bottom()), |(_, r)| r.top());
             if let Some((_, r0)) = rects.first() {
-                ui.painter().hline(r0.x_range(), y, Stroke::new(2.0, BLURPLE));
+                ui.painter().hline(r0.x_range(), y, Stroke::new(2.0, pal().blurple));
             }
             if drop.is_some() && to != from && to != from + 1 {
                 let mut order = ids.clone();

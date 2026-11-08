@@ -74,7 +74,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
             }
             if hot {
                 icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(pos2(r.right() - 52.0, r.center().y), vec2(16.0, 16.0)), pal().header_secondary);
-                icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(16.0, 16.0)), RED);
+                icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(16.0, 16.0)), pal().red);
             }
         });
         super::super::settings::mark(ui, &format!("sound:{name}"), resp.rect);

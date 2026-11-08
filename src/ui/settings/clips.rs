@@ -33,7 +33,7 @@ fn keybind(app: &mut App, ui: &mut Ui) -> bool {
     let shown = if recording { super::combo(&app.sform.rec_keys) } else { super::combo(&app.settings.keybinds[i].1) };
     let w = ui.available_width();
     let (r, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
-    let stroke = if recording { RED } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
+    let stroke = if recording { pal().red } else { Color32::from_rgba_unmultiplied(151, 151, 159, 61) };
     ui.painter().rect(r, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
     ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, shown, medium(14.0), pal().header_primary);
     let mut c = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(8.0, 4.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));

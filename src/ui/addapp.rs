@@ -155,7 +155,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.spacing_mut().item_spacing.x = 8.0;
             cancel = grey_button(ui, "Cancel", 192.0).clicked();
             let ready = !a.busy && (!bot || a.pick.is_some());
-            let ok = ui.add_enabled_ui(ready, |ui| button(ui, "Authorize", BLURPLE, 192.0)).inner;
+            let ok = ui.add_enabled_ui(ready, |ui| button(ui, "Authorize", pal().blurple, 192.0)).inner;
             super::settings::mark(ui, "addapp:authorize", ok.rect);
             go = ok.clicked();
         });
@@ -178,7 +178,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 fn check(ui: &mut Ui, text: &str) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-        icons::draw(ui.painter(), Icon::Check, r, GREEN);
+        icons::draw(ui.painter(), Icon::Check, r, pal().green);
         ui.add_space(8.0);
         ui.add(egui::Label::new(RichText::new(text).font(reg(14.0)).color(pal().text_normal)).wrap());
     });

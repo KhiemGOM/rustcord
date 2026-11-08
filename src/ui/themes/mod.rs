@@ -203,7 +203,7 @@ pub(super) fn wide(ui: &mut Ui, text: &str, look: Look, on: bool) -> egui::Respo
     let hot = if on { motion::hot(ui.ctx(), &resp) } else { 0.0 };
     match look {
         Look::Primary => {
-            ui.painter().rect_filled(r, CornerRadius::same(8), motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), hot).gamma_multiply(if on { 1.0 } else { 0.5 }));
+            ui.painter().rect_filled(r, CornerRadius::same(8), motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), hot).gamma_multiply(if on { 1.0 } else { 0.5 }));
         }
         Look::Secondary => {
             let faint = |a: u8| Color32::from_rgba_unmultiplied(151, 151, 159, a);
@@ -235,11 +235,11 @@ pub(super) fn swatch(ui: &mut Ui, r: Rect, preset: &Preset, on: bool, id: egui::
     ui.painter().add(egui::Shape::mesh(rounded_gradient(preset, r, 8.0)));
     let resp = ui.interact(r, id, Sense::click());
     let faint = Color32::from_rgba_unmultiplied(151, 151, 159, 61);
-    let ring = if on { BLURPLE } else { motion::mix(faint, pal().bg_accent, motion::hot(ui.ctx(), &resp)) };
+    let ring = if on { pal().blurple } else { motion::mix(faint, pal().bg_accent, motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
     if on {
         let tick = pos2(r.right() - 3.0, r.top() + 3.0);
-        ui.painter().circle_filled(tick, 8.0, BLURPLE);
+        ui.painter().circle_filled(tick, 8.0, pal().blurple);
         icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(tick, vec2(10.0, 10.0)), Color32::WHITE);
     }
     if resp.hovered() {

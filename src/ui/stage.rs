@@ -138,7 +138,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let row = Rect::from_min_size(pos2(r.left() + 24.0, y), vec2(r.width() - 48.0, 40.0));
                 avatar_name(app, ui, chan, *u, row);
                 let b = Rect::from_min_size(pos2(row.right() - 140.0, row.top() + 4.0), vec2(140.0, 32.0));
-                if pill(ui, b, "Invite to Speak", BLURPLE, Color32::WHITE, medium(14.0)).clicked() {
+                if pill(ui, b, "Invite to Speak", pal().blurple, Color32::WHITE, medium(14.0)).clicked() {
                     app.invite_to_speak(chan, *u);
                 }
                 app.rects.insert(format!("stage:invite_speak:{u}"), b);
@@ -234,7 +234,7 @@ fn speaker_tile(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect) {
         icons::draw(ui.painter(), Icon::MicOff, Rect::from_center_size(pos2(tile.right() - 24.0, tile.top() + 24.0), vec2(20.0, 20.0)), Color32::WHITE);
     }
     if app.voice.is_speaking(u) {
-        ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, GREEN), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, pal().green), egui::StrokeKind::Inside);
     }
     super::tile::options(app, ui, chan, u, tile, 1.0);
 }
@@ -246,7 +246,7 @@ fn audience_cell(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, cell: Rect) 
     }
     if app.voice.stage.seats.get(&u).is_some_and(|s| s.hand.is_some()) {
         let b = pos2(av.right() - 6.0, av.bottom() - 6.0);
-        ui.painter().circle_filled(b, 11.0, BLURPLE);
+        ui.painter().circle_filled(b, 11.0, pal().blurple);
         icons::draw(ui.painter(), Icon::Hand, Rect::from_center_size(b, vec2(14.0, 14.0)), Color32::WHITE);
     }
     let name = app.store.name_in(chan.guild, u);
@@ -303,7 +303,7 @@ fn invited(app: &mut App, ui: &mut Ui, chan: &Channel, r: Rect, me: Id) {
     let a = Rect::from_min_size(pos2(card.left() + 16.0, card.bottom() - 48.0), vec2(160.0, 32.0));
     let b = Rect::from_min_size(pos2(a.right() + 8.0, a.top()), vec2(160.0, 32.0));
     app.rects.insert("stage:invited".into(), a);
-    if pill(ui, a, "Speak on Stage", BLURPLE, Color32::WHITE, medium(14.0)).clicked() {
+    if pill(ui, a, "Speak on Stage", pal().blurple, Color32::WHITE, medium(14.0)).clicked() {
         app.set_speaker(chan, me, true);
     }
     if pill(ui, b, "Stay in Audience", pal().control, pal().header_primary, medium(14.0)).clicked() {
@@ -352,7 +352,7 @@ fn welcome(app: &mut App, ctx: &egui::Context) {
         ui.vertical_centered(|ui| ui.label(RichText::new("Welcome to Stages!").font(semi(24.0)).color(Color32::WHITE)));
         ui.add_space(24.0);
         for (icon, tint, text) in [
-            (Icon::MicOff, RED, "Your mic will be muted unless you are invited to speak."),
+            (Icon::MicOff, pal().red, "Your mic will be muted unless you are invited to speak."),
             (Icon::HangUp, Color32::WHITE, "You can leave and rejoin anytime without making noise."),
             (Icon::Hand, Color32::WHITE, "Request to speak to join the conversation!"),
         ] {
@@ -365,7 +365,7 @@ fn welcome(app: &mut App, ctx: &egui::Context) {
         }
         ui.add_space(40.0);
         let (b, resp) = ui.allocate_exact_size(vec2(416.0, 48.0), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)));
+        ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Got it!", medium(16.0), Color32::WHITE);
         app.rects.insert("stage:welcome_ok".into(), b);
         done |= resp.clicked();
@@ -395,7 +395,7 @@ fn start(app: &mut App, ctx: &egui::Context) {
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 let (b, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                ui.painter().rect(b, CornerRadius::same(4), if form.notify { BLURPLE } else { Color32::TRANSPARENT }, Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                ui.painter().rect(b, CornerRadius::same(4), if form.notify { pal().blurple } else { Color32::TRANSPARENT }, Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
                 if form.notify {
                     icons::draw(ui.painter(), Icon::Check, b.shrink(3.0), Color32::WHITE);
                 }
@@ -409,7 +409,7 @@ fn start(app: &mut App, ctx: &egui::Context) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (b, resp) = ui.allocate_exact_size(vec2(if form.edit { 120.0 } else { 120.0 }, 38.0), Sense::click());
             let ready = !form.topic.trim().is_empty();
-            ui.painter().rect_filled(b, CornerRadius::same(8), if !ready { BLURPLE.gamma_multiply(0.5) } else { crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)) });
+            ui.painter().rect_filled(b, CornerRadius::same(8), if !ready { pal().blurple.gamma_multiply(0.5) } else { crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)) });
             ui.painter().text(b.center(), Align2::CENTER_CENTER, if form.edit { "Update Stage" } else { "Start Stage" }, medium(16.0), Color32::WHITE);
             app.rects.insert("stage:start_ok".into(), b);
             go = ready && (resp.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)));

@@ -234,11 +234,11 @@ pub fn account(app: &mut App, ui: &mut Ui) -> bool {
 
 pub(super) fn standing(state: u64) -> (&'static str, Icon, Color32) {
     match state {
-        100 => ("All good", Icon::CircleCheck, GREEN),
-        200 => ("Limited", Icon::Flag, YELLOW),
+        100 => ("All good", Icon::CircleCheck, pal().green),
+        200 => ("Limited", Icon::Flag, pal().yellow),
         300 => ("Very limited", Icon::Flag, Color32::from_rgb(0xf0, 0x80, 0x30)),
-        400 => ("At risk", Icon::Flag, RED),
-        _ => ("Suspended", Icon::Flag, RED),
+        400 => ("At risk", Icon::Flag, pal().red),
+        _ => ("Suspended", Icon::Flag, pal().red),
     }
 }
 

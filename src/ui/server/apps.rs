@@ -90,7 +90,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
         ui.painter().text(pos2(r.left() + 16.0, r.center().y + 11.0), Align2::LEFT_CENTER, format!("from {guild}"), reg(12.0), pal().header_secondary);
         let x = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(28.0, 28.0));
         let xr = ui.interact(x, ui.id().with(("unfollow", sid(&f["id"]))), Sense::click());
-        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), if xr.hovered() || resp.hovered() { RED } else { pal().header_secondary });
+        icons::draw(ui.painter(), Icon::Close, x.shrink(6.0), if xr.hovered() || resp.hovered() { pal().red } else { pal().header_secondary });
         if xr.on_hover_text("Unfollow").clicked() {
             unfollow = Some(sid(&f["id"]));
         }
@@ -230,7 +230,7 @@ fn webhook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
     match h["avatar"].as_str() {
         Some(a) => crate::ui::avatar(ui, av, &format!("{}/avatars/{id}/{a}.png?size=64", crate::api::cdn())),
         None => {
-            ui.painter().circle_filled(av.center(), 20.0, BLURPLE);
+            ui.painter().circle_filled(av.center(), 20.0, pal().blurple);
             icons::draw(ui.painter(), Icon::Discord, av.shrink(8.0), egui::Color32::WHITE);
         }
     }
@@ -260,7 +260,7 @@ fn edit_hook(app: &mut App, ui: &mut Ui, gid: Id, h: &Value) {
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::click());
-                ui.painter().circle_filled(r.center(), 40.0, BLURPLE);
+                ui.painter().circle_filled(r.center(), 40.0, pal().blurple);
                 match (&k.avatar, h["avatar"].as_str()) {
                     (Some(Some(_)), _) => icons::draw(ui.painter(), Icon::Image, r.shrink(24.0), egui::Color32::WHITE),
                     (Some(None), _) | (None, None) => icons::draw(ui.painter(), Icon::Discord, r.shrink(20.0), egui::Color32::WHITE),

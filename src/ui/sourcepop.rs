@@ -185,7 +185,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.add_space(16.0);
                     let (b, resp) = ui.allocate_exact_size(vec2(256.0, 32.0), Sense::click());
                     super::settings::mark(ui, "source_pop:join", b);
-                    ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)));
+                    ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)));
                     ui.painter().text(b.center(), Align2::CENTER_CENTER, "Join Server", medium(14.0), Color32::WHITE);
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

@@ -194,7 +194,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             for c in std::iter::once(None).chain(COLORS.iter().map(|c| Some(*c))) {
                 let big = c.is_none();
                 let (r, resp) = ui.allocate_exact_size(vec2(if big { 68.0 } else { 40.0 }, if big { 56.0 } else { 26.0 }), Sense::click());
-                let fill = c.map_or(BLURPLE, role_color);
+                let fill = c.map_or(pal().blurple, role_color);
                 ui.painter().rect_filled(r, 4, fill);
                 if e.color == c {
                     ui.painter().rect_stroke(r.expand(2.0), 6, egui::Stroke::new(2.0, pal().header_primary), egui::StrokeKind::Outside);

@@ -54,7 +54,7 @@ fn redeem(app: &mut App, ui: &mut Ui) {
         mark(ui, "gift_input", r.rect);
         let (b, _) = ui.allocate_exact_size(vec2(100.0, 40.0), Sense::hover());
         let ready = !clean(&code).is_empty();
-        let fill = if ready { BLURPLE } else { BLURPLE.gamma_multiply(0.5) };
+        let fill = if ready { pal().blurple } else { pal().blurple.gamma_multiply(0.5) };
         go = solid(ui, b, "Redeem", fill, Color32::WHITE) || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
     });
     if code != before {
@@ -77,9 +77,9 @@ fn redeem(app: &mut App, ui: &mut Ui) {
     }
     let msg: String = get(ui, "redeem_msg");
     let (text, col) = match msg.as_str() {
-        "ok" => ("Gift code redeemed!", GREEN),
-        "err" => ("This gift code may be expired or you might have the wrong code.", RED),
-        _ => ("", RED),
+        "ok" => ("Gift code redeemed!", pal().green),
+        "err" => ("This gift code may be expired or you might have the wrong code.", pal().red),
+        _ => ("", pal().red),
     };
     if !text.is_empty() {
         ui.add_space(8.0);
@@ -110,7 +110,7 @@ fn badge(app: &mut App, ui: &mut Ui) {
     let bar = Rect::from_min_size(pos2(r.left() + 112.0, r.top() + 62.0), vec2(w - 144.0, 8.0));
     p.rect_filled(bar, 4, faint(31));
     let frac = (count as f32 / max as f32).clamp(0.0, 1.0);
-    p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, 8.0)), 4, BLURPLE);
+    p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, 8.0)), 4, pal().blurple);
     p.text(pos2(bar.right(), bar.bottom() + 12.0), Align2::RIGHT_CENTER, format!("{count}/{max} gifts"), reg(12.0), pal().header_secondary);
     p.hline((r.left() + 32.0)..=(r.right() - 32.0), r.top() + 112.0, Stroke::new(1.0, faint(51)));
     let col = (w - 64.0) / 6.0;
@@ -125,7 +125,7 @@ fn badge(app: &mut App, ui: &mut Ui) {
         p.text(tile.center_top() + vec2(0.0, 88.0), Align2::CENTER_CENTER, format!("Gifted {need}x"), reg(12.0), pal().header_secondary);
     }
     p.text(pos2(r.center().x, r.top() + 262.0), Align2::CENTER_CENTER, "Your badge progresses as you gift. Exceptions include when a gift is refunded or when fraud is detected.", reg(12.0), pal().header_secondary);
-    if solid(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 304.0), vec2(140.0, 40.0)), "Send a Gift", BLURPLE, Color32::WHITE) {
+    if solid(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 304.0), vec2(140.0, 40.0)), "Send a Gift", pal().blurple, Color32::WHITE) {
         app.open_buy(crate::ui::buy::What::NitroGift);
     }
     end(ui, 24.0);

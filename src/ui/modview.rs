@@ -121,7 +121,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let n = text::paint(ui.painter(), pos2(a.right() + 12.0, a.top() + 11.0), Align2::LEFT_CENTER, &name, semi(18.0), pal().header_primary, 300.0);
         ui.painter().text(pos2(a.right() + 12.0, a.top() + 30.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().header_secondary);
         let chip = egui::Rect::from_min_size(pos2(n.right() + 10.0, a.top() + 3.0), vec2(62.0, 16.0));
-        ui.painter().rect_filled(chip, CornerRadius::same(4), BLURPLE);
+        ui.painter().rect_filled(chip, CornerRadius::same(4), pal().blurple);
         ui.painter().text(chip.center(), Align2::CENTER_CENTER, "Mod View", semi(11.0), Color32::WHITE);
         let x = egui::Rect::from_center_size(pos2(top.right() - 32.0, a.center().y), vec2(32.0, 32.0));
         let xr = ui.interact(x, ui.id().with("mv_close"), Sense::click());
@@ -227,7 +227,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let r = egui::Rect::from_min_size(pos2(bx, bar.top() + 16.0), vec2(g.size().x + 32.0, 32.0));
                 bx = r.right() + 8.0;
                 let resp = ui.interact(r, ui.id().with(("mv_btn", label)), Sense::click());
-                let fill = if danger { super::DANGER } else { Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 61 } else { 41 }) };
+                let fill = if danger { crate::theme::pal().danger } else { Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 61 } else { 41 }) };
                 ui.painter().rect_filled(r, CornerRadius::same(8), fill.gamma_multiply(if danger && resp.hovered() { 0.85 } else { 1.0 }));
                 ui.painter().galley(pos2(r.left() + 16.0, r.center().y - g.size().y / 2.0), g, Color32::WHITE);
                 if resp.hovered() {

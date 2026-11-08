@@ -356,7 +356,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let resp = ui.interact(r, ui.id().with(("nitro_tab", i)), Sense::click());
                 let on = tab as usize == i;
                 let fill = Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 60 } else { 40 });
-                p.rect(r, CornerRadius::same(TAB_HEIGHT as u8), fill, Stroke::new(1.0, if on { BLURPLE } else { Color32::TRANSPARENT }), egui::StrokeKind::Inside);
+                p.rect(r, CornerRadius::same(TAB_HEIGHT as u8), fill, Stroke::new(1.0, if on { pal().blurple } else { Color32::TRANSPARENT }), egui::StrokeKind::Inside);
                 p.text(r.center(), Align2::CENTER_CENTER, *name, medium(14.0), Color32::WHITE);
                 crate::ui::settings::mark(ui, &format!("shop:perks:{name}"), r);
                 if resp.hovered() {

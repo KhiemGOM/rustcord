@@ -123,9 +123,9 @@ fn render_row(ui: &mut Ui, d: &mut D, m: &Message, row: &[Comp]) {
                     let locked = *disabled || (waiting.is_some() && url.is_none() && sku.is_none() && !loading);
                     let edge = Color32::from_white_alpha(20);
                     let (fill, hover, ink, stroke) = match style {
-                        1 | 6 => (BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), Color32::WHITE, edge),
+                        1 | 6 => (pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), Color32::WHITE, edge),
                         3 => (Color32::from_rgb(0x00, 0x85, 0x45), Color32::from_rgb(0x00, 0x6c, 0x37), Color32::WHITE, edge),
-                        4 => (Color32::from_rgb(0xd2, 0x2d, 0x39), Color32::from_rgb(0xa9, 0x23, 0x2e), Color32::WHITE, edge),
+                        4 => (pal().danger, Color32::from_rgb(0xa9, 0x23, 0x2e), Color32::WHITE, edge),
                         _ => (pal().control, pal().control_hover, pal().header_primary, pal().border_muted),
                     };
                     let label = if *style == 6 && label.is_empty() { "Subscribe" } else { label.as_str() };

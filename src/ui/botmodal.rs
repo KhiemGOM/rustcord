@@ -299,7 +299,7 @@ fn label(ui: &mut Ui, text: &str, required: bool, desc: &Option<String>) {
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.label(RichText::new(text).font(semi(12.0)).color(pal().header_secondary));
         if required {
-            ui.label(RichText::new("*").font(semi(12.0)).color(RED));
+            ui.label(RichText::new("*").font(semi(12.0)).color(pal().red));
         }
     });
     if let Some(d) = desc {
@@ -344,7 +344,7 @@ fn field(ui: &mut Ui, store: &crate::state::Store, guild: Id, m_channel: Id, i: 
             );
             super::settings::mark(ui, &format!("bot_input:{}", inp.custom_id), r);
             let bad = shown.is_some();
-            ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if bad { RED } else if e.has_focus() { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if bad { pal().red } else if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
             if !inp.long && e.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 *submit = true;
             }
@@ -375,7 +375,7 @@ fn field(ui: &mut Ui, store: &crate::state::Store, guild: Id, m_channel: Id, i: 
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
             super::settings::mark(ui, &format!("bot_files:{}", f.custom_id), r);
             let over = ui.rect_contains_pointer(r);
-            ui.painter().rect(r, 8, pal().input_bg, Stroke::new(1.0, if shown.is_some() { RED } else if over { BLURPLE } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.painter().rect(r, 8, pal().input_bg, Stroke::new(1.0, if shown.is_some() { pal().red } else if over { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
             super::icons::draw(ui.painter(), Icon::Upload, egui::Rect::from_center_size(egui::pos2(r.center().x, r.top() + 24.0), vec2(20.0, 20.0)), pal().header_secondary);
             let hint = match f.types.as_slice() {
                 [] => "Drag and drop or click to upload file".to_string(),
@@ -451,14 +451,14 @@ fn choice_row(ui: &mut Ui, round: bool, on: bool, o: &Opt, mark: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
     super::settings::mark(ui, mark, r);
     let cb = egui::Rect::from_min_size(r.min, vec2(24.0, 24.0));
-    let ink = if on { BLURPLE } else { pal().header_secondary };
+    let ink = if on { pal().blurple } else { pal().header_secondary };
     if round {
         ui.painter().circle_stroke(cb.center(), 10.0, Stroke::new(2.0, ink));
         if on {
-            ui.painter().circle_filled(cb.center(), 5.0, BLURPLE);
+            ui.painter().circle_filled(cb.center(), 5.0, pal().blurple);
         }
     } else {
-        ui.painter().rect(cb, 4, if on { BLURPLE } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, ink), egui::StrokeKind::Inside);
+        ui.painter().rect(cb, 4, if on { pal().blurple } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, ink), egui::StrokeKind::Inside);
         if on {
             super::icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), egui::Color32::WHITE);
         }
@@ -507,7 +507,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(12.0);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let b = ui.add_enabled_ui(!m.busy, |ui| button(ui, "Submit", BLURPLE, 96.0)).inner;
+                let b = ui.add_enabled_ui(!m.busy, |ui| button(ui, "Submit", pal().blurple, 96.0)).inner;
                 super::settings::mark(ui, "bot_modal:submit", b.rect);
                 submit |= b.clicked();
                 ui.add_space(8.0);

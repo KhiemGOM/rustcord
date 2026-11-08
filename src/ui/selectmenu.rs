@@ -139,7 +139,7 @@ pub fn show(ui: &mut Ui, store: &Store, id: egui::Id, spec: &Spec, picked: &mut 
     let mut open: bool = ui.data(|d| d.get_temp(open_id).unwrap_or(false));
     let (r, resp) = ui.allocate_exact_size(vec2(spec.width, 40.0), Sense::click());
     let fade = if spec.disabled || spec.loading { 0.5 } else { 1.0 };
-    ui.painter().rect(r, CornerRadius::same(4), pal().input_bg.gamma_multiply(fade), Stroke::new(1.0, if open { BLURPLE } else { pal().border_normal }), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(4), pal().input_bg.gamma_multiply(fade), Stroke::new(1.0, if open { pal().blurple } else { pal().border_normal }), egui::StrokeKind::Inside);
     let shown = summary(spec, picked, all);
     let (label, col) = match &shown {
         Some(s) => (s.as_str(), pal().text_normal),
@@ -200,7 +200,7 @@ pub fn show(ui: &mut Ui, store: &Store, id: egui::Id, spec: &Spec, picked: &mut 
                         let mut x = or.left() + 8.0;
                         if multi {
                             let cb = Rect::from_center_size(pos2(x + 9.0, or.center().y), vec2(18.0, 18.0));
-                            ui.painter().rect(cb, CornerRadius::same(3), if on { BLURPLE } else { Color32::TRANSPARENT }, Stroke::new(1.5, if on { BLURPLE } else { pal().header_secondary }), egui::StrokeKind::Inside);
+                            ui.painter().rect(cb, CornerRadius::same(3), if on { pal().blurple } else { Color32::TRANSPARENT }, Stroke::new(1.5, if on { pal().blurple } else { pal().header_secondary }), egui::StrokeKind::Inside);
                             if on {
                                 icons::draw(ui.painter(), Icon::Check, cb.shrink(2.0), Color32::WHITE);
                             }

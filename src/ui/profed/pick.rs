@@ -12,7 +12,7 @@ use crate::theme::*;
 use crate::ui::cosmo::{self, Item, Kind};
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings::{mark, remote};
-use crate::ui::{App, Confirm, DANGER, avatar, motion, text};
+use crate::ui::{App, Confirm, avatar, motion, text};
 
 const EYEDROP: &str = "profed_eyedrop";
 
@@ -49,7 +49,7 @@ fn heading(ui: &Ui, x: f32, y: f32, s: &str, size: f32) {
 fn footer_button(ui: &mut Ui, r: Rect, label: &str, primary: bool, on: bool, key: &str) -> bool {
     let resp = ui.interact(r, ui.id().with(("footer", label)), Sense::click());
     let hot = motion::hot(ui.ctx(), &resp);
-    let fill = if primary { motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), hot) } else { faint(if resp.hovered() { 51 } else { 31 }) };
+    let fill = if primary { motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), hot) } else { faint(if resp.hovered() { 51 } else { 31 }) };
     ui.painter().rect_filled(r, CornerRadius::same(8), if on || !primary { fill } else { fill.gamma_multiply(0.5) });
     ui.painter().text(r.center(), Align2::CENTER_CENTER, label, medium(16.0), if on || !primary { Color32::WHITE } else { Color32::WHITE.gamma_multiply(0.5) });
     mark(ui, key, r);
@@ -116,7 +116,7 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         let x_r = Rect::from_min_size(pos2(r.right() - 20.0, r.top()), vec2(22.0, 22.0));
                         let xr = ui.interact(x_r, ui.id().with(("recent_x", i)), Sense::click());
-                        ui.painter().circle_filled(x_r.center(), 11.0, Color32::from_rgb(0xd2, 0x2d, 0x39));
+                        ui.painter().circle_filled(x_r.center(), 11.0, pal().danger);
                         icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x_r.center(), vec2(12.0, 12.0)), Color32::WHITE);
                         mark(ui, &format!("avatar:recent_x:{i}"), x_r);
                         if xr.on_hover_text(if shift { "Delete without asking" } else { "Delete avatar" }).clicked() {
@@ -147,7 +147,7 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         if shift {
             go(app);
         } else {
-            app.confirm = Some(Confirm { fill: DANGER, ..Confirm::new("Delete Avatar", "Are you sure you want to delete this avatar from your recent avatars?", "Delete", go) });
+            app.confirm = Some(Confirm { fill: pal().danger, ..Confirm::new("Delete Avatar", "Are you sure you want to delete this avatar from your recent avatars?", "Delete", go) });
         }
     } else if let Some((id, url)) = pick {
         ed.draft.avatar = Pic::Recent(id, url);
@@ -450,7 +450,7 @@ fn colour(ed: &mut Editor, ctx: &egui::Context) {
         }
         ui.add_space(12.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let r = crate::ui::button(ui, "Done", BLURPLE, 100.0);
+            let r = crate::ui::button(ui, "Done", pal().blurple, 100.0);
             mark(ui, "colour:done", r.rect);
             ok = r.clicked();
             cancel = crate::ui::grey_button(ui, "Cancel", 100.0).clicked();
@@ -510,7 +510,7 @@ fn banner_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
                     ui.painter().rect_filled(r, CornerRadius::same(4), faint(31));
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
-                ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, label, medium(14.0), if i == 3 { Color32::from_rgb(0xf2, 0x3f, 0x43) } else { pal().header_primary });
+                ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, label, medium(14.0), if i == 3 { pal().red } else { pal().header_primary });
                 mark(ui, &format!("banner_menu:{i}"), r);
                 if resp.clicked() {
                     act = Some(i);

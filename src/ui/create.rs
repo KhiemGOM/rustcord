@@ -150,7 +150,7 @@ pub(super) fn choice(ui: &mut Ui, on: bool, icon: Icon, name: &str, desc: &str) 
     let p = ui.painter();
     let c = pos2(r.left() + 10.0, r.top() + 10.0);
     if on {
-        p.circle_filled(c, 10.0, BLURPLE);
+        p.circle_filled(c, 10.0, pal().blurple);
         p.circle_filled(c, 4.0, Color32::WHITE);
     } else {
         p.circle_stroke(c, 9.0, Stroke::new(2.0, pal().header_secondary));
@@ -228,7 +228,7 @@ pub(super) fn plate(ui: &Ui, r: Rect, text: &str, primary: bool, ready: bool) ->
     super::settings::mark(ui, &format!("plate:{text}"), r);
     let fade = if ready { 1.0 } else { 0.5 };
     let (fill, ink) = if primary {
-        (if resp.hovered() && ready { Color32::from_rgb(0x44, 0x52, 0xbb) } else { BLURPLE }, Color32::WHITE)
+        (if resp.hovered() && ready { Color32::from_rgb(0x44, 0x52, 0xbb) } else { pal().blurple }, Color32::WHITE)
     } else {
         (crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary)
     };
@@ -351,9 +351,9 @@ fn event(ui: &mut Ui, f: &mut Form, voices: &[(Id, String)], send: &mut bool) ->
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
     for (i, name) in ["Location", "Event Info", "Review"].iter().enumerate() {
         let x = r.left() + i as f32 * (w + 8.0);
-        let col = if i as u8 <= f.step { BLURPLE } else { pal().text_muted };
+        let col = if i as u8 <= f.step { pal().blurple } else { pal().text_muted };
         ui.painter().rect_filled(Rect::from_min_size(pos2(x, r.top()), vec2(w, 4.0)), CornerRadius::same(2), col);
-        ui.painter().text(pos2(x, r.top() + 12.0), Align2::LEFT_TOP, *name, reg(12.0), if i as u8 == f.step { BLURPLE } else { pal().text_muted });
+        ui.painter().text(pos2(x, r.top() + 12.0), Align2::LEFT_TOP, *name, reg(12.0), if i as u8 == f.step { pal().blurple } else { pal().text_muted });
     }
     ui.add_space(24.0);
     let heading = |ui: &mut Ui, h: &str, s: &str| {

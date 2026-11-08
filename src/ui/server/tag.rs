@@ -67,12 +67,12 @@ pub fn badge(ui: &Ui, r: Rect, id: u64) {
 
 fn info(ui: &mut Ui, w: f32, text: &str, link: Option<&str>) -> bool {
     let mut clicked = false;
-    Frame::new().fill(Color32::from_rgba_unmultiplied(0, 168, 252, 14)).stroke(Stroke::new(1.0, FOCUS)).corner_radius(4).inner_margin(Margin::symmetric(10, 10)).show(ui, |ui| {
+    Frame::new().fill(Color32::from_rgba_unmultiplied(0, 168, 252, 14)).stroke(Stroke::new(1.0, pal().focus)).corner_radius(4).inner_margin(Margin::symmetric(10, 10)).show(ui, |ui| {
         ui.set_width(w - 22.0);
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-            ui.painter().circle_filled(r.center(), 11.0, FOCUS);
+            ui.painter().circle_filled(r.center(), 11.0, pal().focus);
             ui.painter().text(r.center(), Align2::CENTER_CENTER, "i", italic(15.0), Color32::WHITE);
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
@@ -176,7 +176,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
         ui.horizontal(|ui| {
             for (bid, name, _) in row {
                 let (r, resp) = ui.allocate_exact_size(vec2(60.0, 60.0), Sense::click());
-                ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if *bid == id { BLURPLE } else { faint(51) }), egui::StrokeKind::Inside);
+                ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if *bid == id { pal().blurple } else { faint(51) }), egui::StrokeKind::Inside);
                 badge(ui, r.shrink(14.0), *bid);
                 super::super::settings::mark(ui, &format!("badge:{name}"), r);
                 if resp.hovered() {
@@ -243,7 +243,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
 }
 
 fn pair(ui: &Ui, r: Rect, a: Color32, b: Color32, on: bool) {
-    ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if on { BLURPLE } else { faint(51) }), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if on { pal().blurple } else { faint(51) }), egui::StrokeKind::Inside);
     let c = r.shrink(16.0);
     ui.painter().rect_filled(c, CornerRadius::same(4), a);
     ui.painter().rect_filled(Rect::from_min_max(pos2(c.center().x, c.top()), c.max), CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, b);

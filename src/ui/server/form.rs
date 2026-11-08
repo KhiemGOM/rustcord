@@ -25,7 +25,7 @@ pub fn error_of(app: &App, path: &str) -> Option<String> {
 pub fn field_error(ui: &mut Ui, msg: Option<&str>) {
     if let Some(m) = msg {
         ui.add_space(4.0);
-        ui.label(RichText::new(m).font(reg(14.0)).color(RED));
+        ui.label(RichText::new(m).font(reg(14.0)).color(pal().red));
     }
 }
 
@@ -222,7 +222,7 @@ pub fn card(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 pub fn button(ui: &mut Ui, text: &str, primary: bool) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.into(), medium(14.0), Color32::WHITE);
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(60.0), 32.0), Sense::click());
-    let (fill, ink) = if primary { (crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Color32::WHITE) } else { (crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary) };
+    let (fill, ink) = if primary { (crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x47, 0x52, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)), Color32::WHITE) } else { (crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary) };
     ui.painter().rect_filled(r, CornerRadius::same(3), fill);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(14.0), ink);
     super::super::settings::mark(ui, &format!("button:{text}"), r);

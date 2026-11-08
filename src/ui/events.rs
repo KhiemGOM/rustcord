@@ -162,8 +162,8 @@ fn card(app: &App, ui: &mut Ui, e: &Value, gid: Id, rsvp: &HashSet<Id>, acts: &m
     p.rect_filled(r, CornerRadius::same(8), pal().bg_floating);
     p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
     let live = e["status"].as_u64() == Some(2);
-    icons::draw(p, Icon::Events, Rect::from_min_size(pos2(r.left() + 18.0, r.top() + 18.0), vec2(20.0, 20.0)), if live { GREEN } else { BLURPLE });
-    p.text(pos2(r.left() + 46.0, r.top() + 27.0), Align2::LEFT_CENTER, when(e), semi(14.0), if live { GREEN } else { pal().text_normal });
+    icons::draw(p, Icon::Events, Rect::from_min_size(pos2(r.left() + 18.0, r.top() + 18.0), vec2(20.0, 20.0)), if live { pal().green } else { pal().blurple });
+    p.text(pos2(r.left() + 46.0, r.top() + 27.0), Align2::LEFT_CENTER, when(e), semi(14.0), if live { pal().green } else { pal().text_normal });
     let interested = rsvp.contains(&id);
     let count = e["user_count"].as_u64().unwrap_or(0);
     let cg = p.layout_no_wrap(count.to_string(), reg(14.0), pal().text_normal);
@@ -306,7 +306,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             p.vline(t.right() + 18.0, head.top() + 22.0..=head.top() + 38.0, Stroke::new(1.0, faint(51)));
             let b = Rect::from_min_size(pos2(t.right() + 36.0, head.top() + 16.0), vec2(102.0, 32.0));
             let br = ui.interact(b, ui.id().with("events_create"), Sense::click());
-            ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &br)));
+            ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &br)));
             ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create Event", medium(14.0), Color32::WHITE);
             create = br.clicked();
         } else {

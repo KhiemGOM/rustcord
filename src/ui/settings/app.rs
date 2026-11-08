@@ -97,11 +97,11 @@ pub fn appearance(app: &mut App, ui: &mut Ui) -> bool {
 /// A theme swatch's ring, tick and click; true when it was clicked.
 pub(super) fn tile(app: &mut App, ui: &mut Ui, name: &str, r: Rect, on: bool) -> bool {
     let resp = ui.interact(r, egui::Id::new(("theme", name)), Sense::click());
-    let ring = if on { BLURPLE } else { crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 61), pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp)) };
+    let ring = if on { pal().blurple } else { crate::ui::motion::mix(Color32::from_rgba_unmultiplied(151, 151, 159, 61), pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(if on { 2.0 } else { 1.0 }, ring), egui::StrokeKind::Inside);
     if on {
         let tick = pos2(r.right() - 3.0, r.top() + 3.0);
-        ui.painter().circle_filled(tick, 8.0, BLURPLE);
+        ui.painter().circle_filled(tick, 8.0, pal().blurple);
         icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(tick, vec2(10.0, 10.0)), Color32::WHITE);
     }
     if resp.hovered() {
@@ -199,7 +199,7 @@ fn preview(ui: &mut Ui, app: &App) {
         ui.painter().text(pos2(r.left() + 81.0, top + 22.0), Align2::LEFT_TOP, line, reg(size), pal().text_normal);
     }
     let b = Rect::from_min_size(pos2(r.right() - 41.0 - 120.0, r.top() + 153.0), vec2(120.0, 32.0));
-    ui.painter().rect(b, CornerRadius::same(8), BLURPLE, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    ui.painter().rect(b, CornerRadius::same(8), pal().blurple, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     ui.painter().text(b.center(), Align2::CENTER_CENTER, "Example Button", medium(14.0), Color32::WHITE);
     ui.add_space(48.0);
 }

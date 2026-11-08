@@ -105,7 +105,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.painter().circle_stroke(r.center(), 40.0, Stroke::new(1.5, pal().header_secondary));
             icons::draw(ui.painter(), Icon::Image, Rect::from_center_size(r.center() - vec2(0.0, 8.0), vec2(24.0, 24.0)), pal().header_secondary);
             ui.painter().text(r.center() + vec2(0.0, 16.0), Align2::CENTER_CENTER, if w.icon.is_some() { "CHANGE" } else { "UPLOAD" }, semi(12.0), pal().header_secondary);
-            ui.painter().circle_filled(r.right_top() - vec2(8.0, -8.0), 12.0, BLURPLE);
+            ui.painter().circle_filled(r.right_top() - vec2(8.0, -8.0), 12.0, pal().blurple);
             icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(r.right_top() - vec2(8.0, -8.0), vec2(16.0, 16.0)), Color32::WHITE);
             pick = ui.interact(r, ui.id().with("icon"), Sense::click()).clicked();
             ui.add_space(24.0);

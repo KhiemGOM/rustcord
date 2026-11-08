@@ -68,7 +68,7 @@ pub fn page(app: &mut App, ui: &mut Ui, gid: Id) {
             ui.painter().text(pos2(r.left() + r.width() * 0.75, r.center().y), Align2::LEFT_CENTER, expires.clone().unwrap_or_else(|| "\u{221e}".into()), medium(16.0), pal().text_normal);
             if hot {
                 let x = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(20.0, 20.0));
-                ui.painter().circle_filled(x.center(), 10.0, RED);
+                ui.painter().circle_filled(x.center(), 10.0, pal().red);
                 icons::draw(ui.painter(), Icon::Close, x.shrink(4.0), Color32::WHITE);
             }
         });

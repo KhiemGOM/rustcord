@@ -124,13 +124,13 @@ pub(super) fn heading(ui: &mut Ui, title: &str, sub: &str) {
 
 pub(super) fn label(ui: &mut Ui, text: &str, required: bool, err: Option<&str>) {
     let mut job = LayoutJob::default();
-    let col = if err.is_some() { RED } else { pal().header_secondary };
+    let col = if err.is_some() { pal().red } else { pal().header_secondary };
     let fmt = |c: Color32| egui::TextFormat { font_id: medium(14.0), color: c, ..Default::default() };
     job.append(text, 0.0, fmt(col));
     if let Some(e) = err {
-        job.append(&format!(" - {e}"), 0.0, egui::TextFormat { font_id: reg(14.0), color: RED, italics: true, ..Default::default() });
+        job.append(&format!(" - {e}"), 0.0, egui::TextFormat { font_id: reg(14.0), color: pal().red, italics: true, ..Default::default() });
     } else if required {
-        job.append(" *", 0.0, fmt(RED));
+        job.append(" *", 0.0, fmt(pal().red));
     }
     ui.add(egui::Label::new(job).wrap());
     ui.add_space(8.0);
@@ -192,7 +192,7 @@ pub(super) fn link(ui: &mut Ui, text: &str) -> egui::Response {
 pub(super) fn primary(ui: &mut Ui, text: &str, busy: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     let on = ui.is_enabled() && !busy;
-    let fill = if !on { BLURPLE.gamma_multiply(0.6) } else { crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x48, 0x54, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)) };
+    let fill = if !on { pal().blurple.gamma_multiply(0.6) } else { crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x48, 0x54, 0xc4), crate::ui::motion::hot(ui.ctx(), &resp)) };
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     let shown = if busy { "…" } else { text };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, shown, medium(16.0), if on { Color32::WHITE } else { Color32::from_white_alpha(170) });
@@ -223,7 +223,7 @@ pub(super) fn muted_then_link(ui: &mut Ui, muted: &str, action: &str) -> egui::R
 }
 
 pub(super) fn problem(ui: &mut Ui, text: &str) {
-    ui.add(egui::Label::new(RichText::new(text).font(reg(14.0)).color(RED)).wrap());
+    ui.add(egui::Label::new(RichText::new(text).font(reg(14.0)).color(pal().red)).wrap());
     ui.add_space(12.0);
 }
 

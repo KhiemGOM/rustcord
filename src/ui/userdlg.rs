@@ -143,7 +143,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    if button(ui, "Save", BLURPLE, 100.0).clicked() {
+                    if button(ui, "Save", pal().blurple, 100.0).clicked() {
                         done = Some(Done::Save);
                     }
                     if grey_button(ui, "Cancel", 100.0).clicked() {
@@ -258,7 +258,7 @@ fn cleanup(app: &mut App, ctx: &egui::Context) {
                     let on = picked.contains(id);
                     let boxr = egui::Rect::from_center_size(egui::pos2(r.right() - 20.0, r.center().y), vec2(20.0, 20.0));
                     if on {
-                        ui.painter().rect_filled(boxr, 4, BLURPLE);
+                        ui.painter().rect_filled(boxr, 4, pal().blurple);
                         super::icons::draw(ui.painter(), Icon::Check, boxr.shrink(3.0), egui::Color32::WHITE);
                     } else {
                         ui.painter().rect_stroke(boxr, 4, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -278,7 +278,7 @@ fn cleanup(app: &mut App, ctx: &egui::Context) {
                     done = Some(Done::Close);
                 }
                 let label = if picked.is_empty() { "Leave".to_string() } else { format!("Leave {}", picked.len()) };
-                if button(ui, &label, super::DANGER, 212.0).clicked() && !picked.is_empty() {
+                if button(ui, &label, crate::theme::pal().danger, 212.0).clicked() && !picked.is_empty() {
                     done = Some(Done::Save);
                 }
             });

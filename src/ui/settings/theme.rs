@@ -152,7 +152,7 @@ fn banner(ui: &mut Ui) -> bool {
     ui.painter().galley(pos2(x, top + th + 4.0), body, pal().text_normal);
     let b = Rect::from_min_size(pos2(r.right() - 25.0 - button, r.center().y - 20.0), vec2(button, 40.0));
     let resp = ui.interact(b, egui::Id::new("theme_try_it_out"), Sense::click());
-    let fill = crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp));
+    let fill = crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(b, CornerRadius::same(8), fill, egui::Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
     ui.painter().text(b.center(), Align2::CENTER_CENTER, "Try it out", medium(16.0), Color32::WHITE);
     if resp.hovered() {

@@ -66,7 +66,7 @@ fn card(ui: &mut Ui, c: &Clip, on: bool, acts: &mut Vec<Act>, sel: &mut Vec<Stri
         icons::draw(ui.painter(), Icon::Clips, Rect::from_center_size(thumb.center(), vec2(32.0, 32.0)), pal().channel_muted);
     }
     if on {
-        ui.painter().rect_stroke(thumb, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(thumb, CornerRadius::same(8), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Inside);
     }
     let len = clock(c.length_ms);
     let g = ui.painter().layout_no_wrap(len, medium(12.0), Color32::WHITE);
@@ -109,7 +109,7 @@ fn card(ui: &mut Ui, c: &Clip, on: bool, acts: &mut Vec<Act>, sel: &mut Vec<Stri
     let cb = Rect::from_min_size(pos2(thumb.left() + 8.0, thumb.bottom() - 28.0), vec2(20.0, 20.0));
     if hot || on || !sel.is_empty() {
         if on {
-            ui.painter().rect_filled(cb, 6, BLURPLE);
+            ui.painter().rect_filled(cb, 6, pal().blurple);
             icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), Color32::WHITE);
         } else {
             ui.painter().rect(cb, 6, Color32::from_black_alpha(120), Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Inside);
@@ -238,14 +238,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let mut c = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(24.0, 12.0))).layout(Layout::right_to_left(Align::Center)));
                 c.spacing_mut().item_spacing.x = 8.0;
                 if picking {
-                    if super::button(&mut c, "Add to Message", BLURPLE, 160.0).clicked() {
+                    if super::button(&mut c, "Add to Message", pal().blurple, 160.0).clicked() {
                         acts.push(Act::Attach);
                     }
                 } else {
-                    if super::button(&mut c, "Delete", super::DANGER, 96.0).clicked() {
+                    if super::button(&mut c, "Delete", crate::theme::pal().danger, 96.0).clicked() {
                         acts.push(Act::Delete(g.sel.clone()));
                     }
-                    if super::button(&mut c, "Share", BLURPLE, 96.0).clicked() {
+                    if super::button(&mut c, "Share", pal().blurple, 96.0).clicked() {
                         acts.push(Act::Share(g.sel.clone()));
                     }
                 }
@@ -413,7 +413,7 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
                     }
                     text::paint(ui.painter(), pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, &channel_title(store, *c), medium(16.0), pal().header_primary, 360.0);
                     if on {
-                        icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(16.0, 16.0)), BLURPLE);
+                        icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(16.0, 16.0)), pal().blurple);
                     }
                     if resp.clicked() {
                         s.to = Some(*c);
@@ -428,7 +428,7 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             ui.put(inner, egui::TextEdit::singleline(&mut s.note).hint_text(RichText::new("Add an optional message...").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
             let b = Rect::from_min_size(pos2(row.right() - 100.0, row.top()), vec2(100.0, 40.0));
             let mut c = ui.new_child(egui::UiBuilder::new().max_rect(b));
-            c.add_enabled_ui(s.to.is_some(), |ui| send = super::button(ui, "Send", BLURPLE, 100.0).clicked());
+            c.add_enabled_ui(s.to.is_some(), |ui| send = super::button(ui, "Send", pal().blurple, 100.0).clicked());
         });
     close |= modal.should_close();
     if send {

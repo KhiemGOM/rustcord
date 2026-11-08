@@ -86,7 +86,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         });
         let b = Rect::from_min_size(pos2(top.left() + 24.0, top.bottom() - 64.0), vec2(top.width() - 48.0, 40.0));
         let br = ui.interact(b, ui.id().with("close_button"), Sense::click());
-        ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &br)));
+        ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &br)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Close", medium(16.0), Color32::WHITE);
         close |= br.clicked();
     });

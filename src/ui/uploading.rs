@@ -47,7 +47,7 @@ pub fn card(ui: &mut Ui, job: &Job) -> Card {
         let (track, _) = ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());
         ui.painter().rect_filled(track, CornerRadius::same(2), pal().bg_accent);
         bar = Rect::from_min_size(track.min, vec2(track.width() * sent as f32 / total as f32, 4.0));
-        ui.painter().rect_filled(bar, CornerRadius::same(2), BLURPLE);
+        ui.painter().rect_filled(bar, CornerRadius::same(2), pal().blurple);
         ui.ctx().request_repaint_after_secs(0.1);
     });
     Card { cancel, rect: r.response.rect, bar, x: cancel_at }

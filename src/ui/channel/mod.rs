@@ -319,7 +319,7 @@ fn save_bar(app: &mut App, ui: &mut Ui, area: Rect) {
     ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_floating);
     ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, "Careful — you have unsaved changes!", semi(16.0), pal().header_primary);
     let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(12.0, 7.0))).layout(Layout::right_to_left(Align::Center)));
-    let save = super::button(&mut bar, if s.saving { "…" } else { "Save Changes" }, GREEN, 120.0);
+    let save = super::button(&mut bar, if s.saving { "…" } else { "Save Changes" }, pal().green, 120.0);
     app.rects.insert("chanset:save".into(), save.rect);
     bar.add_space(12.0);
     let reset = bar.add(egui::Label::new(RichText::new("Reset").font(semi(14.0)).color(pal().header_primary)).sense(Sense::click()));

@@ -521,7 +521,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
             .map(|c| role_color(c as u32))
             .or_else(|| super::palette::avatar(ui.ctx(), &user.avatar_url()))
-            .unwrap_or(BLURPLE);
+            .unwrap_or(pal().blurple);
         ui.painter().rect_filled(banner, cr, accent);
         if let Some(b) = p.and_then(|p| p["user"]["banner"].as_str()) {
             crate::gif::paint_still(ui, &format!("{}/banners/{uid}/{b}.png?size=600", crate::api::cdn()), banner, cr, ui.rect_contains_pointer(banner));
@@ -840,7 +840,7 @@ fn row_frame(ui: &Ui, r: Rect, resp: &egui::Response) {
 
 fn text_button(ui: &mut Ui, r: Rect, label: &str, icon: Icon, primary: bool) -> bool {
     let resp = ui.interact(r, ui.id().with(("fp_text_btn", label)), Sense::click());
-    let fill = if primary { crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)) } else { Color32::from_rgba_unmultiplied(151, 151, 159, 31) };
+    let fill = if primary { crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &resp)) } else { Color32::from_rgba_unmultiplied(151, 151, 159, 31) };
     ui.painter().rect_filled(r, CornerRadius::same(8), fill);
     let g = ui.painter().layout_no_wrap(label.into(), medium(14.0), Color32::WHITE);
     let total = 20.0 + g.size().x;

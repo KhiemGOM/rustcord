@@ -16,7 +16,9 @@ pub enum Do {
     Fetch(String),
 }
 
-const PROGRESS: Color32 = BLURPLE;
+fn progress() -> Color32 {
+    pal().blurple
+}
 
 fn clock(s: f64) -> String {
     let s = s.max(0.0) as u64;
@@ -101,7 +103,7 @@ fn controls(ui: &mut Ui, id: Id, rect: Rect, b: &Bar, out: &mut Vec<Do>) {
     }
     let shown = if hit.dragged() { frac(&hit) } else if v.info.dur > 0.0 { v.pos / v.info.dur } else { 0.0 };
     p.rect_filled(bar, CornerRadius::same(3), Color32::from_rgba_unmultiplied(201, 202, 206, 77));
-    p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * shown as f32, bar.height())), CornerRadius::same(3), PROGRESS);
+    p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * shown as f32, bar.height())), CornerRadius::same(3), progress());
     if hit.hovered() || hit.dragged() {
         p.circle_filled(pos2(bar.left() + bar.width() * shown as f32, bar.center().y), 6.0, Color32::WHITE);
         ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -138,7 +140,7 @@ fn volume_popup(ui: &mut Ui, id: Id, btn: Rect, live: bool, out: &mut Vec<Do>) {
         let shown = if muted { 0.0 } else { level };
         ui.painter().rect_filled(track, CornerRadius::same(3), Color32::from_rgba_unmultiplied(201, 202, 206, 77));
         let fill = Rect::from_min_max(pos2(track.left(), track.bottom() - track.height() * shown), track.right_bottom());
-        ui.painter().rect_filled(fill, CornerRadius::same(3), PROGRESS);
+        ui.painter().rect_filled(fill, CornerRadius::same(3), progress());
         ui.painter().circle_filled(pos2(track.center().x, fill.top()), 6.0, Color32::WHITE);
         resp
     });
@@ -353,12 +355,12 @@ pub fn audio(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
     p.rect(rect, CornerRadius::same(8), pal().bg_primary, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let session = media::current(&a.url);
     let view = session.as_ref().map(|s| s.view());
-    icons::draw(&p, Icon::File, Rect::from_min_size(rect.min + vec2(17.0, 25.0), vec2(24.0, 24.0)), BLURPLE);
+    icons::draw(&p, Icon::File, Rect::from_min_size(rect.min + vec2(17.0, 25.0), vec2(24.0, 24.0)), pal().blurple);
     let name = super::text::paint(&p, pos2(rect.left() + 49.0, rect.top() + 28.0), Align2::LEFT_CENTER, &a.filename, reg(16.0), pal().link, rect.width() - 49.0 - 52.0);
     let hovered = ui.rect_contains_pointer(rect);
     let mut sub = (super::chat::human_size(a.size), pal().text_muted.gamma_multiply(0.7));
     if let Some(Phase::Failed(_)) = view.as_ref().map(|v| &v.phase) {
-        sub = ("This audio can't be played".into(), RED);
+        sub = ("This audio can't be played".into(), pal().red);
     }
     p.text(pos2(rect.left() + 49.0, rect.top() + 47.0), Align2::LEFT_CENTER, sub.0, medium(12.0), sub.1);
     let link = ui.interact(name, id.with("name"), Sense::CLICK);

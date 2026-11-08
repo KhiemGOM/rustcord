@@ -114,7 +114,7 @@ fn payment(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
         para(ui, "No payment method saved", reg(14.0), pal().header_secondary);
         ui.add_space(SPACE_8);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-        if button(ui, r, "Add Payment Method", BLURPLE, Color32::WHITE, true, "add_card") {
+        if button(ui, r, "Add Payment Method", pal().blurple, Color32::WHITE, true, "add_card") {
             acts.push(Act::AddCard);
         }
         return;
@@ -128,7 +128,7 @@ fn payment(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
         let p = ui.painter();
         p.rect_filled(r, CornerRadius::same(8), if on { pal().bg_mod_selected } else if resp.hovered() && ok { pal().bg_mod_hover } else { pal().bg_tertiary });
         if on {
-            p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), StrokeKind::Inside);
+            p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, pal().blurple), StrokeKind::Inside);
         }
         billing::brand_tile(p, Rect::from_center_size(pos2(r.left() + 36.0, r.center().y), vec2(40.0, 28.0)), s["brand"].as_str().unwrap_or(if s["type"] == 2 { "paypal" } else { "" }));
         let ink = if ok { pal().header_primary } else { pal().text_muted };
@@ -147,7 +147,7 @@ fn payment(ui: &mut Ui, b: &Buy, acts: &mut Vec<Act>) {
         let p = ui.painter();
         p.rect_filled(r, CornerRadius::same(8), if b.pay_orbs { pal().bg_mod_selected } else if resp.hovered() { pal().bg_mod_hover } else { pal().bg_tertiary });
         if b.pay_orbs {
-            p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, BLURPLE), StrokeKind::Inside);
+            p.rect_stroke(r, CornerRadius::same(8), Stroke::new(2.0, pal().blurple), StrokeKind::Inside);
         }
         icons::draw(p, Icon::Gem, Rect::from_center_size(pos2(r.left() + 36.0, r.center().y), vec2(24.0, 24.0)), Color32::from_rgb(0x5b, 0x9b, 0xf8));
         p.text(pos2(r.left() + 68.0, r.center().y - 16.0), Align2::LEFT_TOP, format!("Orbs  ·  {price}"), medium(14.0), pal().header_primary);
@@ -204,7 +204,7 @@ fn gift(ui: &mut Ui, b: &mut Buy, friends: &[(Uid, String)], app_avatars: &dyn F
             let on = b.style == n;
             let g = ui.painter().layout_no_wrap(name.into(), medium(14.0), Color32::WHITE);
             let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::CLICK);
-            ui.painter().rect(r, CornerRadius::same(8), if on { pal().bg_mod_selected } else { pal().bg_tertiary }, Stroke::new(if on { 2.0 } else { 1.0 }, if on { BLURPLE } else { pal().border_subtle }), StrokeKind::Inside);
+            ui.painter().rect(r, CornerRadius::same(8), if on { pal().bg_mod_selected } else { pal().bg_tertiary }, Stroke::new(if on { 2.0 } else { 1.0 }, if on { pal().blurple } else { pal().border_subtle }), StrokeKind::Inside);
             ui.painter().text(r.center(), Align2::CENTER_CENTER, name, medium(14.0), pal().header_primary);
             mark(ui, &format!("buy:style:{n}"), r);
             if resp.clicked() {
@@ -345,7 +345,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context, friends: &[(Uid, String)]
                     Step::Done(text) => {
                         ui.add_space(SPACE_16);
                         let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-                        ui.painter().circle_filled(r.center(), 24.0, GREEN);
+                        ui.painter().circle_filled(r.center(), 24.0, pal().green);
                         icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(r.center(), vec2(24.0, 24.0)), Color32::WHITE);
                         ui.add_space(SPACE_16);
                         para(ui, &text, reg(16.0), pal().header_primary);
@@ -449,7 +449,7 @@ fn review(ui: &mut Ui, b: &mut Buy, avatar: &str, friends: &[(Uid, String)], fac
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::CLICK);
         let on = b.gift;
         let box_ = Rect::from_center_size(pos2(r.left() + 10.0, r.center().y), vec2(20.0, 20.0));
-        ui.painter().rect(box_, CornerRadius::same(4), if on { BLURPLE } else { Color32::TRANSPARENT }, Stroke::new(2.0, if on { BLURPLE } else { pal().header_secondary }), StrokeKind::Inside);
+        ui.painter().rect(box_, CornerRadius::same(4), if on { pal().blurple } else { Color32::TRANSPARENT }, Stroke::new(2.0, if on { pal().blurple } else { pal().header_secondary }), StrokeKind::Inside);
         if on {
             icons::draw(ui.painter(), Icon::Check, box_, Color32::WHITE);
         }
@@ -470,7 +470,7 @@ fn review(ui: &mut Ui, b: &mut Buy, avatar: &str, friends: &[(Uid, String)], fac
         ui.add_space(SPACE_16);
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::CLICK);
         let box_ = Rect::from_center_size(pos2(r.left() + 10.0, r.center().y), vec2(20.0, 20.0));
-        ui.painter().rect(box_, CornerRadius::same(4), if b.waiver { BLURPLE } else { Color32::TRANSPARENT }, Stroke::new(2.0, if b.waiver { BLURPLE } else { pal().header_secondary }), StrokeKind::Inside);
+        ui.painter().rect(box_, CornerRadius::same(4), if b.waiver { pal().blurple } else { Color32::TRANSPARENT }, Stroke::new(2.0, if b.waiver { pal().blurple } else { pal().header_secondary }), StrokeKind::Inside);
         if b.waiver {
             icons::draw(ui.painter(), Icon::Check, box_, Color32::WHITE);
         }
@@ -527,7 +527,7 @@ fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
     match &b.step {
         Step::Review if matches!(b.what, What::Nitro(_)) && b.mine().is_some() => {
             let r = right("Manage Subscription", x);
-            if button(ui, r, "Manage Subscription", BLURPLE, Color32::WHITE, true, "manage") {
+            if button(ui, r, "Manage Subscription", pal().blurple, Color32::WHITE, true, "manage") {
                 acts.push(Act::Manage);
             }
             x = r.left() - SPACE_8;
@@ -540,7 +540,7 @@ fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
             let label = if b.pay_orbs { "Claim with Orbs" } else if b.gift { "Buy gift" } else { "Purchase" };
             let r = right(label, x);
             let on = b.blocker().is_none();
-            if button(ui, r, label, GREEN, Color32::WHITE, on, "purchase") {
+            if button(ui, r, label, pal().green, Color32::WHITE, on, "purchase") {
                 acts.push(Act::Purchase);
             }
             x = r.left() - SPACE_8;
@@ -565,13 +565,13 @@ fn footer(ui: &mut Ui, foot: Rect, b: &Buy, acts: &mut Vec<Act>) {
         }
         Step::Done(_) => {
             let r = right("Done", x);
-            if button(ui, r, "Done", BLURPLE, Color32::WHITE, true, "done") && !second {
+            if button(ui, r, "Done", pal().blurple, Color32::WHITE, true, "done") && !second {
                 acts.push(Act::Close);
             }
         }
         Step::Failed { unsure, .. } => {
             let r = right("Close", x);
-            if button(ui, r, "Close", BLURPLE, Color32::WHITE, true, "close") && !second {
+            if button(ui, r, "Close", pal().blurple, Color32::WHITE, true, "close") && !second {
                 acts.push(Act::Close);
             }
             x = r.left() - SPACE_8;

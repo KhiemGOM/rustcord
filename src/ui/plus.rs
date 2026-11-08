@@ -69,7 +69,7 @@ fn icon(ui: &Ui, r: Rect, e: &Entry) {
     match &e.icon {
         Some(h) => avatar(ui, r, &format!("{}/app-icons/{}/{h}.png?size=64", crate::api::cdn(), e.id)),
         None => {
-            ui.painter().rect_filled(r, 8, BLURPLE);
+            ui.painter().rect_filled(r, 8, pal().blurple);
             icons::draw(ui.painter(), Icon::Discord, r.shrink(r.width() * 0.25), Color32::WHITE);
         }
     }
@@ -121,7 +121,7 @@ pub fn launcher(app: &mut App, ctx: &egui::Context) {
                         Rect::from_min_max(pos2(sr.left() + 44.0, sr.center().y - 10.0), pos2(sr.right() - 12.0, sr.center().y + 10.0)),
                         egui::TextEdit::singleline(&mut l.q).hint_text("Search Apps & Commands").font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                     );
-                    ui.painter().rect_stroke(sr, 8, Stroke::new(1.0, BLURPLE), egui::StrokeKind::Inside);
+                    ui.painter().rect_stroke(sr, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
                     if std::mem::take(&mut l.fresh) {
                         e.request_focus();
                     }

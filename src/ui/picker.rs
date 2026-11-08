@@ -177,7 +177,7 @@ pub fn search_box_in(ui: &mut Ui, q: &mut String, hint: &str, back: Option<&mut 
             .frame(Frame::NONE)
             .margin(egui::Margin::ZERO),
     );
-    let ring = if resp.has_focus() { BLURPLE } else { pal().border_subtle };
+    let ring = if resp.has_focus() { pal().blurple } else { pal().border_subtle };
     ui.painter().rect_stroke(field, 8, Stroke::new(1.0, ring), egui::StrokeKind::Inside);
     let ir = Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0));
     match back {

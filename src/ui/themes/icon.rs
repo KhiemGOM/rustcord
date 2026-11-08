@@ -59,9 +59,9 @@ fn draw(ui: &Ui, r: Rect, i: usize) {
 fn ring(ui: &mut Ui, r: Rect, on: bool, id: egui::Id) -> egui::Response {
     let resp = ui.interact(r, id, Sense::click());
     if on {
-        ui.painter().rect_stroke(r.expand(2.0), CornerRadius::same(8), Stroke::new(2.0, BLURPLE), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(r.expand(2.0), CornerRadius::same(8), Stroke::new(2.0, pal().blurple), egui::StrokeKind::Outside);
         let tick = pos2(r.right() - 2.0, r.top() + 2.0);
-        ui.painter().circle_filled(tick, 8.0, BLURPLE);
+        ui.painter().circle_filled(tick, 8.0, pal().blurple);
         icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(tick, vec2(10.0, 10.0)), Color32::WHITE);
     } else if resp.hovered() {
         ui.painter().rect_stroke(r.expand(1.0), CornerRadius::same(8), Stroke::new(1.0, pal().bg_accent), egui::StrokeKind::Outside);

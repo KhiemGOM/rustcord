@@ -302,7 +302,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         let g = ui.painter().layout_no_wrap("Add to Channel List".into(), medium(14.0), Color32::WHITE);
                         let (b, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
                         app.rects.insert("add_to_list".into(), b);
-                        ui.painter().rect_filled(b, 8, crate::ui::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
+                        ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
                         icons::draw(ui.painter(), Icon::Plus, Rect::from_min_size(pos2(b.left() + 12.0, b.center().y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
                         ui.painter().galley(pos2(b.left() + 32.0, b.center().y - g.size().y / 2.0), g, Color32::WHITE);
                         if resp.hovered() {
@@ -507,7 +507,7 @@ fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 if pins.hovered() {
                                     ui.painter().circle_filled(c, 6.0, pal().control_hover);
                                 }
-                                ui.painter().circle_filled(c, 4.0, BLURPLE);
+                                ui.painter().circle_filled(c, 4.0, pal().blurple);
                                 app.rects.insert("pins_dot".into(), Rect::from_center_size(c, vec2(8.0, 8.0)));
                             }
                             app.rects.insert("pins_button".into(), pins.rect);
@@ -1196,7 +1196,7 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
         if n > 0 {
             let r = Rect::from_min_size(area.min + vec2(16.0, 0.0), vec2(area.width() - 32.0, 24.0));
             let p = ui.painter();
-            p.rect_filled(r, CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }, Color32::from_rgb(0x58, 0x65, 0xf2));
+            p.rect_filled(r, CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }, pal().blurple);
             let since = markdown::local(crate::state::snowflake_ms(after)).format(markdown::hm()).to_string();
             let more = if list.first().is_some_and(|m| m.id > after) { "+" } else { "" };
             p.text(
@@ -1254,7 +1254,7 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
         p.galley(pos2(r.left() + 12.0, r.center().y - note.size().y / 2.0), note, pal().header_primary);
         let jr = Rect::from_min_max(pos2(r.right() - 6.0 - label.size().x - 20.0, r.top() + 6.0), r.max - vec2(6.0, 6.0));
         let resp = ui.interact(jr, egui::Id::new("jump_present"), Sense::click());
-        p.rect_filled(jr, 8, super::motion::mix(BLURPLE, BLURPLE.gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)));
+        p.rect_filled(jr, 8, super::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)));
         p.galley(jr.center() - label.size() / 2.0, label, Color32::WHITE);
         app.rects.insert("jump_present".into(), jr);
         if resp.hovered() {
@@ -1328,7 +1328,7 @@ fn divider(ui: &Ui, y: f32, text: &str, unread: bool) {
     let left = r.left() + 16.0;
     let right = r.right() - 14.0;
     let y = y + 0.5;
-    let color = if unread { RED } else { pal().bg_accent };
+    let color = if unread { pal().red } else { pal().bg_accent };
     if text.is_empty() {
         ui.painter().hline(left..=right, y, Stroke::new(1.0, color));
     } else {
@@ -1337,16 +1337,16 @@ fn divider(ui: &Ui, y: f32, text: &str, unread: bool) {
         let mid = r.center().x;
         ui.painter().hline(left..=mid - gw / 2.0, y, Stroke::new(1.0, color));
         ui.painter().hline(mid + gw / 2.0..=right, y, Stroke::new(1.0, color));
-        let ink = if unread { RED } else { pal().text_muted };
+        let ink = if unread { pal().red } else { pal().text_muted };
         ui.painter().galley(pos2(mid - g.size().x / 2.0, y - g.size().y / 2.0), g, ink);
     }
     if unread {
         let g = ui.painter().layout_no_wrap("NEW".into(), bold(10.0), Color32::WHITE);
         let pr = Rect::from_min_size(pos2(right - g.size().x - 5.0, y - 7.0), vec2(g.size().x + 5.0, 13.0));
-        ui.painter().rect_filled(pr, CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, RED);
+        ui.painter().rect_filled(pr, CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().red);
         // the tab's pointed end
         let tip = vec![pos2(pr.left() - 7.0, pr.center().y), pos2(pr.left() + 0.5, pr.top()), pos2(pr.left() + 0.5, pr.bottom())];
-        ui.painter().add(egui::Shape::convex_polygon(tip, RED, Stroke::NONE));
+        ui.painter().add(egui::Shape::convex_polygon(tip, pal().red, Stroke::NONE));
         ui.painter().galley(pos2(pr.left() + 1.0, pr.center().y - g.size().y / 2.0), g, Color32::WHITE);
     }
 }
@@ -1425,7 +1425,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
             edit_box(&mut cui, d, m.id);
         } else if !m.content.is_empty() && !(d.embeds && d.s.inline_links && link_only(m)) {
             let color = if m.failed {
-                RED
+                pal().red
             } else {
                 super::motion::mix(pal().text_muted, pal().text_normal, super::motion::tween(d.ctx, egui::Id::new(("sent", m.id)), !m.pending, 0.2, super::motion::EASE))
             };
@@ -1640,7 +1640,7 @@ fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message>, start: b
     };
     ui.painter().set(bg, egui::epaint::RectShape::filled(row, CornerRadius::ZERO, fill));
     if d.focus == Some(m.id) {
-        ui.painter().rect_stroke(row.shrink(1.0), CornerRadius::same(4), Stroke::new(2.0, FOCUS), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(row.shrink(1.0), CornerRadius::same(4), Stroke::new(2.0, pal().focus), egui::StrokeKind::Inside);
         d.rects.push(("msg:focus".into(), row));
     }
 
@@ -1974,7 +1974,7 @@ fn system_line(ui: &mut Ui, d: &mut D, m: &Message, sys: system::Sys) {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&winner.0).font(semi(16.0)).color(pal().header_primary));
                             let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                            icons::draw(ui.painter(), Icon::CircleCheck, r, GREEN);
+                            icons::draw(ui.painter(), Icon::CircleCheck, r, pal().green);
                         });
                         ui.label(RichText::new(format!("Winning answer \u{2022} {}%", winner.1)).font(reg(12.0)).color(pal().header_secondary));
                     });
@@ -2309,7 +2309,7 @@ fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment) {
     // play / pause button
     let btn = Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(32.0, 32.0));
     let pr = ui.interact(btn, ui.id().with(("aud", &a.url)), Sense::click());
-    ui.painter().circle_filled(btn.center(), 16.0, crate::ui::motion::mix(BLURPLE, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &pr)));
+    ui.painter().circle_filled(btn.center(), 16.0, crate::ui::motion::mix(pal().blurple, Color32::from_rgb(0x44, 0x52, 0xbb), crate::ui::motion::hot(ui.ctx(), &pr)));
     let playing = crate::audioplay::is_playing(&a.url);
     if playing {
         for dx in [-3.5, 3.5] {
@@ -2378,7 +2378,7 @@ fn file_card(ui: &mut Ui, name: &str, size: u64) -> egui::Response {
     let w = ui.available_width().min(432.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 66.0), Sense::click());
     ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-    icons::draw(ui.painter(), Icon::File, Rect::from_min_size(rect.min + vec2(16.0, 21.0), vec2(24.0, 24.0)), BLURPLE);
+    icons::draw(ui.painter(), Icon::File, Rect::from_min_size(rect.min + vec2(16.0, 21.0), vec2(24.0, 24.0)), pal().blurple);
     let n = text::paint(ui.painter(), pos2(rect.left() + 52.0, rect.top() + 23.0), Align2::LEFT_CENTER, name, reg(14.0), pal().link, rect.width() - 64.0);
     if resp.hovered() {
         ui.painter().hline(n.x_range(), n.bottom() - 1.0, Stroke::new(1.0, pal().link));
@@ -2645,7 +2645,7 @@ fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             let idle = (pal().bg_secondary, super::motion::mix(Color32::TRANSPARENT, pal().bg_accent, hot));
             let (fill, stroke) = (
                 super::motion::mix(idle.0, Color32::from_rgba_premultiplied(13, 15, 36, 38), on),
-                super::motion::mix(idle.1, BLURPLE, on),
+                super::motion::mix(idle.1, pal().blurple, on),
             );
             ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
             let er = Rect::from_min_size(pos2(rect.left() + 7.0, rect.center().y - 8.0), vec2(16.0, 16.0));
@@ -2718,7 +2718,7 @@ fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
                     ui.painter().rect_filled(bar, CornerRadius::same(8), fill);
                 } else {
                     let fill = crate::ui::motion::mix(pal().input_bg, pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp));
-                    ui.painter().rect(row, CornerRadius::same(8), fill, Stroke::new(1.0, if picked { BLURPLE } else { Color32::TRANSPARENT }), egui::StrokeKind::Inside);
+                    ui.painter().rect(row, CornerRadius::same(8), fill, Stroke::new(1.0, if picked { pal().blurple } else { Color32::TRANSPARENT }), egui::StrokeKind::Inside);
                 }
                 let mut x = row.left() + 14.0;
                 if let Some(em) = &a.emoji {
@@ -2733,7 +2733,7 @@ fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
                 } else {
                     let c = pos2(row.right() - 24.0, row.center().y);
                     if picked {
-                        ui.painter().circle_filled(c, 10.0, BLURPLE);
+                        ui.painter().circle_filled(c, 10.0, pal().blurple);
                         ui.painter().circle_filled(c, 4.0, Color32::WHITE);
                     } else {
                         ui.painter().circle_stroke(c, 9.0, Stroke::new(2.0, pal().text_muted));
@@ -2780,7 +2780,7 @@ fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
                                 show = false;
                             }
                         } else {
-                            let btn = Frame::new().fill(if pending.is_empty() { pal().control } else { BLURPLE }).corner_radius(8).inner_margin(Margin::symmetric(16, 8)).show(ui, |ui| {
+                            let btn = Frame::new().fill(if pending.is_empty() { pal().control } else { pal().blurple }).corner_radius(8).inner_margin(Margin::symmetric(16, 8)).show(ui, |ui| {
                                 ui.label(RichText::new("Vote").font(medium(14.0)).color(if pending.is_empty() { pal().text_muted } else { Color32::WHITE }));
                             });
                             let r = btn.response.interact(Sense::click());
@@ -2892,7 +2892,7 @@ fn failed_bar(d: &mut D, m: &Message, row: Rect) {
                 }
                 let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
                 crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
-                icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), RED);
+                icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().red);
                 d.rects.push(("bar_delete".into(), r));
                 if resp.on_hover_text("Delete Message").clicked() {
                     d.acts.push(Act::Delete(m.id));
@@ -2957,7 +2957,7 @@ fn shift_bar(d: &mut D, m: &Message, row: Rect, own: bool) {
                         if delete {
                             let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
                             crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
-                            icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), RED);
+                            icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().red);
                             d.rects.push(("bar_delete".into(), r));
                             if resp.on_hover_text("Delete").clicked() {
                                 d.acts.push(Act::Delete(m.id));

@@ -48,7 +48,7 @@ pub fn show(ui: &mut Ui) {
         let t = ui.input(|i| i.time) as f32;
         let pulse = 0.65 + 0.35 * (t * 2.4).sin().abs();
         icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(c - vec2(0.0, 60.0), vec2(96.0, 96.0)), Color32::WHITE.gamma_multiply(pulse));
-        ui.painter().text(pos2(c.x, c.y + 20.0), Align2::CENTER_CENTER, "DID YOU KNOW", bold(12.0), GREEN);
+        ui.painter().text(pos2(c.x, c.y + 20.0), Align2::CENTER_CENTER, "DID YOU KNOW", bold(12.0), pal().green);
         let tip = TIPS[std::process::id() as usize % TIPS.len()];
         let g = ui.painter().layout(tip.into(), medium(16.0), pal().text_normal, 420.0_f32.min(r.width() - 48.0));
         ui.painter().galley(pos2(c.x - g.size().x / 2.0, c.y + 40.0), g, pal().text_normal);

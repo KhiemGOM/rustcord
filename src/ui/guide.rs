@@ -28,7 +28,7 @@ fn card(ui: &mut Ui, key: &str, emoji: &str, title: &str, desc: &str, done: Opti
     if let Some(done) = done {
         let c = pos2(r.right() - 28.0, r.center().y);
         if done {
-            ui.painter().circle_filled(c, 11.0, GREEN);
+            ui.painter().circle_filled(c, 11.0, pal().green);
             icons::draw(ui.painter(), Icon::Check, Rect::from_center_size(c, vec2(14.0, 14.0)), egui::Color32::WHITE);
         } else {
             ui.painter().circle_stroke(c, 10.0, Stroke::new(2.0, pal().header_secondary));

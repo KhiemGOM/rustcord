@@ -216,7 +216,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                     crate::ui::motion::wash(ui, &resp, rect, CornerRadius::same(4), MENU_HOVER, 0.05);
                                     let b = egui::Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0));
                                     if on {
-                                        ui.painter().rect_filled(b, 4, BLURPLE);
+                                        ui.painter().rect_filled(b, 4, pal().blurple);
                                         icons::draw(ui.painter(), Icon::Check, b.shrink(3.0), egui::Color32::WHITE);
                                     } else {
                                         ui.painter().rect_stroke(b, 4, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
@@ -323,7 +323,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             v.is_some_and(|v| v.as_array().map_or(!v.as_str().unwrap_or("").is_empty(), |a| !a.is_empty()))
                         });
                         if !kind.is_empty() {
-                            let b = button(ui, &label, if kind == "cancel" { pal().bg_accent } else { BLURPLE }, 96.0);
+                            let b = button(ui, &label, if kind == "cancel" { pal().bg_accent } else { pal().blurple }, 96.0);
                             super::settings::mark(ui, "report_button", b.rect);
                             if b.clicked() && required && !r.busy {
                                 match kind {

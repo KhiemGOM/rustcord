@@ -108,7 +108,7 @@ pub fn emoji(app: &mut App, ui: &mut Ui, gid: Id) {
                     ui.painter().text(pos2(x + 32.0, r.center().y), Align2::LEFT_CENTER, n, medium(14.0), pal().text_normal);
                 }
                 if hot {
-                    icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(16.0, 16.0)), RED);
+                    icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(16.0, 16.0)), pal().red);
                 }
             });
             let field = Rect::from_min_size(pos2(resp.rect.left() + resp.rect.width() * 0.18, resp.rect.center().y - 16.0), vec2(resp.rect.width() * 0.3, 32.0));
@@ -239,7 +239,7 @@ pub fn stickers(app: &mut App, ui: &mut Ui, gid: Id) {
                     let b = Rect::from_center_size(pos2(t.right() - 20.0 - k as f32 * 32.0, t.top() + 20.0), vec2(28.0, 28.0));
                     let br = ui.interact(b, ui.id().with(("sticker_btn", id, k)), Sense::click());
                     ui.painter().circle_filled(b.center(), 14.0, crate::ui::motion::mix(pal().bg_floating, faint(81), crate::ui::motion::hot(ui.ctx(), &br)));
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if what == "delete" { RED } else { pal().header_primary });
+                    icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if what == "delete" { pal().red } else { pal().header_primary });
                     if br.clicked() {
                         act = Some((what, st.clone()));
                     }

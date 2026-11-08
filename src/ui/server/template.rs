@@ -19,7 +19,7 @@ fn bullets(ui: &mut Ui, head: &str, items: [&str; 3], ok: bool) {
         for it in items {
             let (r, _) = ui.allocate_exact_size(vec2(300.0, 24.0), Sense::hover());
             let c = pos2(r.left() + 12.0, r.center().y);
-            ui.painter().circle_filled(c, 10.0, if ok { GREEN } else { RED });
+            ui.painter().circle_filled(c, 10.0, if ok { pal().green } else { pal().red });
             icons::draw(ui.painter(), if ok { Icon::Check } else { Icon::Close }, egui::Rect::from_center_size(c, vec2(12.0, 12.0)), Color32::WHITE);
             ui.painter().text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, it, reg(14.0), pal().text_normal);
             ui.add_space(18.0);
@@ -83,7 +83,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.label(RichText::new("Template Title").font(medium(16.0)).color(pal().header_primary));
-        ui.label(RichText::new("*").font(medium(16.0)).color(RED));
+        ui.label(RichText::new("*").font(medium(16.0)).color(pal().red));
     });
     ui.add_space(8.0);
     let r = super::super::settings::input(ui, &mut name, "Who is this server for? E.g. School Club, Artists' Community", false);

@@ -80,6 +80,14 @@ pub struct Palette {
     pub highlight_bg: Color32,
     pub highlight_hover: Color32,
     pub mention_bar: Color32,
+    /// --brand-500, --red-400, --green-360, the status yellow and grey, --focus-primary and the danger button: saturation scales them like every other token
+    pub blurple: Color32,
+    pub red: Color32,
+    pub green: Color32,
+    pub yellow: Color32,
+    pub grey: Color32,
+    pub focus: Color32,
+    pub danger: Color32,
     pub notice: [Color32; 2],
     pub dark: bool,
 }
@@ -125,6 +133,13 @@ impl Palette {
             highlight_bg: f(self.highlight_bg),
             highlight_hover: f(self.highlight_hover),
             mention_bar: f(self.mention_bar),
+            blurple: f(self.blurple),
+            red: f(self.red),
+            green: f(self.green),
+            yellow: f(self.yellow),
+            grey: f(self.grey),
+            focus: f(self.focus),
+            danger: f(self.danger),
             notice: self.notice.map(&f),
             dark: self.dark,
         }
@@ -200,6 +215,13 @@ const ASH: Palette = Palette {
     highlight_bg: tint(0xf8a300, 78),
     highlight_hover: tint(0xf8a300, 39),
     mention_bar: rgb(0xfcb529),
+    blurple: rgb(0x5865f2),
+    red: rgb(0xf23f43),
+    green: rgb(0x23a55a),
+    yellow: rgb(0xf0b232),
+    grey: rgb(0x80848e),
+    focus: rgb(0x00a8fc),
+    danger: rgb(0xd22d39),
     notice: [rgb(0x622a00), rgb(0xffe7cf)],
     dark: true,
 };
@@ -234,6 +256,13 @@ const DARK: Palette = Palette {
     link: rgb(0x4d96ee),
     mention_fg: rgb(0xa9bbff),
     mention_bar: rgb(0xea9800),
+    blurple: rgb(0x5865f2),
+    red: rgb(0xf23f43),
+    green: rgb(0x23a55a),
+    yellow: rgb(0xf0b232),
+    grey: rgb(0x80848e),
+    focus: rgb(0x00a8fc),
+    danger: rgb(0xd22d39),
     notice: [rgb(0x431000), rgb(0xffc356)],
     ..ASH
 };
@@ -273,6 +302,13 @@ const ONYX: Palette = Palette {
     link: rgb(0x2781e7),
     mention_fg: rgb(0x8ca0fd),
     mention_bar: rgb(0xce8100),
+    blurple: rgb(0x5865f2),
+    red: rgb(0xf23f43),
+    green: rgb(0x23a55a),
+    yellow: rgb(0xf0b232),
+    grey: rgb(0x80848e),
+    focus: rgb(0x00a8fc),
+    danger: rgb(0xd22d39),
     notice: [rgb(0x240000), rgb(0xfaaa00)],
     ..ASH
 };
@@ -312,6 +348,13 @@ const LIGHT: Palette = Palette {
     mention_fg: rgb(0x2e3c88),
     dark: false,
     mention_bar: rgb(0x945300),
+    blurple: rgb(0x5865f2),
+    red: rgb(0xf23f43),
+    green: rgb(0x23a55a),
+    yellow: rgb(0xf0b232),
+    grey: rgb(0x80848e),
+    focus: rgb(0x00a8fc),
+    danger: rgb(0xd22d39),
     notice: [rgb(0xffe7cf), rgb(0x5e2700)],
     ..ASH
 };
@@ -566,11 +609,31 @@ fn veil(c: Color32, a: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * 255.0) as u8)
 }
 
+/// `c` with its HSL saturation scaled by `k`, which is what discord's css does to every colour
+/// token (`hsl(h calc(var(--saturation-factor) * s%) l%)`).
 fn desaturate(c: Color32, k: f32) -> Color32 {
     let [r, g, b, a] = c.to_srgba_unmultiplied();
-    let mut h = egui::ecolor::Hsva::from_srgba_unmultiplied([r, g, b, 255]);
-    h.s *= k;
-    let [r, g, b, _] = h.to_srgba_unmultiplied();
+    let [r, g, b] = [r, g, b].map(|v| v as f32 / 255.0);
+    let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+    let l = (hi + lo) / 2.0;
+    let chroma = hi - lo;
+    if chroma == 0.0 {
+        return c;
+    }
+    let s = chroma / (1.0 - (2.0 * l - 1.0).abs());
+    let h = if hi == r { ((g - b) / chroma).rem_euclid(6.0) } else if hi == g { (b - r) / chroma + 2.0 } else { (r - g) / chroma + 4.0 };
+    let chroma = (1.0 - (2.0 * l - 1.0).abs()) * s * k;
+    let x = chroma * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let m = l - chroma / 2.0;
+    let [r, g, b] = [r + m, g + m, b + m].map(|v| (v * 255.0).round() as u8);
     Color32::from_rgba_unmultiplied(r, g, b, a)
 }
 
@@ -665,14 +728,6 @@ pub fn clear() -> Color32 {
     if GRADIENT.load(std::sync::atomic::Ordering::Relaxed).is_null() { pal().bg_tertiary } else { Color32::BLACK }
 }
 
-pub const BLURPLE: Color32 = Color32::from_rgb(0x58, 0x65, 0xf2);
-pub const RED: Color32 = Color32::from_rgb(0xf2, 0x3f, 0x43);
-pub const GREEN: Color32 = Color32::from_rgb(0x23, 0xa5, 0x5a);
-pub const YELLOW: Color32 = Color32::from_rgb(0xf0, 0xb2, 0x32);
-pub const GREY: Color32 = Color32::from_rgb(0x80, 0x84, 0x8e);
-// discord's keyboard focus ring
-pub const FOCUS: Color32 = Color32::from_rgb(0x00, 0xa8, 0xfc);
-
 
 /// Set once any text with CJK/Hangul (or the "・" channel names love) shows up;
 /// only then are the ~30MB fallback fonts worth loading.
@@ -722,10 +777,10 @@ pub fn bold_italic(size: f32) -> FontId {
 pub fn status_color(s: crate::state::Status) -> Color32 {
     use crate::state::Status::*;
     match s {
-        Online => GREEN,
-        Idle => YELLOW,
-        Dnd => RED,
-        Offline => GREY,
+        Online => pal().green,
+        Idle => pal().yellow,
+        Dnd => pal().red,
+        Offline => pal().grey,
     }
 }
 
@@ -975,6 +1030,27 @@ mod tests {
         for c in [p.link, p.positive, p.mention_fg, p.critical] {
             assert!(c.r().abs_diff(c.g()) <= 1 && c.g().abs_diff(c.b()) <= 1, "{c:?}");
         }
+    }
+
+    #[test]
+    fn brand_colours_follow_saturation() {
+        let full = build(1, None, 100, false);
+        let half = build(1, None, 50, false);
+        let none = build(1, None, 0, false);
+        for (f, h, n) in [(full.blurple, half.blurple, none.blurple), (full.red, half.red, none.red), (full.green, half.green, none.green), (full.danger, half.danger, none.danger)] {
+            assert!(n.r().abs_diff(n.g()) <= 1 && n.g().abs_diff(n.b()) <= 1, "{n:?}");
+            let spread = |c: Color32| c.r().max(c.g()).max(c.b()) - c.r().min(c.g()).min(c.b());
+            assert!(spread(n) < spread(h) && spread(h) < spread(f), "{n:?} {h:?} {f:?}");
+        }
+        assert_eq!(full.blurple, rgb(0x5865f2));
+    }
+
+    #[test]
+    fn hsl_saturation_keeps_lightness() {
+        let c = desaturate(rgb(0x5865f2), 0.5);
+        let l = |c: Color32| (c.r().max(c.g()).max(c.b()) as f32 + c.r().min(c.g()).min(c.b()) as f32) / 510.0;
+        assert!((l(c) - l(rgb(0x5865f2))).abs() < 0.01);
+        assert_eq!(desaturate(rgb(0x5865f2), 1.0), rgb(0x5865f2));
     }
 
     #[test]

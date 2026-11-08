@@ -10,7 +10,7 @@ use egui::{Pos2, Shape, Stroke, Ui, pos2};
 use super::{Trail, menu_body, menu_closing, menu_item, menu_row, menu_sep};
 use crate::cache::Settings;
 use crate::spell::{self, Speller};
-use crate::theme::RED;
+use crate::theme::pal;
 
 type Word = (usize, usize, String);
 
@@ -92,7 +92,7 @@ pub fn composer(st: &mut State, s: &mut Settings, ui: &mut Ui, out: &TextEditOut
             x += 2.0;
         }
         pts.push(pos2(x1, y - if pts.len() % 2 == 0 { 1.5 } else { 0.0 }));
-        ui.painter().add(Shape::line(pts, Stroke::new(1.0, RED)));
+        ui.painter().add(Shape::line(pts, Stroke::new(1.0, pal().red)));
     }
 
     if out.response.secondary_clicked() {
