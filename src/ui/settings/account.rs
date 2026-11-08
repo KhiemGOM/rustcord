@@ -36,7 +36,7 @@ fn info(ui: &mut Ui, label: &str, value: &str, reveal: Option<&mut bool>, edit: 
         c.add_space(16.0);
     }
     if let Some(shown) = reveal {
-        let l = c.add(egui::Label::new(RichText::new(if *shown { "Hide" } else { "Reveal" }).font(medium(16.0)).color(super::REVEAL)).sense(Sense::click()));
+        let l = c.add(egui::Label::new(RichText::new(if *shown { "Hide" } else { "Reveal" }).font(medium(16.0)).color(sat(super::REVEAL))).sense(Sense::click()));
         if l.hovered() {
             c.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }

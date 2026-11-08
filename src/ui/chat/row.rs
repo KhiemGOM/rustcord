@@ -311,7 +311,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
     } else if let Some((_, t)) = d.flash.filter(|(id, _)| *id == m.id) {
         // jumped-to message glows and fades out over two seconds
         let a = (1.0 - t.elapsed().as_secs_f32() / 2.0).clamp(0.0, 1.0);
-        Color32::from_rgba_unmultiplied(88, 101, 242, (40.0 * a) as u8)
+        wash(pal().blurple, (40.0 * a) as u8)
     } else if hovered || d.editing.as_ref().is_some_and(|(id, _)| *id == m.id) {
         pal().bg_msg_hover
     } else {

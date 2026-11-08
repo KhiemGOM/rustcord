@@ -775,7 +775,7 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
             let k = 0.5 - 0.5 * (t * std::f32::consts::TAU / 8.0).cos();
             let c = r.center() + vec2(0.0, 10.0);
             for (grow, a) in [(1.0, 18), (0.75, 26), (0.5, 34)] {
-                ui.painter().circle_filled(c, 50.0 + 30.0 * k * grow, Color32::from_rgba_unmultiplied(0x58, 0x65, 0xf2, a));
+                ui.painter().circle_filled(c, 50.0 + 30.0 * k * grow, wash(pal().blurple, a));
             }
             let img = egui::Image::new(egui::include_image!("../../assets/wumpus.png"));
             let h = 150.0 * (0.96 + 0.04 * k);

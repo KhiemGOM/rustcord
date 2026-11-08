@@ -147,7 +147,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let row = |ui: &mut Ui, k: &str, v: String, warn: bool| {
                     let (r, _) = ui.allocate_exact_size(vec2(472.0, 24.0), Sense::hover());
                     ui.painter().text(pos2(r.left(), r.center().y), Align2::LEFT_CENTER, k, reg(14.0), pal().header_secondary);
-                    ui.painter().text(pos2(r.left() + 160.0, r.center().y), Align2::LEFT_CENTER, v, medium(14.0), if warn { DANGER_TEXT } else { pal().header_primary });
+                    ui.painter().text(pos2(r.left() + 160.0, r.center().y), Align2::LEFT_CENTER, v, medium(14.0), if warn { pal().red } else { pal().header_primary });
                 };
                 row(ui, "Account created", day(crate::state::snowflake_ms(uid)), false);
                 if joined > 0 {
@@ -277,4 +277,3 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-const DANGER_TEXT: Color32 = Color32::from_rgb(0xf2, 0x3f, 0x42);
