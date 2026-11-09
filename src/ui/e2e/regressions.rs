@@ -241,6 +241,15 @@ impl Run {
             }
             8893 => {
                 if self.pending_shots == 0 {
+                    let url = std::env::var("RUSTCORD_E2E_MEDIA_PROXY").unwrap_or_else(|_| format!("{}/media/agabounce.webp?animated=true", crate::api::cdn()));
+                    for loader in ctx.loaders().bytes.lock().iter() {
+                        loader.forget(&url);
+                    }
+                    let frame = crate::gif::uri(ctx, &url, true);
+                    if !frame.contains(crate::gif::SEP) || !matches!(ctx.try_load_texture(&frame, Default::default(), Default::default()), Ok(egui::load::TexturePoll::Ready { .. })) {
+                        return self.fail("decoded webp became unavailable after byte eviction".into());
+                    }
+                    self.mark("webp_survives_byte_eviction");
                     self.next(137);
                 }
             }
