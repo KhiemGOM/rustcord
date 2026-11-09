@@ -176,6 +176,33 @@ impl Run {
             }
             8855 => {
                 app.shop = None;
+                self.step = 8870;
+            }
+            8870 => {
+                app.open_shop(crate::ui::shop::Page::Shop);
+                app.rest("POST", "/mock/fail".into(), Some(json!({ "method": "GET", "path": "/shop/search", "status": 200,
+                    "body": { "skus": ["5211"], "pagination": { "total": 1, "offset": 0, "limit": 15, "has_more": false } }
+                })), crate::net::Tag::Quiet);
+                self.next(800);
+            }
+            8871 => {
+                let Some(r) = Self::at(ctx, "shop:search") else { return };
+                self.click(r.center());
+                self.queue.push_back(vec![egui::Event::Text("blue panda".into())]);
+                self.next(800);
+            }
+            8872 => {
+                let Some(r) = Self::at(ctx, "shop:card:5211") else { return };
+                self.click(r.center());
+                self.next(500);
+            }
+            8873 => {
+                if app.shop.as_ref().is_none_or(|s| s.product.as_deref() != Some("5211")) {
+                    return;
+                }
+                self.shot(ctx, "decoration_variant_search.png");
+                self.mark("decoration_variant_search");
+                app.shop = None;
                 self.step = 8890;
             }
             8890 => {

@@ -3,6 +3,7 @@ def checks(runs, reqs):
     shifts = [r.get("rects", {}).get("history_anchor_shift") for r in runs.values()]
     paths = [r.get("path", "") for r in reqs if r.get("method") == "GET"]
     return {
+        "regressions: a search result for an individual decoration variant opened its preview": both("decoration_variant_search"),
         "regressions: fullscreen filled its monitor and every border stayed non-resizable": both("fullscreen_locked"),
         "regressions: the animated WebP emoji changed pixels inside its image embed": both("webp_embed_animates")
             and all(r.get("rects", {}).get("webp_pixels_changed", 0) > 0 for r in runs.values()),
