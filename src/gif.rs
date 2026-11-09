@@ -11,6 +11,7 @@ use egui::load::{BytesPoll, ImageLoadResult, ImageLoader, ImagePoll, LoadError, 
 use egui::mutex::Mutex;
 use egui::{ColorImage, FrameDurations, Id, decode_animated_image_uri, has_gif_magic_header};
 use image::AnimationDecoder as _;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::{Arc, LazyLock};
@@ -139,16 +140,35 @@ fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Durat
     Ok((Anim { frames, side, lottie: None }, durations))
 }
 
+fn animation_url(url: &str) -> Cow<'_, str> {
+    if !url.contains(".discordapp.net/") {
+        return Cow::Borrowed(url);
+    }
+    let Ok(mut parsed) = reqwest::Url::parse(url) else { return Cow::Borrowed(url) };
+    let host = parsed.host_str().unwrap_or_default();
+    let proxy = host == "media.discordapp.net" || host.starts_with("images-ext-") && host.ends_with(".discordapp.net");
+    if !proxy || ![".webp", ".gif", ".png"].iter().any(|ext| parsed.path().ends_with(ext))
+        || parsed.query_pairs().any(|(k, v)| k == "animated" && v == "true")
+    {
+        return Cow::Borrowed(url);
+    }
+    let pairs: Vec<_> = parsed.query_pairs().filter(|(k, _)| k != "animated").map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+    parsed.set_query(None);
+    parsed.query_pairs_mut().extend_pairs(pairs).append_pair("animated", "true");
+    Cow::Owned(parsed.into())
+}
+
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a
 /// frame uri (frame 0 unless `play`, the window is focused and the clock says
 /// otherwise); everything else, including urls still downloading, is unchanged.
 /// Wakes egui up when the next frame is due, so only ask for things on screen.
 pub fn uri(ctx: &egui::Context, url: &str, play: bool) -> String {
-    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return url.to_string() };
+    let url = animation_url(url);
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(&url) else { return url.to_string() };
     if kind(&bytes).is_none() {
         return url.to_string();
     }
-    let i = if play && ctx.input(|i| i.focused) { frame_at(ctx, url) } else { 0 };
+    let i = if play && ctx.input(|i| i.focused) { frame_at(ctx, &url) } else { 0 };
     if TRACE.load(Relaxed) {
         let mut shown = SHOWN.lock();
         let e = shown.entry(url.to_string()).or_default();
@@ -194,12 +214,13 @@ fn frame_for(ctx: &egui::Context, url: &str, t: u128, wake: bool) -> usize {
 /// `uri` for an animation that has been running `ms` since it was started, rather than since
 /// the app was: the frame for that moment, and the last one once a single play is over.
 pub fn uri_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> String {
-    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return url.to_string() };
+    let url = animation_url(url);
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(&url) else { return url.to_string() };
     if kind(&bytes).is_none() {
         return url.to_string();
     }
-    let total = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).map_or(0, |d| d.all().map(|d| d.as_millis()).sum::<u128>());
-    let i = if once && total > 0 && ms >= total { last_frame(ctx, url) } else { frame_for(ctx, url, ms, false) };
+    let total = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url.as_ref()))).map_or(0, |d| d.all().map(|d| d.as_millis()).sum::<u128>());
+    let i = if once && total > 0 && ms >= total { last_frame(ctx, &url) } else { frame_for(ctx, &url, ms, false) };
     if TRACE.load(Relaxed) {
         let mut shown = SHOWN.lock();
         let e = shown.entry(url.to_string()).or_default();
@@ -322,5 +343,54 @@ impl ImageLoader for GifLoader {
 
     fn has_pending(&self) -> bool {
         self.cache.lock().values().any(|e| e.is_pending())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn animated_webp_emoji_keeps_its_frames() {
+        let bytes = include_bytes!("../examples/fixtures/agabounce.webp");
+        assert!(matches!(kind(bytes), Some(Kind::Webp)));
+        let (anim, durations) = decode(Kind::Webp, bytes, Some(48)).unwrap();
+        assert!(anim.frames.len() > 1);
+        assert_eq!(anim.frames.len(), durations.len());
+        assert!(anim.frames.iter().any(|f| f.pixels != anim.frames[0].pixels));
+        assert!(durations.iter().all(|d| !d.is_zero()));
+    }
+
+    #[test]
+    fn webp_with_query_advances_through_the_loader() {
+        let ctx = egui::Context::default();
+        let url = "https://cdn.discordapp.com/emojis/1409837948899168256.webp?size=48&animated=true&name=agabounce&lossless=true";
+        ctx.include_bytes(url, include_bytes!("../examples/fixtures/agabounce.webp").as_slice());
+        ctx.add_image_loader(Arc::new(GifLoader::default()));
+        let first = uri_at(&ctx, url, 0, false);
+        let start = std::time::Instant::now();
+        let first = loop {
+            if let ImagePoll::Ready { image } = ctx.try_load_image(&first, SizeHint::default()).unwrap() {
+                break image;
+            }
+            assert!(start.elapsed() < Duration::from_secs(3));
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let frames: Vec<_> = (1..20).map(|n| {
+            let uri = uri_at(&ctx, url, n * 50, false);
+            let ImagePoll::Ready { image } = ctx.try_load_image(&uri, SizeHint::default()).unwrap() else { panic!("decoded frame missing") };
+            image
+        }).collect();
+        assert!(frames.iter().any(|f| f.pixels != first.pixels));
+    }
+
+    #[test]
+    fn discord_proxy_requests_the_animated_webp() {
+        let ctx = egui::Context::default();
+        let proxy = "https://images-ext-1.discordapp.net/external/example/%3Fsize%3D48%26animated%3Dtrue/https/cdn.discordapp.com/emojis/1409837948899168256.webp";
+        let animated = format!("{proxy}?animated=true");
+        ctx.include_bytes(proxy, include_bytes!("../examples/fixtures/agabounce-still.webp").as_slice());
+        ctx.include_bytes(animated.clone(), include_bytes!("../examples/fixtures/agabounce.webp").as_slice());
+        assert_eq!(uri_at(&ctx, proxy, 0, false), format!("{animated}{SEP}0"));
     }
 }
