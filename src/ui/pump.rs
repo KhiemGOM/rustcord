@@ -100,7 +100,11 @@ impl App {
                         self.scroll_fix = Some((channel, 0.0));
                     }
                     if matches!(page, Page::Before(_)) && n > 0 {
-                        let est: f32 = self.store.msgs[&channel].list[..n].iter().map(chat::estimate).sum();
+                        let list = &self.store.msgs[&channel].list;
+                        let est: f32 = list[..n].iter().enumerate().map(|(i, m)| {
+                            let start = chat::group_start(i.checked_sub(1).map(|i| &list[i]), m);
+                            self.heights.get(&(m.id, start)).copied().unwrap_or_else(|| chat::estimate(m))
+                        }).sum();
                         let off = self.offsets.get(&channel).copied().unwrap_or(0.0);
                         self.scroll_fix = Some((channel, off + est));
                     }
