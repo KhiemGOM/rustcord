@@ -3533,6 +3533,12 @@ impl Run {
                     return self.fail(format!("fullscreen is {:.0} tall on a {:.0} monitor", r.height(), m.y));
                 }
                 self.loaded = 0;
+                if let Err(error) = self.fullscreen_edges() {
+                    if self.step_at.elapsed() > Duration::from_secs(3) {
+                        return self.fail(error);
+                    }
+                    return;
+                }
                 self.shot(ctx, "fullscreen.png");
                 self.key(Key::F11);
                 self.next(800);
@@ -3545,6 +3551,9 @@ impl Run {
                 self.mark("fullscreen");
                 ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
                 self.next(800);
+                if std::env::var_os("RUSTCORD_E2E_TO").is_some() {
+                    self.step = 9999;
+                }
             }
             // ctrl+0 to 100%, a ctrl+wheel notch up to the next level, ctrl+0 back
             412 | 414 => {
@@ -5504,6 +5513,9 @@ impl Run {
                     self.mark("feel_page_key");
                 }
                 self.step = 1700;
+                if std::env::var_os("RUSTCORD_E2E_TO").is_some() {
+                    self.step = 9999;
+                }
             }
         }
     }

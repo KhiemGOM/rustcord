@@ -5,6 +5,32 @@ use super::Run;
 use crate::ui::App;
 
 impl Run {
+    pub(super) fn fullscreen_edges(&mut self) -> Result<(), String> {
+        use std::sync::atomic::Ordering::Relaxed;
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTCLIENT, SendMessageW, WM_NCHITTEST};
+
+        let hwnd = crate::winsys::WINDOW.load(Relaxed) as _;
+        let mut r: RECT = unsafe { std::mem::zeroed() };
+        let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+        info.cbSize = size_of::<MONITORINFO>() as u32;
+        if unsafe { GetWindowRect(hwnd, &mut r) } == 0 || unsafe { GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info) } == 0 {
+            return Err("could not read fullscreen bounds".into());
+        }
+        let bounds = |r: RECT| [r.left, r.top, r.right, r.bottom];
+        let hits: Vec<isize> = [(r.left + 1, r.top + 1), (r.right - 2, r.top + 1), (r.left + 1, r.bottom - 2), (r.right - 2, r.bottom - 2), ((r.left + r.right) / 2, r.top + 1)].into_iter().map(|(x, y)| {
+            let point = (x as u16 as u32 | (y as u16 as u32) << 16) as isize;
+            unsafe { SendMessageW(hwnd, WM_NCHITTEST, 0, point) }
+        }).collect();
+        self.rects.insert("fullscreen_native".into(), json!({ "window": bounds(r), "monitor": bounds(info.rcMonitor), "hits": hits }));
+        if bounds(r) != bounds(info.rcMonitor) || hits.iter().any(|h| *h != HTCLIENT as isize) {
+            return Err(format!("fullscreen bounds or resize edges differ: {}", self.rects["fullscreen_native"]));
+        }
+        self.mark("fullscreen_locked");
+        Ok(())
+    }
+
     pub(super) fn regression_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         match self.step {
             8800 => {
@@ -150,6 +176,57 @@ impl Run {
             }
             8855 => {
                 app.shop = None;
+                self.step = 8890;
+            }
+            8890 => {
+                self.blur = false;
+                app.settings.gif_autoplay = true;
+                app.select_guild(Some(self.target.0));
+                app.open(2060);
+                self.next(800);
+            }
+            8891 => {
+                if app.store.msgs.get(&2060).is_none_or(|e| !e.fresh || e.loading) {
+                    return;
+                }
+                let url = std::env::var("RUSTCORD_E2E_MEDIA_PROXY").unwrap_or_else(|_| format!("{}/media/agabounce.webp?animated=true", crate::api::cdn()));
+                app.rest("POST", "/mock/event".into(), Some(json!({ "t": "MESSAGE_CREATE", "d": {
+                    "id": "2000000000000000000", "channel_id": "2060", "guild_id": self.target.0.to_string(),
+                    "author": { "id": "101", "username": "Mira", "discriminator": "0" },
+                    "content": "agabounce regression", "type": 0, "attachments": [], "mentions": [], "mention_roles": [],
+                    "embeds": [{ "type": "image", "url": url, "thumbnail": { "url": url, "proxy_url": url, "width": 48, "height": 48 } }]
+                }})), crate::net::Tag::Quiet);
+                app.scroll_fix = Some((2060, 1e9));
+                self.next(800);
+            }
+            8892 => {
+                if !app.rects.contains_key("embed_image:2000000000000000000") || crate::gif::shown("agabounce") < 2 {
+                    return;
+                }
+                self.shot(ctx, "webp_t0.png");
+                self.next(0);
+            }
+            8893 => {
+                if self.pending_shots == 0 {
+                    self.next(137);
+                }
+            }
+            8894 => {
+                self.shot(ctx, "webp_t1.png");
+                self.next(0);
+            }
+            8895 => {
+                if self.pending_shots > 0 {
+                    return;
+                }
+                let Some(r) = app.rects.get("embed_image:2000000000000000000").copied() else { return };
+                let changed = self.changed("webp_t0.png", "webp_t1.png", r, ctx.pixels_per_point());
+                self.rects.insert("webp_pixels_changed".into(), json!(changed));
+                if changed == 0 {
+                    return self.fail("animated webp embed did not change pixels".into());
+                }
+                self.mark("webp_embed_animates");
+                app.open(self.target.1);
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
             _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
