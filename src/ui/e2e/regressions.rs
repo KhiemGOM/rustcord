@@ -197,10 +197,16 @@ impl Run {
                 self.next(500);
             }
             8873 => {
-                if app.shop.as_ref().is_none_or(|s| s.product.as_deref() != Some("5211")) {
+                if app.shop.as_ref().is_none_or(|s| s.product.as_deref() != Some("5211")) || Self::at(ctx, "shop:detail_heart").is_none() {
                     return;
                 }
                 self.shot(ctx, "decoration_variant_search.png");
+                self.next(0);
+            }
+            8874 => {
+                if self.pending_shots > 0 {
+                    return;
+                }
                 self.mark("decoration_variant_search");
                 app.shop = None;
                 self.step = 8890;
