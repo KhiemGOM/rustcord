@@ -39,8 +39,12 @@ impl Store {
             self.events_muted.remove(&gid);
         }
         let prefs = self.gprefs.entry(gid).or_default();
-        prefs.suppress_everyone = s["suppress_everyone"].as_bool() == Some(true);
-        prefs.suppress_roles = s["suppress_roles"].as_bool() == Some(true);
+        if let Some(on) = s["suppress_everyone"].as_bool() {
+            prefs.suppress_everyone = on;
+        }
+        if let Some(on) = s["suppress_roles"].as_bool() {
+            prefs.suppress_roles = on;
+        }
         prefs.highlights_off = s["notify_highlights"].as_u64() == Some(2);
         prefs.mobile_push = s["mobile_push"].as_bool() != Some(false);
         if let Some(all) = unreads(s, 2048, 4096) {
