@@ -61,13 +61,13 @@ impl Run {
                 app.open(self.target.1);
                 self.next(800);
             }
-            8821 => {
+            8821 | 8825 => {
                 let ch = self.target.1;
                 app.scroll_fix = Some((ch, 1400.0));
                 app.pinned.remove(&ch);
                 self.next(600);
             }
-            8822 => {
+            8822 | 8826 => {
                 let ch = self.target.1;
                 let Some(row) = app.rects.get("msg:last").copied() else { return };
                 let Some(entry) = app.store.msgs.get(&ch) else { return };
@@ -79,7 +79,7 @@ impl Run {
                 app.net.send(crate::net::Cmd::Messages { channel: ch, page: crate::state::Page::Before(first.id) });
                 self.next(1000);
             }
-            8823 => {
+            8823 | 8827 => {
                 let ch = self.target.1;
                 if app.store.msgs.get(&ch).is_none_or(|e| e.list.len() <= self.loaded) {
                     return;
@@ -95,8 +95,16 @@ impl Run {
                 if row.is_none_or(|r| (r.top() - y).abs() > 2.0) {
                     return self.fail(format!("history moved the reading anchor from {y} to {row:?}"));
                 }
-                self.mark("history_kept_reading_anchor");
-                self.step = 8850;
+                if self.step == 8823 {
+                    self.next(300);
+                } else {
+                    self.mark("history_kept_reading_anchor");
+                    self.step = 8850;
+                }
+            }
+            8824 => {
+                app.net.send(crate::net::Cmd::Messages { channel: self.target.1, page: crate::state::Page::Latest });
+                self.next(800);
             }
             8850 => {
                 app.open_shop(crate::ui::shop::Page::Shop);
@@ -133,6 +141,9 @@ impl Run {
                 }
                 self.shot(ctx, "orb_decoration_variant.png");
                 self.mark("orb_decoration_variant_selected");
+                self.next(300);
+            }
+            8855 => {
                 app.shop = None;
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
