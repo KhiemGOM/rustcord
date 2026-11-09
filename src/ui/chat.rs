@@ -355,6 +355,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let ch = chan.id;
     let mut sa = egui::ScrollArea::vertical()
         .id_salt(("chat", ch))
+        .animated(false)
         .stick_to_bottom(true)
         .auto_shrink([false, false]);
     let mut to_bottom = false;
@@ -543,7 +544,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     } else {
         app.pinned.remove(&ch);
     }
-    if anchor.abs() > 0.5 && !at_bottom && !was_bottom {
+    if anchor.abs() > 0.5 && !at_bottom && (!was_bottom || fixed && !to_bottom) {
         app.scroll_fix = Some((ch, offset + anchor));
         ui.ctx().request_discard("scroll anchor");
     }
