@@ -88,6 +88,9 @@ impl Run {
                 let id = anchor[0].as_u64().unwrap();
                 let y = anchor[1].as_f64().unwrap() as f32;
                 let row = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("row", id))));
+                if let Some(row) = row {
+                    self.rects.insert("history_anchor_shift".into(), json!(row.top() - y));
+                }
                 self.shot(ctx, "read_anchor_after_history.png");
                 if row.is_none_or(|r| (r.top() - y).abs() > 2.0) {
                     return self.fail(format!("history moved the reading anchor from {y} to {row:?}"));
@@ -130,9 +133,10 @@ impl Run {
                 }
                 self.shot(ctx, "orb_decoration_variant.png");
                 self.mark("orb_decoration_variant_selected");
-                self.step = 99;
+                app.shop = None;
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
-            _ => self.step = 99,
+            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
         }
     }
 }
