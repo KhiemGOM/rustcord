@@ -308,7 +308,6 @@ impl eframe::App for App {
 
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
         let c = crate::theme::clear();
-        crate::winsys::set_backdrop([c.r(), c.g(), c.b()]);
         c.to_normalized_gamma_f32()
     }
 
