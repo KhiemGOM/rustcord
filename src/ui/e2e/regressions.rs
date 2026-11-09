@@ -61,13 +61,13 @@ impl Run {
                 app.open(self.target.1);
                 self.next(800);
             }
-            8821 | 8825 => {
+            8821 | 8827 => {
                 let ch = self.target.1;
                 app.scroll_fix = Some((ch, 1400.0));
                 app.pinned.remove(&ch);
                 self.next(600);
             }
-            8822 | 8826 => {
+            8822 | 8828 => {
                 let ch = self.target.1;
                 let Some(row) = app.rects.get("msg:last").copied() else { return };
                 let Some(entry) = app.store.msgs.get(&ch) else { return };
@@ -79,7 +79,7 @@ impl Run {
                 app.net.send(crate::net::Cmd::Messages { channel: ch, page: crate::state::Page::Before(first.id) });
                 self.next(1000);
             }
-            8823 | 8827 => {
+            8823 | 8829 => {
                 let ch = self.target.1;
                 if app.store.msgs.get(&ch).is_none_or(|e| e.list.len() <= self.loaded) {
                     return;
@@ -103,8 +103,13 @@ impl Run {
                 }
             }
             8824 => {
+                app.scroll_fix = Some((self.target.1, 900.0));
+                self.next(600);
+            }
+            8825 => {
                 app.net.send(crate::net::Cmd::Messages { channel: self.target.1, page: crate::state::Page::Latest });
                 self.next(800);
+                self.step = 8827;
             }
             8850 => {
                 app.open_shop(crate::ui::shop::Page::Shop);
