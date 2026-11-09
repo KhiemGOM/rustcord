@@ -86,10 +86,13 @@ pub struct Axis {
 
 impl Axis {
     pub fn push(&mut self, d: f32, t: f64, kind: Kind, ppp: f32) {
+        if d == 0.0 {
+            return;
+        }
         let live = self.curve.filter(|c| !c.done(t));
         let Some(c) = live else {
-            self.sent = 0.0;
-            self.curve = Some(Curve { from: 0.0, to: d, t0: t, dur: kind.duration(d * ppp), y1: 0.0 });
+            let from = self.curve.map_or(0.0, |c| c.to);
+            self.curve = Some(Curve { from, to: from + d, t0: t, dur: kind.duration(d * ppp), y1: 0.0 });
             return;
         };
         let cur = c.value(t);
@@ -287,6 +290,50 @@ mod tests {
         assert!((Kind::Wheel.duration(300.0) - 9.0 / 60.0).abs() < 1e-4);
         assert!((Kind::Wheel.duration(900.0) - 0.1).abs() < 1e-4);
         assert!((Kind::Key.duration(5000.0) - 0.15).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_new_notch_keeps_motion_pending_after_a_stalled_frame() {
+        let mut ax = Axis::default();
+        ax.push(100.0, 0.0, Kind::Wheel, 1.0);
+        let first = ax.step(0.05);
+        ax.push(100.0, 0.3, Kind::Wheel, 1.0);
+        let total = first + run(&mut ax, 0.3, 0.8).iter().sum::<f32>();
+        assert!((total - 200.0).abs() < 0.01, "{total}");
+    }
+
+    #[test]
+    fn an_idle_axis_does_not_retarget_a_live_curve() {
+        let mut ax = Axis::default();
+        ax.push(100.0, 0.0, Kind::Wheel, 1.0);
+        ax.step(0.05);
+        let before = ax.curve.unwrap();
+        ax.push(0.0, 0.05, Kind::Wheel, 1.0);
+        let after = ax.curve.unwrap();
+        assert_eq!((before.from, before.to, before.t0, before.dur), (after.from, after.to, after.t0, after.dur));
+    }
+
+    #[test]
+    fn seeded_wheel_bursts_keep_their_distance_across_frame_stalls() {
+        for ppp in [0.75, 1.0, 1.5, 2.5] {
+            let mut ax = Axis::default();
+            let (mut seed, mut t, mut total, mut target) = (42u32, 0.0, 0.0f64, 0.0f64);
+            for i in 0..4096 {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                t += [0.0, 0.007, 0.017, 0.04, 0.25][seed as usize % 5];
+                let d = [-500.0, -100.0, 0.0, 100.0, 500.0][(seed >> 8) as usize % 5];
+                ax.push(d, t, Kind::Wheel, ppp);
+                target += d as f64;
+                if i % 3 != 0 {
+                    let delta = ax.step(t);
+                    assert!(delta.is_finite());
+                    total += delta as f64;
+                }
+            }
+            total += run(&mut ax, t, t + 1.0).iter().map(|d| *d as f64).sum::<f64>();
+            assert!(!ax.animating());
+            assert!((total - target).abs() < 0.1, "ppp {ppp}: {total} != {target}");
+        }
     }
 
     #[test]
