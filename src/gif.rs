@@ -158,14 +158,18 @@ fn animation_url(url: &str) -> Cow<'_, str> {
     Cow::Owned(parsed.into())
 }
 
+fn is_animated(ctx: &egui::Context, url: &str) -> bool {
+    ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).is_some()
+        || matches!(ctx.try_load_bytes(url), Ok(BytesPoll::Ready { bytes, .. }) if kind(&bytes).is_some())
+}
+
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a
 /// frame uri (frame 0 unless `play`, the window is focused and the clock says
 /// otherwise); everything else, including urls still downloading, is unchanged.
 /// Wakes egui up when the next frame is due, so only ask for things on screen.
 pub fn uri(ctx: &egui::Context, url: &str, play: bool) -> String {
     let url = animation_url(url);
-    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(&url) else { return url.to_string() };
-    if kind(&bytes).is_none() {
+    if !is_animated(ctx, &url) {
         return url.to_string();
     }
     let i = if play && ctx.input(|i| i.focused) { frame_at(ctx, &url) } else { 0 };
@@ -215,8 +219,7 @@ fn frame_for(ctx: &egui::Context, url: &str, t: u128, wake: bool) -> usize {
 /// the app was: the frame for that moment, and the last one once a single play is over.
 pub fn uri_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> String {
     let url = animation_url(url);
-    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(&url) else { return url.to_string() };
-    if kind(&bytes).is_none() {
+    if !is_animated(ctx, &url) {
         return url.to_string();
     }
     let total = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url.as_ref()))).map_or(0, |d| d.all().map(|d| d.as_millis()).sum::<u128>());
@@ -382,6 +385,33 @@ mod tests {
             image
         }).collect();
         assert!(frames.iter().any(|f| f.pixels != first.pixels));
+    }
+
+    #[test]
+    fn decoded_animation_survives_byte_eviction() {
+        use egui::load::{BytesLoader as _, TexturePoll};
+
+        let ctx = egui::Context::default();
+        let url = "https://cdn.discordapp.com/emojis/agabounce.webp?animated=true";
+        ctx.include_bytes(url, include_bytes!("../examples/fixtures/agabounce.webp").as_slice());
+        ctx.add_image_loader(Arc::new(GifLoader::default()));
+        ctx.add_texture_loader(Arc::new(crate::imgcache::Textures::default()));
+        let start = std::time::Instant::now();
+        loop {
+            let frame = uri_at(&ctx, url, 0, false);
+            if let TexturePoll::Ready { .. } = ctx.try_load_texture(&frame, Default::default(), SizeHint::default()).unwrap() {
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(3));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        ctx.loaders().include.forget(url);
+        for ms in (0..1000).step_by(20) {
+            assert!(uri(&ctx, url, true).contains(SEP));
+            let frame = uri_at(&ctx, url, ms, false);
+            assert!(frame.contains(SEP), "decoded animation fell back to its unloaded source");
+            assert!(matches!(ctx.try_load_texture(&frame, Default::default(), SizeHint::default()).unwrap(), TexturePoll::Ready { .. }));
+        }
     }
 
     #[test]

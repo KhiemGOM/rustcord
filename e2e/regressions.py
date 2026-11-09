@@ -7,6 +7,7 @@ def checks(runs, reqs):
         "regressions: fullscreen filled its monitor and every border stayed non-resizable": both("fullscreen_locked"),
         "regressions: the animated WebP emoji changed pixels inside its image embed": both("webp_embed_animates")
             and all(r.get("rects", {}).get("webp_pixels_changed", 0) > 0 for r in runs.values()),
+        "regressions: decoded WebP stayed available after its downloaded bytes were evicted": both("webp_survives_byte_eviction"),
         "regressions: pinning and unpinning a channel through its menu updated the pinned section": both("channel_pinned_by_click") and both("channel_unpinned_by_click"),
         "regressions: a notification-only settings update preserved the channel pin": both("channel_pin_survives_update"),
         "regressions: loading older history kept the reading anchor within two pixels": both("history_kept_reading_anchor")
