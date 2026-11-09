@@ -184,13 +184,49 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 static FULLSCREEN: AtomicBool = AtomicBool::new(false);
+static PASTE: AtomicBool = AtomicBool::new(false);
+
+pub fn take_paste() -> bool {
+    PASTE.swap(false, Ordering::Relaxed)
+}
 
 pub fn set_fullscreen(on: bool) {
     FULLSCREEN.store(on, Ordering::Relaxed);
 }
 
 #[cfg(test)]
-mod paint_tests {
+mod tests {
+    #[test]
+    fn paste_press_survives_key_release_until_the_frame() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardState, SetKeyboardState};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, GetWindowLongPtrW, GWLP_WNDPROC, WM_KEYDOWN, WS_POPUP};
+        unsafe {
+            let class = super::wide("STATIC");
+            let window = CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_POPUP, 0, 0, 8, 8, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null());
+            assert!(!window.is_null());
+            let mut keys = [0; 256];
+            assert_ne!(GetKeyboardState(keys.as_mut_ptr()), 0);
+            let before = keys;
+            let old = super::OLD_PROC.swap(GetWindowLongPtrW(window, GWLP_WNDPROC), super::Ordering::Relaxed);
+            keys[0x11] = 0x80;
+            keys[b'V' as usize] = 0x80;
+            let down = SetKeyboardState(keys.as_ptr());
+            super::chrome_proc(window, WM_KEYDOWN, b'V' as usize, 0);
+            keys[0x11] = 0;
+            keys[b'V' as usize] = 0;
+            let up = SetKeyboardState(keys.as_ptr());
+            let paste = super::take_paste();
+            let twice = super::take_paste();
+            SetKeyboardState(before.as_ptr());
+            super::OLD_PROC.store(old, super::Ordering::Relaxed);
+            DestroyWindow(window);
+            assert_ne!(down, 0);
+            assert_ne!(up, 0);
+            assert!(paste, "paste was lost when the keys were released before the frame");
+            assert!(!twice);
+        }
+    }
+
     #[test]
     fn background_erase_keeps_the_rendered_pixels() {
         use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetPixel, SelectObject, SetPixel};
@@ -229,6 +265,15 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if msg == WM_PASTE || msg == WM_KEYDOWN && wp == b'V' as usize && lp & (1 << 30) == 0
+        && unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyState(0x11) } < 0
+    {
+        PASTE.store(true, Ordering::Relaxed);
+        unsafe { windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 0) };
+        if msg == WM_PASTE {
+            return 0;
+        }
+    }
     if msg == WM_CLOSE && crate::tray::close_hides() {
         crate::tray::send("hide");
         return 0;

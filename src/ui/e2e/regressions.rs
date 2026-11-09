@@ -268,6 +268,37 @@ impl Run {
                     return self.fail("animated webp embed did not change pixels".into());
                 }
                 self.mark("webp_embed_animates");
+                self.step = 8896;
+            }
+            8896 => {
+                let mut cb = match arboard::Clipboard::new() {
+                    Ok(cb) => cb,
+                    Err(e) => return self.fail(e.to_string()),
+                };
+                if let Ok(img) = cb.get_image() {
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("paste_before"), (img.width, img.height, img.bytes.into_owned())));
+                }
+                if let Err(e) = cb.set_image(arboard::ImageData { width: 32, height: 32, bytes: vec![255; 32 * 32 * 4].into() }) {
+                    return self.fail(e.to_string());
+                }
+                app.files.clear();
+                let hwnd = crate::winsys::WINDOW.load(std::sync::atomic::Ordering::Relaxed) as _;
+                use windows_sys::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_PASTE};
+                unsafe { SendMessageW(hwnd, WM_PASTE, 0, 0) };
+                self.next(300);
+            }
+            8897 => {
+                let attached = app.files.len() == 1 && app.files[0].name == "image.png";
+                if let Some((width, height, bytes)) = ctx.data_mut(|d| d.remove_temp::<(usize, usize, Vec<u8>)>(egui::Id::new("paste_before")))
+                    && let Ok(mut cb) = arboard::Clipboard::new()
+                {
+                    let _ = cb.set_image(arboard::ImageData { width, height, bytes: bytes.into() });
+                }
+                if !attached {
+                    return self.fail("native paste did not attach the clipboard image".into());
+                }
+                self.mark("native_image_paste");
+                app.files.clear();
                 app.open(self.target.1);
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }
