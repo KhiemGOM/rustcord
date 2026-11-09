@@ -158,7 +158,7 @@ fn day(ts: i64) -> (i32, u32) {
     (d.year(), d.ordinal())
 }
 
-fn group_start(prev: Option<&Message>, m: &Message) -> bool {
+pub(super) fn group_start(prev: Option<&Message>, m: &Message) -> bool {
     match prev {
         None => true,
         Some(p) => {
