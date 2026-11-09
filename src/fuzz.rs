@@ -91,6 +91,49 @@ fn fuzz_gateway_events() {
 }
 
 #[test]
+fn suppressed_mentions_do_not_raise_badges() {
+    use crate::state::{Channel, Guild, Store, Tracked};
+    use serde_json::json;
+
+    for suppression in 0..4 {
+        for mentions in 0..8 {
+            let mut store = Store::default();
+            store.me = 1;
+            store.channels.insert(20, Channel { id: 20, guild: 10, ..Default::default() });
+            store.guilds.insert(10, Guild { id: 10, channels: vec![20], my_roles: vec![7], ..Default::default() });
+            let mut store = Tracked::from(store);
+            store.apply("USER_GUILD_SETTINGS_UPDATE", &json!({ "guild_id": "10",
+                "suppress_everyone": suppression & 1 != 0, "suppress_roles": suppression & 2 != 0 }));
+            assert_eq!(store.mention_count(), 0);
+            let message = json!({ "id": "100", "channel_id": "20", "guild_id": "10", "author": { "id": "2" },
+                "mentions": if mentions & 1 != 0 { json!([{ "id": "1" }]) } else { json!([]) },
+                "mention_everyone": mentions & 2 != 0,
+                "mention_roles": if mentions & 4 != 0 { json!(["7"]) } else { json!([]) } });
+            let expected = mentions & 1 != 0 || (mentions & 2 != 0 && suppression & 1 == 0) || (mentions & 4 != 0 && suppression & 2 == 0);
+            let parsed = store.parse_message(&message);
+            assert_eq!(store.mentions_me(&parsed), expected, "suppression {suppression}, mentions {mentions}");
+            store.apply("MESSAGE_CREATE", &message);
+            assert_eq!(store.mention_count(), u32::from(expected));
+            assert_eq!(store.guild_badge(10).1, u32::from(expected));
+        }
+    }
+}
+
+#[test]
+fn partial_notification_updates_keep_suppression() {
+    use serde_json::json;
+
+    let mut store = crate::state::Store::default();
+    store.apply("USER_GUILD_SETTINGS_UPDATE", &json!({ "guild_id": "10", "suppress_everyone": true, "suppress_roles": true }));
+    store.apply("USER_GUILD_SETTINGS_UPDATE", &json!({ "guild_id": "10", "channel_overrides": [{ "channel_id": "20", "muted": false }] }));
+    assert!(store.gprefs[&10].suppress_everyone);
+    assert!(store.gprefs[&10].suppress_roles);
+    store.apply("USER_GUILD_SETTINGS_UPDATE", &json!({ "guild_id": "10", "suppress_everyone": false }));
+    assert!(!store.gprefs[&10].suppress_everyone);
+    assert!(store.gprefs[&10].suppress_roles);
+}
+
+#[test]
 fn notification_updates_keep_channel_flags() {
     let mut store = crate::state::Store::default();
     store.apply("USER_GUILD_SETTINGS_UPDATE", &serde_json::json!({"guild_id":"1", "flags":16384,
