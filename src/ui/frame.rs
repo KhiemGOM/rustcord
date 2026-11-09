@@ -297,13 +297,9 @@ impl eframe::App for App {
                 self.drafts.insert(ch, d);
             }
         }
-        // egui-winit swallows ctrl+v when the clipboard holds no text, so watch the key ourselves;
-        // not under e2e, where the real keyboard belongs to whoever's at the machine
-        let v = self.e2e.is_none() && raw.focused && key_down(0x11) && key_down(b'V');
-        if v && !self.v_down && !raw.events.iter().any(|e| matches!(e, egui::Event::Paste(_))) {
+        if raw.focused && crate::winsys::take_paste() && !raw.events.iter().any(|e| matches!(e, egui::Event::Paste(_))) {
             self.paste_files();
         }
-        self.v_down = v;
     }
 
     fn clear_color(&self, _v: &egui::Visuals) -> [f32; 4] {
