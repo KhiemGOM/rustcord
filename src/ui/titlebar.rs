@@ -249,6 +249,8 @@ fn toggle_maximized(ctx: &egui::Context) {
 /// winit keeps a maximised window's client area to the work area, so fullscreen over one left
 /// the taskbar's height of it black.
 pub(super) fn fullscreen(ctx: &egui::Context, on: bool) {
+    crate::winsys::set_fullscreen(on);
+    ctx.send_viewport_cmd(ViewportCommand::Resizable(!on));
     let was = egui::Id::new("maximized_before_fullscreen");
     if on {
         let max = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
@@ -396,7 +398,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 label.paint(ui.painter(), pos2(name_at, mid - label.size().y / 2.0));
                 app.rects.insert("title:name".into(), Rect::from_min_size(pos2(name_at, mid - 8.0), vec2(label.size().x, 16.0)));
 
-                if drag.drag_started_by(PointerButton::Primary) {
+                if drag.drag_started_by(PointerButton::Primary) && !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
                     ctx.send_viewport_cmd(ViewportCommand::StartDrag);
                 }
                 if drag.double_clicked() {
@@ -794,6 +796,24 @@ fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
         }
     }
     jump
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fullscreen_disables_resizing_and_restores_it_on_exit() {
+        let ctx = egui::Context::default();
+        let mut entered = ctx.run_ui(Default::default(), |ui| fullscreen(ui.ctx(), true));
+        entered.textures_delta.clear();
+        let commands = &entered.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(commands.iter().any(|c| matches!(c, ViewportCommand::Resizable(false))));
+        let mut exited = ctx.run_ui(Default::default(), |ui| fullscreen(ui.ctx(), false));
+        exited.textures_delta.clear();
+        let commands = &exited.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(commands.iter().any(|c| matches!(c, ViewportCommand::Resizable(true))));
+    }
 }
 
 fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {

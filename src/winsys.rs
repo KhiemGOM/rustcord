@@ -183,6 +183,11 @@ pub fn watch_streaming(ctx: egui::Context) {
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+pub fn set_fullscreen(on: bool) {
+    FULLSCREEN.store(on, Ordering::Relaxed);
+}
 static BUTTON_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
@@ -225,7 +230,7 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
         }
         return 1;
     }
-    if msg == WM_NCHITTEST && unsafe { IsZoomed(hwnd) } == 0 {
+    if msg == WM_NCHITTEST && !FULLSCREEN.load(Ordering::Relaxed) && unsafe { IsZoomed(hwnd) } == 0 {
         let (x, y) = (lp as i16 as i32, ((lp >> 16) as i16) as i32);
         let mut r: RECT = unsafe { std::mem::zeroed() };
         unsafe { GetWindowRect(hwnd, &mut r) };
