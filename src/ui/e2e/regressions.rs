@@ -334,6 +334,27 @@ impl Run {
                 }
                 self.mark("incoming_request_profile");
                 app.full_profile = None;
+                self.next(0);
+            }
+            8903 => {
+                app.select_guild(None);
+                app.friends = true;
+                app.friends_tab = 4;
+                app.add_friend.clear();
+                self.next(300);
+            }
+            8904 => {
+                let (Some(text), Some(send)) = (app.rects.get("friends:add_text"), app.rects.get("friends:add_send")) else { return };
+                let shift = (text.center().y - send.center().y).abs();
+                self.rects.insert("add_friend_text_shift".into(), json!(shift));
+                if shift > 1.0 {
+                    return self.fail("add friend text was not centered beside its button".into());
+                }
+                self.mark("add_friend_aligned");
+                self.shot(ctx, "add_friend.png");
+                self.next(200);
+            }
+            8905 => {
                 app.friends = false;
                 app.select_guild(Some(self.target.0));
                 app.open(self.target.1);

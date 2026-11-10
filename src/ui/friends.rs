@@ -93,15 +93,18 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
         Some((false, _)) => pal().critical,
         None => pal().border_subtle,
     };
-    input_frame().corner_radius(8).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    input_frame().corner_radius(16).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut app.add_friend)
-                    .frame(Frame::NONE)
-                    .font(reg(16.0))
-                    .hint_text("You can add friends with their Discord username.")
-                    .desired_width(ui.available_width() - 190.0),
-            );
+            let out = egui::TextEdit::singleline(&mut app.add_friend)
+                .frame(Frame::NONE)
+                .font(reg(16.0))
+                .vertical_align(Align::Center)
+                .min_size(vec2(0.0, 38.0))
+                .hint_text("You can add friends with their Discord username.")
+                .desired_width(ui.available_width() - 190.0)
+                .show(ui);
+            app.rects.insert("friends:add_text".into(), Rect::from_min_size(out.galley_pos, out.galley.size()));
+            let r = out.response;
             if !ui.data(|d| d.get_temp::<bool>(seen)).unwrap_or(false) {
                 r.request_focus();
                 ui.data_mut(|d| d.insert_temp(seen, true));
@@ -113,7 +116,9 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
                 send = true;
                 r.request_focus();
             }
-            if button(ui, "Send Friend Request", pal().blurple, 180.0).clicked() {
+            let send_button = button(ui, "Send Friend Request", pal().blurple, 180.0);
+            app.rects.insert("friends:add_send".into(), send_button.rect);
+            if send_button.clicked() {
                 send = true;
             }
         });
