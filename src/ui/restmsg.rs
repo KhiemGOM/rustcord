@@ -178,9 +178,11 @@ impl App {
             Tag::AppIcons(asked) => {
                 for a in asked {
                     self.store.app_icons.insert(a, None);
+                    self.app_covers.insert(a, None);
                 }
                 for a in v.as_array().into_iter().flatten() {
                     self.store.app_icons.insert(crate::state::sid(&a["id"]), a["icon"].as_str().map(str::to_string));
+                    self.app_covers.insert(crate::state::sid(&a["id"]), a["cover_image"].as_str().map(str::to_string));
                 }
             }
             Tag::InvitePreview(code) => self.invite_card.got(&code, &v),

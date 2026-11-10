@@ -28,6 +28,14 @@ impl Run {
                         Err(e) => return self.fail(format!("editor {name}: {e}")),
                     }
                 }
+                if ed.draft.banner_url.is_some() && Self::at(ctx, "profed_backdrop").is_none() {
+                    return;
+                }
+                for id in ["1346069614634864772", "1323482066758930452"] {
+                    if Self::at(ctx, &format!("widget_app:{id}")).is_none() {
+                        return;
+                    }
+                }
                 self.mark("profile_assets_loaded");
                 self.shot(ctx, "profile_editor.png");
                 self.next(300);

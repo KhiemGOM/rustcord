@@ -29,6 +29,8 @@ def checks(runs, reqs, data):
         acct.update(b)
     return {
         "profed: the editor opens with the styles panel, the card, the board and every tile": has("profed_layout"),
+        "profed: the board is centered in its column": has("profed_centered_board"),
+        "profed: all ten placeholder game covers and the blurred banner backdrop load": has("profed_preview_art"),
         "profed: each picker lists Your items, Exclusive to Nitro and the shop, and Apply puts the choice in the draft":
             has("profed_pick_sections", "profed_decoration_applied", "profed_effect_applied", "profed_frame_applied", "profed_nameplate_applied"),
         "profed: an effect plays its layers in the editor and its products were fetched": has("profed_effect_preview_plays") and fetched("/collectibles-categories/v2"),

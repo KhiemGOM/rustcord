@@ -25,10 +25,23 @@ fn applications(v: &Value) -> &[Value] {
     v["applications"].as_array().map(Vec::as_slice).unwrap_or_default()
 }
 
+fn featured_tiles(apps: &[Value]) -> [Option<&Value>; 2] {
+    ["1346069614634864772", "1323482066758930452"].map(|id| apps.iter().find(|a| a["id"].as_str() == Some(id)))
+}
+
 fn game_art(app: &App, id: &str) -> Option<String> {
     let a = id.parse::<u64>().ok()?;
-    let hash = app.store.app_icons.get(&a)?.as_ref()?;
-    Some(format!("{}/app-icons/{a}/{hash}.png?size=128", crate::api::cdn()))
+    let hash = app.app_covers.get(&a).and_then(Option::as_ref).or_else(|| app.store.app_icons.get(&a)?.as_ref())?;
+    Some(format!("{}/app-icons/{a}/{hash}.png?size=256", crate::api::cdn()))
+}
+
+fn preview_games(slot: Slot) -> &'static [&'static str] {
+    match slot {
+        Slot::Favorite => &["1402418696126992445"],
+        Slot::Current => &["700136079562375258"],
+        Slot::Played => &["1384276457596911676", "1402692356343599254", "1344368447928401961", "1137125502985961543"],
+        Slot::Want => &["1314395942253756416", "356875762940379136", "1402418594532298837", "1413176957381771337"],
+    }
 }
 
 fn cover(ui: &Ui, app: &App, r: Rect, id: Option<&str>) {
@@ -41,12 +54,15 @@ fn cover(ui: &Ui, app: &App, r: Rect, id: Option<&str>) {
 }
 
 fn want_icons(app: &mut App, ids: &[String]) {
-    let want: Vec<u64> = ids.iter().filter_map(|i| i.parse().ok()).filter(|a| !app.store.app_icons.contains_key(a)).collect();
+    let mut want: Vec<u64> = ids.iter().filter_map(|i| i.parse().ok()).filter(|a| !app.app_covers.contains_key(a)).collect();
+    want.sort_unstable();
+    want.dedup();
     if want.is_empty() {
         return;
     }
     for a in &want {
-        app.store.app_icons.insert(*a, None);
+        app.store.app_icons.entry(*a).or_insert(None);
+        app.app_covers.insert(*a, None);
     }
     let q: Vec<String> = want.iter().map(|a| format!("application_ids={a}")).collect();
     app.rest("GET", format!("/applications/public?{}", q.join("&")), None, crate::net::Tag::AppIcons(want));
@@ -80,6 +96,7 @@ pub fn tabs(ui: &mut Ui, ed: &mut Editor, x: f32, y: f32, w: f32) {
 pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect) -> f32 {
     tabs(ui, ed, rect.left(), rect.top(), rect.width());
     let body = Rect::from_min_max(pos2(rect.left(), rect.top() + 48.0), rect.right_bottom());
+    mark(ui, "profed_board_body", body);
     match ed.tab {
         Tab::Board => board(app, ed, ui, body) + 48.0,
         Tab::Activity => activity(app, ui, body) + 48.0,
@@ -216,35 +233,38 @@ fn widget_of<'a>(list: &'a [Widget], s: Slot) -> Option<&'a Widget> {
 }
 
 fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
-    let mut y = r.top() + 24.0;
+    let order = [Some(Slot::Favorite), Some(Slot::Played), None, Some(Slot::Current), Some(Slot::Want), None];
+    let cols = if r.width() >= 2.0 * CELL_MIN + 16.0 { 2 } else { 1 };
+    let rows = order.len().div_ceil(cols);
+    let ch = 99.0;
+    let height = 76.0 + rows as f32 * (ch + 16.0) + 8.0 + 32.0;
+    let mut y = r.top() + ((r.height() - height) / 2.0).max(24.0);
+    mark(ui, "profed_board_prompt", Rect::from_min_size(pos2(r.left(), y), vec2(r.width(), 20.0)));
     ui.painter().text(pos2(r.center().x, y + 10.0), Align2::CENTER_CENTER, "Customize your profile with Widgets", medium(16.0), Color32::WHITE);
     ui.painter().text(pos2(r.center().x, y + 38.0), Align2::CENTER_CENTER, "Choose from our library of Widgets to share more\nabout yourself and your interests", reg(14.0), Color32::WHITE.gamma_multiply(0.96));
     y += 76.0;
     let featured = remote(app, "featured", "/widget-configs/featured").and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
     let apps = applications(&featured);
     let ids: Vec<String> = ed.draft.widgets.iter().flat_map(|w| w.games.iter().map(|g| g.id.clone()))
-        .chain(apps.iter().filter_map(|a| a["id"].as_str().map(str::to_string))).collect();
+        .chain(apps.iter().filter_map(|a| a["id"].as_str().map(str::to_string)))
+        .chain(Slot::ALL.into_iter().flat_map(preview_games).map(|id| id.to_string())).collect();
     want_icons(app, &ids);
-    let order = [Some(Slot::Favorite), Some(Slot::Played), None, Some(Slot::Current), Some(Slot::Want), None];
     let me = app.store.me;
     let idents = remote(app, "idents", &format!("/users/{me}/application-identities?with_profiles=true")).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
     let linked_ids: Vec<String> = idents.as_array().into_iter().flatten().filter_map(|i| i["application_id"].as_str().map(str::to_string)).collect();
-    let mut linked = apps.iter();
+    let mut linked = featured_tiles(apps).into_iter();
     let cw = ((r.width() - 16.0) / 2.0).max(CELL_MIN);
-    let cols = if r.width() >= 2.0 * CELL_MIN + 16.0 { 2 } else { 1 };
     let cw = if cols == 2 { cw } else { r.width() };
-    let ch = 99.0;
     for (i, s) in order.iter().enumerate() {
         let cell = Rect::from_min_size(pos2(r.left() + (i % cols) as f32 * (cw + 16.0), y + (i / cols) as f32 * (ch + 16.0)), vec2(cw, ch));
         match s {
             Some(slot) => slot_tile(app, ed, ui, cell, *slot),
-            None => match linked.next() {
+            None => match linked.next().flatten() {
                 Some(a) => app_tile(app, ui, cell, a, linked_ids.iter().any(|l| Some(l.as_str()) == a["id"].as_str())),
                 None => {}
             },
         }
     }
-    let rows = order.len().div_ceil(cols);
     y += rows as f32 * (ch + 16.0) + 8.0;
     let b = Rect::from_center_size(pos2(r.center().x, y + 16.0), vec2(140.0, 32.0));
     let resp = ui.interact(b, ui.id().with("browse_widgets"), Sense::click());
@@ -270,8 +290,8 @@ fn tile_frame(ui: &mut Ui, cell: Rect, id: &str) -> egui::Response {
 }
 
 fn plus(ui: &Ui, c: egui::Pos2, set: bool) {
-    ui.painter().circle_filled(c, 12.0, Color32::from_black_alpha(150));
-    icons::draw(ui.painter(), if set { Icon::Pencil } else { Icon::Plus }, Rect::from_center_size(c, vec2(14.0, 14.0)), Color32::WHITE);
+    ui.painter().circle_filled(c, 12.0, if set { Color32::from_black_alpha(150) } else { Color32::WHITE.gamma_multiply(0.9) });
+    icons::draw(ui.painter(), if set { Icon::Pencil } else { Icon::Plus }, Rect::from_center_size(c, vec2(14.0, 14.0)), if set { Color32::WHITE } else { Color32::from_gray(40) });
 }
 
 fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot) {
@@ -279,15 +299,27 @@ fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot
     let w = widget_of(&ed.draft.widgets, slot);
     let n = match slot {
         Slot::Favorite | Slot::Current => 1,
-        _ => 3,
+        _ => 4,
     };
     let (cwid, chgt) = (56.0, 75.0);
     let pad = 12.0;
     let total = n as f32 * cwid + (n as f32 - 1.0) * 8.0;
     let left = if n == 1 { cell.left() + pad } else { cell.center().x - total / 2.0 };
+    let mut art = ui.new_child(UiBuilder::new().max_rect(cell));
+    art.set_clip_rect(cell.intersect(ui.clip_rect()));
     for k in 0..n {
         let cr = Rect::from_min_size(pos2(left + k as f32 * (cwid + 8.0), cell.top() + pad), vec2(cwid, chgt));
-        cover(ui, app, cr, w.and_then(|w| w.games.get(k)).map(|g| g.id.as_str()));
+        let id = match w {
+            Some(w) => w.games.get(k).map(|g| g.id.as_str()),
+            None => preview_games(slot).get(k).copied(),
+        };
+        cover(&art, app, cr, id);
+        if w.is_none() {
+            art.painter().rect_filled(cr, 8, Color32::from_black_alpha(125));
+            if let Some(id) = id {
+                mark(ui, &format!("preview_cover:{id}"), cr);
+            }
+        }
     }
     if n == 1 {
         match w.and_then(|w| w.games.first()) {
@@ -475,6 +507,21 @@ pub fn browse(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn featured_tiles_keep_the_reference_games_when_other_apps_are_returned() {
+        let apps = serde_json::json!([
+            {"id": "1346069614634864772", "name": "Marvel Rivals"},
+            {"id": "672188101707169852", "name": "Another game"},
+            {"id": "1323482066758930452", "name": "Wuthering Waves"}
+        ]);
+        let tiles = super::featured_tiles(apps.as_array().unwrap());
+        assert_eq!(tiles[0].unwrap()["name"], "Marvel Rivals");
+        assert_eq!(tiles[1].unwrap()["name"], "Wuthering Waves");
+        let tiles = super::featured_tiles(&apps.as_array().unwrap()[1..]);
+        assert!(tiles[0].is_none());
+        assert_eq!(tiles[1].unwrap()["name"], "Wuthering Waves");
+    }
+
     #[test]
     fn featured_widget_response_keeps_its_applications() {
         let response = serde_json::json!({"applications": [

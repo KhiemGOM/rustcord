@@ -2237,13 +2237,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 { "id": snow(now - 40 * 86_400_000).to_string(), "user_id": "103", "ended": true, "ends_at": iso(now - 2 * 86_400_000), "user": user(103) },
             ]))
         }
-        ("GET", ["api", "v9", "applications", "public"]) => ok(json!([
-            { "id": "9001", "name": "Factorio", "icon": "appicon9001" },
-            { "id": "9002", "name": "Wordle", "icon": "appicon9002" },
-            { "id": "9004", "name": "Genshin Impact", "icon": "appicon9004" },
-            { "id": "9100", "name": "Mock Quiz", "icon": null, "description": "A quiz for the whole call" },
-            { "id": "9101", "name": "Mock Draw", "icon": null, "description": "Draw something together" },
-        ])),
         ("GET", ["api", "v9", "oauth2", "tokens"]) => ok(json!([
             { "id": "77", "scopes": ["identify", "guilds"], "application": { "id": "104", "name": "Dyno", "icon": null, "description": "A multipurpose bot." } },
         ])),
