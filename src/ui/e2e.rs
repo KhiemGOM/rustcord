@@ -573,7 +573,7 @@ impl Run {
         if (9000..9900).contains(&self.step) {
             return self.stress_steps(app, ctx);
         }
-        if (8800..8900).contains(&self.step) {
+        if (8800..9000).contains(&self.step) {
             return self.regression_steps(app, ctx);
         }
         let me = app.store.me;
