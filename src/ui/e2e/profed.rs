@@ -449,7 +449,7 @@ impl Run {
                     self.mark("profed_server_saved");
                     app.profed = None;
                     app.settings_page = None;
-                    self.step = 4100;
+                    self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 4100 };
                 }
             }
             _ => self.step = 4100,
