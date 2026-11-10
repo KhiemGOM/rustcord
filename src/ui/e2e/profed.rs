@@ -63,9 +63,10 @@ impl Run {
                     return;
                 }
                 let keys = ["profile_select", "hide_styles", "tile:nameplate", "tile:avatar", "tile:decoration", "tile:dns", "swatch:primary", "swatch:accent", "tile:banner", "tile:effect", "tile:frame", "add_status", "profile:pronouns", "profile:bio", "browse_widgets", "widget:favorite_games", "widget:played_games", "profed_tab:Board", "profed_close"];
-                if keys.iter().all(|k| at(k).is_some()) {
-                    self.mark("profed_layout");
+                if keys.iter().any(|k| at(k).is_none()) || at("widget_app:9001").is_none() || at("widget_app:9004").is_none() {
+                    return;
                 }
+                self.mark("profed_layout");
                 self.shot(ctx, "profed.png");
                 self.next(500);
             }

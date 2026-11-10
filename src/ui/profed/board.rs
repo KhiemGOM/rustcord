@@ -21,6 +21,10 @@ pub struct Edit {
 pub const CELL_MIN: f32 = 150.0;
 const SUGGESTED: &str = "/users/@me/widgets/suggested-games";
 
+fn applications(v: &Value) -> &[Value] {
+    v["applications"].as_array().map(Vec::as_slice).unwrap_or_default()
+}
+
 fn game_art(app: &App, id: &str) -> Option<String> {
     let a = id.parse::<u64>().ok()?;
     let hash = app.store.app_icons.get(&a)?.as_ref()?;
@@ -217,10 +221,11 @@ fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
     ui.painter().text(pos2(r.center().x, y + 38.0), Align2::CENTER_CENTER, "Choose from our library of Widgets to share more\nabout yourself and your interests", reg(14.0), Color32::WHITE.gamma_multiply(0.96));
     y += 76.0;
     let featured = remote(app, "featured", "/widget-configs/featured").and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
-    let ids: Vec<String> = ed.draft.widgets.iter().flat_map(|w| w.games.iter().map(|g| g.id.clone())).collect();
+    let apps = applications(&featured);
+    let ids: Vec<String> = ed.draft.widgets.iter().flat_map(|w| w.games.iter().map(|g| g.id.clone()))
+        .chain(apps.iter().filter_map(|a| a["id"].as_str().map(str::to_string))).collect();
     want_icons(app, &ids);
     let order = [Some(Slot::Favorite), Some(Slot::Played), None, Some(Slot::Current), Some(Slot::Want), None];
-    let apps: Vec<Value> = featured.as_array().cloned().unwrap_or_default();
     let me = app.store.me;
     let idents = remote(app, "idents", &format!("/users/{me}/application-identities?with_profiles=true")).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
     let linked_ids: Vec<String> = idents.as_array().into_iter().flatten().filter_map(|i| i["application_id"].as_str().map(str::to_string)).collect();
@@ -234,7 +239,7 @@ fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
         match s {
             Some(slot) => slot_tile(app, ed, ui, cell, *slot),
             None => match linked.next() {
-                Some(a) => app_tile(app, ui, cell, a, linked_ids.iter().any(|l| Some(l.as_str()) == a["application_id"].as_str())),
+                Some(a) => app_tile(app, ui, cell, a, linked_ids.iter().any(|l| Some(l.as_str()) == a["id"].as_str())),
                 None => {}
             },
         }
@@ -445,7 +450,7 @@ pub fn browse(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
                 }
             }
             for (title, list) in [("Linked accounts", &featured), ("From developers", &dev)] {
-                let rows: Vec<&Value> = list.as_array().into_iter().flatten().collect();
+                let rows = applications(list);
                 if rows.is_empty() {
                     continue;
                 }
@@ -466,4 +471,19 @@ pub fn browse(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         ed.dlg = Dlg::None;
     }
     let _ = sid;
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn featured_widget_response_keeps_its_applications() {
+        let response = serde_json::json!({"applications": [
+            {"id": "1", "name": "Marvel Rivals", "cover_image": "cover"},
+            {"id": "2", "name": "Wuthering Waves"}
+        ], "configs": {"1": [], "2": []}});
+        let apps = super::applications(&response);
+        assert_eq!(apps.len(), 2);
+        assert_eq!(apps[0]["id"], "1");
+        assert_eq!(apps[1]["name"], "Wuthering Waves");
+    }
 }

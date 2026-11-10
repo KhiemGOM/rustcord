@@ -90,8 +90,8 @@ pub fn route(method: &str, p: &[&str], b: &Value, cdn: &str) -> Option<(u16, Val
             }
             ok(json!({ "taken": TAKEN.contains(&name) }))
         }
-        ("GET", ["api", "v9", "widget-configs", "featured"]) => ok(json!([{ "application_id": "9001", "name": "Marvel Rivals" }, { "application_id": "9004", "name": "Wuthering Waves" }])),
-        ("GET", ["api", "v9", "widget-configs", "developer"]) => ok(json!([{ "application_id": "9002", "name": "Crab Quest" }])),
+        ("GET", ["api", "v9", "widget-configs", "featured"]) => ok(json!({ "applications": [{ "id": "9001", "name": "Marvel Rivals" }, { "id": "9004", "name": "Wuthering Waves" }], "configs": {} })),
+        ("GET", ["api", "v9", "widget-configs", "developer"]) => ok(json!({ "applications": [{ "id": "9002", "name": "Crab Quest" }], "configs": {} })),
         ("GET", ["api", "v9", "users", "@me", "widgets", "suggested-games"]) => ok(games()),
         ("GET", ["api", "v9", "wishlists", id]) => ok(json!({ "id": id, "visibility": 1, "wishlist_items": if *id == "101" { json!([{ "sku": { "id": "7201" }, "sku_id": "7201" }, { "sku": { "id": "7203" }, "sku_id": "7203" }]) } else { json!([]) } })),
         ("GET", ["api", "v9", "users", _, "application-identities"]) => ok(json!([{ "application_id": "9001", "name": "Mock Racers", "identity": { "username": "alice#racer" } }])),
