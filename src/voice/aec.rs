@@ -1,6 +1,5 @@
 //! Acoustic echo cancellation: a partitioned-block frequency-domain NLMS filter learns the path
-//! from the speakers to the mic and subtracts what the speakers played, then a residual
-//! suppressor takes down what the filter left behind while only the far end is talking.
+//! from the speakers to the mic and subtracts what the speakers played.
 
 use realfft::num_complex::Complex;
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
@@ -9,7 +8,7 @@ use std::sync::Arc;
 pub const BLOCK: usize = 480;
 const PARTS: usize = 30;
 const BINS: usize = BLOCK + 1;
-const MU: f32 = 0.6;
+const MU: f32 = 1.0;
 
 type Spec = Vec<Complex<f32>>;
 
@@ -25,7 +24,11 @@ pub struct Aec {
     time: Vec<f32>,
     spec: Spec,
     acc: Spec,
-    gain: f32,
+    error_avg: [f32; BINS],
+    echo_avg: [f32; BINS],
+    covariance: f32,
+    variance: f32,
+    warmup: usize,
     pub far_only: bool,
 }
 
@@ -44,7 +47,11 @@ impl Aec {
             time: vec![0.0; 2 * BLOCK],
             spec: vec![Complex::default(); BINS],
             acc: vec![Complex::default(); BINS],
-            gain: 1.0,
+            error_avg: [0.0; BINS],
+            echo_avg: [0.0; BINS],
+            covariance: 0.0,
+            variance: 0.0,
+            warmup: PARTS * 2,
             far_only: false,
         }
     }
@@ -79,26 +86,59 @@ impl Aec {
             *y = t * scale;
         }
         let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
-        let (d_rms, y_rms, x_rms) = (rms(near), rms(&echo), rms(far));
+        let x_rms = rms(far);
         self.far_rms[newest] = x_rms;
         let mut err = [0f32; BLOCK];
         for ((e, d), y) in err.iter_mut().zip(near.iter()).zip(&echo) {
             *e = d - y;
         }
-        let e_rms = rms(&err);
 
         let far_peak = self.far_rms.iter().cloned().fold(0.0, f32::max);
-        let talking_over = d_rms > 0.7 * far_peak;
+        self.time[..BLOCK].fill(0.0);
+        self.time[BLOCK..].copy_from_slice(near);
+        let _ = self.fwd.process(&mut self.time, &mut self.spec);
+        let near_power = self.spec.iter().map(|s| s.norm_sqr()).sum::<f32>();
+        let far_power = self.power.iter().sum::<f32>();
+        let shared = self.spec.iter().zip(&self.power).map(|(s, p)| (s.norm_sqr() * p).sqrt()).sum::<f32>();
+        let overlap = shared / (near_power * far_power).sqrt().max(1e-10);
+        let talking_over = overlap < 0.5;
         self.far_only = far_peak > 1e-3 && !talking_over;
+        self.time[..BLOCK].fill(0.0);
+        self.time[BLOCK..].copy_from_slice(&echo);
+        let _ = self.fwd.process(&mut self.time, &mut self.acc);
+        let echo_power: [f32; BINS] = std::array::from_fn(|i| self.acc[i].norm_sqr());
+        self.time[..BLOCK].fill(0.0);
+        self.time[BLOCK..].copy_from_slice(&err);
+        let _ = self.fwd.process(&mut self.time, &mut self.spec);
+        let mut covariance = 0.0;
+        let mut variance = 0.0;
+        for (i, y) in echo_power.iter().enumerate() {
+            let e = self.spec[i].norm_sqr();
+            let de = e - self.error_avg[i];
+            let dy = y - self.echo_avg[i];
+            covariance += de * dy;
+            variance += dy * dy;
+            self.error_avg[i] += 0.1 * de;
+            self.echo_avg[i] += 0.1 * dy;
+        }
+        self.covariance = 0.9 * self.covariance + 0.1 * covariance;
+        self.variance = 0.9 * self.variance + 0.1 * variance;
+        let leak = (self.covariance / self.variance.max(1e-10)).clamp(0.005, 1.0);
+        let error_energy = err.iter().map(|e| e * e).sum::<f32>().max(1e-10);
+        let echo_energy = echo.iter().map(|y| y * y).sum::<f32>().max(1e-10);
+        let cross = err.iter().zip(&echo).map(|(e, y)| e * y).sum::<f32>();
+        let residual = (3.0 * leak * echo_energy / error_energy)
+            .max(cross * cross / (error_energy * echo_energy)).min(0.5);
+        let rate: [f32; BINS] = std::array::from_fn(|i| {
+            if self.warmup > 0 { MU } else { 0.7 * (leak * echo_power[i] / self.spec[i].norm_sqr().max(1e-10)).min(MU) + 0.3 * residual }
+        });
         if x_rms > 1e-3 && !talking_over {
-            self.time[..BLOCK].fill(0.0);
-            self.time[BLOCK..].copy_from_slice(&err);
-            let _ = self.fwd.process(&mut self.time, &mut self.spec);
-            let eps = BLOCK as f32 * 1e-6;
+            self.warmup = self.warmup.saturating_sub(1);
+            let eps = BLOCK as f32 * 1e-3;
             for k in 0..PARTS {
                 let x = &self.xf[part(k)];
-                for (((a, s), x), p) in self.acc.iter_mut().zip(&self.spec).zip(x).zip(&self.power) {
-                    *a = x.conj() * s * (MU / (p + eps));
+                for ((((a, s), x), p), mu) in self.acc.iter_mut().zip(&self.spec).zip(x).zip(&self.power).zip(&rate) {
+                    *a = x.conj() * s * (mu / (p + eps));
                 }
                 let _ = self.inv.process(&mut self.acc, &mut self.time);
                 self.time[BLOCK..].fill(0.0);
@@ -112,14 +152,7 @@ impl Aec {
             }
         }
 
-        let (pe, py) = (e_rms * e_rms, y_rms * y_rms);
-        let target = (pe / (pe + 0.3 * py + 1e-10)).sqrt().max(0.1);
-        let step = (target - self.gain) / BLOCK as f32;
-        for (n, e) in near.iter_mut().zip(&err) {
-            self.gain += step;
-            *n = e * self.gain;
-        }
-        self.gain = target;
+        near.copy_from_slice(&err);
     }
 }
 
@@ -177,6 +210,20 @@ mod tests {
     }
 
     #[test]
+    fn keeps_quiet_speech_over_loud_playback_without_echo() {
+        let n = 48_000 * 4;
+        let far: Vec<f32> = (0..n).map(|i| 0.5 * (i as f32 * 0.0576).sin()).collect();
+        let talker: Vec<f32> = (0..n).map(|i| 0.05 * (i as f32 * 0.0839).sin()).collect();
+        let mut out = talker.clone();
+        run(&far, &mut out);
+        let tail = 48_000 * 2..;
+        let error: Vec<f32> = out[tail.clone()].iter().zip(&talker[tail.clone()]).map(|(a,b)| a-b).collect();
+        let snr = 10.0 * (energy(&talker[tail]) / energy(&error).max(1e-20)).log10();
+        eprintln!("near-end speech: {snr:.1} dB SNR");
+        assert!(snr > 10.0, "near-end speech distorted: {snr} dB SNR");
+    }
+
+    #[test]
     fn keeps_the_near_end_talker() {
         let mut rng = Rng(11);
         let far = speech(&mut rng, 48_000 * 6);
@@ -187,5 +234,33 @@ mod tests {
         let tail = 48_000 * 4..;
         let kept = energy(&out[tail.clone()]) / energy(&talker[tail]);
         assert!(kept > 0.6 && kept < 1.6, "kept {kept}");
+    }
+
+    #[test]
+    fn keeps_unrelated_quiet_speech_over_playback() {
+        let n = 48_000 * 4;
+        let far = speech(&mut Rng(41), n);
+        let talker: Vec<f32> = speech(&mut Rng(73), n).into_iter().map(|v| v * 0.1).collect();
+        let mut out = talker.clone();
+        run(&far, &mut out);
+        let tail = 48_000 * 2..;
+        let error: Vec<f32> = out[tail.clone()].iter().zip(&talker[tail.clone()]).map(|(a, b)| a - b).collect();
+        let snr = 10.0 * (energy(&talker[tail]) / energy(&error).max(1e-20)).log10();
+        eprintln!("unrelated near-end speech: {snr:.1} dB SNR");
+        assert!(snr > 10.0, "near-end speech distorted: {snr} dB SNR");
+    }
+
+    #[test]
+    fn keeps_quiet_speech_after_learning_the_echo() {
+        let n = 48_000 * 6;
+        let far = speech(&mut Rng(53), n);
+        let talker: Vec<f32> = (0..n).map(|i| if i < 96_000 { 0.0 } else { 0.01 * (i as f32 * 0.0839).sin() }).collect();
+        let mut out: Vec<f32> = echo_path(&far).iter().zip(&talker).map(|(e, t)| e + t).collect();
+        run(&far, &mut out);
+        let tail = 48_000 * 4..;
+        let error: Vec<f32> = out[tail.clone()].iter().zip(&talker[tail.clone()]).map(|(a, b)| a - b).collect();
+        let snr = 10.0 * (energy(&talker[tail]) / energy(&error).max(1e-20)).log10();
+        eprintln!("quiet speech with echo: {snr:.1} dB SNR");
+        assert!(snr > 10.0, "quiet speech suppressed with echo: {snr} dB SNR");
     }
 }

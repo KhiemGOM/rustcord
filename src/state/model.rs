@@ -75,7 +75,7 @@ impl User {
     }
 
     pub fn decoration_url(&self) -> Option<String> {
-        self.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=96&passthrough=false", crate::api::cdn()))
+        self.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=96&passthrough=true", crate::api::cdn()))
     }
 
     /// The still of a nameplate, 448x84 with its own fade on the left.

@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / (sys.argv[sys.argv.index("--target") + 1] if "--target" in sys.argv else "target") / "release"
-EXE = TARGET / "rustcord.exe"
+EXE = Path(os.environ.get("RUSTCORD_EXE") or TARGET / "rustcord.exe")
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 u32 = ctypes.WinDLL("user32", use_last_error=True)
 psapi = ctypes.WinDLL("psapi", use_last_error=True)

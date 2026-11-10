@@ -183,19 +183,81 @@ pub fn watch_streaming(ctx: egui::Context) {
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static FULLSCREEN: AtomicBool = AtomicBool::new(false);
+static PASTE: AtomicBool = AtomicBool::new(false);
+
+pub fn take_paste() -> bool {
+    PASTE.swap(false, Ordering::Relaxed)
+}
+
+pub fn set_fullscreen(on: bool) {
+    FULLSCREEN.store(on, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn paste_press_survives_key_release_until_the_frame() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardState, SetKeyboardState};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, GetWindowLongPtrW, GWLP_WNDPROC, WM_KEYDOWN, WS_POPUP};
+        unsafe {
+            let class = super::wide("STATIC");
+            let window = CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_POPUP, 0, 0, 8, 8, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null());
+            assert!(!window.is_null());
+            let mut keys = [0; 256];
+            assert_ne!(GetKeyboardState(keys.as_mut_ptr()), 0);
+            let before = keys;
+            let old = super::OLD_PROC.swap(GetWindowLongPtrW(window, GWLP_WNDPROC), super::Ordering::Relaxed);
+            keys[0x11] = 0x80;
+            keys[b'V' as usize] = 0x80;
+            let down = SetKeyboardState(keys.as_ptr());
+            super::chrome_proc(window, WM_KEYDOWN, b'V' as usize, 0);
+            keys[0x11] = 0;
+            keys[b'V' as usize] = 0;
+            let up = SetKeyboardState(keys.as_ptr());
+            let paste = super::take_paste();
+            let twice = super::take_paste();
+            SetKeyboardState(before.as_ptr());
+            super::OLD_PROC.store(old, super::Ordering::Relaxed);
+            DestroyWindow(window);
+            assert_ne!(down, 0);
+            assert_ne!(up, 0);
+            assert!(paste, "paste was lost when the keys were released before the frame");
+            assert!(!twice);
+        }
+    }
+
+    #[test]
+    fn background_erase_keeps_the_rendered_pixels() {
+        use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetPixel, SelectObject, SetPixel};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WM_ERASEBKGND, WS_POPUP};
+        unsafe {
+            let class = super::wide("STATIC");
+            let window = CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_POPUP, 0, 0, 8, 8, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null());
+            let dc = CreateCompatibleDC(std::ptr::null_mut());
+            let bitmap = CreateBitmap(8, 8, 1, 32, std::ptr::null());
+            assert!(!window.is_null() && !dc.is_null() && !bitmap.is_null());
+            let previous = SelectObject(dc, bitmap);
+            let color = 0x00372917;
+            SetPixel(dc, 0, 0, color);
+            let before = GetPixel(dc, 0, 0);
+            let handled = super::chrome_proc(window, WM_ERASEBKGND, dc as usize, 0);
+            let after = GetPixel(dc, 0, 0);
+            SelectObject(dc, previous);
+            DeleteObject(bitmap);
+            DeleteDC(dc);
+            DestroyWindow(window);
+            assert_eq!(before, color);
+            assert_eq!(handled, 1);
+            assert_eq!(after, before, "background erasure blanked the rendered frame");
+        }
+    }
+}
 static BUTTON_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 // width of the invisible resize border, in points
 const EDGE: f32 = 6.0;
-
-static BACKDROP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-/// The colour the window is wiped with before a frame lands, the one egui clears to, so the strip
-/// a drag uncovers is the app's background rather than the system's.
-pub fn set_backdrop(c: [u8; 3]) {
-    BACKDROP.store(u32::from(c[0]) | u32::from(c[1]) << 8 | u32::from(c[2]) << 16, Ordering::Relaxed);
-}
 
 /// winit leaves an undecorated window with no resize border at all, so answer
 /// WM_NCHITTEST ourselves; the system then does the cursor, the drag and Aero Snap.
@@ -203,6 +265,15 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if msg == WM_PASTE || msg == WM_KEYDOWN && wp == b'V' as usize && lp & (1 << 30) == 0
+        && unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyState(0x11) } < 0
+    {
+        PASTE.store(true, Ordering::Relaxed);
+        unsafe { windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 0) };
+        if msg == WM_PASTE {
+            return 0;
+        }
+    }
     if msg == WM_CLOSE && crate::tray::close_hides() {
         crate::tray::send("hide");
         return 0;
@@ -215,17 +286,9 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
         return 1;
     }
     if msg == WM_ERASEBKGND {
-        use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect};
-        let mut r: RECT = unsafe { std::mem::zeroed() };
-        unsafe {
-            GetClientRect(hwnd, &mut r);
-            let b = CreateSolidBrush(BACKDROP.load(Ordering::Relaxed));
-            FillRect(wp as _, &r, b);
-            DeleteObject(b as _);
-        }
         return 1;
     }
-    if msg == WM_NCHITTEST && unsafe { IsZoomed(hwnd) } == 0 {
+    if msg == WM_NCHITTEST && !FULLSCREEN.load(Ordering::Relaxed) && unsafe { IsZoomed(hwnd) } == 0 {
         let (x, y) = (lp as i16 as i32, ((lp >> 16) as i16) as i32);
         let mut r: RECT = unsafe { std::mem::zeroed() };
         unsafe { GetWindowRect(hwnd, &mut r) };

@@ -39,8 +39,12 @@ impl Store {
             self.events_muted.remove(&gid);
         }
         let prefs = self.gprefs.entry(gid).or_default();
-        prefs.suppress_everyone = s["suppress_everyone"].as_bool() == Some(true);
-        prefs.suppress_roles = s["suppress_roles"].as_bool() == Some(true);
+        if let Some(on) = s["suppress_everyone"].as_bool() {
+            prefs.suppress_everyone = on;
+        }
+        if let Some(on) = s["suppress_roles"].as_bool() {
+            prefs.suppress_roles = on;
+        }
         prefs.highlights_off = s["notify_highlights"].as_u64() == Some(2);
         prefs.mobile_push = s["mobile_push"].as_bool() != Some(false);
         if let Some(all) = unreads(s, 2048, 4096) {
@@ -49,24 +53,28 @@ impl Store {
         if let Some(n) = s["message_notifications"].as_u64().filter(|n| *n < 3) {
             self.levels.insert(gid, n as u8);
         }
-        if s["flags"].as_u64().unwrap_or(0) & (1 << 14) != 0 {
-            self.opt_in.insert(gid);
-        } else {
-            self.opt_in.remove(&gid);
+        if let Some(flags) = s["flags"].as_u64() {
+            if flags & (1 << 14) != 0 {
+                self.opt_in.insert(gid);
+            } else {
+                self.opt_in.remove(&gid);
+            }
         }
         for o in s["channel_overrides"].as_array().into_iter().flatten() {
             let cid = sid(&o["channel_id"]);
-            self.chan_flags.insert(cid, o["flags"].as_u64().unwrap_or(0));
-            if o["flags"].as_u64().unwrap_or(0) & (1 << 12) != 0 {
-                self.opted.insert(cid);
-            } else {
-                self.opted.remove(&cid);
-            }
-            if gid == 0 {
-                if o["flags"].as_u64().unwrap_or(0) & 2048 != 0 {
-                    self.pinned.insert(cid);
+            if let Some(flags) = o["flags"].as_u64() {
+                self.chan_flags.insert(cid, flags);
+                if flags & (1 << 12) != 0 {
+                    self.opted.insert(cid);
                 } else {
-                    self.pinned.remove(&cid);
+                    self.opted.remove(&cid);
+                }
+                if gid == 0 {
+                    if flags & 2048 != 0 {
+                        self.pinned.insert(cid);
+                    } else {
+                        self.pinned.remove(&cid);
+                    }
                 }
             }
             if on(o) {

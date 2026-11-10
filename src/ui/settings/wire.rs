@@ -44,8 +44,9 @@ pub fn decode(b: &[u8]) -> Fields {
                 Node::Bytes(s.to_vec())
             }),
             2 => varint(b, &mut i).and_then(|n| {
-                let s = b.get(i..i + n as usize)?;
-                i += n as usize;
+                let end = i.checked_add(usize::try_from(n).ok()?)?;
+                let s = b.get(i..end)?;
+                i = end;
                 Some(Node::Bytes(s.to_vec()))
             }),
             _ => None,

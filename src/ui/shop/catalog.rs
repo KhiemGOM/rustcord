@@ -58,7 +58,11 @@ struct Ctx<'a> {
 
 fn products(app: &App) -> Vec<&Value> {
     let src = get(app, "shop_cats").or(get(app, "shop_home"));
-    src.and_then(|v| v["categories"].as_array()).into_iter().flatten().flat_map(|c| c["products"].as_array().into_iter().flatten()).collect()
+    let mut seen = crate::state::Set::default();
+    src.into_iter().chain(get(app, "shop_orbs_home"))
+        .flat_map(|v| v["categories"].as_array().into_iter().flatten())
+        .flat_map(|c| c["products"].as_array().into_iter().flatten())
+        .filter(|p| seen.insert(sku(p))).collect()
 }
 
 fn grid(ui: &mut Ui, left: f32, y: &mut f32, w: f32, salt: &str, items: &[&Value], look: &Ctx, acts: &mut Vec<Act>) {
@@ -90,9 +94,10 @@ fn skeleton(ui: &mut Ui, left: f32, y: &mut f32, w: f32, count: usize) {
 
 fn card(ui: &mut Ui, r: Rect, salt: &str, p: &Value, look: &Ctx, acts: &mut Vec<Act>) {
     let id = sku(p).to_string();
-    match product::card(ui, r, salt, p, look.member, look.wish.contains(&id), look.avatar, look.orbs) {
+    let wished = sku(product::selected(p, 0)).to_string();
+    match product::card(ui, r, salt, p, look.member, look.wish.contains(&wished), look.avatar, look.orbs) {
         Some(Hit::Open) => acts.push(Act::Open(id)),
-        Some(Hit::Wish) => acts.push(Act::Wish(id)),
+        Some(Hit::Wish) => acts.push(Act::Wish(wished)),
         None => {}
     }
 }
@@ -126,7 +131,7 @@ fn strip(ui: &mut Ui, r: Rect, salt: &str, items: &[&Value], look: &Ctx, acts: &
 }
 
 fn find<'a>(all: &[&'a Value], id: &str) -> Option<&'a Value> {
-    all.iter().find(|p| sku(p) == id).copied()
+    all.iter().copied().flat_map(|p| std::iter::once(p).chain(p["variants"].as_array().into_iter().flatten())).find(|p| sku(p) == id)
 }
 
 fn picked<'a>(all: &[&'a Value], b: &Value) -> Vec<&'a Value> {
@@ -666,11 +671,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     if let Some(p) = open.as_deref().and_then(|id| find(&all, id)) {
         let cat = categories.iter().find(|c| c["sku_id"] == p["category_sku_id"]).and_then(|c| c["name"].as_str());
-        if let Some(a) = product::detail(ui.ctx(), p, member, wishing.iter().any(|w| w == sku(p)), &avatar, cat, slide) {
+        if let Some(a) = product::detail(ui.ctx(), p, member, wishing.iter().any(|w| w == sku(product::selected(p, slide))), &avatar, cat, slide) {
             acts.push(match a {
                 product::Act::Close => Act::Close,
-                product::Act::Buy => Act::Buy(sku(p).to_string()),
-                product::Act::Wish => Act::Wish(sku(p).to_string()),
+                product::Act::Buy => Act::Buy(sku(product::selected(p, slide)).to_string()),
+                product::Act::Wish => Act::Wish(sku(product::selected(p, slide)).to_string()),
                 product::Act::Collection => Act::Collection(p["category_sku_id"].as_str().map(str::to_string)),
                 product::Act::Pick(i) => Act::Pick(i),
             });
@@ -769,7 +774,53 @@ fn apply(app: &mut App, acts: Vec<Act>) {
 }
 
 fn buy(app: &mut App, id: String) {
-    if let Some(p) = products(app).into_iter().find(|p| sku(p) == id).cloned() {
+    if let Some(p) = find(&products(app), &id).cloned() {
         app.open_buy(crate::ui::buy::What::Shop(p));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_search_result_can_open_an_individual_decoration_variant() {
+        let group = json!({ "sku_id": "10", "type": 2000, "variants": [
+            { "sku_id": "11", "type": 0, "items": [{ "type": 0, "asset": "panda" }] },
+            { "sku_id": "12", "type": 0, "items": [{ "type": 0, "asset": "blue_panda" }] }
+        ] });
+        let all = [&group];
+        assert_eq!(find(&all, "10"), Some(&group));
+        let blue = find(&all, "12").expect("search dropped the variant");
+        assert_eq!(blue["items"][0]["asset"], "blue_panda");
+        assert!(find(&all, "missing").is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn current_catalog_resolves_every_decoration() {
+        let dir = std::path::PathBuf::from(std::env::var_os("RUSTCORD_CATALOG_AUDIT").expect("RUSTCORD_CATALOG_AUDIT"));
+        let read = |name: &str| -> Value { serde_json::from_slice(&std::fs::read(dir.join(name)).unwrap()).unwrap() };
+        let catalog = read("categories-current.json");
+        let search = read("search-all-decorations.json");
+        let all: Vec<&Value> = catalog["categories"].as_array().unwrap().iter().flat_map(|c| c["products"].as_array().into_iter().flatten()).collect();
+        let ids = search["skus"].as_array().unwrap();
+        assert!(!ids.is_empty());
+        assert_eq!(ids.len() as u64, search["total"].as_u64().unwrap());
+        let mut assets = crate::state::Set::default();
+        for id in ids {
+            let id = id.as_str().unwrap();
+            let p = find(&all, id).unwrap_or_else(|| panic!("decoration {id} was dropped"));
+            assert_eq!(product::kind(p), 0, "{id}");
+            let p = product::selected(p, 0);
+            let asset = p["items"].as_array().unwrap().iter().find(|i| i["type"] == 0).unwrap()["asset"].as_str().unwrap();
+            assert!(!asset.is_empty(), "{id}");
+            assets.insert(asset.to_string());
+        }
+        let parsed = crate::ui::cosmo::items(&catalog);
+        let actual: crate::state::Set<String> = parsed.into_iter().filter(|i| i.kind == crate::ui::cosmo::Kind::Decoration).map(|i| i.asset).collect();
+        assert_eq!(assets, actual);
+        println!("resolved {} decorations from {} collections", ids.len(), catalog["categories"].as_array().unwrap().len());
     }
 }

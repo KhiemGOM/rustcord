@@ -71,6 +71,7 @@ import p4b
 import tidy
 import p4c
 import p5
+import regressions
 
 ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "e2e" / "artifacts"
@@ -601,6 +602,7 @@ def main():
         **tidy.checks({"cold": cold, "warm": warm}, reqs, data),
         **p4c.checks({"cold": cold, "warm": warm}, reqs),
         **p5.checks({"cold": cold, "warm": warm}, reqs),
+        **regressions.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),

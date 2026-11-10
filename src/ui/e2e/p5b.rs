@@ -536,9 +536,9 @@ impl Run {
                 self.mark("boosts_view_perks_closed");
                 app.boosts = None;
                 self.next(300);
-                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 8800 };
             }
-            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
+            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 8800 },
         }
     }
 }

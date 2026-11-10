@@ -58,7 +58,8 @@ impl Run {
                 }
             }
             2805 => {
-                if !self.open_page(app, "Appearance") {
+                if app.settings_page != Some(crate::ui::settings::Page::Appearance) {
+                    self.open_page(app, "Appearance");
                     return;
                 }
                 self.next(0);
@@ -70,7 +71,8 @@ impl Run {
                 }
             }
             2807 => {
-                if !self.open_page(app, "Voice & Video") {
+                if app.settings_page != Some(crate::ui::settings::Page::Voice) {
+                    self.open_page(app, "Voice & Video");
                     return;
                 }
                 goto(ctx, "Video Background");
@@ -138,7 +140,7 @@ impl Run {
                 if app.settings.preview_video {
                     self.mark("camera_always_preview");
                     self.shot(ctx, "settings_voice.png");
-                    self.step = 61;
+                    self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 61 };
                 }
             }
             2819 => {

@@ -2521,6 +2521,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", f]) if f.starts_with("frame_") && f.ends_with("_a.png") => (200, "image/png", fx_frame(300, 400)),
         ("GET", ["cdn", "media", f]) if f.ends_with(".gif") => (200, "image/gif", anim_gif(if f.starts_with("dance") { 120 } else { 96 }, if f.starts_with("dance") { 90 } else { 72 }, f.len() as u32)),
         ("GET", ["cdn", "media", "still.png"]) => (200, "image/png", png(480, 270, 7, false)),
+        ("GET", ["cdn", "media", "agabounce.webp"]) => (200, "image/webp", include_bytes!("fixtures/agabounce.webp").to_vec()),
         ("GET", ["cdn", "media", ..]) => (200, "image/png", png(160, 120, 3, false)),
         ("GET", ["cdn", "assets", "content", f]) if f.starts_with("a5a35112") => (
             200,

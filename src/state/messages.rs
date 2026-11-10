@@ -200,11 +200,15 @@ impl Store {
     }
 
     pub fn mentions_me(&self, m: &Message) -> bool {
-        if m.mention_everyone || m.mentions.contains(&self.me) {
+        if m.mentions.contains(&self.me) {
             return true;
         }
         let guild = self.channels.get(&m.channel).map(|c| c.guild).unwrap_or(0);
-        self.guilds
+        let prefs = self.gprefs.get(&guild);
+        if m.mention_everyone && !prefs.is_some_and(|p| p.suppress_everyone) {
+            return true;
+        }
+        !prefs.is_some_and(|p| p.suppress_roles) && self.guilds
             .get(&guild)
             .is_some_and(|g| m.mention_roles.iter().any(|r| g.my_roles.contains(r)))
     }

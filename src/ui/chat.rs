@@ -158,7 +158,7 @@ fn day(ts: i64) -> (i32, u32) {
     (d.year(), d.ordinal())
 }
 
-fn group_start(prev: Option<&Message>, m: &Message) -> bool {
+pub(super) fn group_start(prev: Option<&Message>, m: &Message) -> bool {
     match prev {
         None => true,
         Some(p) => {
@@ -355,25 +355,22 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let ch = chan.id;
     let mut sa = egui::ScrollArea::vertical()
         .id_salt(("chat", ch))
+        .animated(false)
         .stick_to_bottom(true)
         .auto_shrink([false, false]);
     let mut to_bottom = false;
-    // a scroll by delta, for when egui's stick-to-bottom would undo a set offset
-    let mut nudge = 0.0;
+    let mut nudge = std::mem::take(&mut app.wheel.chat_delta);
     let fixed = app.scroll_fix.is_some_and(|(c, _)| c == ch);
     if let Some((_, off)) = app.scroll_fix.take_if(|(c, _)| *c == ch) {
         // f32::MAX means "the bottom", which only the content itself knows
         if off == f32::MAX {
             to_bottom = true;
-        } else if app.pinned.contains(&ch) {
-            nudge = app.offsets.get(&ch).copied().unwrap_or(0.0) - off;
         } else {
-            sa = sa.vertical_scroll_offset(off);
+            sa = sa.vertical_scroll_offset(off).stick_to_bottom(false);
         }
     }
 
     let pointer = ui.ctx().pointer_hover_pos();
-    nudge += std::mem::take(&mut app.wheel.chat_delta);
     app.wheel.chat = Some(ui.max_rect());
     let hover_lock = app.bar.and_then(|(id, r)| pointer.filter(|p| r.contains(*p)).map(|_| id));
     // the hover toolbar floats on its own layer; a wheel over it still scrolls the chat, like discord
@@ -543,7 +540,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     } else {
         app.pinned.remove(&ch);
     }
-    if anchor.abs() > 0.5 && !at_bottom && !was_bottom {
+    if anchor.abs() > 0.5 && !at_bottom && (!was_bottom || fixed && !to_bottom) {
         app.scroll_fix = Some((ch, offset + anchor));
         ui.ctx().request_discard("scroll anchor");
     }
