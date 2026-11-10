@@ -29,6 +29,7 @@ mod gallery;
 mod watchdog;
 mod stress;
 mod regressions;
+mod profcheck;
 
 pub use watchdog::beat;
 mod chatx;
@@ -568,6 +569,9 @@ impl Run {
             return self.live_steps(app, ctx, ch);
         }
         if self.tour && self.step != 99 {
+            if std::env::var_os("RUSTCORD_TOUR_PROFILE").is_some() {
+                return self.profile_check(app, ctx);
+            }
             return self.tour_steps(app, ctx);
         }
         if (9000..9900).contains(&self.step) {
