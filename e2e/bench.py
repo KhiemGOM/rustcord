@@ -137,7 +137,10 @@ def main():
     if "--build" in sys.argv:
         subprocess.run(["cargo", "build", "--release", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
     http, ws = free_port(), free_port()
-    tmp = Path(tempfile.mkdtemp(prefix="rcbench"))
+    artifacts = Path(sys.argv[sys.argv.index("--artifacts") + 1]) if "--artifacts" in sys.argv else None
+    tmp = artifacts or Path(tempfile.mkdtemp(prefix="rcbench"))
+    if artifacts:
+        tmp.mkdir(parents=True, exist_ok=False)
     mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_port())],
                             env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.DEVNULL)
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
@@ -186,9 +189,11 @@ def main():
     finally:
         mock.kill()
         mock.wait()
-        shutil.rmtree(tmp, ignore_errors=True)
-    (ROOT / "e2e" / "artifacts").mkdir(parents=True, exist_ok=True)
-    (ROOT / "e2e" / "artifacts" / "bench.json").write_text(json.dumps(report, indent=2))
+        if not artifacts:
+            shutil.rmtree(tmp, ignore_errors=True)
+    dest = artifacts or ROOT / "e2e" / "artifacts"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "bench.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
 
