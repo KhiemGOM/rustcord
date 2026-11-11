@@ -34,11 +34,31 @@ def keep_awake():
 
 
 def task(index):
-    cycle, slot = divmod(index, 5)
+    cycle, slot = divmod(index, 10)
     size = ('940x500', '1280x720', '1707x913')[cycle % 3]
     zoom = (75, 100, 125, 150, 200)[cycle // 3 % 5]
-    suite = (f'stress-{cycle + 1}', 'restart', 'tour', 'full', 'bench')[slot]
+    if slot < 7:
+        suite = f'stress-{cycle * 7 + slot + 1}'
+    elif slot == 7:
+        suite = 'tour'
+    elif slot == 8:
+        suite = 'full' if cycle % 4 == 0 else 'restart'
+    else:
+        suite = 'bench' if cycle % 4 == 0 else 'restart'
     return dict(suite=suite, sizes=[f'{size}@{zoom}'] if suite == 'tour' else [])
+
+
+def init_corpus(root, state):
+    path = root / 'corpus.json'
+    if path.exists():
+        return
+    visits = {}
+    for attempt in state['attempts']:
+        for run in attempt.get('result', {}).get('runs', {}).values():
+            rects = run.get('rects', {})
+            for key, count in rects.get('stress_visits', {}).items():
+                visits[key] = max(visits.get(key, 0), count) if rects.get('stress_corpus_loaded') else visits.get(key, 0) + count
+    parity.write_json(path, dict(version=1, visits=visits))
 
 
 def new_state(hours):
@@ -48,7 +68,6 @@ def new_state(hours):
 
 def save(root, state):
     state['updated'] = datetime.now(timezone.utc).isoformat()
-    parity.write_json(root / 'campaign.json', state)
     rows = []
     passed = failed = actions = 0
     states = set()
@@ -61,28 +80,38 @@ def save(root, state):
         passed += sum(ok is True for ok in checks.values())
         failed += sum(ok is not True for ok in checks.values())
         actions += result.get('action_count', 0)
+        attempt['new_states'] = len(set(result.get('state_ids', [])) - states)
+        attempt['new_targets'] = len(set(result.get('targets', [])) - targeted)
         states.update(result.get('state_ids', []))
         transitions.update(result.get('transition_ids', []))
         observed.update(result.get('observed_controls', []))
-        targeted.update(name for name in result.get('targets', []) if name.startswith('control:'))
+        targeted.update(result.get('targets', []))
         folder = attempt['directory']
         status = result.get('status', attempt['status'])
         label = attempt.get('task', {}).get('suite', 'interrupted task')
         link = f'<a href="{folder}/index.html">{html.escape(label)}</a>'
-        rows.append(f'<tr><td>{attempt["index"]}</td><td>{link}</td><td>{html.escape(status)}</td><td>{len(checks)}</td><td>{result.get("action_count", 0)}</td></tr>')
+        rows.append(f'<tr><td>{attempt["index"]}</td><td>{link}</td><td>{html.escape(status)}</td><td>{len(checks)}</td><td>{result.get("action_count", 0)}</td><td>{attempt["new_states"]}</td><td>{attempt["new_targets"]}</td></tr>')
+    parity.write_json(root / 'campaign.json', state)
     page = '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="30"><title>Rustcord usage campaign</title><style>body{font:16px system-ui;background:#17171b;color:#eee;margin:32px}a{color:#a9beff}td,th{padding:10px;text-align:left;border-bottom:1px solid #555}</style><h1>Rustcord usage campaign</h1>'
     page += f'<p>Status: {html.escape(state["status"])}. Recorded test time: {state["active_seconds"] / 3600:.2f} / {state["hours"]:g} hours.</p>'
+    page += '<p>Discovery-first scheduling: seven exploratory runs per ten tasks; full regressions and benchmarks every fourth cycle. Visit history is carried between exploratory sessions.</p>'
     page += f'<p>Native assertions: {passed} passed; {failed} failed or unreached. Recorded exploratory actions: {actions}.</p>'
     page += f'<p>Observed UI fingerprints: {len(states)}; observed state/action transitions: {len(transitions)}. Fingerprints describe instrumented controls and routes, not every visual or semantic state.</p>'
-    page += f'<p>Shared control markers observed: {len(observed)}; pointer-targeted: {len(targeted)}; observed but not pointer-targeted: {len(observed - targeted)}. A targeted control is not necessarily functionally verified.</p>'
+    page += f'<p>Shared control markers observed: {len(observed)}; pointer-targeted: {len(observed & targeted)}; observed but not pointer-targeted: {len(observed - targeted)}. A targeted control is not necessarily functionally verified.</p>'
     page += '<details><summary>Observed markers without a pointer action yet</summary><pre>' + html.escape('\n'.join(sorted(observed - targeted))) + '</pre></details>'
     page += '<p>These are mock-client checks and sampled action sequences. They do not prove years of semantic behavior or all Discord interactions. Repeated passes do not increase reference coverage.</p><p><a href="coverage/index.html">Reference coverage gaps</a> · <a href="campaign.json">Raw campaign state</a></p>'
-    page += '<table><tr><th>Task</th><th>Evidence</th><th>Outcome</th><th>Assertions</th><th>Actions</th></tr>' + ''.join(rows) + '</table>'
+    page += '<table><tr><th>Task</th><th>Evidence</th><th>Outcome</th><th>Assertions</th><th>Actions</th><th>New states</th><th>New targets</th></tr>' + ''.join(rows) + '</table>'
     (root / 'index.html').write_text(page, encoding='utf-8')
 
 
 def perform(root, spec):
-    result = parity.native_suite(spec['suite'], root, spec['sizes'])
+    corpus = root.parent / 'corpus.json' if spec['suite'].startswith('stress-') else None
+    result = parity.native_suite(spec['suite'], root, spec['sizes'], corpus=corpus)
+    if corpus is not None:
+        rects = result.get('runs', {}).get('explore', {}).get('rects', {})
+        if not rects.get('stress_corpus_loaded'):
+            raise RuntimeError('client did not load the campaign exploration history')
+        parity.write_json(corpus, dict(version=1, visits=rects['stress_visits']))
     actions = []
     for log in root.rglob('actions.jsonl'):
         actions += [json.loads(line) for line in log.read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -105,7 +134,11 @@ def execute(root, state):
     for attempt in state['attempts']:
         if attempt['status'] == 'running':
             attempt['status'] = 'interrupted'
-    state.update(status='running', pid=os.getpid())
+    state.update(status='running', pid=os.getpid(), scheduler_version=2)
+    state.setdefault('discovery_cursor', 0)
+    old_seeds = [int(a['task']['suite'].removeprefix('stress-')) for a in state['attempts'] if a.get('task', {}).get('suite', '').startswith('stress-')]
+    state.setdefault('seed_base', max(old_seeds, default=0))
+    init_corpus(root, state)
     save(root, state)
     while state['active_seconds'] < state['hours'] * 3600:
         if (root / 'stop').exists():
@@ -115,7 +148,12 @@ def execute(root, state):
             state.update(status='blocked', error='less than 1 GiB free; retained evidence was not removed')
             break
         index = sum(a['status'] == 'completed' for a in state['attempts'])
-        spec = task(index)
+        interrupted = next((a for a in reversed(state['attempts']) if a['index'] == index and a['status'] == 'interrupted'), None)
+        spec = task(state['discovery_cursor'])
+        if spec['suite'].startswith('stress-'):
+            spec['suite'] = f'stress-{state["seed_base"] + int(spec["suite"].removeprefix("stress-"))}'
+        if interrupted and interrupted.get('task'):
+            spec = interrupted['task']
         folder = f'{index:05}-{uuid.uuid4().hex[:8]}'
         out = root / folder
         out.mkdir()
@@ -132,6 +170,7 @@ def execute(root, state):
         attempt['elapsed_seconds'] = time.monotonic() - began
         state['active_seconds'] += attempt['elapsed_seconds']
         attempt['status'] = 'completed'
+        state['discovery_cursor'] += 1
         save(root, state)
         recent = state['attempts'][-3:]
         if len(recent) == 3 and all(a.get('result', {}).get('error') and not a['result'].get('checks') for a in recent):

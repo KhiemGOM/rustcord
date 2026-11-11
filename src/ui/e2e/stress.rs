@@ -43,6 +43,15 @@ fn explore_pick(names: &[String], visits: &serde_json::Map<String, serde_json::V
     Some(choices[salt % choices.len()])
 }
 
+fn explore_history(raw: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let corpus: serde_json::Value = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    let visits = corpus.get("visits").and_then(|value| value.as_object()).ok_or("exploration history needs a visits object")?;
+    if corpus["version"] != 1 || visits.values().any(|count| count.as_u64().is_none()) {
+        return Err("invalid exploration history version or visit count".into());
+    }
+    Ok(visits.clone())
+}
+
 impl Run {
     pub(super) fn stress_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         if std::env::var("RUSTCORD_TOKEN").as_deref() != Ok("mock-token") || !std::env::var("RUSTCORD_API").is_ok_and(|api| api.starts_with("http://127.0.0.1:")) {
@@ -50,6 +59,19 @@ impl Run {
             return;
         }
         let case = self.step - 9000;
+        if case == 0 && let Some(path) = std::env::var_os("RUSTCORD_EXPLORE_CORPUS") {
+            let history = std::fs::read_to_string(path).map_err(|error| error.to_string()).and_then(|raw| explore_history(&raw));
+            match history {
+                Ok(visits) => {
+                    self.rects.insert("stress_visits".into(), json!(visits));
+                    self.rects.insert("stress_corpus_loaded".into(), json!(true));
+                }
+                Err(error) => {
+                    self.fail(format!("exploration history: {error}"));
+                    return;
+                }
+            }
+        }
         let seed = std::env::var("RUSTCORD_STRESS_SEED").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(1).max(1);
         let limit = std::env::var("RUSTCORD_STRESS_ACTIONS").ok().and_then(|s| s.parse::<u32>().ok()).unwrap_or(300).clamp(1, 800);
         let screen = ctx.content_rect();
@@ -214,5 +236,14 @@ mod tests {
         controls.insert(2, "button:Close", r);
         assert_eq!(controls.items.len(), 1);
         assert!(controls.items.contains_key("control:button:Close"));
+    }
+
+    #[test]
+    fn exploration_uses_visits_from_previous_sessions() {
+        let visits = explore_history(r#"{"version":1,"visits":{"chat|click|gear":12}}"#).unwrap();
+        let names = vec!["gear".to_owned(), "friends".to_owned()];
+        assert_eq!(explore_pick(&names, &visits, "chat", "click", 0), Some(1));
+        assert!(explore_history(r#"{"version":1,"visits":{"x":-1}}"#).is_err());
+        assert!(explore_history(r#"{"version":2,"visits":{}}"#).is_err());
     }
 }

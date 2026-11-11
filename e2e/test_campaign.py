@@ -6,6 +6,9 @@ from unittest.mock import patch
 import campaign
 import stress
 import sys
+import json
+from types import SimpleNamespace
+import parity
 
 
 class CampaignTests(unittest.TestCase):
@@ -17,6 +20,70 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(len(seeds), len(set(seeds)))
         self.assertTrue({'full', 'restart', 'bench'} <= {t['suite'] for t in tasks})
         self.assertEqual(tasks, [campaign.task(i) for i in range(150)])
+
+    def test_discovery_gets_most_slots_and_regressions_are_periodic(self):
+        tasks = [campaign.task(i)['suite'] for i in range(160)]
+        self.assertGreaterEqual(sum(t.startswith('stress-') for t in tasks), 112)
+        self.assertEqual(tasks.count('full'), 4)
+        self.assertEqual(tasks.count('bench'), 4)
+
+    def test_old_sessions_seed_the_campaign_visit_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = campaign.new_state(16)
+            state['attempts'] = [{'result': {'runs': {'explore': {'rects': {'stress_visits': {'chat|click|gear': 3}}}}}},
+                                 {'result': {'runs': {'explore': {'rects': {'stress_visits': {'chat|click|gear': 2, 'chat|right|gear': 1}}}}}}]
+            campaign.init_corpus(root, state)
+            corpus = json.loads((root / 'corpus.json').read_text())
+            self.assertEqual(corpus['visits']['chat|click|gear'], 5)
+            self.assertEqual(corpus['visits']['chat|right|gear'], 1)
+            campaign.init_corpus(root, state)
+            self.assertEqual(json.loads((root / 'corpus.json').read_text()), corpus)
+
+    def test_recovered_cumulative_history_is_not_counted_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = campaign.new_state(16)
+            state['attempts'] = [{'result': {'runs': {'explore': {'rects': {'stress_visits': {'chat|click|gear': 3}}}}}},
+                                 {'result': {'runs': {'explore': {'rects': {'stress_corpus_loaded': True, 'stress_visits': {'chat|click|gear': 8}}}}}}]
+            campaign.init_corpus(root, state)
+            self.assertEqual(json.loads((root / 'corpus.json').read_text())['visits']['chat|click|gear'], 8)
+
+    def test_repeated_states_and_targets_do_not_inflate_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = campaign.new_state(16)
+            state['attempts'] = [dict(index=i, directory=f'run-{i}', status='completed', task={'suite': f'stress-{i + 1}'},
+                                     result=dict(status='recorded', state_ids=['same-state'], targets=['control:button:Save'])) for i in range(2)]
+            campaign.save(Path(tmp), state)
+            self.assertEqual(state['attempts'][0]['new_states'], 1)
+            self.assertEqual(state['attempts'][0]['new_targets'], 1)
+            self.assertEqual(state['attempts'][1]['new_states'], 0)
+            self.assertEqual(state['attempts'][1]['new_targets'], 0)
+
+    def test_resuming_old_campaign_starts_discovery_with_a_new_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = campaign.new_state(.001)
+            state['attempts'] = [dict(index=0, directory='old', status='completed', task={'suite': 'stress-2'}, result={'seed': 2})]
+            with patch.object(campaign, 'perform', return_value=dict(name='stress-3', status='recorded')) as perform, patch.object(campaign.time, 'monotonic', side_effect=[0, 4]):
+                campaign.execute(root, state)
+            self.assertEqual(perform.call_args.args[1]['suite'], 'stress-3')
+
+    def test_native_run_snapshots_its_input_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            corpus = root / 'corpus.json'
+            corpus.write_text('{"version":1,"visits":{"x":2}}')
+            def launch(cmd, **kwargs):
+                snapshot = Path(kwargs['env']['RUSTCORD_EXPLORE_CORPUS'])
+                self.assertNotEqual(snapshot, corpus)
+                self.assertEqual(json.loads(snapshot.read_text())['visits']['x'], 2)
+                corpus.write_text('{"version":1,"visits":{"x":99}}')
+                (snapshot.parent / 'result.json').write_text('{"checks":{"completed":true}}')
+                return SimpleNamespace(returncode=0)
+            with patch.object(parity.subprocess, 'run', side_effect=launch), patch.object(parity, 'binaries', return_value={}):
+                parity.native_suite('stress-1', root, [], corpus=corpus)
+            self.assertEqual(json.loads((root / 'native/stress-1/corpus-input.json').read_text())['visits']['x'], 2)
 
     def test_campaign_preserves_failed_runs_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:

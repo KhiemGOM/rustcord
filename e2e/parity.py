@@ -331,10 +331,14 @@ def binaries():
             for path in (ROOT / 'target/release/rustcord.exe', ROOT / 'target/release/examples/mockcord.exe')}
 
 
-def native_suite(name, out, sizes):
+def native_suite(name, out, sizes, corpus=None):
     folder = out / 'native' / name
     folder.mkdir(parents=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith(('RUSTCORD_', 'MOCK_'))}
+    if corpus is not None:
+        snapshot = folder / 'corpus-input.json'
+        snapshot.write_bytes(corpus.read_bytes())
+        env['RUSTCORD_EXPLORE_CORPUS'] = str(snapshot)
     before = binaries()
     began = time.monotonic()
     with (folder / 'log.txt').open('w', encoding='utf-8') as log:
@@ -352,6 +356,8 @@ def native_suite(name, out, sizes):
         result['status'] = 'recorded'
     if changed:
         result['error'] = 'binaries changed during the run; results cannot identify one build'
+    if corpus is not None:
+        result['corpus_input_sha256'] = digest(snapshot)
     write_json(path, result)
     return result
 
