@@ -179,7 +179,7 @@ impl Host {
         if let Some(wv) = self.s.ctl.borrow().as_ref().and_then(|c| unsafe { c.CoreWebView2() }.ok())
             && let Ok(wv) = wv.cast::<ICoreWebView2_8>()
         {
-            let _ = unsafe { wv.SetIsMuted(on) };
+            let _ = unsafe { wv.SetIsMuted(on || silent()) };
         }
     }
 
@@ -251,9 +251,20 @@ fn args_uri(args: &ICoreWebView2NavigationStartingEventArgs) -> String {
     unsafe { args.Uri(&mut u) }.map(|_| take_pwstr(u)).unwrap_or_default()
 }
 
+// RUSTCORD_SILENT keeps the speakers closed for test runs; a web view plays through its own
+// audio, so it's muted from the start (the e2e's embed clip is a tone)
+fn silent() -> bool {
+    std::env::var_os("RUSTCORD_SILENT").is_some()
+}
+
 fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::core::Result<()> {
     let wv = unsafe { ctl.CoreWebView2()? };
     unsafe {
+        if silent()
+            && let Ok(w8) = wv.cast::<ICoreWebView2_8>()
+        {
+            let _ = w8.SetIsMuted(true);
+        }
         if let Ok(c) = ctl.cast::<ICoreWebView2Controller2>() {
             let _ = c.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR { A: 255, R: 0, G: 0, B: 0 });
         }
