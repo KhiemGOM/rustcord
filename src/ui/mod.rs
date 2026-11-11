@@ -665,7 +665,7 @@ impl App {
         crate::tray::start(ctx.clone(), htx.clone());
         crate::hotkeys::start(ctx.clone(), htx);
         app.hotkey_rx = Some(hrx);
-        crate::winsys::watch_streaming(ctx.clone());
+        crate::procs::start(ctx.clone());
         if app.e2e.is_none() {
             app.pings = Some(crate::toast::start(ctx.clone()));
         }

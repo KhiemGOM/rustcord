@@ -29,6 +29,7 @@ mod speech;
 mod state;
 mod theme;
 mod games;
+mod procs;
 mod shareable;
 mod toast;
 mod tray;

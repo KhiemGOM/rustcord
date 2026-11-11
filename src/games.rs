@@ -1,5 +1,5 @@
 //! Game detection the desktop client's way: Discord's list of detectable games matched against
-//! the paths of running programs every few seconds. It feeds the "Playing" activity and the
+//! the paths of running programs (`procs` snapshot) every few seconds. It feeds the "Playing" activity and the
 //! panel over the account card.
 
 use std::collections::HashMap;
@@ -54,38 +54,26 @@ fn list(rt: &tokio::runtime::Runtime) -> Vec<Entry> {
 
 /// Full paths, lowercase with forward slashes, of running programs whose file name is one we
 /// know. A program we can't open (run as admin, say) still gives its bare name.
+/// Full paths of the running programs named in `names`, out of `procs`' shared snapshot.
 fn running(names: &HashMap<String, Vec<usize>>) -> Vec<String> {
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
+    use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+    let Some(snap) = crate::procs::latest(Duration::from_secs(30)) else { return Vec::new() };
     let mut out = Vec::new();
-    unsafe {
-        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snap == INVALID_HANDLE_VALUE {
-            return out;
-        }
-        let mut e: PROCESSENTRY32W = std::mem::zeroed();
-        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-        let mut ok = Process32FirstW(snap, &mut e) != 0;
-        while ok {
-            let len = e.szExeFile.iter().position(|c| *c == 0).unwrap_or(e.szExeFile.len());
-            let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_lowercase();
-            if names.contains_key(&name) {
-                let mut path = name;
-                let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, e.th32ProcessID);
-                if !h.is_null() {
-                    let mut buf = [0u16; 1024];
-                    let mut n = buf.len() as u32;
-                    if QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut n) != 0 {
-                        path = String::from_utf16_lossy(&buf[..n as usize]).to_lowercase().replace('\\', "/");
-                    }
-                    CloseHandle(h);
+    for p in crate::procs::wanted(&snap, names) {
+        let mut path = p.name.clone();
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, p.pid);
+            if !h.is_null() {
+                let mut buf = [0u16; 1024];
+                let mut n = buf.len() as u32;
+                if QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut n) != 0 {
+                    path = String::from_utf16_lossy(&buf[..n as usize]).to_lowercase().replace('\\', "/");
                 }
-                out.push(path);
+                CloseHandle(h);
             }
-            ok = Process32NextW(snap, &mut e) != 0;
         }
-        CloseHandle(snap);
+        out.push(path);
     }
     out
 }
