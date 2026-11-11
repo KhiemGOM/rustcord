@@ -91,6 +91,12 @@ class AppCoverageTests(unittest.TestCase):
         self.assertEqual(row['outcomes']['marker_state_changed'], 1)
         self.assertFalse(row['verified'])
 
+    def test_each_pointer_method_keeps_its_own_evidence(self):
+        methods = ['click', 'right', 'hover', 'middle']
+        self.log([dict(before='s', visible=['control:save'], action={'target': 'control:save', 'method': method}) for method in methods])
+        row = next(r for r in self.build()['controls'] if r['id'] == 'control:save')
+        self.assertTrue(set(methods) <= {item['event'] for item in row['evidence']})
+
     def test_capture_checkpoints_include_non_settings_screens(self):
         (self.source / 'e2e.rs').write_text('self.shot(ctx, "message_edit.png");')
         data = self.build()

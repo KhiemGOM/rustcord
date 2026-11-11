@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import parity
+import discord_coverage
 
 METHODS = ('click', 'right', 'hover', 'middle')
 ROLES = {'button', 'tab', 'textbox', 'menuitem', 'switch', 'checkbox', 'radio', 'combobox', 'slider', 'option', 'link'}
@@ -98,7 +99,7 @@ def parse_log(path):
             row = controls.setdefault(key, dict(observations=0, methods={}, outcomes={}, evidence=[]))
             method = action.get('method', 'right' if action.get('right') else 'click')
             row['methods'][method] = row['methods'].get(method, 0) + 1
-            if len(row['evidence']) < 2:
+            if not any(e['event'] == method for e in row['evidence']):
                 row['evidence'].append(dict(path=str(path.resolve()), line=number, case=event.get('case'), state=event.get('before'), event=method))
     for previous, current in zip(events, events[1:]):
         key = previous.get('action', {}).get('target')
@@ -164,8 +165,8 @@ def collect(repo, campaign, ref, cache=None):
     static, views, dynamic = source_catalog(repo)
     rows = {c['id']: dict(c, observations=0, methods={}, outcomes={}, evidence=[], verified=False) for c in static}
     logs = {}
-    if cache and (cache / 'logs-v2.json').exists():
-        logs = json.loads((cache / 'logs-v2.json').read_text(encoding='utf-8'))
+    if cache and (cache / 'logs-v3.json').exists():
+        logs = json.loads((cache / 'logs-v3.json').read_text(encoding='utf-8'))
     active_logs = {}
     errors, pending, states = [], [], set()
     actions = 0
@@ -185,9 +186,10 @@ def collect(repo, campaign, ref, cache=None):
             for field in ('methods', 'outcomes'):
                 for name, count in observed[field].items():
                     row[field][name] = row[field].get(name, 0) + count
-            row['evidence'] = sorted(row['evidence'] + observed['evidence'], key=lambda e: e.get('event') == 'observed')[:3]
+            evidence = {e['event']: e for e in row['evidence'] + observed['evidence']}
+            row['evidence'] = sorted(evidence.values(), key=lambda e: e['event'] == 'observed')
     if cache:
-        parity.write_json(cache / 'logs-v2.json', active_logs)
+        parity.write_json(cache / 'logs-v3.json', active_logs)
     for row in rows.values():
         row['status'] = 'interacted' if row['methods'] else 'observed' if row['observations'] else 'untested'
         row['origin'] = 'source_literal' if row['sources'] else 'runtime_discovered'
@@ -209,12 +211,16 @@ def collect(repo, campaign, ref, cache=None):
         view.update(status='captured' if captures else 'untested', captured_variants=sorted(variants),
                     evidence=[str(path.resolve()) for path in captures[:3]], capture_files=len(captures), verified=False)
     reference = references(ref, cache / 'reference.json' if cache else None)
-    return dict(version=1, generated=datetime.now(timezone.utc).isoformat(), campaign=str(campaign.resolve()),
+    result = dict(version=1, generated=datetime.now(timezone.utc).isoformat(), campaign=str(campaign.resolve()),
                 complete_app_denominator=False, scope='Best-effort Rust source page/marker inventory plus runtime discoveries and the saved Discord atlas. Not code/branch coverage or every possible app state.',
                 actions=actions, observed_states=len(states), controls=sorted(rows.values(), key=lambda r: r['id']), views=views,
                 dynamic_sites=dynamic, reference_views=reference['views'], reference_controls=reference['controls'],
                 reference_signature=reference.get('signature', 'unavailable'),
                 pending_logs=pending, errors=errors + reference['errors'])
+    path = repo / 'e2e/discord_features.json'
+    bindings = discord_coverage.load(path) if path.exists() else []
+    result['discord_features'] = discord_coverage.matrix(result, bindings)
+    return result
 
 
 def relative(path, out):
@@ -237,12 +243,13 @@ def reference_pages(out, data):
         group['views'].add(row['reference_view'])
         group['instances'] += 1
     signature = out / 'reference-pages.signature'
-    changed = not signature.exists() or signature.read_text() != data['reference_signature']
+    page_signature = data['reference_signature'] + ':feature-bindings-v1'
+    changed = not signature.exists() or signature.read_text() != page_signature
     style = '<meta charset="utf-8"><style>body{font:15px system-ui;background:#17171b;color:#eee;margin:30px}a{color:#a9beff}td,th{padding:8px;text-align:left;border-bottom:1px solid #555}td{max-width:650px;overflow-wrap:anywhere}</style>'
     if changed:
         parity.write_json(out / 'reference-inventory.json', dict(views=data['reference_views'], controls=data['reference_controls']))
         for key, view in views.items():
-            body = f'<h1>{html.escape(view["title"])}</h1><p>Captured Discord control candidates; all remain unmapped to Rustcord behavior.</p>'
+            body = f'<h1>{html.escape(view["title"])}</h1><p>Captured Discord control candidates. <a href="../discord.html">Feature and interaction coverage</a> lists explicit Rustcord exercise bindings. Correctness remains unverified.</p>'
             for field in ('image', 'metadata'):
                 if Path(view[field]).is_file():
                     body += f'<a href="{relative(view[field], folder)}">{field}</a> '
@@ -260,12 +267,13 @@ def reference_pages(out, data):
         result.append(dict(id='discord-label:' + key, kind='reference_control_group', title=title, status='unmapped', verified=False,
                            detail=f'{role}: {group["instances"]} instances in {len(group["views"])} captures; grouped by label, not feature identity', links=[str(page)]))
     if changed:
-        signature.write_text(data['reference_signature'])
+        signature.write_text(page_signature)
     return result, views
 
 
 def render(out, data):
     groups, reference_views = reference_pages(out, data)
+    discord_coverage.render(out, data['discord_features'], data, relative)
     export = dict(data, reference_controls=dict(path='reference-inventory.json', instances=len(data['reference_controls'])))
     parity.write_json(out / 'coverage.json', export)
     counts = {kind: dict(Counter(row['status'] for row in data['views'] + data['controls'] + data['reference_views'] if row['kind'] == kind)) for kind in ('view', 'checkpoint', 'control', 'reference_view')}
@@ -285,6 +293,7 @@ def render(out, data):
     page = '''<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="60"><title>App surface coverage</title>
 <style>body{font:15px system-ui;background:#17171b;color:#eee;margin:30px}a{color:#a9beff}td,th{padding:9px;text-align:left;border-bottom:1px solid #555;vertical-align:top}input,select,button{padding:9px;margin:5px}td{max-width:650px;overflow-wrap:anywhere}pre{white-space:pre-wrap}</style>
 <h1>App surface coverage</h1><p>Observed = marker appeared. Interacted = input was attempted. Captured = a matching page screenshot exists. Unmapped = Discord reference has no verified Rustcord pairing. None of those establishes functional correctness.</p>
+<p><a href="discord.html"><b>Discord feature and interaction coverage</b></a> is the reference-first feature matrix. The tables below are supporting inventories.</p>
 <p>Control rows are instrumentation identifiers and can include aliases or layout markers; their counts are not counts of distinct UI features.</p>
 <p>Denominators are incomplete: static marker extraction is best effort, dynamic controls are discovered at runtime, and uninstrumented views can be missing. Views include declared settings pages; checkpoints include named captures throughout the app. This is not code/branch coverage. No whole-app percentage is claimed.</p>
 <p>Reference control instances are grouped by role/label for navigation. Open a group to see every matching capture. Shared labels do not establish feature identity or parity. <a href="reference-inventory.json">Complete reference inventory</a> · <a href="coverage.json">Coverage data</a></p>
