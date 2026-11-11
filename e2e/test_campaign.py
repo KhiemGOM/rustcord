@@ -81,6 +81,13 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(extra['RUSTCORD_STRESS_SEED'], '17')
         self.assertEqual(extra['RUSTCORD_STRESS_ACTIONS'], '800')
 
+    def test_sleep_request_is_released_when_a_campaign_stops(self):
+        with patch.object(campaign.ctypes.windll.kernel32, 'SetThreadExecutionState', return_value=1) as power:
+            with self.assertRaises(RuntimeError):
+                with campaign.keep_awake():
+                    raise RuntimeError('interrupted')
+        self.assertEqual([call.args[0] for call in power.call_args_list], [0x80000003, 0x80000000])
+
 
 if __name__ == '__main__':
     unittest.main()

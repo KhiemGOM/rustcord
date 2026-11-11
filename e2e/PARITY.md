@@ -97,6 +97,8 @@ Rerun a campaign seed with `python e2e/stress.py --actions 800 17` (replace `17`
 
 The budget counts completed test execution time, finishing the current task before stopping; it can exceed sixteen wall-clock hours. Failures are retained and later tasks continue. Three consecutive infrastructure errors or less than 1 GiB free disk space stop the campaign without removing evidence. The controller holds an OS lock to prevent two runs from sharing its output folder.
 
+While the controller runs, it requests that Windows keep the system and display awake for rendering. This is a temporary thread request, released on exit; it does not change the power plan or prevent manual sleep/shutdown.
+
 To stop after the current task, create `<campaign-directory>/stop`. To resume, remove that file yourself, then run:
 
 ```powershell

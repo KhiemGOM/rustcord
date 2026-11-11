@@ -5,6 +5,7 @@
 """
 
 import argparse
+import ctypes
 import html
 import json
 import math
@@ -13,9 +14,23 @@ import shutil
 import time
 import uuid
 from datetime import datetime, timezone
+from contextlib import contextmanager
 from pathlib import Path
 
 import parity
+
+
+@contextmanager
+def keep_awake():
+    power = ctypes.windll.kernel32.SetThreadExecutionState
+    power.argtypes = [ctypes.c_uint]
+    power.restype = ctypes.c_uint
+    if not power(0x80000003):
+        raise OSError('could not keep the system awake for the campaign')
+    try:
+        yield
+    finally:
+        power(0x80000000)
 
 
 def task(index):
@@ -139,7 +154,7 @@ def main():
     root.mkdir(parents=True, exist_ok=args.resume)
     import msvcrt
 
-    with (root / 'controller.lock').open('a+b') as lock:
+    with keep_awake(), (root / 'controller.lock').open('a+b') as lock:
         if lock.tell() == 0:
             lock.write(b'0')
             lock.flush()
