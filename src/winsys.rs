@@ -71,6 +71,9 @@ pub fn wide(s: &str) -> Vec<u16> {
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
 pub fn set_startup(on: bool) {
+    if std::env::var_os("RUSTCORD_STRESS_SEED").is_some() {
+        return;
+    }
     use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW};
     let key = wide(RUN_KEY);
     let name = wide("Rustcord");

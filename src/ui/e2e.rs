@@ -27,7 +27,7 @@ mod login;
 mod camera;
 mod gallery;
 mod watchdog;
-mod stress;
+pub(in crate::ui) mod stress;
 mod regressions;
 mod profcheck;
 
