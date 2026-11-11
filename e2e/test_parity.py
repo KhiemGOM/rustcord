@@ -140,6 +140,38 @@ class ParityTests(unittest.TestCase):
         result = json.loads((folder / 'report.json').read_text())
         self.assertGreater(result['coverage']['untested'], 0)
 
+    def test_report_lists_each_native_assertion_without_claiming_parity(self):
+        data = dict(scope='fixture', cases=[dict(id='atlas:chat', kind='image', status='untested')], native=[
+            dict(name='full', status='failed', checks={'settings: save': True, 'settings: reset': False, 'composer: paste': True},
+                 runs={'cold': {'error': 'stopped before reset', 'marks_ms': {'opened': 1}}})])
+        parity.report(self.out, data)
+        saved = json.loads((self.out / 'report.json').read_text())
+        self.assertEqual(saved['native_coverage']['assertions'], 3)
+        self.assertEqual(saved['native_coverage']['passed'], 2)
+        self.assertEqual(saved['native_coverage']['failed_or_unreached'], 1)
+        self.assertEqual(saved['native_coverage']['areas']['settings']['failed_or_unreached'], 1)
+        self.assertEqual(saved['coverage']['verified'], 0)
+        page = (self.out / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('settings: reset', page)
+        self.assertIn('stopped before reset', page)
+        self.assertTrue((self.out / 'assertions.json').is_file())
+
+    def test_full_worker_keeps_native_errors_and_measurements(self):
+        folder = self.root / 'full-results'
+        folder.mkdir()
+        module = SimpleNamespace(ART=None)
+
+        def main():
+            module.ART.mkdir()
+            (module.ART / 'report.json').write_text(json.dumps({'checks': {'x': False}, 'cold': {'error': 'lost focus', 'frame_cpu_ms': {'p95': 4}}, 'warm': {}, 'login': {}}))
+            raise SystemExit(1)
+
+        module.main = main
+        with patch.dict(sys.modules, {'run': module}), patch.object(sys, 'argv', []):
+            result = parity.worker('full', folder, [])
+        self.assertEqual(result['runs']['cold']['error'], 'lost focus')
+        self.assertEqual(result['runs']['cold']['frame_cpu_ms']['p95'], 4)
+
     def test_cli_records_both_matching_and_different_evidence(self):
         self.image('discord.png')
         self.image('same.png')

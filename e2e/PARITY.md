@@ -23,6 +23,7 @@ Every run creates a new timestamped directory below `e2e/artifacts/parity/`. `--
 
 - `index.html`: searchable coverage, checks, failures and screenshot gallery.
 - `report.json` and `report.md`: coverage, build identity and native suite results.
+- `assertions.json`: every evaluated native assertion, its suite, area and outcome. The HTML report shows a searchable area matrix and individual assertion table. Failed/unreached assertions stay separate from confirmed Discord differences; one early stopped step can prevent many later assertions from being reached.
 - `plan.json`: the inventory and exact comparison settings used.
 - `native/<suite>/`: complete console log, results, screenshots, native measurements and mock request log. Full-suite captures live under `capture/`.
 - `native/bench/capture/`: performance summary and retained raw benchmark captures.

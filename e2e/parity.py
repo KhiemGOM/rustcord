@@ -207,6 +207,21 @@ def compare(case, base, candidate_root, out, index):
 def report(out, data):
     data['coverage'] = {k: 0 for k in ('verified', 'different', 'untested', 'error')}
     data['coverage'].update(Counter(c['status'] for c in data['cases']))
+    assertions = []
+    areas = {}
+    for suite in data['native']:
+        for name, ok in suite.get('checks', {}).items():
+            label = name
+            if name.startswith(('cold: ', 'warm: ')):
+                label = name.split(': ', 1)[1]
+            area = label.split(':', 1)[0] if ':' in label else suite['name']
+            status = 'passed' if ok is True else 'failed_or_unreached'
+            assertions.append(dict(suite=suite['name'], area=area, name=name, status=status))
+            counts = areas.setdefault(area, dict(passed=0, failed_or_unreached=0))
+            counts[status] += 1
+    data['native_coverage'] = dict(assertions=len(assertions), passed=sum(a['status'] == 'passed' for a in assertions),
+                                   failed_or_unreached=sum(a['status'] != 'passed' for a in assertions), areas=areas)
+    write_json(out / 'assertions.json', assertions)
     write_json(out / 'report.json', data)
     rows = []
     for case in data['cases']:
@@ -221,11 +236,17 @@ def report(out, data):
     native = []
     for suite in data['native']:
         log = 'build.log' if suite['name'] == 'build' else f'native/{suite["name"]}/log.txt'
-        native.append(f'<h3>{html.escape(suite["name"])}: {html.escape(suite["status"])}</h3><p><a href="{log}">log</a></p><pre>{html.escape(json.dumps(suite, indent=2))}</pre>')
+        failures = ''.join(f'<p>{html.escape(tag)} stopped: {html.escape(str(run["error"]))}</p>' for tag, run in suite.get('runs', {}).items() if run.get('error'))
+        native.append(f'<h3>{html.escape(suite["name"])}: {html.escape(suite["status"])}</h3><p><a href="{log}">log</a></p>{failures}<details><summary>Raw measurements and run metadata</summary><pre>{html.escape(json.dumps(suite, indent=2))}</pre></details>')
     page = '<!doctype html><meta charset="utf-8"><title>Rustcord parity audit</title><style>body{font:15px system-ui;margin:32px;background:#17171b;color:#eee}a{color:#a9beff}td,th{padding:8px;border-bottom:1px solid #555;text-align:left}pre{white-space:pre-wrap}input{padding:10px;width:60%}</style>'
     page += '<h1>Rustcord parity audit</h1><p>Coverage applies only to the recorded plan. Mock checks are not Discord parity. Capture conditions are declared in the plan; this tool cannot independently attest them.</p>'
     page += f'<p>{html.escape(data["scope"])}</p><pre>{html.escape(json.dumps(data["coverage"], indent=2))}</pre>'
-    page += ''.join(native) + '<h2>Paired comparisons</h2><input id="filter" placeholder="Filter states or statuses"><table><thead><tr><th>Status</th><th>State</th><th>Reason</th><th>Evidence</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table>'
+    page += '<input id="filter" placeholder="Filter areas, assertions, states or statuses">' + ''.join(native)
+    page += '<h2>Native assertions by area</h2><p>False assertions can be caused by an earlier stopped step. Run errors above identify the first reported stop; these counts are not counts of independent bugs.</p><table><thead><tr><th>Area</th><th>Passed</th><th>Failed or unreached</th></tr></thead><tbody>'
+    page += ''.join(f'<tr><td>{html.escape(area)}</td><td>{counts["passed"]}</td><td>{counts["failed_or_unreached"]}</td></tr>' for area, counts in sorted(areas.items())) + '</tbody></table>'
+    page += f'<h2>Individual native assertions ({len(assertions)})</h2><p><a href="assertions.json">Export assertions</a></p><table><thead><tr><th>Status</th><th>Suite</th><th>Area</th><th>Assertion</th></tr></thead><tbody>'
+    page += ''.join('<tr>' + ''.join(f'<td>{html.escape(a[k])}</td>' for k in ('status', 'suite', 'area', 'name')) + '</tr>' for a in assertions) + '</tbody></table>'
+    page += '<h2>Paired Discord comparisons</h2><table><thead><tr><th>Status</th><th>State</th><th>Reason</th><th>Evidence</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table>'
     shots = sorted((out / 'native').rglob('*.png'))
     page += f'<h2>Native screenshots ({len(shots)})</h2>'
     for shot in shots:
@@ -235,6 +256,8 @@ def report(out, data):
     (out / 'index.html').write_text(page, encoding='utf-8')
     md = ['# Rustcord parity audit', '', data['scope'], '', 'Mock checks are not Discord parity.', '', f'Coverage: {data["coverage"]}', '']
     md += [f'- {s["name"]}: {s["status"]} ({len(s.get("checks", {}))} checks)' for s in data['native']]
+    md += ['', f'Native assertions: {data["native_coverage"]["passed"]} passed, {data["native_coverage"]["failed_or_unreached"]} failed or unreached.', '', '| Area | Passed | Failed or unreached |', '| --- | ---: | ---: |']
+    md += [f'| {area} | {counts["passed"]} | {counts["failed_or_unreached"]} |' for area, counts in sorted(areas.items())]
     md += ['', '[Interactive report](index.html)', '[Machine-readable evidence](report.json)']
     (out / 'report.md').write_text('\n'.join(md) + '\n', encoding='utf-8')
 
@@ -259,7 +282,7 @@ def worker(name, folder, sizes):
         else:
             code = 0
         result = json.loads((run.ART / 'report.json').read_text(encoding='utf-8'))
-        return dict(checks=result['checks'], exit_code=code, evidence='capture/report.json')
+        return dict(checks=result['checks'], exit_code=code, evidence='capture/report.json', runs={tag: result[tag] for tag in ('cold', 'warm', 'login') if tag in result})
     if name == 'tour':
         import tour
 
