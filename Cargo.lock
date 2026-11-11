@@ -4352,6 +4352,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "opus-rs",
+ "pulldown-cmark",
  "qrcode",
  "raw-window-handle",
  "realfft",

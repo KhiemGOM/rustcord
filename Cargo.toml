@@ -60,6 +60,7 @@ getrandom = "0.3"
 symphonia = { version = "0.6.1", default-features = false, features = ["mp3"] }
 egui_commonmark = { version = "0.25.0", default-features = false }
 latex-rust = "3.0.3"
+pulldown-cmark = { version = "0.13.6", default-features = false }
 
 [build-dependencies]
 # the exe's icon: discord's own
