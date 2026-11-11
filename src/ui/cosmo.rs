@@ -133,6 +133,69 @@ pub fn items(v: &Value) -> Vec<Item> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Layer, schedule};
+
+    fn layer(looped: bool, duration: u64, start: u64, delay: u64) -> Layer {
+        Layer { src: "x.png".into(), looped, duration, start, delay, ..Default::default() }
+    }
+    const STILL: fn(u128) -> Option<u128> = |_| None;
+
+    #[test]
+    fn a_still_frame_that_loops_without_a_gap_never_wakes() {
+        // the profile frame the bench shows: a png "looping" every 3s, which only ever looks the same
+        let l = layer(true, 3000, 0, 0);
+        assert_eq!(schedule(&l, 0, STILL), (Some(0), None));
+        assert_eq!(schedule(&l, 4500, STILL), (Some(1500), None));
+    }
+
+    #[test]
+    fn an_animation_wakes_for_its_next_frame() {
+        let l = layer(true, 3000, 0, 0);
+        assert_eq!(schedule(&l, 100, |_| Some(40)), (Some(100), Some(40)));
+    }
+
+    #[test]
+    fn the_gap_between_plays_wakes_once_when_the_next_play_starts() {
+        // plays 1500ms, waits 700ms; at 1600 it's 100ms into the gap, 600 to go
+        let l = layer(true, 1500, 0, 700);
+        assert_eq!(schedule(&l, 1600, |_| Some(40)), (None, Some(600)));
+    }
+
+    #[test]
+    fn before_its_start_a_layer_wakes_when_it_starts() {
+        let l = layer(true, 1500, 1800, 700);
+        assert_eq!(schedule(&l, 300, STILL), (None, Some(1500)));
+    }
+
+    #[test]
+    fn a_still_layer_with_a_gap_wakes_to_disappear() {
+        let l = layer(true, 1500, 0, 700);
+        assert_eq!(schedule(&l, 1000, STILL), (Some(1000), Some(500)));
+    }
+
+    #[test]
+    fn a_one_shot_layer_wakes_to_end_then_rests() {
+        let l = layer(false, 1500, 0, 0);
+        assert_eq!(schedule(&l, 1000, STILL), (Some(1000), Some(500)));
+        assert_eq!(schedule(&l, 1500, |_| Some(40)), (None, None));
+        assert_eq!(schedule(&l, 90_000, |_| Some(40)), (None, None));
+    }
+
+    #[test]
+    fn a_frame_due_after_the_play_ends_wakes_at_the_end() {
+        let l = layer(false, 1500, 0, 0);
+        assert_eq!(schedule(&l, 1450, |_| Some(100)), (Some(1450), Some(50)));
+    }
+
+    #[test]
+    fn a_layer_without_a_picture_or_a_length_never_wakes() {
+        let mut l = layer(true, 1500, 0, 0);
+        l.src.clear();
+        assert_eq!(schedule(&l, 0, |_| Some(40)), (None, None));
+        assert_eq!(schedule(&layer(true, 0, 0, 0), 0, |_| Some(40)), (None, None));
+        assert_eq!(schedule(&layer(true, 0, 0, 500), 100, |_| Some(40)), (None, None));
+    }
+
     #[test]
     fn owned_variant_groups_include_their_decorations() {
         let v = serde_json::json!([{"type":2000,"variants":[{"type":0,"sku_id":"11","name":"Panda",
@@ -179,6 +242,41 @@ impl App {
     }
 }
 
+/// Where `l` is `now` ms after its card opened: the time into its picture to draw (None: not
+/// drawn now), and in how many ms it next looks different (None: never). `frame_wait(t)` is how
+/// long the picture's frame at `t` stays up, None for a still.
+fn schedule(l: &Layer, now: u128, frame_wait: impl Fn(u128) -> Option<u128>) -> (Option<u128>, Option<u128>) {
+    // a layer that never shows needs no frames (and a zero period would spin)
+    if l.src.is_empty() || l.duration == 0 {
+        return (None, None);
+    }
+    let (start, dur) = (l.start as u128, l.duration as u128);
+    if now < start {
+        return (None, Some(start - now));
+    }
+    let local = now - start;
+    let t = if l.looped {
+        let period = dur + l.delay as u128;
+        let t = local % period;
+        if t >= dur {
+            return (None, Some(period - t));
+        }
+        t
+    } else if local >= dur {
+        return (None, None);
+    } else {
+        local
+    };
+    let frame = frame_wait(t);
+    // the end of a play changes the picture, unless a still loops straight back into itself
+    let end = (l.delay > 0 || !l.looped || frame.is_some()).then_some(dur - t);
+    let wake = match (frame, end) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
+    (Some(t), wake)
+}
+
 /// Plays `layers` over `rect` the way discord's profile effects do: a layer starts `start` ms
 /// after `since`, runs `duration` ms, and a looping one waits `delay` ms between plays. Layers
 /// with a higher z are drawn last. Hands back whether anything is still due to play.
@@ -187,26 +285,14 @@ pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
     let mut order: Vec<&Layer> = layers.iter().collect();
     order.sort_by_key(|l| l.z);
     let mut live = false;
+    let mut wake: Option<u128> = None;
     for l in order {
-        if l.src.is_empty() || now < l.start as u128 {
-            live |= !l.src.is_empty();
-            continue;
+        let (draw, next) = schedule(l, now, |t| crate::gif::wait_at(ui.ctx(), &l.src, t, !l.looped));
+        live |= draw.is_some() || next.is_some();
+        if let Some(n) = next {
+            wake = Some(wake.map_or(n, |w| w.min(n)));
         }
-        let local = now - l.start as u128;
-        let t = if l.looped {
-            let period = (l.duration + l.delay).max(1) as u128;
-            let t = local % period;
-            if t >= l.duration as u128 {
-                live = true;
-                continue;
-            }
-            t
-        } else if local >= l.duration as u128 {
-            continue;
-        } else {
-            local
-        };
-        live = true;
+        let Some(t) = draw else { continue };
         let uri = crate::gif::uri_at(ui.ctx(), &l.src, t, !l.looped);
         let poll = egui::Image::new(uri).load_for_size(ui.ctx(), rect.size());
         if let Ok(egui::load::TexturePoll::Ready { texture }) = poll {
@@ -215,8 +301,9 @@ pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
             p.image(texture.id, at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
     }
-    if live {
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+    // one wake for whichever layer changes first; a still that loops into itself asks for none
+    if let Some(ms) = wake {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(ms.max(1) as u64));
     }
     live
 }

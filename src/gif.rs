@@ -234,6 +234,33 @@ pub fn uri_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> String {
     format!("{url}{SEP}{i}")
 }
 
+/// How much longer the frame `uri_at` picks for `ms` stays up: None for a still (or a download
+/// not in yet: its loader wakes egui when it lands) and for a single play resting on its last frame.
+pub fn wait_at(ctx: &egui::Context, url: &str, ms: u128, once: bool) -> Option<u128> {
+    let url = animation_url(url);
+    if !is_animated(ctx, &url) {
+        return None;
+    }
+    // animated but not decoded yet: keep looking so it doesn't sit on frame 0
+    let Some(durs) = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url.as_ref()))) else { return Some(16) };
+    if durs.all().count() <= 1 {
+        return None;
+    }
+    let total = durs.all().map(|d| d.as_millis()).sum::<u128>().max(1);
+    if once && ms >= total {
+        return None;
+    }
+    let t = ms % total;
+    let mut end = 0;
+    for d in durs.all() {
+        end += d.as_millis();
+        if t < end {
+            return Some(end - t);
+        }
+    }
+    None
+}
+
 fn last_frame(ctx: &egui::Context, url: &str) -> usize {
     ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).map_or(0, |d| d.all().count().saturating_sub(1))
 }
