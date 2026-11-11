@@ -37,6 +37,28 @@ pub struct HwEnc {
     // SPS and PPS from the output type, for encoders that leave them off keyframes
     header: Vec<u8>,
     done: Vec<(Vec<u8>, i64)>,
+    // last, so the encoder is shut down after everything else here lets go of it
+    _live: Live,
+}
+
+/// An encoder from its activation on, shut down when dropped. An async one released without
+/// that keeps its work queue running, and the queue's next callback lands in freed memory.
+struct Live {
+    mft: IMFTransform,
+    act: IMFActivate,
+}
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.mft.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+            let _ = self.mft.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+            if let Ok(s) = self.mft.cast::<IMFShutdown>() {
+                let _ = s.Shutdown();
+            }
+            let _ = self.act.ShutdownObject();
+        }
+    }
 }
 
 fn err(what: &str) -> windows::core::Error {
@@ -81,6 +103,35 @@ pub fn device(adapter: Option<&IDXGIAdapter1>) -> Result<(ID3D11Device, ID3D11De
     }
 }
 
+// NVIDIA's queues work that runs after the encoder is gone, shutdown or not, unless it's
+// drained first: what's inside goes out (and is thrown away) and it says when it's done
+impl Drop for HwEnc {
+    fn drop(&mut self) {
+        let Some(ev) = self.events.clone() else { return };
+        unsafe {
+            if self.mft.ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0).is_err() {
+                return;
+            }
+            let until = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < until {
+                match ev.GetEvent(MF_EVENT_FLAG_NO_WAIT) {
+                    Ok(e) => match e.GetType().map(|t| MF_EVENT_TYPE(t as i32)) {
+                        Ok(t) if t == METransformDrainComplete => break,
+                        Ok(t) if t == METransformHaveOutput => {
+                            if self.output().is_err() {
+                                break;
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(_) => break,
+                    },
+                    Err(_) => std::thread::sleep(Duration::from_millis(1)),
+                }
+            }
+        }
+    }
+}
+
 impl HwEnc {
     /// An encoder for frames that start out in memory, on the first card whose encoder works.
     pub fn any(w: usize, h: usize, fps: u32, bps: u32) -> Result<HwEnc> {
@@ -109,7 +160,7 @@ impl HwEnc {
             // one that doesn't say which card it's for can still be the wrong one, which opens
             // fine and never answers, so each is tried before it's trusted
             for act in encoders(adapter) {
-                let (mft, events, codec, provides, out_size, header) = match open(&act, &mgr, w, h, fps, bps) {
+                let (live, events, codec, provides, out_size, header) = match open(&act, &mgr, w, h, fps, bps) {
                     Ok(o) => o,
                     Err(e) => {
                         last = e;
@@ -118,7 +169,7 @@ impl HwEnc {
                 };
                 let want = if events.is_some() { 0 } else { 1 };
                 let dur = 10_000_000 / fps.max(1) as i64;
-                let mut e = HwEnc { mft, ctx: ctx.clone(), events, codec, want, provides, out_size, ring: ring.clone(), slot: 0, w, h, dur, header, done: Vec::new() };
+                let mut e = HwEnc { mft: live.mft.clone(), ctx: ctx.clone(), events, codec, want, provides, out_size, ring: ring.clone(), slot: 0, w, h, dur, header, done: Vec::new(), _live: live };
                 if e.proves() && e.restart().is_ok() {
                     return Ok(e);
                 }
@@ -285,15 +336,6 @@ impl HwEnc {
     }
 }
 
-impl Drop for HwEnc {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = self.mft.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
-            let _ = self.mft.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
-        }
-    }
-}
-
 // the PCI path of the card an encoder runs on (PCI\VEN_1002&DEV_7550&...), which AMD's driver
 // sets on its encoders
 const DEVICE_PATH: windows::core::GUID = windows::core::GUID::from_u128(0x556155e0_8b27_44ac_8dbf_2547b9bd7112);
@@ -384,9 +426,11 @@ unsafe fn open(
     h: usize,
     fps: u32,
     bps: u32,
-) -> Result<(IMFTransform, Option<IMFMediaEventGenerator>, Option<ICodecAPI>, bool, u32, Vec<u8>)> {
+) -> Result<(Live, Option<IMFMediaEventGenerator>, Option<ICodecAPI>, bool, u32, Vec<u8>)> {
     unsafe {
         let mft: IMFTransform = act.ActivateObject()?;
+        // shut down on every way out from here, a refused one as much as one that's used
+        let live = Live { mft: mft.clone(), act: act.clone() };
         let attrs = mft.GetAttributes()?;
         let events = if attrs.GetUINT32(&MF_TRANSFORM_ASYNC).unwrap_or(0) != 0 {
             attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)?;
@@ -450,7 +494,7 @@ unsafe fn open(
         let header = mft.GetOutputCurrentType(0).ok().and_then(|t| blob(&t, &MF_MT_MPEG_SEQUENCE_HEADER)).unwrap_or_default();
         mft.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
         mft.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
-        Ok((mft, events, codec, provides, info.cbSize.max(1 << 20), header))
+        Ok((live, events, codec, provides, info.cbSize.max(1 << 20), header))
     }
 }
 
@@ -644,6 +688,80 @@ pub fn nv12(bgra: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
             let (b, g, r) = (s[0] / 4, s[1] / 4, s[2] / 4);
             d[0] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128) as u8;
             d[1] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128) as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // none on a machine without a hardware encoder (CI's runners): those tests pass vacuously
+    fn encoder() -> Option<HwEnc> {
+        HwEnc::any(1280, 720, 30, 2_500_000).ok()
+    }
+
+    // black frames in, as the camera's would go, until one is refused; some are still inside
+    // the encoder when this returns
+    fn feed(e: &mut HwEnc, n: usize) {
+        let mut black = vec![16u8; e.w * e.h * 3 / 2];
+        black[e.w * e.h..].fill(128);
+        let until = Instant::now() + Duration::from_secs(2);
+        let (mut sent, mut t) = (0, 0);
+        while sent < n && Instant::now() < until {
+            match e.ready(Duration::from_millis(20)) {
+                Ok(true) => {
+                    e.upload(&black);
+                    if e.submit(t, sent == 0).is_err() {
+                        return;
+                    }
+                    t += e.dur;
+                    sent += 1;
+                }
+                Ok(false) => {}
+                Err(_) => return,
+            }
+        }
+    }
+
+    #[test]
+    fn a_new_encoder_opens_right_after_one_is_dropped() {
+        let Some(mut e) = encoder() else { return };
+        feed(&mut e, 3);
+        drop(e);
+        assert!(encoder().is_some(), "the card's encoder didn't open a second time");
+    }
+
+    // an async encoder released without being shut down keeps its work queue going, which then
+    // calls into what was freed: the crash on switching or turning off the camera in a call
+    #[test]
+    fn a_dropped_encoder_is_shut_down() {
+        let Some(mut e) = encoder() else { return };
+        if e.events.is_none() {
+            return;
+        }
+        feed(&mut e, 3);
+        let mft = e.mft.clone();
+        drop(e);
+        // NVIDIA's answers MF_E_TRANSFORM_ASYNC_LOCKED to calls after it, not MF_E_SHUTDOWN
+        let status = unsafe { mft.cast::<IMFShutdown>().and_then(|s| s.GetShutdownStatus()) };
+        assert_eq!(status.ok(), Some(MFSHUTDOWN_COMPLETED));
+    }
+
+    #[test]
+    fn encoders_dropped_mid_stream_over_and_over() {
+        let threads: Vec<_> = (0..3)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    for _ in 0..8 {
+                        let Some(mut e) = encoder() else { return };
+                        feed(&mut e, 4);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
         }
     }
 }
