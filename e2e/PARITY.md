@@ -108,3 +108,19 @@ python e2e/campaign.py --resume --out e2e/artifacts/usage-campaign
 ```
 
 Interrupted tasks retain their old folders and are retried into new ones. Resuming uses the original time budget. `index.html` refreshes every thirty seconds; completed task results are saved after every task. `campaign.json` records the controller PID, attempts and outcomes. A campaign is a sampling tool, not proof of every interaction or years of behavioral equivalence.
+
+## App surface coverage
+
+```powershell
+python e2e/app_coverage.py --campaign e2e/artifacts/usage-campaign --out e2e/artifacts/usage-campaign/app-coverage --watch
+```
+
+This read-only observer can run beside an existing campaign without restarting it. It updates once per minute and stops after the campaign finishes, blocks or stops. Create `<coverage-directory>/stop` to stop just the observer. `watcher.json` records its PID, last generation time and state.
+
+The report inventories public settings/server/channel page enums, literal E2E marker identifiers, named capture checkpoints throughout the app, runtime-discovered markers and the saved Discord atlas. Dynamic marker callsites are listed as an open-ended inventory. Source extraction is best effort; uninstrumented screens and interactions can be absent, so it does not report a whole-app coverage percentage. This is product surface coverage, not executable line/branch coverage.
+
+Control rows represent instrumentation identifiers, including possible aliases and non-interactive layout markers. They are not a count of distinct app features.
+
+`observed` means a marker appeared; `interacted` means an input targeted it; `captured` means a matching page/checkpoint screenshot file exists. These statuses do not prove the control worked. The report lists pointer methods, observed marker-state changes, source locations, action logs and capture variants. Requested size/zoom variants are read from tour folder names; inspect the raw results for measured rendering conditions. Navigating toward a page does not count as a screenshot of that page.
+
+Discord reference candidates are inventoried separately and stay `unmapped`. They are grouped by role/label for navigation, with per-capture pages retaining their rectangles and context. Shared labels do not identify the same feature or establish parity. `reference-inventory.json` retains all candidate instances; `coverage.json` contains the current Rustcord evidence and a pointer to that inventory. The dashboard paginates rows and caches unchanged logs/reference data to avoid repeatedly parsing the atlas. Partial action-log tails are left pending rather than counted as completed actions.
