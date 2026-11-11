@@ -1,6 +1,6 @@
 """Perf numbers against the mock: startup, idle and busy CPU, frames drawn, memory.
 
-    python e2e/bench.py [--build] [--secs 15] [--rate 20] [--guilds 115] [--history 800] [--target target]
+    python e2e/bench.py [--build] [--profile release|fast] [--secs 15] [--rate 20] [--guilds 115] [--history 800] [--target target]
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
 --rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
@@ -23,7 +23,8 @@ from ctypes import wintypes
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TARGET = ROOT / (sys.argv[sys.argv.index("--target") + 1] if "--target" in sys.argv else "target") / "release"
+PROFILE = sys.argv[sys.argv.index("--profile") + 1] if "--profile" in sys.argv else "release"
+TARGET = ROOT / (sys.argv[sys.argv.index("--target") + 1] if "--target" in sys.argv else "target") / PROFILE
 EXE = Path(os.environ.get("RUSTCORD_EXE") or TARGET / "rustcord.exe")
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 u32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -74,6 +75,42 @@ def free_port():
         return s.getsockname()[1]
 
 
+def free_both():
+    """The voice port takes tcp and udp. Windows reserves udp ranges inside the ephemeral
+    ports a tcp probe hands out (the mock then dies binding it), so try until one binds both ways."""
+    while True:
+        p = free_port()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+            try:
+                u.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                pass
+
+
+def wait_mock(mock, secs=10):
+    """Until the mock prints its ports, which it does once every one of them is bound (http
+    binds first, so it can answer and still die on the voice port). A mock that died says so,
+    instead of the run carrying on against nothing and failing at its first request. The rest
+    of its stdout is drained so the pipe never fills and stalls it."""
+    import threading
+    up = threading.Event()
+
+    def drain():
+        for line in mock.stdout:
+            if line.startswith(b"mockcord http="):
+                up.set()
+
+    threading.Thread(target=drain, daemon=True).start()
+    end = time.time() + secs
+    while time.time() < end:
+        if up.wait(0.05):
+            return
+        if mock.poll() is not None:
+            raise SystemExit(f"mockcord exited with {mock.returncode} before it was up (its error is above)")
+    raise SystemExit(f"mockcord wasn't up within {secs}s")
+
+
 def wait(pred, secs):
     end = time.time() + secs
     while time.time() < end:
@@ -91,10 +128,15 @@ def stats(out):
         return None
 
 
+# every client started, so a run that fails midway doesn't leave one behind to load the next
+SPAWNED: list = []
+
+
 def launch(env, out):
     out.mkdir(parents=True, exist_ok=True)
     spawned = time.time() * 1000
     p = subprocess.Popen([str(EXE)], env=dict(env, RUSTCORD_BENCH=str(out)))
+    SPAWNED.append(p)
     print(f"{out.name} pid {p.pid}", file=sys.stderr, flush=True)
     ff = wait(lambda: (out / "first_frame_epoch_ms").exists() and (out / "first_frame_epoch_ms").read_text(), 30)
     first = round(float(ff) - spawned) if ff else None
@@ -102,13 +144,61 @@ def launch(env, out):
     return p, {"spawn_to_first_frame_ms": first, "marks_ms": s.get("marks_ms"), "slow_frames": s.get("slow_frames")}
 
 
+class ThreadEntry(ctypes.Structure):
+    _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ThreadID", wintypes.DWORD), ("th32OwnerProcessID", wintypes.DWORD),
+                ("tpBasePri", wintypes.LONG), ("tpDeltaPri", wintypes.LONG), ("dwFlags", wintypes.DWORD)]
+
+
+k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+k32.OpenThread.restype = wintypes.HANDLE
+k32.GetThreadDescription.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_wchar_p)]
+k32.LocalFree.argtypes = [ctypes.c_void_p]
+
+
+def thread_cpu(pid):
+    """CPU seconds per thread name ("main" for the oldest thread, "?" for unnamed ones), no admin needed."""
+    snap = k32.CreateToolhelp32Snapshot(0x4, 0)
+    rows = []
+    e = ThreadEntry()
+    e.dwSize = ctypes.sizeof(e)
+    ok = k32.Thread32First(snap, ctypes.byref(e))
+    while ok:
+        if e.th32OwnerProcessID == pid:
+            t = k32.OpenThread(0x0800, False, e.th32ThreadID)
+            if t:
+                c, x, kt, ut = (wintypes.FILETIME() for _ in range(4))
+                k32.GetThreadTimes(t, ctypes.byref(c), ctypes.byref(x), ctypes.byref(kt), ctypes.byref(ut))
+                desc = ctypes.c_wchar_p()
+                name = "?"
+                if k32.GetThreadDescription(t, ctypes.byref(desc)) >= 0 and desc.value:
+                    name = desc.value
+                    k32.LocalFree(ctypes.cast(desc, ctypes.c_void_p))
+                k32.CloseHandle(t)
+                born = c.dwHighDateTime << 32 | c.dwLowDateTime
+                rows.append((born, name, sum((v.dwHighDateTime << 32 | v.dwLowDateTime) for v in (kt, ut)) / 1e7))
+        ok = k32.Thread32Next(snap, ctypes.byref(e))
+    k32.CloseHandle(snap)
+    out = {}
+    for i, (_, name, s) in enumerate(sorted(rows)):
+        name = "main" if i == 0 else name
+        out[name] = out.get(name, 0) + s
+    return out
+
+
 def window(h, out, secs):
-    a, c = stats(out) or {}, cpu_s(h)
+    pid = k32.GetProcessId(h)
+    a, c, ta = stats(out) or {}, cpu_s(h), thread_cpu(pid)
     time.sleep(secs)
-    b, d = stats(out) or {}, cpu_s(h)
+    b, d, tb = stats(out) or {}, cpu_s(h), thread_cpu(pid)
     causes = {k: n - a.get("causes", {}).get(k, 0) for k, n in b.get("causes", {}).items()}
-    return {"cpu_pct_of_one_core": round((d - c) / secs * 100, 2), "frames_per_s": round((b["frames"] - a["frames"]) / secs, 1),
+    # threads that ended inside the window drop out; their time is still in cpu_pct_of_one_core
+    threads = {k: round((s - ta.get(k, 0)) / secs * 100, 2) for k, s in tb.items()}
+    # the bench's own threads inside the client; a user's client doesn't run them
+    harness = sum(v for k, v in threads.items() if k in ("bench-io", "e2e-watchdog"))
+    return {"cpu_pct_of_one_core": round((d - c) / secs * 100, 2), "app_cpu_pct": round((d - c) / secs * 100 - harness, 2),
+            "frames_per_s": round((b["frames"] - a["frames"]) / secs, 1),
             "ui_ms_per_s": round((b["ui_ms"] - a["ui_ms"]) / secs, 2),
+            "cpu_by_thread": dict(sorted(((k, v) for k, v in threads.items() if v >= 0.05), key=lambda kv: -kv[1])),
             "repaints_asked_by": dict(sorted(((k, n) for k, n in causes.items() if n), key=lambda kv: -kv[1])[:8])}
 
 
@@ -135,17 +225,18 @@ def main():
     guilds = sys.argv[sys.argv.index("--guilds") + 1] if "--guilds" in sys.argv else "115"
     history = sys.argv[sys.argv.index("--history") + 1] if "--history" in sys.argv else "800"
     if "--build" in sys.argv:
-        subprocess.run(["cargo", "build", "--release", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
+        subprocess.run(["cargo", "build", "--profile", PROFILE, "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
     http, ws = free_port(), free_port()
     tmp = Path(tempfile.mkdtemp(prefix="rcbench"))
-    mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_port())],
-                            env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.DEVNULL)
+    mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_both())],
+                            env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.PIPE)
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
                RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}", RUSTCORD_SOUNDS=f"http://127.0.0.1:{http}",
                RUSTCORD_GATEWAY=f"ws://127.0.0.1:{ws}", RUSTCORD_TOKEN="mock-token", RUSTCORD_DATA=str(tmp / "data"), RUSTCORD_SILENT="1")
     report: dict = {"exe_mb": round(EXE.stat().st_size / 2**20, 1), "guilds": int(guilds)}
     try:
-        time.sleep(0.3)
+        # building 115 servers' worth of channels comes before the mock binds its ports
+        wait_mock(mock, 30)
         # the first run of a fresh exe pays for Defender's scan; keep that out of the cold start
         p, _ = launch(env, tmp / "prime")
         p.kill()
@@ -184,6 +275,9 @@ def main():
         p.kill()
         p.wait()
     finally:
+        for c in SPAWNED:
+            if c.poll() is None:
+                c.kill()
         mock.kill()
         mock.wait()
         shutil.rmtree(tmp, ignore_errors=True)

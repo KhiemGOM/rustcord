@@ -20,6 +20,9 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 
 ## Perf
 - `python e2e/bench.py` measures startup, idle and busy CPU, frames drawn and who asked for them, the cost of one frame, and memory (with what each image loader holds), against the mock at a real account's size (`--guilds 115`: 120 servers, 14k channels). Output: `e2e/artifacts/bench.json`. Run it before and after anything that touches the frame loop, the store or repaints; single runs of idle CPU are noisy (the GPU driver spins on vsync), compare a few.
+- Iterate on the `fast` profile (`cargo build --profile fast`, `python e2e/bench.py --profile fast`): thin LTO and incremental, so a one-file rebuild took ~7 min where release's fat LTO took ~20, and it measured within ~10% of release, and it keeps line tables for a profiler. Only the final before/after goes on a real `release` build. `exe_mb` from a fast build isn't comparable (unstripped).
+- `bench.json` has `cpu_by_thread` (per thread name, `main` is the oldest) and `app_cpu_pct` (without the bench's own threads). Between runs, whole-process CPU on one machine swings wider than most single changes; compare thread by thread, alternate before/after in one session, and keep a copy of the old exe to run against.
+- Direct3D 12 instead of Vulkan was tried on an NVIDIA laptop (RTX 4060): warm first frame ~30% sooner and ~48 MB less video memory, but the driver's work moves onto the main thread (scrolling: main 32% vs 38% of a core, about the same in total). Reverted, Vulkan stays; AMD and Intel weren't measured.
 
 ## Parity
 - Judged against Discord's own CSS tokens (surface colours, 0.122 hover overlay, metrics in `look.py` and `run.py`) and live captures of the real client, not by taste. Commit messages and comments cite "live captures".
