@@ -1,0 +1,40 @@
+name: release
+
+# push a tag like v0.1.0 to build rustcord.exe and attach it to a draft GitHub release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: tag matches Cargo.toml
+        shell: bash
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but Cargo.toml says $v"; exit 1; }
+      - run: cargo build --locked --release --bin rustcord
+      - name: package
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/rustcord.exe dist/
+          cp LICENSE-MIT LICENSE-APACHE README.md dist/
+          # the exe embeds MediaPipe's model; Apache-2.0 wants its NOTICE passed on
+          cp assets/selfie_segmentation.NOTICE dist/THIRD_PARTY_NOTICE.txt
+          (cd dist && sha256sum rustcord.exe > rustcord.exe.sha256)
+          7z a "rustcord-$GITHUB_REF_NAME-windows-x64.zip" ./dist/*
+      - name: draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "Rustcord $GITHUB_REF_NAME" \
+            dist/rustcord.exe dist/rustcord.exe.sha256 "rustcord-$GITHUB_REF_NAME-windows-x64.zip"

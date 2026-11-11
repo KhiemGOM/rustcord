@@ -1,6 +1,16 @@
 # Rustcord
 
-A native Discord client in Rust (egui + glow). Same layout and colours as the desktop app, without Electron.
+A native Discord client in Rust (egui + wgpu). Same layout and colours as the desktop app, without Electron. Windows 10/11 only.
+
+> [!WARNING]
+> **Unofficial.** Rustcord is not made by, affiliated with or endorsed by Discord Inc. "Discord" and its logos are Discord's trademarks.
+> Third-party clients are against [Discord's Terms of Service](https://discord.com/terms), and Discord can suspend or ban accounts that use one. Rustcord identifies itself to Discord's servers as the official desktop client so features work. Use it at your own risk, and consider a secondary account.
+
+## Install
+
+Download `rustcord.exe` from [Releases](https://github.com/WRChip/rustcord/releases) and run it. It needs WebView2 (built into Windows 11 and current Windows 10) for activities and video embeds.
+
+Or build it yourself with a recent stable Rust (edition 2024):
 
 ```
 cargo run --release
@@ -40,3 +50,9 @@ Voice is our own implementation of the voice gateway (v8) and RTP; opus is `opus
 `python e2e/run.py` builds the release binary and a fake Discord (`examples/mockcord.rs`), then launches the real client twice (cold, then warm with cache) and drives it through egui's input pipeline: click server, click channel, type and send, scroll history, open DMs, friends, Ctrl+K, forum, thread, profile, search, pins, settings, then a voice channel (mute, camera, watching a stream, going live) and a DM call. The fake voice server does real DAVE: openmls plays the MLS external sender and a second `davey` member talks and streams, so the client's commit and welcome paths and its E2EE media are all checked against something independent. It checks timings and what the fake server received, and writes `e2e/artifacts/report.md`, `report.json`, screenshots and the request log.
 
 Env overrides used by the harness: `RUSTCORD_API`, `RUSTCORD_CDN`, `RUSTCORD_EMOJI_CDN`, `RUSTCORD_GATEWAY`, `RUSTCORD_TOKEN`, `RUSTCORD_DATA`, `RUSTCORD_E2E`, and for media `RUSTCORD_FAKE_MIC`, `RUSTCORD_FAKE_CAM`, `RUSTCORD_FAKE_VIDEO` (synthetic sources instead of devices). `python e2e/run.py --real-camera` uses the real webcam on the warm run.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option. Unless you state otherwise, any contribution you submit for inclusion in this project is dual licensed as above, without any additional terms or conditions.
+
+Bundled third-party files keep their own licenses: `assets/selfie_segmentation.onnx` is MediaPipe's model under Apache-2.0 (see `assets/selfie_segmentation.NOTICE`). Discord's names, logos and artwork belong to Discord Inc. and are not covered by this project's license.
