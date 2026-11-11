@@ -292,12 +292,28 @@ def worker(name, folder, sizes):
             good, _ = tour.sweep(folder, spec)
             checks[spec] = good
         return dict(checks=checks)
-    import profed
-
     log = folder / 'mock_requests.jsonl'
-    mock = subprocess.Popen([str(run.ROOT / 'target/release/examples/mockcord.exe'), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)])
+    mock_env = dict(os.environ, MOCK_SETTINGS_LIVE='1') if name == 'restart' else dict(os.environ)
+    mock = subprocess.Popen([str(run.ROOT / 'target/release/examples/mockcord.exe'), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)], env=mock_env)
     try:
         time.sleep(.5)
+        fake = dict(RUSTCORD_FAKE_MIC='1', RUSTCORD_FAKE_CAM='1', RUSTCORD_FAKE_VIDEO='1', RUSTCORD_SILENT='1')
+        if name.startswith('stress-'):
+            seed = int(name.removeprefix('stress-'))
+            res = run.run_client('explore', folder / 'data', dict(fake, RUSTCORD_E2E_FROM='9000', RUSTCORD_STRESS_SEED=str(seed), RUSTCORD_STRESS_ACTIONS='800'))
+            completed = res.get('ok') is True and res.get('exit_code') == 0 and 'stress_completed' in res.get('marks_ms', {}) and res.get('rects', {}).get('stress_actions') == 800
+            checks = {'800 exploratory actions completed without a reported client failure': completed,
+                      'exploration recorded UI states and state/action visits': bool(res.get('rects', {}).get('stress_states')) and bool(res.get('rects', {}).get('stress_visits'))}
+            return dict(checks=checks, runs={'explore': res}, exploration=True, seed=seed)
+        if name == 'restart':
+            first = run.run_client('change', folder / 'data', dict(fake, RUSTCORD_E2E_FROM='5000', RUSTCORD_P4B='keep'))
+            second = run.run_client('verify', folder / 'data', dict(fake, RUSTCORD_E2E_FROM='5040', RUSTCORD_P4B='verify'))
+            checks = {'settings changed through controls': 'p4b_changed' in first.get('marks_ms', {}),
+                      'settings survived client restart': 'p4b_stuck' in second.get('marks_ms', {})}
+            checks.update({f'{tag} finished': r.get('ok') is True and r.get('exit_code') == 0 for tag, r in (('change', first), ('verify', second))})
+            return dict(checks=checks, runs={'change': first, 'verify': second})
+        import profed
+
         runs = {}
         for tag in ('cold', 'warm'):
             runs[tag] = run.run_client(tag, folder / 'data', dict(RUSTCORD_E2E_FROM='3900', RUSTCORD_E2E_TO='1', RUSTCORD_FAKE_MIC='1', RUSTCORD_FAKE_CAM='1', RUSTCORD_FAKE_VIDEO='1', RUSTCORD_SILENT='1'))
@@ -331,6 +347,8 @@ def native_suite(name, out, sizes):
     result.update(name=name, exit_code=proc.returncode, elapsed_seconds=round(time.monotonic() - began, 2), binaries=before,
                   status='passed' if proc.returncode == 0 and suite_code == 0 and checks and all(v is True for v in checks.values()) and not changed else 'failed')
     if name == 'bench' and proc.returncode == 0 and result.get('measurements') and not changed:
+        result['status'] = 'recorded'
+    if result.get('exploration') and result['status'] == 'passed':
         result['status'] = 'recorded'
     if changed:
         result['error'] = 'binaries changed during the run; results cannot identify one build'
