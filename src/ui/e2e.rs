@@ -46,6 +46,7 @@ use crate::voice::{State, audio};
 mod menus;
 mod more;
 mod players;
+mod mathfile;
 mod perms;
 mod p3b;
 mod p4b;
