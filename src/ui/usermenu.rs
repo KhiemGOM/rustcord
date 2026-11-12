@@ -127,7 +127,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     let pinned = dm.is_some_and(|c| store.pinned.contains(&c));
     let vch = if let Origin::Voice(c) = origin { Some(c) } else { None };
     let ctx_ch = dm.or(vch).or(if origin == Origin::Friends { None } else { app.cur() });
-    let composing = dm.is_none() && origin != Origin::Friends && app.cur().and_then(|c| store.channels.get(&c)).is_some_and(|c| store.perms(c) & SEND_MESSAGES != 0);
+    let composing = dm.is_none() && origin != Origin::Friends && app.cur().and_then(|c| store.channels.get(&c)).is_some_and(|c| store.can_send(c));
     let has_dm = store.dms.iter().filter_map(|c| store.channels.get(c)).any(|c| c.kind == 1 && c.recipients == [uid]);
     let username = user.as_ref().map(|u| u.username.clone()).unwrap_or_default();
     let dev = app.settings.dev;
