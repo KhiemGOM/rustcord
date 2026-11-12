@@ -119,6 +119,30 @@ fn fresh(app: &mut App, ctx: &egui::Context) {
     app.friends_tab = 0;
 }
 
+/// A replayed click can land on something that opens a native picker, which holds the UI thread
+/// until it is answered. Nobody is there to, so every dialog this process owns is closed.
+fn close_native_dialogs() {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, GetWindowThreadProcessId, PostMessageW, WM_CLOSE};
+    unsafe extern "system" fn each(h: HWND, _: LPARAM) -> i32 {
+        let (mut pid, mut class) = (0u32, [0u16; 16]);
+        unsafe {
+            GetWindowThreadProcessId(h, &mut pid);
+            let n = GetClassNameW(h, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
+            if pid == std::process::id() && String::from_utf16_lossy(&class[..n]) == "#32770" {
+                PostMessageW(h, WM_CLOSE, 0, 0);
+            }
+        }
+        1
+    }
+    let _ = std::thread::Builder::new().name("replay-dialogs".into()).spawn(|| {
+        loop {
+            unsafe { EnumWindows(Some(each), 0) };
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    });
+}
+
 fn keys(combo: &str) -> Option<(Key, Modifiers)> {
     let mut mods = Modifiers::NONE;
     let mut key = None;
@@ -217,6 +241,7 @@ impl Run {
                 _ => return self.fail("replay: journeys file missing or malformed".into()),
             }
             self.tour_setup(app, ctx);
+            close_native_dialogs();
             self.step = 1;
         }
         if app.conn != Conn::Online || app.store.guilds.is_empty() || self.pending_shots > 0 {
