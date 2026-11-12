@@ -253,11 +253,8 @@ impl App {
             && let Some(g) = self.ui.guild
         {
             let cats: Vec<Id> = self.store.channels.values().filter(|c| c.guild == g && c.kind == 4).map(|c| c.id).collect();
-            if cats.iter().all(|c| self.ui.collapsed.contains(c)) {
-                self.ui.collapsed.retain(|c| !cats.contains(c));
-            } else {
-                self.ui.collapsed.extend(cats);
-            }
+            let all = cats.iter().all(|c| self.store.collapsed.contains(c));
+            self.set_collapsed(&cats, !all);
         }
         if k(ctrl_shift, Key::N) {
             self.invite = Some(String::new());

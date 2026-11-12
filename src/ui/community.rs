@@ -854,7 +854,7 @@ const COMPLETED_ONBOARDING: u64 = 2;
 fn follow(app: &mut App, gid: Id, id: Id, cat: bool, fresh: bool, listed: &[Channel]) {
     let on = app.store.opted.contains(&id);
     if !on && let Some(c) = app.store.channels.get(&id).map(|c| if cat { id } else { c.parent }) {
-        app.ui.collapsed.remove(&c);
+        app.set_collapsed(&[c], false);
     }
     if !fresh {
         if on {

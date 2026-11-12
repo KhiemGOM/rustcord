@@ -62,6 +62,15 @@ impl Store {
         }
         for o in s["channel_overrides"].as_array().into_iter().flatten() {
             let cid = sid(&o["channel_id"]);
+            match o["collapsed"].as_bool() {
+                Some(true) => {
+                    self.collapsed.insert(cid);
+                }
+                Some(false) => {
+                    self.collapsed.remove(&cid);
+                }
+                None => {}
+            }
             if let Some(flags) = o["flags"].as_u64() {
                 self.chan_flags.insert(cid, flags);
                 if flags & (1 << 12) != 0 {
@@ -413,6 +422,7 @@ impl Store {
         self.levels.clear();
         self.opt_in.clear();
         self.opted.clear();
+        self.collapsed.clear();
         self.new_notifs = d["notification_settings"]["flags"].as_u64().unwrap_or(0) & 16 != 0;
         for s in ugs.as_array().into_iter().flatten() {
             self.guild_settings(s);

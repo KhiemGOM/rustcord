@@ -209,7 +209,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 if hide && kids.is_empty() && (cat.is_some() || pin_sec) {
                     continue;
                 }
-                let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.ui.collapsed.contains(&c.id)) };
+                let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.store.collapsed.contains(&c.id)) };
                 if pin_sec {
                     ui.add_space(15.0);
                     let (head, _) = category(ui, "Pinned Channels", collapsed, false);
@@ -381,15 +381,18 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         Some((c, ChanAct::Collapse)) => toggle = Some(c),
         Some((_, ChanAct::CollapseAll)) => {
-            let cats = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id);
-            app.ui.collapsed.extend(cats);
+            let cats: Vec<Id> = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id).collect();
+            app.set_collapsed(&cats, true);
         }
         None => {}
     }
-    if let Some(c) = toggle
-        && !app.ui.collapsed.remove(&c)
-    {
-        app.ui.collapsed.insert(c);
+    // the pinned section's fold is the server's own id, and only this machine's
+    if toggle == Some(gid) {
+        if !app.ui.collapsed.remove(&gid) {
+            app.ui.collapsed.insert(gid);
+        }
+    } else if let Some(c) = toggle {
+        app.set_collapsed(&[c], !app.store.collapsed.contains(&c));
     }
     if boost_page {
         app.open_boosts(gid);

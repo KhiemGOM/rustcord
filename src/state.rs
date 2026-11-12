@@ -132,6 +132,9 @@ pub struct Store {
     pub opt_in: Set<Id>,
     #[serde(default)]
     pub opted: Set<Id>,
+    /// Categories folded shut, which discord keeps on the account, not on the machine.
+    #[serde(default)]
+    pub collapsed: Set<Id>,
     // the flags of each channel override: 2048 pinned to the top, 4096 opted in
     #[serde(default)]
     pub chan_flags: Map<Id, u64>,

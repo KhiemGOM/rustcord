@@ -292,6 +292,27 @@ impl App {
 
     /// Notification settings the way discord saves them: servers go in the bulk route keyed by
     /// id, direct messages on their own.
+    /// Fold categories shut or open, here and on the account.
+    pub fn set_collapsed(&mut self, cats: &[Id], shut: bool) {
+        let mut by_guild: std::collections::BTreeMap<Id, serde_json::Map<String, serde_json::Value>> = Default::default();
+        for c in cats {
+            let changed = if shut { !self.store.collapsed.contains(c) } else { self.store.collapsed.contains(c) };
+            if !changed {
+                continue;
+            }
+            if shut {
+                self.store.collapsed.insert(*c);
+            } else {
+                self.store.collapsed.remove(c);
+            }
+            let gid = self.store.channels.get(c).map_or(0, |c| c.guild);
+            by_guild.entry(gid).or_default().insert(c.to_string(), json!({ "collapsed": shut }));
+        }
+        for (gid, overrides) in by_guild {
+            self.guild_settings(gid, json!({ "channel_overrides": overrides }), Tag::Quiet);
+        }
+    }
+
     pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
         if gid == 0 {
             self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), tag);
