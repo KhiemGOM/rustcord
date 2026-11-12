@@ -98,16 +98,16 @@ test('replay context ignores unrelated live list churn but rejects changed targe
 });
 
 test('a list row is found by its Discord id when live state rewrites its label', () => {
-    const row = { role: 'channel', name: 'Room 3 (voice channel), unread, 2 of 4 users', scope: 'server', id: '', item: 'channels___1555206820203724861', href: '/channels/9/1555206820203724861', box: [80, 400, 286, 32] };
+    const row = { role: 'channel', name: 'Room 3 (voice channel), unread, 2 of 4 users', scope: 'server', id: '', item: 'channels___200000000000000001', href: '/channels/9/200000000000000001', box: [80, 400, 286, 32] };
     const later = { ...row, name: 'Room 3 (voice channel)', box: [80, 432, 286, 32] };
-    const other = { ...row, name: 'Room 4 (voice channel)', item: 'channels___1555206820203724862' };
+    const other = { ...row, name: 'Room 4 (voice channel)', item: 'channels___200000000000000002' };
     assert.equal(resolveTarget({ controls: [other, later] }, row), later);
     assert.throws(() => resolveTarget({ controls: [other] }, row), /missing/);
-    const dm = { role: 'link', name: 'someone (direct message)', scope: 'Private channels', id: '', item: 'private-channels-uid_11___1351802151936200769', href: '/channels/@me/1351802151936200769', box: [80, 200, 224, 42] };
-    assert.equal(resolveTarget({ controls: [{ ...dm, name: 'unread, someone (direct message)', item: 'private-channels-uid_52___1351802151936200769' }] }, dm).href, dm.href);
-    const member = { role: 'member', name: 'eggily Playing a game', text: 'eggily', scope: 'page', id: '', item: 'members-1___10', href: null, box: [1450, 300, 240, 42] };
-    assert.equal(resolveTarget({ controls: [{ ...member, name: 'someone else', text: 'someone else' }, { ...member, name: 'eggily', item: 'members-1___12' }] }, member).item, 'members-1___12');
-    const message = { role: 'message', name: 'someone 6:48 AM hello', scope: 'page', id: 'chat-messages-1-1562858694314557616', item: '', href: null, box: [376, 315, 1331, 48] };
+    const dm = { role: 'link', name: 'someone (direct message)', scope: 'Private channels', id: '', item: 'private-channels-uid_11___400000000000000001', href: '/channels/@me/400000000000000001', box: [80, 200, 224, 42] };
+    assert.equal(resolveTarget({ controls: [{ ...dm, name: 'unread, someone (direct message)', item: 'private-channels-uid_52___400000000000000001' }] }, dm).href, dm.href);
+    const member = { role: 'member', name: 'ada Playing a game', text: 'ada', scope: 'page', id: '', item: 'members-1___10', href: null, box: [1450, 300, 240, 42] };
+    assert.equal(resolveTarget({ controls: [{ ...member, name: 'someone else', text: 'someone else' }, { ...member, name: 'ada', item: 'members-1___12' }] }, member).item, 'members-1___12');
+    const message = { role: 'message', name: 'someone 6:48 AM hello', scope: 'page', id: 'chat-messages-1-300000000000000001', item: '', href: null, box: [376, 315, 1331, 48] };
     assert.equal(resolveTarget({ controls: [{ ...message, name: 'someone, Server Tag: x 6:48 AM hello' }] }, message).id, message.id);
     const twin = { role: 'button', name: 'More', scope: 'page', id: ':r1:', item: '', href: null, box: [10, 10, 24, 24] };
     assert.equal(resolveTarget({ controls: [{ ...twin, id: ':r9:', box: [10, 300, 24, 24] }, { ...twin, id: ':r8:', box: [10, 12, 24, 24] }] }, twin).id, ':r8:');

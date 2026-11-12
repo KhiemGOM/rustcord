@@ -39,19 +39,19 @@ class Pairing(unittest.TestCase):
         self.assertEqual(found, [('spacing', 'Direct Messages', [0.0, -10.0])])
 
     def test_size_weight_colour_and_styled_names_are_told_apart(self):
-        discord = page([theirs('10', [100, 400, 16, 21]), theirs('general', [116, 500, 60, 21]), theirs('Cyril', [133, 600, 37, 21], font='8Bit'), theirs('muted', [116, 700, 40, 21], col='#81828aff')])
-        rustcord = scene([ours('10', [100, 401, 14, 19], size=14.0), ours('general', [116, 500, 60, 21], font='semi'), ours('Cyril', [133, 600, 32, 21]), ours('muted', [116, 700, 40, 21])])
+        discord = page([theirs('10', [100, 400, 16, 21]), theirs('general', [116, 500, 60, 21]), theirs('Grace', [133, 600, 37, 21], font='8Bit'), theirs('muted', [116, 700, 40, 21], col='#81828aff')])
+        rustcord = scene([ours('10', [100, 401, 14, 19], size=14.0), ours('general', [116, 500, 60, 21], font='semi'), ours('Grace', [133, 600, 32, 21]), ours('muted', [116, 700, 40, 21])])
         found = self.kinds(discord, rustcord)
         self.assertIn(('font size', '10', [16, 14.0]), found)
         self.assertIn(('font', 'general', ['gg sans 500', 'semi']), found)
-        self.assertIn(('font', 'Cyril', ['8Bit 500', 'medium']), found)
+        self.assertIn(('font', 'Grace', ['8Bit 500', 'medium']), found)
         self.assertIn(('colour', 'muted', ['#81828aff', '#dcdcdfff']), found)
-        self.assertNotIn('text width', [kind for kind, text, _ in found if text == 'Cyril'])
+        self.assertNotIn('text width', [kind for kind, text, _ in found if text == 'Grace'])
 
     def test_emoji_drawn_as_pictures_still_match_and_real_absences_are_listed(self):
-        discord = page([theirs('\U0001f4cb┃info', [116, 186, 64, 21]), theirs('3.5-year npc', [151, 366, 65, 16], size=12)])
-        rustcord = scene([ours(' ┃info', [116, 186, 64, 21]), ours('lyn', [132, 831, 20, 21])])
-        self.assertEqual(self.kinds(discord, rustcord), [('missing in Rustcord', '3.5-year npc', None), ('only in Rustcord', 'lyn', None)])
+        discord = page([theirs('\U0001f4cb┃info', [116, 186, 64, 21]), theirs('out for lunch', [151, 366, 65, 16], size=12)])
+        rustcord = scene([ours(' ┃info', [116, 186, 64, 21]), ours('kay', [132, 831, 20, 21])])
+        self.assertEqual(self.kinds(discord, rustcord), [('missing in Rustcord', 'out for lunch', None), ('only in Rustcord', 'kay', None)])
 
     def test_hidden_text_on_either_side_is_not_a_difference(self):
         discord = page([theirs('Friends', [121, 99, 51, 21]), theirs('Unread messages, a server', [35, 105, 512, 21], covered=True)])
@@ -66,17 +66,17 @@ class Pairing(unittest.TestCase):
         self.assertEqual(self.kinds(discord, rustcord), [])
 
     def test_the_same_word_far_away_is_not_the_same_text(self):
-        discord = page([theirs('Hoplite', [813, 147, 64, 26], size=20)])
-        rustcord = scene([ours('Hoplite', [843, 700, 45, 19], size=14.0)])
+        discord = page([theirs('Harbor', [813, 147, 64, 26], size=20)])
+        rustcord = scene([ours('Harbor', [843, 700, 45, 19], size=14.0)])
         self.assertEqual([kind for kind, _, _ in self.kinds(discord, rustcord)], ['missing in Rustcord', 'only in Rustcord'])
 
 
 class Journeys(unittest.TestCase):
     def test_inputs_keep_discord_ids_and_the_route_discord_settled_on(self):
-        channel = {'role': 'channel', 'name': 'general (text channel), unread', 'text': 'general', 'item': 'channels___1339586800519221299', 'id': '', 'box': [80, 200, 286, 32]}
-        message = {'role': 'message', 'name': 'someone hello', 'text': 'someone', 'item': '', 'id': 'chat-messages-1339586800519221302-1487651059143807056', 'box': [376, 120, 1331, 48]}
+        channel = {'role': 'channel', 'name': 'general (text channel), unread', 'text': 'general', 'item': 'channels___200000000000000003', 'id': '', 'box': [80, 200, 286, 32]}
+        message = {'role': 'message', 'name': 'someone hello', 'text': 'someone', 'item': '', 'id': 'chat-messages-200000000000000004-300000000000000002', 'box': [376, 120, 1331, 48]}
         gear = {'role': 'button', 'name': 'User Settings', 'text': '', 'item': '', 'id': '', 'box': [320, 868, 32, 32]}
-        self.assertEqual(discord_pair.anchor({**channel, 'name': 'Text Channels (category)'}), 'cat:1339586800519221299')
+        self.assertEqual(discord_pair.anchor({**channel, 'name': 'Text Channels (category)'}), 'cat:200000000000000003')
         with tempfile.TemporaryDirectory() as folder:
             live = Path(folder)
             rows = [
@@ -86,14 +86,14 @@ class Journeys(unittest.TestCase):
                 {'index': 4, 'route': '/channels/@me', 'setup': [], 'input': {'method': 'hover', 'target': gear}, 'status': 'reference_context_mismatch'},
             ]
             (live / 'actions.jsonl').write_text('\n'.join(json.dumps(row) for row in rows), encoding='utf-8')
-            (live / 'action-000001-before.json').write_text(json.dumps({'route': '/channels/1/1339586800519221302'}), encoding='utf-8')
+            (live / 'action-000001-before.json').write_text(json.dumps({'route': '/channels/1/200000000000000004'}), encoding='utf-8')
             (live / 'action-000003-before.json').write_text(json.dumps({'route': '/channels/@me'}), encoding='utf-8')
             made = discord_pair.journeys(live)
         self.assertEqual([journey['id'] for journey in made], ['action-000001', 'action-000002', 'action-000003'])
-        self.assertEqual((made[0]['guild'], made[0]['channel']), ('1', '1339586800519221302'))
-        self.assertEqual(made[0]['steps'], [{'do': 'rclick', 'at': [223.0, 216.0], 'rect': 'chan:1339586800519221299', 'text': 'general'}])
+        self.assertEqual((made[0]['guild'], made[0]['channel']), ('1', '200000000000000004'))
+        self.assertEqual(made[0]['steps'], [{'do': 'rclick', 'at': [223.0, 216.0], 'rect': 'chan:200000000000000003', 'text': 'general'}])
         self.assertEqual(made[1]['steps'], [{'do': 'click', 'at': [336.0, 884.0], 'rect': 'gear'}, {'do': 'key', 'key': 'Escape'}])
-        self.assertEqual((made[2]['guild'], made[2]['channel'], made[2]['steps'][0]['rect']), (None, None, 'msg:1487651059143807056'))
+        self.assertEqual((made[2]['guild'], made[2]['channel'], made[2]['steps'][0]['rect']), (None, None, 'msg:300000000000000002'))
 
 
 if __name__ == '__main__':
