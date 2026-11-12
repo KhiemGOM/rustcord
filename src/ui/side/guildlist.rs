@@ -5,7 +5,9 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
     let badge = app.store.guilds.get(&gid).and_then(|g| {
         let has = |f: &str| g.features.iter().any(|x| x == f);
-        if has("PARTNERED") {
+        if has("VERIFIED") {
+            Some(Icon::Verified)
+        } else if has("PARTNERED") {
             Some(Icon::BadgePartner)
         } else if has("COMMUNITY") {
             Some(if g.tier > 0 || g.boosts >= 2 { Icon::BadgeCommunityBoosted } else { Icon::BadgeCommunity })
@@ -56,7 +58,12 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         let left = ui.cursor().left();
         if let Some(b) = badge {
             let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-            icons::draw(ui.painter(), b, r, Color32::WHITE);
+            if matches!(b, Icon::Verified) {
+                icons::draw(ui.painter(), Icon::FlowerStar, r, pal().green);
+                icons::draw(ui.painter(), b, Rect::from_center_size(r.center(), vec2(13.0, 13.0)), Color32::WHITE);
+            } else {
+                icons::draw(ui.painter(), b, r, Color32::WHITE);
+            }
             ui.add_space(5.0);
         } else if let Some(tier) = boosted {
             let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
