@@ -126,6 +126,8 @@ const SIDEBAR: &[Item] = &[
 ];
 
 const SIDE: f32 = 253.0;
+/// user settings' sidebar region as the capture measures it: the column starts 632 in a 1400 card
+const SIDEBAR_TOTAL: f32 = 277.0;
 const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
 pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
@@ -363,7 +365,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     }
 
     let view = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
-    let cols = super::sidebar_view::column(area.left() - SIDE, area.width() + SIDE, SIDE, super::sidebar_view::Kind::Wide, false);
+    let cols = super::sidebar_view::column(area.left() - SIDE, area.width() + SIDE, SIDEBAR_TOTAL, super::sidebar_view::Kind::Wide, false);
     ui.ctx().data_mut(|d| d.insert_temp(Id::new("notice"), cols.notice));
     let mut changed = false;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(view));
@@ -489,7 +491,7 @@ pub fn section_with(ui: &mut Ui, title: &str, button: Option<&str>) -> bool {
         ui.add_space(40.0);
     }
     ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
-    let r = ui.add(egui::Label::new(RichText::new(title).font(reg(24.0)).color(pal().header_primary)).selectable(false)).rect;
+    let r = ui.add(egui::Label::new(RichText::new(title).font(medium(24.0)).color(pal().header_primary)).selectable(false)).rect;
     ui.data_mut(|d| {
         let mut v = d.get_temp::<Vec<(String, f32)>>(id).unwrap_or_default();
         v.push((title.to_string(), r.top()));
