@@ -223,7 +223,12 @@ impl App {
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
     /// the ones picked by hand, else the latest used, topped up with discord's defaults.
     pub fn quick_reactions(&self) -> Vec<ReactEmoji> {
-        let mut list = if self.settings.quick_reactions.is_empty() { self.ui.quick.clone() } else { self.settings.quick_reactions.clone() };
+        // discord's four are the account's most used; what was used here leads until those arrive
+        let mut list = match (self.settings.quick_reactions.is_empty(), self.ui.frequent.is_empty()) {
+            (false, _) => self.settings.quick_reactions.clone(),
+            (true, false) => self.ui.frequent.iter().take(4).cloned().collect(),
+            (true, true) => self.ui.quick.clone(),
+        };
         for n in ["✅", "❤️", "🔥", "😂"] {
             if list.len() < 4 && !list.iter().any(|q| q.id == 0 && q.name == n) {
                 list.push(ReactEmoji { id: 0, name: n.to_string(), animated: false });

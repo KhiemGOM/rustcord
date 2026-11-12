@@ -84,9 +84,9 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         use crate::ui::{Trail, menu_item, menu_row, menu_sep};
         ui.set_min_width(204.0);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing.x = 4.0;
             for (i, e) in quick.iter().enumerate().filter(|_| can_react) {
-                let (r, resp) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::click());
+                let (r, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
                 tiles.push(r);
                 ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 let er = Rect::from_center_size(r.center(), vec2(24.0, 24.0));
@@ -101,7 +101,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             }
         });
         if can_react {
-            menu_sep(ui);
+            ui.add_space(8.0);
         }
         let mut started = false;
         let mut group = |ui: &mut Ui, on: bool| {
