@@ -41,7 +41,10 @@ pub(super) fn pins(app: &mut App, ctx: &egui::Context) {
                                 crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                             }
                             Some(l) if l.is_empty() => {
-                                ui.add_space(9.0 + 113.0 + 33.0);
+                                // the popout's own middle: this frame sits 8 in on the left and 12 on the right
+                                let free = ui.available_rect_before_wrap();
+                                crate::ui::webart::draw(ui.painter(), crate::ui::webart::NO_PINS, Rect::from_min_size(pos2(free.center().x + 2.0 - 60.0, free.top() + 16.0), vec2(120.0, 120.0)));
+                                ui.add_space(16.0 + 120.0 + 19.0);
                                 ui.vertical_centered(|ui| {
                                     ui.label(RichText::new("This channel doesn't have any
 pinned messages... yet.").font(medium(16.0)).color(pal().text_normal));
@@ -450,12 +453,14 @@ pub(crate) fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
         if list.is_empty() {
             let (body, _) = ui.allocate_exact_size(vec2(597.0, 400.0), Sense::hover());
             let p = ui.painter();
-            let c = pos2(body.center().x, body.top() + 110.0);
-            p.circle_filled(c, 40.0, pal().bg_tertiary);
-            crate::ui::icons::draw(p, Icon::Thread, Rect::from_center_size(c, vec2(36.0, 36.0)), pal().header_secondary);
-            p.text(pos2(c.x, body.top() + 182.0), Align2::CENTER_CENTER, "There are no threads.", semi(24.0), pal().header_primary);
-            p.text(pos2(c.x, body.top() + 215.0), Align2::CENTER_CENTER, "Stay focused on a conversation with a thread - a temporary text channel.", reg(16.0), pal().text_normal);
-            let b = Rect::from_center_size(pos2(c.x, body.top() + 259.0), vec2(130.0, 40.0));
+            let c = pos2(body.center().x, body.top() + 132.0);
+            if !crate::ui::webart::draw(p, crate::ui::webart::NO_THREADS, Rect::from_center_size(c, vec2(256.0, 144.0))) {
+                p.circle_filled(c, 40.0, pal().bg_tertiary);
+                crate::ui::icons::draw(p, Icon::Thread, Rect::from_center_size(c, vec2(36.0, 36.0)), pal().header_secondary);
+            }
+            p.text(pos2(c.x, body.top() + 232.0), Align2::CENTER_CENTER, "There are no threads.", semi(24.0), pal().header_primary);
+            p.text(pos2(c.x, body.top() + 265.5), Align2::CENTER_CENTER, "Stay focused on a conversation with a thread - a temporary text channel.", reg(16.0), pal().text_normal);
+            let b = Rect::from_center_size(pos2(c.x, body.top() + 319.5), vec2(130.0, 40.0));
             let br = ui.interact(b, ui.id().with("thread_create_big"), Sense::click());
             ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
             ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create Thread", medium(16.0), egui::Color32::WHITE);

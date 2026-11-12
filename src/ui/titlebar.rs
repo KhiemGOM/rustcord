@@ -527,7 +527,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         match tab {
                             0 => open_ch = unread_list(ui, app),
                             1 => jump = mention_list(ui, app),
-                            4 => tip(ui, "Send it at the perfect moment", "Draft your message then click the plus button and ", "Schedule Message", " to choose when to send. We'll handle the rest."),
+                            4 => tip(ui, super::webart::NOTHING_SCHEDULED, "Send it at the perfect moment", "Draft your message then click the plus button and ", "Schedule Message", " to choose when to send. We'll handle the rest."),
                             _ => jump = saved_list(ui, app, tab == 3),
                         }
                     });
@@ -905,9 +905,12 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
 /// Bookmarks or reminders: each message as a card under where it was said, a reminder's time
 /// over it, the message jumped to on a click.
 /// A tab's empty state: a heading, then how to fill it with the action in bold.
-fn tip(ui: &mut Ui, head: &str, how: &str, action: &str, tail: &str) {
-    ui.add_space(16.0);
+fn tip(ui: &mut Ui, art: &str, head: &str, how: &str, action: &str, tail: &str) {
+    ui.add_space(52.0);
     ui.vertical_centered(|ui| {
+        let (picture, _) = ui.allocate_exact_size(vec2(140.0, 93.3), Sense::hover());
+        super::webart::draw(ui.painter(), art, picture);
+        ui.add_space(24.0);
         ui.label(RichText::new(head).font(semi(24.0)).color(pal().text_normal));
         ui.add_space(8.0);
         let mut job = egui::text::LayoutJob::default();
@@ -933,7 +936,7 @@ fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     } else {
         ("Collect your favorite memories", "Right-click any message and pick ", "Bookmark Message", ". Find it here, for your eyes only.")
     };
-    tip(ui, head, how, action, tail);
+    tip(ui, if reminders { super::webart::NO_REMINDERS } else { super::webart::NO_BOOKMARKS }, head, how, action, tail);
     if list.is_empty() {
         return None;
     }

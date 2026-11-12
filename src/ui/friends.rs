@@ -99,7 +99,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
         Some((false, _)) => pal().critical,
         None => pal().border_subtle,
     };
-    input_frame().corner_radius(16).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    let field = input_frame().corner_radius(16).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let out = egui::TextEdit::singleline(&mut app.add_friend)
                 .frame(Frame::NONE)
@@ -129,6 +129,9 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+    // discord's picture stands on the field's top edge, 16 in from its right
+    let card = field.response.rect;
+    super::webart::draw(ui.painter(), super::webart::ADD_FRIEND, Rect::from_min_size(pos2(card.right() - 100.0, card.top() - 72.0), vec2(84.0, 72.0)));
     if let Some((ok, text)) = &app.add_friend_note {
         ui.add_space(8.0);
         let ink = if *ok { pal().green } else { pal().critical };

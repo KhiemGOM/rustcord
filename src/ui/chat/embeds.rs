@@ -153,7 +153,9 @@ pub(super) fn file_card(ui: &mut Ui, name: &str, size: u64) -> egui::Response {
     let w = ui.available_width().min(432.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 74.0), Sense::click());
     ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-    icons::draw(ui.painter(), Icon::File, Rect::from_center_size(pos2(rect.left() + 32.0, rect.center().y), vec2(30.0, 30.0)), pal().blurple);
+    if !crate::ui::webart::draw(ui.painter(), crate::ui::webart::file_icon(name), Rect::from_min_size(rect.min + vec2(17.0, 17.0), vec2(30.0, 40.0))) {
+        icons::draw(ui.painter(), Icon::File, Rect::from_center_size(pos2(rect.left() + 32.0, rect.center().y), vec2(30.0, 30.0)), pal().blurple);
+    }
     let n = text::paint(ui.painter(), pos2(rect.left() + 55.0, rect.top() + 29.0), Align2::LEFT_CENTER, name, reg(16.0), pal().link, rect.width() - 72.0);
     if resp.hovered() {
         ui.painter().hline(n.x_range(), n.bottom() - 1.0, Stroke::new(1.0, pal().link));

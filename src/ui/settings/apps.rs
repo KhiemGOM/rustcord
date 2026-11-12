@@ -38,7 +38,12 @@ pub fn provider(kind: &str) -> (&'static str, Color32) {
     PROVIDERS.iter().find(|p| p.0 == kind).map_or(("Account", pal().blurple), |p| (p.1, role_color(p.2)))
 }
 
+/// A service's own mark once it has come down from Discord; its initial on its colour until then,
+/// and for the few whose mark isn't a file of Discord's.
 pub fn badge(ui: &Ui, r: Rect, name: &str, fill: Color32) {
+    if crate::ui::webart::service(name).is_some_and(|file| crate::ui::webart::draw(ui.painter(), file, r)) {
+        return;
+    }
     ui.painter().rect_filled(r, 8, fill);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, name.chars().next().unwrap_or('?'), semi(r.height() * 0.45), Color32::WHITE);
 }
