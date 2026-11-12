@@ -153,7 +153,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         let out = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             // under a banner the list starts where the banner ends
-            ui.add_space(if banner.is_some() { 81.0 } else { 8.0 });
+            ui.add_space(if banner.is_some() { 81.0 } else { 13.0 });
             let store = &app.store;
             if let Some(g) = store.guilds.get(&gid).filter(|g| g.boost_bar) {
                 boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some());

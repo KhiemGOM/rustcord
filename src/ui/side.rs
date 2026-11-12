@@ -335,8 +335,8 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         }
         icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
         let shown = if is_events && g.events > 0 { format!("{} Event{}", g.events, if g.events == 1 { "" } else { "s" }) } else { label.to_string() };
-        let room = inner.width() - 40.0 - if is_events && ev.mentions > 0 { 32.0 } else { 0.0 };
-        text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, &shown, if lit { semi(16.0) } else { medium(16.0) }, col, room);
+        let room = inner.width() - 42.0 - if is_events && ev.mentions > 0 { 32.0 } else { 0.0 };
+        text::paint(ui.painter(), pos2(inner.left() + 36.0, row.center().y), Align2::LEFT_CENTER, &shown, if lit { semi(16.0) } else { medium(16.0) }, col, room);
         if is_events {
             if ev.mentions > 0 {
                 super::badge(ui, pos2(inner.right() - 8.0, row.center().y), ev.mentions, None);
@@ -394,7 +394,7 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::R
     let turn = (1.0 - super::motion::tween(ui.ctx(), resp.id.with("chev"), !collapsed, 0.2, super::motion::EASE_OUT)) * -std::f32::consts::FRAC_PI_2;
     let y = rect.top() + 12.0;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name
-    let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 52.0, 1.0);
+    let t = text::paint_em(ui.painter(), pos2(rect.left() + 16.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 60.0, 1.0);
     icons::draw_turned(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col, turn);
     let mut add = false;
     if can_add {
@@ -573,9 +573,8 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         right = r.left() - 6.0;
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
-    // channel names are medium; unread ones go semibold
-    let font = if unread { semi(16.0) } else { medium(16.0) };
-    let left = inner.left() + 34.0;
+    let font = medium(16.0);
+    let left = inner.left() + 36.0;
     let name = text::layout_em(ui.ctx(), &c.name, font, col, right - left, 1.0);
     let at = pos2(left, y - name.size().y / 2.0);
     name.paint(ui.painter(), at);
@@ -744,10 +743,10 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         // leave room for the three buttons so long names elide instead of running under them
         let col = (ui.available_width() - 146.0 - if app.settings.clips { 32.0 } else { 0.0 }).max(40.0);
         let hot = ui.rect_contains_pointer(ui.max_rect());
-        let names = ui.allocate_ui_with_layout(vec2(col, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+        let names = ui.allocate_ui_with_layout(vec2(col, 40.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
             ui.set_max_width(col);
-            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.spacing_mut().item_spacing.y = -2.0;
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
             text::label(ui, &name, medium(16.0), pal().header_primary, Sense::hover());
             let sub = match app.conn {

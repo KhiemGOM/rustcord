@@ -21,13 +21,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let r = ui.max_rect();
             ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().border_subtle));
             ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.add_space(2.0);
                 let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                 super::icons::draw(ui.painter(), Icon::Friends, r, pal().channel_default);
                 ui.label(RichText::new("Friends").font(medium(16.0)).color(pal().header_primary));
                 let (dot, _) = ui.allocate_exact_size(vec2(4.0, 4.0), Sense::hover());
                 ui.painter().circle_filled(dot.center(), 2.0, egui::Color32::from_rgba_unmultiplied(151, 151, 159, 61));
+                // the tabs sit 16 apart
+                ui.add_space(-4.0);
                 for (i, t) in TABS.iter().enumerate() {
+                    ui.add_space(4.0);
                     let sel = app.friends_tab == i as u8;
                     let g = ui.painter().layout_no_wrap(t.to_string(), medium(16.0), pal().header_primary);
                     let extra = if i == 2 && pending > 0 { 24.0 } else { 0.0 };
@@ -46,6 +50,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         app.friends_tab = i as u8;
                     }
                 }
+                ui.add_space(4.0);
                 let add = app.friends_tab == 4;
                 let g = ui.painter().layout_no_wrap("Add Friend".into(), medium(16.0), egui::Color32::WHITE);
                 let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::click());
@@ -209,10 +214,12 @@ fn list(app: &mut App, ui: &mut Ui) {
             if kind == FRIEND {
                 status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
-            let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), semi(16.0), pal().header_primary, row.width() - 220.0);
+            // a nitro name keeps its own font here; a plain one is semibold
+            let face = Some(name_font(u.font, 16.0)).filter(|f| *f != medium(16.0)).unwrap_or(semi(16.0));
+            let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), face, pal().header_primary, row.width() - 220.0);
             super::tag_chip(ui.painter(), u, pos2(nr.right() + 9.0, nr.center().y), 1.0);
             // a custom status shows in place of the status, as discord does
-            let custom = app.store.activity_line(uid).filter(|(_, _, game)| game.is_empty());
+            let custom = app.store.activity_line(uid).filter(|(_, _, game, _)| game.is_empty());
             let sub = match kind {
                 INCOMING => "Incoming Friend Request".to_string(),
                 OUTGOING => "Outgoing Friend Request".to_string(),

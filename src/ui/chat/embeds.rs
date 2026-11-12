@@ -412,8 +412,11 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
         for r in &m.reactions {
             let count = r.count.to_string();
-            let g = ui.painter().layout_no_wrap(count, semi(14.0), if r.me { pal().mention_fg } else { pal().header_secondary });
-            let size = vec2(6.0 + 16.0 + 6.0 + g.size().x + 8.0, 24.0);
+            // discord gives the count a slot per digit, so a pill doesn't change width as it ticks over
+            let slot = 12.0 * count.len() as f32 - 2.0;
+            let g = ui.painter().layout_no_wrap(count, semi(16.0), if r.me { pal().mention_fg } else { pal().header_secondary });
+            let slot = slot.max(g.size().x);
+            let size = vec2(8.0 + 20.0 + 6.0 + slot + 8.0, 30.0);
             let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
             let on = crate::ui::motion::tween(ui.ctx(), resp.id.with("me"), r.me, 0.1, crate::ui::motion::EASE);
             let hot = crate::ui::motion::hot(ui.ctx(), &resp);
@@ -423,9 +426,9 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
                 crate::ui::motion::mix(idle.1, pal().blurple, on),
             );
             ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-            let er = Rect::from_min_size(pos2(rect.left() + 7.0, rect.center().y - 8.0), vec2(16.0, 16.0));
+            let er = Rect::from_min_size(pos2(rect.left() + 8.0, rect.center().y - 10.0), vec2(20.0, 20.0));
             Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
-            ui.painter().galley(pos2(er.right() + 6.0, rect.center().y - g.size().y / 2.0), g, pal().header_secondary);
+            ui.painter().galley(pos2(er.right() + 6.0 + (slot - g.size().x) / 2.0, rect.center().y - g.size().y / 2.0), g, pal().header_secondary);
             if resp.clicked() {
                 d.acts.push(Act::React(m.id, r.emoji.clone(), !r.me));
             }

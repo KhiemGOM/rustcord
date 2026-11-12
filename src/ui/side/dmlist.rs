@@ -9,6 +9,8 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     let mut wave = None;
     header(ui, |ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        // the button runs 8 from the sidebar's edges, where the server's name sits 16 in
+        let r = r.expand2(vec2(8.0, 0.0));
         ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(r.center(), Align2::CENTER_CENTER, "Find or start a conversation", medium(14.0), pal().header_primary);
         if resp.hovered() {
@@ -24,7 +26,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro Home"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
             let shop = app.shop.as_ref().map(|s| s.page);
@@ -68,8 +70,13 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     }
                 }
             }
-            ui.add_space(14.0);
-            let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+            // discord: 12 either side of a hairline, then a 24 header whose last 4 are padding
+            ui.add_space(11.0);
+            let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().hline(rule.x_range().shrink(8.0), rule.center().y, egui::Stroke::new(1.0, pal().frame_border));
+            ui.add_space(10.0);
+            let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::hover());
+            let h = Rect::from_min_size(h.min, vec2(h.width(), 20.0));
             ui.painter().text(pos2(h.left() + 16.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
             let pr = Rect::from_center_size(pos2(h.right() - 24.0, h.center().y), vec2(16.0, 16.0));
             let plus = ui.interact(pr.expand(4.0), ui.id().with("new_dm"), Sense::click());
@@ -89,7 +96,6 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     cleanup = true;
                 }
             });
-            ui.add_space(4.0);
             let store = &app.store;
             let mut ids = store.dms.clone();
             ids.sort_by_key(|id| !store.pinned.contains(id));
@@ -196,7 +202,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    let font = if unread { semi(16.0) } else { medium(16.0) };
+    let font = if unread { semi(16.0) } else { name_font(person.map_or(0, |u| u.font), 16.0) };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     if c.kind == 3 {
@@ -209,9 +215,15 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
             pal().text_muted,
         );
     } else {
-        let r = text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
+        // with a status or an activity the name rides up and the line sits under it
+        let line = person.filter(|u| store.status(u.id) != Status::Offline).and_then(|u| store.activity_line(u.id));
+        let y = if line.is_some() { row.top() + 13.5 } else { row.center().y };
+        let r = text::paint_em(ui.painter(), pos2(av.right() + 12.0, y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
         if let Some(u) = person {
-            crate::ui::tag_chip(&clip, u, pos2(r.right() + 4.0, row.center().y), 1.0);
+            crate::ui::tag_chip(&clip, u, pos2(r.right() + 4.0, y), 1.0);
+        }
+        if let Some(line) = line {
+            crate::ui::members::status_line(&clip, line, av.right() + 12.0, row.top() + 30.0, right, col);
         }
     }
     let mut act = None;

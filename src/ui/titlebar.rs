@@ -381,7 +381,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
                 // centred on the window, not on the space between the buttons
                 let half = (bar.center().x - (bar.left() + 72.0)).min(inbox.left() - 12.0 - bar.center().x);
-                let label = text::layout(&ctx, &title, semi(14.0), pal().header_primary, (half * 2.0 - 32.0).max(0.0));
+                let label = text::layout(&ctx, &title, medium(14.0), pal().text_normal, (half * 2.0 - 32.0).max(0.0));
                 let width = 16.0 + 8.0 + label.size().x;
                 let left = bar.center().x - width / 2.0;
                 let icon = Rect::from_min_size(pos2(left, mid - 8.0), vec2(16.0, 16.0));

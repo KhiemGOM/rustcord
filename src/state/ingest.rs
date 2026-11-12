@@ -185,13 +185,14 @@ impl Store {
     }
 
     /// The member list's second line: the custom status if there is one, else what they're
-    /// doing ("Playing", bold name). (emoji url, prefix, bold part)
-    pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String)> {
+    /// doing ("Playing", bold name). (emoji url, prefix, bold part, the kind of activity going on
+    /// beside a custom status)
+    pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String, Option<u8>)> {
         let list = self.activities.get(&uid)?;
         if let Some(a) = list.iter().find(|a| a.kind == 4)
             && (a.state.is_some() || a.emoji.is_some())
         {
-            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new()));
+            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new(), list.iter().find(|a| a.kind != 4).map(|a| a.kind)));
         }
         let a = list.iter().find(|a| a.kind != 4)?;
         let verb = match a.kind {
@@ -201,7 +202,7 @@ impl Store {
             5 => "Competing in ",
             _ => "Playing ",
         };
-        Some((None, verb.to_string(), a.name.clone()))
+        Some((None, verb.to_string(), a.name.clone(), None))
     }
 
     pub fn upsert_user(&mut self, v: &Value) -> Id {

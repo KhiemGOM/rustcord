@@ -249,7 +249,7 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                     .id(egui::Id::new("search_box"))
                                     .frame(Frame::NONE)
                                     .font(medium(14.0))
-                                    .hint_text(RichText::new(hint).color(pal().text_muted))
+                                    .hint_text(RichText::new(hint).font(medium(14.0)).color(pal().text_muted))
                                     .desired_width((search_w - 42.0).max(0.0)),
                             );
                             // the magnifier turns into a clear button once there's a query
