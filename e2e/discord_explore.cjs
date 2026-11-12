@@ -135,7 +135,7 @@ async function run(args) {
         }
         if (label) write(label + '.json', state);
         if (fresh) {
-            const { texts, blocks, ...slim } = state;
+            const { texts, blocks, images, fills, ...slim } = state;
             write(file + '.json', slim);
             if (label) for (const kind of ['.png', '.aria.yml']) fs.copyFileSync(path.join(out, label + kind), path.join(out, file + kind));
         }

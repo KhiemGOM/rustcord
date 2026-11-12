@@ -50,6 +50,8 @@ function actionsFor(node, layers = []) {
     if (node.role === 'home') return ['click', 'hover'];
     if (/^(Close|Cancel|Back)$/i.test(node.name)) return ['click', 'hover'];
     if (layers.some(layer => layer.role === 'dialog' && /delete|permanently|purchase|billing|payment|credit card|password|two.factor|security code|authorization|authorize/i.test(layer.text))) return ['hover'];
+    // the Favorites entry only exists once a channel was added in this session, and what it opens is local
+    if (node.role === 'guild' && node.name === 'Favorites') return ['click', 'right-click', 'hover'];
     if (['message', 'member', 'channel', 'guild', 'friend'].includes(node.role)) return ['right-click', 'hover'];
     if (node.submenu) return ['hover'];
     if (node.role === 'tab') return ['click', 'hover'];
@@ -140,13 +142,24 @@ function inspect() {
         }
         return false;
     };
+    // what is on top at a point hides what is under it only if it paints something there: Discord
+    // lays transparent links over whole rows
+    const hidden = (e, x, y) => {
+        const hit = document.elementFromPoint(Math.min(innerWidth - 1, Math.max(0, x)), Math.min(innerHeight - 1, Math.max(0, y)));
+        if (!hit || e.contains(hit) || hit.contains(e)) return false;
+        for (let over = hit; over && !over.contains(e); over = over.parentElement) {
+            const s = getComputedStyle(over);
+            if (/^(IMG|VIDEO|CANVAS|svg)$/.test(over.tagName) || s.backgroundImage !== 'none' || !srgb(s.backgroundColor).endsWith('00')
+                || [...over.childNodes].some(node => node.nodeType === 3 && node.textContent.trim())) return true;
+        }
+        return false;
+    };
     for (let node = walk.nextNode(); node && texts.length < 4000; node = walk.nextNode()) {
         const t = node.textContent.replace(/\s+/g, ' ').trim(), parent = node.parentElement;
         if (!t || !parent || readerOnly(parent)) continue;
         range.selectNodeContents(node);
         const r = range.getBoundingClientRect(), s = getComputedStyle(parent);
         if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth || s.visibility === 'hidden' || +s.opacity === 0) continue;
-        const hit = document.elementFromPoint(Math.min(innerWidth - 1, Math.max(0, r.x + r.width / 2)), Math.min(innerHeight - 1, Math.max(0, r.y + r.height / 2)));
         let block = parent;
         while (block.parentElement && /^inline/.test(getComputedStyle(block).display)) block = block.parentElement;
         if (!blocks.has(block)) {
@@ -154,9 +167,37 @@ function inspect() {
             blocks.set(block, { i: blocks.size, t: (block.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 400), b: [b.x, b.y, b.width, b.height].map(n => Math.round(n * 10) / 10) });
         }
         texts.push({ t: t.slice(0, 400), b: [r.x, r.y, r.width, r.height].map(n => Math.round(n * 10) / 10), size: parseFloat(s.fontSize), weight: s.fontWeight, col: srgb(s.color),
-            font: s.fontFamily.split(',')[0].replace(/"/g, ''), line: s.lineHeight, covered: !!hit && !parent.contains(hit) && !hit.contains(parent), block: blocks.get(block).i });
+            font: s.fontFamily.split(',')[0].replace(/"/g, ''), line: s.lineHeight, covered: hidden(parent, r.x + r.width / 2, r.y + r.height / 2), block: blocks.get(block).i });
     }
-    return { route: location.pathname, title: document.title, viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, layers, textboxes, scrolls, controls, texts, blocks: [...blocks.values()] };
+    // pictures (what they are and where) and painted boxes, for what text alone can't show
+    const images = [], fills = [];
+    for (const e of document.querySelectorAll('body *')) {
+        if (images.length + fills.length >= 6000) break;
+        const r = e.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2 || r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) continue;
+        const s = getComputedStyle(e);
+        if (s.visibility === 'hidden' || +s.opacity === 0 || readerOnly(e)) continue;
+        const b = [r.x, r.y, r.width, r.height].map(n => Math.round(n * 10) / 10);
+        const svg = e.tagName === 'svg' && !e.parentElement.closest('svg');
+        const picture = s.backgroundImage.match(/url\("?([^")]+)"?\)/);
+        if (!svg && !/^(IMG|VIDEO|CANVAS)$/.test(e.tagName) && !picture && srgb(s.backgroundColor).endsWith('00') && parseFloat(s.borderTopWidth) === 0) continue;
+        if (hidden(e, r.x + r.width / 2, r.y + r.height / 2)) continue;
+        if (svg) {
+            const paths = [...e.querySelectorAll('path')].map(path => path.getAttribute('d') || '').join('|');
+            let sum = 0;
+            for (let i = 0; i < paths.length; i++) sum = (sum * 31 + paths.charCodeAt(i)) >>> 0;
+            images.push({ kind: 'svg', b, col: srgb(s.color), shape: paths ? sum.toString(16) : '' });
+        } else if (/^(IMG|VIDEO|CANVAS)$/.test(e.tagName)) {
+            images.push({ kind: e.tagName.toLowerCase(), b, src: (e.currentSrc || e.src || '').split('?')[0].slice(0, 300), radius: parseFloat(s.borderTopLeftRadius) || 0 });
+        } else if (picture) {
+            images.push({ kind: 'background', b, src: picture[1].split('?')[0].slice(0, 300), radius: parseFloat(s.borderTopLeftRadius) || 0 });
+        }
+        if (!srgb(s.backgroundColor).endsWith('00') || parseFloat(s.borderTopWidth) > 0) {
+            fills.push({ b, fill: srgb(s.backgroundColor), radius: parseFloat(s.borderTopLeftRadius) || 0, opacity: +s.opacity,
+                border: parseFloat(s.borderTopWidth) > 0 ? [parseFloat(s.borderTopWidth), srgb(s.borderTopColor)] : null });
+        }
+    }
+    return { route: location.pathname, title: document.title, viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, layers, textboxes, scrolls, controls, texts, blocks: [...blocks.values()], images, fills };
 }
 
 // A channel's label carries its unread state and who is in voice, and generated element ids change

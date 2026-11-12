@@ -181,5 +181,13 @@ test('browser inspection and targeting preserve nested state and exclude covered
         assert.equal(resolveTarget(changed, duplicates[1]).key, duplicates[1].key);
         await page.evaluate(async () => { await fetch('https://discord.com/api/v9/audit-fixture', { method: 'POST', body: 'must not leave' }).catch(() => {}); });
         assert.equal(events.some(event => event.type === 'blocked-http' && event.method === 'POST'), true);
+        await page.setContent('<div id="row" style="position:relative;width:300px;height:40px;background:rgb(18,18,20);border-radius:8px"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" style="width:32px;height:32px;border-radius:16px"><span>friend</span><svg width="20" height="20" style="color:rgb(150,151,158)"><path d="M0 0h20v20z"></path></svg><a href="#" style="position:absolute;inset:0"></a></div><div style="position:fixed;left:0;top:60px;width:300px;height:40px"><span>under a dialog</span><div style="position:absolute;inset:0;background:rgba(0,0,0,.7)"></div></div>');
+        const row = await page.evaluate(inspect);
+        assert.equal(row.texts.find(text => text.t === 'friend').covered, false);
+        assert.equal(row.texts.find(text => text.t === 'under a dialog').covered, true);
+        assert.deepEqual(row.images.map(image => [image.kind, image.b[2]]), [['img', 32], ['svg', 20]]);
+        assert.equal(row.images[1].col, '#96979eff');
+        assert.ok(row.images[1].shape);
+        assert.deepEqual(row.fills.map(fill => [fill.fill, fill.radius]).slice(0, 1), [['#121214ff', 8]]);
     } finally { await browser.close(); }
 });
