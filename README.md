@@ -8,7 +8,7 @@ A native Discord client in Rust (egui + wgpu). Same layout and colours as the de
 
 ## Install
 
-Download `rustcord.exe` from [Releases](https://github.com/WRChip/rustcord/releases) and run it. It needs WebView2 (built into Windows 11 and current Windows 10) for activities and video embeds.
+Download `rustcord.exe` from [Releases](https://github.com/KhiemGOM/rustcord/releases) and run it. It needs WebView2 (built into Windows 11 and current Windows 10) for activities and video embeds.
 
 Or build it yourself with a recent stable Rust (edition 2024):
 
