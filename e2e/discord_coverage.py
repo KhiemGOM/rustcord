@@ -110,6 +110,8 @@ def render(out, result, data, relative):
     page += '<p>Context-scoped inputs count only when every required marker was visible in that exact action record. Mapping candidates never receive coverage credit. Menu-family bindings do not establish every ownership, permission or channel-type variant; checked states and behavioral outcomes remain unverified.</p>'
     page += f'<p>{result["unmapped_reference_views"]} captured reference views have no explicit binding; {result["unbound_reference_control_instances"]} reference control instances remain unbound. These are inventory gaps, not counts of missing features. No whole-Discord coverage percentage is claimed.</p>'
     page += '<p><a href="discord.json">Bindings and evidence data</a> · <a href="index.html">Surface inventory and action details</a></p><input id="filter" placeholder="Find a feature, status, reference or Rustcord identifier">'
+    if (out / 'journeys' / 'index.html').is_file():
+        page += '<p><a href="journeys/index.html">Actual Discord behavior journeys, declared outcome checks and discovery backlog</a></p>'
     page += '<h2>Explicit feature mappings</h2><table><thead><tr><th>Discord feature / interaction</th><th>Exercise status</th><th>Actual Discord reference</th><th>Rustcord evidence</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table>'
     page += '<h2>All captured Discord views</h2><p>A binding on a view does not cover its remaining controls.</p><table><thead><tr><th>Reference state</th><th>Feature bindings</th><th>Control candidates bound / captured</th></tr></thead><tbody>'
     for row in result['reference_views']:
