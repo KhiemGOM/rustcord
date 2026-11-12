@@ -191,9 +191,13 @@ def run_client(name, data_dir, extra=None):
 def main():
     if "--no-build" not in sys.argv:
         build()
-    if ART.exists():
-        shutil.rmtree(ART)
-    ART.mkdir(parents=True)
+    # only this run's own outputs: recordings and reports from the other tools live beside them
+    for name in ("cold", "warm", "login", "data", "login_data", "sounds", "mock_requests.jsonl", "report.json", "report.md"):
+        if (ART / name).is_dir():
+            shutil.rmtree(ART / name)
+        else:
+            (ART / name).unlink(missing_ok=True)
+    ART.mkdir(parents=True, exist_ok=True)
     data = ART / "data"
     log = ART / "mock_requests.jsonl"
 
