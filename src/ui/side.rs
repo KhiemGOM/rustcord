@@ -592,7 +592,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     let voice_room = c.is_voice();
     for (icon, tip, shown, out) in [
         (Icon::Gear, "Edit Channel", perms & crate::state::MANAGE_CHANNELS != 0, &mut edit),
-        (Icon::PersonAdd, if voice_room { "Invite to Voice" } else { "Invite to Channel" }, perms & crate::state::CREATE_INVITE != 0, &mut invite),
+        (Icon::PersonAdd, if voice_room { "Invite to Voice" } else { "Invite to Channel" }, store.can_invite(c), &mut invite),
         // a voice channel's own text chat, open beside the call
         (Icon::Bubble, "Open Chat", voice_room, &mut chat),
     ] {

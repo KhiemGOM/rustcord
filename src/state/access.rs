@@ -72,6 +72,12 @@ impl Store {
         out
     }
 
+    /// Discord offers Invite to whoever may create one, and to everyone where the server has a
+    /// link of its own.
+    pub fn can_invite(&self, c: &Channel) -> bool {
+        self.perms(c) & CREATE_INVITE != 0 || self.guilds.get(&c.guild).is_some_and(|g| g.vanity.is_some())
+    }
+
     pub fn can_view(&self, c: &Channel) -> bool {
         self.perms(c) & VIEW_CHANNEL != 0
     }

@@ -214,7 +214,7 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
                 act = Some(ChanAct::CollapseAll);
             }
         } else {
-            if !c.is_thread() && perms & crate::state::CREATE_INVITE != 0 && menu_item(ui, None, if voice { "Invite to Voice" } else { "Invite to Channel" }, false) {
+            if !c.is_thread() && store.can_invite(c) && menu_item(ui, None, if voice { "Invite to Voice" } else { "Invite to Channel" }, false) {
                 act = Some(ChanAct::Invite);
             }
             if !c.is_thread() && menu_item(ui, None, if pinned { "Unpin Channel" } else { "Pin Channel to Top" }, false) {

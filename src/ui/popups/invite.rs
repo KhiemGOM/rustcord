@@ -112,7 +112,13 @@ pub(super) enum Pick {
 impl App {
     /// Invite People: a fresh link to the channel, good for 30 days like the official client's.
     pub fn invite_people(&mut self, ch: Id, source: &str) {
-        self.made_invite = Some(MadeInvite { ch, code: None, query: String::new(), sent: Default::default() });
+        // without the permission the dialog hands out the server's own link
+        let chan = self.store.channels.get(&ch);
+        let own = chan.filter(|c| self.store.perms(c) & crate::state::CREATE_INVITE == 0).and_then(|c| self.store.guilds.get(&c.guild)).and_then(|g| g.vanity.clone());
+        self.made_invite = Some(MadeInvite { ch, code: own.clone(), query: String::new(), sent: Default::default() });
+        if own.is_some() {
+            return;
+        }
         let body = Some(json!({ "max_age": 2_592_000, "max_uses": 0, "temporary": false }));
         if source.is_empty() {
             self.rest("POST", format!("/channels/{ch}/invites"), body, Tag::MadeInvite);

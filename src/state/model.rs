@@ -310,6 +310,9 @@ pub(crate) struct Guild {
     pub stickers: Vec<(Id, String, u8)>,
     #[serde(default)]
     pub features: Vec<String>,
+    /// The server's own invite link, which anyone in it may hand out.
+    #[serde(default)]
+    pub vanity: Option<String>,
     #[serde(skip)]
     pub theme: Option<crate::theme::Fill>,
     pub channels: Vec<Id>,

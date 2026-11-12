@@ -294,6 +294,7 @@ impl Store {
         g.afk = sid(&p["afk_channel_id"]);
         g.default_notif = p["default_message_notifications"].as_u64().unwrap_or(0) as u8;
         g.banner = ost(&p["banner"]);
+        g.vanity = ost(&p["vanity_url_code"]);
         g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
         g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
         g.tier = p["premium_tier"].as_u64().or(v["premium_tier"].as_u64()).unwrap_or(0) as u8;

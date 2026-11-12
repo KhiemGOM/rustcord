@@ -17,7 +17,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     });
     // anything else that's boosted gets discord's grey flower with the gem in it
     let boosted = app.store.guilds.get(&gid).filter(|g| badge.is_none() && (g.tier > 0 || g.boosts > 0)).map(|g| g.tier);
-    let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.perms(c) & crate::state::CREATE_INVITE != 0);
+    let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.can_invite(c));
     let dev = app.settings.dev;
     let mut invite = false;
     let mut act = None;
