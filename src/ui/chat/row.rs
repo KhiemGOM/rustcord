@@ -127,8 +127,8 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
         if let Some(s) = interaction::status(d, m) {
             interaction::status_line(&mut cui, d, font, &s);
         }
-        // discord's accessories: 2 under the text, 4 apart, 2 under the last
-        let mut acc = 2.0;
+        // discord's accessories: 2 under the text, 4 apart, 2 under the last; 9 under a name line with no text
+        let mut acc = if m.content.is_empty() && start && !compact { 9.0 } else { 2.0 };
         // a components-v2 message shows its files through its own gallery, file and thumbnail nodes
         let files: &[crate::state::Attachment] = if m.flags & (1 << 15) != 0 { &[] } else { &m.attachments };
         let tiled: Vec<&crate::state::Attachment> = files.iter().filter(|a| (a.is_image() && d.s.inline_uploads) || a.is_video()).collect();

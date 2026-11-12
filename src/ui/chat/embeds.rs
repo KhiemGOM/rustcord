@@ -151,15 +151,15 @@ pub(crate) fn human_size(n: u64) -> String {
 /// file glyph, the name as a link that underlines under the pointer, and the size.
 pub(super) fn file_card(ui: &mut Ui, name: &str, size: u64) -> egui::Response {
     let w = ui.available_width().min(432.0);
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 66.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 74.0), Sense::click());
     ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-    icons::draw(ui.painter(), Icon::File, Rect::from_min_size(rect.min + vec2(16.0, 21.0), vec2(24.0, 24.0)), pal().blurple);
-    let n = text::paint(ui.painter(), pos2(rect.left() + 52.0, rect.top() + 23.0), Align2::LEFT_CENTER, name, reg(14.0), pal().link, rect.width() - 64.0);
+    icons::draw(ui.painter(), Icon::File, Rect::from_center_size(pos2(rect.left() + 32.0, rect.center().y), vec2(30.0, 30.0)), pal().blurple);
+    let n = text::paint(ui.painter(), pos2(rect.left() + 55.0, rect.top() + 29.0), Align2::LEFT_CENTER, name, reg(16.0), pal().link, rect.width() - 72.0);
     if resp.hovered() {
         ui.painter().hline(n.x_range(), n.bottom() - 1.0, Stroke::new(1.0, pal().link));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    ui.painter().with_clip_rect(rect.shrink(8.0)).text(pos2(rect.left() + 52.0, rect.top() + 44.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), pal().text_muted);
+    ui.painter().with_clip_rect(rect.shrink(8.0)).text(pos2(rect.left() + 55.0, rect.top() + 47.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), pal().text_muted);
     resp
 }
 
@@ -375,7 +375,20 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
             };
             if let Some(f) = foot {
                 ui.add_space(8.0);
-                ui.label(RichText::new(f).font(reg(12.0)).line_height(Some(16.0)).color(pal().text_normal));
+                let label = RichText::new(f).font(medium(12.0)).line_height(Some(16.0)).color(pal().text_normal);
+                match &e.footer_icon {
+                    Some(url) => {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                            avatar(ui, r, url);
+                            ui.label(label);
+                        });
+                    }
+                    None => {
+                        ui.label(label);
+                    }
+                }
             }
         });
     let rect = r.response.rect;

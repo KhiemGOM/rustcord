@@ -496,6 +496,8 @@ pub(crate) struct Embed {
     pub author: Option<String>,
     pub provider: Option<String>,
     pub footer: Option<String>,
+    #[serde(default)]
+    pub footer_icon: Option<String>,
     // unix ms
     pub timestamp: Option<i64>,
     pub fields: Vec<(String, String, bool)>,
@@ -515,6 +517,7 @@ impl Embed {
             author: ost(&v["author"]["name"]),
             provider: ost(&v["provider"]["name"]),
             footer: ost(&v["footer"]["text"]),
+            footer_icon: ost(&v["footer"]["proxy_icon_url"]).or_else(|| ost(&v["footer"]["icon_url"])),
             timestamp: v["timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
             fields: v["fields"]
                 .as_array()
