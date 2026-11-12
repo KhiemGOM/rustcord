@@ -400,6 +400,8 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 Move::Last => crate::ui::reorder::move_to(app, c, at, None),
             }
         }
+        Some((c, ChanAct::Favorite(p))) => crate::ui::favorites::add(app, c, p),
+        Some((c, ChanAct::Unfavorite)) => crate::ui::favorites::remove(app, c),
         Some((c, ChanAct::Collapse)) => toggle = Some(c),
         Some((_, ChanAct::CollapseAll)) => {
             let cats: Vec<Id> = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id).collect();

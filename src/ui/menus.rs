@@ -34,6 +34,9 @@ pub(super) enum ChanAct {
     HideNames,
     Chat,
     Move(Move),
+    // into the Favorites server, under one of its categories (0 for none), or out of it
+    Favorite(Id),
+    Unfavorite,
 }
 
 pub(super) enum GuildAct {
@@ -153,6 +156,28 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     act
 }
 
+/// Discord's Add to Favorites: a star row, or with categories of your own a submenu to pick one.
+fn favorite_item(ui: &mut Ui, store: &Store) -> Option<Id> {
+    let cats = super::favorites::categories(store);
+    if cats.is_empty() {
+        return menu_item(ui, Some(Icon::Star), "Add to Favorites", false).then_some(0);
+    }
+    let r = menu_row(ui, Some(Icon::Star), "Add to Favorites", None, false, Trail::Caret);
+    let mut to = r.clicked().then_some(0);
+    egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+        if menu_item(ui, None, "Favorites", false) {
+            to = Some(0);
+        }
+        menu_sep(ui);
+        for (id, name) in &cats {
+            if menu_item(ui, None, name, false) {
+                to = Some(*id);
+            }
+        }
+    });
+    to
+}
+
 fn move_menu(ui: &mut Ui, store: &Store, c: &Channel) -> Option<Move> {
     let mut mv = None;
     let m = menu_row(ui, None, "Move to...", None, false, Trail::Caret);
@@ -189,6 +214,12 @@ fn move_menu(ui: &mut Ui, store: &Store, c: &Channel) -> Option<Move> {
 /// Discord's right-click menu for a channel, thread or category.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, collapsed: bool, dev: bool, hide_names: bool, out: &mut Option<(Id, ChanAct)>) {
+    channel_menu_in(r, store, c, unread, collapsed, dev, hide_names, true, out);
+}
+
+/// The same menu; the Favorites server's leaves out moving, editing and deleting the channel.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn channel_menu_in(r: &egui::Response, store: &Store, c: &Channel, unread: bool, collapsed: bool, dev: bool, hide_names: bool, admin: bool, out: &mut Option<(Id, ChanAct)>) {
     let cat = c.kind == 4;
     let voice = c.is_voice();
     let what = if cat { "Category" } else if c.is_thread() { "Thread" } else { "Channel" };
@@ -198,6 +229,12 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
         let mut act = None;
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
             act = Some(ChanAct::Read);
+        }
+        if super::favorites::can_add(store, c) {
+            menu_sep(ui);
+            if let Some(p) = favorite_item(ui, store) {
+                act = Some(ChanAct::Favorite(p));
+            }
         }
         menu_sep(ui);
         let listed = store.opted.contains(&c.id);
@@ -261,7 +298,7 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
                 }
             });
         }
-        if perms & crate::state::MANAGE_CHANNELS != 0 && !c.is_thread() {
+        if admin && perms & crate::state::MANAGE_CHANNELS != 0 && !c.is_thread() {
             menu_sep(ui);
             if let Some(m) = move_menu(ui, store, c) {
                 act = Some(ChanAct::Move(m));
@@ -282,6 +319,12 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
                         _ => ChanAct::Edit,
                     });
                 }
+            }
+        }
+        if super::favorites::has(store, c.id) {
+            menu_sep(ui);
+            if menu_item(ui, None, "Remove from Favorites", true) {
+                act = Some(ChanAct::Unfavorite);
             }
         }
         if dev {

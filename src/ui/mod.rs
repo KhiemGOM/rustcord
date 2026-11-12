@@ -114,6 +114,7 @@ mod restmsg;
 mod pump;
 mod frame;
 mod webart;
+mod favorites;
 mod widgets;
 pub(crate) use widgets::avatar;
 pub(crate) use widgets::status_dot;
