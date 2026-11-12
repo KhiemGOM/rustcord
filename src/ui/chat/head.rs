@@ -68,22 +68,24 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let room = ui.available_width();
                 let name_w = (room - bar - SEARCH_W).max(0.0);
                 let search_w = (SEARCH_W - (bar + SEARCH_W - room).max(0.0)).max(0.0);
+                ui.spacing_mut().item_spacing.x = 0.0;
                 let (name, _) = ui.allocate_exact_size(vec2(name_w, 32.0), Sense::hover());
                 app.rects.insert("header:name".into(), name);
                 let mut group = ui.new_child(UiBuilder::new().max_rect(name).layout(Layout::left_to_right(Align::Center)));
                 group.set_clip_rect(name.intersect(ui.clip_rect()));
                 {
                     let ui = &mut group;
-                    // discord's header icons are 20, the name 9 past them
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    // discord's header icons are 20, the name 10 past them
                     let glyph = |ui: &mut Ui, icon: Icon| {
                         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                         icons::draw(ui.painter(), icon, r, pal().channel_default);
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                     };
                     let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
                         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                         side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                         r
                     };
                     match chan.kind {
@@ -162,7 +164,6 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     fade.add_triangle(0, 2, 3);
                     ui.painter().add(fade);
                 }
-                ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(8.0);
                 for tool in &tools {
                     match tool {
@@ -243,10 +244,10 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let (slot, _) = ui.allocate_exact_size(vec2(search_w, 32.0), Sense::hover());
                 let mut field = ui.new_child(UiBuilder::new().max_rect(slot).layout(Layout::left_to_right(Align::Center)));
                 field.set_clip_rect(slot.intersect(ui.clip_rect()));
-                let r = {
+                let (r, outer) = {
                     let ui = &mut field;
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    Frame::new()
+                    let boxed = Frame::new()
                         .fill(pal().input_bg)
                         .stroke(Stroke::new(1.0, pal().border_subtle))
                         .corner_radius(8)
@@ -269,8 +270,8 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 clear = x.clicked();
                             }
                             r
-                        })
-                        .inner
+                        });
+                    (boxed.inner, boxed.response.rect)
                 };
                 app.rects.insert("search".into(), r.rect);
                 if clear {
@@ -280,7 +281,7 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
                     app.start_search(chan.id, q.trim().to_string());
                 }
-                if let Some(past) = crate::ui::popups::search_options(app, ui.ctx(), &r, &mut q, chan.guild) {
+                if let Some(past) = crate::ui::popups::search_options(app, ui.ctx(), &r, outer, &mut q, chan.guild) {
                     app.start_search(chan.id, past.clone());
                     q = past;
                 }

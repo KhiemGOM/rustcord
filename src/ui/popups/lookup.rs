@@ -188,7 +188,7 @@ pub(crate) fn search_panel(app: &mut App, ui: &mut Ui) {
 /// What drops from the search box while it's focused. Empty, discord's filters and past
 /// searches; typed, a row to search and the people and channels the last word could mean.
 /// Picking a filter types it; picking a search runs it.
-pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response, q: &mut String, guild: Id) -> Option<String> {
+pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::Response, anchor: Rect, q: &mut String, guild: Id) -> Option<String> {
     let id = egui::Id::new("search_options");
     let hovered = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     if !(field.has_focus() || hovered) {
@@ -228,35 +228,35 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
     let area = crate::ui::motion::popout(ctx, egui::Area::new(id)
         .order(egui::Order::Foreground)
         .pivot(Align2::RIGHT_TOP)
-        .fixed_pos(field.rect.right_bottom() + vec2(-4.0, 8.0)), vec2(0.0, 1.0))
+        .fixed_pos(anchor.right_bottom() + vec2(-6.0, 8.0)), vec2(0.0, 1.0))
         .show(ctx, |ui| {
             let shadow = ui.style().visuals.popup_shadow;
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
-                ui.set_width(356.0);
+                ui.set_width(352.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let head = |ui: &mut Ui, t: &str| {
-                    let (r, _) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::hover());
-                    ui.painter().text(pos2(r.left() + 17.0, r.top() + 25.0), Align2::LEFT_CENTER, t, semi(12.0), pal().header_secondary);
+                    let (r, _) = ui.allocate_exact_size(vec2(352.0, 36.0), Sense::hover());
+                    ui.painter().text(pos2(r.left() + 15.0, r.top() + 25.0), Align2::LEFT_CENTER, t, semi(12.0), pal().header_secondary);
                 };
                 let rule = |ui: &mut Ui| {
                     ui.add_space(8.0);
-                    let (r, _) = ui.allocate_exact_size(vec2(356.0, 1.0), Sense::hover());
+                    let (r, _) = ui.allocate_exact_size(vec2(352.0, 1.0), Sense::hover());
                     ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
                 };
                 // a two-line row: icon, a title, and "key: value" under it
                 let row = |ui: &mut Ui, icon: Icon, avatar_url: Option<String>, title: &str, key: &str, hint: &str| {
-                    let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(352.0, 48.0), Sense::click());
                     let p = ui.painter();
                     crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
-                    crate::ui::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                    let mut x = r.left() + 45.0;
+                    crate::ui::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 25.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                    let mut x = r.left() + 43.0;
                     if let Some(url) = avatar_url {
                         avatar(ui, Rect::from_center_size(pos2(x + 8.0, r.center().y - 9.0), vec2(16.0, 16.0)), &url);
                         x += 22.0;
                     }
                     let p = ui.painter();
-                    text::paint(p, pos2(x, r.center().y - 9.0), Align2::LEFT_CENTER, title, if key.is_empty() { medium(14.0) } else { semi(14.0) }, pal().header_primary, 280.0);
-                    let k = p.text(pos2(r.left() + 45.0, r.center().y + 9.0), Align2::LEFT_CENTER, key, semi(14.0), pal().header_secondary);
+                    text::paint(p, pos2(x, r.center().y - 9.0), Align2::LEFT_CENTER, title, medium(14.0), pal().header_primary, 280.0);
+                    let k = p.text(pos2(r.left() + 43.0, r.center().y + 9.0), Align2::LEFT_CENTER, key, semi(14.0), pal().header_secondary);
                     p.text(pos2(k.right() + 4.0, r.center().y + 9.0), Align2::LEFT_CENTER, hint, medium(14.0), pal().text_muted);
                     resp.clicked()
                 };
@@ -270,11 +270,11 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                         if !kind.starts_with(have) {
                             continue;
                         }
-                        let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(352.0, 48.0), Sense::click());
                         let p = ui.painter();
                         crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
-                        crate::ui::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(24.0, 24.0)), pal().header_secondary);
-                        p.text(pos2(r.left() + 52.0, r.center().y), Align2::LEFT_CENTER, kind, medium(16.0), pal().header_primary);
+                        crate::ui::icons::draw(p, icon, Rect::from_center_size(pos2(r.left() + 25.0, r.center().y), vec2(24.0, 24.0)), pal().header_secondary);
+                        p.text(pos2(r.left() + 50.0, r.center().y), Align2::LEFT_CENTER, kind, medium(16.0), pal().header_primary);
                         if resp.clicked() {
                             replace = Some(format!("has:{kind} "));
                         }
@@ -307,11 +307,11 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                             add = Some(key.to_string());
                         }
                     }
-                    let (r, resp) = ui.allocate_exact_size(vec2(356.0, 48.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(352.0, 48.0), Sense::click());
                     crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
-                    crate::ui::icons::draw(ui.painter(), Icon::Filter, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                    ui.painter().text(pos2(r.left() + 45.0, r.center().y - 9.0), Align2::LEFT_CENTER, "More filters", medium(14.0), pal().header_primary);
-                    ui.painter().text(pos2(r.left() + 45.0, r.center().y + 9.0), Align2::LEFT_CENTER, "dates, author type, and more", medium(14.0), pal().text_muted);
+                    crate::ui::icons::draw(ui.painter(), Icon::Filter, Rect::from_center_size(pos2(r.left() + 25.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                    ui.painter().text(pos2(r.left() + 43.0, r.center().y - 9.0), Align2::LEFT_CENTER, "More filters", medium(14.0), pal().header_primary);
+                    ui.painter().text(pos2(r.left() + 43.0, r.center().y + 9.0), Align2::LEFT_CENTER, "dates, author type, and more", medium(14.0), pal().text_muted);
                     app.rects.insert("search_more".into(), r);
                     if resp.clicked() {
                         ui.ctx().data_mut(|d| d.insert_temp(more_id, true));
@@ -322,11 +322,11 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                         head(ui, "History");
                         ui.add_space(4.0);
                         for h in history {
-                            let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
+                            let (r, resp) = ui.allocate_exact_size(vec2(352.0, 36.0), Sense::click());
                             let p = ui.painter();
                             crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
-                            crate::ui::icons::draw(p, Icon::Clock, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                            text::paint(p, pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, h, semi(14.0), pal().header_primary, 290.0);
+                            crate::ui::icons::draw(p, Icon::Clock, Rect::from_center_size(pos2(r.left() + 25.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                            text::paint(p, pos2(r.left() + 43.0, r.center().y), Align2::LEFT_CENTER, h, semi(14.0), pal().header_primary, 290.0);
                             if resp.clicked() {
                                 run = Some(h.clone());
                             }
@@ -334,11 +334,11 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                     }
                 } else {
                     ui.add_space(8.0);
-                    let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(352.0, 36.0), Sense::click());
                     let p = ui.painter();
                     crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
-                    crate::ui::icons::draw(p, Icon::Search, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                    let s = p.text(pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, "Search for ", medium(14.0), pal().header_primary);
+                    crate::ui::icons::draw(p, Icon::Search, Rect::from_center_size(pos2(r.left() + 25.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                    let s = p.text(pos2(r.left() + 43.0, r.center().y), Align2::LEFT_CENTER, "Search for ", medium(14.0), pal().header_primary);
                     text::paint(p, pos2(s.right(), r.center().y), Align2::LEFT_CENTER, &typed, semi(14.0), pal().header_primary, 290.0 - s.width());
                     if resp.clicked() {
                         run = Some(typed.clone());
@@ -357,11 +357,11 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                         rule(ui);
                         head(ui, "In Channel");
                         for (_, name) in &places {
-                            let (r, resp) = ui.allocate_exact_size(vec2(356.0, 36.0), Sense::click());
+                            let (r, resp) = ui.allocate_exact_size(vec2(352.0, 36.0), Sense::click());
                             let p = ui.painter();
                             crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 2.0)), 4, MENU_HOVER, 0.05);
-                            crate::ui::icons::draw(p, Icon::Hash, Rect::from_center_size(pos2(r.left() + 27.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
-                            let k = p.text(pos2(r.left() + 45.0, r.center().y), Align2::LEFT_CENTER, "in:", semi(14.0), pal().header_secondary);
+                            crate::ui::icons::draw(p, Icon::Hash, Rect::from_center_size(pos2(r.left() + 25.0, r.center().y), vec2(20.0, 20.0)), pal().text_muted);
+                            let k = p.text(pos2(r.left() + 43.0, r.center().y), Align2::LEFT_CENTER, "in:", semi(14.0), pal().header_secondary);
                             text::paint(p, pos2(k.right() + 4.0, r.center().y), Align2::LEFT_CENTER, &format!("# {name}"), semi(14.0), pal().header_primary, 280.0);
                             if resp.clicked() {
                                 replace = Some(format!("in:{name} "));
