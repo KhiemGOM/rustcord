@@ -16,7 +16,8 @@ const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 3
 // background-mod-normal
 const NAV_HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 51);
 
-const INBOX_W: f32 = 597.0;
+const INBOX_W: f32 = 560.0;
+const INBOX_TABS: [(&str, &str); 5] = [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders"), ("scheduled", "Scheduled")];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Loc {
@@ -61,7 +62,7 @@ impl Nav {
 }
 
 pub struct Inbox {
-    // discord's four tabs: unreads, mentions, bookmarks, reminders
+    // discord's five tabs: unreads, mentions, bookmarks, reminders, scheduled
     pub tab: u8,
     pub mentions: Option<Vec<Message>>,
     // what the bookmarks or reminders tab lists, once it's loaded
@@ -418,11 +419,11 @@ fn keys(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// Discord's inbox tabs each take a quarter of the width, the open one underlined in brand.
+/// Discord's inbox tabs share the width 8 apart, the open one underlined in brand.
 fn tab(ui: &mut Ui, app: &mut App, name: &str, label: &str, on: bool) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(vec2(INBOX_W / 4.0, 40.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2((INBOX_W - 8.0 * (INBOX_TABS.len() - 1) as f32) / INBOX_TABS.len() as f32, 36.0), Sense::click());
     let col = if on { pal().blurple } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
-    let galley = ui.painter().layout_no_wrap(label.into(), medium(14.0), col);
+    let galley = ui.painter().layout_no_wrap(label.into(), semi(14.0), col);
     app.rects.insert(format!("inbox:{name}"), rect);
     if on {
         let w = galley.size().x + 32.0;
@@ -439,7 +440,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let Some(state) = &app.inbox else { return };
     let tab = state.tab;
     let button = app.rects.get("title:inbox").copied();
-    let at = button.map(|r| pos2(r.right() - INBOX_W, r.bottom() + 6.0)).unwrap_or(pos2(100.0, HEIGHT + 6.0));
+    let at = button.map(|r| pos2(r.right() - INBOX_W, r.bottom() + 8.0)).unwrap_or(pos2(100.0, HEIGHT + 8.0));
     let room = (ctx.content_rect().bottom() - at.y - 16.0).clamp(160.0, 560.0);
     let body = body_height(app);
     let mut jump = None;
@@ -459,9 +460,10 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(INBOX_W);
                 ui.spacing_mut().item_spacing.y = 0.0;
-                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 4 }).show(ui, |ui| {
+                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 17 }).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.set_min_height(32.0);
                         let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
                         icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
                         ui.label(RichText::new("Inbox").font(semi(20.0)).color(pal().header_primary));
@@ -506,8 +508,8 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                     });
                 });
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    for (i, (name, label)) in [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders")].into_iter().enumerate() {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    for (i, (name, label)) in INBOX_TABS.into_iter().enumerate() {
                         if self::tab(ui, app, name, label, tab == i as u8) {
                             switch = Some(i as u8);
                         }
@@ -525,6 +527,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         match tab {
                             0 => open_ch = unread_list(ui, app),
                             1 => jump = mention_list(ui, app),
+                            4 => tip(ui, "Send it at the perfect moment", "Draft your message then click the plus button and ", "Schedule Message", " to choose when to send. We'll handle the rest."),
                             _ => jump = saved_list(ui, app, tab == 3),
                         }
                     });
@@ -901,6 +904,23 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
 
 /// Bookmarks or reminders: each message as a card under where it was said, a reminder's time
 /// over it, the message jumped to on a click.
+/// A tab's empty state: a heading, then how to fill it with the action in bold.
+fn tip(ui: &mut Ui, head: &str, how: &str, action: &str, tail: &str) {
+    ui.add_space(16.0);
+    ui.vertical_centered(|ui| {
+        ui.label(RichText::new(head).font(semi(24.0)).color(pal().text_normal));
+        ui.add_space(8.0);
+        let mut job = egui::text::LayoutJob::default();
+        let fmt = |font| egui::TextFormat { font_id: font, color: pal().header_secondary, ..Default::default() };
+        job.append(how, 0.0, fmt(medium(14.0)));
+        job.append(action, 0.0, fmt(semi(14.0)));
+        job.append(tail, 0.0, fmt(medium(14.0)));
+        job.halign = egui::Align::Center;
+        ui.label(job);
+    });
+    ui.add_space(24.0);
+}
+
 fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.saved.as_ref()) else {
         ui.add_space(24.0);
@@ -913,19 +933,7 @@ fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     } else {
         ("Collect your favorite memories", "Right-click any message and pick ", "Bookmark Message", ". Find it here, for your eyes only.")
     };
-    ui.add_space(16.0);
-    ui.vertical_centered(|ui| {
-        ui.label(RichText::new(head).font(semi(24.0)).color(pal().header_primary));
-        ui.add_space(8.0);
-        let mut job = egui::text::LayoutJob::default();
-        let fmt = |font| egui::TextFormat { font_id: font, color: pal().text_normal, ..Default::default() };
-        job.append(how, 0.0, fmt(reg(14.0)));
-        job.append(action, 0.0, fmt(bold(14.0)));
-        job.append(tail, 0.0, fmt(reg(14.0)));
-        job.halign = egui::Align::Center;
-        ui.label(job);
-    });
-    ui.add_space(24.0);
+    tip(ui, head, how, action, tail);
     if list.is_empty() {
         return None;
     }
