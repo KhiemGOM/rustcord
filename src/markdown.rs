@@ -57,6 +57,7 @@ impl Cx<'_> {
 #[derive(Clone, Copy)]
 struct St {
     bold: bool,
+    medium: bool,
     italic: bool,
     under: bool,
     strike: bool,
@@ -86,6 +87,7 @@ impl B<'_, '_> {
             (_, true, true) => bold_italic(st.size),
             (_, true, _) => bold(st.size),
             (_, _, true) => italic(st.size),
+            _ if st.medium => medium(st.size),
             _ => reg(st.size),
         };
         let (color, bg) = if st.spoiler && !self.cx.revealed {
@@ -521,6 +523,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             b.text(&s[plain..i], st);
             let mut s2 = st;
             s2.color = pal().mention_fg;
+            s2.medium = true;
             b.pill(&rest[..n], s2, pal().mention_bg, None);
             Some(n)
         } else if let Some(n) = take_emoji(rest) {
@@ -587,6 +590,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
         b.text(&s[plain..i], st);
         let mut s2 = st;
         s2.color = color;
+        s2.medium = bg != Color32::TRANSPARENT && color != st.color;
         match link {
             Some(l) if bg == Color32::TRANSPARENT => b.linked(text, s2, l),
             _ => b.pill(text, s2, bg, link),
@@ -644,6 +648,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
 fn base(cx: &Cx) -> St {
     St {
         bold: false,
+        medium: false,
         italic: false,
         under: false,
         strike: false,
