@@ -171,6 +171,63 @@ def pair(discord, rustcord):
     return pairs, missing, extra
 
 
+def label(picture):
+    """What a picture is, in a form that repeats across states: an asset's name, a kind of CDN image, or an icon's size and shape."""
+    source = picture.get('src') or ''
+    if '/assets/' in source:
+        return 'asset ' + source.rsplit('/', 1)[1]
+    for kind in ('avatars', 'icons', 'emojis', 'banners', 'attachments', 'avatar-decoration-presets', 'clan-badges', 'role-icons', 'stickers'):
+        if f'/{kind}/' in source:
+            return kind
+    if picture['kind'] == 'svg':
+        return f'icon {round(picture["b"][2])}x{round(picture["b"][3])} {picture.get("shape", "")}'
+    return picture['kind']
+
+
+def overlap(a, b):
+    width = min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0])
+    height = min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])
+    return 0 if width <= 0 or height <= 0 else width * height / (a[2] * a[3] + b[2] * b[3] - width * height)
+
+
+def pictures(discord, rustcord, screen):
+    """Icons and images by place and size, and painted boxes by colour and corner, where each client drew one."""
+    found = []
+    covers = [box for box in rustcord['boxes'] if int(box['fill'][7:9], 16) >= 100 and not box.get('img')]
+    seen = lambda box: inside(centre(box['b']), box['clip']) and not any(
+        over['z'] > box['z'] and inside(centre(box['b']), over['b']) and inside(centre(box['b']), over['clip']) for over in covers)
+    ours = [box for box in rustcord['boxes'] if box.get('img') and seen(box)]
+    for picture in sorted((p for p in discord.get('images', []) if min(p['b'][2:]) >= 6), key=lambda p: p['b'][2] * p['b'][3]):
+        row = {'text': label(picture), 'region': region(picture['b'], screen), 'discord': picture['b']}
+        near = [box for box in ours if abs(centre(box['b'])[0] - centre(picture['b'])[0]) <= 12 and abs(centre(box['b'])[1] - centre(picture['b'])[1]) <= 12
+                and 0.6 <= box['b'][2] / picture['b'][2] <= 1.6]
+        if not near:
+            found.append({**row, 'kind': 'picture missing in Rustcord'})
+            continue
+        box = min(near, key=lambda box: abs(centre(box['b'])[0] - centre(picture['b'])[0]) + abs(centre(box['b'])[1] - centre(picture['b'])[1]))
+        ours.remove(box)
+        row['rustcord'] = [round(n, 1) for n in box['b']]
+        if abs(box['b'][2] - picture['b'][2]) > 1.5 or abs(box['b'][3] - picture['b'][3]) > 1.5:
+            found.append({**row, 'kind': 'picture size', 'by': [picture['b'][2:], [round(n, 1) for n in box['b'][2:]]]})
+        elif abs(centre(box['b'])[0] - centre(picture['b'])[0]) > 1.5 or abs(centre(box['b'])[1] - centre(picture['b'])[1]) > 1.5:
+            found.append({**row, 'kind': 'picture moved', 'by': [round(centre(box['b'])[0] - centre(picture['b'])[0], 1), round(centre(box['b'])[1] - centre(picture['b'])[1], 1)]})
+    plain = [box for box in rustcord['boxes'] if not box.get('img') and not box.get('round') and seen(box)]
+    for fill in discord.get('fills', []):
+        if min(fill['b'][2:]) < 8 or fill['b'][2] > screen[0] * 0.9:
+            continue
+        best = max(plain, key=lambda box: overlap(fill['b'], box['b']), default=None)
+        if best is None or overlap(fill['b'], best['b']) < 0.8:
+            continue
+        row = {'text': f'box {round(fill["b"][2])}x{round(fill["b"][3])}', 'region': region(fill['b'], screen), 'discord': fill['b'], 'rustcord': [round(n, 1) for n in best['b']]}
+        want, have = colour(fill['fill']), colour(best['fill'])
+        # a see-through fill's colour on screen depends on what is under it, which only Discord's side knows
+        if want[3] >= 250 and max(abs(a - b) for a, b in zip(want, have)) > 8:
+            found.append({**row, 'kind': 'fill colour', 'by': [fill['fill'], best['fill']]})
+        if abs(min(fill['radius'], min(fill['b'][2:]) / 2) - min(best.get('radius') or 0, min(best['b'][2:]) / 2)) > 1.5:
+            found.append({**row, 'kind': 'corner radius', 'by': [fill['radius'], best.get('radius') or 0]})
+    return found
+
+
 def compare(discord, rustcord):
     screen = discord['viewport']
     pairs, missing, extra = pair(discord, rustcord)
@@ -198,6 +255,7 @@ def compare(discord, rustcord):
             if abs(off[0] - last[0]) > 1.5 or abs(off[1] - last[1]) > 1.5:
                 found.append({**row, 'kind': 'spacing', 'by': [round(off[0] - last[0], 1), round(off[1] - last[1], 1)], 'after': above, 'total': [round(off[0], 1), round(off[1], 1)]})
             last, above = off, row['text'][:60]
+    found += pictures(discord, rustcord, screen)
     found += [{'text': d['t'][:120], 'region': region(d['b'], screen), 'discord': d['b'], 'kind': 'missing in Rustcord'} for key, d in missing]
     found += [{'text': r['t'][:120], 'region': region(r['b'], screen), 'rustcord': [round(n, 1) for n in r['b']], 'kind': 'only in Rustcord'} for key, r in extra]
     return found, len(pairs), len(pairs) / max(1, len(pairs) + len(missing))
@@ -283,6 +341,17 @@ def show(live, replayed, state, side, box, crop):
     for control in discord['controls']:
         if within(control['box']):
             print(f'  {control["role"]} {control["name"][:50]!r} {control["box"]} {control["checked"] or ""} {"submenu" if control["submenu"] else ""}')
+    print('discord pictures (what, box) and fills (box, colour, radius, border):')
+    for picture in discord.get('images', []):
+        if within(picture['b']):
+            print(f'  {label(picture)} {picture["b"]}')
+    for fill in discord.get('fills', []):
+        if within(fill['b']):
+            print(f'  fill {fill["b"]} {fill["fill"]} {fill["radius"]} {fill["border"] or ""}')
+    print('rustcord pictures and boxes (box, fill, radius):')
+    for box in rustcord['boxes']:
+        if within(box['b']) and inside(centre(box['b']), box['clip']):
+            print(f'  {"picture" if box.get("img") else "box"} {brief(box["b"])} {box["fill"]} {box.get("radius") or ""}')
     print('rustcord named rects:')
     for name, rect in sorted(rustcord['marks'].items(), key=lambda mark: (mark[1][1], mark[1][0])):
         if within(rect):

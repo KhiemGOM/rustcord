@@ -71,6 +71,27 @@ class Pairing(unittest.TestCase):
         self.assertEqual([kind for kind, _, _ in self.kinds(discord, rustcord)], ['missing in Rustcord', 'only in Rustcord'])
 
 
+class Pictures(unittest.TestCase):
+    def test_icons_and_boxes_are_compared_where_both_clients_drew_one(self):
+        discord = page([theirs('name', [503, 763, 80, 21])])
+        discord['images'] = [{'kind': 'img', 'b': [465, 763, 30, 40], 'src': 'https://discord.com/assets/0123456789abcdef.svg'},
+                             {'kind': 'svg', 'b': [392, 46, 24, 24], 'col': '#96979eff', 'shape': 'ab12'},
+                             {'kind': 'img', 'b': [1205, 98, 84, 72], 'src': 'https://discord.com/assets/fedcba9876543210.svg'}]
+        discord['fills'] = [{'b': [448, 746, 432, 74], 'fill': '#121214ff', 'radius': 8, 'border': None, 'opacity': 1}]
+        clip = [0, 0, 1707, 913]
+        rustcord = scene([ours('name', [503, 763, 80, 21])], [
+            {'b': [448, 746, 432, 74], 'clip': clip, 'z': 0, 'fill': '#1e1e20ff', 'radius': 4},
+            {'b': [465, 763, 30, 40], 'clip': clip, 'z': 0, 'fill': '#ffffffff', 'img': True},
+            {'b': [394, 48, 20, 20], 'clip': clip, 'z': 0, 'fill': '#ffffffff', 'img': True}])
+        found = {(row['kind'], row['text']): row.get('by') for row in discord_pair.compare(discord, rustcord)[0]}
+        self.assertEqual(found, {
+            ('picture size', 'icon 24x24 ab12'): [[24, 24], [20, 20]],
+            ('picture missing in Rustcord', 'asset fedcba9876543210.svg'): None,
+            ('fill colour', 'box 432x74'): ['#121214ff', '#1e1e20ff'],
+            ('corner radius', 'box 432x74'): [8, 4],
+        })
+
+
 class Journeys(unittest.TestCase):
     def test_inputs_keep_discord_ids_and_the_route_discord_settled_on(self):
         channel = {'role': 'channel', 'name': 'general (text channel), unread', 'text': 'general', 'item': 'channels___200000000000000003', 'id': '', 'box': [80, 200, 286, 32]}
