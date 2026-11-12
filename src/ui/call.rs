@@ -699,15 +699,11 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if focus.is_none() {
             app.call.focus = None;
         }
-        if members.is_empty() {
-            ui.painter().text(area.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, &chan.name, semi(24.0), pal().header_primary);
-            ui.painter().text(
-                area.center() + vec2(0.0, 16.0),
-                Align2::CENTER_CENTER,
-                "No one is currently in voice",
-                reg(14.0),
-                pal().header_secondary,
-            );
+        // an empty channel is its name, a line and the way in, stacked about the middle
+        let empty = members.is_empty();
+        if empty {
+            ui.painter().text(r.center() - vec2(0.0, 55.0), Align2::CENTER_CENTER, &chan.name, semi(32.0), pal().header_primary);
+            ui.painter().text(r.center() - vec2(0.0, 17.5), Align2::CENTER_CENTER, "No one is currently in voice", reg(14.0), pal().text_normal);
         }
         if app.activity.runs_in(chan.id) {
             let big = Rect::from_min_max(area.min, pos2(area.right(), (area.bottom() - super::activity::view::STRIP - 8.0).max(area.top() + 160.0)));
@@ -791,7 +787,22 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if app.voice.chan == Some(chan.id) {
             ui.multiply_opacity(shown);
         }
-        super::callbar::controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
+        if empty && app.voice.chan != Some(chan.id) {
+            let label = ui.painter().layout_no_wrap("Join Voice".into(), medium(16.0), Color32::BLACK);
+            let b = Rect::from_center_size(r.center() + vec2(0.0, 35.5), vec2(label.size().x + 32.0, 40.0));
+            let hit = ui.interact(b, egui::Id::new(("join", chan.id)), Sense::click());
+            ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::WHITE, Color32::from_gray(0xdf), crate::ui::motion::hot(ui.ctx(), &hit)));
+            ui.painter().galley(b.center() - label.size() / 2.0, label, Color32::BLACK);
+            app.rects.insert("voice:join".into(), b);
+            if hit.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if hit.clicked() {
+                app.join_voice(chan.id, true);
+            }
+        } else {
+            super::callbar::controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
+        }
     });
 }
 
