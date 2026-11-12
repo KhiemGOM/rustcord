@@ -158,15 +158,18 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
         None => {
             ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, pal().blurple, k));
             let acr = g.acronym();
+            let mini = rect.width() < 30.0;
             let size = match acr.chars().count() {
                 0..=2 => 17.0,
                 3 => 15.0,
                 4..=5 => 13.0,
                 _ => 11.0,
             } * rect.width()
-                / ICON;
+                / ICON
+                * if mini { 1.24 } else { 1.0 };
             let col = motion::mix(pal().text_normal, Color32::WHITE, k);
-            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
+            let font = if mini { reg(size) } else { semi(size) };
+            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, font, col, rect.width() - 4.0);
         }
     }
 }
