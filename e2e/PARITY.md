@@ -169,6 +169,8 @@ Every recorder capture also holds each text Discord drew: its box, font, size, w
 
 `diff` pairs the two clients' texts state by state and writes `differences.json` and `index.html`: text missing from Rustcord or only in it, font, size, colour and width differences, `spacing` where the gap to the previous matched text changes (one finding where a divider is missing, not one per row under it), and `nothing changed in Rustcord` where Discord drew new text after the input and Rustcord drew none. The same finding in many states is one row with a count. Journeys whose starting screens share under half their text are left out and listed.
 
+To work on one finding, `python e2e/discord_pair.py show --live <recorder> --replay <replay> --state action-000014 --side before --box 376,60,1331,853 --crop voice.png` prints both clients' texts inside that box with their boxes, sizes, weights and colours, Discord's controls and Rustcord's named rects there, and saves the two screenshots' box side by side, Discord on the left.
+
 What it cannot see: icons, images, fills and borders (the scene has Rustcord's rects, Discord's side has none yet), animation and timing. Live content moves between the two captures, so chat rows can differ by a message. The web client has no window buttons, so its title-bar and popout positions sit about 138 px right of Rustcord's. A thread the fresh store has not loaded is skipped (`route is not in the store`). A finding is a lead to check against the two screenshots, not a verdict.
 
 Recorder checks run with `node --test e2e/test_discord_reference.cjs`. Set `DISCORD_AUDIT_PLAYWRIGHT` to the absolute Playwright module directory to include the real-browser fixture test. Python report checks run with the other `test_*.py` tool tests.

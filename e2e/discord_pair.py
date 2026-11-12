@@ -3,8 +3,10 @@
     python e2e/discord_pair.py journeys --live <recorder-directory> --out <journeys.json>
     python e2e/discord_pair.py replay --journeys <journeys.json> --out <new-directory>
     python e2e/discord_pair.py diff --live <recorder-directory> --replay <replay-directory> --out <report-directory>
+    python e2e/discord_pair.py show --live <recorder-directory> --replay <replay-directory> --state action-000014 [--side before] [--box x,y,w,h] [--crop out.png]
 
-`journeys` turns each input e2e/discord_explore.cjs recorded into one Rustcord can repeat. `replay`
+`show` prints one paired state's numbers for both clients inside a box, and with --crop saves the two
+screenshots' box side by side, Discord on the left. `journeys` turns each input e2e/discord_explore.cjs recorded into one Rustcord can repeat. `replay`
 runs them in Rustcord, read-only, on the saved login. `diff` pairs what each client drew after each
 input, text by text, and lists what is missing, extra, moved, resized or recoloured. See e2e/PARITY.md.
 """
@@ -257,6 +259,48 @@ def diff(live, replayed, out):
     return states, unlike, tally
 
 
+def show(live, replayed, state, side, box, crop):
+    action = next(json.loads(line) for line in (live / 'actions.jsonl').read_text(encoding='utf-8').splitlines() if f'"index":{int(state.split("-")[1])},' in line.replace(' ', ''))
+    number = len(action['setup']) + (side == 'after')
+    discord = json.loads((live / f'{state}-{side}.json').read_text(encoding='utf-8'))
+    rustcord = json.loads((replayed / f'{state}.{number}.scene.json').read_text(encoding='utf-8'))
+    box = box or [0, 0, *discord['viewport']]
+    within = lambda b: inside(centre(b), box)
+    brief = lambda b: [round(n, 1) for n in b]
+    pairs, missing, extra = pair(discord, rustcord)
+    print(f'{state} {side}: {action["family"]} {action["route"]} input {action["input"]["method"]} {(action["input"].get("target") or {}).get("name", "")[:60]!r}')
+    print('text | discord box size weight colour font | rustcord box size font colour')
+    for key, d, r in sorted(pairs, key=lambda found: (found[1]['b'][1], found[1]['b'][0])):
+        if within(d['b']):
+            print(f'  {d["t"][:40]!r} | {brief(d["b"])} {d.get("size")} {d.get("weight")} {d.get("col")} {d.get("font")} | {brief(r["b"])} {r["size"]} {r["font"]} {r["col"]}')
+    for key, d in missing:
+        if within(d['b']):
+            print(f'  only in Discord: {d["t"][:60]!r} {brief(d["b"])} {d.get("size")} {d.get("weight")} {d.get("col")} {d.get("font")}')
+    for key, r in extra:
+        if within(r['b']):
+            print(f'  only in Rustcord: {r["t"][:60]!r} {brief(r["b"])} {r["size"]} {r["font"]} {r["col"]}')
+    print('discord controls (role, name, box, checked, submenu):')
+    for control in discord['controls']:
+        if within(control['box']):
+            print(f'  {control["role"]} {control["name"][:50]!r} {control["box"]} {control["checked"] or ""} {"submenu" if control["submenu"] else ""}')
+    print('rustcord named rects:')
+    for name, rect in sorted(rustcord['marks'].items(), key=lambda mark: (mark[1][1], mark[1][0])):
+        if within(rect):
+            print(f'  {name} {brief(rect)}')
+    if crop:
+        from PIL import Image
+        halves = []
+        for file in (live / f'{state}-{side}.png', replayed / f'{state}.{number}.png'):
+            image = Image.open(file).convert('RGB')
+            scale = image.width / discord['viewport'][0]
+            halves.append(image.crop(tuple(round(n * scale) for n in (box[0], box[1], box[0] + box[2], box[1] + box[3]))).resize((round(box[2] * 1.5), round(box[3] * 1.5))))
+        sheet = Image.new('RGB', (halves[0].width * 2 + 6, halves[0].height), 'red')
+        sheet.paste(halves[0], (0, 0))
+        sheet.paste(halves[1], (halves[0].width + 6, 0))
+        sheet.save(crop)
+        print('crop:', crop.resolve())
+
+
 def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest='command', required=True)
@@ -274,7 +318,16 @@ def main():
     report.add_argument('--live', type=Path, required=True)
     report.add_argument('--replay', type=Path, required=True)
     report.add_argument('--out', type=Path, required=True)
+    look = commands.add_parser('show')
+    look.add_argument('--live', type=Path, required=True)
+    look.add_argument('--replay', type=Path, required=True)
+    look.add_argument('--state', required=True)
+    look.add_argument('--side', choices=['before', 'after'], default='after')
+    look.add_argument('--box', type=lambda text: [float(n) for n in text.split(',')])
+    look.add_argument('--crop', type=Path)
     args = parser.parse_args()
+    if args.command == 'show':
+        return show(args.live, args.replay, args.state, args.side, args.box, args.crop)
     if args.command == 'journeys':
         made = journeys(args.live)[:args.limit]
         args.out.write_text(json.dumps(made), encoding='utf-8')
