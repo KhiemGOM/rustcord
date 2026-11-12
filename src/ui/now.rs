@@ -52,7 +52,7 @@ fn lines(ui: &Ui, x: f32, row: Rect, texts: &[&str], right: f32) {
 fn server_icon(ui: &Ui, store: &crate::state::Store, g: Id, art: Rect) {
     match store.guilds.get(&g) {
         Some(g) => match g.icon_url() {
-            Some(u) => avatar(ui, art, &u),
+            Some(u) => crate::gif::paint_still(ui, &u, art, CornerRadius::same(8), false),
             None => {
                 ui.painter().rect_filled(art, CornerRadius::same(8), pal().bg_accent);
                 ui.painter().text(art.center(), Align2::CENTER_CENTER, g.acronym(), medium(12.0), pal().header_primary);

@@ -546,11 +546,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let mut y = banner.bottom() + 80.0;
         let x = panel.left() + 32.0;
         let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 24.0) } else { semi(24.0) };
-        let nr = text::paint(ui.painter(), pos2(x, y + 15.0), Align2::LEFT_CENTER, &name, face, pal().header_primary, 336.0);
+        let nr = text::paint(ui.painter(), pos2(x, y + 16.5), Align2::LEFT_CENTER, &name, face, pal().text_normal, 336.0);
         if user.bot {
             super::app_tag(ui.painter(), pos2(nr.right() + 8.0, nr.center().y), user.flags & (1 << 16) != 0, 1.0);
         }
-        y += 32.0;
+        y += 34.3;
         let mut r = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), pal().header_primary, 200.0);
         if let Some(pr) = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty()) {
             ui.painter().circle_filled(pos2(r.right() + 9.0, r.center().y), 2.0, pal().header_primary);
@@ -564,7 +564,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             act = Some(Do::Tag);
         }
         badges(ui, p, next, r.center().y, 20.0);
-        y += 44.0;
+        y += 45.2;
         if uid == me {
             if text_button(ui, Rect::from_min_size(pos2(x, y), vec2(110.0, 32.0)), "Edit Profile", Icon::Pencil, true) {
                 act = Some(Do::Edit);
@@ -577,10 +577,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 bx += 122.0;
             } else if rel == Some(crate::state::FRIEND) || user.bot {
-                if text_button(ui, Rect::from_min_size(pos2(bx, y), vec2(130.0, 32.0)), "Send Message", Icon::Bubble, true) {
+                if text_button(ui, Rect::from_min_size(pos2(bx, y), vec2(96.0, 32.0)), "Message", Icon::Bubble, true) {
                     act = Some(Do::Message);
                 }
-                bx += 142.0;
+                bx += 104.0;
             }
             if stranger && round_button(ui, Rect::from_min_size(pos2(bx, y), vec2(32.0, 32.0)), Icon::Bubble, "Message") {
                 act = Some(Do::Message);
@@ -594,20 +594,33 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
         }
         y += 56.0;
+        let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("");
+        if !bio.is_empty() {
+            let mut job = egui::text::LayoutJob::single_section(bio.to_string(), egui::TextFormat::simple(reg(14.0), pal().text_normal));
+            job.wrap.max_width = 336.0;
+            let g = ui.painter().layout_job(job);
+            let h = g.size().y;
+            ui.painter().galley(pos2(x, y), g, pal().text_normal);
+            y += h + 24.0;
+        }
         let label = |ui: &Ui, y: f32, s: &str| {
             ui.painter().text(pos2(x, y + 8.0), Align2::LEFT_CENTER, s, medium(12.0), pal().header_secondary);
         };
         label(ui, y, "Member Since");
         y += 24.0;
         let mut cx = x;
-        icons::draw(ui.painter(), Icon::Discord, Rect::from_min_size(pos2(cx, y), vec2(18.0, 18.0)), pal().header_secondary);
-        cx = text::paint(ui.painter(), pos2(cx + 22.0, y + 9.0), Align2::LEFT_CENTER, &since(snowflake_ms(uid)), reg(14.0), pal().header_primary, 150.0).right();
-        if let (Some(g), true) = (guild, joined > 0) {
+        let in_guild = guild.is_some() && joined > 0;
+        if in_guild {
+            icons::draw(ui.painter(), Icon::Discord, Rect::from_min_size(pos2(cx, y), vec2(18.0, 18.0)), pal().header_secondary);
+            cx += 22.0;
+        }
+        cx = text::paint(ui.painter(), pos2(cx, y + 9.0), Align2::LEFT_CENTER, &since(snowflake_ms(uid)), reg(14.0), pal().text_normal, 150.0).right();
+        if let (Some(g), true) = (guild, in_guild) {
             ui.painter().circle_filled(pos2(cx + 10.0, y + 9.0), 2.0, pal().header_secondary);
             if let Some(url) = g.icon_url() {
                 text::image(ui.painter(), &url, Rect::from_min_size(pos2(cx + 20.0, y), vec2(18.0, 18.0)));
             }
-            text::paint(ui.painter(), pos2(cx + 44.0, y + 9.0), Align2::LEFT_CENTER, &since(joined), reg(14.0), pal().header_primary, 150.0);
+            text::paint(ui.painter(), pos2(cx + 44.0, y + 9.0), Align2::LEFT_CENTER, &since(joined), reg(14.0), pal().text_normal, 150.0);
         }
         y += 42.0;
         if rel == Some(crate::state::FRIEND)
@@ -615,7 +628,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         {
             label(ui, y, "Friends Since");
             y += 24.0;
-            text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &since(*ms), reg(14.0), pal().header_primary, 200.0);
+            text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &since(*ms), reg(14.0), pal().text_normal, 200.0);
             y += 42.0;
         }
         let mut body = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(x, y), pos2(x + 336.0, panel.bottom() - 8.0))));
@@ -645,7 +658,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             tabs.push((Tab::Board, "Board".into()));
         }
         tabs.push((Tab::Activity, "Activity".into()));
-        if !user.bot {
+        if !user.bot && (tab == Tab::Wishlist || p.is_some_and(|p| p["wishlist_settings"].as_object().is_some_and(|m| !m.is_empty()))) {
             tabs.push((Tab::Wishlist, "Wishlist".into()));
         }
         if uid != me && !user.bot {
@@ -760,19 +773,36 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     if servers.is_empty() {
                         ui.label(RichText::new("No Mutual Servers").font(semi(16.0)).color(pal().header_primary));
                     }
-                    for s in &servers {
-                        let Some(g) = store.guilds.get(s) else { continue };
-                        let (r, resp) = ui.allocate_exact_size(vec2(432.0, 56.0), Sense::click());
+                    let mut sorted: Vec<&crate::state::Guild> = servers.iter().filter_map(|s| store.guilds.get(s)).collect();
+                    sorted.sort_by_key(|g| g.name.to_lowercase());
+                    for g in sorted {
+                        let s = &g.id;
+                        let (r, resp) = ui.allocate_exact_size(vec2(432.0, 48.0), Sense::click());
+                        ui.add_space(6.0);
                         row_frame(ui, r, &resp);
-                        let a = Rect::from_min_size(pos2(r.left() + 12.0, r.top() + 12.0), vec2(32.0, 32.0));
-                        ui.painter().circle_filled(a.center(), 16.0, pal().bg_accent);
+                        let a = Rect::from_min_size(pos2(r.left() + 4.0, r.top() + 4.0), vec2(40.0, 40.0));
                         match g.icon_url() {
-                            Some(url) => text::image(ui.painter(), &url, a),
+                            Some(url) => crate::gif::paint_still(ui, &url, a, CornerRadius::same(10), false),
                             None => {
-                                ui.painter().text(a.center(), Align2::CENTER_CENTER, g.acronym(), semi(12.0), pal().header_primary);
+                                ui.painter().rect_filled(a, CornerRadius::same(10), pal().blurple);
+                                ui.painter().text(a.center(), Align2::CENTER_CENTER, g.acronym(), medium(10.0), Color32::WHITE);
                             }
                         }
-                        text::paint(ui.painter(), pos2(a.right() + 12.0, r.center().y), Align2::LEFT_CENTER, &g.name, semi(16.0), pal().header_primary, 340.0);
+                        let nick = p
+                            .and_then(|p| p["mutual_guilds"].as_array())
+                            .and_then(|l| l.iter().find(|m| sid(&m["id"]) == *s))
+                            .and_then(|m| m["nick"].as_str())
+                            .filter(|n| !n.is_empty());
+                        let nx = r.left() + 53.5;
+                        match nick {
+                            Some(n) => {
+                                text::paint(ui.painter(), pos2(nx, r.top() + 15.0), Align2::LEFT_CENTER, &g.name, medium(16.0), pal().text_normal, 340.0);
+                                text::paint(ui.painter(), pos2(nx, r.top() + 33.5), Align2::LEFT_CENTER, n, medium(12.0), pal().text_normal, 340.0);
+                            }
+                            None => {
+                                text::paint(ui.painter(), pos2(nx, r.center().y), Align2::LEFT_CENTER, &g.name, medium(16.0), pal().text_normal, 340.0);
+                            }
+                        }
                         if resp.clicked() {
                             act = Some(Do::Guild(*s));
                         }
