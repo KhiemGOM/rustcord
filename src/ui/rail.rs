@@ -80,6 +80,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     app.open(c);
                 }
             }
+            if super::favorites::shown(app) {
+                favorites(app, ui);
+            }
 
             separator(ui);
 
@@ -141,6 +144,23 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             ui.add_space(12.0);
         });
+}
+
+/// Discord's Favorites server: a star on the home tile's grey, under the dms.
+fn favorites(app: &mut App, ui: &mut Ui) {
+    let (unread, mentions) = super::favorites::badge(&app.store);
+    let selected = app.ui.guild == Some(super::favorites::ID);
+    let r = item(ui, egui::Id::new("favorites"), selected, unread, |ui, rect, radius, _, k| {
+        ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().blurple, k));
+        icons::draw(ui.painter(), Icon::Star, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
+    });
+    if mentions > 0 {
+        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
+    }
+    app.rects.insert("guild:favorites".into(), r.rect);
+    if tip(r, "Favorites").clicked() {
+        super::favorites::select(app);
+    }
 }
 
 fn separator(ui: &mut Ui) {

@@ -224,6 +224,9 @@ fn place(app: &App) -> (Mark, String) {
             super::shop::Page::Shop => (Mark::Icon(Icon::Shop), "Shop".into()),
         };
     }
+    if app.ui.guild == Some(super::favorites::ID) {
+        return (Mark::Icon(Icon::Star), "Favorites".into());
+    }
     if let Some(g) = app.ui.guild.and_then(|g| s.guilds.get(&g)) {
         return (Mark::Guild(g.id), g.name.clone());
     }

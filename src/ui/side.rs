@@ -11,6 +11,7 @@ mod guildlist;
 use guildlist::*;
 mod dmlist;
 use dmlist::*;
+mod favlist;
 
 fn sort_key(c: &Channel) -> (bool, i32, Id) {
     (c.is_voice(), c.position, c.id)
@@ -110,6 +111,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     egui::Panel::bottom("me").exact_size(foot(app)).resizable(false).show_separator_line(false).frame(Frame::NONE).show(ui, |_| {});
 
     match app.ui.guild {
+        Some(super::favorites::ID) => favlist::list(app, ui),
         Some(gid) => guild(app, ui, gid),
         None => dms(app, ui),
     }
