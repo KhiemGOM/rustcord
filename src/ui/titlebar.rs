@@ -193,7 +193,7 @@ fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
         }
         None => {
             let size = if g.acronym().chars().count() > 2 { 7.0 } else { 8.0 } * rect.width() / 16.0;
-            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &g.acronym(), semi(size), pal().text_normal, rect.width());
+            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &g.acronym(), reg(size), pal().text_normal, rect.width());
         }
     }
 }
@@ -226,11 +226,10 @@ fn place(app: &App) -> (Mark, String) {
     if let Some(g) = app.ui.guild.and_then(|g| s.guilds.get(&g)) {
         return (Mark::Guild(g.id), g.name.clone());
     }
-    let Some(c) = app.cur().and_then(|c| s.channels.get(&c)) else { return (Mark::None, "Rustcord".into()) };
-    if c.guild == 0 {
-        return (Mark::Icon(Icon::Discord), "Direct Messages".into());
+    if app.cur().and_then(|c| s.channels.get(&c)).is_none() {
+        return (Mark::None, "Rustcord".into());
     }
-    (Mark::People, super::channel_title(s, c.id))
+    (Mark::Icon(Icon::Discord), "Direct Messages".into())
 }
 
 /// Double-clicking the bar or its middle button: out of fullscreen if in it, else maximise or restore.
