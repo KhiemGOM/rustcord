@@ -7,6 +7,12 @@ impl App {
             return;
         }
         self.commands.insert(scope, Commands::default());
+        // a dm has commands of its own only when the other side is an app: for anyone else's
+        // discord answers Unknown Channel, which went up as an error toast
+        let app = chan.kind == 1 && chan.recipients.first().and_then(|u| self.store.user(*u)).is_some_and(|u| u.bot);
+        if chan.guild == 0 && !app {
+            return;
+        }
         let path = if chan.guild != 0 {
             format!("/guilds/{}/application-command-index", chan.guild)
         } else {
