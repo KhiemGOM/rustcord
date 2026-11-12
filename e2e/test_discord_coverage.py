@@ -71,6 +71,21 @@ class DiscordCoverageTests(unittest.TestCase):
         self.assertEqual(row['attempts'], 2)
         self.assertEqual(row['rustcord_evidence'][0]['line'], 9)
 
+    def test_proposed_mapping_is_not_credited_before_review(self):
+        data = self.data()
+        data['controls'][0]['methods']['click'] = 1
+        binding = dict(self.binding(), mapping_status='candidate')
+        result = discord_coverage.matrix(data, [binding])
+        self.assertEqual(result['features'][0]['status'], 'mapping_candidate')
+        self.assertEqual(result['reference_views'][0]['bindings'], [])
+
+    def test_disabled_reference_state_is_not_credited_as_an_enabled_click(self):
+        data = self.data()
+        data['reference_controls'][0]['disabled'] = True
+        data['controls'][0]['methods']['click'] = 1
+        row = discord_coverage.matrix(data,[self.binding()])['features'][0]
+        self.assertEqual(row['status'], 'reference_state_not_matched')
+
 
 if __name__ == '__main__':
     unittest.main()

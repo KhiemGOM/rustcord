@@ -77,6 +77,15 @@ class AppCoverageTests(unittest.TestCase):
         self.assertEqual(len(data['reference_controls']), 1)
         self.assertEqual(data['reference_controls'][0]['status'], 'unmapped')
 
+    def test_reference_menu_records_keep_stable_identity_and_enabled_state(self):
+        (self.ref / 'INDEX.md').write_text('### [chat](chat.png)\n')
+        (self.ref / 'chat.json').write_text('{"els":[]}')
+        (self.ref / 'chat.menu.json').write_text(json.dumps({'items':[dict(id='message-reply',role='menuitem',text='Reply',disabled=False,checked=None,box=[1,2,30,20])]}))
+        row = self.build()['reference_controls'][0]
+        self.assertEqual(row['menu_item_id'], 'message-reply')
+        self.assertEqual(row['role'], 'menuitem')
+        self.assertFalse(row['disabled'])
+
     def test_partial_log_tail_is_not_reported_as_a_completed_action(self):
         path = self.log([dict(before='s', visible=['control:save'], action={'key': 'Tab'})], '{"before":')
         data = self.build()

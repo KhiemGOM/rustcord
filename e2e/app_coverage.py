@@ -127,10 +127,12 @@ def references(ref, cache=None):
     if not index.exists():
         return dict(views=[], controls=[], errors=['reference atlas is unavailable'])
     names = list(dict.fromkeys(re.findall(r'^### \[([^\]]+)\]\(([^)]+\.png)\)', index.read_text(encoding='utf-8'), re.M)))
-    stats = [(str(index), index.stat().st_mtime_ns)]
+    stats = [('schema', 3), (str(index), index.stat().st_mtime_ns)]
     for _, name in names:
         meta = (ref / name).with_suffix('.json')
         stats.append((name, meta.stat().st_mtime_ns, meta.stat().st_size) if meta.exists() else (name, None))
+        menu = (ref / name).with_suffix('.menu.json')
+        stats.append((name + ':menu', menu.stat().st_mtime_ns, menu.stat().st_size) if menu.exists() else (name + ':menu', None))
     signature = hashlib.sha256(json.dumps(stats).encode()).hexdigest()
     if _REF_SIGNATURE == signature:
         return _REF_DATA
@@ -144,10 +146,11 @@ def references(ref, cache=None):
     for title, name in names:
         image = ref / name
         meta = image.with_suffix('.json')
+        menu_path = image.with_suffix('.menu.json')
         key = 'discord:' + name
         area = Path(name).parts[0] if len(Path(name).parts) > 1 else 'reference'
         views.append(dict(id=key, kind='reference_view', title=title, area=area, image=str(image.resolve()),
-                          metadata=str(meta.resolve()), status='unmapped', verified=False))
+                          metadata=str(meta.resolve()), menu_metadata=str(menu_path.resolve()), status='unmapped', verified=False))
         if not meta.exists():
             continue
         try:
@@ -164,6 +167,19 @@ def references(ref, cache=None):
                                      title=label[:240], role=role, rect=[x, y, w, h], status='unmapped', verified=False))
         except (ValueError, OSError, TypeError) as error:
             errors.append(f'{meta}: {error}')
+        if menu_path.exists():
+            try:
+                menu = json.loads(menu_path.read_text(encoding='utf-8'))
+                for i, item in enumerate(menu.get('items', []) if isinstance(menu, dict) else []):
+                    if item.get('role') not in ('menuitem', 'menuitemcheckbox', 'menuitemradio'):
+                        continue
+                    item_id = item.get('id') or str(i)
+                    controls.append(dict(id=f'{key}#menu:{item_id}', kind='reference_control', reference_view=key, area=area,
+                                         title=item.get('text') or item_id, role=item['role'], rect=item.get('box') or [],
+                                         menu_item_id=item_id, disabled=item.get('disabled'), checked=item.get('checked'), has_submenu=bool(item.get('sub')),
+                                         status='unmapped', verified=False))
+            except (ValueError, OSError, TypeError) as error:
+                errors.append(f'{menu_path}: {error}')
     data = dict(views=views, controls=controls, errors=errors, signature=signature)
     if cache:
         parity.write_json(cache, dict(signature=signature, data=data))
@@ -266,11 +282,11 @@ def reference_pages(out, data):
         parity.write_json(out / 'reference-inventory.json', dict(views=data['reference_views'], controls=data['reference_controls']))
         for key, view in views.items():
             body = f'<h1>{html.escape(view["title"])}</h1><p>Captured Discord control candidates. <a href="../discord.html">Feature and interaction coverage</a> lists explicit Rustcord exercise bindings. Correctness remains unverified.</p>'
-            for field in ('image', 'metadata'):
-                if Path(view[field]).is_file():
+            for field in ('image', 'metadata', 'menu_metadata'):
+                if view.get(field) and Path(view[field]).is_file():
                     body += f'<a href="{relative(view[field], folder)}">{field}</a> '
-            body += '<table><tr><th>Role</th><th>Label or CSS fallback</th><th>Rectangle</th></tr>'
-            body += ''.join(f'<tr><td>{html.escape(str(row["role"]))}</td><td>{html.escape(row["title"])}</td><td>{row["rect"]}</td></tr>' for row in by_view[key])
+            body += '<table><tr><th>Role</th><th>Label or CSS fallback</th><th>Rectangle</th><th>Menu identity / state</th></tr>'
+            body += ''.join(f'<tr><td>{html.escape(str(row["role"]))}</td><td>{html.escape(row["title"])}</td><td>{row["rect"]}</td><td>{html.escape(str(row.get("menu_item_id", "")))} {html.escape(str(row.get("disabled", "")))}</td></tr>' for row in by_view[key])
             view['page'].write_text('<!doctype html>' + style + body + '</table>', encoding='utf-8')
     result = []
     for (role, title), group in groups.items():
