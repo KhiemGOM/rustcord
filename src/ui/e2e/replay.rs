@@ -39,6 +39,7 @@ pub(super) struct State {
     step: usize,
     phase: u8,
     how: Vec<Value>,
+    wheeled: u8,
 }
 
 fn hex(c: Color32) -> String {
@@ -73,6 +74,10 @@ fn collect(shape: &Shape, clip: Rect, z: usize, texts: &mut Vec<Value>, boxes: &
                 "b": xywh(r.rect), "clip": xywh(clip), "z": z, "fill": hex(r.fill), "radius": r.corner_radius.nw, "img": r.brush.is_some(),
                 "stroke": (r.stroke.width > 0.0).then(|| json!([r.stroke.width, hex(r.stroke.color)])),
             }));
+        }
+        // avatars, emoji and icons are textured meshes; the font atlas is egui's own texture
+        Shape::Mesh(m) if m.texture_id != egui::TextureId::default() && seen(m.calc_bounds()) => {
+            boxes.push(json!({ "b": xywh(m.calc_bounds()), "clip": xywh(clip), "z": z, "fill": "#ffffffff", "img": true }));
         }
         Shape::Circle(c) if c.fill.a() > 0 || c.stroke.width > 0.0 => {
             let r = Rect::from_center_size(c.center, vec2(c.radius * 2.0, c.radius * 2.0));
@@ -165,7 +170,10 @@ impl Run {
             Some(id) => ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("row", id)))),
             None => app.rects.get(k).copied(),
         });
-        if let Some(r) = named.filter(|r| screen.contains(r.center())) {
+        // a message's row scrolled under the header or the composer isn't there to be clicked
+        let message = step.rect.as_deref().is_some_and(|k| k.starts_with("msg:"));
+        let shown = if message { screen.shrink2(vec2(0.0, crate::ui::titlebar::HEIGHT + 48.0)) } else { screen };
+        if let Some(r) = named.filter(|r| shown.contains(r.center())) {
             return Some((r.center(), "rect"));
         }
         let at = step.at.map(|[x, y]| pos2(x, y));
@@ -300,6 +308,16 @@ impl Run {
                     self.replay.phase = 0;
                     return;
                 };
+                // the channel list keeps its own scroll, so the row may have to be brought into view
+                let row = step.rect.as_deref().filter(|k| (k.starts_with("chan:") || k.starts_with("cat:")) && app.rects.contains_key(*k));
+                if let Some(key) = row
+                    && self.replay.wheeled < 8
+                    && self.reach_row(app, key).is_none()
+                {
+                    self.replay.wheeled += 1;
+                    return;
+                }
+                self.replay.wheeled = 0;
                 let hover = step.r#do == "hover";
                 let said = self.act(app, ctx, &step);
                 if let Some(Value::Array(steps)) = self.replay.how.last_mut().map(|l| &mut l["steps"]) {
