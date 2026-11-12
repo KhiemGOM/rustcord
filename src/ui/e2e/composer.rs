@@ -107,6 +107,7 @@ impl Run {
             }),
             570 => when!(matches!(gate_of(app, NEWS), Some(Gate::Bar(gate::Bar::Follow))) && at(app, "gate:button").is_some(), {
                 self.mark("composer_follow_bar");
+                self.rects.insert("composer_follow_bar_h".into(), serde_json::json!(at(app, "composer").map(|r| r.height())));
                 self.shot(ctx, "composer_follow_bar.png");
                 let r = at(app, "gate:button").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());

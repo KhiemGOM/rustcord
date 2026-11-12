@@ -74,9 +74,8 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
     };
     let mut hit = false;
     let r = Frame::new().fill(pal().bg_input).stroke(Stroke::new(1.0, pal().border_muted)).corner_radius(8).inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.set_min_height(54.0);
-        ui.horizontal_centered(|ui| {
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), 54.0), Layout::left_to_right(Align::Center), |ui| {
+            ui.set_width(ui.available_width());
             ui.label(RichText::new(msg).font(semi(16.0)).color(pal().header_primary));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let b = button(ui, act);
