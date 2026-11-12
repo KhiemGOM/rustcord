@@ -164,7 +164,7 @@ pub(crate) enum Trail {
 pub(crate) fn menu_row(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, sub: Option<&str>, danger: bool, trail: Trail) -> egui::Response {
     let (resp, lead) = menu_row_at(ui, icon.is_some(), label, sub, danger, trail);
     if let Some(i) = icon {
-        icons::draw(ui.painter(), i, lead, if danger { pal().critical } else { pal().header_primary });
+        icons::draw(ui.painter(), i, lead, if danger { pal().critical } else { pal().header_secondary });
     }
     resp
 }
@@ -173,7 +173,13 @@ pub(crate) fn menu_row(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, sub:
 pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, danger: bool, trail: Trail) -> (egui::Response, Rect) {
     let ink = if danger { pal().critical } else { pal().header_primary };
     let text = ui.painter().layout_no_wrap(label.to_string(), medium(14.0), ink);
-    let sub = sub.map(|s| ui.painter().layout_no_wrap(s.to_string(), reg(12.0), pal().text_muted));
+    let sub = sub.map(|s| {
+        let (plain, bold) = s.split_at(s.find("@mentions").unwrap_or(s.len()));
+        let mut job = egui::text::LayoutJob::default();
+        job.append(plain, 0.0, egui::TextFormat::simple(reg(12.0), pal().text_muted));
+        job.append(bold, 0.0, egui::TextFormat::simple(semi(12.0), pal().text_muted));
+        ui.painter().layout_job(job)
+    });
     let indent = if lead { 36.0 } else { 8.0 };
     let tail = if trail == Trail::None { 8.0 } else { 36.0 };
     let w = indent + text.size().x.max(sub.as_ref().map_or(0.0, |s| s.size().x)) + tail;
@@ -202,7 +208,7 @@ pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str
             icons::draw(p, icons::Icon::Check, at.shrink(3.0), Color32::WHITE);
         }
         Trail::Check(false) => {
-            p.rect_stroke(at.shrink(1.0), CornerRadius::same(4), egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+            p.rect_stroke(at.shrink(1.0), CornerRadius::same(4), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
         }
         Trail::Radio(true) => {
             p.circle_filled(at.center(), 9.0, pal().blurple);
