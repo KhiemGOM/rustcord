@@ -110,6 +110,10 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     use crate::state::*;
     let Some((uid, gid, dm, at)) = app.user_menu else { return };
     let origin = app.menu_from;
+    if uid != app.store.me && !app.notes.contains_key(&uid) {
+        app.notes.insert(uid, String::new());
+        app.rest("GET", format!("/users/@me/notes/{uid}"), None, crate::net::Tag::Note(uid));
+    }
     let store = &app.store;
     let me = uid == store.me;
     let user = store.user(uid).cloned();
@@ -123,7 +127,9 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     let pinned = dm.is_some_and(|c| store.pinned.contains(&c));
     let vch = if let Origin::Voice(c) = origin { Some(c) } else { None };
     let ctx_ch = dm.or(vch).or(if origin == Origin::Friends { None } else { app.cur() });
-    let composing = dm.is_none() && origin != Origin::Friends && app.cur().is_some();
+    let composing = dm.is_none() && origin != Origin::Friends && app.cur().and_then(|c| store.channels.get(&c)).is_some_and(|c| store.perms(c) & SEND_MESSAGES != 0);
+    let has_dm = store.dms.iter().filter_map(|c| store.channels.get(c)).any(|c| c.kind == 1 && c.recipients == [uid]);
+    let username = user.as_ref().map(|u| u.username.clone()).unwrap_or_default();
     let dev = app.settings.dev;
     let ignored = store.ignored.contains(&uid);
     let perms = if gid == 0 { 0 } else { store.my_perms(gid) };
@@ -139,7 +145,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     let can_move = in_voice && !me && perms & MOVE_MEMBERS != 0;
     let can_server_mute = in_voice && !me && perms & MUTE_MEMBERS != 0;
     let can_server_deaf = in_voice && !me && perms & DEAFEN_MEMBERS != 0;
-    let note = app.notes.get(&uid).map(|n| !n.is_empty());
+    let note = app.notes.get(&uid).is_some_and(|n| !n.is_empty());
     let friend_nick = store.nicks.contains_key(&uid);
     let integration = bot && gid != 0 && perms & MANAGE_GUILD != 0;
     let nick_label = if friend_nick { "Change Friend Nickname" } else { "Add Friend Nickname" };
@@ -158,15 +164,15 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
             })
             .collect()
     };
-    let roles: Vec<(Id, String, bool, bool)> = if !can_roles {
-        Vec::new()
-    } else {
-        let g = &store.guilds[&gid];
-        let held = store.members.get(&gid).and_then(|m| m.get(&uid)).map(|m| m.roles.clone()).unwrap_or_else(|| if me { g.my_roles.clone() } else { Vec::new() });
-        let mine = rank(store, gid, store.me);
-        let mut list: Vec<_> = g.roles.values().filter(|r| r.id != gid).collect();
-        list.sort_by_key(|r| std::cmp::Reverse(r.position));
-        list.into_iter().map(|r| (r.id, r.name.clone(), held.contains(&r.id), r.managed || (g.owner != store.me && r.position as i64 >= mine))).collect()
+    let roles: Vec<(Id, String, bool, bool)> = match store.guilds.get(&gid) {
+        Some(g) if gid != 0 => {
+            let held = store.members.get(&gid).and_then(|m| m.get(&uid)).map(|m| m.roles.clone()).unwrap_or_else(|| if me { g.my_roles.clone() } else { Vec::new() });
+            let mine = rank(store, gid, store.me);
+            let mut list: Vec<_> = g.roles.values().filter(|r| r.id != gid && (can_roles || held.contains(&r.id))).collect();
+            list.sort_by_key(|r| std::cmp::Reverse(r.position));
+            list.into_iter().map(|r| (r.id, r.name.clone(), held.contains(&r.id), !can_roles || r.managed || (g.owner != store.me && r.position as i64 >= mine))).collect()
+        }
+        _ => Vec::new(),
     };
     let moves: Vec<(Id, String)> = if !can_move {
         Vec::new()
@@ -233,15 +239,11 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         if !me && dm.is_none() && row(ui, "Message", None, false, Trail::None) {
             act = Some(Act::Message);
         }
-        if !me && dm.is_none() && !bot && row(ui, "Start a Call", None, false, Trail::None) {
+        if !me && dm.is_none() && !bot && has_dm && row(ui, "Start a Call", None, false, Trail::None) {
             act = Some(Act::Call);
         }
         if !me && !crate::theme::view().hide_personal {
-            let (label, sub) = match note {
-                None | Some(false) => ("Add Note", Some("Only visible to you")),
-                Some(true) => ("Edit Note", Some("Only visible to you")),
-            };
-            if row(ui, label, sub, false, Trail::None) {
+            if row(ui, if note { "Edit Note" } else { "Add Note" }, Some("Only visible to you"), false, Trail::None) {
                 act = Some(Act::Note);
             }
         }
@@ -390,13 +392,13 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         if can_move && row(ui, "Disconnect", None, true, Trail::None) {
             act = Some(Act::Disconnect);
         }
-        if can_timeout && row(ui, &format!("Timeout {name}"), None, true, Trail::None) {
+        if can_timeout && row(ui, &format!("Timeout {username}"), None, true, Trail::None) {
             act = Some(Act::Timeout);
         }
-        if can_kick && row(ui, &format!("Kick {name}"), None, true, Trail::None) {
+        if can_kick && row(ui, &format!("Kick {username}"), None, true, Trail::None) {
             act = Some(Act::Kick);
         }
-        if can_ban && row(ui, &format!("Ban {name}"), None, true, Trail::None) {
+        if can_ban && row(ui, &format!("Ban {username}"), None, true, Trail::None) {
             act = Some(Act::Ban);
         }
         if dm.is_some() {
