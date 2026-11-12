@@ -97,6 +97,14 @@ class AppCoverageTests(unittest.TestCase):
         row = next(r for r in self.build()['controls'] if r['id'] == 'control:save')
         self.assertTrue(set(methods) <= {item['event'] for item in row['evidence']})
 
+    def test_input_contexts_are_matched_from_the_actual_action_record(self):
+        path = self.log([dict(before='a', visible=['control:save'], action={'target': 'control:save', 'method': 'click'}),
+                         dict(before='b', visible=['control:save', 'menu:message'], action={'target': 'control:save', 'method': 'click'})])
+        bindings = [dict(id='save-message', rustcord=dict(control='control:save', method='click', required_visible=['menu:message']))]
+        result = app_coverage.parse_log(path, bindings)
+        self.assertEqual(result['scoped_inputs']['save-message']['attempts'], 1)
+        self.assertEqual(result['scoped_inputs']['save-message']['evidence'][0]['line'], 2)
+
     def test_capture_checkpoints_include_non_settings_screens(self):
         (self.source / 'e2e.rs').write_text('self.shot(ctx, "message_edit.png");')
         data = self.build()

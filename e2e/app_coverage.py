@@ -72,11 +72,13 @@ def source_catalog(repo):
     return list(controls.values()), views + list(checkpoints.values()), dynamic
 
 
-def parse_log(path):
+def parse_log(path, bindings=()):
     controls = {}
     events = []
     errors = []
     pending = False
+    scoped = {}
+    scoped_bindings = [b for b in bindings if b['rustcord'].get('required_visible')]
     lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
     for number, line in enumerate(lines, 1):
         try:
@@ -101,6 +103,14 @@ def parse_log(path):
             row['methods'][method] = row['methods'].get(method, 0) + 1
             if not any(e['event'] == method for e in row['evidence']):
                 row['evidence'].append(dict(path=str(path.resolve()), line=number, case=event.get('case'), state=event.get('before'), event=method))
+            visible = set(event.get('visible', []))
+            for binding in scoped_bindings:
+                target = binding['rustcord']
+                if key == target['control'] and method == target['method'] and set(target['required_visible']) <= visible:
+                    proof = scoped.setdefault(binding['id'], dict(attempts=0, evidence=[]))
+                    proof['attempts'] += 1
+                    if len(proof['evidence']) < 2:
+                        proof['evidence'].append(dict(path=str(path.resolve()), line=number, case=event.get('case'), state=event.get('before'), event=method))
     for previous, current in zip(events, events[1:]):
         key = previous.get('action', {}).get('target')
         if key and previous.get('before') and current.get('before'):
@@ -108,7 +118,7 @@ def parse_log(path):
             row = controls[key]['outcomes']
             row[outcome] = row.get(outcome, 0) + 1
     return dict(controls=controls, actions=sum('action' in e for e in events), errors=errors, pending=pending,
-                states=list({e['before'] for e in events if e.get('before')}))
+                states=list({e['before'] for e in events if e.get('before')}), scoped_inputs=scoped)
 
 
 def references(ref, cache=None):
@@ -163,23 +173,31 @@ def references(ref, cache=None):
 
 def collect(repo, campaign, ref, cache=None):
     static, views, dynamic = source_catalog(repo)
+    path = repo / 'e2e/discord_features.json'
+    bindings = discord_coverage.load(path) if path.exists() else []
+    binding_signature = hashlib.sha256(json.dumps(bindings, sort_keys=True).encode()).hexdigest()
     rows = {c['id']: dict(c, observations=0, methods={}, outcomes={}, evidence=[], verified=False) for c in static}
     logs = {}
-    if cache and (cache / 'logs-v3.json').exists():
-        logs = json.loads((cache / 'logs-v3.json').read_text(encoding='utf-8'))
+    if cache and (cache / 'logs-v4.json').exists():
+        logs = json.loads((cache / 'logs-v4.json').read_text(encoding='utf-8'))
     active_logs = {}
     errors, pending, states = [], [], set()
     actions = 0
+    scoped = {}
     for path in sorted(campaign.glob('*/native/*/explore/actions.jsonl')):
-        stamp = [path.stat().st_mtime_ns, path.stat().st_size]
+        stamp = [path.stat().st_mtime_ns, path.stat().st_size, binding_signature]
         saved = logs.get(str(path))
-        summary = saved['summary'] if saved and saved['stamp'] == stamp else parse_log(path)
+        summary = saved['summary'] if saved and saved['stamp'] == stamp else parse_log(path, bindings)
         active_logs[str(path)] = dict(stamp=stamp, summary=summary)
         actions += summary['actions']
         states.update(summary['states'])
         errors.extend(summary['errors'])
         if summary['pending']:
             pending.append(str(path))
+        for key, value in summary['scoped_inputs'].items():
+            proof = scoped.setdefault(key, dict(attempts=0, evidence=[]))
+            proof['attempts'] += value['attempts']
+            proof['evidence'] = (proof['evidence'] + value['evidence'])[:3]
         for key, observed in summary['controls'].items():
             row = rows.setdefault(key, dict(id=key, kind='control', sources=[], observations=0, methods={}, outcomes={}, evidence=[], verified=False))
             row['observations'] += observed['observations']
@@ -189,7 +207,7 @@ def collect(repo, campaign, ref, cache=None):
             evidence = {e['event']: e for e in row['evidence'] + observed['evidence']}
             row['evidence'] = sorted(evidence.values(), key=lambda e: e['event'] == 'observed')
     if cache:
-        parity.write_json(cache / 'logs-v3.json', active_logs)
+        parity.write_json(cache / 'logs-v4.json', active_logs)
     for row in rows.values():
         row['status'] = 'interacted' if row['methods'] else 'observed' if row['observations'] else 'untested'
         row['origin'] = 'source_literal' if row['sources'] else 'runtime_discovered'
@@ -216,9 +234,7 @@ def collect(repo, campaign, ref, cache=None):
                 actions=actions, observed_states=len(states), controls=sorted(rows.values(), key=lambda r: r['id']), views=views,
                 dynamic_sites=dynamic, reference_views=reference['views'], reference_controls=reference['controls'],
                 reference_signature=reference.get('signature', 'unavailable'),
-                pending_logs=pending, errors=errors + reference['errors'])
-    path = repo / 'e2e/discord_features.json'
-    bindings = discord_coverage.load(path) if path.exists() else []
+                pending_logs=pending, errors=errors + reference['errors'], scoped_inputs=scoped)
     result['discord_features'] = discord_coverage.matrix(result, bindings)
     return result
 

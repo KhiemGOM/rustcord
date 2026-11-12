@@ -52,6 +52,11 @@ def matrix(data, bindings):
                 row['attempts'] = source.get('methods', {}).get(method, 0)
                 row['rustcord_evidence'] = [e for e in source.get('evidence', []) if isinstance(e, str) or e.get('event') == method]
                 row['status'] = 'input_attempted_in_mock' if row['attempts'] else 'seen_not_exercised' if source.get('observations') else 'not_exercised'
+                if target.get('required_visible'):
+                    proof = data.get('scoped_inputs', {}).get(binding['id'], {})
+                    row['attempts'] = proof.get('attempts', 0)
+                    row['rustcord_evidence'] = proof.get('evidence', [])
+                    row['status'] = 'input_attempted_in_mock' if row['attempts'] else 'context_not_exercised'
                 for node in nodes:
                     if node['id'] not in bound:
                         reference[node['reference_view']]['control_bindings'] += 1

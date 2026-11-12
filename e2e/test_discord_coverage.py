@@ -53,6 +53,24 @@ class DiscordCoverageTests(unittest.TestCase):
         self.assertEqual(result['features'][0]['status'], 'rustcord_view_captured')
         self.assertEqual(result['reference_views'][0]['control_bindings'], 0)
 
+    def test_click_in_another_context_does_not_cover_the_reference(self):
+        data = self.data()
+        data['controls'][0]['methods']['click'] = 3
+        binding = self.binding()
+        binding['rustcord']['required_visible'] = ['message-menu']
+        row = discord_coverage.matrix(data, [binding])['features'][0]
+        self.assertEqual(row['status'], 'context_not_exercised')
+
+    def test_scoped_input_evidence_is_used_for_context_bindings(self):
+        data = self.data()
+        binding = self.binding()
+        binding['rustcord']['required_visible'] = ['message-menu']
+        data['scoped_inputs'] = {binding['id']: {'attempts': 2, 'evidence': [{'path': 'actions.jsonl', 'line': 9}]}}
+        row = discord_coverage.matrix(data, [binding])['features'][0]
+        self.assertEqual(row['status'], 'input_attempted_in_mock')
+        self.assertEqual(row['attempts'], 2)
+        self.assertEqual(row['rustcord_evidence'][0]['line'], 9)
+
 
 if __name__ == '__main__':
     unittest.main()
