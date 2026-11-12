@@ -233,7 +233,11 @@ fn list(app: &mut App, ui: &mut Ui) {
             // a nitro name keeps its own font here; a plain one is semibold
             let face = Some(name_font(u.font, 16.0)).filter(|f| *f != medium(16.0)).unwrap_or(semi(16.0));
             let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), face, pal().header_primary, row.width() - 220.0);
-            super::tag_chip(ui.painter(), u, pos2(nr.right() + 9.0, nr.center().y), 1.0);
+            let chip = super::tag_chip(ui.painter(), u, pos2(nr.right() + 4.0, nr.center().y), 1.0);
+            if kind == FRIEND && resp.hovered() && u.username != app.store.name_in(0, uid) {
+                let x = chip.map_or(nr.right() + 8.0, |c| c.right() + 5.0);
+                super::text::paint(ui.painter(), pos2(x, nr.center().y), Align2::LEFT_CENTER, &u.username, medium(14.0), pal().text_normal, 200.0);
+            }
             let line = Some(kind).filter(|k| *k == FRIEND && st != Status::Offline).and_then(|_| app.store.activity_line(uid));
             let doing = line
                 .as_ref()

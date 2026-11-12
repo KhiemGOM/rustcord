@@ -238,9 +238,8 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if !me && !crate::theme::view().hide_personal {
             let (label, sub) = match note {
-                None => ("Loading Note", Some("Only visible to you")),
+                None | Some(false) => ("Add Note", Some("Only visible to you")),
                 Some(true) => ("Edit Note", Some("Only visible to you")),
-                Some(false) => ("Add Note", Some("Only visible to you")),
             };
             if row(ui, label, sub, false, Trail::None) {
                 act = Some(Act::Note);
@@ -406,10 +405,10 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if dev {
             menu_sep(ui);
-            if row(ui, "Copy User ID", None, false, Trail::None) {
+            if menu_row(ui, Some(Icon::Id), "Copy User ID", None, false, Trail::None).clicked() {
                 act = Some(Act::CopyUser);
             }
-            if dm.is_some() && row(ui, "Copy Channel ID", None, false, Trail::None) {
+            if dm.is_some() && menu_row(ui, Some(Icon::Id), "Copy Channel ID", None, false, Trail::None).clicked() {
                 act = Some(Act::CopyChannel);
             }
         }
