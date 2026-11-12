@@ -271,6 +271,7 @@ pub struct App {
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: Map<Id, serde_json::Value>,
+    pub app_covers: Map<Id, Option<String>>,
     pub full_profile: Option<profile::Full>,
     pub outbox: Map<Id, Vec<profile::Recent>>,
     // the + button's role list: server, member, where, search
@@ -544,6 +545,7 @@ impl App {
             switcher: None,
             profile: None,
             profiles: Map::default(),
+            app_covers: Map::default(),
             full_profile: None,
             outbox: Map::default(),
             role_add: None,

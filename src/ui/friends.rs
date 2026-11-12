@@ -93,15 +93,18 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
         Some((false, _)) => pal().critical,
         None => pal().border_subtle,
     };
-    input_frame().corner_radius(8).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    input_frame().corner_radius(16).stroke(Stroke::new(1.0, edge)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut app.add_friend)
-                    .frame(Frame::NONE)
-                    .font(reg(16.0))
-                    .hint_text("You can add friends with their Discord username.")
-                    .desired_width(ui.available_width() - 190.0),
-            );
+            let out = egui::TextEdit::singleline(&mut app.add_friend)
+                .frame(Frame::NONE)
+                .font(reg(16.0))
+                .vertical_align(Align::Center)
+                .min_size(vec2(0.0, 38.0))
+                .hint_text("You can add friends with their Discord username.")
+                .desired_width(ui.available_width() - 190.0)
+                .show(ui);
+            app.rects.insert("friends:add_text".into(), Rect::from_min_size(out.galley_pos, out.galley.size()));
+            let r = out.response;
             if !ui.data(|d| d.get_temp::<bool>(seen)).unwrap_or(false) {
                 r.request_focus();
                 ui.data_mut(|d| d.insert_temp(seen, true));
@@ -113,7 +116,9 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
                 send = true;
                 r.request_focus();
             }
-            if button(ui, "Send Friend Request", pal().blurple, 180.0).clicked() {
+            let send_button = button(ui, "Send Friend Request", pal().blurple, 180.0);
+            app.rects.insert("friends:add_send".into(), send_button.rect);
+            if send_button.clicked() {
                 send = true;
             }
         });
@@ -191,6 +196,7 @@ fn list(app: &mut App, ui: &mut Ui) {
     crate::theme::auto_scroll(ui, |ui| egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (uid, kind) in people {
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
+            app.rects.insert(format!("friend:{uid}"), row);
             ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
             super::motion::wash(ui, &resp, row.shrink2(vec2(-10.0, 1.0)), 8, pal().bg_mod_hover, 0.2);
             let av = Rect::from_min_size(pos2(row.left(), row.center().y - 16.0), vec2(32.0, 32.0));
@@ -256,8 +262,12 @@ fn list(app: &mut App, ui: &mut Ui) {
                     }
                 }
             }
-            if resp.clicked() && kind == FRIEND {
-                act = Some((uid, "dm"));
+            if resp.clicked() {
+                if kind == FRIEND {
+                    act = Some((uid, "dm"));
+                } else if kind == INCOMING || kind == OUTGOING {
+                    act = Some((uid, "profile"));
+                }
             }
             if resp.secondary_clicked() && kind == FRIEND {
                 menu = Some((uid, resp.interact_pointer_pos().unwrap_or(row.center())));
@@ -265,6 +275,7 @@ fn list(app: &mut App, ui: &mut Ui) {
         }
     }));
     match act {
+        Some((u, "profile")) => app.open_full(u, 0, super::profile::Tab::Activity),
         Some((u, "dm")) => app.open_dm(u),
         Some((u, "video")) => app.call_user(u, true),
         Some((u, "voice")) => app.call_user(u, false),

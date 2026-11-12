@@ -2,6 +2,7 @@
 //! itself in the middle as the thing you edit, and the widgets board on the right.
 
 pub mod board;
+mod backdrop;
 mod card;
 mod draft;
 mod pick;
@@ -85,6 +86,7 @@ pub struct Editor {
     pub eyedrop: Option<std::sync::Arc<egui::ColorImage>>,
     pub style_back: Option<style::Edit>,
     pub to_shop: bool,
+    backdrop: backdrop::Banner,
     opened: usize,
 }
 
@@ -151,6 +153,7 @@ pub fn open(app: &mut App, guild: Option<Id>) {
         eyedrop: None,
         style_back: None,
         to_shop: false,
+        backdrop: Default::default(),
         opened: t,
     });
     for k in ["me_profile", "owned", "avatars"] {
@@ -423,9 +426,10 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     match &d.nameplate {
         Some(n) => text::image(&ui.painter().with_clip_rect(r.shrink(1.0)), &cosmo::plate(&n.asset), r),
         None => {
-            avatar(ui, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0)), &user.avatar_url());
-            let nm = if d.name.is_empty() { user.display() } else { &d.name };
-            text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y), Align2::LEFT_CENTER, nm, medium(16.0), pal().header_primary, bar.x - 90.0);
+            let av = Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0));
+            ui.painter().circle_filled(av.center(), 16.0, faint(61));
+            icons::draw(ui.painter(), Icon::Discord, av.shrink(5.0), faint(150));
+            ui.painter().rect_filled(Rect::from_min_size(pos2(r.left() + 52.0, r.center().y - 7.0), vec2(r.width() - 96.0, 14.0)), 7, faint(61));
         }
     }
     overlay_icon(ui, r, resp.hovered(), d.nameplate.is_some(), true);
@@ -466,6 +470,9 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     if let Some(dec) = &d.decoration {
         avatar(ui, c, &user.avatar_url());
         text::image(ui.painter(), &cosmo::deco(&dec.asset, 128), Rect::from_center_size(c.center(), c.size() * 1.2));
+    } else {
+        ui.painter().circle_filled(c.center(), c.width() / 2.0, faint(31));
+        icons::draw(ui.painter(), Icon::Discord, c.shrink(16.0), faint(100));
     }
     overlay_icon(ui, rd, resp.hovered(), d.decoration.is_some(), d.decoration.is_none());
     let tip = match d.decoration.as_ref().map(|n| app.product(&n.sku).map_or_else(|| "Set".to_string(), |p| p.name)) {
@@ -483,7 +490,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
         let resp = tile(ui, r, "dns", false);
         mark(ui, "tile:dns", r);
         let nm = if ed.draft.name.is_empty() { user.display().to_string() } else { ed.draft.name.clone() };
-        style::paint_name(ui, pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, &nm, ed.draft.style.as_ref(), 24.0, r.width() - 56.0, true);
+        style::paint_name(ui, pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, &nm, ed.draft.style.as_ref(), 24.0, r.width() - 32.0, true);
         overlay_icon(ui, r, resp.hovered(), ed.draft.style.is_some(), ed.draft.style.is_none());
         if resp.on_hover_text(if ed.draft.style.is_some() { "Display name style: Set" } else { "Display name style: Not set" }).clicked() && nitro(app, "Display name styles") {
             ed.dlg = Dlg::Style(style::Edit::from(ed.draft.style.as_ref()));
@@ -547,10 +554,20 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
         let resp = tile(ui, r, if i == 0 { "effect" } else { "frame" }, false);
         mark(ui, if i == 0 { "tile:effect" } else { "tile:frame" }, r);
         let it = if i == 0 { &ed.draft.effect } else { &ed.draft.frame };
-        let prev = Rect::from_center_size(r.center(), vec2(60.0, if i == 0 { 88.0 } else { 60.0 }).min(r.size() - vec2(8.0, 8.0)));
+        let prev = Rect::from_center_size(r.center(), vec2(60.0, if i == 0 || it.is_none() { 88.0 } else { 60.0 }).min(r.size() - vec2(8.0, 8.0)));
         ui.painter().rect_filled(prev, CornerRadius::same(4), Color32::from_black_alpha(120));
         if let Some(p) = it.as_ref().and_then(|it| app.product(&it.sku)) {
             text::image(&ui.painter().with_clip_rect(prev), &p.thumb, prev);
+        } else if it.is_none() {
+            let av = Rect::from_min_size(prev.min + vec2(4.0, 12.0), vec2(18.0, 18.0));
+            ui.painter().circle_filled(av.center(), 9.0, faint(41));
+            icons::draw(ui.painter(), Icon::Discord, av.shrink(3.0), faint(100));
+            for (k, width) in [24.0, 40.0, 44.0, 36.0, 48.0, 24.0].into_iter().enumerate() {
+                ui.painter().rect_filled(Rect::from_min_size(prev.min + vec2(4.0, 38.0 + k as f32 * 7.0), vec2(width, 3.0)), 2, faint(31));
+            }
+            if i == 1 {
+                ui.painter().rect_stroke(prev, 4, Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+            }
         }
         overlay_icon(ui, r, resp.hovered(), it.is_some(), it.is_none());
         if resp.on_hover_text(match (i, it.is_some()) { (0, true) => "Profile Effect: Set", (0, false) => "Profile Effect: Not set", (_, true) => "Profile Frame: Set", _ => "Profile Frame: Not set" }).clicked() {
@@ -566,8 +583,8 @@ fn overlay_icon(ui: &Ui, r: Rect, hot: bool, set: bool, always: bool) {
     }
     let c = Rect::from_center_size(r.center(), vec2(24.0, 24.0));
     let c = if r.width() > r.height() * 2.0 { Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(24.0, 24.0)) } else { c };
-    let ink = Color32::WHITE;
-    ui.painter().circle_filled(c.center(), 12.0, Color32::from_black_alpha(if hot { 200 } else { 140 }));
+    let ink = if set { Color32::WHITE } else { Color32::from_gray(40) };
+    ui.painter().circle_filled(c.center(), 12.0, if set { Color32::from_black_alpha(if hot { 200 } else { 140 }) } else { Color32::WHITE.gamma_multiply(if hot { 1.0 } else { 0.85 }) });
     icons::draw(ui.painter(), if set { Icon::Pencil } else { Icon::Plus }, Rect::from_center_size(c.center(), vec2(14.0, 14.0)), ink);
 }
 
@@ -577,6 +594,7 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
     if let Some((a, b)) = theme_pair(&ed.draft) {
         gradient(ui, region.shrink(1.0), a.gamma_multiply(0.7), b.gamma_multiply(0.7), 15);
     }
+    ed.backdrop.paint(ui, &ed.draft, region);
     if !ed.ready {
         super::motion::spinner(&mut ui.new_child(UiBuilder::new().max_rect(Rect::from_center_size(region.center(), vec2(32.0, 32.0)))), 32.0, pal().text_muted);
         return;
@@ -593,7 +611,7 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
         let card_rect = Rect::from_min_size(origin, vec2(card_w, 0.0));
         let ch = card::show(app, ed, ui, card_rect, user);
         let board_rect = if side_by_side {
-            Rect::from_min_max(pos2(origin.x + card_w + 32.0, origin.y), pos2(inner.right(), origin.y + 600.0))
+            Rect::from_min_max(pos2(origin.x + card_w + 32.0, origin.y), pos2(inner.right(), region.bottom().max(origin.y + 600.0)))
         } else {
             Rect::from_min_size(pos2(origin.x, origin.y + ch + 32.0), vec2(inner.width(), 600.0))
         };

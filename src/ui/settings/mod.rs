@@ -452,6 +452,7 @@ pub fn mark(ui: &Ui, key: &str, r: Rect) {
 pub fn mark_in(ctx: &egui::Context, key: &str, r: Rect) {
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| d.insert_temp(Id::new(("e2e", key)), (r, pass)));
+    crate::ui::e2e::stress::record(ctx, key, r);
 }
 
 pub fn said(ctx: &egui::Context, key: &str, text: &str) {

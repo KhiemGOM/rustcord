@@ -400,6 +400,7 @@ impl Run {
                 self.next(600);
             }
             5174 => {
+                app.rest("POST", "/mock/wishlist-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
                 app.profed = None;
                 self.next(300);
                 self.step = 5180;

@@ -62,10 +62,40 @@ impl Run {
                 if !app.profed.as_ref().is_some_and(|e| e.ready) {
                     return;
                 }
-                let keys = ["profile_select", "hide_styles", "tile:nameplate", "tile:avatar", "tile:decoration", "tile:dns", "swatch:primary", "swatch:accent", "tile:banner", "tile:effect", "tile:frame", "add_status", "profile:pronouns", "profile:bio", "browse_widgets", "widget:favorite_games", "widget:played_games", "profed_tab:Board", "profed_close"];
-                if keys.iter().all(|k| at(k).is_some()) {
-                    self.mark("profed_layout");
+                if let Some(ed) = app.profed.as_mut().filter(|e| e.draft.banner_url.is_none()) {
+                    let url = Some(format!("{}/banners/100/mockbanner.png?size=600", crate::api::cdn()));
+                    ed.draft.banner_url = url.clone();
+                    ed.base.banner_url = url;
+                    return;
                 }
+                let keys = ["profile_select", "hide_styles", "tile:nameplate", "tile:avatar", "tile:decoration", "tile:dns", "swatch:primary", "swatch:accent", "tile:banner", "tile:effect", "tile:frame", "add_status", "profile:pronouns", "profile:bio", "browse_widgets", "widget:favorite_games", "widget:played_games", "profed_tab:Board", "profed_close"];
+                if keys.iter().any(|k| at(k).is_none()) || at("widget_app:1346069614634864772").is_none() || at("widget_app:1323482066758930452").is_none() {
+                    return;
+                }
+                self.mark("profed_layout");
+                let (Some(body), Some(prompt), Some(browse)) = (at("profed_board_body"), at("profed_board_prompt"), at("browse_widgets")) else { return };
+                let gaps = [prompt.top() - body.top(), body.bottom() - browse.bottom()];
+                self.rects.insert("profed_board_gaps".into(), json!(gaps));
+                if body.height() > 500.0 && (gaps[0] - gaps[1]).abs() > 16.0 {
+                    return self.fail("profile widget placeholders were not centered in their column".into());
+                }
+                self.mark("profed_centered_board");
+                for id in [1402418696126992445, 700136079562375258, 1384276457596911676, 1402692356343599254, 1344368447928401961, 1137125502985961543, 1314395942253756416, 356875762940379136, 1402418594532298837, 1413176957381771337] {
+                    let Some(Some(hash)) = app.app_covers.get(&id) else { return };
+                    if at(&format!("preview_cover:{id}")).is_none() {
+                        return self.fail(format!("profile widget preview missing game {id}"));
+                    }
+                    let url = format!("{}/app-icons/{id}/{hash}.png?size=256", crate::api::cdn());
+                    match ctx.try_load_texture(&url, Default::default(), Default::default()) {
+                        Ok(egui::load::TexturePoll::Ready { .. }) => {}
+                        Ok(_) => return,
+                        Err(e) => return self.fail(format!("widget cover {id}: {e}")),
+                    }
+                }
+                if at("profed_backdrop").is_none() {
+                    return;
+                }
+                self.mark("profed_preview_art");
                 self.shot(ctx, "profed.png");
                 self.next(500);
             }
@@ -449,7 +479,7 @@ impl Run {
                     self.mark("profed_server_saved");
                     app.profed = None;
                     app.settings_page = None;
-                    self.step = 4100;
+                    self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 4100 };
                 }
             }
             _ => self.step = 4100,

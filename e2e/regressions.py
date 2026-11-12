@@ -9,6 +9,9 @@ def checks(runs, reqs):
             and all(r.get("rects", {}).get("webp_pixels_changed", 0) > 0 for r in runs.values()),
         "regressions: decoded WebP stayed available after its downloaded bytes were evicted": both("webp_survives_byte_eviction"),
         "regressions: a native paste command attached the clipboard image once": both("native_image_paste"),
+        "regressions: incoming and outgoing friend-request rows open their profiles": both("incoming_request_profile") and both("outgoing_request_profile"),
+        "regressions: Add Friend text is centered beside its send button": both("add_friend_aligned")
+            and all(r.get("rects", {}).get("add_friend_text_shift", 999) <= 1 for r in runs.values()),
         "regressions: pinning and unpinning a channel through its menu updated the pinned section": both("channel_pinned_by_click") and both("channel_unpinned_by_click"),
         "regressions: a notification-only settings update preserved the channel pin": both("channel_pin_survives_update"),
         "regressions: loading older history kept the reading anchor within two pixels": both("history_kept_reading_anchor")

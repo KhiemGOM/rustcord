@@ -74,9 +74,24 @@ fn games() -> Value {
     ])
 }
 
+fn applications() -> Vec<Value> {
+    let mut apps = vec![
+        json!({ "id": "9001", "name": "Factorio", "icon": "appicon9001" }),
+        json!({ "id": "9002", "name": "Wordle", "icon": "appicon9002" }),
+        json!({ "id": "9004", "name": "Genshin Impact", "icon": "appicon9004" }),
+        json!({ "id": "9100", "name": "Mock Quiz", "icon": null, "description": "A quiz for the whole call" }),
+        json!({ "id": "9101", "name": "Mock Draw", "icon": null, "description": "Draw something together" }),
+    ];
+    for id in ["1346069614634864772", "1323482066758930452", "1402418696126992445", "700136079562375258", "1384276457596911676", "1402692356343599254", "1344368447928401961", "1137125502985961543", "1314395942253756416", "356875762940379136", "1402418594532298837", "1413176957381771337"] {
+        apps.push(json!({ "id": id, "name": "Preview game", "icon": format!("appicon{id}"), "cover_image": format!("appcover{id}") }));
+    }
+    apps
+}
+
 pub fn route(method: &str, p: &[&str], b: &Value, cdn: &str) -> Option<(u16, Value)> {
     let ok = |v: Value| Some((200, v));
     match (method, p) {
+        ("GET", ["api", "v9", "applications", "public"]) => ok(json!(applications())),
         ("GET", ["api", "v9", "collectibles-categories", "v2"]) => ok(json!({ "categories": [{ "sku_id": "8000", "name": "Mock Collection", "products": catalog(cdn) }], "collections": [] })),
         ("GET", ["api", "v9", "users", "@me", "collectibles-purchases"]) => ok(json!(owned(cdn))),
         ("GET", ["api", "v9", "collectibles-products", sku]) => match catalog(cdn).into_iter().find(|p| p["sku_id"] == *sku) {
@@ -90,11 +105,11 @@ pub fn route(method: &str, p: &[&str], b: &Value, cdn: &str) -> Option<(u16, Val
             }
             ok(json!({ "taken": TAKEN.contains(&name) }))
         }
-        ("GET", ["api", "v9", "widget-configs", "featured"]) => ok(json!([{ "application_id": "9001", "name": "Marvel Rivals" }, { "application_id": "9004", "name": "Wuthering Waves" }])),
-        ("GET", ["api", "v9", "widget-configs", "developer"]) => ok(json!([{ "application_id": "9002", "name": "Crab Quest" }])),
+        ("GET", ["api", "v9", "widget-configs", "featured"]) => ok(json!({ "applications": [{ "id": "1346069614634864772", "name": "Marvel Rivals" }, { "id": "672188101707169852", "name": "Another game" }, { "id": "1323482066758930452", "name": "Wuthering Waves" }], "configs": {} })),
+        ("GET", ["api", "v9", "widget-configs", "developer"]) => ok(json!({ "applications": [{ "id": "9002", "name": "Crab Quest" }], "configs": {} })),
         ("GET", ["api", "v9", "users", "@me", "widgets", "suggested-games"]) => ok(games()),
         ("GET", ["api", "v9", "wishlists", id]) => ok(json!({ "id": id, "visibility": 1, "wishlist_items": if *id == "101" { json!([{ "sku": { "id": "7201" }, "sku_id": "7201" }, { "sku": { "id": "7203" }, "sku_id": "7203" }]) } else { json!([]) } })),
-        ("GET", ["api", "v9", "users", _, "application-identities"]) => ok(json!([{ "application_id": "9001", "name": "Mock Racers", "identity": { "username": "alice#racer" } }])),
+        ("GET", ["api", "v9", "users", _, "application-identities"]) => ok(json!([{ "application_id": "1346069614634864772", "name": "Marvel Rivals", "identity": { "username": "alice#racer" } }])),
         _ => None,
     }
 }

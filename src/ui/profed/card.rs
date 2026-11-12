@@ -19,11 +19,20 @@ fn dimmer() -> Color32 {
     Color32::WHITE.gamma_multiply(0.76)
 }
 
-pub fn paint_data_image(ui: &Ui, uri: &str, r: Rect, cr: CornerRadius) {
+pub fn data_image(ctx: &egui::Context, uri: &str) -> Option<String> {
     use base64::Engine;
     let b64 = uri.split_once(',').map_or("", |(_, b)| b);
     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
-        egui::Image::from_bytes(format!("bytes://profed/{}", b64.len() ^ (b64.bytes().take(64).map(usize::from).sum::<usize>() << 20)), bytes).corner_radius(cr).paint_at(ui, r);
+        let url = format!("bytes://profed/{:x}", egui::Id::new(uri).value());
+        ctx.include_bytes(url.clone(), bytes);
+        return Some(url);
+    }
+    None
+}
+
+pub fn paint_data_image(ui: &Ui, uri: &str, r: Rect, cr: CornerRadius) {
+    if let Some(url) = data_image(ui.ctx(), uri) {
+        egui::Image::from_uri(url).corner_radius(cr).paint_at(ui, r);
     }
 }
 

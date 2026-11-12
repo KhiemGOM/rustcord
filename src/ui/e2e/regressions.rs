@@ -299,6 +299,64 @@ impl Run {
                 }
                 self.mark("native_image_paste");
                 app.files.clear();
+                self.step = 8898;
+            }
+            8898 => {
+                app.select_guild(None);
+                app.friends = true;
+                app.friends_tab = 2;
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("friends_q"), String::new()));
+                app.store.relationships.insert(101, crate::state::OUTGOING);
+                app.store.relationships.insert(102, crate::state::INCOMING);
+                self.next(500);
+            }
+            8899 => {
+                let Some(r) = app.rects.get("friend:101").copied() else { return };
+                self.click(r.left_center() + egui::vec2(70.0, 0.0));
+                self.next(400);
+            }
+            8900 => {
+                if app.full_profile.as_ref().is_none_or(|p| p.uid != 101) {
+                    return self.fail("outgoing friend request row did not open its profile".into());
+                }
+                self.mark("outgoing_request_profile");
+                app.full_profile = None;
+                self.next(200);
+            }
+            8901 => {
+                let Some(r) = app.rects.get("friend:102").copied() else { return };
+                self.click(r.left_center() + egui::vec2(70.0, 0.0));
+                self.next(400);
+            }
+            8902 => {
+                if app.full_profile.as_ref().is_none_or(|p| p.uid != 102) {
+                    return self.fail("incoming friend request row did not open its profile".into());
+                }
+                self.mark("incoming_request_profile");
+                app.full_profile = None;
+                self.next(0);
+            }
+            8903 => {
+                app.select_guild(None);
+                app.friends = true;
+                app.friends_tab = 4;
+                app.add_friend.clear();
+                self.next(300);
+            }
+            8904 => {
+                let (Some(text), Some(send)) = (app.rects.get("friends:add_text"), app.rects.get("friends:add_send")) else { return };
+                let shift = (text.center().y - send.center().y).abs();
+                self.rects.insert("add_friend_text_shift".into(), json!(shift));
+                if shift > 1.0 {
+                    return self.fail("add friend text was not centered beside its button".into());
+                }
+                self.mark("add_friend_aligned");
+                self.shot(ctx, "add_friend.png");
+                self.next(200);
+            }
+            8905 => {
+                app.friends = false;
+                app.select_guild(Some(self.target.0));
                 app.open(self.target.1);
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
             }

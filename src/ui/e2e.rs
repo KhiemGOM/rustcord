@@ -27,8 +27,9 @@ mod login;
 mod camera;
 mod gallery;
 mod watchdog;
-mod stress;
+pub(in crate::ui) mod stress;
 mod regressions;
+mod profcheck;
 
 pub use watchdog::beat;
 mod chatx;
@@ -45,6 +46,7 @@ use crate::voice::{State, audio};
 mod menus;
 mod more;
 mod players;
+mod mathfile;
 mod perms;
 mod p3b;
 mod p4b;
@@ -606,12 +608,15 @@ impl Run {
             return self.live_steps(app, ctx, ch);
         }
         if self.tour && self.step != 99 {
+            if std::env::var_os("RUSTCORD_TOUR_PROFILE").is_some() {
+                return self.profile_check(app, ctx);
+            }
             return self.tour_steps(app, ctx);
         }
         if (9000..9900).contains(&self.step) {
             return self.stress_steps(app, ctx);
         }
-        if (8800..8900).contains(&self.step) {
+        if (8800..9000).contains(&self.step) {
             return self.regression_steps(app, ctx);
         }
         let me = app.store.me;

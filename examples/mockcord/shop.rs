@@ -227,6 +227,10 @@ pub fn route(method: &str, parts: &[&str], query: &str, body: &[u8]) -> Option<(
             Some((200, json!({ "skus": skus, "skus_to_user_and_reason": {}, "applications": [], "storefront_pricing": null })))
         }
         ("GET", ["api", "v9", "collectibles-categories", "v2"]) => Some((200, json!({ "categories": categories(), "collections": [] }))),
+        ("POST", ["api", "v9", "mock", "wishlist-reset"]) => {
+            WISH.lock().unwrap().clear();
+            Some((200, json!({})))
+        }
         ("POST", ["api", "v9", "users", "@me", "wishlist", "items"]) => {
             let b: Value = serde_json::from_slice(body).unwrap_or_default();
             let Some(sku) = b["sku_id"].as_str() else { return missing("sku_id") };

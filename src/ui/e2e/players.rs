@@ -35,6 +35,9 @@ fn state(url: &str) -> Option<media::View> {
 
 impl Run {
     pub(super) fn player_steps(&mut self, app: &mut App, ctx: &egui::Context) {
+        if (1890..1900).contains(&self.step) {
+            return self.mathfile_steps(app, ctx);
+        }
         let ready = app.cur() == Some(MEDIA) && app.store.msgs.get(&MEDIA).is_some_and(|e| e.list.len() >= 8 && e.fresh && !e.loading);
         match self.step {
             1800 => {
