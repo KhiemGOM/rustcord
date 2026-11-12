@@ -150,7 +150,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
     };
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
-        let out = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let out = egui::ScrollArea::vertical().id_salt(("side_list", gid)).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             // under a banner the list starts where the banner ends
             ui.add_space(if banner.is_some() { 81.0 } else { 13.0 });
