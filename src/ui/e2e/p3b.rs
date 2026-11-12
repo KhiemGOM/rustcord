@@ -329,7 +329,7 @@ impl Run {
                 self.next(900);
             }
             4643 => {
-                let Some(vc) = crate::ui::side::tree(&app.store, self.target.0, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
+                let Some(vc) = crate::ui::side::tree(&app.store, self.target.0).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
                     return self.fail("no voice channel".into());
                 };
                 let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };

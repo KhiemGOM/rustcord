@@ -16,15 +16,14 @@ fn sort_key(c: &Channel) -> (bool, i32, Id) {
     (c.is_voice(), c.position, c.id)
 }
 
-/// Visible channels grouped under their categories, in sidebar order. `keep` stays in even when
-/// onboarding's opt-in would leave it out, the way discord keeps the open channel.
-pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
+/// Visible channels grouped under their categories, in sidebar order.
+pub fn tree(store: &Store, gid: Id) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
     let Some(g) = store.guilds.get(&gid) else { return Vec::new() };
     let all: Vec<&Channel> = g.channels.iter().filter_map(|c| store.channels.get(c)).collect();
     let visible: Vec<&Channel> = all
         .iter()
         .copied()
-        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c) && (keep == Some(c.id) || store.listed(c)))
+        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c) && store.listed(c))
         .collect();
     let opt_in = store.opt_in.contains(&gid);
     let mut cats: Vec<&Channel> = all.iter().copied().filter(|c| c.kind == 4).collect();
@@ -47,8 +46,35 @@ pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, 
     out
 }
 
+/// How many open posts each forum has started since you last looked.
+pub fn fresh_posts(store: &crate::state::Tracked, gid: Id) -> std::collections::HashMap<Id, usize> {
+    let mut fresh: std::collections::HashMap<Id, usize> = Default::default();
+    for t in store.threads_in(gid).filter(|t| !t.archived) {
+        if store.channels.get(&t.parent).is_some_and(|f| f.is_forum()) && store.reads.get(&t.parent).is_some_and(|r| t.id > r.last_acked) {
+            *fresh.entry(t.parent).or_default() += 1;
+        }
+    }
+    fresh
+}
+
+/// What discord lists under "Suggested" in a server that shows only picked channels: the open
+/// channel and the unread ones that aren't on the list, in channel order.
+pub fn suggested(store: &crate::state::Tracked, gid: Id, cur: Option<Id>) -> Vec<&Channel> {
+    let Some(g) = store.guilds.get(&gid).filter(|_| store.opt_in.contains(&gid)) else { return Vec::new() };
+    let fresh = fresh_posts(store, gid);
+    let mut out: Vec<&Channel> = g
+        .channels
+        .iter()
+        .filter_map(|c| store.channels.get(c))
+        .filter(|c| c.kind != 4 && !c.is_thread() && store.can_view(c) && !store.listed(c))
+        .filter(|c| cur == Some(c.id) || !c.is_voice() && !store.is_muted(c) && (c.is_text() && store.unread(c) || fresh.contains_key(&c.id)))
+        .collect();
+    out.sort_by_key(|c| (store.channels.get(&c.parent).map_or(-1, |k| k.position), sort_key(c)));
+    out
+}
+
 pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
-    tree(store, gid, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
+    tree(store, gid).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
 }
 
 /// How much of the bottom the floating account card takes, its 8 margin included. The rail and
@@ -407,6 +433,22 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::R
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     (resp, add)
+}
+
+/// The "Suggested" label over the open and unread channels that aren't on the list, with its
+/// dismiss button. True when that was clicked.
+fn suggested_head(ui: &mut Ui) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::hover());
+    let y = rect.top() + 12.0;
+    text::paint_em(ui.painter(), pos2(rect.left() + 16.0, y), Align2::LEFT_CENTER, "Suggested", medium(14.0), pal().channel_default, rect.width() - 60.0, 1.0);
+    let at = pos2(rect.right() - 24.0, y - 1.0);
+    let hit = ui.interact(Rect::from_center_size(at, vec2(20.0, 20.0)), ui.id().with("suggested_off"), Sense::click());
+    ui.painter().circle_filled(at, 7.0, pal().border_muted);
+    icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(at, vec2(10.0, 10.0)), pal().bg_secondary_alt);
+    if hit.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    hit.clicked()
 }
 
 /// The channel's icon with the lock or warning discord adds for private and age-gated ones.

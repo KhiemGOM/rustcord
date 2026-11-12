@@ -330,9 +330,9 @@ impl App {
     /// (2) the next with a mention.
     fn walk_channels(&mut self, down: bool, only: u8) {
         let list: Vec<Id> = match self.ui.guild {
-            Some(g) => side::tree(&self.store, g, self.cur())
+            Some(g) => side::suggested(&self.store, g, self.cur())
                 .into_iter()
-                .flat_map(|(_, k)| k)
+                .chain(side::tree(&self.store, g).into_iter().flat_map(|(_, k)| k))
                 .filter(|c| c.is_text() || c.is_forum())
                 .map(|c| c.id)
                 .collect(),

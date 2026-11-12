@@ -160,12 +160,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             }
             let threads: Vec<&Channel> = store.threads_in(gid).filter(|c| c.joined && !c.archived).collect();
             // discord's "N New" on forums: open posts started since you last looked
-            let mut fresh: std::collections::HashMap<Id, usize> = Default::default();
-            for t in store.threads_in(gid).filter(|t| !t.archived) {
-                if store.channels.get(&t.parent).is_some_and(|f| f.is_forum()) && store.reads.get(&t.parent).is_some_and(|r| t.id > r.last_acked) {
-                    *fresh.entry(t.parent).or_default() += 1;
-                }
-            }
+            let fresh = fresh_posts(store, gid);
             let revealed = egui::Id::new("side_revealed");
             if let Some(g) = store.guilds.get(&gid) {
                 // discord counts only the steps in channels you can see
@@ -191,7 +186,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
             }
             let hide = store.hide_muted.contains(&gid);
-            let mut groups = tree(store, gid, cur);
+            let off_id = egui::Id::new(("suggested_off", gid));
+            let off: Vec<Id> = ui.ctx().data(|d| d.get_temp(off_id)).unwrap_or_default();
+            let mut suggested = suggested(store, gid, cur);
+            suggested.retain(|c| !off.contains(&c.id));
+            let mut groups = tree(store, gid);
             let mut pinned: Vec<&Channel> = Vec::new();
             for (_, kids) in &mut groups {
                 kids.retain(|c| {
@@ -202,14 +201,22 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     !on
                 });
             }
-            let sections = Some((true, None, pinned)).filter(|s| !s.2.is_empty()).into_iter().chain(groups.into_iter().map(|(c, k)| (false, c, k)));
-            for (pin_sec, cat, kids) in sections {
+            let sections = Some((Some("Suggested"), None, suggested)).filter(|s| !s.2.is_empty()).into_iter().chain(Some((Some("Pinned Channels"), None, pinned)).filter(|s| !s.2.is_empty())).chain(groups.into_iter().map(|(c, k)| (None, c, k)));
+            for (virt, cat, kids) in sections {
+                let (suggest_sec, pin_sec) = (virt == Some("Suggested"), virt == Some("Pinned Channels"));
                 // hiding muted channels takes empty categories with them, but never the open channel
                 let kids: Vec<&Channel> = kids.into_iter().filter(|c| !hide || cur == Some(c.id) || !store.is_muted(c)).collect();
                 if hide && kids.is_empty() && (cat.is_some() || pin_sec) {
                     continue;
                 }
                 let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.store.collapsed.contains(&c.id)) };
+                if suggest_sec {
+                    ui.add_space(15.0);
+                    if suggested_head(ui) {
+                        let ids: Vec<Id> = kids.iter().map(|c| c.id).collect();
+                        ui.ctx().data_mut(|d| d.insert_temp(off_id, ids));
+                    }
+                }
                 if pin_sec {
                     ui.add_space(15.0);
                     let (head, _) = category(ui, "Pinned Channels", collapsed, false);
@@ -310,6 +317,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                             join_act = Some((c.id, a));
                         }
                     }
+                }
+                if suggest_sec {
+                    ui.add_space(9.0);
+                    let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                    ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y + 1.0, egui::Stroke::new(1.0, pal().border_subtle));
                 }
             }
             ui.add_space(12.0);
