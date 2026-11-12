@@ -414,9 +414,10 @@ fn events_menu(r: &egui::Response, ev: EventsRow, out: &mut Option<EventsAct>) {
 }
 
 /// A category header, and whether its create-channel plus was clicked.
-fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
+fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool, muted: bool) -> (egui::Response, bool) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click_and_drag());
-    let col = crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
+    let idle = if muted { pal().text_muted } else { pal().channel_default };
+    let col = crate::ui::motion::mix(idle, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     let turn = (1.0 - super::motion::tween(ui.ctx(), resp.id.with("chev"), !collapsed, 0.2, super::motion::EASE_OUT)) * -std::f32::consts::FRAC_PI_2;
     let y = rect.top() + 12.0;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name

@@ -226,7 +226,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 if pin_sec {
                     ui.add_space(15.0);
-                    let (head, _) = category(ui, "Pinned Channels", collapsed, false);
+                    let (head, _) = category(ui, "Pinned Channels", collapsed, false, false);
                     app.rects.insert("side:pinned".into(), head.rect);
                     if head.clicked() {
                         toggle = Some(gid);
@@ -235,7 +235,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 if let Some(cat) = cat {
                     // discord's category is 16 of padding over a 24 row, the first channel 1 under it
                     ui.add_space(15.0);
-                    let (r, add) = category(ui, &cat.name, collapsed, store.perms(cat) & crate::state::MANAGE_CHANNELS != 0);
+                    let (r, add) = category(ui, &cat.name, collapsed, store.perms(cat) & crate::state::MANAGE_CHANNELS != 0, store.muted.contains(&cat.id));
                     if r.clicked() {
                         toggle = Some(cat.id);
                     }
@@ -251,10 +251,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 for c in kids {
                     let selected = cur == Some(c.id);
-                    let muted = store.is_muted(c);
+                    // a muted category folds its unread channels away with the rest, but doesn't dim them
+                    let muted = store.muted.contains(&c.id);
                     let new = if muted { 0 } else { fresh.get(&c.id).copied().unwrap_or(0) };
-                    let unread = (c.is_text() && store.unread(c)) || new > 0;
-                    if collapsed && !selected && !unread {
+                    let unread = (c.is_text() && store.unread_row(c)) || new > 0;
+                    if collapsed && !selected && (!unread || store.is_muted(c)) {
                         continue;
                     }
                     let vr = c.is_voice().then(|| {

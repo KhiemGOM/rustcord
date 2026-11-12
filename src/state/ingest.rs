@@ -122,7 +122,14 @@ impl Store {
     }
 
     pub fn unread(&self, c: &Channel) -> bool {
-        if c.last_msg == 0 || self.is_muted(c) || (c.is_thread() && !c.joined) {
+        !self.is_muted(c) && self.unread_row(c)
+    }
+
+    /// Whether the channel's own row shows as unread. A muted category keeps its channels out of
+    /// the server's unread mark, but discord still lights the rows inside it; only a channel's own
+    /// mute quiets its row.
+    pub fn unread_row(&self, c: &Channel) -> bool {
+        if c.last_msg == 0 || self.muted.contains(&c.id) || (c.is_thread() && !c.joined) {
             return false;
         }
         if c.guild != 0 && !self.unreads_all(c) {
