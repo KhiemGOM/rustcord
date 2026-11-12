@@ -117,8 +117,16 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     // the name keeps its width and is clipped by the group, as discord's overflow does
                     let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
-                    let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
+                    let (r, resp) = ui.allocate_exact_size(t.size(), if chan.kind == 3 { Sense::click() } else { Sense::hover() });
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
+                    if chan.kind == 3 {
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if resp.clicked() {
+                            app.user_dialog = Some(crate::ui::userdlg::Dialog::group(&app.store, chan.id));
+                        }
+                    }
                     if crate::ui::follow::can_follow(app, chan) {
                         crate::ui::follow::header_button(app, ui, chan);
                     }
