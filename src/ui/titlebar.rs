@@ -588,7 +588,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         }
     }
     let on_button = button.is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
-    if close || (popups::dismissed(ctx, &area.response) && !on_button) {
+    if close || ctx.input(|i| i.key_pressed(Key::Escape)) || (popups::pressed_outside(ctx, &area.response) && !on_button) {
         app.inbox = None;
     }
 }
