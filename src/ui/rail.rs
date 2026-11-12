@@ -204,8 +204,10 @@ enum Act {
     Read,
     Invite(Id),
     Mute(bool, Option<i64>),
-    Notifs,
+    Level(u8),
+    Flag(super::notifs::Flag),
     HideMuted,
+    ShowAll,
     Privacy,
     Profile,
     Leave,
@@ -215,6 +217,7 @@ enum Act {
 /// Discord's right-click menu on a server icon.
 fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
     use super::{Trail, menu_item, menu_row, menu_sep};
+    use super::notifs::Flag;
     let store = &app.store;
     let muted = store.muted.contains(&gid);
     let hide = store.hide_muted.contains(&gid);
@@ -225,6 +228,10 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         .filter(|c| store.perms(c) & crate::state::CREATE_INVITE != 0)
         .map(|c| c.id);
     let dev = app.settings.dev;
+    let community = store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
+    let level = store.levels.get(&gid).copied().unwrap_or_else(|| store.guilds.get(&gid).map_or(0, |g| g.default_notif)).min(2);
+    let prefs = store.gprefs.get(&gid).cloned().unwrap_or_default();
+    let events_muted = store.events_muted.contains(&gid);
     let mut act = None;
     egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
@@ -249,11 +256,36 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
                 }
             });
         }
-        if menu_item(ui, None, "Notification Settings", false) {
-            act = Some(Act::Notifs);
-        }
+        let n = menu_row(ui, None, "Notification Settings", Some(super::LEVELS[level as usize]), false, Trail::Caret);
+        egui::containers::menu::SubMenu::new().show(ui, &n, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.set_min_width(224.0);
+            for (i, l) in super::LEVELS.iter().enumerate() {
+                if menu_row(ui, None, l, None, false, Trail::Radio(level == i as u8)).clicked() {
+                    act = Some(Act::Level(i as u8));
+                }
+            }
+            menu_sep(ui);
+            for (flag, label, on) in [
+                (Flag::Everyone, "Suppress @everyone and @here", prefs.suppress_everyone),
+                (Flag::Roles, "Suppress All Role @mentions", prefs.suppress_roles),
+                (Flag::Highlights, "Suppress Highlights", prefs.highlights_off),
+                (Flag::Events, "Mute New Events", events_muted),
+            ] {
+                if menu_row(ui, None, label, None, false, Trail::Check(on)).clicked() {
+                    act = Some(Act::Flag(flag));
+                }
+            }
+            menu_sep(ui);
+            if menu_row(ui, None, "Mobile Push Notifications", None, false, Trail::Check(prefs.mobile_push)).clicked() {
+                act = Some(Act::Flag(Flag::Mobile));
+            }
+        });
         if menu_row(ui, None, "Hide Muted Channels", None, false, Trail::Check(hide)).clicked() {
             act = Some(Act::HideMuted);
+        }
+        if community && menu_row(ui, None, "Show All Channels", None, false, Trail::Check(!store.opt_in.contains(&gid))).clicked() {
+            act = Some(Act::ShowAll);
         }
         menu_sep(ui);
         if menu_item(ui, None, "Privacy Settings", false) {
@@ -284,8 +316,10 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             app.invite_people(c, "Guild Context Menu");
         }
         Some(Act::Mute(m, secs)) => app.mute_for(gid, true, m, secs),
-        Some(Act::Notifs) => app.guild_notifs = Some(gid),
+        Some(Act::Level(l)) => app.set_level(gid, Some(l)),
+        Some(Act::Flag(f)) => super::notifs::toggle(app, gid, f),
         Some(Act::HideMuted) => super::side::toggle_hide_muted(app, gid),
+        Some(Act::ShowAll) => super::side::show_all_channels(app, gid),
         Some(Act::Privacy) => app.guild_modal = Some(super::guildmodal::Modal::Privacy(gid)),
         Some(Act::Profile) => app.edit_server_profile(gid),
         Some(Act::Leave) => super::side::leave(app, gid),

@@ -137,7 +137,7 @@ fn header_ruled(ui: &mut Ui, rule: bool, add: impl FnOnce(&mut Ui)) {
 
 /// Out of onboarding's pick-your-channels list, or back into it; the unread bits of the
 /// server's flags stay as they were.
-fn show_all_channels(app: &mut App, gid: Id) {
+pub fn show_all_channels(app: &mut App, gid: Id) {
     let was_in = app.store.opt_in.contains(&gid);
     if !app.store.opt_in.remove(&gid) {
         app.store.opt_in.insert(gid);
