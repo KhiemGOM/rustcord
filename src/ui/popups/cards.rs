@@ -110,7 +110,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    tab = mutuals(ui, store, p, pal().bg_secondary);
+                    tab = mutuals(ui, store, p, pal().bg_secondary, 19.0);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         let mut job = egui::text::LayoutJob::single_section(bio.clone(), egui::TextFormat::simple(reg(14.0), pal().header_primary));
@@ -320,14 +320,14 @@ pub(super) fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool, friend: boo
 
 /// "6 Mutual Friends • 7 Mutual Servers" with the first three friends' faces; each count opens
 /// the full profile on its tab. `card` is what the faces' rings are cut from.
-pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32) -> Option<profile::Tab> {
+pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32, gap: f32) -> Option<profile::Tab> {
     let friends: Vec<Id> = p.and_then(|p| p["mutual_friends"].as_array()).into_iter().flatten().map(|f| crate::state::sid(&f["id"])).collect();
     let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
     let n_guilds = p.and_then(|p| p["mutual_guilds"].as_array()).map_or(0, |g| g.len() as u64);
     if n_friends == 0 && n_guilds == 0 {
         return None;
     }
-    ui.add_space(19.0);
+    ui.add_space(gap);
     let (r, _) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::hover());
     let mut x = r.left();
     for f in friends.iter().take(3) {
@@ -347,8 +347,8 @@ pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde
     let mut hit = None;
     for (i, (t, tab)) in parts.iter().enumerate() {
         if i > 0 {
-            ui.painter().circle_filled(pos2(x + 6.0, r.center().y), 2.0, pal().header_secondary);
-            x += 12.0;
+            ui.painter().circle_filled(pos2(x + 8.0, r.center().y), 2.0, pal().header_secondary);
+            x += 16.0;
         }
         let g = ui.painter().layout_no_wrap(t.clone(), reg(12.0), pal().header_secondary);
         let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, 16.0));
@@ -378,8 +378,6 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         app.notes.insert(uid, String::new());
         app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
     }
-    let saved = app.notes.get(&uid).cloned().unwrap_or_default();
-    let mut save_note = None;
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
     let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
@@ -388,36 +386,37 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let (mut banner, mut full, mut tab) = (BannerAct::default(), false, None);
     let height = ui.available_height();
     let store = &app.store;
-    let notes = &mut app.rects;
     let p = app.profiles.get(&uid);
-    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
+    let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
+    Frame::new().fill(pal().bg_input).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
         ui.set_width(300.0);
         ui.set_min_height(height - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         let wash = ui.painter().add(egui::Shape::Noop);
         let top = card_head(ui, &user, p, user.display(), status);
         banner = banner_buttons(ui, top, stranger, !stranger && !user.bot, false);
+        full = clicked_flag(ui.ctx(), "card_name_clicked") == Some(uid);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
             ui.set_width(268.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            tab = mutuals(ui, store, p, pal().bg_primary);
+            tab = mutuals(ui, store, p, pal().bg_input, 14.4);
             ui.add_space(24.0);
+            if !bio.is_empty() {
+                let mut job = egui::text::LayoutJob::single_section(bio, egui::TextFormat::simple(reg(14.0), pal().header_primary));
+                job.wrap.max_width = 268.0;
+                ui.label(ui.painter().layout_job(job));
+                ui.add_space(19.0);
+            }
             ui.label(RichText::new("Member Since").font(semi(12.0)).color(pal().header_primary));
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
-            ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
-            if !crate::theme::view().hide_personal {
-                ui.add_space(24.0);
-                ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
-                ui.add_space(4.0);
-                save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
-            }
+            ui.label(RichText::new(since).font(reg(14.0)).color(pal().text_normal));
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
         ui.painter().rect(b, 8, egui::Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
-        full = resp.clicked();
+        full |= resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
         crate::ui::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
     });
@@ -426,9 +425,6 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     }
     if banner.add {
         app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend);
-    }
-    if let Some(n) = save_note {
-        app.save_note(uid, n);
     }
     if let Some(t) = tab {
         app.open_full(uid, 0, t);
@@ -510,8 +506,8 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { bold(20.0) };
-            let r = text::label(ui, name, face, pal().header_primary, Sense::click());
+            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { semi(20.0) };
+            let r = text::label(ui, name, face, pal().text_normal, Sense::click());
             if r.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -522,7 +518,7 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
                 crate::ui::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0);
             }
         });
-        ui.add_space(3.0);
+        ui.add_space(1.3);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let copy = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::click());

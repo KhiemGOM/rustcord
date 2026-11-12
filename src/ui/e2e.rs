@@ -4314,8 +4314,11 @@ impl Run {
             484 => {
                 if app.voice.ringing.is_none() {
                     self.mark("qol_decline");
-                    // the note you keep on alice, from her dm's profile panel
-                    let Some(r) = app.rects.get("note").copied() else { return };
+                    // the note you keep on alice, from her full profile
+                    if app.full_profile.is_none() {
+                        app.open_full(101, 0, super::profile::Tab::Activity);
+                    }
+                    let Some(r) = app.rects.get("full_note").copied().filter(|r| *r != egui::Rect::NOTHING) else { return };
                     self.click(r.center());
                     self.queue.push_back(vec![Event::Text("likes rust".into())]);
                     self.key(Key::Enter);
@@ -4325,6 +4328,7 @@ impl Run {
             485 => {
                 if app.notes.get(&101).is_some_and(|n| n == "likes rust") {
                     self.mark("qol_note");
+                    app.full_profile = None;
                 }
                 // ctrl+alt+→ from the dms goes back to the server left for them
                 chord(self, Key::ArrowRight, Modifiers::COMMAND | Modifiers::ALT);
