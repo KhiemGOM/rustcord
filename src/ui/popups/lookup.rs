@@ -4,7 +4,7 @@ pub(super) fn pins(app: &mut App, ctx: &egui::Context) {
     let Some((ch, list)) = &app.pins else { return };
     let ch = *ch;
     // right-aligned under the button, as tall as 80% of the window allows
-    let at = app.rects.get("pins_button").map(|r| pos2(r.right() - 420.0, r.bottom() + 9.0)).unwrap_or(pos2(400.0, 60.0));
+    let at = app.rects.get("pins_button").map(|r| pos2(r.right() - 420.0, r.bottom() + 7.0)).unwrap_or(pos2(400.0, 60.0));
     let tall = ctx.content_rect().height() * 0.8 - 57.0;
     let mut jump = None;
     let mut unpin = None;
@@ -19,7 +19,9 @@ pub(super) fn pins(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20))).show(ui, |ui| {
                 ui.set_width(420.0);
                 ui.set_max_width(420.0);
-                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 17 }).show(ui, |ui| {
+                let gap = ui.spacing().item_spacing;
+                ui.spacing_mut().item_spacing.y = 0.0;
+                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 15 }).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
@@ -27,30 +29,32 @@ pub(super) fn pins(app: &mut App, ctx: &egui::Context) {
                         ui.label(RichText::new("Pinned Messages").font(semi(20.0)).color(pal().header_primary));
                     });
                 });
+                let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                ui.painter().hline(sep.x_range(), sep.center().y, egui::Stroke::new(1.0, pal().border_subtle));
+                let none = list.as_ref().is_some_and(|l| l.is_empty());
                 egui::ScrollArea::vertical().max_height(tall).show(ui, |ui| {
-                    Frame::new().inner_margin(Margin { left: 8, right: 12, top: 0, bottom: 8 }).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = gap;
+                    Frame::new().inner_margin(Margin { left: 8, right: 12, top: 0, bottom: if none { 0 } else { 8 } }).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         match list {
                             None => {
                                 crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
                             }
                             Some(l) if l.is_empty() => {
-                                ui.add_space(24.0);
+                                ui.add_space(9.0 + 113.0 + 33.0);
                                 ui.vertical_centered(|ui| {
                                     ui.label(RichText::new("This channel doesn't have any
-pinned messages... yet.").font(medium(16.0)).color(pal().header_primary));
+pinned messages... yet.").font(medium(16.0)).color(pal().text_normal));
                                 });
-                                ui.add_space(24.0);
-                                let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                                ui.painter().hline(sep.x_range(), sep.center().y, egui::Stroke::new(1.0, pal().border_subtle));
-                                ui.add_space(12.0);
-                                ui.vertical_centered(|ui| {
-                                    ui.label(RichText::new("PROTIP:").font(bold(12.0)).color(pal().green));
-                                    ui.label(
-                                        RichText::new("Users with the 'Pin Messages' permission can pin a message from its context menu.")
-                                            .font(reg(14.0))
-                                            .color(pal().header_secondary),
-                                    );
+                                ui.add_space(30.0);
+                                let (band, _) = ui.allocate_exact_size(vec2(ui.available_width(), 102.0), Sense::hover());
+                                let fill = pal().bg_secondary.lerp_to_gamma(egui::Color32::WHITE, 0.065);
+                                ui.painter().rect_filled(Rect::from_min_max(band.min - vec2(8.0, 0.0), band.max + vec2(12.0, 0.0)), CornerRadius { sw: 7, se: 7, ..Default::default() }, fill);
+                                ui.scope_builder(egui::UiBuilder::new().max_rect(band.shrink2(vec2(12.0, 24.0))), |ui| {
+                                    ui.vertical_centered(|ui| {
+                                        ui.label(RichText::new("Protip").font(semi(14.0)).color(pal().positive));
+                                        ui.label(RichText::new("Users with the 'Pin Messages' permission can pin a message from its context menu.").font(reg(14.0)).color(pal().text_normal));
+                                    });
                                 });
                             }
                             Some(l) => {
