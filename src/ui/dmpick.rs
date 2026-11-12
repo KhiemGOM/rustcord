@@ -2,7 +2,7 @@ use egui::{Align, Align2, Frame, Key, Layout, Margin, Rect, RichText, Sense, Str
 use serde_json::json;
 
 use super::icons::{self, Icon};
-use super::{App, avatar, button, icon_button, text};
+use super::{App, avatar, icon_button, text};
 use crate::net::Tag;
 use crate::state::{FRIEND, Id};
 use crate::theme::*;
@@ -21,6 +21,21 @@ impl Pick {
     pub fn new(base: Option<Id>) -> Self {
         Pick { base, picked: Vec::new(), q: String::new(), fresh: true }
     }
+}
+
+fn modal_button(ui: &mut egui::Ui, text: &str, fill: Option<egui::Color32>, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
+    let k = crate::ui::motion::hot(ui.ctx(), &resp);
+    let (fill, ink, edge) = match fill {
+        Some(c) => (crate::ui::motion::mix(c, c.gamma_multiply(0.85), k), egui::Color32::WHITE, Stroke::NONE),
+        None => (crate::ui::motion::mix(pal().control, pal().control_hover, k), pal().header_primary, Stroke::new(1.0, pal().border_subtle)),
+    };
+    ui.painter().rect(rect, 8, fill, edge, egui::StrokeKind::Inside);
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, text, medium(16.0), ink);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -50,16 +65,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_width(480.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 8 }).show(ui, |ui| {
+            Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 4 }).show(ui, |ui| {
                 ui.set_width(432.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(title).font(semi(20.0)).color(pal().header_primary));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked());
                 });
-                ui.add_space(8.0);
+                ui.add_space(5.3);
                 let sub = if adding { format!("You can add {max} more {}.", if max == 1 { "person" } else { "people" }) } else { format!("Group DMs can have up to {LIMIT} members.") };
                 ui.label(RichText::new(sub).font(reg(16.0)).color(pal().header_secondary));
-                ui.add_space(16.0);
+                ui.add_space(24.7);
                 if p.q.is_empty() && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Backspace)) {
                     p.picked.pop();
                 }
@@ -83,24 +98,24 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if std::mem::take(&mut p.fresh) || ui.memory(|m| m.focused().is_none()) {
                     e.request_focus();
                 }
-                ui.add_space(8.0);
+                ui.add_space(13.7);
                 ui.label(RichText::new("Add friends or server members to group DMs.").font(reg(12.0)).color(pal().header_secondary));
                 ui.add_space(8.0);
             });
-            let h = (ui.ctx().content_rect().height() - 320.0).clamp(144.0, 600.0);
+            let h = ((ui.ctx().content_rect().height() - 100.0).min(800.0) - 264.5).clamp(144.0, 600.0);
             egui::ScrollArea::vertical().max_height(h).auto_shrink([false, true]).show(ui, |ui| {
-                Frame::new().inner_margin(Margin::symmetric(8, 0)).show(ui, |ui| {
+                Frame::new().inner_margin(Margin::symmetric(17, 0)).show(ui, |ui| {
                     for u in &people {
                         let Some(user) = store.user(*u) else { continue };
-                        let (r, resp) = ui.allocate_exact_size(vec2(464.0, 48.0), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(446.0, 48.0), Sense::click());
                         super::settings::mark(ui, &format!("pick:{u}"), r);
                         let on = p.picked.contains(u);
                         if resp.hovered() || on {
                             ui.painter().rect_filled(r, 8, pal().control_hover);
                         }
                         avatar(ui, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0)), &user.avatar_url());
-                        let n = text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y - 8.0), Align2::LEFT_CENTER, &store.name_in(0, *u), semi(16.0), pal().header_primary, 300.0);
-                        ui.painter().text(pos2(n.left(), r.center().y + 10.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().header_secondary);
+                        let n = text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y - 9.0), Align2::LEFT_CENTER, &store.name_in(0, *u), medium(16.0), pal().text_normal, 300.0);
+                        ui.painter().text(pos2(n.left(), r.center().y + 10.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().text_muted);
                         let cb = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(24.0, 24.0));
                         ui.painter().rect(cb, 4, if on { pal().blurple } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if on { pal().blurple } else { pal().header_secondary }), egui::StrokeKind::Inside);
                         if on {
@@ -138,8 +153,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| button(ui, button_text, pal().blurple, 212.0)).inner;
+                    close |= modal_button(ui, "Cancel", None, 212.0).clicked();
+                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| modal_button(ui, button_text, Some(pal().blurple), 212.0)).inner;
                     super::settings::mark(ui, "pick:go", b.rect);
                     go = b.clicked();
                 });
