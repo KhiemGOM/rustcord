@@ -75,6 +75,21 @@ pub(crate) fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui
     resp
 }
 
+pub(crate) fn modal_button(ui: &mut Ui, text: &str, fill: Option<Color32>, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
+    let k = motion::hot(ui.ctx(), &resp);
+    let (fill, ink, edge) = match fill {
+        Some(c) => (motion::mix(c, c.gamma_multiply(0.85), k), Color32::WHITE, egui::Stroke::NONE),
+        None => (motion::mix(pal().control, pal().control_hover, k), pal().header_primary, egui::Stroke::new(1.0, pal().border_subtle)),
+    };
+    ui.painter().rect(rect, CornerRadius::same(8), fill, edge, egui::StrokeKind::Inside);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), ink);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
 /// Square icon button. Small ones (header style) only brighten on hover,
 /// 32px+ ones get the rounded hover plate like the user panel and message toolbar.
 pub(crate) fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) -> egui::Response {

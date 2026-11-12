@@ -119,6 +119,7 @@ pub(crate) use widgets::status_dot;
 pub(crate) use widgets::badge;
 pub(crate) use widgets::badge_in;
 pub(crate) use widgets::button;
+pub(crate) use widgets::modal_button;
 pub(crate) use widgets::icon_button;
 pub(crate) use widgets::toggle_button;
 pub(crate) use widgets::menu_item;

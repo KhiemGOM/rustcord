@@ -2,7 +2,7 @@ use egui::{Align, Align2, Frame, Key, Layout, Margin, Rect, RichText, Sense, Str
 use serde_json::json;
 
 use super::icons::{self, Icon};
-use super::{App, avatar, icon_button, text};
+use super::{App, avatar, icon_button, modal_button, text};
 use crate::net::Tag;
 use crate::state::{FRIEND, Id};
 use crate::theme::*;
@@ -21,21 +21,6 @@ impl Pick {
     pub fn new(base: Option<Id>) -> Self {
         Pick { base, picked: Vec::new(), q: String::new(), fresh: true }
     }
-}
-
-fn modal_button(ui: &mut egui::Ui, text: &str, fill: Option<egui::Color32>, width: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
-    let k = crate::ui::motion::hot(ui.ctx(), &resp);
-    let (fill, ink, edge) = match fill {
-        Some(c) => (crate::ui::motion::mix(c, c.gamma_multiply(0.85), k), egui::Color32::WHITE, Stroke::NONE),
-        None => (crate::ui::motion::mix(pal().control, pal().control_hover, k), pal().header_primary, Stroke::new(1.0, pal().border_subtle)),
-    };
-    ui.painter().rect(rect, 8, fill, edge, egui::StrokeKind::Inside);
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, text, medium(16.0), ink);
-    if resp.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    resp
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
