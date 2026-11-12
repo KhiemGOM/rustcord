@@ -142,7 +142,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                         named.push((format!("member_grad:{uid}"), nr));
                     }
                     if let Some(line) = line {
-                        status_line(ui.painter(), line, av.right() + 12.0, row.top() + 33.0, inner.right() - 8.0, pal().text_muted);
+                        status_line(ui.painter(), line, av.right() + 12.0, row.top() + 33.0, inner.right() - 8.0, pal().text_muted, 12.0, "");
                     }
                     let mut tx = nr.right() + 4.0;
                     // discord leaves the crown off while the owner sits in the offline group
@@ -203,16 +203,21 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
 /// is the flat colour given. Anchored left-centre at `at`.
 #[allow(clippy::too_many_arguments)]
 /// The line under a name in a list: the custom status with its emoji, or what they're doing.
-pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option<String>, String, String, Option<u8>), mut x: f32, y: f32, right: f32, col: egui::Color32) {
-    // doing something as well: its icon and a dot lead the status
+pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option<String>, String, String, Option<u8>), mut x: f32, y: f32, right: f32, col: egui::Color32, size: f32, doing: &str) {
+    let pic = if size > 12.0 { 16.0 } else { 14.0 };
+    // doing something as well: its icon, its name if asked for, and a dot lead the status
     if let Some(kind) = also {
         let icon = if kind == 2 { super::icons::Icon::Music } else { super::icons::Icon::Controller };
         super::icons::draw(p, icon, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
-        x = p.text(pos2(x + 16.0, y), egui::Align2::LEFT_CENTER, "•", medium(12.0), col).right() + 4.0;
+        x += 16.0;
+        if !doing.is_empty() {
+            x = super::text::paint(p, pos2(x + 2.0, y), egui::Align2::LEFT_CENTER, doing, medium(size), col, (right - x) * 0.5).right();
+        }
+        x = p.text(pos2(x + if doing.is_empty() { 0.0 } else { 4.0 }, y), egui::Align2::LEFT_CENTER, "•", reg(size), col).right() + 4.0;
     }
     if let Some(url) = emoji {
-        super::text::image(p, &url, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)));
-        x += 18.0;
+        super::text::image(p, &url, Rect::from_center_size(pos2(x + pic / 2.0, y), vec2(pic, pic)));
+        x += pic + 4.0;
     } else if plain == "Playing " {
         // discord: a green controller and the game, no verb
         super::icons::draw(p, super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
@@ -224,8 +229,8 @@ pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option
     job.wrap.max_width = right - x;
     job.wrap.max_rows = 1;
     job.wrap.break_anywhere = true;
-    job.append(&plain, 0.0, egui::TextFormat { font_id: medium(12.0), color: col, ..Default::default() });
-    job.append(&bold, 0.0, egui::TextFormat { font_id: semi(12.0), color: col, ..Default::default() });
+    job.append(&plain, 0.0, egui::TextFormat { font_id: medium(size), color: col, ..Default::default() });
+    job.append(&bold, 0.0, egui::TextFormat { font_id: semi(size), color: col, ..Default::default() });
     let g = p.layout_job(job);
     p.galley(pos2(x, y - g.size().y / 2.0), g, col);
 }

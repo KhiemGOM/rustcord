@@ -76,7 +76,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         super::now::show(app, ui);
     }
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
-        Frame::new().inner_margin(Margin { left: 24, right: 20, top: 16, bottom: 0 }).show(ui, |ui| {
+        Frame::new().inner_margin(Margin { left: if app.friends_tab == 4 { 32 } else { 24 }, right: 20, top: 14, bottom: 0 }).show(ui, |ui| {
             if app.friends_tab == 4 {
                 add_friend(app, ui);
             } else {
@@ -87,9 +87,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 fn add_friend(app: &mut App, ui: &mut Ui) {
-    ui.label(RichText::new("Add Friend").font(semi(16.0)).color(pal().header_primary));
-    ui.add_space(8.0);
-    ui.label(RichText::new("You can add friends with their Discord username.").color(pal().header_secondary));
+    ui.add_space(6.0);
+    ui.label(RichText::new("Add Friend").font(semi(20.0)).color(pal().header_primary));
+    ui.add_space(5.0);
+    ui.label(RichText::new("You can add friends with their Discord username.").font(medium(16.0)).color(pal().text_normal));
     ui.add_space(16.0);
     let mut send = false;
     let seen = egui::Id::new("add_friend_seen");
@@ -142,9 +143,9 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
     let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, pal().border_subtle));
     ui.add_space(24.0);
-    ui.label(RichText::new("Other Places to Make Friends").font(semi(16.0)).color(pal().header_primary));
-    ui.add_space(8.0);
-    ui.label(RichText::new("Don’t have a username handy? Check out our list of public servers that you can join to find new friends.").color(pal().header_secondary));
+    ui.label(RichText::new("Other Places to Make Friends").font(semi(20.0)).color(pal().header_primary));
+    ui.add_space(5.0);
+    ui.label(RichText::new("Don't have a username on hand? Check out our list of public servers that includes everything from gaming to cooking, music, anime and more.").font(medium(16.0)).color(pal().text_normal));
     ui.add_space(16.0);
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(480.0), 64.0), Sense::click());
     app.rects.insert("friends:explore".into(), r);
@@ -176,10 +177,11 @@ fn list(app: &mut App, ui: &mut Ui) {
             _ => *t == BLOCKED,
         })
         .collect();
-    people.sort_by_key(|(u, _)| app.store.name_in(0, *u).to_lowercase());
+    people.sort_by_key(|(u, t)| (*t != INCOMING, app.store.name_in(0, *u).to_lowercase()));
     let qid = egui::Id::new("friends_q");
     let mut q: String = ui.data(|d| d.get_temp(qid).unwrap_or_default());
     input_frame().corner_radius(8).inner_margin(Margin::symmetric(12, 7)).show(ui, |ui| {
+        ui.set_min_height(24.0);
         ui.horizontal(|ui| {
             let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
             super::icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
@@ -191,15 +193,29 @@ fn list(app: &mut App, ui: &mut Ui) {
     if !q.is_empty() {
         people.retain(|(u, _)| app.store.name_in(0, *u).to_lowercase().contains(&q) || app.store.user(*u).is_some_and(|x| x.username.contains(&q)));
     }
-    ui.add_space(20.0);
-    let heading = format!("{} — {}", ["Online", "All Friends", "Pending"].get(tab as usize).unwrap_or(&"Friends"), people.len());
-    ui.label(RichText::new(heading).font(medium(14.0)).color(pal().header_primary));
-    ui.add_space(12.0);
+    ui.add_space(25.0);
+    let mut section = None;
 
     let mut act: Option<(Id, &'static str)> = None;
     let mut menu = None;
     crate::theme::auto_scroll(ui, |ui| egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for (uid, kind) in people {
+        for (uid, kind) in people.iter().copied() {
+            let key = if tab == 2 { kind } else { FRIEND };
+            if section != Some(key) {
+                if section.is_some() {
+                    ui.add_space(20.0);
+                }
+                section = Some(key);
+                let name = match (tab, kind) {
+                    (0, _) => "Online",
+                    (1, _) => "All friends",
+                    (_, INCOMING) => "Received",
+                    _ => "Sent",
+                };
+                let count = people.iter().filter(|(_, k)| tab != 2 || *k == kind).count();
+                ui.label(RichText::new(format!("{name} — {count}")).font(medium(14.0)).color(pal().text_normal));
+                ui.add_space(16.0);
+            }
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
             app.rects.insert(format!("friend:{uid}"), row);
             ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
@@ -218,21 +234,26 @@ fn list(app: &mut App, ui: &mut Ui) {
             let face = Some(name_font(u.font, 16.0)).filter(|f| *f != medium(16.0)).unwrap_or(semi(16.0));
             let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y - 9.0), Align2::LEFT_CENTER, &app.store.name_in(0, uid), face, pal().header_primary, row.width() - 220.0);
             super::tag_chip(ui.painter(), u, pos2(nr.right() + 9.0, nr.center().y), 1.0);
-            // a custom status shows in place of the status, as discord does
-            let custom = app.store.activity_line(uid).filter(|(_, _, game, _)| game.is_empty());
-            let sub = match kind {
-                INCOMING => "Incoming Friend Request".to_string(),
-                OUTGOING => "Outgoing Friend Request".to_string(),
-                BLOCKED => "Blocked".to_string(),
-                _ if custom.is_some() => custom.as_ref().map(|c| c.1.clone()).unwrap_or_default(),
-                _ => format!("{st:?}").replace("Dnd", "Do Not Disturb"),
-            };
-            let mut x = av.right() + 12.0;
-            if let Some(url) = custom.as_ref().and_then(|c| c.0.clone()).filter(|_| kind == FRIEND) {
-                super::text::image(ui.painter(), &url, Rect::from_min_size(pos2(x, row.center().y + 2.0), vec2(16.0, 16.0)));
-                x += 20.0;
+            let line = Some(kind).filter(|k| *k == FRIEND && st != Status::Offline).and_then(|_| app.store.activity_line(uid));
+            let doing = line
+                .as_ref()
+                .filter(|l| l.3.is_some())
+                .and_then(|_| app.store.activities.get(&uid)?.iter().find(|a| a.kind != 4))
+                .map(|a| if a.spotify() { a.state.clone().unwrap_or_default().replace(';', ",") } else { a.name.clone() })
+                .unwrap_or_default();
+            let at = pos2(av.right() + 12.0, row.center().y + 10.0);
+            match line {
+                Some(line) => super::members::status_line(ui.painter(), line, at.x, at.y, row.right() - 220.0, pal().text_muted, 14.0, &doing),
+                None => {
+                    let sub = match kind {
+                        INCOMING | OUTGOING => u.username.clone(),
+                        BLOCKED => "Blocked".to_string(),
+                        _ => format!("{st:?}").replace("Dnd", "Do Not Disturb"),
+                    };
+                    let ink = if kind == FRIEND { pal().text_muted } else { pal().header_secondary };
+                    super::text::paint(ui.painter(), at, Align2::LEFT_CENTER, &sub, medium(14.0), ink, row.width() - 220.0);
+                }
             }
-            super::text::paint(ui.painter(), pos2(x, row.center().y + 10.0), Align2::LEFT_CENTER, &sub, medium(14.0), pal().text_muted, row.width() - 220.0);
 
             let mut br = ui.new_child(
                 egui::UiBuilder::new()

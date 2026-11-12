@@ -46,7 +46,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .exact_size((ui.available_width() * 0.3).clamp(360.0, 420.0))
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 0 }))
+        .frame(Frame::new().inner_margin(Margin { left: 16, right: 16, top: 14, bottom: 0 }))
         .show(ui, |ui| {
             let r = ui.max_rect();
             ui.painter().vline(r.left() - 16.0, r.y_range().expand(16.0), hairline(ui.pixels_per_point(), pal().border_subtle));

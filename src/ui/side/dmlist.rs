@@ -223,7 +223,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
             crate::ui::tag_chip(&clip, u, pos2(r.right() + 4.0, y), 1.0);
         }
         if let Some(line) = line {
-            crate::ui::members::status_line(&clip, line, av.right() + 12.0, row.top() + 30.0, right, col);
+            crate::ui::members::status_line(&clip, line, av.right() + 12.0, row.top() + 30.0, right, col, 12.0, "");
         }
     }
     let mut act = None;
