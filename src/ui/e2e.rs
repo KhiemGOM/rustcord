@@ -2400,6 +2400,7 @@ impl Run {
         let chat_w = |app: &App| app.rects.get("composer").map(|r| r.width());
         let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
         let members_w = |app: &App| if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
+        let drawn = |ctx: &egui::Context| egui::containers::panel::PanelState::load(ctx, egui::Id::new("members")).map_or(0.0, |s| s.outer_rect.width());
         let drag = |run: &mut Self, from: Pos2, dx: f32| {
             run.queue.push_back(vec![Event::PointerMoved(from)]);
             run.queue.push_back(vec![Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
@@ -2478,6 +2479,27 @@ impl Run {
                 self.rects.insert("layout_side_end".into(), json!(side_w(app)));
                 // the save is debounced by a second
                 self.next(2000);
+            }
+            249 => {
+                self.rects.insert("layout_window_w".into(), json!(ctx.content_rect().width()));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(940.0, ctx.content_rect().height())));
+                self.next(600);
+            }
+            250 => {
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.rects.insert("layout_members_squeezed".into(), json!(drawn(ctx)));
+                self.click(r.center());
+                self.next(300);
+            }
+            251 => {
+                let w = self.rects["layout_window_w"].as_f64().unwrap_or(1280.0) as f32;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(w, ctx.content_rect().height())));
+                self.next(600);
+            }
+            252 => {
+                self.rects.insert("layout_members_back".into(), json!(drawn(ctx)));
+                self.rects.insert("layout_members_kept".into(), json!(members_w(app)));
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 330 };
             }
             _ => self.step = 330,
         }

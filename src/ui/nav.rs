@@ -128,10 +128,9 @@ impl App {
         })));
     }
 
-    /// The size a panel was dragged to, if it was; only counts while a button is held, so a
-    /// shrinking window doesn't overwrite what the user picked, and an untouched default isn't saved.
-    pub fn dragged(&mut self, ctx: &egui::Context, now: f32, was: f32) -> Option<f32> {
-        if (now - was).abs() < 0.5 || !ctx.input(|i| i.pointer.any_down()) {
+    /// The size a panel's edge was dragged to, if it was.
+    pub fn dragged(&mut self, ctx: &egui::Context, panel: &str, now: f32, was: f32) -> Option<f32> {
+        if (now - was).abs() < 0.5 || !edge_held(ctx, panel) {
             return None;
         }
         self.save_at = Some(Instant::now() + Duration::from_secs(1));
@@ -490,5 +489,53 @@ impl App {
         self.shared = self.presence_key();
         let activities = if self.store.hide_game { json!([]) } else { json!(self.activities()) };
         self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": false } })));
+    }
+}
+
+fn edge_held(ctx: &egui::Context, panel: &str) -> bool {
+    ctx.read_response(egui::Id::new(panel).with("__resize")).is_some_and(|r| r.dragged() || r.drag_stopped())
+}
+
+/// Gives a panel its saved size back: egui remembers the one a small window last squeezed it to.
+pub fn keep_size(ctx: &egui::Context, panel: &str, axis: usize, size: f32) {
+    use egui::containers::panel::PanelState;
+    let id = egui::Id::new(panel);
+    if edge_held(ctx, panel) {
+        return;
+    }
+    let Some(mut st) = PanelState::load(ctx, id) else { return };
+    let mut now = st.outer_rect.size();
+    if (now[axis] - size).abs() >= 0.5 {
+        now[axis] = size;
+        st.outer_rect = egui::Rect::from_min_size(st.outer_rect.min, now);
+        ctx.data_mut(|d| d.insert_persisted(id, st));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn members_w(ctx: &egui::Context, screen: f32, keep: bool) -> f32 {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(screen, 600.0))), ..Default::default() };
+        let mut w = 0.0;
+        let mut out = ctx.run_ui(raw, |ui| {
+            if keep {
+                super::keep_size(ui.ctx(), "members", 0, 300.0);
+            }
+            let room = ui.available_width();
+            let r = egui::Panel::right("members").default_size(300.0).size_range(200.0..=(room - 420.0).clamp(200.0, 480.0)).resizable(true).show(ui, |ui| ui.allocate_space(ui.available_size()));
+            w = r.response.rect.width();
+        });
+        out.textures_delta.clear();
+        w
+    }
+
+    #[test]
+    fn a_panel_squeezed_by_a_narrow_window_gets_its_width_back() {
+        for keep in [false, true] {
+            let ctx = egui::Context::default();
+            assert_eq!(members_w(&ctx, 1400.0, keep).round(), 300.0);
+            assert_eq!(members_w(&ctx, 640.0, keep).round(), 220.0);
+            assert_eq!(members_w(&ctx, 1400.0, keep).round(), if keep { 300.0 } else { 220.0 });
+        }
     }
 }

@@ -136,6 +136,7 @@ impl eframe::App for App {
                 side::card(self, ui, rail, side);
                 c.response.rect
             } else {
+                nav::keep_size(&ctx, "side", 0, side_w);
                 let r = egui::Panel::left("side")
                     .default_size(side_w)
                     .size_range(191.0..=(w - 72.0 - 420.0).clamp(191.0, 359.0))
@@ -145,7 +146,7 @@ impl eframe::App for App {
                     .show(ui, |ui| side::show(self, ui));
                 side_edge(ui.painter(), r.response.rect);
                 side::card(self, ui, rail, r.response.rect);
-                if let Some(w) = self.dragged(&ctx, r.response.rect.width(), side_w) {
+                if let Some(w) = self.dragged(&ctx, "side", r.response.rect.width(), side_w) {
                     self.ui.side_w = w;
                 }
                 // discord's frame line carries on from the sidebar's top over the chat and members

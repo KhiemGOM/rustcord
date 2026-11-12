@@ -552,6 +552,9 @@ def main():
             all(lay(r, "side_start") - lay(r, "side_dragged") > 40 and lay(r, "chat_after_side") > lay(r, "chat_start") + 40 for r in (cold, warm)),
         "layout: dragging the member list edge left widened it and the chat column reflowed again (both runs)":
             all(lay(r, "members_dragged") - lay(r, "members_start") > 30 and lay(r, "chat_after_members") < lay(r, "chat_after_side") - 30 for r in (cold, warm)),
+        "layout: a member list squeezed by a narrow window gets its width back, and a click while squeezed saves nothing (both runs)":
+            all(lay(r, "members_squeezed") < lay(r, "members_dragged") - 30 and near(lay(r, "members_back"), lay(r, "members_dragged"), 1)
+                and near(lay(r, "members_kept"), lay(r, "members_dragged"), 1) for r in (cold, warm)),
         "layout: dragging the channel list far past its limit stops at discord's 359 and leaves the chat column >= 400 (both runs)":
             all(lay(r, "side_max") <= 359.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
         "layout: warm run starts with the panel widths the cold run left":
