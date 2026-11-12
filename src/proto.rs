@@ -3,6 +3,7 @@
 //! images, 12 = localization, 13 = appearance, 14 = guild folders). Field numbers
 //! are from dolfies/discord-protos.
 
+pub mod favorites;
 pub mod frecency;
 
 use crate::cache::{Animate, Density, Peer, Settings, Spoilers, VideoBg};

@@ -422,6 +422,11 @@ impl Store {
                         self.arrange(folders, &seen);
                     }
                     self.account.merge(crate::proto::account(&raw, full));
+                    if let Some(f) = crate::proto::favorites::read(&raw) {
+                        self.favorites = f;
+                    } else if full {
+                        self.favorites = Default::default();
+                    }
                     if let Some(c) = crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64) {
                         (self.custom_status, self.custom_emoji) = Self::own_custom(c);
                     }
