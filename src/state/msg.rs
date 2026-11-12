@@ -89,6 +89,7 @@ impl Message {
                     me: r["me"].as_bool().unwrap_or(false),
                     burst: r["count_details"]["burst"].as_u64().unwrap_or(0) as u32,
                     me_burst: r["me_burst"].as_bool().unwrap_or(false),
+                    burst_color: r["burst_colors"][0].as_str().and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()),
                 })
                 .collect();
         }

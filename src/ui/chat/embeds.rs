@@ -429,7 +429,12 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             let count = r.count.to_string();
             // discord gives the count a slot per digit, so a pill doesn't change width as it ticks over
             let slot = 12.0 * count.len() as f32 - 2.0;
-            let g = ui.painter().layout_no_wrap(count, semi(16.0), if r.me { pal().mention_fg } else { pal().header_secondary });
+            let ink = match r.burst_color.filter(|_| r.burst > 0) {
+                Some(c) => crate::ui::role_color(c),
+                None if r.me => pal().mention_fg,
+                None => pal().header_secondary,
+            };
+            let g = ui.painter().layout_no_wrap(count, semi(16.0), ink);
             let slot = slot.max(g.size().x);
             let size = vec2(8.0 + 20.0 + 6.0 + slot + 8.0, 30.0);
             let (rect, resp) = ui.allocate_exact_size(size, Sense::click());

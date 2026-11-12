@@ -571,6 +571,9 @@ pub(crate) struct Reaction {
     pub burst: u32,
     #[serde(default)]
     pub me_burst: bool,
+    /// The first of a super reaction's own colours, which tints its count.
+    #[serde(default)]
+    pub burst_color: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
