@@ -1,9 +1,8 @@
 //! The few Windows-specific things the app needs: run on startup, hiding the
-//! window from screen capture, spotting a running OBS for streamer mode, and
+//! window from screen capture, the OBS flag for streamer mode (kept by `procs`), and
 //! the resize border of the frameless window.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 // the hook below while it's watching, and what it's watching for: width in points, and colour
 static EARLY: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
@@ -141,47 +140,8 @@ pub fn exclude_from_capture(frame: &eframe::Frame, on: bool) {
     }
 }
 
+// whether OBS/XSplit is running; `procs` keeps it current from its snapshots
 pub static OBS_RUNNING: AtomicBool = AtomicBool::new(false);
-
-fn streaming_app_running() -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
-    const NAMES: [&str; 5] = ["obs64.exe", "obs32.exe", "obs.exe", "streamlabs obs.exe", "xsplit.core.exe"];
-    unsafe {
-        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snap == INVALID_HANDLE_VALUE {
-            return false;
-        }
-        let mut e: PROCESSENTRY32W = std::mem::zeroed();
-        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-        let mut found = false;
-        let mut ok = Process32FirstW(snap, &mut e) != 0;
-        while ok && !found {
-            let len = e.szExeFile.iter().position(|c| *c == 0).unwrap_or(e.szExeFile.len());
-            let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_lowercase();
-            found = NAMES.contains(&name.as_str());
-            ok = Process32NextW(snap, &mut e) != 0;
-        }
-        CloseHandle(snap);
-        found
-    }
-}
-
-/// Checks for OBS/XSplit every few seconds; cheap enough to leave running.
-pub fn watch_streaming(ctx: egui::Context) {
-    std::thread::Builder::new()
-        .name("obs-watch".into())
-        .spawn(move || {
-            loop {
-                let now = streaming_app_running();
-                if OBS_RUNNING.swap(now, Ordering::Relaxed) != now {
-                    ctx.request_repaint();
-                }
-                std::thread::sleep(Duration::from_secs(5));
-            }
-        })
-        .ok();
-}
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 

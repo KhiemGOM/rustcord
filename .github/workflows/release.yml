@@ -1,0 +1,56 @@
+name: release
+
+# push a tag like v0.1.0 or v0.1.0-beta.12 to build rustcord.exe and attach it to a draft
+# GitHub release (a pre-release for a tag with a suffix). A release made by hand for the tag
+# first keeps its notes and its exe; only the files it lacks are added.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: tag matches Cargo.toml
+        shell: bash
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          case "$GITHUB_REF_NAME" in
+            "v$v" | "v$v"-*) ;;
+            *) echo "tag $GITHUB_REF_NAME but Cargo.toml says $v"; exit 1 ;;
+          esac
+      - run: cargo build --locked --release --bin rustcord
+      - name: package
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/rustcord.exe dist/
+          cp LICENSE-MIT LICENSE-APACHE README.md dist/
+          # the exe embeds MediaPipe's model; Apache-2.0 wants its NOTICE passed on
+          cp assets/selfie_segmentation.NOTICE dist/THIRD_PARTY_NOTICE.txt
+          (cd dist && sha256sum rustcord.exe > rustcord.exe.sha256)
+          7z a "rustcord-$GITHUB_REF_NAME-windows-x64.zip" ./dist/*
+      - name: draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          files=(dist/rustcord.exe dist/rustcord.exe.sha256 "rustcord-$tag-windows-x64.zip")
+          if gh release view "$tag" >/dev/null 2>&1; then
+            have=$(gh release view "$tag" --json assets -q '.assets[].name')
+            for f in "${files[@]}"; do
+              grep -qxF "$(basename "$f")" <<<"$have" || gh release upload "$tag" "$f"
+            done
+          else
+            pre=(); [[ "$tag" == *-* ]] && pre=(--prerelease)
+            # v0.1.0-beta.12 -> "Rustcord 0.1.0 beta 12", as the hand-made ones are titled
+            title="Rustcord $(sed -E 's/^v//; s/-([a-z]+)\./ \1 /' <<<"$tag")"
+            gh release create "$tag" --draft "${pre[@]}" --generate-notes --title "$title" "${files[@]}"
+          fi

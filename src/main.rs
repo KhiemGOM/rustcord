@@ -29,6 +29,7 @@ mod speech;
 mod state;
 mod theme;
 mod games;
+mod procs;
 mod shareable;
 mod toast;
 mod tray;
@@ -54,7 +55,7 @@ fn main() -> eframe::Result {
     // parse the snapshot while the graphics card's driver loads
     let snap = std::sync::Mutex::new(Some(std::thread::spawn(cache::load)));
     let size = cache::window().unwrap_or([1280.0, 800.0]);
-    // discord's own logo on the window and taskbar, as on the exe
+    // the logo on the window and taskbar, as on the exe
     let logo = image::load_from_memory(include_bytes!("../assets/discord.png")).map(|i| i.into_rgba8()).ok();
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Rustcord")

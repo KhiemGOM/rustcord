@@ -105,6 +105,7 @@ pub struct Run {
     pub tour: bool,
     // RUSTCORD_BENCH: nothing scripted, the frame counts written down for e2e/bench.py
     bench: Option<Instant>,
+    bench_io: Option<std::sync::Arc<BenchIo>>,
     spin: bool,
     scroll: bool,
     wheel_at: Instant,
@@ -161,6 +162,38 @@ enum Probe {
     Bright(egui::Rect),
 }
 
+/// bench.py's flag files and the stats file, checked and written off the UI thread: done in the
+/// frame, three file checks and a write cost 18% of an idle window's CPU, and bench.json counted it.
+#[derive(Default)]
+struct BenchIo {
+    spin: std::sync::atomic::AtomicBool,
+    scroll: std::sync::atomic::AtomicBool,
+    browse: std::sync::atomic::AtomicBool,
+    out: std::sync::Mutex<Option<String>>,
+}
+
+impl BenchIo {
+    fn start(dir: PathBuf) -> std::sync::Arc<BenchIo> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let io = std::sync::Arc::new(BenchIo::default());
+        let me = io.clone();
+        let _ = std::thread::Builder::new().name("bench-io".into()).spawn(move || {
+            loop {
+                me.spin.store(dir.join("spin").exists(), Relaxed);
+                me.scroll.store(dir.join("scroll").exists(), Relaxed);
+                me.browse.store(dir.join("browse").exists(), Relaxed);
+                let out = me.out.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some(s) = out {
+                    let _ = std::fs::write(dir.join("bench.json"), s);
+                }
+                // bench.py waits a second after touching a flag; polling faster cost ~0.5% of a core
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        });
+        io
+    }
+}
+
 impl Run {
     pub fn from_env(t0: Instant) -> Option<Run> {
         let tour = std::env::var_os("RUSTCORD_TOUR").is_some();
@@ -169,6 +202,7 @@ impl Run {
         let _ = std::fs::create_dir_all(&dir);
         crate::gif::trace();
         watchdog::start(dir.clone());
+        let bench_io = bench.then(|| BenchIo::start(dir.clone()));
         Some(Run {
             dir,
             t0,
@@ -194,6 +228,7 @@ impl Run {
             steady: None,
             tour,
             bench: bench.then(Instant::now),
+            bench_io,
             spin: false,
             scroll: false,
             wheel_at: Instant::now(),
@@ -478,13 +513,16 @@ impl Run {
             if self.browse.is_some() {
                 ctx.request_repaint_after(Duration::from_secs(1));
             }
-            if at.elapsed() > Duration::from_millis(100) {
-                if self.browse.is_none() && self.dir.join("browse").exists() {
+            if at.elapsed() > Duration::from_millis(100)
+                && let Some(io) = self.bench_io.clone()
+            {
+                use std::sync::atomic::Ordering::Relaxed;
+                if self.browse.is_none() && io.browse.load(Relaxed) {
                     self.browse = Some((app.ui.recent.clone(), 0, Instant::now() - Duration::from_secs(3)));
                 }
                 self.bench = Some(Instant::now());
-                self.spin = self.dir.join("spin").exists();
-                self.scroll = self.dir.join("scroll").exists();
+                self.spin = io.spin.load(Relaxed);
+                self.scroll = io.scroll.load(Relaxed);
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
                 let loaders = ctx.loaders();
                 let mut images = serde_json::Map::new();
@@ -495,7 +533,7 @@ impl Run {
                     images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
                 }
                 let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel });
-                let _ = std::fs::write(self.dir.join("bench.json"), out.to_string());
+                *io.out.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.to_string());
             }
             return;
         }

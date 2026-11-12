@@ -2,6 +2,11 @@
 name = "rustcord"
 version = "0.1.0"
 edition = "2024"
+description = "An unofficial native Discord desktop client for Windows, in Rust (egui + wgpu)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WRChip/rustcord"
+readme = "README.md"
+publish = false
 
 [dependencies]
 aes-gcm = "0.10.3"
@@ -82,6 +87,17 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# for iterating on perf: a one-file rebuild took ~7 min where release took ~20, and it ran within
+# ~10% of release in bench.py, with symbols a profiler can name. `cargo build --profile fast`, and
+# `python e2e/bench.py --profile fast`. Confirm a win on a real release build before calling it one.
+[profile.fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true
+debug = "line-tables-only"
+strip = false
 
 [profile.dev.package."*"]
 opt-level = 2
