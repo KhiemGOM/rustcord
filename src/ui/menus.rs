@@ -106,14 +106,14 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     if perms & MANAGE_EVENTS != 0 && menu_item(ui, Some(Icon::CalendarPlus), "Create Event", false) {
         act = Some(GuildAct::Create(super::create::Kind::Event));
     }
-    if menu_item(ui, Some(Icon::Bubble), "Active Threads", false) {
+    if store.channels.values().any(|c| c.guild == gid && c.is_thread()) && menu_item(ui, Some(Icon::Bubble), "Active Threads", false) {
         act = Some(GuildAct::Threads);
     }
-    if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Apps), "App Directory", false) {
+    if menu_item(ui, Some(Icon::Apps), "App Directory", false) {
         act = Some(GuildAct::Directory);
     }
     menu_sep(ui);
-    if has("GUILD_ONBOARDING") && menu_row(ui, None, "Show All Channels", None, false, Trail::Check(!store.opt_in.contains(&gid))).clicked() {
+    if community && menu_row(ui, Some(Icon::Eye), "Show All Channels", None, false, Trail::Check(!store.opt_in.contains(&gid))).clicked() {
         act = Some(GuildAct::ShowAll);
     }
     if menu_item(ui, Some(Icon::Bell), "Notification Settings", false) {
@@ -129,14 +129,15 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     if menu_row(ui, Some(Icon::EyeOff), "Hide Muted Channels", None, false, Trail::Check(hide)).clicked() {
         act = Some(GuildAct::HideMuted);
     }
-    if perms & MANAGE_GUILD != 0 || !owner {
+    let secure = community && perms & MANAGE_GUILD != 0;
+    if secure || !owner {
         menu_sep(ui);
     }
-    if perms & MANAGE_GUILD != 0 {
+    if secure {
         if menu_item(ui, Some(Icon::Lock), "Security Actions", true) {
             act = Some(GuildAct::Security);
         }
-        if community && menu_item(ui, Some(Icon::Shield), "Report Raid", true) {
+        if menu_item(ui, Some(Icon::Shield), "Report Raid", true) {
             act = Some(GuildAct::Raid);
         }
     }
