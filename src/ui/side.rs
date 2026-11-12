@@ -607,7 +607,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         x -= 22.0;
     }
     if new > 0 && mentions == 0 && x == inner.right() - 16.0 {
-        let n = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, format!("{new} New"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
+        let n = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, format!("{new} NEW"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
         right = n.left() - 6.0;
     }
     if let Some(t) = timer.filter(|_| x == inner.right() - 16.0 && mentions == 0) {
