@@ -202,7 +202,6 @@ enum Mark {
     Icon(Icon),
     Guild(Id),
     Page(Icon),
-    Avatar(String),
     People,
     None,
 }
@@ -228,11 +227,10 @@ fn place(app: &App) -> (Mark, String) {
         return (Mark::Guild(g.id), g.name.clone());
     }
     let Some(c) = app.cur().and_then(|c| s.channels.get(&c)) else { return (Mark::None, "Rustcord".into()) };
-    let mark = match c.kind {
-        1 => c.recipients.first().and_then(|u| s.user(*u)).map(|u| Mark::Avatar(u.avatar_url())).unwrap_or(Mark::None),
-        _ => Mark::People,
-    };
-    (mark, super::channel_title(s, c.id))
+    if c.guild == 0 {
+        return (Mark::Icon(Icon::Discord), "Direct Messages".into());
+    }
+    (Mark::People, super::channel_title(s, c.id))
 }
 
 /// Double-clicking the bar or its middle button: out of fullscreen if in it, else maximise or restore.
@@ -388,7 +386,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let bare = matches!(mark, Mark::None);
                 match mark {
                     Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
-                    Mark::Avatar(url) => super::avatar(ui, icon, &url),
                     Mark::Page(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
                     Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
                     Mark::Icon(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
