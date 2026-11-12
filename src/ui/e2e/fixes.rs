@@ -31,7 +31,7 @@ impl Run {
                 self.next(900);
             }
             3001 => {
-                let Some(r) = app.rects.get(&format!("chan:{DM}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{DM}")) else { return };
                 self.queue.push_back(vec![egui::Event::PointerMoved(r.center())]);
                 self.next(400);
             }

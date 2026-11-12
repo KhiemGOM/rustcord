@@ -149,7 +149,7 @@ impl Run {
             }
             4617 => {
                 let general = app.store.guilds.get(&self.target.0).and_then(|g| g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "general")));
-                let Some(r) = general.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) else { return };
+                let Some(r) = general.and_then(|c| self.reach_row(app, &format!("chan:{c}"))) else { return };
                 self.click(r.center());
                 self.next(800);
             }
@@ -332,7 +332,7 @@ impl Run {
                 let Some(vc) = crate::ui::side::tree(&app.store, self.target.0).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
                     return self.fail("no voice channel".into());
                 };
-                let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{vc}")) else { return };
                 self.call = vc;
                 self.click(r.center());
                 self.next(700);

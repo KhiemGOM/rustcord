@@ -30,6 +30,7 @@ mod watchdog;
 pub(in crate::ui) mod stress;
 mod regressions;
 mod profcheck;
+mod reach;
 mod replay;
 
 pub use watchdog::beat;
@@ -656,7 +657,7 @@ impl Run {
                 self.next(250);
             }
             2 => {
-                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 let head = app.rects.get("guildmenu").map_or(0.0, |h| h.bottom());
                 if r.top() < head {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, head + 200.0))]);
@@ -774,7 +775,7 @@ impl Run {
             14 => {
                 let g = self.target.0;
                 let forum = app.store.channels.values().find(|c| c.guild == g && c.is_forum()).map(|c| c.id);
-                let Some(r) = forum.and_then(|f| app.rects.get(&format!("chan:{f}")).copied()) else {
+                let Some(r) = forum.and_then(|f| self.reach_row(app, &format!("chan:{f}"))) else {
                     return self.fail("no forum channel in the sidebar".into());
                 };
                 self.click(r.center());
@@ -791,7 +792,7 @@ impl Run {
                 self.shot(ctx, "forum.png");
                 let g = self.target.0;
                 let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.name == "release planning").map(|c| c.id);
-                let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
+                let Some(r) = thread.and_then(|t| self.reach_row(app, &format!("chan:{t}"))) else {
                     return self.fail("no joined thread in the sidebar".into());
                 };
                 self.click(r.center());
@@ -882,7 +883,7 @@ impl Run {
                 let general = app.store.guilds.get(&self.target.0).and_then(|g| {
                     g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "general"))
                 });
-                let Some(r) = general.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) else { return };
+                let Some(r) = general.and_then(|c| self.reach_row(app, &format!("chan:{c}"))) else { return };
                 self.click(r.center());
                 self.next(800);
             }
@@ -1137,7 +1138,7 @@ impl Run {
                 let Some(vc) = side::tree(&app.store, self.target.0).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
                     return self.fail("no voice channel".into());
                 };
-                let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{vc}")) else { return };
                 let covered = ["game:panel", "userpanel"].iter().filter_map(|k| app.rects.get(*k)).map(|p| p.top()).fold(ctx.content_rect().bottom(), f32::min);
                 if r.bottom() > covered {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, covered - 100.0))]);
@@ -1376,7 +1377,7 @@ impl Run {
                 let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1) && !app.store.dm_muted(*c)) else {
                     return self.fail("no dm".into());
                 };
-                let Some(r) = app.rects.get(&format!("chan:{dm}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{dm}")) else { return };
                 self.call = dm;
                 self.click(r.center());
                 self.next(800);
@@ -2169,7 +2170,7 @@ impl Run {
                 self.next(300);
             }
             201 => {
-                let Some(r) = app.rects.get(&format!("chan:{MEDIA}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{MEDIA}")) else { return };
                 self.click(r.center());
                 self.next(300);
             }
@@ -2310,7 +2311,7 @@ impl Run {
                 if app.ui.guild != Some(self.target.0) {
                     return;
                 }
-                let Some(r) = rect(app, &format!("chan:{}", self.target.1)) else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(600);
             }
@@ -2425,7 +2426,7 @@ impl Run {
                 self.next(300);
             }
             241 => {
-                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(600);
             }
@@ -2530,7 +2531,7 @@ impl Run {
                 if app.ui.guild != Some(1003) {
                     return;
                 }
-                let Some(r) = rect(app, &format!("chan:{chan}")) else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{chan}")) else { return };
                 self.click(r.center());
                 self.next(800);
             }
@@ -2581,7 +2582,7 @@ impl Run {
                 self.next(600);
             }
 340 => {
-                let Some(r) = rect(app, &format!("chan:{}", self.target.1)) else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(1200);
             }
@@ -2768,7 +2769,7 @@ impl Run {
                 let text = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.is_text() && !c.is_thread());
                 if !text {
                     let first = side::first_channel(&app.store, self.target.0);
-                    if let Some(r) = first.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) {
+                    if let Some(r) = first.and_then(|c| self.reach_row(app, &format!("chan:{c}"))) {
                         self.click(r.center());
                         self.wait = Instant::now() + Duration::from_millis(500);
                     }
@@ -2886,7 +2887,7 @@ impl Run {
                     let find = |p: &str| app.rects.iter().find(|(k, _)| k.starts_with(p) && !k.ends_with(&me)).map(|(_, r)| *r);
                     let (r, right) = match i {
                         0 => (find("stamp:"), true),
-                        1 => (app.rects.get(&format!("chan:{cur}")).copied(), true),
+                        1 => (self.reach_row(app, &format!("chan:{cur}")), true),
                         2 => (app.rects.get(&format!("guild:{}", self.target.0)).copied(), true),
                         3 => (app.rects.get("guildmenu").copied(), false),
                         4 => (find("member:"), true),
@@ -3035,7 +3036,7 @@ impl Run {
                 // a forum and a joined thread, if this server has them
                 let g = self.target.0;
                 let forum = app.store.channels.values().find(|c| c.guild == g && c.is_forum() && app.store.can_view(c)).map(|c| c.id);
-                match forum.and_then(|f| app.rects.get(&format!("chan:{f}")).copied()) {
+                match forum.and_then(|f| self.reach_row(app, &format!("chan:{f}"))) {
                     Some(r) => {
                         self.click(r.center());
                         self.next(3000);
@@ -3050,7 +3051,7 @@ impl Run {
             322 => {
                 let g = self.target.0;
                 let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined && !c.archived).map(|c| c.id);
-                match thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) {
+                match thread.and_then(|t| self.reach_row(app, &format!("chan:{t}"))) {
                     Some(r) => {
                         self.click(r.center());
                         self.next(3000);
@@ -3136,7 +3137,7 @@ impl Run {
                 self.next(250);
             }
             261 => {
-                let Some(r) = app.rects.get(&format!("chan:{general}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{general}")) else { return };
                 self.click(r.center());
                 self.next(100);
             }
@@ -3144,7 +3145,7 @@ impl Run {
                 if here != Some(general) {
                     return;
                 }
-                let Some(r) = app.rects.get(&format!("chan:{help}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{help}")) else { return };
                 self.click(r.center());
                 self.next(100);
             }
@@ -4586,7 +4587,7 @@ impl Run {
             530 => {
                 if app.store.opted.contains(&2101) {
                     self.mark_once("home_browse");
-                    let Some(r) = app.rects.get(&format!("chan:{HANGOUT}")).copied() else { return };
+                    let Some(r) = self.reach_row(app, &format!("chan:{HANGOUT}")) else { return };
                     hover(self, r.center());
                     self.next(500);
                 }
@@ -4620,7 +4621,7 @@ impl Run {
                 if app.voice_chat {
                     return;
                 }
-                let Some(r) = app.rects.get(&format!("chan:{HANGOUT}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{HANGOUT}")) else { return };
                 hover(self, r.center());
                 self.next(500);
             }
@@ -5885,7 +5886,7 @@ impl Run {
                 self.next(250);
             }
             281 => {
-                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(50);
             }
