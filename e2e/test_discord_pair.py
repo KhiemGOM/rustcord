@@ -76,6 +76,7 @@ class Journeys(unittest.TestCase):
         channel = {'role': 'channel', 'name': 'general (text channel), unread', 'text': 'general', 'item': 'channels___1339586800519221299', 'id': '', 'box': [80, 200, 286, 32]}
         message = {'role': 'message', 'name': 'someone hello', 'text': 'someone', 'item': '', 'id': 'chat-messages-1339586800519221302-1487651059143807056', 'box': [376, 120, 1331, 48]}
         gear = {'role': 'button', 'name': 'User Settings', 'text': '', 'item': '', 'id': '', 'box': [320, 868, 32, 32]}
+        self.assertEqual(discord_pair.anchor({**channel, 'name': 'Text Channels (category)'}), 'cat:1339586800519221299')
         with tempfile.TemporaryDirectory() as folder:
             live = Path(folder)
             rows = [

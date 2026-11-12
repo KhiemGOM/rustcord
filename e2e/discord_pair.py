@@ -41,6 +41,8 @@ def anchor(target):
     if not flake(item):
         return MARKS.get(target['name'])
     kind = {'channels': 'chan', 'guildsnav': 'guild', 'people-list': 'friend'}.get(item.split('___')[0], 'chan' if item.startswith('private-channels') else None)
+    if kind == 'chan' and target['name'].endswith('(category)'):
+        kind = 'cat'
     return kind and f'{kind}:{flake(item)}'
 
 
