@@ -1,12 +1,23 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { httpAllowed, gatewayAllowed, actionsFor, fingerprint, installGuard, inspect, resolveTarget, contextMatches, checkOutcome } = require('./discord_reference.cjs');
-const { options, seeds, parseState, priority } = require('./discord_explore.cjs');
+const { options, seeds, parseState, priority, noveltyKey } = require('./discord_explore.cjs');
 
 test('repeated controls lose priority across routes without being dropped', () => {
     const task = { family: 'home', priority: 3, novelty_key: 'same-menu' };
     assert.ok(priority(task, {}, { 'same-menu': 2 }) > priority(task, {}, {}));
     assert.ok(priority(task, { home: 10 }, {}) > priority(task, {}, {}));
+});
+
+test('rows of one list count as one thing tried per family, a named control as itself everywhere', () => {
+    const row = name => ({ role: 'channel', name, scope: 'server', item: 'channels___' + name });
+    assert.equal(noveltyKey('a', row('general'), 'right-click'), noveltyKey('a', row('art'), 'right-click'));
+    assert.notEqual(noveltyKey('a', row('general'), 'right-click'), noveltyKey('b', row('general'), 'right-click'));
+    assert.notEqual(noveltyKey('a', row('general'), 'right-click'), noveltyKey('a', row('general'), 'hover'));
+    assert.equal(noveltyKey('a', { role: 'guild', name: 'one' }, 'right-click'), noveltyKey('b', { role: 'guild', name: 'two' }, 'right-click'));
+    const button = name => ({ role: 'button', name, scope: 'page' });
+    assert.equal(noveltyKey('a', button('Inbox'), 'click'), noveltyKey('b', button('Inbox'), 'click'));
+    assert.notEqual(noveltyKey('a', button('Inbox'), 'click'), noveltyKey('a', button('Pins'), 'click'));
 });
 
 test('local numeric snowflakes retain every digit before constructing Discord routes', () => {
@@ -82,6 +93,24 @@ test('replay context ignores unrelated live list churn but rejects changed targe
     current.controls[0] = target;
     current.layers = [];
     assert.equal(contextMatches(expected, current, target), false);
+    current.layers = [{ role: 'menu', name: '', text: 'Mute, and a member who just came online' }, { role: 'tooltip', name: '', text: 'Inbox' }];
+    assert.equal(contextMatches(expected, current, target), true);
+});
+
+test('a list row is found by its Discord id when live state rewrites its label', () => {
+    const row = { role: 'channel', name: 'Room 3 (voice channel), unread, 2 of 4 users', scope: 'server', id: '', item: 'channels___1555206820203724861', href: '/channels/9/1555206820203724861', box: [80, 400, 286, 32] };
+    const later = { ...row, name: 'Room 3 (voice channel)', box: [80, 432, 286, 32] };
+    const other = { ...row, name: 'Room 4 (voice channel)', item: 'channels___1555206820203724862' };
+    assert.equal(resolveTarget({ controls: [other, later] }, row), later);
+    assert.throws(() => resolveTarget({ controls: [other] }, row), /missing/);
+    const dm = { role: 'link', name: 'someone (direct message)', scope: 'Private channels', id: '', item: 'private-channels-uid_11___1351802151936200769', href: '/channels/@me/1351802151936200769', box: [80, 200, 224, 42] };
+    assert.equal(resolveTarget({ controls: [{ ...dm, name: 'unread, someone (direct message)', item: 'private-channels-uid_52___1351802151936200769' }] }, dm).href, dm.href);
+    const member = { role: 'member', name: 'eggily Playing a game', text: 'eggily', scope: 'page', id: '', item: 'members-1___10', href: null, box: [1450, 300, 240, 42] };
+    assert.equal(resolveTarget({ controls: [{ ...member, name: 'someone else', text: 'someone else' }, { ...member, name: 'eggily', item: 'members-1___12' }] }, member).item, 'members-1___12');
+    const message = { role: 'message', name: 'someone 6:48 AM hello', scope: 'page', id: 'chat-messages-1-1562858694314557616', item: '', href: null, box: [376, 315, 1331, 48] };
+    assert.equal(resolveTarget({ controls: [{ ...message, name: 'someone, Server Tag: x 6:48 AM hello' }] }, message).id, message.id);
+    const twin = { role: 'button', name: 'More', scope: 'page', id: ':r1:', item: '', href: null, box: [10, 10, 24, 24] };
+    assert.equal(resolveTarget({ controls: [{ ...twin, id: ':r9:', box: [10, 300, 24, 24] }, { ...twin, id: ':r8:', box: [10, 12, 24, 24] }] }, twin).id, ':r8:');
 });
 
 test('outcome checks cannot pass on unrelated state churn or an input attempt alone', () => {
@@ -140,13 +169,16 @@ test('browser inspection and targeting preserve nested state and exclude covered
         assert.equal(mute.checked, 'true');
         assert.equal(mute.scope, 'm');
         assert.equal(resolveTarget(state, mute).key, mute.key);
-        assert.throws(() => resolveTarget({ controls: [mute, mute] }, mute), /ambiguous/);
+        assert.equal(mute.layer, true);
+        const drawn = state.texts.find(text => text.t === 'Advanced');
+        assert.ok(drawn.size > 0 && drawn.b[2] > 0 && /^#[0-9a-f]{8}$/.test(drawn.col));
+        assert.equal(state.blocks[drawn.block].t.includes('Advanced'), true);
         await page.evaluate(() => { document.querySelector('[aria-label=Close]').hidden = true; document.querySelector('[role=dialog]').insertAdjacentHTML('afterbegin', '<button>New button</button><button>Duplicate</button><button>Duplicate</button>'); });
         const changed = await page.evaluate(inspect);
         assert.equal(await page.locator('[data-discord-audit="0"]').count(), 1);
         const duplicates = changed.controls.filter(node => node.name === 'Duplicate');
         assert.equal(duplicates.length, 2);
-        assert.throws(() => resolveTarget(changed, duplicates[0]), /ambiguous/);
+        assert.equal(resolveTarget(changed, duplicates[1]).key, duplicates[1].key);
         await page.evaluate(async () => { await fetch('https://discord.com/api/v9/audit-fixture', { method: 'POST', body: 'must not leave' }).catch(() => {}); });
         assert.equal(events.some(event => event.type === 'blocked-http' && event.method === 'POST'), true);
     } finally { await browser.close(); }

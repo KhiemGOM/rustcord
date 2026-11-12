@@ -30,6 +30,7 @@ mod watchdog;
 pub(in crate::ui) mod stress;
 mod regressions;
 mod profcheck;
+mod replay;
 
 pub use watchdog::beat;
 mod chatx;
@@ -153,6 +154,7 @@ pub struct Run {
     local: local::State,
     fx: live::State,
     sweep: tour::State,
+    replay: replay::State,
     local_log: Option<String>,
 }
 
@@ -263,6 +265,7 @@ impl Run {
             local: Default::default(),
             fx: Default::default(),
             sweep: Default::default(),
+            replay: Default::default(),
             local_log: None,
         })
     }
@@ -608,6 +611,9 @@ impl Run {
             return self.live_steps(app, ctx, ch);
         }
         if self.tour && self.step != 99 {
+            if std::env::var_os("RUSTCORD_REPLAY").is_some() {
+                return self.replay_steps(app, ctx);
+            }
             if std::env::var_os("RUSTCORD_TOUR_PROFILE").is_some() {
                 return self.profile_check(app, ctx);
             }
