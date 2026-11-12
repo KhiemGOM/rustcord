@@ -238,7 +238,7 @@ impl Run {
                 self.next(3000);
             }
             3136 => {
-                let name = app.store.name_in(gid, 102);
+                let name = app.store.user(102).map(|u| u.username.clone()).unwrap_or_default();
                 self.settled_menu_click(ctx, &format!("Timeout {name}"), 500);
             }
             3137 => {
@@ -267,7 +267,7 @@ impl Run {
                 self.next(3000);
             }
             3140 => {
-                let name = app.store.name_in(gid, 105);
+                let name = app.store.user(105).map(|u| u.username.clone()).unwrap_or_default();
                 self.settled_menu_click(ctx, &format!("Kick {name}"), 600);
             }
             3141 => {
@@ -289,7 +289,7 @@ impl Run {
                 self.next(3000);
             }
             3144 => {
-                let name = app.store.name_in(gid, 104);
+                let name = app.store.user(104).map(|u| u.username.clone()).unwrap_or_default();
                 self.settled_menu_click(ctx, &format!("Ban {name}"), 600);
             }
             3145 => {

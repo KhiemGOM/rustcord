@@ -918,7 +918,7 @@ If you'd like to upvote a suggestion, use the reaction!");
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
-        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "844736315296768", "hoist": false },
+        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "844736315296832", "hoist": false },
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },

@@ -4318,6 +4318,8 @@ impl Run {
                     // the note you keep on alice, from her full profile
                     if app.full_profile.is_none() {
                         app.open_full(101, 0, super::profile::Tab::Activity);
+                        self.wait = Instant::now() + Duration::from_millis(700);
+                        return;
                     }
                     let Some(r) = app.rects.get("full_note").copied().filter(|r| *r != egui::Rect::NOTHING) else { return };
                     self.click(r.center());
