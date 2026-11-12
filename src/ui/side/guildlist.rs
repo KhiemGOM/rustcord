@@ -358,6 +358,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             }
             app.create = Some(f);
         }
+        Some((c, ChanAct::List(on))) => app.chan_flag(c, crate::ui::OPTED, on),
         Some((c, ChanAct::Pin)) => {
             let on = app.store.chan_flags.get(&c).is_none_or(|f| f & crate::ui::PINNED == 0);
             app.chan_flag(c, crate::ui::PINNED, on);

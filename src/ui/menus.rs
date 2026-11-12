@@ -29,6 +29,8 @@ pub(super) enum ChanAct {
     Collapse,
     CollapseAll,
     Pin,
+    // onto the channel list of a server that only lists what was picked, or off it
+    List(bool),
     HideNames,
     Chat,
     Move(Move),
@@ -197,7 +199,13 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
             act = Some(ChanAct::Read);
         }
         menu_sep(ui);
+        let listed = store.opted.contains(&c.id);
+        let list = if listed { "Remove from Channel List" } else { "Add to Channel List" };
+        let picks = store.opt_in.contains(&c.guild) && !c.is_thread();
         if cat {
+            if picks && menu_item(ui, None, list, false) {
+                act = Some(ChanAct::List(!listed));
+            }
             if menu_row(ui, None, "Collapse Category", None, false, Trail::Check(collapsed)).clicked() {
                 act = Some(ChanAct::Collapse);
             }
@@ -210,6 +218,9 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
             }
             if !c.is_thread() && menu_item(ui, None, if pinned { "Unpin Channel" } else { "Pin Channel to Top" }, false) {
                 act = Some(ChanAct::Pin);
+            }
+            if picks && menu_item(ui, None, list, false) {
+                act = Some(ChanAct::List(!listed));
             }
             if menu_item(ui, None, "Copy Link", false) {
                 act = Some(ChanAct::Link);
