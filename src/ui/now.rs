@@ -30,7 +30,7 @@ fn header_line(a: &Activity) -> String {
 
 fn body_lines(a: &Activity) -> Vec<String> {
     let mut v = Vec::new();
-    v.extend(a.details.clone());
+    v.extend(a.details.clone().or_else(|| Some(a.name.clone()).filter(|_| !a.spotify() && a.kind == 0)));
     v.extend(a.state.clone().map(|s| match a.party {
         Some((n, m)) => format!("{s} ({n} of {m})"),
         None => s.replace(';', ","),
@@ -39,6 +39,79 @@ fn body_lines(a: &Activity) -> Vec<String> {
         v.push(format!("{} elapsed", presence::clock((chrono::Utc::now().timestamp_millis() - a.start) / 1000)));
     }
     v
+}
+
+fn lines(ui: &Ui, x: f32, row: Rect, texts: &[&str], right: f32) {
+    let top = row.top() + (row.height() - 18.0 - 16.0 * (texts.len() as f32 - 1.0)) / 2.0;
+    for (i, t) in texts.iter().enumerate() {
+        let (y, f, c) = if i == 0 { (top + 9.0, semi(14.0), pal().text_normal) } else { (top + 18.0 + 16.0 * (i as f32 - 1.0) + 8.0, reg(12.0), pal().text_muted) };
+        text::paint(ui.painter(), pos2(x, y), Align2::LEFT_CENTER, t, f, c, right - x);
+    }
+}
+
+fn server_icon(ui: &Ui, store: &crate::state::Store, g: Id, art: Rect) {
+    match store.guilds.get(&g) {
+        Some(g) => match g.icon_url() {
+            Some(u) => avatar(ui, art, &u),
+            None => {
+                ui.painter().rect_filled(art, CornerRadius::same(8), pal().bg_accent);
+                ui.painter().text(art.center(), Align2::CENTER_CENTER, g.acronym(), medium(12.0), pal().header_primary);
+            }
+        },
+        None => icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(art.center(), vec2(22.0, 22.0)), pal().header_secondary),
+    }
+}
+
+fn card_frame(ui: &Ui, card: Rect, hot: bool, body: bool) {
+    let p = ui.painter();
+    p.rect_filled(card, CornerRadius::same(12), if hot { Color32::from_rgb(0x12, 0x12, 0x14) } else { Color32::BLACK });
+    let tail = if body { 0 } else { 12 };
+    p.rect_filled(Rect::from_min_size(card.min, vec2(card.width(), 68.0)), CornerRadius { nw: 12, ne: 12, sw: tail, se: tail }, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
+    p.rect_stroke(card, CornerRadius::same(12), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+}
+
+fn names(store: &crate::state::Store, who: &[Id]) -> String {
+    let n = |u: &Id| store.name_in(0, *u);
+    match who {
+        [a, b] => format!("{} and {}", n(a), n(b)),
+        [a, b, c] => format!("{}, {}, and {}", n(a), n(b), n(c)),
+        [a, b, rest @ ..] => format!("{}, {}, and {} others", n(a), n(b), rest.len()),
+        _ => who.first().map(n).unwrap_or_default(),
+    }
+}
+
+fn group_card(ui: &mut Ui, store: &crate::state::Store, g: Id, c: Id, who: &[Id]) -> bool {
+    let (card, _) = ui.allocate_exact_size(vec2(ui.available_width(), 136.0), Sense::hover());
+    card_frame(ui, card, false, true);
+    if let Some(first) = who.first().and_then(|u| store.user(*u)) {
+        let av = Rect::from_min_size(pos2(card.left() + 16.0, card.top() + 19.0), vec2(32.0, 32.0));
+        avatar(ui, av, &first.avatar_url());
+        status_dot(ui, av, store.status(first.id), Color32::from_rgb(0x1b, 0x1b, 0x1e));
+    }
+    let x = card.left() + 61.0;
+    let right = card.right() - 16.0;
+    let name = names(store, who);
+    text::paint(ui.painter(), pos2(x, card.top() + 26.5), Align2::LEFT_CENTER, &name, semi(16.0), pal().text_normal, right - x);
+    text::paint(ui.painter(), pos2(x, card.top() + 46.0), Align2::LEFT_CENTER, "In a Voice Channel", reg(14.0), pal().text_muted, right - x);
+    let row = Rect::from_min_size(pos2(card.left(), card.top() + 68.0), vec2(card.width(), 68.0));
+    let hit = ui.interact(row, ui.id().with(("now_group", c)), Sense::click());
+    if hit.hovered() {
+        ui.painter().rect_filled(row, CornerRadius { nw: 0, ne: 0, sw: 12, se: 12 }, Color32::from_white_alpha(8));
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    server_icon(ui, store, g, Rect::from_min_size(pos2(card.left() + 17.0, row.top() + 17.0), vec2(32.0, 32.0)));
+    let ch = store.channels.get(&c).map_or("Voice".to_string(), |c| c.name.clone());
+    let gn = store.guilds.get(&g).map_or(String::new(), |g| g.name.clone());
+    lines(ui, card.left() + 61.0, row, &[&ch, &gn], right - 120.0);
+    for (i, u) in who.iter().take(2).enumerate() {
+        if let Some(u) = store.user(*u) {
+            avatar(ui, Rect::from_min_size(pos2(card.right() - 93.0 + 22.0 * i as f32, row.top() + 22.0), vec2(24.0, 24.0)), &u.avatar_url());
+        }
+    }
+    if who.len() > 2 {
+        text::paint(ui.painter(), pos2(card.right() - 40.0, row.top() + 34.0), Align2::LEFT_CENTER, &format!("+{}", who.len() - 2), semi(14.0), pal().text_normal, 30.0);
+    }
+    hit.clicked()
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
@@ -65,10 +138,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     }
                 }
             }
+            let mut by_channel: crate::state::Map<(Id, Id), Vec<Id>> = Default::default();
+            for (u, gc) in &in_voice {
+                by_channel.entry(*gc).or_default().push(*u);
+            }
+            by_channel.retain(|_, v| v.len() > 1);
+            let mut groups: Vec<((Id, Id), Vec<Id>)> = by_channel.into_iter().collect();
+            for (_, v) in &mut groups {
+                v.sort_by_cached_key(|u| store.name_in(0, *u).to_lowercase());
+            }
+            groups.sort_by_cached_key(|(_, v)| store.name_in(0, v[0]).to_lowercase());
+            let grouped: crate::state::Set<Id> = groups.iter().flat_map(|(_, v)| v.iter().copied()).collect();
             let mut busy: Vec<Id> = store
                 .relationships
                 .iter()
-                .filter(|(u, t)| **t == FRIEND && (in_voice.contains_key(u) || store.activities.get(u).is_some_and(|a| presence::shown(a).next().is_some())))
+                .filter(|(u, t)| **t == FRIEND && ((in_voice.contains_key(u) && !grouped.contains(u)) || live.contains(u) || store.activities.get(u).is_some_and(|a| presence::shown(a).next().is_some())))
                 .map(|(u, _)| *u)
                 .collect();
             busy.sort_by_cached_key(|u| store.name_in(0, *u).to_lowercase());
@@ -79,7 +163,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 w.truncate(50);
                 w
             };
-            if busy.is_empty() {
+            if busy.is_empty() && groups.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     ui.label(RichText::new("It's quiet for now...").font(semi(16.0)).color(pal().header_primary));
@@ -96,12 +180,20 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let mut watch = None;
             let mut ticking = false;
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                for ((g, c), who) in &groups {
+                    if group_card(ui, store, *g, *c, who) {
+                        channel = Some((*g, *c));
+                    }
+                    ui.add_space(12.0);
+                }
                 for u in &busy {
                     let Some(user) = store.user(*u) else { continue };
                     let acts: Vec<&Activity> = store.activities.get(u).map(|a| presence::shown(a).collect()).unwrap_or_default();
                     let mut bodies: Vec<Body> = acts.iter().filter(|a| a.kind != 4 && (a.spotify() || !body_lines(a).is_empty())).take(2).map(|a| Body::Playing(a)).collect();
                     if let Some((g, c)) = in_voice.get(u) {
-                        bodies.push(Body::Voice(*g, *c));
+                        if !grouped.contains(u) {
+                            bodies.push(Body::Voice(*g, *c));
+                        }
                         if live.contains(u) {
                             bodies.push(Body::Stream(*c, acts.iter().copied().find(|a| a.kind == 0)));
                         }
@@ -119,59 +211,50 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let (card, resp) = ui.allocate_exact_size(vec2(ui.available_width(), total), Sense::click());
                     crate::ui::settings::mark(ui, &format!("now_card:{u}"), card);
                     crate::ui::settings::said(ui.ctx(), &format!("now_rows:{u}"), &bodies.len().to_string());
-                    let hot = resp.hovered();
-                    let p = ui.painter();
-                    p.rect_filled(card, CornerRadius::same(12), if hot { Color32::from_rgb(0x12, 0x12, 0x14) } else { Color32::BLACK });
-                    p.rect_filled(Rect::from_min_size(card.min, vec2(card.width(), 68.0)), CornerRadius { nw: 12, ne: 12, sw: if bodies.is_empty() { 12 } else { 0 }, se: if bodies.is_empty() { 12 } else { 0 } }, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
-                    p.rect_stroke(card, CornerRadius::same(12), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-                    let av = Rect::from_min_size(pos2(card.left() + 16.0, card.top() + 18.0), vec2(32.0, 32.0));
+                    card_frame(ui, card, resp.hovered(), !bodies.is_empty());
+                    let av = Rect::from_min_size(pos2(card.left() + 16.0, card.top() + 19.0), vec2(32.0, 32.0));
                     avatar(ui, av, &user.avatar_url());
                     status_dot(ui, av, store.status(*u), Color32::from_rgb(0x1b, 0x1b, 0x1e));
                     let name = store.name_in(0, *u);
                     let first = acts.first().copied();
                     let sub = match (first, in_voice.get(u)) {
                         (Some(a), _) => header_line(a),
-                        (None, Some(_)) => "In Voice".to_string(),
+                        (None, Some(_)) => "In a Voice Channel".to_string(),
                         _ => String::new(),
                     };
                     let p = ui.painter();
-                    text::paint(p, pos2(av.right() + 12.0, card.top() + 25.0), Align2::LEFT_CENTER, &name, semi(16.0), pal().header_primary, card.width() - 130.0);
-                    text::paint(p, pos2(av.right() + 12.0, card.top() + 45.0), Align2::LEFT_CENTER, &sub, reg(14.0), pal().header_secondary, card.width() - 130.0);
-                    let badge = Rect::from_center_size(pos2(card.right() - 32.0, card.top() + 34.0), vec2(32.0, 32.0));
+                    text::paint(p, pos2(av.right() + 12.0, card.top() + 26.5), Align2::LEFT_CENTER, &name, semi(16.0), pal().text_normal, card.width() - 130.0);
+                    text::paint(p, pos2(av.right() + 12.0, card.top() + 46.0), Align2::LEFT_CENTER, &sub, reg(14.0), pal().text_muted, card.width() - 130.0);
+                    let badge = Rect::from_center_size(pos2(card.right() - 29.0, card.top() + 35.0), vec2(24.0, 24.0));
                     match first {
                         Some(a) if a.spotify() => {
-                            p.circle_filled(badge.center(), 16.0, SPOTIFY);
-                            icons::draw(p, Icon::Soundboard, Rect::from_center_size(badge.center(), vec2(18.0, 18.0)), Color32::BLACK);
+                            p.circle_filled(badge.center(), 12.0, SPOTIFY);
+                            icons::draw(p, Icon::Soundboard, Rect::from_center_size(badge.center(), vec2(14.0, 14.0)), Color32::BLACK);
                         }
                         Some(a) if a.kind == 1 => {
-                            p.circle_filled(badge.center(), 16.0, presence::TWITCH);
-                            icons::draw(p, Icon::Screen, Rect::from_center_size(badge.center(), vec2(18.0, 18.0)), Color32::WHITE);
+                            p.circle_filled(badge.center(), 12.0, presence::TWITCH);
+                            icons::draw(p, Icon::Screen, Rect::from_center_size(badge.center(), vec2(14.0, 14.0)), Color32::WHITE);
                         }
                         Some(a) => {
-                            p.rect_filled(badge, CornerRadius::same(8), Color32::from_white_alpha(15));
+                            p.rect_filled(badge, CornerRadius::same(4), Color32::from_white_alpha(15));
                             match store.app_icons.get(&a.app).cloned().flatten() {
                                 Some(h) => text::image(p, &format!("{}/app-icons/{}/{h}.png?size=64", crate::api::cdn(), a.app), badge),
-                                None => icons::draw(p, Icon::Controller, Rect::from_center_size(badge.center(), vec2(20.0, 20.0)), pal().header_secondary),
+                                None => icons::draw(p, Icon::Controller, Rect::from_center_size(badge.center(), vec2(16.0, 16.0)), pal().header_secondary),
                             }
                         }
-                        None => icons::draw(p, Icon::Speaker, Rect::from_center_size(badge.center(), vec2(20.0, 20.0)), pal().header_secondary),
+                        None => icons::draw(p, Icon::Speaker, Rect::from_center_size(badge.center(), vec2(16.0, 16.0)), pal().header_secondary),
                     }
                     let mut y = card.top() + 68.0;
                     for (b, h) in bodies.iter().zip(&heights) {
                         let row = Rect::from_min_size(pos2(card.left(), y), vec2(card.width(), *h));
-                        let art = Rect::from_min_size(pos2(row.left() + 16.0, row.top() + 12.0), vec2(44.0, 44.0));
+                        let art = Rect::from_min_size(pos2(row.left() + 17.0, row.top() + 17.0), vec2(32.0, 32.0));
                         let x = art.right() + 12.0;
                         match b {
                             Body::Playing(a) => {
                                 let icon = store.app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
                                 presence::paint_art(ui, a, &icon, art, 4);
-                                let lines = body_lines(a);
-                                let mut ly = row.top() + 12.0 + (44.0 - lines.len().min(3) as f32 * 16.0) / 2.0;
-                                for (i, l) in lines.iter().take(3).enumerate() {
-                                    let (f, c) = if i == 0 { (semi(14.0), pal().header_primary) } else { (reg(12.0), pal().header_secondary) };
-                                    text::paint(ui.painter(), pos2(x, ly + 8.0), Align2::LEFT_CENTER, l, f, c, row.right() - x - 16.0);
-                                    ly += 16.0;
-                                }
+                                let texts = body_lines(a);
+                                lines(ui, x, row, &texts.iter().take(3).map(String::as_str).collect::<Vec<_>>(), row.right() - 16.0);
                                 ticking |= a.start > 0 && !a.spotify();
                             }
                             Body::Stream(c, game) => {
@@ -206,12 +289,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                     ui.painter().rect_filled(row, 0, Color32::from_white_alpha(8));
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                 }
-                                ui.painter().rect_filled(art, CornerRadius::same(4), Color32::from_white_alpha(15));
-                                icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(art.center(), vec2(22.0, 22.0)), pal().header_secondary);
+                                server_icon(ui, store, *g, art);
                                 let ch = store.channels.get(c).map_or("Voice".to_string(), |c| c.name.clone());
                                 let gn = store.guilds.get(g).map_or(String::new(), |g| g.name.clone());
-                                text::paint(ui.painter(), pos2(x, row.top() + 25.0), Align2::LEFT_CENTER, &ch, semi(14.0), pal().header_primary, row.right() - x - 16.0);
-                                text::paint(ui.painter(), pos2(x, row.top() + 43.0), Align2::LEFT_CENTER, &gn, reg(12.0), pal().header_secondary, row.right() - x - 16.0);
+                                lines(ui, x, row, &[&ch, &gn], row.right() - 16.0);
                                 if rr.clicked() {
                                     channel = Some((*g, *c));
                                 }
@@ -222,7 +303,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     if resp.clicked() && channel.is_none() && watch.is_none() {
                         open = Some(*u);
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(12.0);
                 }
             });
             if ticking {
