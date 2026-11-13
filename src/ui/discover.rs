@@ -110,7 +110,7 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
         if !searching {
             let title = cat.as_ref().map_or("Find your community on Discord".to_string(), |c| c.1.clone());
             let sub = match cat.as_ref().map(|c| c.0) {
-                None => "From gaming, to music, to learning, there\u{2019}s a place for you.",
+                None => "From gaming, to music, to learning, there's a place for you.",
                 Some(1) => "Get updates, connect with developers, and chat with other players.",
                 Some(2) => "Get updates, connect with artists, and chat with other music fans.",
                 Some(3) => "Connect with your favorite creators and their fans.",
@@ -200,7 +200,7 @@ fn hero(ui: &mut Ui, title: &str, sub: &str) {
     let mut y = r.top() + 115.0;
     for row in &g.rows {
         let line: String = row.row.glyphs.iter().map(|c| c.chr).collect();
-        ui.painter().text(pos2(r.left() + 44.0, y), Align2::LEFT_CENTER, line.trim_end(), display(44.0), pal().header_primary);
+        ui.painter().text(pos2(r.left() + 44.0, y + 5.3), Align2::LEFT_CENTER, line.trim_end(), display(44.0), pal().header_primary);
         y += 44.0;
     }
     ui.painter().text(pos2(r.left() + 44.0, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), pal().text_muted);

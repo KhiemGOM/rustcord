@@ -322,8 +322,8 @@ fn hero(ui: &mut Ui) {
     m.add_triangle(0, 2, 3);
     ui.painter().add(m);
     let p = ui.painter();
-    p.text(pos2(r.left() + 43.5, r.top() + 115.0), Align2::LEFT_CENTER, "FIND THINGS TO", display(44.0), pal().header_primary);
-    p.text(pos2(r.left() + 43.5, r.top() + 159.0), Align2::LEFT_CENTER, "DO TOGETHER", display(44.0), pal().header_primary);
+    p.text(pos2(r.left() + 43.5, r.top() + 120.3), Align2::LEFT_CENTER, "FIND THINGS TO", display(44.0), pal().header_primary);
+    p.text(pos2(r.left() + 43.5, r.top() + 164.3), Align2::LEFT_CENTER, "DO TOGETHER", display(44.0), pal().header_primary);
     p.text(pos2(r.left() + 43.5, r.top() + 206.5), Align2::LEFT_CENTER, "Bring the fun to your hangouts with apps for games, music, creative tools, and more.", medium(16.0), pal().text_muted);
 }
 
