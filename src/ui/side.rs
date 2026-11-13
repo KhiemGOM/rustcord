@@ -787,7 +787,8 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         status_dot(ui, av, status, pal().bg_secondary_alt);
         // leave room for the three buttons so long names elide instead of running under them
         let col = (ui.available_width() - 146.0 - if app.settings.clips { 32.0 } else { 0.0 }).max(40.0);
-        let hot = ui.rect_contains_pointer(ui.max_rect());
+        // only the avatar and names count, as discord's account button; the buttons beside don't
+        let hot = ui.rect_contains_pointer(Rect::from_min_max(ui.max_rect().min, pos2(av.right() + 8.0 + col, ui.max_rect().bottom())));
         let names = ui.allocate_ui_with_layout(vec2(col, 40.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
             ui.set_max_width(col);
