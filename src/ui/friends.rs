@@ -299,7 +299,7 @@ fn list(app: &mut App, ui: &mut Ui) {
 
             let mut br = ui.new_child(
                 egui::UiBuilder::new()
-                    .max_rect(Rect::from_min_max(pos2(row.right() - 100.0, row.top()), row.max))
+                    .max_rect(Rect::from_min_max(pos2(row.right() - 100.0, row.top()), row.max - vec2(4.0, 0.0)))
                     .layout(Layout::right_to_left(Align::Center)),
             );
             br.spacing_mut().item_spacing.x = 10.0;
@@ -314,7 +314,6 @@ fn list(app: &mut App, ui: &mut Ui) {
                             }
                         }
                     });
-                    br.add_space(10.0);
                     if icon_button(&mut br, Icon::Bubble, 36.0, "Message").clicked() {
                         act = Some((uid, "dm"));
                     }
