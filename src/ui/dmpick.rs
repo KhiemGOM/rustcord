@@ -139,7 +139,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     close |= modal_button(ui, "Cancel", None, 212.0).clicked();
-                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| modal_button(ui, button_text, Some(pal().blurple), 212.0)).inner;
+                    let b = modal_button(ui, button_text, Some(pal().blurple), 212.0);
                     super::settings::mark(ui, "pick:go", b.rect);
                     go = b.clicked();
                 });
