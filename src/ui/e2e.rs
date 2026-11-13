@@ -5080,6 +5080,7 @@ impl Run {
                 if r.bottom() > ctx.content_rect().bottom() - 10.0 {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, 300.0))]);
                     self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
                     return;
                 }
                 self.click(r.center());
@@ -5087,6 +5088,9 @@ impl Run {
             }
             633 => {
                 if app.confirm.is_none() {
+                    if self.step_at.elapsed() > Duration::from_secs(2) {
+                        self.step = 632;
+                    }
                     return;
                 }
                 self.shot(ctx, "server_delete.png");
