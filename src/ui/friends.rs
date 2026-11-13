@@ -175,7 +175,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
     ui.add_space(19.5);
     let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, pal().border_subtle));
-    ui.add_space(24.0);
+    ui.add_space(19.5);
     ui.label(RichText::new("Other Places to Make Friends").font(semi(20.0)).color(pal().header_primary));
     ui.add_space(5.0);
     ui.label(RichText::new("Don't have a username on hand? Check out our list of public servers that includes everything from gaming to cooking, music, anime and more.").font(medium(16.0)).color(pal().text_normal));
@@ -230,7 +230,7 @@ fn list(app: &mut App, ui: &mut Ui) {
     if !q.is_empty() {
         people.retain(|(u, _)| app.store.name_in(0, *u).to_lowercase().contains(&q) || app.store.user(*u).is_some_and(|x| x.username.contains(&q)));
     }
-    ui.add_space(25.0);
+    ui.add_space(24.0);
     let mut section = None;
 
     let mut act: Option<(Id, &'static str)> = None;
@@ -253,11 +253,12 @@ fn list(app: &mut App, ui: &mut Ui) {
                 ui.label(RichText::new(format!("{name} — {count}")).font(medium(14.0)).color(pal().text_normal));
                 ui.add_space(16.0);
             }
-            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
+            // discord's rows stop 20 short of the search field, where its scrollbar runs
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 20.0, 62.0), Sense::click());
             app.rects.insert(format!("friend:{uid}"), row);
             ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
             super::motion::wash(ui, &resp, row.shrink2(vec2(-10.0, 1.0)), 8, pal().bg_mod_hover, 0.2);
-            let av = Rect::from_min_size(pos2(row.left(), row.center().y - 16.0), vec2(32.0, 32.0));
+            let av = Rect::from_min_size(pos2(row.left(), row.center().y - 18.5), vec2(32.0, 32.0));
             let Some(u) = app.store.user(uid) else { continue };
             avatar(ui, av, &u.avatar_url());
             if let Some(d) = u.decoration_url() {
@@ -301,6 +302,7 @@ fn list(app: &mut App, ui: &mut Ui) {
                     .max_rect(Rect::from_min_max(pos2(row.right() - 100.0, row.top()), row.max))
                     .layout(Layout::right_to_left(Align::Center)),
             );
+            br.spacing_mut().item_spacing.x = 10.0;
             match kind {
                 FRIEND => {
                     let more = icon_button(&mut br, Icon::MoreVertical, 36.0, "More");
