@@ -438,6 +438,12 @@ impl Store {
 
         self.email = ost(&d["user"]["email"]);
         self.me_raw = d["user"].clone();
+        self.experiments = d["apex_experiments"]["assignments"].as_object().map(|kinds| {
+            let units = kinds.values().filter_map(|k| k.as_object()).flat_map(|k| k.values());
+            let given = units.flat_map(|u| u["assignments"].as_array().into_iter().flatten());
+            let hash = |a: &Value| a[0].as_u64().or_else(|| a[0].as_str()?.parse().ok());
+            given.filter(|a| a[1].as_u64().is_some_and(|variant| variant != 0)).filter_map(|a| hash(a).map(|h| h as u32)).collect()
+        });
         self.relationships.clear();
         for r in d["relationships"].as_array().into_iter().flatten() {
             let uid = sid(&r["id"]);

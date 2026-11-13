@@ -20,9 +20,37 @@ pub fn can_add(store: &Store, c: &Channel) -> bool {
     c.kind != 4 && c.guild != 0 && !store.lurking.contains(&c.guild) && !has(store, c.id)
 }
 
-/// The rail shows it while it is open, or when the account's setting (or, unset, having any) says so.
+/// The hash Discord's experiment assignments carry for an experiment's name (murmur3, 32 bits).
+fn hashed(name: &str) -> u32 {
+    let mut h = 0u32;
+    let scramble = |k: u32| k.wrapping_mul(0xcc9e2d51).rotate_left(15).wrapping_mul(0x1b873593);
+    let mut chunks = name.as_bytes().chunks_exact(4);
+    for c in &mut chunks {
+        h = (h ^ scramble(u32::from_le_bytes([c[0], c[1], c[2], c[3]]))).rotate_left(13).wrapping_mul(5).wrapping_add(0xe6546b64);
+    }
+    let tail = chunks.remainder().iter().rev().fold(0u32, |k, b| (k << 8) | *b as u32);
+    h ^= scramble(tail) ^ name.len() as u32;
+    h = (h ^ (h >> 16)).wrapping_mul(0x85ebca6b);
+    h = (h ^ (h >> 13)).wrapping_mul(0xc2b2ae35);
+    h ^ (h >> 16)
+}
+
+/// Discord's getFavoritesAccess: the Favorites server is an experiment, for Nitro and for whoever
+/// its free arm picked. A gateway that sent no assignments leaves Nitro to decide.
+fn access(store: &Store) -> bool {
+    let nitro = store.me_raw["premium_type"].as_u64() == Some(2);
+    match &store.experiments {
+        Some(on) => {
+            let free = on.contains(&hashed("2026-08-favorites-server"));
+            (free || on.contains(&hashed("2026-01-favorites-server"))) && (nitro || free)
+        }
+        None => nitro,
+    }
+}
+
+/// The rail shows it while it is open, or when the account has it and its setting (or, unset, having any) says so.
 pub fn shown(app: &App) -> bool {
-    app.ui.guild == Some(ID) || app.store.favorites.enabled()
+    app.ui.guild == Some(ID) || (access(&app.store) && app.store.favorites.enabled())
 }
 
 /// Nitro gets 200, everyone else the free tier's 3; past 200 entries, categories included, nothing more goes in.
@@ -166,5 +194,35 @@ pub fn select(app: &mut App) {
         && let Some(c) = sections(&app.store).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text())
     {
         open(app, c.id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{access, hashed};
+    use crate::state::Store;
+
+    #[test]
+    fn experiment_names_hash_as_murmur3() {
+        assert_eq!(hashed(""), 0);
+        assert_eq!(hashed("hello"), 0x248bfa47);
+        assert_eq!(hashed("The quick brown fox jumps over the lazy dog"), 0x2e4ff723);
+    }
+
+    #[test]
+    fn the_favorites_server_is_for_nitro_or_the_free_arm_of_its_experiment() {
+        let mut s = Store::default();
+        assert!(!access(&s));
+        s.experiments = Some(std::iter::once(hashed("2026-01-favorites-server")).collect());
+        assert!(!access(&s));
+        s.me_raw = serde_json::json!({ "premium_type": 2 });
+        assert!(access(&s));
+        s.experiments = Some(Default::default());
+        assert!(!access(&s));
+        s.experiments = None;
+        assert!(access(&s));
+        s.me_raw = serde_json::Value::Null;
+        s.experiments = Some(std::iter::once(hashed("2026-08-favorites-server")).collect());
+        assert!(access(&s));
     }
 }
