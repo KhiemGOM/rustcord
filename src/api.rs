@@ -85,7 +85,7 @@ pub fn props() -> Value {
         "has_client_mods": false,
         "browser_user_agent": UA,
         "browser_version": "35.3.0",
-        "client_build_number": 455000,
+        "client_build_number": 670026,
         "native_build_number": 66000,
         "client_event_source": null
     })
