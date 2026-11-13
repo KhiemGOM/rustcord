@@ -350,10 +350,21 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// A profile's badges, `size` apiece, from x along cy. Each says what it is on hover and opens
-/// its page when clicked. Hands back where the next thing starts.
+/// A profile's badges, the account's then the server's, `size` apiece, from x along cy. Each says
+/// what it is on hover and opens its page when clicked; past six, the rest are a count. Hands back
+/// where the next thing starts.
 pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) -> f32 {
-    for b in p.and_then(|p| p["badges"].as_array()).into_iter().flatten() {
+    let mut all: Vec<&Value> = p.and_then(|p| p["badges"].as_array()).into_iter().flatten().collect();
+    for b in p.and_then(|p| p["guild_badges"].as_array()).into_iter().flatten() {
+        if !all.iter().any(|a| a["id"] == b["id"]) {
+            all.push(b);
+        }
+    }
+    let more = all.len().saturating_sub(6);
+    if more > 0 {
+        all.truncate(6);
+    }
+    for b in all {
         let Some(icon) = b["icon"].as_str() else { continue };
         let br = Rect::from_min_size(pos2(x, cy - size / 2.0), vec2(size, size));
         egui::Image::from_uri(format!("{}/badge-icons/{icon}.png", crate::api::cdn())).show_loading_spinner(false).paint_at(ui, br);
@@ -367,6 +378,9 @@ pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) ->
             }
         }
         x += size + 2.0;
+    }
+    if more > 0 {
+        x = ui.painter().text(pos2(x + 3.0, cy), Align2::LEFT_CENTER, format!("+{more}"), reg(14.0), pal().header_primary).right() + 2.0;
     }
     x
 }
