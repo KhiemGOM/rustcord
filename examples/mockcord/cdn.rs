@@ -34,6 +34,8 @@ pub fn query(path: &str, key: &str) -> Option<String> {
     q.split('&').find_map(|kv| kv.strip_prefix(key)?.strip_prefix('=')).map(str::to_string)
 }
 
+const SIZES: [u32; 31] = [16, 20, 22, 24, 28, 32, 40, 44, 48, 56, 60, 64, 80, 96, 100, 128, 160, 240, 256, 300, 320, 480, 512, 600, 640, 1024, 1280, 1536, 2048, 3072, 4096];
+
 /// None when the path is fine; otherwise discord's refusal.
 pub fn check(path: &str) -> Option<Reply> {
     let clean = path.split('?').next().unwrap_or("");
@@ -43,6 +45,7 @@ pub fn check(path: &str) -> Option<Reply> {
             numeric(id) && hashed(file)
         }
         ["cdn", "guilds", g, "users", u, "avatars" | "banners", file] => numeric(g) && numeric(u) && hashed(file),
+        ["cdn", "avatars", u, "archived", id, file] => numeric(u) && numeric(id) && hashed(file),
         ["cdn", "emojis", file] => numbered(file, &["png", "webp", "gif", "jpg"]),
         ["cdn", "stickers", file] => numbered(file, &["png", "webp", "gif", "json"]),
         ["cdn", "embed", "avatars", file] => split(file).is_some_and(|(s, e)| s.len() == 1 && s.as_bytes()[0] < b'6' && e == "png"),
@@ -58,7 +61,7 @@ pub fn check(path: &str) -> Option<Reply> {
     }
     if let Some(s) = query(path, "size") {
         match s.parse::<u32>() {
-            Ok(n) if (16..=4096).contains(&n) => {}
+            Ok(n) if SIZES.contains(&n) => {}
             _ => return Some(reject(400, "Invalid size")),
         }
     }

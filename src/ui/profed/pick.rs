@@ -59,58 +59,68 @@ fn footer_button(ui: &mut Ui, r: Rect, label: &str, primary: bool, on: bool, key
     resp.clicked() && on
 }
 
-fn avatars_url(uid: Id, h: &str) -> String {
-    format!("{}/avatars/{uid}/{h}.png?size=128", crate::api::cdn())
+fn avatars_url(uid: Id, id: &str, h: &str) -> String {
+    format!("{}/avatars/{uid}/archived/{id}/{h}.png?size=128", crate::api::cdn())
 }
 
 fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let me = app.store.me;
     let list = remote(app, "avatars", "/users/@me/avatars").cloned();
     let recent: Vec<(String, String)> = match &list {
-        Some(Ok(v)) => v.as_array().into_iter().flatten().map(|a| (a["id"].as_str().map_or_else(|| a["id"].to_string(), str::to_string), a["hash"].as_str().or(a["avatar"].as_str()).unwrap_or("").to_string())).collect(),
+        Some(Ok(v)) => v["avatars"].as_array().into_iter().flatten().filter_map(|a| Some((a["id"].as_str()?.to_string(), a["storage_hash"].as_str()?.to_string()))).collect(),
         _ => Vec::new(),
     };
-    let nitro = app.store.nitro();
     let shift = ctx.input(|i| i.modifiers.shift);
     let (mut upload, mut gif, mut close, mut pick, mut del) = (false, false, false, None, None);
     let screen = ctx.content_rect();
-    let w = 560.0f32.min(screen.width() - 48.0);
+    let w = 478.0f32.min(screen.width() - 48.0);
     let m = motion::Modal::new("profed_avatar".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame()).show(ctx, |ui| {
         ui.set_width(w);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let area = ui.max_rect();
         let x = area.left() + 24.0;
-        heading(ui, x, area.top() + 36.0, "Select an Image", 24.0);
-        let c = Rect::from_min_size(pos2(area.right() - 56.0, area.top() + 20.0), vec2(32.0, 32.0));
+        heading(ui, x, area.top() + 37.0, "Select an Image", 20.0);
+        let c = Rect::from_center_size(pos2(area.right() - 28.0, area.top() + 29.0), vec2(32.0, 32.0));
         close |= round_icon(ui, c, Icon::Close, "Close", false).clicked();
-        let top = area.top() + 76.0;
+        let top = area.top() + 73.0;
         let half = (w - 48.0 - 8.0) / 2.0;
-        let up = Rect::from_min_size(pos2(x, top), vec2(half, half.min(220.0)));
-        let g = Rect::from_min_size(pos2(x + half + 8.0, top), vec2(half, half.min(220.0)));
+        let up = Rect::from_min_size(pos2(x, top), vec2(half, half));
+        let g = Rect::from_min_size(pos2(x + half + 8.0, top), vec2(half, half));
         let resp = tile(ui, up, "upload", false);
-        icons::draw(ui.painter(), Icon::Upload, Rect::from_center_size(up.center() - vec2(0.0, 14.0), vec2(28.0, 28.0)), pal().header_primary);
-        ui.painter().text(up.center() + vec2(0.0, 24.0), Align2::CENTER_CENTER, "Upload Image", medium(14.0), pal().header_primary);
+        icons::draw(ui.painter(), Icon::Upload, Rect::from_center_size(up.center() - vec2(0.0, 13.0), vec2(24.0, 24.0)), pal().header_primary);
+        ui.painter().text(up.center() + vec2(0.0, 16.0), Align2::CENTER_CENTER, "Upload Image", semi(14.0), pal().header_primary);
         mark(ui, "avatar:upload", up);
         upload = resp.on_hover_text("Upload a PNG, JPG, or GIF under 10MB").clicked();
         let resp = tile(ui, g, "gif", false);
         ui.painter().rect_filled(g.shrink(1.0), CornerRadius::same(8), Color32::from_rgb(0x1c, 0x22, 0x2a));
-        ui.painter().text(g.center() + vec2(0.0, 0.0), Align2::CENTER_CENTER, "Choose GIF", medium(14.0), Color32::WHITE);
-        icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(g.center().x - 58.0, g.center().y), vec2(16.0, 16.0)), Color32::WHITE);
+        for (i, file) in crate::ui::webart::CHOOSE_GIF.iter().enumerate() {
+            let (col, row) = ((i % 2) as f32, (i / 2) as f32);
+            let q = Rect::from_min_size(g.min + vec2(col * half / 2.0, row * half / 2.0), vec2(half / 2.0, half / 2.0));
+            let cr = CornerRadius { nw: if i == 0 { 8 } else { 0 }, ne: if i == 1 { 8 } else { 0 }, sw: if i == 2 { 8 } else { 0 }, se: if i == 3 { 8 } else { 0 } };
+            egui::Image::from_uri(crate::gif::uri(ui.ctx(), &crate::ui::webart::url(file), true)).corner_radius(cr).show_loading_spinner(false).paint_at(ui, q);
+        }
+        let badge = Rect::from_center_size(g.center() - vec2(0.0, 13.0), vec2(28.0, 20.0));
+        ui.painter().rect_filled(badge, CornerRadius::same(4), Color32::from_rgb(0x4e, 0x50, 0x58));
+        ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", semi(12.0), Color32::WHITE);
+        let label = ui.painter().layout_no_wrap("Choose GIF".into(), semi(14.0), pal().header_primary);
+        let lx = g.center().x - (label.size().x + 20.0) / 2.0;
+        let ly = g.center().y + 16.0;
+        icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(lx + 8.0, ly), vec2(16.0, 16.0)), pal().header_primary);
+        ui.painter().galley(pos2(lx + 20.0, ly - label.size().y / 2.0), label, pal().header_primary);
         mark(ui, "avatar:gif", g);
         gif = resp.clicked();
-        let mut y = top + up.height() + 28.0;
-        heading(ui, x, y + 10.0, "Recent Avatars", 16.0);
-        y += 28.0;
-        ui.painter().text(pos2(x, y + 9.0), Align2::LEFT_CENTER, "Access your 6 most recent avatar uploads.", reg(14.0), pal().header_secondary);
-        y += 36.0;
-        let step = ((w - 48.0 - 66.0) / 5.0).clamp(40.0, 80.0);
-        let d = (step - 8.0).min(66.0);
+        let mut y = top + up.height() + 23.0;
+        ui.painter().text(pos2(x, y + 10.5), Align2::LEFT_CENTER, "Recent Avatars", medium(16.0), pal().header_primary);
+        y += 25.0;
+        ui.painter().text(pos2(x, y + 9.0), Align2::LEFT_CENTER, "Access your 6 most recent avatar uploads.", reg(14.0), pal().text_muted);
+        y += 34.0;
+        let (step, d) = (68.0, 56.0);
         for i in 0..6 {
             let r = Rect::from_min_size(pos2(x + i as f32 * step, y), vec2(d, d));
             match recent.get(i) {
                 Some((id, h)) => {
                     let resp = ui.interact(r, ui.id().with(("recent", i)), Sense::click());
-                    avatar(ui, r, &avatars_url(me, h));
+                    avatar(ui, r, &avatars_url(me, id, h));
                     mark(ui, &format!("avatar:recent:{i}"), r);
                     if ui.rect_contains_pointer(r) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -122,22 +132,20 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
                         if xr.on_hover_text(if shift { "Delete without asking" } else { "Delete avatar" }).clicked() {
                             del = Some(id.clone());
                         } else if resp.clicked() {
-                            pick = Some((id.clone(), avatars_url(me, h)));
+                            pick = Some((id.clone(), avatars_url(me, id, h)));
                         }
                     } else if resp.clicked() {
-                        pick = Some((id.clone(), avatars_url(me, h)));
+                        pick = Some((id.clone(), avatars_url(me, id, h)));
                     }
                 }
                 None => {
-                    ui.painter().circle_filled(r.center(), d / 2.0, faint(41));
-                    icons::draw(ui.painter(), Icon::Person, Rect::from_center_size(r.center(), vec2(d * 0.5, d * 0.5)), pal().header_secondary);
+                    ui.painter().circle_filled(r.center(), d / 2.0, faint(51));
+                    ui.painter().circle_filled(r.min + vec2(28.0, 16.5), 8.9, pal().bg_secondary);
+                    ui.painter().add(egui::Shape::ellipse_filled(r.min + vec2(28.0, 40.0), vec2(15.0, 10.0), pal().bg_secondary));
                 }
             }
         }
-        y += d + 12.0;
-        let room = 6usize.saturating_sub(recent.len());
-        ui.painter().text(pos2(x, y + 9.0), Align2::LEFT_CENTER, format!("You have room for {room} more avatar{}.", if room == 1 { "" } else { "s" }), reg(14.0), pal().header_secondary);
-        ui.allocate_rect(Rect::from_min_max(area.min, pos2(area.right(), y + 40.0)), Sense::hover());
+        ui.allocate_rect(Rect::from_min_max(area.min, pos2(area.right(), y + d + 24.0)), Sense::hover());
     });
     if let Some(id) = del {
         let go = move |app: &mut App| {
@@ -156,16 +164,28 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         ed.dlg = Dlg::None;
         card::pick_image(app);
     } else if gif {
-        if nitro {
-            ed.dlg = Dlg::None;
-            let c = ctx.content_rect().center();
-            app.open_gifs_for_profile(pos2(c.x + 248.0, c.y + 198.0));
-        } else {
-            app.toast("Animated avatars are exclusive to Nitro.");
-        }
+        ed.dlg = Dlg::None;
+        app.open_gifs_for_profile();
     } else if close || m.should_close() {
         ed.dlg = Dlg::None;
     }
+}
+
+pub fn gif_modal(ctx: &egui::Context, body: impl FnOnce(&mut Ui)) -> bool {
+    let mut close = false;
+    let h = (ctx.content_rect().height() - 116.0).clamp(300.0, 797.0);
+    let m = motion::Modal::new("profed_gif".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame()).show(ctx, |ui| {
+        ui.set_width(478.0);
+        ui.set_height(h);
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        let area = ui.max_rect();
+        heading(ui, area.left() + 24.0, area.top() + 37.0, "Choose GIF", 20.0);
+        let c = Rect::from_center_size(pos2(area.right() - 28.0, area.top() + 29.0), vec2(32.0, 32.0));
+        close = round_icon(ui, c, Icon::Close, "Close", false).clicked();
+        ui.add_space(72.0);
+        body(ui);
+    });
+    close || m.should_close()
 }
 
 /// A GIF picked for the avatar: once its picture has arrived it goes to the cropper.

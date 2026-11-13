@@ -11,6 +11,7 @@ pub const NO_BOOKMARKS: &str = "content/bd0327359da757ec3765798e53afa43e172da33e
 pub const NO_REMINDERS: &str = "content/995c79565fdbe049160aefe22dc300af4abbae1146c475d5f8b3b8c85173aabc.svg";
 pub const NOTHING_SCHEDULED: &str = "content/c5582c3bbb97001b8a0f4686a09a93c734eef416f3d0e3c83eba4b6e8bbee2c2.svg";
 pub const WUMPUS: &str = "content/2532e8cd0600ccfbc61ff81c21959bde90a6645d0e71644a92f6cde5bfc48439.png";
+pub const CHOOSE_GIF: [&str; 4] = ["153f9d50b423a199.gif", "e629538747745c9a.gif", "963f22200d58a4d8.gif", "918ac9ba948b5e6b.gif"];
 
 pub fn url(file: &str) -> String {
     format!("{}/assets/{file}", crate::api::asset())

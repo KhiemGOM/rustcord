@@ -32,8 +32,8 @@ impl App {
     }
 
     /// What /gif and the picker's box search for.
-    pub fn open_gifs_for_profile(&mut self, at: Pos2) {
-        self.open_gifs(at);
+    pub fn open_gifs_for_profile(&mut self) {
+        self.open_gifs(Pos2::ZERO);
         if let Some(g) = &mut self.gifs {
             g.profile = true;
         }
@@ -96,7 +96,8 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
     let mut open_favs = false;
     let home = g.query.is_empty() && !g.trending && !g.favorites;
     let mut cat_rects = Vec::new();
-    let (area, to) = crate::ui::picker::shell(ctx, g.at, Align2::RIGHT_BOTTOM, (!profile).then_some(crate::ui::picker::Tab::Gifs), |ui| {
+    let at = g.at;
+    let body = |ui: &mut Ui| {
         let r = crate::ui::picker::search_box(ui, &mut g.query, "Search Klipy", (!home).then_some(&mut back));
         r.request_focus();
         if r.changed() {
@@ -112,13 +113,14 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
                         return;
                     };
                     let top = ui.cursor().min;
+                    let tw = (ui.available_width() - 12.0) / 2.0;
                     // discord leads with Favorites once something's starred
                     let fav = favs.first().map(|f| ("Favorites".to_string(), Some(f.src.clone())));
                     let tiles = fav.into_iter().chain(std::iter::once(("Trending GIFs".to_string(), g.trend.clone()))).chain(cats.iter().map(|(n, s)| (n.clone(), Some(s.clone()))));
                     let first_cat = if favs.is_empty() { 1 } else { 2 };
                     let mut n = 0;
                     for (i, (name, src)) in tiles.enumerate() {
-                        let r = Rect::from_min_size(top + vec2((i % 2) as f32 * 242.0, (i / 2) as f32 * 122.0), vec2(230.0, 110.0));
+                        let r = Rect::from_min_size(top + vec2((i % 2) as f32 * (tw + 12.0), (i / 2) as f32 * 122.0), vec2(tw, 110.0));
                         let resp = ui.interact(r, egui::Id::new(("gifcat", i)), Sense::click());
                         if ui.is_rect_visible(r) {
                             ui.painter().rect_filled(r, CornerRadius::same(5), pal().bg_floating);
@@ -155,7 +157,7 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
                         }
                         n = i + 1;
                     }
-                    ui.allocate_space(vec2(472.0, n.div_ceil(2) as f32 * 122.0));
+                    ui.allocate_space(vec2(tw * 2.0 + 12.0, n.div_ceil(2) as f32 * 122.0));
                     return;
                 }
                 let shown = if g.favorites { Some(&favs) } else { g.results.as_ref() };
@@ -209,7 +211,13 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
                 }
             });
         });
-    });
+    };
+    let (area, to, shut) = if profile {
+        (None, None, crate::ui::profed::gif_modal(ctx, body))
+    } else {
+        let (area, to) = crate::ui::picker::shell(ctx, at, Align2::RIGHT_BOTTOM, Some(crate::ui::picker::Tab::Gifs), body);
+        (Some(area), to, false)
+    };
     if back {
         g.query.clear();
         g.trending = false;
@@ -245,7 +253,9 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
         crate::ui::picker::toggle(app, t);
     } else if let Some(url) = pick {
         app.gifs = None;
-        if profile {
+        if profile && !app.store.nitro() {
+            app.toast("Animated avatars are exclusive to Nitro.");
+        } else if profile {
             app.gif_load = Some(url);
         } else if let Some(ch) = app.cur() {
             // shift+click puts the link in the composer instead of sending it
@@ -262,7 +272,7 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
                 app.send_message(ch);
             }
         }
-    } else if dismissed(ctx, &area) && !crate::ui::picker::on_picker_button(app, ctx) {
+    } else if shut || area.is_some_and(|a| dismissed(ctx, &a) && !crate::ui::picker::on_picker_button(app, ctx)) {
         app.gifs = None;
     }
 }
