@@ -784,9 +784,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     for f in &friends {
                         let Some(u) = store.user(*f) else { continue };
-                        let (r, resp) = ui.allocate_exact_size(vec2(432.0, 62.0), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(432.0, 48.0), Sense::click());
+                        ui.add_space(6.0);
                         row_frame(ui, r, &resp);
-                        let a = Rect::from_min_size(pos2(r.left() + 3.0, r.top() + 11.0), vec2(40.0, 40.0));
+                        let a = Rect::from_min_size(pos2(r.left() + 3.5, r.top() + 3.5), vec2(40.0, 40.0));
                         avatar(ui, a, &u.avatar_url());
                         status_dot(ui, a, store.status(*f), pal().bg_primary);
                         let line = Some(store.status(*f)).filter(|s| *s != crate::state::Status::Offline).and_then(|_| store.activity_line(*f));
@@ -814,9 +815,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         row_frame(ui, r, &resp);
                         let a = Rect::from_min_size(pos2(r.left() + 4.0, r.top() + 4.0), vec2(40.0, 40.0));
                         match g.icon_url() {
-                            Some(url) => crate::gif::paint_still(ui, &url, a, CornerRadius::same(10), false),
+                            Some(url) => crate::gif::paint_still(ui, &url, a, CornerRadius::same(12), false),
                             None => {
-                                ui.painter().rect_filled(a, CornerRadius::same(10), pal().blurple);
+                                ui.painter().rect_filled(a, CornerRadius::same(12), pal().blurple);
                                 ui.painter().text(a.center(), Align2::CENTER_CENTER, g.acronym(), medium(10.0), Color32::WHITE);
                             }
                         }
