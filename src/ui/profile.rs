@@ -784,13 +784,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     for f in &friends {
                         let Some(u) = store.user(*f) else { continue };
-                        let (r, resp) = ui.allocate_exact_size(vec2(432.0, 56.0), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(432.0, 62.0), Sense::click());
                         row_frame(ui, r, &resp);
-                        let a = Rect::from_min_size(pos2(r.left() + 12.0, r.top() + 12.0), vec2(32.0, 32.0));
+                        let a = Rect::from_min_size(pos2(r.left() + 3.0, r.top() + 11.0), vec2(40.0, 40.0));
                         avatar(ui, a, &u.avatar_url());
                         status_dot(ui, a, store.status(*f), pal().bg_primary);
-                        text::paint(ui.painter(), pos2(a.right() + 12.0, r.top() + 20.0), Align2::LEFT_CENTER, u.display(), semi(16.0), pal().header_primary, 300.0);
-                        text::paint(ui.painter(), pos2(a.right() + 12.0, r.top() + 38.0), Align2::LEFT_CENTER, &u.username, reg(12.0), pal().header_secondary, 300.0);
+                        let line = Some(store.status(*f)).filter(|s| *s != crate::state::Status::Offline).and_then(|_| store.activity_line(*f));
+                        let y = if line.is_some() { a.center().y - 8.5 } else { a.center().y };
+                        let nr = text::paint(ui.painter(), pos2(a.right() + 10.0, y), Align2::LEFT_CENTER, u.display(), medium(16.0), pal().text_normal, 300.0);
+                        super::tag_chip(ui.painter(), u, pos2(nr.right() + 4.0, nr.center().y), 1.0);
+                        if let Some(line) = line {
+                            super::members::status_line(ui.painter(), line, a.right() + 10.0, a.center().y + 10.0, r.right(), pal().text_normal, 12.0, "");
+                        }
                         if resp.clicked() {
                             act = Some(Do::Open(*f));
                         }
