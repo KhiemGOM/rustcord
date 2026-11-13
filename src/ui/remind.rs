@@ -45,6 +45,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let e = ui.put(inner, egui::TextEdit::singleline(&mut c.text).hint_text(RichText::new("5pm, tomorrow 9am, in 2 hours, friday").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(egui::Margin::ZERO));
             super::settings::mark(ui, "remind_custom:input", r);
             ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.advance_cursor_after_rect(r);
             if std::mem::take(&mut c.fresh) {
                 e.request_focus();
             }

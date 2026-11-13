@@ -838,9 +838,11 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
                 }
                 ui.memory_mut(|m| m.request_focus(tid));
                 let mut sink = String::new();
+                // put: a focus sink; the bar is placed by rect
                 ui.put(Rect::from_min_size(vr.min, vec2(1.0, 1.0)), egui::TextEdit::singleline(&mut sink).id(tid).event_filter(egui::EventFilter { tab: true, escape: true, horizontal_arrows: true, vertical_arrows: true }).frame(Frame::NONE).margin(Margin::ZERO).desired_width(1.0));
             } else {
                 let edit = egui::TextEdit::singleline(draft_ref).id(tid).event_filter(egui::EventFilter { tab: true, escape: true, horizontal_arrows: true, vertical_arrows: true }).frame(Frame::NONE).margin(Margin::ZERO).font(reg(16.0)).text_color(pal().text_normal).interactive(!off).desired_width(vr.width());
+                // put: the bar is placed by rect
                 ui.put(Rect::from_min_size(pos2(vr.left(), top + 17.0), vec2(vr.width() + 2.0, 22.0)), edit);
             }
         } else {
@@ -856,6 +858,7 @@ pub fn row(app: &mut App, ui: &mut Ui, chan: &Channel, tid: egui::Id, width: f32
     }
     if vis.is_empty() {
         let mut sink = String::new();
+        // put: a focus sink; the bar is placed by rect
         ui.put(Rect::from_min_size(pos2(x, top + 17.0), vec2(1.0, 22.0)), egui::TextEdit::singleline(&mut sink).id(tid).event_filter(egui::EventFilter { tab: true, escape: true, horizontal_arrows: true, vertical_arrows: true }).frame(Frame::NONE).margin(Margin::ZERO).desired_width(1.0));
         ui.memory_mut(|m| m.request_focus(tid));
     }

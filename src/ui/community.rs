@@ -901,6 +901,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 .hint_text(RichText::new("Search Channels").font(reg(16.0)).color(pal().text_muted))
                 .desired_width(field.width()),
         );
+        ui.advance_cursor_after_rect(b);
         ui.add_space(20.0);
         create = super::button(ui, "+ Create", pal().blurple, 120.0).clicked();
     });

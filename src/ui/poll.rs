@@ -78,6 +78,7 @@ fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f
     let inner = Rect::from_min_max(pos2(r.left() + left, r.top() + (h - 20.0) / 2.0), pos2(r.right() - right, r.bottom() - (h - 20.0) / 2.0));
     let e = ui.put(inner, egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
     ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+    ui.advance_cursor_after_rect(r);
     if focus {
         e.request_focus();
     }

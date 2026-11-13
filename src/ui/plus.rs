@@ -122,6 +122,7 @@ pub fn launcher(app: &mut App, ctx: &egui::Context) {
                         egui::TextEdit::singleline(&mut l.q).hint_text("Search Apps & Commands").font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                     );
                     ui.painter().rect_stroke(sr, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
+                    ui.advance_cursor_after_rect(sr);
                     if std::mem::take(&mut l.fresh) {
                         e.request_focus();
                     }

@@ -224,6 +224,7 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO),
             );
+            ui.advance_cursor_after_rect(field);
             save = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             r.request_focus();
             ui.add_space(24.0);

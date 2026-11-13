@@ -201,6 +201,7 @@ pub(super) fn made_invite(app: &mut App, ctx: &egui::Context) {
                 );
                 ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 crate::ui::icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0)), pal().header_primary);
+                ui.advance_cursor_after_rect(field);
                 // discord's warning circle: yellow with the "!" cut out of it
                 if store.locked(chan) {
                     ui.add_space(8.0);

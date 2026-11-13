@@ -114,6 +114,7 @@ pub fn emoji(app: &mut App, ui: &mut Ui, gid: Id) {
             let field = Rect::from_min_size(pos2(resp.rect.left() + resp.rect.width() * 0.18, resp.rect.center().y - 16.0), vec2(resp.rect.width() * 0.3, 32.0));
             let mut name = edited.clone().unwrap_or_else(|| e.name.clone());
             let te = ui.put(field, egui::TextEdit::singleline(&mut name).font(medium(16.0)).text_color(pal().text_normal).margin(egui::Margin::symmetric(8, 6)));
+            ui.advance_cursor_after_rect(resp.rect);
             if name != e.name {
                 if let Some(s) = &mut app.server {
                     s.pages.emoji.names.insert(id, name.clone());

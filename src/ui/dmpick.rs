@@ -100,10 +100,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     egui::TextEdit::singleline(&mut p.q).hint_text(RichText::new("Search").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(field, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
+                ui.advance_cursor_after_rect(row);
                 if std::mem::take(&mut p.fresh) || ui.memory(|m| m.focused().is_none()) {
                     e.request_focus();
                 }
-                ui.add_space(13.7);
+                ui.add_space(3.7);
                 ui.label(RichText::new("Add friends or server members to group DMs.").font(reg(12.0)).color(pal().header_secondary));
                 ui.add_space(8.0);
             });

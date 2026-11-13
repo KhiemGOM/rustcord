@@ -205,6 +205,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                         crate::ui::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(r.right() - 29.0, r.center().y), vec2(18.0, 18.0)), pal().header_secondary);
                         let field = Rect::from_min_max(pos2(r.left() + 16.0, r.top() + 1.0), pos2(r.right() - 44.0, r.bottom() - 1.0));
                         let hint = if replying { format!("Reply to {name}'s status") } else { format!("Message @{name}") };
+                        // put: the last thing laid out in the footer
                         let edit = ui.put(
                             field,
                             egui::TextEdit::singleline(&mut text)

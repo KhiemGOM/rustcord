@@ -57,6 +57,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                 let (field, _) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::hover());
                 ui.painter().rect_filled(field, 8, pal().input_bg);
                 let inner = Rect::from_min_max(pos2(field.left() + 38.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0));
+                // put: the rest of the field is painted by rect
                 let r = ui.put(
                     inner,
                     egui::TextEdit::singleline(&mut f.query)
@@ -146,6 +147,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                     let field = Rect::from_min_size(row.min, vec2(320.0, 40.0));
                     ui.painter().rect(field, 8, pal().input_bg, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     let inner = Rect::from_min_max(pos2(field.left() + 16.0, field.center().y - 10.0), pos2(field.right() - 44.0, field.center().y + 10.0));
+                    // put: the rest of the row is placed by rect
                     ui.put(
                         inner,
                         egui::TextEdit::singleline(&mut f.note)
@@ -247,6 +249,7 @@ pub(super) fn new_thread(app: &mut App, ctx: &egui::Context) {
                     egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(r, 8, egui::Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.advance_cursor_after_rect(r);
                 if focus {
                     e.request_focus();
                 }
