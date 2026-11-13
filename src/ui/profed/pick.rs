@@ -536,7 +536,7 @@ fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     for g in &ids {
         if !app.guild_profiles.contains_key(g) {
             app.guild_profiles.insert(*g, Value::Null);
-            app.rest("GET", format!("/guild-profile/{g}"), None, Tag::GuildProfile(*g));
+            app.rest("GET", format!("/guilds/{g}/profile"), None, Tag::GuildProfile(*g));
         }
     }
     let q = ed.tag_q.to_lowercase();

@@ -132,7 +132,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
         if crate::ui::tagpop::hit(ui, r, ("msg_tag", m.id))
             && let Some((_, g, _)) = user.and_then(|u| u.tag.as_ref())
         {
-            d.acts.push(Act::Tag(*g, r.left_bottom() + vec2(0.0, 8.0)));
+            d.acts.push(Act::Tag(*g, r.right_top() + vec2(8.0, -3.0)));
         }
         x = r.right() + 4.0;
     }

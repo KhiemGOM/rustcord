@@ -1260,7 +1260,7 @@ fn profile_full(w: &W, gid: &str) -> Option<Value> {
     let g = guild_full(w, gid)?;
     let mut p = json!({ "id": gid, "name": g["name"], "description": "", "icon_hash": g["icon"], "brand_color_primary": null, "visibility": 1, "traits": [],
                         "game_application_ids": ["7100"], "games": [{ "id": "7100", "name": "Mockcord Quest" }], "member_count": g["member_count"], "online_count": 3,
-                        "tag": "", "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
+                        "tag": if gid == "1001" { "RUST" } else { "" }, "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
     if let Some(e) = w.lock().unwrap().edits.get(&format!("p:{gid}")).and_then(|e| e.as_object()) {
         for (k, v) in e {
             p[k] = v.clone();
@@ -1830,10 +1830,6 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             { "content": { "id": snow(now_ms() - 7_200_000).to_string(), "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
             { "content": { "id": snow(now_ms() - 259_200_000).to_string(), "content_type": 6, "author_id": "101", "extra": { "artist": { "name": "marQ" } } } },
         ] })),
-        ("GET", ["api", "v9", "guild-profile", id]) => ok(json!({
-            "id": id, "name": "Rustaceans", "icon_hash": null, "description": "Crabs only.", "member_count": 4200, "online_count": 321,
-            "tag": "RUST", "badge_hash": "", "premium_tier": 2, "premium_subscription_count": 14, "game_application_ids": [], "brand_color_primary": "#e67e22",
-        })),
         ("GET", ["api", "v9", "users", "@me", "mentions"]) => {
             let w = w.lock().unwrap();
             let list: Vec<&Value> = w.msgs.iter().rev().filter(|m| m["mentions"].as_array().is_some_and(|u| !u.is_empty())).take(25).collect();

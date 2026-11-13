@@ -24,6 +24,8 @@ pub struct Invite {
     members: u64,
     desc: String,
     badge: Option<Icon>,
+    tag: Option<(String, Option<String>)>,
+    traits: Vec<(Option<String>, String)>,
 }
 
 enum Entry {
@@ -72,27 +74,19 @@ impl Cache {
         };
         let cdn = crate::api::cdn();
         let features: Vec<&str> = p["features"].as_array().or(g["features"].as_array()).into_iter().flatten().filter_map(|f| f.as_str()).collect();
-        let badge = if features.contains(&"PARTNERED") {
-            Some(Icon::BadgePartner)
-        } else if features.contains(&"VERIFIED") {
-            Some(Icon::Verified)
-        } else if features.contains(&"COMMUNITY") {
-            Some(Icon::BadgeCommunity)
-        } else {
-            None
-        };
-        let color = p["brand_color_primary"].as_str().and_then(|h| u32::from_str_radix(h.trim_start_matches('#'), 16).ok()).map(|c| Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8));
         let count = |a: &serde_json::Value, b: &serde_json::Value| a.as_u64().or(b.as_u64()).unwrap_or(0);
         let inv = Invite {
             guild,
             name,
             icon: pick(&p["icon_hash"], &g["icon"]).map(|h| format!("{cdn}/icons/{guild}/{h}.png?size=128")),
             banner: pick(&p["banner_hash"], &g["banner"]).map(|h| format!("{cdn}/banners/{guild}/{h}.png?size=480")),
-            color,
+            color: brand(p),
             online: count(&p["online_count"], &v["approximate_presence_count"]),
             members: count(&p["member_count"], &v["approximate_member_count"]),
             desc: pick(&p["description"], &g["description"]).unwrap_or_default(),
-            badge,
+            badge: badge(&features),
+            tag: None,
+            traits: traits(p),
         };
         self.map.insert(code.to_string(), Entry::Found(inv));
     }
@@ -141,6 +135,56 @@ fn est(guild: Id) -> String {
     chrono::Local.timestamp_millis_opt(ms).single().map(|d| format!("Est. {}", d.format("%b %Y"))).unwrap_or_default()
 }
 
+fn badge(features: &[&str]) -> Option<Icon> {
+    if features.contains(&"PARTNERED") {
+        Some(Icon::BadgePartner)
+    } else if features.contains(&"VERIFIED") {
+        Some(Icon::Verified)
+    } else if features.contains(&"COMMUNITY") {
+        Some(Icon::BadgeCommunity)
+    } else {
+        None
+    }
+}
+
+fn brand(p: &serde_json::Value) -> Option<Color32> {
+    let c = u32::from_str_radix(p["brand_color_primary"].as_str()?.trim_start_matches('#'), 16).ok()?;
+    Some(Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8))
+}
+
+/// A server profile's traits: the emoji's picture, if it has one, and the label.
+fn traits(p: &serde_json::Value) -> Vec<(Option<String>, String)> {
+    let one = |t: &serde_json::Value| {
+        let emoji = match sid(&t["emoji_id"]) {
+            0 => t["emoji_name"].as_str().filter(|n| !n.is_empty()).map(crate::markdown::twemoji),
+            id => Some(crate::markdown::emoji_url(id, t["emoji_animated"].as_bool().unwrap_or(false))),
+        };
+        Some((emoji, t["label"].as_str().filter(|l| !l.is_empty())?.to_string()))
+    };
+    p["traits"].as_array().into_iter().flatten().filter_map(one).collect()
+}
+
+/// The same card as a server tag's popout, out of the server's profile.
+pub fn popout(ui: &mut Ui, store: &Store, guild: Id, p: &serde_json::Value) -> Option<Go> {
+    let cdn = crate::api::cdn();
+    let set = |k: &str| p[k].as_str().filter(|h| !h.is_empty());
+    let features: Vec<&str> = p["features"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect();
+    let inv = Invite {
+        guild,
+        name: set("name").unwrap_or_default().to_string(),
+        icon: set("icon_hash").map(|h| format!("{cdn}/icons/{guild}/{h}.png?size=128")),
+        banner: set("custom_banner_hash").map(|h| format!("{cdn}/discovery-splashes/{guild}/{h}.jpg?size=600")),
+        color: brand(p),
+        online: p["online_count"].as_u64().unwrap_or(0),
+        members: p["member_count"].as_u64().unwrap_or(0),
+        desc: set("description").unwrap_or_default().to_string(),
+        badge: badge(&features),
+        tag: set("tag").map(|t| (t.to_string(), set("badge_hash").map(|b| format!("{cdn}/guild-tag-badges/{guild}/{b}.png?size=32")))),
+        traits: traits(p),
+    };
+    live(ui, &inv, store.guilds.contains_key(&guild), false, &format!("tag:{guild}"), 300.0, 120.0)
+}
+
 pub fn card(ui: &mut Ui, store: &Store, cache: &mut Cache, code: &str, own: bool) -> Option<Go> {
     match cache.map.get(code) {
         None => {
@@ -150,7 +194,7 @@ pub fn card(ui: &mut Ui, store: &Store, cache: &mut Cache, code: &str, own: bool
         Some(Entry::Asked) => {
             ui.ctx().request_repaint_after_secs(0.5);
             let (r, _) = ui.allocate_exact_size(vec2(WIDTH, 120.0), Sense::hover());
-            frame(ui, r);
+            frame(ui, r, pal().bg_secondary);
             super::motion::paint_spinner(ui, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().text_muted);
             None
         }
@@ -162,13 +206,13 @@ pub fn card(ui: &mut Ui, store: &Store, cache: &mut Cache, code: &str, own: bool
         Some(Entry::Found(inv)) => {
             let member = store.guilds.contains_key(&inv.guild);
             let joining = cache.joining.contains(code) && !member;
-            live(ui, inv, member, joining, code)
+            live(ui, inv, member, joining, code, WIDTH, 72.0)
         }
     }
 }
 
-fn frame(ui: &Ui, r: Rect) {
-    ui.painter().rect_filled(r, CornerRadius::same(16), pal().bg_secondary);
+fn frame(ui: &Ui, r: Rect, fill: Color32) {
+    ui.painter().rect_filled(r, CornerRadius::same(16), fill);
     ui.painter().rect_stroke(r, CornerRadius::same(16), Stroke::new(1.0, pal().border_subtle), StrokeKind::Inside);
 }
 
@@ -176,7 +220,7 @@ fn gone(ui: &mut Ui, own: bool) -> Rect {
     let head = if own { "You sent an invite, but" } else { "You received an invite, but" };
     let sub = if own { "Try sending a new invite!" } else { "Ask for a new invite" };
     let (r, _) = ui.allocate_exact_size(vec2(WIDTH, 100.0), Sense::hover());
-    frame(ui, r);
+    frame(ui, r, pal().bg_secondary);
     let p = ui.painter();
     super::text::paint(p, pos2(r.left() + 16.0, r.top() + 22.0), Align2::LEFT_CENTER, head, medium(12.0), pal().text_muted, WIDTH - 32.0);
     let icon = Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 40.0), vec2(40.0, 40.0));
@@ -188,18 +232,23 @@ fn gone(ui: &mut Ui, own: bool) -> Rect {
     r
 }
 
-fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str) -> Option<Go> {
+/// `tall` is how far the banner runs: 72 under a message, 120 in a tag's popout.
+fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str, width: f32, tall: f32) -> Option<Go> {
+    let down = tall - 72.0;
+    // the popout is discord's profile surface with lighter small print; a message's card keeps the embed's
+    let (fill, quiet) = if down > 0.0 { (pal().bg_tertiary.blend(PROFILE_CARD), pal().header_secondary) } else { (pal().bg_secondary, pal().text_muted) };
     let font = reg(14.0);
     let desc = (!inv.desc.is_empty()).then(|| {
-        let mut job = egui::text::LayoutJob::simple(inv.desc.clone(), font.clone(), pal().text_muted, WIDTH - 34.0);
+        let mut job = egui::text::LayoutJob::simple(inv.desc.clone(), font.clone(), quiet, width - 34.0);
         job.wrap.max_rows = 5;
         ui.painter().layout_job(job)
     });
-    let footer = desc.as_ref().map_or(189.0, |g| 197.0 + g.size().y);
-    let (r, _) = ui.allocate_exact_size(vec2(WIDTH, footer + 49.0), Sense::hover());
+    let pills = down + desc.as_ref().map_or(189.0, |g| 197.0 + g.size().y);
+    let footer = pills + if inv.traits.is_empty() { 0.0 } else { 44.0 };
+    let (r, _) = ui.allocate_exact_size(vec2(width, footer + 49.0), Sense::hover());
     let p = ui.painter().clone();
-    frame(ui, r);
-    let banner = Rect::from_min_size(r.min + vec2(1.0, 1.0), vec2(WIDTH - 2.0, 72.0));
+    frame(ui, r, fill);
+    let banner = Rect::from_min_size(r.min + vec2(1.0, 1.0), vec2(width - 2.0, tall));
     let top = CornerRadius { nw: 15, ne: 15, sw: 0, se: 0 };
     match &inv.banner {
         Some(url) => {
@@ -218,8 +267,8 @@ fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str) -> O
             p.add(Shape::mesh(mesh));
         }
     }
-    let wrap = Rect::from_min_size(r.min + vec2(17.0, 39.0), vec2(70.0, 70.0));
-    p.rect_filled(wrap, CornerRadius::same(20), Color32::from_rgb(0x17, 0x18, 0x1b));
+    let wrap = Rect::from_min_size(r.min + vec2(17.0, 39.0 + down), vec2(70.0, 70.0));
+    p.rect_filled(wrap, CornerRadius::same(20), if down > 0.0 { fill } else { Color32::from_rgb(0x17, 0x18, 0x1b) });
     let icon = wrap.shrink(3.0);
     match &inv.icon {
         Some(url) => crate::gif::paint_still(ui, url, icon, CornerRadius::same(17), false),
@@ -230,21 +279,48 @@ fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str) -> O
         }
     }
     let x = r.left() + 17.0;
-    let w = WIDTH - 34.0;
-    let name = super::text::paint(&p, pos2(x, r.top() + 127.0), Align2::LEFT_CENTER, &inv.name, semi(16.0), pal().header_primary, w - 22.0);
+    let w = width - 34.0;
+    let top = r.top() + down;
+    let name = super::text::paint(&p, pos2(x, top + 127.0), Align2::LEFT_CENTER, &inv.name, semi(16.0), pal().header_primary, w - 22.0);
+    let mut after = name.right() + 5.0;
     if let Some(b) = inv.badge {
-        icons::draw(&p, b, Rect::from_min_size(pos2(name.right() + 4.0, r.top() + 118.0), vec2(18.0, 18.0)), Color32::WHITE);
+        icons::draw(&p, b, Rect::from_min_size(pos2(name.right() + 4.0, top + 118.0), vec2(18.0, 18.0)), Color32::WHITE);
+        after += 22.0;
     }
-    let dot = |at: f32, col: Color32| p.circle_filled(pos2(x + at + 4.0, r.top() + 150.0), 4.0, col);
+    if let Some((tag, art)) = &inv.tag {
+        let g = p.layout_no_wrap(tag.clone(), semi(12.0), pal().text_normal);
+        let chip = Rect::from_min_size(pos2(after, top + 119.0), vec2(8.0 + if art.is_some() { 16.0 } else { 0.0 } + g.size().x, 16.0));
+        p.rect_filled(chip, CornerRadius::same(4), Color32::from_rgba_unmultiplied(151, 151, 159, 61));
+        if let Some(url) = art {
+            super::text::image_tint(&p, url, Rect::from_min_size(chip.min + vec2(4.0, 1.0), vec2(14.0, 14.0)), Color32::WHITE);
+        }
+        p.galley(pos2(chip.right() - 4.0 - g.size().x, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
+    }
+    let dot = |at: f32, col: Color32| p.circle_filled(pos2(x + at + 4.0, top + 150.0), 4.0, col);
     dot(0.0, pal().positive);
     let online = format!("{} Online", thousands(inv.online));
-    let a = super::text::paint(&p, pos2(x + 12.0, r.top() + 146.0), Align2::LEFT_CENTER, &online, font.clone(), pal().text_muted, w);
+    let a = super::text::paint(&p, pos2(x + 12.0, top + 146.0), Align2::LEFT_CENTER, &online, font.clone(), quiet, w);
     let at = a.right() + 8.0 - x;
     dot(at, pal().text_muted);
-    super::text::paint(&p, pos2(x + at + 12.0, r.top() + 146.0), Align2::LEFT_CENTER, &format!("{} Members", thousands(inv.members)), font.clone(), pal().text_muted, w);
-    super::text::paint(&p, pos2(x, r.top() + 164.0), Align2::LEFT_CENTER, &est(inv.guild), font, pal().text_muted, w);
+    super::text::paint(&p, pos2(x + at + 12.0, top + 146.0), Align2::LEFT_CENTER, &format!("{} Members", thousands(inv.members)), font.clone(), quiet, w);
+    super::text::paint(&p, pos2(x, top + 164.0), Align2::LEFT_CENTER, &est(inv.guild), font.clone(), quiet, w);
     if let Some(g) = desc {
-        p.galley(pos2(x, r.top() + 181.0), g, pal().text_muted);
+        p.galley(pos2(x, top + 181.0), g, quiet);
+    }
+    let mut left = x;
+    for (emoji, label) in &inv.traits {
+        let g = p.layout_no_wrap(label.clone(), font.clone(), pal().text_normal);
+        let lead = if emoji.is_some() { 29.0 } else { 9.0 };
+        let pill = Rect::from_min_size(pos2(left, r.top() + pills), vec2(lead + g.size().x + 9.0, 28.0));
+        if pill.right() > x + w {
+            break;
+        }
+        p.rect_stroke(pill, CornerRadius::same(14), Stroke::new(1.0, pal().border_subtle), StrokeKind::Inside);
+        if let Some(url) = emoji {
+            super::text::image(&p, url, Rect::from_min_size(pill.min + vec2(9.0, 6.0), vec2(16.0, 16.0)));
+        }
+        p.galley(pos2(pill.left() + lead, pill.center().y - g.size().y / 2.0), g, pal().text_normal);
+        left = pill.right() + 4.0;
     }
     let b = Rect::from_min_size(pos2(x, r.bottom() - 49.0), vec2(w, 32.0));
     let resp = ui.interact(b, egui::Id::new(("invite_join", code)), Sense::click());
