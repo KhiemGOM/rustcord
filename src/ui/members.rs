@@ -447,10 +447,11 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     let mut menu = None;
     let mut invite = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        ui.add_space(16.0);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add_space(19.5);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Members — {}", people.len()), medium(14.0), pal().channel_default);
+        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Members—{}", people.len()), medium(14.0), pal().channel_default);
+        ui.add_space(2.0);
         for uid in people {
             let Some(u) = store.user(uid) else { continue };
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
@@ -468,12 +469,14 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             } else {
                 status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
-            let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), medium(16.0), pal().header_secondary.gamma_multiply(fade), inner.right() - av.right() - 40.0);
+            let mut nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), name_font(u.font, 16.0), crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)).gamma_multiply(fade), inner.right() - av.right() - 40.0);
             if chan.owner == uid {
                 let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
                 ui.interact(cr, ui.id().with(("owner", uid)), Sense::hover()).on_hover_text("Group Owner");
+                nr = nr.union(cr);
             }
+            super::tag_chip(ui.painter(), u, pos2(nr.right() + 4.0, row.center().y), fade);
             if resp.clicked() && ui.input(|i| i.modifiers.shift) {
                 mention = Some(uid);
             } else if resp.clicked() {
