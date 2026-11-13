@@ -14,7 +14,7 @@ use crate::theme::*;
 
 const PAGE: usize = 24;
 const CARD_H: f32 = 322.0;
-const GAP: f32 = 15.0;
+const GAP: f32 = 16.0;
 
 #[derive(Default)]
 pub struct Feed {
@@ -127,7 +127,8 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
         let (hr, _) = ui.allocate_exact_size(vec2(w, if searching { 72.0 } else { 48.0 }), Sense::hover());
         ui.painter().text(pos2(hr.left() + 44.0, hr.bottom() - 12.0), Align2::LEFT_BOTTOM, head, semi(20.0), pal().header_primary);
         ui.add_space(16.0);
-        egui::Frame::new().inner_margin(Margin::symmetric(32, 0)).show(ui, |ui| {
+        // discord's grid stops a scrollbar's width short on the right
+        egui::Frame::new().inner_margin(Margin { left: 32, right: 40, top: 0, bottom: 0 }).show(ui, |ui| {
             if guilds.is_empty() {
                 let msg = if first && loading { None } else { Some(if searching { "No servers found." } else { "Nothing here yet." }) };
                 match msg {
@@ -206,7 +207,7 @@ fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
     let id = g["id"].as_str().unwrap_or_default();
     let resp = ui.interact(r, ui.id().with(("server_card", id)), Sense::click());
     let radius = CornerRadius::same(8);
-    ui.painter().rect_filled(r, radius, pal().bg_secondary);
+    ui.painter().rect_filled(r, radius, pal().bg_primary);
     let banner = Rect::from_min_size(r.min + vec2(1.0, 1.0), vec2(r.width() - 2.0, 146.0));
     let cdn = crate::api::cdn();
     let art = [("discovery_splash", "discovery-splashes"), ("banner", "banners"), ("splash", "splashes")].into_iter().find_map(|(k, dir)| g[k].as_str().map(|h| format!("{cdn}/{dir}/{id}/{h}.png?size=480")));
@@ -215,7 +216,7 @@ fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
         egui::Image::from_uri(u).corner_radius(CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 }).show_loading_spinner(false).paint_at(ui, banner);
     }
     let icon = Rect::from_min_size(r.min + vec2(16.0, 118.0), vec2(48.0, 48.0));
-    ui.painter().rect_filled(icon.expand(4.0), CornerRadius::same(18), pal().bg_secondary);
+    ui.painter().rect_filled(icon.expand(4.0), CornerRadius::same(18), pal().bg_primary);
     match g["icon"].as_str() {
         Some(h) => egui::Image::from_uri(format!("{cdn}/icons/{id}/{h}.png?size=96")).corner_radius(CornerRadius::same(14)).show_loading_spinner(false).paint_at(ui, icon),
         None => {
