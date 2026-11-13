@@ -152,6 +152,8 @@ pub struct Store {
     pub account: crate::proto::Account,
     #[serde(default)]
     pub favorites: crate::proto::favorites::Favorites,
+    #[serde(skip)]
+    pub dismissed: Map<u64, (u64, u64)>,
     // the experiments READY put this account in, by the hash of their names; None when it sent none
     #[serde(skip)]
     pub experiments: Option<Set<u32>>,

@@ -227,6 +227,9 @@ pub fn route(method: &str, parts: &[&str], query: &str, body: &[u8]) -> Option<(
             Some((200, json!({ "skus": skus, "skus_to_user_and_reason": {}, "applications": [], "storefront_pricing": null })))
         }
         ("GET", ["api", "v9", "collectibles-categories", "v2"]) => Some((200, json!({ "categories": categories(), "collections": [] }))),
+        ("GET", ["api", "v9", "users", "@me", "collectibles-marketing"]) => Some((200, json!({ "marketings": {
+            "0": { "type": 4, "version": 7, "title": "Mock Collection", "body": "New mock styles in Shop now.", "asset": "", "dismissible_content": 422 },
+        } }))),
         ("POST", ["api", "v9", "mock", "wishlist-reset"]) => {
             WISH.lock().unwrap().clear();
             Some((200, json!({})))

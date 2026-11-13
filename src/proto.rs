@@ -640,6 +640,41 @@ pub fn peers_patch(peers: &Map<Id, Peer>, last: Id) -> Vec<u8> {
     out
 }
 
+pub fn dismissed_versions(settings: &[u8]) -> Map<u64, (u64, u64)> {
+    let mut out = Map::default();
+    for (f, v) in fields(settings) {
+        let (4, Val::Bytes(uc)) = (f, v) else { continue };
+        for (f, e) in fields(uc) {
+            let (7, Val::Bytes(e)) = (f, e) else { continue };
+            let entry = fields(e);
+            let Some(key) = entry.iter().find_map(|(f, v)| match (f, v) { (1, Val::Int(k)) => Some(*k), _ => None }) else { continue };
+            let state = entry.iter().find_map(|(f, v)| match (f, v) { (2, Val::Bytes(s)) => Some(fields(s)), _ => None }).unwrap_or_default();
+            let int = |n: u64| state.iter().find_map(|(f, v)| match (f, v) { (f, Val::Int(x)) if *f == n => Some(*x), _ => None }).unwrap_or(0);
+            out.insert(key, (int(1), int(4)));
+        }
+    }
+    out
+}
+
+pub fn dismiss_patch(content: u64, version: u64, now_ms: u64, times: u64) -> Vec<u8> {
+    let mut state = Vec::new();
+    tag(&mut state, 1, 0);
+    put(&mut state, version);
+    tag(&mut state, 2, 0);
+    put(&mut state, now_ms);
+    tag(&mut state, 4, 0);
+    put(&mut state, times);
+    let mut entry = Vec::new();
+    tag(&mut entry, 1, 0);
+    put(&mut entry, content);
+    message(&mut entry, 2, &state);
+    let mut uc = Vec::new();
+    message(&mut uc, 7, &entry);
+    let mut out = Vec::new();
+    message(&mut out, 4, &uc);
+    out
+}
+
 /// An update to the status settings (11): the status, when it ends (zero for never) and when it was set.
 pub fn status_patch(status: &str, expires_ms: u64, created_ms: u64) -> Vec<u8> {
     let mut value = Vec::new();
@@ -774,4 +809,16 @@ pub fn appearance_patch(body: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     message(&mut out, 13, body);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_dismissal_reads_back_as_its_version() {
+        let mut raw = super::dismiss_patch(422, 104, 1_790_000_000_000, 4);
+        raw.extend(super::dismiss_patch(470, 3, 1_790_000_000_000, 1));
+        let read = super::dismissed_versions(&raw);
+        assert_eq!(read.get(&422), Some(&(104, 4)));
+        assert_eq!(read.get(&470), Some(&(3, 1)));
+    }
 }

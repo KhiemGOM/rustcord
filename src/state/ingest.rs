@@ -464,6 +464,7 @@ impl Store {
                 self.load_privacy(&raw, true);
                 self.account = crate::proto::account(&raw, true);
                 self.favorites = crate::proto::favorites::read(&raw).unwrap_or_default();
+                self.dismissed = crate::proto::dismissed_versions(&raw);
                 (self.custom_status, self.custom_emoji) = Self::own_custom(crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten());
                 self.own_status(&raw);
             }

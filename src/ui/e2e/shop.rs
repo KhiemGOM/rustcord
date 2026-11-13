@@ -81,6 +81,9 @@ impl Run {
                     return;
                 }
                 let Some(r) = app.rects.get("home:Shop").copied() else { return };
+                if at("home:shop_new").is_some() {
+                    self.mark("shop_new_pill");
+                }
                 self.click(r.center());
                 self.next(0);
                 self.step = 3206;
@@ -90,6 +93,9 @@ impl Run {
                     return;
                 }
                 self.mark("shop_featured");
+                if at("home:shop_new").is_none() {
+                    self.mark("shop_new_gone");
+                }
                 if at("shop:tile:All Ears").is_some() && at("shop:card:5101").is_some() {
                     self.mark("shop_featured_content");
                 }

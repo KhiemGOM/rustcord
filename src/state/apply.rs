@@ -422,6 +422,10 @@ impl Store {
                         self.arrange(folders, &seen);
                     }
                     self.account.merge(crate::proto::account(&raw, full));
+                    if full {
+                        self.dismissed.clear();
+                    }
+                    self.dismissed.extend(crate::proto::dismissed_versions(&raw));
                     if let Some(f) = crate::proto::favorites::read(&raw) {
                         self.favorites = f;
                     } else if full {

@@ -30,6 +30,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro Home"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
             let shop = app.shop.as_ref().map(|s| s.page);
+            let promo = shop_promo(app);
             for (icon, label) in rows {
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
                 let inner = row.shrink2(vec2(8.0, 0.0));
@@ -48,6 +49,9 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
+                if label == "Shop" && promo.is_some() {
+                    new_pill(ui, pos2(inner.right() - 16.0, row.center().y));
+                }
                 if label == "Friends" {
                     if pending > 0 {
                         badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
@@ -61,7 +65,14 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     match label {
                         "Quests" => app.open_quests(),
                         "Nitro Home" => app.open_shop(crate::ui::shop::Page::Nitro),
-                        "Shop" => app.open_shop(crate::ui::shop::Page::Shop),
+                        "Shop" => {
+                            if let Some((dc, version)) = promo {
+                                let times = app.store.dismissed.get(&dc).map_or(0, |d| d.1) + 1;
+                                app.store.dismissed.insert(dc, (version, times));
+                                app.proto_patch(crate::proto::dismiss_patch(dc, version, chrono::Utc::now().timestamp_millis() as u64, times), crate::net::Tag::Quiet);
+                            }
+                            app.open_shop(crate::ui::shop::Page::Shop)
+                        }
                         _ => {
                             app.friends = true;
                             app.quests = None;
@@ -133,6 +144,26 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     if cleanup {
         app.user_dialog = Some(crate::ui::userdlg::Dialog::cleanup());
     }
+}
+
+fn shop_promo(app: &mut App) -> Option<(u64, u64)> {
+    let (dc, version) = {
+        let Some(Ok(v)) = crate::ui::settings::remote(app, "shop_marketing", "/users/@me/collectibles-marketing?platform=0") else { return None };
+        let m = &v["marketings"]["0"];
+        if !matches!(m["type"].as_u64(), Some(1 | 3 | 4)) {
+            return None;
+        }
+        (m["dismissible_content"].as_u64()?, m["version"].as_u64()?)
+    };
+    (app.store.dismissed.get(&dc).map_or(0, |d| d.0) < version).then_some((dc, version))
+}
+
+fn new_pill(ui: &mut Ui, right_center: egui::Pos2) {
+    let g = ui.painter().layout_no_wrap("NEW".into(), semi(12.0), Color32::from_rgb(0x2f, 0x30, 0x35));
+    let r = Rect::from_min_max(pos2(right_center.x - g.size().x - 16.0, right_center.y - 8.0), pos2(right_center.x, right_center.y + 8.0));
+    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::WHITE);
+    ui.painter().galley(pos2(r.left() + 8.0, r.center().y - g.size().y / 2.0), g, Color32::WHITE);
+    crate::ui::settings::mark(ui, "home:shop_new", r);
 }
 
 pub(super) const WAVE_STICKER: Id = 749054660769218631;

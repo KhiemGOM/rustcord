@@ -1,6 +1,7 @@
 """Checks for shop_steps in src/ui/e2e/shop.rs: Nitro Home and the Shop are pages of the client,
 fetched from the calls Discord's own pages make, and only a Nitro purchase opens the checkout window."""
 
+import base64
 import json
 
 import web
@@ -15,6 +16,9 @@ def checks(runs, reqs, data):
     paths = [r.get("path", "") for r in reqs]
     has = lambda part: any(part in p for p in paths)
     gift = sum(s.get("page", "").endswith("&gift=true") and s.get("token") == '"mock-token"' for s in web.pages(reqs))
+    dismissed = any(blob.startswith(b"\x22") and b"\x08\xa6\x03\x12" in blob for blob in (
+        base64.b64decode(web.body(r).get("settings", "")) for r in reqs if r.get("method") == "PATCH" and r.get("path", "").endswith("/settings-proto/1")))
+    cold = runs.get("cold", {}).get("marks_ms", {})
     wished = any(r.get("method") == "POST" and r.get("path", "").endswith("/users/@me/wishlist/items") and web.body(r).get("sku_id") == "5101" for r in reqs)
     return {
         "nitro: the Nitro Home row opened the page, with the plans, the subscription and the gift buttons": both("nitro_page") and has("/subscription-plans") and has("/billing/subscriptions"),
@@ -23,6 +27,8 @@ def checks(runs, reqs, data):
         "nitro: Subscribe on a plan card opened the purchase dialog in the client": both("nitro_subscribe_checkout"),
         "shop: the Shop row opened Featured from the catalog calls": both("shop_featured") and has("/collectibles-shop?") and has("/collectibles-categories/v2"),
         "shop: Featured drew the hero's items and the category tiles": both("shop_featured_content"),
+        "shop: discord's shop marketing put NEW on the Shop row, and opening the Shop dismissed it on the account": "shop_new_pill" in cold and "shop_new_gone" in cold
+            and has("/users/@me/collectibles-marketing?platform=0") and dismissed,
         "shop: Browse listed the catalog and Show only filtered it": both("shop_browse") and both("shop_filter"),
         "shop: a card opened the product, and it closed on Escape and on the backdrop": both("shop_detail") and both("shop_detail_escape") and both("shop_detail_backdrop"),
         "shop: the heart added the item to the wishlist on discord and the wishlist tab lists it": both("shop_wish") and wished and both("shop_wishlist"),
