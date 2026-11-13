@@ -145,6 +145,7 @@ pub(crate) use popmenu::menu_row;
 pub(crate) use popmenu::menu_row_at;
 pub(crate) use popmenu::menu_sep;
 pub(crate) use popmenu::tag_chip;
+pub(crate) use popmenu::profile_tag;
 pub(crate) use popmenu::app_tag;
 pub(crate) use popmenu::channel_title;
 mod inputs;

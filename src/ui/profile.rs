@@ -561,7 +561,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 24.0) } else { semi(24.0) };
         let nr = text::paint(ui.painter(), pos2(x, y + 16.5), Align2::LEFT_CENTER, &name, face, pal().text_normal, 336.0);
         if user.bot {
-            super::app_tag(ui.painter(), pos2(nr.right() + 8.0, nr.center().y), user.flags & (1 << 16) != 0, 1.0);
+            super::app_tag(ui.painter(), pos2(nr.right() + 8.0, nr.center().y), user.flags & (1 << 16) != 0, 1.0, false);
         }
         y += 34.3;
         let mut r = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), pal().header_primary, 200.0);
@@ -569,7 +569,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.painter().circle_filled(pos2(r.right() + 9.0, r.center().y), 2.0, pal().header_primary);
             r = text::paint(ui.painter(), pos2(r.right() + 18.0, y + 9.0), Align2::LEFT_CENTER, pr, reg(14.0), pal().header_primary, 120.0);
         }
-        let chip = super::tag_chip(ui.painter(), &user, pos2(r.right() + 8.0, r.center().y), 1.0);
+        let chip = super::profile_tag(ui.painter(), &user, pos2(r.right() + 8.0, r.center().y));
         let next = chip.map_or(r.right() + 8.0, |t| t.right() + 6.0);
         if let Some(t) = chip
             && super::tagpop::hit(ui, t, "fp_tag")

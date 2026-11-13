@@ -154,7 +154,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     }
                     if let Some(u) = store.user(*uid) {
                         if bot {
-                            tx = super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade).right() + 4.0;
+                            tx = super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade, false).right() + 4.0;
                         } else if let Some(r) = super::tag_chip(ui.painter(), u, pos2(tx, ny), fade) {
                             tx = r.right() + 4.0;
                         }

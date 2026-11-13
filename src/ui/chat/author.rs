@@ -146,7 +146,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
         x = ir.right();
     }
     if let Some(u) = user.filter(|u| u.bot) {
-        x = crate::ui::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
+        x = crate::ui::app_tag(ui.painter(), pos2(x, cy + 0.6), u.flags & (1 << 16) != 0, 1.0, true).right() + 4.0;
     }
     let op = d.store.channels.get(&d.ch).is_some_and(|c| c.is_thread() && c.owner == m.author && d.store.channels.get(&c.parent).is_some_and(|p| p.is_forum()));
     if op {

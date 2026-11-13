@@ -532,7 +532,7 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
                 click_flag(ui.ctx(), "card_name_clicked", user.id);
             }
             if user.bot {
-                crate::ui::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0);
+                crate::ui::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0, false);
             }
         });
         ui.add_space(1.3);
@@ -551,7 +551,7 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
                 ui.add_space(18.0);
                 r = text::label(ui, pr, reg(14.0), pal().header_primary, Sense::hover()).rect;
             }
-            let chip = crate::ui::tag_chip(ui.painter(), user, pos2(r.right() + 8.0, r.center().y), 1.0);
+            let chip = crate::ui::profile_tag(ui.painter(), user, pos2(r.right() + 8.0, r.center().y));
             if let Some(t) = chip
                 && crate::ui::tagpop::hit(ui, t, "card_tag")
                 && let Some((_, g, _)) = &user.tag

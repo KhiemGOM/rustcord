@@ -232,7 +232,7 @@ pub(crate) fn menu_sep(ui: &mut Ui) {
 /// Discord's server tag chip after a name: badge and tag on a grey wash, 16 tall.
 pub(crate) fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade: f32) -> Option<Rect> {
     let (tag, _, _) = u.tag.as_ref()?;
-    let ink = pal().header_primary.gamma_multiply(fade);
+    let ink = pal().text_normal.gamma_multiply(fade);
     let g = p.layout_no_wrap(tag.clone(), semi(12.0), ink);
     let badge = u.tag_badge_url();
     let w = 8.0 + if badge.is_some() { 16.0 } else { 0.0 } + g.size().x;
@@ -247,13 +247,32 @@ pub(crate) fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade
     Some(r)
 }
 
-/// The blurple "APP" tag after a bot's name, with the check for verified apps.
-pub(crate) fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32) -> Rect {
-    let g = p.layout_no_wrap("APP".into(), semi(12.0), Color32::WHITE);
-    let w = 8.0 + if verified { 16.0 } else { 0.0 } + g.size().x;
-    let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(w, 16.0));
+/// A profile's server tag: the same badge and tag as a button, 24 tall, in regular weight.
+pub(crate) fn profile_tag(p: &egui::Painter, u: &crate::state::User, at: Pos2) -> Option<Rect> {
+    let (tag, _, _) = u.tag.as_ref()?;
+    let g = p.layout_no_wrap(tag.clone(), reg(12.0), pal().text_normal);
+    let badge = u.tag_badge_url();
+    let w = 17.0 + if badge.is_some() { 16.0 } else { 0.0 } + g.size().x;
+    let r = Rect::from_min_size(pos2(at.x, at.y - 12.0), vec2(w, 24.0));
+    p.rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(151, 151, 159, 31));
+    let mut x = r.left() + 8.8;
+    if let Some(url) = badge {
+        text::image_tint(p, &url, Rect::from_min_size(pos2(x, at.y - 7.0), vec2(14.0, 14.0)), Color32::WHITE);
+        x += 16.0;
+    }
+    p.galley(pos2(x, at.y - g.size().y / 2.0), g, pal().text_normal);
+    Some(r)
+}
+
+/// The blurple "APP" tag after a bot's name, with the check for verified apps. A message's is a
+/// size up (0.8em of the name) and a pixel shorter.
+pub(crate) fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32, chat: bool) -> Rect {
+    let (size, pad, h) = if chat { (12.8, 4.4, 15.0) } else { (12.0, 4.0, 16.0) };
+    let g = p.layout_no_wrap("APP".into(), semi(size), Color32::WHITE);
+    let w = 2.0 * pad + if verified { 16.0 } else { 0.0 } + g.size().x;
+    let r = Rect::from_min_size(pos2(at.x, at.y - h / 2.0), vec2(w, h));
     p.rect_filled(r, CornerRadius::same(4), pal().blurple.gamma_multiply(fade.max(0.5)));
-    let mut x = r.left() + 4.0;
+    let mut x = r.left() + pad;
     if verified {
         icons::draw(p, icons::Icon::Verified, Rect::from_min_size(pos2(x - 2.0, at.y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
         x += 14.0;
