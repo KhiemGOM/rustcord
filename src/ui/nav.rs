@@ -95,7 +95,7 @@ impl App {
         }
     }
 
-    // history from REST has no member objects; ask the gateway for the authors it hasn't sent this
+    // history and forum posts from REST have no member objects; ask the gateway for the authors it hasn't sent this
     // connection (the cache's roles and nicknames may be old), and whoever they mention, bots'
     // embeds included, so names show nicknames and role colours like discord's
     pub(super) fn request_members(&mut self, ch: Id) {
@@ -107,6 +107,9 @@ impl App {
                 ids.push(id.to_string());
             }
         };
+        for p in self.store.forum_posts.get(&ch).into_iter().flatten() {
+            want(self.store.channels.get(p).map_or(0, |c| c.owner));
+        }
         for m in self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default() {
             want(m.author);
             m.mentions.iter().for_each(|u| want(*u));

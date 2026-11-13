@@ -143,7 +143,10 @@ impl App {
                     i.mentions = Some(list);
                 }
             }
-            Tag::Forum(f) => self.store.load_forum(f, &v),
+            Tag::Forum(f) => {
+                self.store.load_forum(f, &v);
+                self.request_members(f);
+            }
             Tag::Boosts(g, k) => boosts::load(self, g, k, &v),
             Tag::Created => create::created(self, &v),
             Tag::NewServer => newserver::created(self, &v),
