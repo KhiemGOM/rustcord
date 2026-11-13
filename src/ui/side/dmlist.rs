@@ -229,13 +229,13 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     }
     let mut act = None;
     if wave_here(store, c) {
-        let w = text::layout(ui.ctx(), "👋 Wave", medium(14.0), pal().text_normal, 400.0).size().x;
+        let w = text::layout_em(ui.ctx(), "👋 Wave", medium(14.0), pal().text_normal, 400.0, 1.0).size().x;
         let b = Rect::from_min_size(pos2(row.right() - 13.0 - w - 24.0, row.center().y - 16.0), vec2(w + 24.0, 32.0));
         let hit = ui.interact(b, ui.id().with(("dm_wave", c.id)), Sense::click());
         crate::ui::settings::mark(ui, &format!("dm_wave:{}", c.id), b);
         let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &hit));
-        ui.painter().rect_filled(b, CornerRadius::same(8), fill);
-        text::paint(ui.painter(), pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "👋 Wave", medium(14.0), pal().text_normal, w);
+        ui.painter().rect(b, CornerRadius::same(8), fill, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+        text::paint_em(ui.painter(), pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "👋 Wave", medium(14.0), pal().text_normal, w, 1.0);
         if hit.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
