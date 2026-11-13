@@ -176,9 +176,10 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
             crate::gif::paint_still(ui, &url, rect, radius, hot);
         }
         None => {
-            ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, pal().blurple, k));
-            let acr = g.acronym();
             let mini = rect.width() < 30.0;
+            let under = if mini { pal().bg_primary } else { pal().bg_mod_selected };
+            ui.painter().rect_filled(rect, radius, motion::mix(under, pal().blurple, k));
+            let acr = g.acronym();
             let size = match acr.chars().count() {
                 0..=2 => 17.0,
                 3 => 15.0,
@@ -437,10 +438,10 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
             // the corner on the folder's outside edge is the round one
             let mut cr = CornerRadius::same(4);
             match i {
-                0 => cr.nw = 10,
-                1 => cr.ne = 10,
-                2 => cr.sw = 10,
-                _ => cr.se = 10,
+                0 => cr.nw = 13,
+                1 => cr.ne = 13,
+                2 => cr.sw = 13,
+                _ => cr.se = 13,
             }
             guild_icon(app, ui, *g, cell, cr, false, 0.0);
         }
