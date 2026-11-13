@@ -122,12 +122,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     *t = t.chars().take(55).collect();
                 }
                 let (_, row) = field(ui, t, "Type your answer", 40.0, 44.0, 44.0, false);
-                let face = Rect::from_center_size(pos2(row.left() + 24.0, row.center().y), vec2(24.0, 24.0));
+                let face = Rect::from_center_size(pos2(row.left() + 28.0, row.center().y), vec2(24.0, 24.0));
                 let fr = ui.interact(face, ui.id().with(("poll_emoji", i)), Sense::click());
                 match e {
-                    Some(em) if em.id != 0 => text::image(ui.painter(), &format!("{}/emojis/{}.png?size=48", crate::api::emoji_cdn(), em.id), face.shrink(2.0)),
-                    Some(em) => text::image(ui.painter(), &crate::markdown::twemoji(&em.name), face.shrink(2.0)),
-                    None => icons::draw(ui.painter(), Icon::Smile, face.shrink(2.0), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &fr))),
+                    Some(em) if em.id != 0 => text::image(ui.painter(), &format!("{}/emojis/{}.png?size=48", crate::api::emoji_cdn(), em.id), face.shrink(3.0)),
+                    Some(em) => text::image(ui.painter(), &crate::markdown::twemoji(&em.name), face.shrink(3.0)),
+                    None => icons::draw(ui.painter(), Icon::Smile, face.shrink(3.0), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &fr))),
                 }
                 let at = fr.rect.left_top();
                 if fr.on_hover_text("Select Emoji").clicked() {
@@ -136,7 +136,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let tr = Rect::from_center_size(pos2(row.right() - 22.0, row.center().y), vec2(24.0, 24.0));
                 let tresp = ui.interact(tr, ui.id().with(("poll_del", i)), Sense::click());
                 let col = if many { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &tresp)) } else { pal().text_muted.gamma_multiply(0.5) };
-                icons::draw(ui.painter(), Icon::Trash, tr.shrink(2.0), col);
+                icons::draw(ui.painter(), Icon::Trash, tr.shrink(4.0), col);
                 if many && tresp.on_hover_text("Remove Answer").clicked() {
                     remove = Some(i);
                 }
