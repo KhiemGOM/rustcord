@@ -365,7 +365,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 }
                                 if draft.is_empty() {
                                     // painted here rather than as the hint so its emoji come from the system font, as discord's do
-                                    let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), if off { pal().text_muted } else { pal().channel_default }, w, 1.0);
+                                    let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().placeholder, w, 1.0);
                                     t.paint(ui.painter(), out.galley_pos);
                                 }
                                 if colon {

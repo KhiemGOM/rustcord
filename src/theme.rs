@@ -72,6 +72,8 @@ pub struct Palette {
     pub header_secondary: Color32,
     /// --channels-default
     pub channel_default: Color32,
+    /// --channel-text-area-placeholder
+    pub placeholder: Color32,
     /// --interactive-muted
     pub channel_muted: Color32,
     /// --interactive-text-hover
@@ -132,6 +134,7 @@ impl Palette {
             header_primary: f(self.header_primary),
             header_secondary: f(self.header_secondary),
             channel_default: f(self.channel_default),
+            placeholder: f(self.placeholder),
             channel_muted: f(self.channel_muted),
             interactive_hover: f(self.interactive_hover),
             link: f(self.link),
