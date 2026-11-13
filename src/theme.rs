@@ -736,6 +736,19 @@ pub fn name_font(font: u8, size: f32) -> FontId {
     }
 }
 
+/// The letter spacing Discord's css gives each display name font, in points at that size.
+pub fn name_spacing(font: &FontId) -> f32 {
+    let FontFamily::Name(family) = &font.family else { return 0.0 };
+    let em = match family.strip_prefix("name").and_then(|n| n.parse::<u8>().ok()) {
+        Some(3) => 0.04,
+        Some(12 | 14) => 0.03,
+        Some(7 | 8) => 0.02,
+        Some(6 | 10) => 0.01,
+        _ => 0.0,
+    };
+    em * font.size
+}
+
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(fonts(false));
     style(ctx);

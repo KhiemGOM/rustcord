@@ -33,7 +33,8 @@ pub fn layout_em(ctx: &egui::Context, text: &str, font: FontId, color: Color32, 
         break_anywhere: true,
         overflow_character: Some('…'),
     };
-    let fmt = TextFormat { font_id: font.clone(), color, valign: Align::Center, ..Default::default() };
+    let spacing = crate::theme::name_spacing(&font);
+    let fmt = TextFormat { font_id: font.clone(), color, valign: Align::Center, extra_letter_spacing: spacing, ..Default::default() };
     let mut emojis = Vec::new();
     if !has_emoji(text) {
         job.append(text, 0.0, fmt);
