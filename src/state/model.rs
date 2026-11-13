@@ -134,6 +134,9 @@ pub(crate) struct Channel {
     pub default_react: Option<ReactEmoji>,
     #[serde(default)]
     pub require_tag: bool,
+    /// IS_GUILD_RESOURCE_CHANNEL: one of the Server Guide's resources
+    #[serde(default)]
+    pub resource: bool,
     #[serde(default)]
     pub archive_after: u32,
     #[serde(default)]
@@ -203,6 +206,7 @@ impl Channel {
                 .map(|e| ReactEmoji { id: sid(&e["emoji_id"]), name: st(&e["emoji_name"]), animated: false })
                 .filter(|e| e.id != 0 || !e.name.is_empty()),
             require_tag: v["flags"].as_u64().unwrap_or(0) & (1 << 4) != 0,
+            resource: v["flags"].as_u64().unwrap_or(0) & (1 << 7) != 0,
             archive_after: v["default_auto_archive_duration"].as_u64().unwrap_or(0) as u32,
             last_pin: iso_ms(&v["last_pin_timestamp"]),
             nsfw: v["nsfw"].as_bool().unwrap_or(false),

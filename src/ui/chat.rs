@@ -313,7 +313,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     }
     // a channel opened from elsewhere in a server that only lists the ones you picked
-    if chan.guild != 0 && !chan.is_thread() && !app.store.listed(&chan) {
+    if chan.guild != 0 && !chan.is_thread() && !chan.resource && !app.store.listed(&chan) {
         egui::Panel::top("unlisted")
             .exact_size(49.0)
             .resizable(false)

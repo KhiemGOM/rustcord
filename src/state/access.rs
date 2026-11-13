@@ -88,6 +88,10 @@ impl Store {
         if !self.opt_in.contains(&c.guild) {
             return true;
         }
+        // the server guide's resources live there and nowhere in the list, picked or not
+        if c.resource && self.guilds.get(&c.guild).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY")) {
+            return false;
+        }
         let mut id = c.id;
         for _ in 0..3 {
             if self.opted.contains(&id) {
