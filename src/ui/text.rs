@@ -39,7 +39,7 @@ pub fn layout_em(ctx: &egui::Context, text: &str, font: FontId, color: Color32, 
     if !has_emoji(text) {
         job.append(text, 0.0, fmt);
     } else {
-        let size = (font.size * em).round();
+        let (size, adv) = if em == 1.0 { (font.size * 4.0 / 3.0, font.size * 1.375) } else { ((font.size * em).round(), (font.size * em).round() + 1.0) };
         let w = ctx.fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
         let gap = TextFormat { color: Color32::TRANSPARENT, ..fmt.clone() };
         let (mut chars, mut plain, mut i) = (0usize, 0usize, 0usize);
@@ -50,7 +50,7 @@ pub fn layout_em(ctx: &egui::Context, text: &str, font: FontId, color: Color32, 
                     let run = &text[plain..i];
                     job.append(run, 0.0, fmt.clone());
                     chars += run.chars().count();
-                    let lead = size - w + 1.0;
+                    let lead = adv - w;
                     job.append("\u{a0}", lead, gap.clone());
                     // names (em 1.0) draw emoji with the system font like discord's; message text uses twemoji
                     let url = if em == 1.0 { crate::emoji_font::uri(&rest[..n]) } else { twemoji(&rest[..n]) };

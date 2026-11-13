@@ -276,8 +276,8 @@ def main():
             and near((g("guildicon:1008")[0] or 0) + 40 - (g("voicebadge:1008")[0] or 0), 16)
             and near(g("chan:2303")[3], 32)
             and near(g("chanicon:2303")[2], 20)
-            # discord draws emoji in names at about the text size, not 1.25x of it
-            and 14 <= (g("chanemoji:2303")[3] or 0) <= 18
+            # segoe ui emoji draws a name's emoji at the text size, in a box a third taller than it
+            and 20 <= (g("chanemoji:2303")[3] or 0) <= 23
             and near(g("userpanel")[3], 56, 8.5)
             and near(g("member:101")[3], 42)
             and g("voicebadge:1008")[2] is not None and g("voicebadge:1004")[2] is None
