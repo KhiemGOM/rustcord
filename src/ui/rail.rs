@@ -401,7 +401,7 @@ fn upper_badge(ui: &Ui, icon_rect: Rect, icon: Icon, mine: bool, hole: Color32) 
 
 fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let open = app.ui.open_folders.contains(&f.id);
-    let color = f.color.map(role_color);
+    let color = f.color.filter(|c| *c != 0x5865f2).map(role_color);
     let mut unread = false;
     let mut mentions = 0;
     for g in &f.guilds {
