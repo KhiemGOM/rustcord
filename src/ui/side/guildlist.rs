@@ -162,8 +162,10 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             // under a banner the list starts where the banner ends
             ui.add_space(if banner.is_some() { 81.0 } else { 13.0 });
             let store = &app.store;
-            if let Some(g) = store.guilds.get(&gid).filter(|g| g.boost_bar) {
-                boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some());
+            match store.guilds.get(&gid).filter(|g| g.boost_bar) {
+                Some(g) => boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some()),
+                None if banner.is_some() => ui.add_space(15.5),
+                None => {}
             }
             let threads: Vec<&Channel> = store.threads_in(gid).filter(|c| c.joined && !c.archived).collect();
             // discord's "N New" on forums: open posts started since you last looked
