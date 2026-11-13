@@ -253,8 +253,8 @@ fn list(app: &mut App, ui: &mut Ui) {
                 ui.label(RichText::new(format!("{name} — {count}")).font(medium(14.0)).color(pal().text_normal));
                 ui.add_space(16.0);
             }
-            // discord's rows stop 20 short of the search field, where its scrollbar runs
-            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 20.0, 62.0), Sense::click());
+            // discord's rows stop 16 short of the search field, where its scrollbar runs
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 16.0, 62.0), Sense::click());
             app.rects.insert(format!("friend:{uid}"), row);
             ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
             super::motion::wash(ui, &resp, row.shrink2(vec2(-10.0, 1.0)), 8, pal().bg_mod_hover, 0.2);
