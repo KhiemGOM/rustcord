@@ -126,7 +126,8 @@ pub(super) fn gifs(app: &mut App, ctx: &egui::Context) {
                                 egui::Image::from_uri(crate::gif::uri(ui.ctx(), src, autoplay || resp.hovered())).corner_radius(CornerRadius::same(5)).show_loading_spinner(false).paint_at(ui, r);
                             }
                             let shade = if resp.hovered() { 140 } else { 184 };
-                            ui.painter().rect_filled(r, CornerRadius::same(5), egui::Color32::from_black_alpha(shade));
+                            let veil = if name == "Favorites" { wash(pal().blurple, 204) } else { egui::Color32::from_black_alpha(shade) };
+                            ui.painter().rect_filled(r, CornerRadius::same(5), veil);
                             let g = ui.painter().layout_no_wrap(name.clone(), semi(16.0), egui::Color32::WHITE);
                             let mut at = r.center() - g.size() / 2.0;
                             if i < first_cat {

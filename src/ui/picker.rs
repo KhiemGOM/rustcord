@@ -142,7 +142,7 @@ pub fn shell(ctx: &egui::Context, at: Pos2, pivot: Align2, tab: Option<Tab>, bod
                                 ui.painter().rect_filled(r, 8, if on { pal().control_hover } else { MENU_HOVER });
                             }
                             let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().text_normal, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
-                            ui.painter().galley(r.center() - g.size() / 2.0, g, col);
+                            ui.painter().galley_with_override_text_color(r.center() - g.size() / 2.0, g, col);
                             if resp.clicked() && !on {
                                 to = Some(t);
                             }
@@ -188,6 +188,7 @@ pub fn search_box_in(ui: &mut Ui, q: &mut String, hint: &str, back: Option<&mut 
         }
         None => super::icons::draw(ui.painter(), super::icons::Icon::Search, ir, pal().header_primary),
     }
+    ui.advance_cursor_after_rect(row);
     resp
 }
 
@@ -358,15 +359,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     super::motion::wash(ui, &resp, r.expand(2.0), 8, MENU_HOVER, 0.1);
                     let tip = match mark {
                         Mark::Star => {
-                            super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary);
+                            super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(4.0), pal().header_secondary);
                             "Favorites"
                         }
                         Mark::Clock => {
-                            super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary);
+                            super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(4.0), pal().header_secondary);
                             "Frequently Used"
                         }
                         Mark::Top(title) => {
-                            super::icons::draw(ui.painter(), super::icons::Icon::Fire, r.shrink(6.0), pal().header_secondary);
+                            super::icons::draw(ui.painter(), super::icons::Icon::Fire, r.shrink(4.0), pal().header_secondary);
                             title
                         }
                         Mark::Server(Some(url), name) => {
@@ -655,24 +656,24 @@ enum Lead<'a> {
 /// A section title in the picker. Clicking folds it; returns whether it's open.
 fn section(ui: &mut Ui, title: &str, lead: Lead, shut: &mut Vec<String>) -> bool {
     let open = !shut.iter().any(|s| s == title);
-    ui.add_space(12.0);
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-    let col = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
-    let mut x = r.left() + 12.0;
+    ui.add_space(if ui.min_rect().height() > 0.0 { 12.0 } else { 0.0 });
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+    let col = crate::ui::motion::mix(pal().text_normal, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
+    let mut x = r.left() + 8.0;
     let lr = Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0));
     match lead {
         Lead::None => {}
         Lead::Icon(i) => {
             super::icons::draw(ui.painter(), i, lr, col);
-            x += 22.0;
+            x += 20.0;
         }
         Lead::Image(url) => {
             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, lr);
-            x += 22.0;
+            x += 20.0;
         }
     }
     let t = ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, title, semi(14.0), col);
-    super::motion::chevron(ui, resp.id, open, Rect::from_center_size(pos2(t.right() + 10.0, r.center().y), vec2(12.0, 12.0)), col);
+    super::motion::chevron(ui, resp.id, open, Rect::from_center_size(pos2(t.right() + 12.0, r.center().y), vec2(16.0, 16.0)), col);
     if resp.clicked() {
         if open {
             shut.push(title.to_string());
@@ -680,7 +681,6 @@ fn section(ui: &mut Ui, title: &str, lead: Lead, shut: &mut Vec<String>) -> bool
             shut.retain(|s| s != title);
         }
     }
-    ui.add_space(4.0);
     open
 }
 
@@ -862,8 +862,8 @@ pub fn stickers(app: &mut App, ctx: &egui::Context) {
                         Some(url) => {
                             Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);
                         }
-                        None if *name == "Favorites" => super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(6.0), pal().header_secondary),
-                        None if *name == "Frequently Used" => super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(6.0), pal().header_secondary),
+                        None if *name == "Favorites" => super::icons::draw(ui.painter(), super::icons::Icon::Star, r.shrink(4.0), pal().header_secondary),
+                        None if *name == "Frequently Used" => super::icons::draw(ui.painter(), super::icons::Icon::Clock, r.shrink(4.0), pal().header_secondary),
                         None => {
                             ui.painter().rect_filled(r, 8, pal().bg_accent);
                             let initial: String = name.chars().filter(|c| !c.is_whitespace()).take(2).collect();
