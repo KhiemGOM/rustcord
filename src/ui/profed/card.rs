@@ -119,7 +119,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let w = rect.width();
     let back = ui.painter().add(Shape::Noop);
     let banner = Rect::from_min_size(o, vec2(w, 140.0));
-    let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
+    let cr = CornerRadius { nw: 16, ne: 16, sw: 0, se: 0 };
     let accent = ed.draft.accent.or(ed.draft.theme[0]).or(ed.draft.inherit_theme[0]).map(role_color).or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url())).unwrap_or(pal().blurple);
     ui.painter().rect_filled(banner, cr, accent);
     match (&ed.draft.banner, ed.draft.banner_url.as_ref().or(ed.draft.inherit_banner.as_ref())) {
@@ -299,8 +299,8 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let h = y - o.y;
     let card = Rect::from_min_size(o, vec2(w, h));
     let shape = match super::theme_pair(&ed.draft) {
-        Some((a, b)) => super::gradient_shape(ui, card, a, b, 8),
-        None => Shape::rect_filled(card, CornerRadius::same(8), pal().bg_secondary),
+        Some((a, b)) => super::gradient_shape(ui, card, a, b, 16),
+        None => Shape::rect_filled(card, CornerRadius::same(16), pal().bg_secondary),
     };
     ui.painter().set(back, shape);
     let (eff, frame) = (ed.draft.effect.as_ref().map(|e| e.sku.clone()).unwrap_or_default(), ed.draft.frame.as_ref().map(|e| e.sku.clone()).unwrap_or_default());
