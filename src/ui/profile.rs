@@ -573,7 +573,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let mut y = banner.bottom() + 80.0;
         let x = panel.left() + 32.0;
         let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 24.0) } else { semi(24.0) };
-        let nr = text::paint(ui.painter(), pos2(x, y + 16.5), Align2::LEFT_CENTER, &name, face, pal().text_normal, 336.0);
+        let nr = text::paint(ui.painter(), pos2(x, y + 16.5), Align2::LEFT_CENTER, &name, face, profile_name_ink(&user), 336.0);
         if user.bot {
             super::app_tag(ui.painter(), pos2(nr.right() + 8.0, nr.center().y), user.flags & (1 << 16) != 0, 1.0, false);
         }

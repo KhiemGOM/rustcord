@@ -524,7 +524,7 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { semi(20.0) };
-            let r = text::label(ui, name, face, pal().text_normal, Sense::click());
+            let r = text::label(ui, name, face, profile_name_ink(user), Sense::click());
             if r.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }

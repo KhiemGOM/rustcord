@@ -736,6 +736,15 @@ pub fn name_font(font: u8, size: f32) -> FontId {
     }
 }
 
+/// The colour Discord draws someone's display name in on their profile: their style's first
+/// colour, lifted to read on the card, or the plain text colour.
+pub fn profile_name_ink(user: &crate::state::User) -> Color32 {
+    match user.style.as_ref().filter(|_| view().name_styles).and_then(|(_, c)| c.first()) {
+        Some(c) => contrast(role_color(*c), pal().bg_secondary, 3.0),
+        None => pal().text_normal,
+    }
+}
+
 /// The letter spacing Discord's css gives each display name font, in points at that size.
 pub fn name_spacing(font: &FontId) -> f32 {
     let FontFamily::Name(family) = &font.family else { return 0.0 };
