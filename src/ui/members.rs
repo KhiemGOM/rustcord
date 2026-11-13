@@ -225,6 +225,10 @@ pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option
     }
     // watching and playing show just the name
     let (plain, bold) = if plain == "Playing " || plain == "Watching " { (bold, String::new()) } else { (plain, bold) };
+    if bold.is_empty() {
+        super::text::paint_em(p, pos2(x, y), egui::Align2::LEFT_CENTER, &plain, medium(size), col, right - x, 1.0);
+        return;
+    }
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = right - x;
     job.wrap.max_rows = 1;
