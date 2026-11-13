@@ -45,7 +45,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 } else if resp.hovered() {
                     ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
                 }
-                let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+                let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
                 if label == "Friends" {
@@ -195,10 +195,8 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         pal().header_primary
     } else if hovered {
         pal().interactive_hover
-    } else if muted {
-        pal().text_muted
     } else {
-        pal().channel_default
+        pal().text_muted
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
@@ -220,7 +218,8 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         let y = if line.is_some() { row.top() + 13.5 } else { row.center().y };
         let r = text::paint_em(ui.painter(), pos2(av.right() + 12.0, y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
         if let Some(u) = person {
-            crate::ui::tag_chip(&clip, u, pos2(r.right() + 4.0, y), 1.0);
+            // discord's plain name keeps 3.5 more before the tag than one in a display font
+            crate::ui::tag_chip(&clip, u, pos2(r.right() + if u.font == 0 { 7.5 } else { 4.0 }, y), 1.0);
         }
         if let Some(line) = line {
             crate::ui::members::status_line(&clip, line, av.right() + 12.0, row.top() + 30.0, right, col, 12.0, "");
