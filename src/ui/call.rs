@@ -658,9 +658,9 @@ pub fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color
 pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, shown: f32, icon: Icon) {
     ui.multiply_opacity(shown);
     ui.horizontal_centered(|ui| {
-        let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
         icons::draw(ui.painter(), icon, r, pal().channel_default);
-        ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(semi(16.0)).color(pal().header_primary)).selectable(false));
+        ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(medium(16.0)).color(pal().header_primary)).selectable(false));
         if !app.voice_chat {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());

@@ -54,10 +54,10 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .show_separator_line(false)
         // discord's search box sits 8 from the window's edge
         // and everything centres in the 48 above the border
-        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 16, right: 8, top: 0, bottom: 1 }))
+        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 15, right: 8, top: 0, bottom: 1 }))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.left() - 16.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
+            ui.painter().hline(r.left() - 15.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
             let panel = ui.max_rect();
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
@@ -76,16 +76,16 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 {
                     let ui = &mut group;
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    // discord's header icons are 20, the name 10 past them
+                    // discord's header icons are 20, the name 9 past them
                     let glyph = |ui: &mut Ui, icon: Icon| {
                         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                         icons::draw(ui.painter(), icon, r, pal().channel_default);
-                        ui.add_space(2.0);
+                        ui.add_space(1.0);
                     };
                     let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
                         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                         side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
-                        ui.add_space(2.0);
+                        ui.add_space(1.0);
                         r
                     };
                     match chan.kind {
