@@ -444,7 +444,7 @@ fn ago(ms: i64) -> String {
 pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     let store = &app.store;
     let mut people: Vec<Id> = chan.recipients.iter().copied().chain(std::iter::once(store.me)).collect();
-    people.sort_by_key(|u| store.user(*u).map(|u| u.display().to_lowercase()).unwrap_or_default());
+    people.sort_by_key(|u| store.user(*u).map(|u| u.username.to_lowercase()).unwrap_or_default());
     let mut clicked = None;
     // shift+click puts an @mention of them in the composer
     let mut mention = None;
