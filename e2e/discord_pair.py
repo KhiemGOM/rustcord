@@ -197,7 +197,10 @@ def pictures(discord, rustcord, screen):
     seen = lambda box: inside(centre(box['b']), box['clip']) and not any(
         over['z'] > box['z'] and inside(centre(box['b']), over['b']) and inside(centre(box['b']), over['clip']) for over in covers)
     ours = [box for box in rustcord['boxes'] if box.get('img') and seen(box)]
-    for picture in sorted((p for p in discord.get('images', []) if min(p['b'][2:]) >= 6), key=lambda p: p['b'][2] * p['b'][3]):
+    images = [p for p in discord.get('images', []) if min(p['b'][2:]) >= 6]
+    # an svg without paths, or one around another picture, is a mask or a frame, not something drawn
+    wraps = lambda svg: not svg.get('shape') or any(p is not svg and p['kind'] != 'svg' and inside(centre(p['b']), svg['b']) for p in images)
+    for picture in sorted((p for p in images if p['kind'] != 'svg' or not wraps(p)), key=lambda p: p['b'][2] * p['b'][3]):
         row = {'text': label(picture), 'region': region(picture['b'], screen), 'discord': picture['b']}
         near = [box for box in ours if abs(centre(box['b'])[0] - centre(picture['b'])[0]) <= 12 and abs(centre(box['b'])[1] - centre(picture['b'])[1]) <= 12
                 and 0.6 <= box['b'][2] / picture['b'][2] <= 1.6]

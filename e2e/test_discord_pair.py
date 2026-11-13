@@ -91,6 +91,14 @@ class Pictures(unittest.TestCase):
             ('corner radius', 'box 432x74'): [8, 4],
         })
 
+    def test_an_svg_that_only_masks_another_picture_is_not_a_picture(self):
+        discord = page([theirs('name', [503, 763, 80, 21])])
+        discord['images'] = [{'kind': 'svg', 'b': [12, 89, 48, 48], 'col': '#000000ff', 'shape': '31759072'},
+                             {'kind': 'img', 'b': [16, 93, 40, 40], 'src': 'https://cdn.discordapp.com/icons/1/a.png'},
+                             {'kind': 'svg', 'b': [89, 305, 40, 40], 'col': '#000000ff', 'shape': ''}]
+        rustcord = scene([ours('name', [503, 763, 80, 21])], [{'b': [16, 93, 40, 40], 'clip': [0, 0, 1707, 913], 'z': 0, 'fill': '#ffffffff', 'img': True}])
+        self.assertEqual(discord_pair.compare(discord, rustcord)[0], [])
+
 
 class Journeys(unittest.TestCase):
     def test_inputs_keep_discord_ids_and_the_route_discord_settled_on(self):
