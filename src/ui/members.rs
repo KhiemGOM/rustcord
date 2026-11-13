@@ -138,7 +138,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     let ny = if line.is_some() { row.top() + 15.0 } else { row.center().y };
                     let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
-                    if store.role_look(gid, *uid).is_some_and(|r| r.grad.len() >= 2) {
+                    if store.role_gradient(gid, *uid).is_some() {
                         named.push((format!("member_grad:{uid}"), nr));
                     }
                     if let Some(line) = line {
@@ -236,7 +236,7 @@ pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option
 }
 
 fn name_in(ui: &Ui, store: &Store, gid: Id, uid: Id, name: &str, face: egui::FontId, at: egui::Pos2, flat: Color32, fade: f32, max_w: f32, hot: bool) -> Rect {
-    match store.role_look(gid, uid).filter(|r| r.grad.len() >= 2) {
+    match store.role_gradient(gid, uid) {
         Some(r) => {
             let mut ink = super::chat::grad_ink(r);
             for s in &mut ink.stops {

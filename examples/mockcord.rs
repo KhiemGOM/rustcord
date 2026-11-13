@@ -959,11 +959,10 @@ If you'd like to upvote a suggestion, use the reaction!");
         { "id": "5200", "name": "omgBruh", "animated": false },
         { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
     ]);
+    // its Duo and Holographic roles are gradients, which discord only draws with this
+    guilds[0]["features"] = json!(["ENHANCED_ROLE_COLORS"]);
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
-    if let Some(f) = guilds[0]["features"].as_array_mut() {
-        f.push(json!("GUILD_TAGS"));
-    }
     guilds[1]["owner_id"] = json!(ME.to_string());
     // the roles the members table shows, which only the first server has otherwise
     let mut roles = guilds[0]["roles"].as_array().cloned().unwrap_or_default();

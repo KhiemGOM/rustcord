@@ -40,6 +40,13 @@ impl Store {
         m.roles.iter().filter_map(|r| g.roles.get(r)).filter(|r| r.color != 0).max_by_key(|r| r.position)
     }
 
+    /// Their top coloured role when it is a gradient and the server has Discord's enhanced role
+    /// colours; elsewhere Discord draws only a gradient role's first colour.
+    pub fn role_gradient(&self, guild: Id, user: Id) -> Option<&Role> {
+        let on = self.guilds.get(&guild)?.features.iter().any(|f| f == "ENHANCED_ROLE_COLORS");
+        self.role_look(guild, user).filter(|r| on && r.grad.len() >= 2)
+    }
+
     /// The role whose icon or emoji shows next to a member's name.
     pub fn role_icon(&self, guild: Id, user: Id) -> Option<&Role> {
         let g = self.guilds.get(&guild)?;

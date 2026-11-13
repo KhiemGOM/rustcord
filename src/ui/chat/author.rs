@@ -91,7 +91,7 @@ pub(super) fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     let solid = role.map(|r| role_color(r.color));
     match d.s.role_colors {
         InNames => match role {
-            Some(r) if r.grad.len() >= 2 => (grad_ink(r), None),
+            Some(r) if d.store.role_gradient(d.guild, who).is_some() => (grad_ink(r), None),
             _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), None),
         },
         NextToNames => (Ink::flat(pal().header_primary), solid),
