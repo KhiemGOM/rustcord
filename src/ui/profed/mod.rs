@@ -240,7 +240,8 @@ pub(self) fn gradient_shape(ui: &Ui, r: Rect, top: Color32, bottom: Color32, rad
 }
 
 pub fn theme_pair(d: &Draft) -> Option<(Color32, Color32)> {
-    match d.theme {
+    let theme = if d.theme == [None, None] { d.inherit_theme } else { d.theme };
+    match theme {
         [Some(a), Some(b)] => Some((dim(a), dim(b))),
         [Some(a), None] | [None, Some(a)] => Some((dim(a), dim(a))),
         _ => None,
