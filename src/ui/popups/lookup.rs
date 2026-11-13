@@ -408,7 +408,7 @@ pub(crate) fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
     let mut open = None;
     let mut create = false;
     let shadow = button.ctx.global_style().visuals.popup_shadow;
-    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow);
+    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(8).shadow(shadow);
     let menu = egui::Popup::menu(button).align(egui::RectAlign::BOTTOM_END).gap(8.0).frame(frame);
     menu.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         ui.set_width(597.0);
@@ -441,6 +441,8 @@ pub(crate) fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
         ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create", medium(14.0), egui::Color32::WHITE);
         create |= br.clicked();
+        ui.advance_cursor_after_rect(head);
+        let edge = |ui: &egui::Ui| ui.painter().rect_stroke(ui.min_rect(), 8, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
 
         let needle = q.to_lowercase();
         let mut list: Vec<_> = app
@@ -460,11 +462,12 @@ pub(crate) fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
             }
             p.text(pos2(c.x, body.top() + 232.0), Align2::CENTER_CENTER, "There are no threads.", semi(24.0), pal().header_primary);
             p.text(pos2(c.x, body.top() + 265.5), Align2::CENTER_CENTER, "Stay focused on a conversation with a thread - a temporary text channel.", reg(16.0), pal().text_normal);
-            let b = Rect::from_center_size(pos2(c.x, body.top() + 319.5), vec2(130.0, 40.0));
+            let b = Rect::from_center_size(pos2(c.x, body.top() + 320.0), vec2(130.0, 40.0));
             let br = ui.interact(b, ui.id().with("thread_create_big"), Sense::click());
             ui.painter().rect_filled(b, 8, crate::ui::motion::mix(pal().blurple, pal().blurple.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &br)));
             ui.painter().text(b.center(), Align2::CENTER_CENTER, "Create Thread", medium(16.0), egui::Color32::WHITE);
             create |= br.clicked();
+            edge(ui);
             if create {
                 ui.close();
             }
@@ -488,6 +491,7 @@ pub(crate) fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
                 }
             });
         });
+        edge(ui);
         if open.is_some() || create {
             ui.close();
         }
