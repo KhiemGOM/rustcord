@@ -242,7 +242,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
             pos2(av.right() + 12.0, row.center().y + 9.0),
             Align2::LEFT_CENTER,
             format!("{} Members", c.recipients.len() + 1),
-            reg(12.0),
+            medium(12.0),
             pal().text_muted,
         );
     } else {

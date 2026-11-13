@@ -824,7 +824,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                     let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
                     let stage = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
                     icons::draw(ui.painter(), if stage { Icon::Stage } else { Icon::Speaker }, r, pal().green);
-                    ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().header_secondary)).selectable(false));
+                    ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().text_muted)).selectable(false));
                 });
             } else if let Some(e) = app.store.custom_emoji.clone().filter(|e| e.id != 0 && matches!(app.conn, crate::net::Conn::Online) && !hot && !app.settings.hiding_personal()) {
                 ui.horizontal(|ui| {
