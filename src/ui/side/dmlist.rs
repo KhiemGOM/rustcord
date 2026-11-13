@@ -157,9 +157,9 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.contains_pointer();
     if selected {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
     }
     // discord greys a muted dm out: muted text, the avatar at .3, no count and no bold
     let muted = store.dm_muted(c.id);

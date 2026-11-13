@@ -205,9 +205,9 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
     ));
     let inner = Rect::from_min_max(pos2(row.left() + 36.0, row.top()), pos2(row.right() - 8.0, row.bottom()));
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
     } else if resp.hovered() {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
     }
     let col = if selected || unread {
         pal().header_primary
@@ -546,9 +546,9 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     // button away mid-click and hand the click to the row
     let hovered = resp.contains_pointer();
     if selected {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
     }
     let col = if selected || here || (unread && !muted) {
         pal().header_primary
@@ -673,7 +673,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
     for u in users {
         let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(4), pal().bg_mod_hover);
+            ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(8), pal().bg_mod_hover);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if resp.clicked() || resp.secondary_clicked() {
