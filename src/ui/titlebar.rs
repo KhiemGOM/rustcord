@@ -187,7 +187,7 @@ impl App {
 fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
     let radius = CornerRadius::same((rect.width() * 0.25) as u8);
     let Some(g) = store.guilds.get(&gid) else { return };
-    ui.painter().rect_filled(rect, radius, pal().bg_accent);
+    ui.painter().rect_filled(rect, radius, pal().bg_tertiary);
     match g.icon_url() {
         Some(url) => {
             Image::from_uri(url).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
