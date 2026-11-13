@@ -149,7 +149,7 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         cx += 20.0;
         p.text(pos2(cx, y), Align2::LEFT_CENTER, note, reg(14.0), pal().header_secondary);
     } else {
-        let t = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().header_secondary, r.right() - cx - 50.0);
+        let t = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().text_normal, r.right() - cx - 50.0);
         cx = t.right() + 4.0;
     }
     if rm.edited {
