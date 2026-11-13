@@ -131,7 +131,7 @@ pub fn modal_form(app: &mut App, ctx: &egui::Context) {
             ui.add_space(16.0);
         }
         label(ui, "Sound Name");
-        super::super::create::field(ui, &mut f.name, "Name your sound", None, 1);
+        super::super::create::field(ui, &mut f.name, "Name your sound", None, 1, None);
         f.name.truncate(32);
         ui.add_space(16.0);
         label(ui, "Emoji");

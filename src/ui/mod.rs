@@ -182,6 +182,7 @@ pub enum Pick {
     Quick(usize),
     // the emoji of an answer in the poll being made
     Poll(usize),
+    ChannelName,
 }
 
 const SAVE_FAILED: &str = "Failed to update your settings. Please try again.";

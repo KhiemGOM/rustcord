@@ -421,6 +421,7 @@ def main():
                               ("member list: a gradient role's name is drawn as its gradient", "member_grad"),
                               ("boosts: Server Boost opens the boosts page in the app, levels and perks from the catalogue", "boosts"),
                               ("create channel: typed into discord's modal, sent, and the new channel opened", "create_channel"),
+                              ("create channel: the name field's emoji button added a unicode emoji without closing the modal", "channel_name_emoji"),
                               ("active threads: the modal lists the server's threads and a card opens one", "active_threads"),
                               ("app directory: discover opens in the app with the featured collections", "directory"),
                               ("server settings: the layer opens on Roles with discord's member counts", "server_settings"),

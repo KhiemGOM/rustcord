@@ -212,6 +212,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             _ => servers.push((g.id, g.name.clone(), g.icon_url(), vec![(e.clone(), ok)])),
         }
     }
+    if matches!(target, Pick::ChannelName) {
+        servers.clear();
+    }
     if guild != 0 && !app.top_emojis.contains_key(&guild) {
         app.top_emojis.insert(guild, Vec::new());
         app.rest("GET", format!("/guilds/{guild}/top-emojis"), None, Tag::TopEmojis(guild));
@@ -632,6 +635,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
             }
             Pick::Status => super::cstatus::chose(app, c.react()),
+            Pick::ChannelName => {
+                if let (Chosen::Unicode(s), Some(f)) = (c, app.create.as_mut()) {
+                    f.name.push_str(s);
+                }
+            }
             Pick::Quick(slot) => {
                 let em = match c {
                     Chosen::Custom(e) => ReactEmoji { id: e.id, name: e.name, animated: e.animated },

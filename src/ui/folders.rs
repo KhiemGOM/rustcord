@@ -185,7 +185,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut done = false;
     let close = modal(ctx, "folder_settings", Some("Folder Settings"), |ui| {
         label(ui, "Folder Name");
-        field(ui, &mut e.name, "Server Folder", None, 1);
+        field(ui, &mut e.name, "Server Folder", None, 1, None);
         e.name = e.name.chars().take(32).collect();
         ui.add_space(20.0);
         label(ui, "Folder Color");

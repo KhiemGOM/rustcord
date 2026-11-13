@@ -3710,9 +3710,32 @@ impl Run {
                 self.next(400);
             }
             423 => {
-                // discord lowercases a text channel's name and swaps spaces for dashes as you type
-                if app.create.as_ref().is_none_or(|f| f.name != "e2e-room") {
-                    return self.fail(format!("create channel name became {:?}", app.create.as_ref().map(|f| f.name.clone())));
+                let pause = |this: &mut Self, ms: u64| this.wait = Instant::now() + Duration::from_millis(ms);
+                match self.sub {
+                    0 => {
+                        // discord lowercases a text channel's name and swaps spaces for dashes as you type
+                        if app.create.as_ref().is_none_or(|f| f.name != "e2e-room") {
+                            return self.fail(format!("create channel name became {:?}", app.create.as_ref().map(|f| f.name.clone())));
+                        }
+                        let Some(r) = Self::at(ctx, "field:emoji") else { return };
+                        self.click(r.center());
+                        self.sub = 1;
+                        return pause(self, 500);
+                    }
+                    1 => {
+                        let Some(r) = Self::at(ctx, "emoji0").filter(|_| matches!(app.picker, Some((crate::ui::Pick::ChannelName, _)))) else { return };
+                        self.click(r.center());
+                        self.sub = 2;
+                        return pause(self, 400);
+                    }
+                    _ => {
+                        let Some(f) = app.create.as_mut() else { return self.fail("picking an emoji closed create channel".into()) };
+                        if app.picker.is_none() && f.name.len() > "e2e-room".len() && !f.name.is_ascii() {
+                            self.mark("channel_name_emoji");
+                        }
+                        f.name = "e2e-room".into();
+                        self.sub = 0;
+                    }
                 }
                 self.shot(ctx, "create_channel.png");
                 let Some(r) = Self::at(ctx, "plate:Create Channel") else { return };
