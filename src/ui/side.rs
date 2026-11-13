@@ -88,7 +88,7 @@ pub fn foot(app: &App) -> f32 {
 /// sidebar's right edge. A game we detected gets the top of it, then the voice controls while
 /// connected.
 pub fn card(app: &mut App, ui: &mut Ui, rail: Rect, side: Rect) {
-    let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 8.0, side.bottom() - 8.0));
+    let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 9.0, side.bottom() - 8.0));
     ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 58.0), card.max);
     let mut top = card.top();

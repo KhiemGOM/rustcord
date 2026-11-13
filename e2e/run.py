@@ -561,8 +561,8 @@ def main():
         "layout: a member list squeezed by a narrow window gets its width back, and a click while squeezed saves nothing (both runs)":
             all(lay(r, "members_squeezed") < lay(r, "members_dragged") - 30 and near(lay(r, "members_back"), lay(r, "members_dragged"), 1)
                 and near(lay(r, "members_kept"), lay(r, "members_dragged"), 1) for r in (cold, warm)),
-        "layout: dragging the channel list far past its limit stops at discord's 359 and leaves the chat column >= 400 (both runs)":
-            all(lay(r, "side_max") <= 359.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
+        "layout: dragging the channel list far past its limit stops at discord's 361 and leaves the chat column >= 400 (both runs)":
+            all(lay(r, "side_max") <= 361.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
         "layout: warm run starts with the panel widths the cold run left":
             abs(lay(warm, "side_boot") - lay(cold, "side_final")) < 1 and abs(lay(warm, "members_boot") - lay(cold, "members_final")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,

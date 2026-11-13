@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) const SIDE_W: f32 = 304.0;
+
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         e2e::beat();
@@ -122,8 +124,8 @@ impl eframe::App for App {
             if !full {
                 themes::show(self, ui);
             }
-            // discord: 375 wide with the rail and its 1px frame line, draggable between 264 and 432
-            let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { 302.0 };
+            // discord: 375 wide with the rail, then a 1px line before the chat, draggable between 264 and 432
+            let side_w = if self.ui.side_w > 0.0 { self.ui.side_w } else { SIDE_W };
             let cr = if full {
                 egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| chat::show(self, ui)).response.rect
             } else if self.directory.is_some() {
@@ -137,12 +139,14 @@ impl eframe::App for App {
                 c.response.rect
             } else {
                 nav::keep_size(&ctx, "side", 0, side_w);
+                // discord's dm list sits a pixel right of where a server's channels do
+                let dms = self.ui.guild.is_none() as i8;
                 let r = egui::Panel::left("side")
                     .default_size(side_w)
-                    .size_range(191.0..=(w - 72.0 - 420.0).clamp(191.0, 359.0))
+                    .size_range(193.0..=(w - 72.0 - 420.0).clamp(193.0, 361.0))
                     .resizable(true)
                     .show_separator_line(false)
-                    .frame(Frame::new().fill(pal().bg_primary))
+                    .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { left: dms, right: 2 - dms, ..egui::Margin::ZERO }))
                     .show(ui, |ui| side::show(self, ui));
                 side_edge(ui.painter(), r.response.rect);
                 side::card(self, ui, rail, r.response.rect);

@@ -57,7 +57,7 @@ pub fn faint(a: u8) -> Color32 {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let side_w = if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
+    let side_w = if app.ui.side_w > 0.0 { app.ui.side_w } else { super::frame::SIDE_W };
     let servers = app.directory.as_ref().is_some_and(|d| d.servers);
     let mut goto: Option<Option<bool>> = None;
     egui::Panel::left("discover_side").exact_size(side_w).resizable(false).show_separator_line(false).frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| {

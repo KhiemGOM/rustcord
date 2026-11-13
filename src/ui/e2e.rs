@@ -1528,7 +1528,7 @@ impl Run {
             _ => {
                 if self.pending_shots == 0 {
                     if !self.rects.contains_key("layout_side_final") {
-                        self.rects.insert("layout_side_final".into(), json!(if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 }));
+                        self.rects.insert("layout_side_final".into(), json!(if app.ui.side_w > 0.0 { app.ui.side_w } else { super::frame::SIDE_W }));
                         self.rects.insert("layout_members_final".into(), json!(if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 }));
                         if std::env::var_os("RUSTCORD_E2E_MEMBERS").is_some() {
                             app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
@@ -2405,7 +2405,7 @@ impl Run {
     /// Dragging panel edges.
     fn layout_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let chat_w = |app: &App| app.rects.get("composer").map(|r| r.width());
-        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
+        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { super::frame::SIDE_W };
         let members_w = |app: &App| if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
         let drawn = |ctx: &egui::Context| egui::containers::panel::PanelState::load(ctx, egui::Id::new("members")).map_or(0.0, |s| s.outer_rect.width());
         let drag = |run: &mut Self, from: Pos2, dx: f32| {
@@ -2451,7 +2451,7 @@ impl Run {
                 self.next(300);
             }
             243 => {
-                // narrower: the warm run starts where the cold one left it, which can be discord's 359 max
+                // narrower: the warm run starts where the cold one left it, which can be discord's 361 max
                 drag(self, pos2(72.0 + side_w(app), 400.0), -50.0);
                 self.next(400);
             }
