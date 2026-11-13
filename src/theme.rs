@@ -562,6 +562,10 @@ pub fn bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("bold".into()))
 }
 
+pub fn display(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("display".into()))
+}
+
 pub fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("medium".into()))
 }
@@ -701,6 +705,7 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         ("italic", gg("ggsans-400i", ui_i.then_some("ui-i"))),
         ("semi-italic", gg("ggsans-600i", semi_i.then_some("semi-i"))),
         ("bold-italic", gg("ggsans-700i", bold_i.then_some("bold-i"))),
+        ("display", gg("ginto-nord-700", gg("ggsans-700", bold.then_some("bold")))),
     ] {
         f.families.insert(FontFamily::Name(fam.into()), chain(first));
     }

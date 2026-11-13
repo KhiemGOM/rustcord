@@ -1213,7 +1213,7 @@ fn gg_stand_in(face: &str) -> Vec<u8> {
     }
     let file = match face {
         "sans600normal" => "seguisb.ttf",
-        "sans700normal" => "segoeuib.ttf",
+        "sans700normal" | "ginto700normal" => "segoeuib.ttf",
         "sans600italic" => "seguisbi.ttf",
         "sans700italic" => "segoeuiz.ttf",
         f if f.starts_with("sans") && f.ends_with("italic") => "segoeuii.ttf",
@@ -2546,6 +2546,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
             css += &face("gg mono", "normal", 400);
             css += &face("gg mono", "normal", 700);
+            css += "@font-face{font-display:swap;font-family:ABC Ginto Discord Nord;font-style:normal;font-weight:700;src:url(/assets/mock-ginto700normal.woff2) format(\"woff2\")}";
             css += &face("Source Code Pro", "normal", 400);
             (200, "text/css", css.into_bytes())
         }

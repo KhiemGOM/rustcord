@@ -12,7 +12,7 @@ use crate::{api, cache};
 /// Discord's ui faces: the cache file (also the egui font key), the @font-face it comes from
 /// (family, italic, weight), and the asset. Asset names change whenever discord ships a new
 /// build; these only save the discovery round trip while they're still current.
-pub const FACES: [(&str, &str, bool, u16, &str); 9] = [
+pub const FACES: [(&str, &str, bool, u16, &str); 10] = [
     ("ggsans-400", "gg sans", false, 400, "66d715454104d24e"),
     ("ggsans-500", "gg sans", false, 500, "b272b33815319bae"),
     ("ggsans-600", "gg sans", false, 600, "2df2c3ff74408972"),
@@ -22,6 +22,7 @@ pub const FACES: [(&str, &str, bool, u16, &str); 9] = [
     ("ggsans-700i", "gg sans", true, 700, "ce3b8055f5114434"),
     ("ggmono-400", "gg mono", false, 400, "249d0a057895c668"),
     ("ggmono-700", "gg mono", false, 700, "45efa6936fdfb918"),
+    ("ginto-nord-700", "ABC Ginto Discord Nord", false, 700, "f83f3e7b5185847e"),
 ];
 
 /// Nitro display name fonts: discord's font_id, the family its stylesheet registers, and the

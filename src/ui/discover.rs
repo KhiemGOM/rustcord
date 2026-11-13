@@ -196,11 +196,14 @@ fn hero(ui: &mut Ui, title: &str, sub: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 300.0), Sense::hover());
     hero_paint(ui, r);
     let title = title.to_uppercase();
-    let g = ui.painter().layout(title, bold(44.0), Color32::WHITE, (r.width() - 88.0).min(700.0));
-    let at = pos2(r.left() + 44.0, r.top() + 96.0);
-    let below = at.y + g.size().y + 24.0;
-    ui.painter().galley(at, g, Color32::WHITE);
-    ui.painter().text(pos2(r.left() + 44.0, below), Align2::LEFT_CENTER, sub, medium(16.0), Color32::from_white_alpha(120));
+    let g = ui.painter().layout(title, display(44.0), pal().header_primary, (r.width() - 88.0).min(700.0));
+    let mut y = r.top() + 115.0;
+    for row in &g.rows {
+        let line: String = row.row.glyphs.iter().map(|c| c.chr).collect();
+        ui.painter().text(pos2(r.left() + 44.0, y), Align2::LEFT_CENTER, line.trim_end(), display(44.0), pal().header_primary);
+        y += 44.0;
+    }
+    ui.painter().text(pos2(r.left() + 44.0, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), pal().text_muted);
 }
 
 fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
