@@ -263,14 +263,14 @@ fn boost_goal(ui: &mut Ui, boosts: u32, goal: u32, under_banner: bool) -> bool {
     let left = if next.is_none() { "Boost Goal 🎉".to_string() } else { "Boost Goal".to_string() };
     text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().text_normal, 160.0);
     let caret = Rect::from_center_size(pos2(bar.right() - 12.0, bar.center().y), vec2(12.0, 12.0));
-    // the count and caret are the text colour at .7
+    // the caret is the text colour at .7
     let dim = pal().text_normal.gamma_multiply(0.7);
     icons::draw(p, Icon::ChevronRight, caret, dim);
     let count = match next {
         Some(n) => format!("{boosts}/{n} Boosts"),
         None => format!("{boosts} Boosts"),
     };
-    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), dim);
+    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), pal().text_normal);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
