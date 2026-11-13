@@ -200,7 +200,9 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    let font = if unread { semi(16.0) } else { name_font(person.map_or(0, |u| u.font), 16.0) };
+    // discord keeps a styled name's font when it's unread; a plain one goes semibold
+    let style = name_font(person.map_or(0, |u| u.font), 16.0);
+    let font = if unread && style == medium(16.0) { semi(16.0) } else { style };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     if c.kind == 3 {
