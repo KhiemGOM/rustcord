@@ -10,11 +10,15 @@ pub const NO_THREADS: &str = "content/a55e53565529b99537f24e9111b39ad84565ad76ac
 pub const NO_BOOKMARKS: &str = "content/bd0327359da757ec3765798e53afa43e172da33e2255bf985c3667f9ff57c8cb.svg";
 pub const NO_REMINDERS: &str = "content/995c79565fdbe049160aefe22dc300af4abbae1146c475d5f8b3b8c85173aabc.svg";
 pub const NOTHING_SCHEDULED: &str = "content/c5582c3bbb97001b8a0f4686a09a93c734eef416f3d0e3c83eba4b6e8bbee2c2.svg";
+pub const WUMPUS: &str = "content/2532e8cd0600ccfbc61ff81c21959bde90a6645d0e71644a92f6cde5bfc48439.png";
+
+pub fn url(file: &str) -> String {
+    format!("{}/assets/{file}", crate::api::asset())
+}
 
 /// Draws it once it has arrived. False until then, so a caller can keep its stand-in.
 pub fn draw(p: &Painter, file: &str, rect: Rect) -> bool {
-    let url = format!("{}/assets/{file}", crate::api::asset());
-    let poll = egui::Image::new(crate::gif::uri(p.ctx(), &url, p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
+    let poll = egui::Image::new(crate::gif::uri(p.ctx(), &url(file), p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
     let Ok(egui::load::TexturePoll::Ready { texture }) = poll else { return false };
     p.image(texture.id, rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
     true

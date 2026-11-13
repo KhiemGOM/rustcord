@@ -40,6 +40,7 @@ mod forumbar;
 mod gate;
 mod guide;
 mod guildmodal;
+mod inboxtip;
 mod friends;
 pub mod icons;
 mod interact;
