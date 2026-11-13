@@ -518,13 +518,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.painter().rect_filled(panel, cr, pal().bg_secondary);
         let banner = Rect::from_min_size(panel.min, vec2(400.0, 140.0));
         let accent = p
-            .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
+            .and_then(|p| popups::shown(p, "accent_color").as_u64().or(p["user"]["accent_color"].as_u64()))
             .map(|c| role_color(c as u32))
             .or_else(|| super::palette::avatar(ui.ctx(), &user.avatar_url()))
             .unwrap_or(pal().blurple);
         ui.painter().rect_filled(banner, cr, accent);
-        if let Some(b) = p.and_then(|p| p["user"]["banner"].as_str()) {
-            crate::gif::paint_still(ui, &format!("{}/banners/{uid}/{b}.png?size=600", crate::api::cdn()), banner, cr, ui.rect_contains_pointer(banner));
+        if let Some(b) = p.and_then(|p| popups::banner(p, uid)) {
+            crate::gif::paint_still(ui, &b, banner, cr, ui.rect_contains_pointer(banner));
         }
         let ring = popups::theme_top(p).unwrap_or(pal().bg_secondary);
         let av = Rect::from_min_size(pos2(panel.left() + 16.0, banner.bottom() - 62.0), vec2(120.0, 120.0));
@@ -552,7 +552,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         y += 34.3;
         let mut r = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), pal().header_primary, 200.0);
-        if let Some(pr) = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty()) {
+        if let Some(pr) = p.and_then(|p| popups::shown(p, "pronouns").as_str()).filter(|s| !s.is_empty()) {
             ui.painter().circle_filled(pos2(r.right() + 9.0, r.center().y), 2.0, pal().header_primary);
             r = text::paint(ui.painter(), pos2(r.right() + 18.0, y + 9.0), Align2::LEFT_CENTER, pr, reg(14.0), pal().header_primary, 120.0);
         }
@@ -594,7 +594,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
         }
         y += 56.0;
-        let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("");
+        let bio = p.and_then(|p| popups::shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("");
         if !bio.is_empty() {
             let mut job = egui::text::LayoutJob::single_section(bio.to_string(), egui::TextFormat::simple(reg(14.0), pal().text_normal));
             job.wrap.max_width = 336.0;

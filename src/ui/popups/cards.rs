@@ -23,7 +23,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
     }
     let p = app.profiles.get(&uid);
-    let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
+    let bio = p.and_then(|p| shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
     let roles = if gid != 0 { profile::member_roles(&app.store, p, gid, uid) } else { Vec::new() };
     let name = app.store.name_in(gid, uid);
     let status = app.store.status(uid);
@@ -387,7 +387,7 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let height = ui.available_height();
     let store = &app.store;
     let p = app.profiles.get(&uid);
-    let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
+    let bio = p.and_then(|p| shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
     Frame::new().fill(pal().bg_input).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
         ui.set_width(300.0);
         ui.set_min_height(height - 2.0);
@@ -433,9 +433,26 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     }
 }
 
+/// A profile's field the way Discord shows it in a server: what the person set for that server,
+/// else what their account has.
+pub(crate) fn shown<'a>(p: &'a serde_json::Value, key: &str) -> &'a serde_json::Value {
+    let here = &p["guild_member_profile"][key];
+    let unset = here.is_null() || here.as_str().is_some_and(str::is_empty) || here.as_array().is_some_and(|a| a.is_empty());
+    if unset { &p["user_profile"][key] } else { here }
+}
+
+pub(crate) fn banner(p: &serde_json::Value, uid: Id) -> Option<String> {
+    let cdn = crate::api::cdn();
+    let here = &p["guild_member_profile"];
+    match here["banner"].as_str() {
+        Some(b) => Some(format!("{cdn}/guilds/{}/users/{uid}/banners/{b}.png?size=600", here["guild_id"].as_str()?)),
+        None => p["user"]["banner"].as_str().map(|b| format!("{cdn}/banners/{uid}/{b}.png?size=600")),
+    }
+}
+
 /// A profile's nitro theme as discord shows it: primary and accent, dimmed in dark themes.
 pub(super) fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)> {
-    let c = p.and_then(|p| p["user_profile"]["theme_colors"].as_array()).filter(|c| c.len() == 2)?;
+    let c = p.and_then(|p| shown(p, "theme_colors").as_array()).filter(|c| c.len() == 2)?;
     let mine = p.and_then(|p| p["user"]["id"].as_str()).and_then(|id| id.parse::<u64>().ok()) == Some(crate::theme::me());
     if crate::theme::view().own_profiles && !mine {
         return None;
@@ -478,13 +495,13 @@ pub(super) fn card_avatar(top: Rect) -> Rect {
 
 pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
     let accent = p
-        .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
+        .and_then(|p| shown(p, "accent_color").as_u64().or(p["user"]["accent_color"].as_u64()))
         .map(|c| role_color(c as u32))
         // no banner colour set: discord's pick from the avatar, as in call tiles
         .or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url()))
         .unwrap_or(pal().blurple);
-    let banner = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
-    let pronouns = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty());
+    let banner = p.and_then(|p| banner(p, user.id));
+    let pronouns = p.and_then(|p| shown(p, "pronouns").as_str()).filter(|s| !s.is_empty());
     let (top, _) = ui.allocate_exact_size(vec2(300.0, 105.0), Sense::hover());
     let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
     ui.painter().rect_filled(top, cr, accent);
@@ -720,4 +737,24 @@ pub(super) fn account_row(ui: &mut Ui, icon: Option<Icon>, label: &str, caret: b
         crate::ui::icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
     }
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{banner, shown};
+    use serde_json::json;
+
+    #[test]
+    fn a_server_profile_overrides_the_account_only_where_it_set_something() {
+        let p = json!({
+            "user": { "banner": "aa" },
+            "user_profile": { "bio": "account", "pronouns": "they", "theme_colors": [1, 2] },
+            "guild_member_profile": { "guild_id": "7", "bio": "", "pronouns": "she", "theme_colors": [3, 4], "banner": "bb" },
+        });
+        assert_eq!(shown(&p, "bio"), "account");
+        assert_eq!(shown(&p, "pronouns"), "she");
+        assert_eq!(shown(&p, "theme_colors"), &json!([3, 4]));
+        assert!(banner(&p, 5).unwrap().ends_with("/guilds/7/users/5/banners/bb.png?size=600"));
+        assert!(banner(&json!({ "user": { "banner": "aa" } }), 5).unwrap().ends_with("/banners/5/aa.png?size=600"));
+    }
 }

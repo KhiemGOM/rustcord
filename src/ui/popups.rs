@@ -17,7 +17,7 @@ use switcher::*;
 mod cards;
 use cards::*;
 pub(crate) use cards::dm_profile;
-pub(super) use cards::theme_top;
+pub(super) use cards::{banner, shown, theme_top};
 pub(super) use cards::theme_wash;
 pub(crate) use cards::account;
 mod lookup;
