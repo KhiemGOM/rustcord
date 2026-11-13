@@ -64,10 +64,10 @@ fn server_icon(ui: &Ui, store: &crate::state::Store, g: Id, art: Rect) {
 
 fn card_frame(ui: &Ui, card: Rect, hot: bool, body: bool) {
     let p = ui.painter();
-    p.rect_filled(card, CornerRadius::same(12), if hot { Color32::from_rgb(0x12, 0x12, 0x14) } else { Color32::BLACK });
-    let tail = if body { 0 } else { 12 };
-    p.rect_filled(Rect::from_min_size(card.min, vec2(card.width(), 68.0)), CornerRadius { nw: 12, ne: 12, sw: tail, se: tail }, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
-    p.rect_stroke(card, CornerRadius::same(12), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    p.rect_filled(card, CornerRadius::same(16), if hot { Color32::from_rgb(0x12, 0x12, 0x14) } else { Color32::BLACK });
+    let tail = if body { 0 } else { 16 };
+    p.rect_filled(Rect::from_min_size(card.min, vec2(card.width(), 68.0)), CornerRadius { nw: 16, ne: 16, sw: tail, se: tail }, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
+    p.rect_stroke(card, CornerRadius::same(16), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
 }
 
 fn names(store: &crate::state::Store, who: &[Id]) -> String {
@@ -96,13 +96,13 @@ fn group_card(ui: &mut Ui, store: &crate::state::Store, g: Id, c: Id, who: &[Id]
     let row = Rect::from_min_size(pos2(card.left(), card.top() + 68.0), vec2(card.width(), 68.0));
     let hit = ui.interact(row, ui.id().with(("now_group", c)), Sense::click());
     if hit.hovered() {
-        ui.painter().rect_filled(row, CornerRadius { nw: 0, ne: 0, sw: 12, se: 12 }, Color32::from_white_alpha(8));
+        ui.painter().rect_filled(row, CornerRadius { nw: 0, ne: 0, sw: 16, se: 16 }, Color32::from_white_alpha(8));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     server_icon(ui, store, g, Rect::from_min_size(pos2(card.left() + 17.0, row.top() + 17.0), vec2(32.0, 32.0)));
     let ch = store.channels.get(&c).map_or("Voice".to_string(), |c| c.name.clone());
     let gn = store.guilds.get(&g).map_or(String::new(), |g| g.name.clone());
-    lines(ui, card.left() + 61.0, row, &[&ch, &gn], right - 120.0);
+    lines(ui, card.left() + 61.0, row, &[&gn, &ch], right - 120.0);
     for (i, u) in who.iter().take(2).enumerate() {
         if let Some(u) = store.user(*u) {
             avatar(ui, Rect::from_min_size(pos2(card.right() - 93.0 + 22.0 * i as f32, row.top() + 22.0), vec2(24.0, 24.0)), &u.avatar_url());
@@ -292,7 +292,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 server_icon(ui, store, *g, art);
                                 let ch = store.channels.get(c).map_or("Voice".to_string(), |c| c.name.clone());
                                 let gn = store.guilds.get(g).map_or(String::new(), |g| g.name.clone());
-                                lines(ui, x, row, &[&ch, &gn], row.right() - 16.0);
+                                lines(ui, x, row, &[&gn, &ch], row.right() - 16.0);
                                 if rr.clicked() {
                                     channel = Some((*g, *c));
                                 }
