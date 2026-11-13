@@ -20,6 +20,88 @@ impl Reactors {
     }
 }
 
+fn hsl(c: [f64; 3]) -> (f64, f64, f64) {
+    let [r, g, b] = c.map(|v| v / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = (max + min) / 2.0;
+    if max == min {
+        return (0.0, 0.0, l);
+    }
+    let d = max - min;
+    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let h = if max == r {
+        (g - b) / d
+    } else if max == g {
+        2.0 + (b - r) / d
+    } else {
+        4.0 + (r - g) / d
+    };
+    ((h * 60.0).rem_euclid(360.0), s, l)
+}
+
+fn rgb(h: f64, s: f64, l: f64) -> [f64; 3] {
+    if s == 0.0 {
+        return [l * 255.0; 3];
+    }
+    let hi = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let lo = 2.0 * l - hi;
+    [1.0 / 3.0, 0.0, -1.0 / 3.0].map(|turn| {
+        let t = (h / 360.0 + turn).rem_euclid(1.0);
+        let v = if t < 1.0 / 6.0 {
+            lo + (hi - lo) * 6.0 * t
+        } else if t < 0.5 {
+            hi
+        } else if t < 2.0 / 3.0 {
+            lo + (hi - lo) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            lo
+        };
+        (v * 255.0).round()
+    })
+}
+
+fn contrast(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let lum = |c: [f64; 3]| {
+        let [r, g, b] = c.map(|v| {
+            let v = v / 255.0;
+            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        });
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    };
+    let (a, b) = (lum(a), lum(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// Discord's way of making a colour readable on `under`: lightness moves away from it in steps
+/// of 5%, ten at most, until the two contrast by `ratio`.
+fn readable(mut c: [f64; 3], under: [f64; 3], ratio: f64, light: bool) -> [f64; 3] {
+    for _ in 0..10 {
+        let (h, s, l) = hsl(c);
+        if contrast(c, under) >= ratio || if light { l <= 0.05 } else { l >= 0.95 } {
+            break;
+        }
+        c = rgb(h, s, if light { l - 0.05 } else { l + 0.05 });
+    }
+    c
+}
+
+/// A super reaction's count colour and its pill's fill, as Discord works them out of the
+/// reaction's own colour for a dark or a light theme.
+pub fn burst_look(c: u32, light: bool) -> (egui::Color32, egui::Color32) {
+    let c = [c >> 16, c >> 8, c].map(|v| (v & 255) as f64);
+    let (h, s, l) = hsl(c);
+    let (under, ratio, moved, alpha) = if light {
+        ([255.0; 3], 3.0, if l + 0.6 > 1.0 { 0.9 } else { l + 0.6 }, if s < 0.1 { 0.35 } else { 0.1 })
+    } else {
+        ([54.0, 57.0, 62.0], 5.0, if l - 0.6 < 0.0 { 0.1 } else { l - 0.6 }, if s < 0.1 { 0.5 } else { 0.2 })
+    };
+    let paint = |c: [f64; 3], a: f64| {
+        let [r, g, b] = c.map(|v| v.round() as u8);
+        egui::Color32::from_rgba_unmultiplied(r, g, b, (a * 255.0).round() as u8)
+    };
+    (paint(readable(c, under, 7.0, light), 1.0), paint(readable(rgb(h, s, moved), under, ratio, light), alpha))
+}
+
 /// discord's `:name:` for an emoji
 pub fn colon_name(e: &ReactEmoji) -> String {
     if e.id != 0 {
@@ -228,7 +310,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
-    use super::unicode_name;
+    use super::{burst_look, contrast, unicode_name};
+    use egui::Color32;
+
+    #[test]
+    fn a_super_reaction_is_tinted_the_way_discord_tints_it() {
+        let (ink, fill) = burst_look(0xf0f0f0, false);
+        assert_eq!(ink, Color32::from_rgb(0xf0, 0xf0, 0xf0));
+        assert_eq!(fill, Color32::from_rgba_unmultiplied(0xb0, 0xb0, 0xb0, 128));
+        let (ink, fill) = burst_look(0xf0962d, false);
+        assert_eq!(fill.a(), 51);
+        assert!(contrast([ink.r(), ink.g(), ink.b()].map(f64::from), [54.0, 57.0, 62.0]) >= 7.0);
+    }
 
     #[test]
     fn unicode_emoji_carry_discords_names() {

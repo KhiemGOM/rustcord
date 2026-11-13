@@ -81,6 +81,8 @@ pub struct Palette {
     /// --mention-background and --mention-foreground
     pub mention_bg: Color32,
     pub mention_fg: Color32,
+    /// --reaction-text-reacted-default
+    pub reacted_fg: Color32,
     /// --message-mentioned-background-default and -hover, and the bar beside (--icon-feedback-warning)
     pub highlight_bg: Color32,
     pub highlight_hover: Color32,
@@ -135,6 +137,7 @@ impl Palette {
             link: f(self.link),
             mention_bg: f(self.mention_bg),
             mention_fg: f(self.mention_fg),
+            reacted_fg: f(self.reacted_fg),
             highlight_bg: f(self.highlight_bg),
             highlight_hover: f(self.highlight_hover),
             mention_bar: f(self.mention_bar),
@@ -283,6 +286,11 @@ pub fn pal() -> &'static Palette {
 /// A 1px css border as Chromium draws it: whole device pixels, rounded down, never a blur.
 pub fn hairline(ppp: f32, color: Color32) -> Stroke {
     Stroke::new(ppp.floor().max(1.0) / ppp, color)
+}
+
+pub fn light() -> bool {
+    let c = pal().bg_primary;
+    c.r() as u32 + c.g() as u32 + c.b() as u32 > 384
 }
 
 /// Onyx draws a few hairlines the other themes leave out.

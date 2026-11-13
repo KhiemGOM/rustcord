@@ -48,6 +48,23 @@ pub(crate) struct Message {
     pub failed: bool,
 }
 
+/// The colour Discord draws a super reaction in: of the first three it was given, the one whose
+/// saturation and brightness add up highest.
+fn burst_color(r: &Value) -> Option<u32> {
+    let mut best: Option<(f32, u32)> = None;
+    for c in r["burst_colors"].as_array()?.iter().take(3) {
+        let Some(c) = c.as_str().and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()) else { continue };
+        let [r, g, b] = [c >> 16, c >> 8, c].map(|v| (v & 255) as f32 / 255.0);
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let percent = |v: f32| (v * 10000.0).round() / 100.0;
+        let score = percent(if max == min { 0.0 } else { (max - min) / max }) + percent(max);
+        if best.is_none_or(|(top, _)| score > top) {
+            best = Some((score, c));
+        }
+    }
+    best.map(|b| b.1)
+}
+
 impl Message {
     pub fn ts(&self) -> i64 {
         snowflake_ms(self.id)
@@ -89,7 +106,7 @@ impl Message {
                     me: r["me"].as_bool().unwrap_or(false),
                     burst: r["count_details"]["burst"].as_u64().unwrap_or(0) as u32,
                     me_burst: r["me_burst"].as_bool().unwrap_or(false),
-                    burst_color: r["burst_colors"][0].as_str().and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()),
+                    burst_color: burst_color(r),
                 })
                 .collect();
         }

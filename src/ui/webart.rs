@@ -92,9 +92,7 @@ const SERVICES: &[(&str, &str, &str)] = &[
 ];
 
 pub fn service(name: &str) -> Option<&'static str> {
-    let under = crate::theme::pal().bg_primary;
-    let light = under.r() as u32 + under.g() as u32 + under.b() as u32 > 384;
-    SERVICES.iter().find(|s| s.0 == name).map(|s| if light { s.2 } else { s.1 })
+    SERVICES.iter().find(|s| s.0 == name).map(|s| if crate::theme::light() { s.2 } else { s.1 })
 }
 
 #[cfg(test)]
