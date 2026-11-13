@@ -648,7 +648,7 @@ pub fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color
             if !ctx.data(|d| d.get_temp::<bool>(asked).unwrap_or(false)) {
                 ctx.data_mut(|d| d.insert_temp(asked, true));
                 let q = if guild != 0 { format!("&guild_id={guild}") } else { String::new() };
-                app.rest("GET", format!("/users/{u}/profile?with_mutual_guilds=false{q}"), None, crate::net::Tag::Profile(u));
+                app.rest("GET", format!("/users/{u}/profile?with_mutual_guilds=false{q}"), None, crate::net::Tag::Profile(u, guild));
             }
         }
     }

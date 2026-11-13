@@ -9,7 +9,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         return;
     };
     ctx.data_mut(|d| d.insert_temp(key, uid));
-    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let worn = app.profile_of(uid, gid).cloned();
     let layers = crate::ui::cosmo::layers_of(app, worn.as_ref());
     let since = crate::ui::cosmo::since(ctx, ("popout", uid));
     let widgets = worn.as_ref().map(crate::ui::profed::widgets_of).unwrap_or_default();
@@ -22,7 +22,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         app.notes.insert(uid, String::new());
         app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
     }
-    let p = app.profiles.get(&uid);
+    let p = app.member_profiles.get(&(uid, gid)).or(app.profiles.get(&uid)).filter(|p| !p.is_null());
     let bio = p.and_then(|p| shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
     let roles = if gid != 0 { profile::member_roles(&app.store, p, gid, uid) } else { Vec::new() };
     let name = app.store.name_in(gid, uid);
@@ -372,7 +372,7 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let Some(user) = app.store.user(uid).cloned() else { return };
     if !app.profiles.contains_key(&uid) {
         app.profiles.insert(uid, serde_json::Value::Null);
-        app.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true"), None, Tag::Profile(uid));
+        app.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true"), None, Tag::Profile(uid, 0));
     }
     if !app.notes.contains_key(&uid) {
         app.notes.insert(uid, String::new());
@@ -446,7 +446,7 @@ pub(crate) fn banner(p: &serde_json::Value, uid: Id) -> Option<String> {
     let here = &p["guild_member_profile"];
     match here["banner"].as_str() {
         Some(b) => Some(format!("{cdn}/guilds/{}/users/{uid}/banners/{b}.png?size=600", here["guild_id"].as_str()?)),
-        None => p["user"]["banner"].as_str().map(|b| format!("{cdn}/banners/{uid}/{b}.png?size=600")),
+        None => p["user_profile"]["banner"].as_str().or(p["user"]["banner"].as_str()).map(|b| format!("{cdn}/banners/{uid}/{b}.png?size=600")),
     }
 }
 
@@ -582,7 +582,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
     if !app.profiles.contains_key(&me) {
         // a placeholder until it lands, so this asks once
         app.profiles.insert(me, serde_json::Value::Null);
-        app.rest("GET", format!("/users/{me}/profile?with_mutual_guilds=false"), None, Tag::Profile(me));
+        app.rest("GET", format!("/users/{me}/profile?with_mutual_guilds=false"), None, Tag::Profile(me, 0));
     }
     let status = app.store.presence.get(&me).copied().unwrap_or(Status::Online);
     let dev = app.settings.dev;

@@ -55,7 +55,7 @@ pub enum Tag {
     TopEmojis(Id),
     Pins(Id),
     Search(Id),
-    Profile(Id),
+    Profile(Id, Id),
     // the recent activity on someone's full profile
     Outbox(Id),
     // a server's tag popout data

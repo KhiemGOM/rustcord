@@ -113,10 +113,7 @@ impl App {
 
     pub fn open_profile(&mut self, user: Id, guild: Id, at: Pos2) {
         self.profile = Some((user, guild, at));
-        if !self.profiles.contains_key(&user) {
-            let q = if guild != 0 { format!("&guild_id={guild}") } else { String::new() };
-            self.rest("GET", format!("/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true{q}"), None, Tag::Profile(user));
-        }
+        self.want_profile(user, guild, "with_mutual_guilds=true&with_mutual_friends=true");
     }
 
     pub fn open_timeout(&mut self, gid: Id, uid: Id) {

@@ -65,13 +65,26 @@ pub fn recents(v: &Value) -> Vec<Recent> {
 }
 
 impl App {
+    /// Asks for someone's profile as Discord shows it in `gid` (0 outside a server), unless that one
+    /// is here. A profile asked for elsewhere lacks the server's banner, theme, bio and roles.
+    pub fn want_profile(&mut self, uid: Id, gid: Id, query: &str) {
+        let have = if gid == 0 { self.profiles.get(&uid) } else { self.member_profiles.get(&(uid, gid)) };
+        if have.is_some_and(|p| !p.is_null()) {
+            return;
+        }
+        let q = if gid != 0 { format!("{query}&guild_id={gid}") } else { query.to_string() };
+        self.rest("GET", format!("/users/{uid}/profile?{q}"), None, Tag::Profile(uid, gid));
+    }
+
+    /// Someone's profile as `gid` shows it, or the one without a server until that arrives.
+    pub fn profile_of(&self, uid: Id, gid: Id) -> Option<&Value> {
+        self.member_profiles.get(&(uid, gid)).or(self.profiles.get(&uid)).filter(|p| !p.is_null())
+    }
+
     pub fn open_full(&mut self, uid: Id, gid: Id, tab: Tab) {
         self.profile = None;
         self.full_profile = Some(Full { uid, gid, tab });
-        if !self.profiles.contains_key(&uid) || self.profiles[&uid].is_null() {
-            let q = if gid != 0 { format!("&guild_id={gid}") } else { String::new() };
-            self.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true{q}"), None, Tag::Profile(uid));
-        }
+        self.want_profile(uid, gid, "with_mutual_guilds=true&with_mutual_friends=true");
         if !self.notes.contains_key(&uid) {
             self.notes.insert(uid, String::new());
             self.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
@@ -279,7 +292,7 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
     let Some((gid, uid, at, _)) = &app.role_add else { return };
     let (gid, uid, at) = (*gid, *uid, *at);
     let store = &app.store;
-    let have = member_roles(store, app.profiles.get(&uid), gid, uid);
+    let have = member_roles(store, app.profile_of(uid, gid), gid, uid);
     let mut list: Vec<(Id, String, u32)> = store
         .guilds
         .get(&gid)
@@ -473,7 +486,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         return;
     };
     let me = app.store.me;
-    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let worn = app.profile_of(uid, gid).cloned();
     let layers = super::cosmo::layers_of(app, worn.as_ref());
     let fx_since = super::cosmo::since(ctx, ("full", uid));
     let widgets = worn.as_ref().map(super::profed::widgets_of).unwrap_or_default();
@@ -483,7 +496,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         _ => Vec::new(),
     };
     let wish = (tab == Tab::Wishlist).then(|| super::profed::board::wish(app, uid));
-    let p = app.profiles.get(&uid).filter(|p| !p.is_null());
+    let p = app.member_profiles.get(&(uid, gid)).or(app.profiles.get(&uid)).filter(|p| !p.is_null());
     let name = app.store.name_in(gid, uid);
     let status = app.store.status(uid);
     let rel = app.store.relationships.get(&uid).copied();

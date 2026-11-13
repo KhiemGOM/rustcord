@@ -121,14 +121,18 @@ impl App {
                     s.results = Some(list);
                 }
             }
-            Tag::Profile(u) => {
+            Tag::Profile(u, g) => {
                 if v["user"].is_object() {
                     self.store.apply("USER_UPDATE", &v["user"]);
                 }
                 for f in v["mutual_friends"].as_array().into_iter().flatten() {
                     self.store.apply("USER_UPDATE", f);
                 }
-                self.profiles.insert(u, v);
+                if g != 0 {
+                    self.member_profiles.insert((u, g), v);
+                } else {
+                    self.profiles.insert(u, v);
+                }
             }
             Tag::Outbox(u) => {
                 self.outbox.insert(u, profile::recents(&v));
