@@ -156,12 +156,12 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
         }
         let _ = y;
         let cols = 4;
-        let gap = 8.0;
-        let tw = ((left_w - 64.0 - gap * (cols as f32 - 1.0)) / cols as f32).min(104.0);
+        // discord's tiles are 90 by 68, 6 apart across and 8 down, for fonts and effects alike
+        let (gap, tw, th) = (6.0, 90.0, 68.0);
         let section = |ui: &Ui, y: &mut f32, s: &str| {
             let r = ui.painter().text(pos2(x, *y + 10.0), Align2::LEFT_CENTER, s, semi(16.0), pal().header_primary);
             icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(r.right() + 14.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
-            *y += 32.0;
+            *y += 29.0;
         };
         let list = Rect::from_min_max(pos2(area.left(), area.top() + 72.0), pos2(area.left() + left_w, area.bottom() - 76.0));
         let mut sc = ui.new_child(egui::UiBuilder::new().max_rect(list));
@@ -169,18 +169,18 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
         let mut y = ui.cursor().top();
         section(ui, &mut y, "Choose Font");
         for (i, f) in FONTS.iter().enumerate() {
-            let r = Rect::from_min_size(pos2(x + (i % cols) as f32 * (tw + gap), y + (i / cols) as f32 * (tw * 0.75 + gap)), vec2(tw, tw * 0.75));
+            let r = Rect::from_min_size(pos2(x + (i % cols) as f32 * (tw + gap), y + (i / cols) as f32 * (th + 8.0)), vec2(tw, th));
             let resp = chip(ui, r, &format!("font{f}"), e.font == *f);
-            ui.painter().text(r.center(), Align2::CENTER_CENTER, "Gg", face(*f, 24.0), pal().header_primary);
+            ui.painter().text(r.center(), Align2::CENTER_CENTER, "Gg", face(*f, 22.0), if e.font == *f { pal().header_primary } else { pal().text_normal });
             crate::ui::settings::mark(ui, &format!("style:font:{f}"), r);
             if resp.clicked() {
                 e.font = *f;
             }
         }
-        y += (FONTS.len() / cols) as f32 * (tw * 0.75 + gap) + 16.0;
+        y += FONTS.len().div_ceil(cols) as f32 * (th + 8.0) + 15.0;
         section(ui, &mut y, "Choose Effect");
         for (i, (id, label)) in EFFECTS.iter().enumerate() {
-            let r = Rect::from_min_size(pos2(x + (i % cols) as f32 * (tw + gap), y + (i / cols) as f32 * (tw * 0.5 + gap)), vec2(tw, tw * 0.5));
+            let r = Rect::from_min_size(pos2(x + (i % cols) as f32 * (tw + gap), y + (i / cols) as f32 * (th + 8.0)), vec2(tw, th));
             let resp = chip(ui, r, &format!("fx{id}"), e.effect == *id);
             let one = Style { font: 11, effect: *id, colors: e.colors.clone() };
             paint_name(ui, r.center(), Align2::CENTER_CENTER, label, Some(&one), 16.0, tw - 8.0, false);
@@ -194,7 +194,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
                 e.colors.truncate(want);
             }
         }
-        y += (EFFECTS.len().div_ceil(cols)) as f32 * (tw * 0.5 + gap) + 16.0;
+        y += EFFECTS.len().div_ceil(cols) as f32 * (th + 8.0) + 15.0;
         for slot in 0..e.wants() {
             section(ui, &mut y, if slot == 0 { "Choose Color" } else { "Choose Second Color" });
             let sw = 40.0;
