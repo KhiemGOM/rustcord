@@ -2,9 +2,9 @@ use egui::{Align, Align2, Frame, Key, Layout, Margin, Rect, RichText, Sense, Str
 use serde_json::json;
 
 use super::icons::{self, Icon};
-use super::{App, avatar, icon_button, modal_button, text};
+use super::{App, Map, avatar, icon_button, modal_button, text};
 use crate::net::Tag;
-use crate::state::{FRIEND, Id};
+use crate::state::{FRIEND, Id, sid};
 use crate::theme::*;
 
 const LIMIT: usize = 10;
@@ -23,22 +23,42 @@ impl Pick {
     }
 }
 
+/// How likely Discord thinks you are to talk to each person, by their id; only asked for with the
+/// account's personalization consent, as Discord does.
+fn affinities(app: &mut App) -> Map<Id, f64> {
+    use crate::ui::settings::remote;
+    let consented = remote(app, "consent", "/users/@me/consent").and_then(|r| r.as_ref().ok()).is_some_and(|c| c["personalization"]["consented"].as_bool() == Some(true));
+    if !consented {
+        return Map::default();
+    }
+    let Some(Ok(v)) = remote(app, "affinities", "/users/@me/affinities/v2/users") else { return Map::default() };
+    v["user_affinities"].as_array().into_iter().flatten().map(|a| (sid(&a["other_user_id"]), a["communication_probability"].as_f64().unwrap_or(0.0))).collect()
+}
+
 pub fn show(app: &mut App, ctx: &egui::Context) {
+    if app.group_pick.is_none() {
+        return;
+    }
+    let close = affinities(app);
     let Some(p) = &mut app.group_pick else { return };
     let store = &app.store;
     let there: Vec<Id> = p.base.and_then(|c| store.channels.get(&c)).map(|c| c.recipients.clone()).unwrap_or_default();
     let adding = p.base.is_some_and(|c| store.channels.get(&c).is_some_and(|c| c.kind == 3));
     let max = LIMIT.saturating_sub(1 + there.len());
     let ql = p.q.trim().to_lowercase();
+    // friends, and the people Discord thinks you talk to who share a server with you
+    let shares = |u: &Id| store.members.values().any(|m| m.contains_key(u));
     let mut people: Vec<Id> = store.relationships.iter().filter(|(_, t)| **t == FRIEND).map(|(u, _)| *u).collect();
+    people.extend(close.keys().copied().filter(|u| !store.relationships.contains_key(u) && shares(u)));
     if !ql.is_empty()
         && let Some(g) = app.ui.guild
     {
         people.extend(store.members.get(&g).into_iter().flat_map(|m| m.keys().copied()));
     }
-    people.sort_by_key(|u| store.name_in(0, *u).to_lowercase());
+    let near = |u: &Id| close.get(u).copied().unwrap_or(0.0);
+    people.sort_by(|a, b| near(b).total_cmp(&near(a)).then_with(|| store.name_in(0, *a).to_lowercase().cmp(&store.name_in(0, *b).to_lowercase())));
     people.dedup();
-    people.retain(|u| *u != store.me && !there.contains(u));
+    people.retain(|u| *u != store.me && !there.contains(u) && store.user(*u).is_some_and(|x| !x.bot));
     people.retain(|u| ql.is_empty() || store.user(*u).is_some_and(|x| x.username.to_lowercase().contains(&ql) || store.name_in(0, *u).to_lowercase().contains(&ql)));
     people.truncate(60);
     let (mut go, mut close) = (false, false);
