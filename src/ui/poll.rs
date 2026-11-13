@@ -2,7 +2,7 @@ use egui::{Align, Align2, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, 
 use serde_json::{Value, json};
 
 use super::icons::{self, Icon};
-use super::{App, Pick, button, icon_button, menu_item, text};
+use super::{App, Pick, icon_button, menu_item, modal_button, text};
 use crate::net::Tag;
 use crate::state::{Id, ReactEmoji, make_nonce};
 use crate::theme::*;
@@ -51,19 +51,19 @@ impl Draft {
 }
 
 fn label(ui: &mut Ui, s: &str) {
-    ui.label(RichText::new(s).font(semi(16.0)).color(pal().header_primary));
-    ui.add_space(8.0);
+    ui.label(RichText::new(s).font(medium(16.0)).color(pal().header_primary));
+    ui.add_space(9.0);
 }
 
 pub fn check_row(ui: &mut Ui, on: &mut bool, label: &str) {
     let g = ui.painter().layout_no_wrap(label.into(), reg(16.0), pal().header_primary);
-    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 36.0, 24.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 32.0, 24.0), Sense::click());
     let cb = Rect::from_min_size(r.min, vec2(24.0, 24.0));
     ui.painter().rect(cb, 4, if *on { pal().blurple } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if *on { pal().blurple } else { pal().header_secondary }), egui::StrokeKind::Inside);
     if *on {
         icons::draw(ui.painter(), Icon::Check, cb.shrink(3.0), egui::Color32::WHITE);
     }
-    ui.painter().galley(pos2(r.left() + 36.0, r.center().y - g.size().y / 2.0), g, pal().header_primary);
+    ui.painter().galley(pos2(r.left() + 32.0, r.center().y - g.size().y / 2.0), g, pal().header_primary);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -99,23 +99,23 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.label(RichText::new("Create a Poll").font(semi(20.0)).color(pal().header_primary));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked());
             });
-            ui.add_space(24.0);
+            ui.add_space(22.0);
             label(ui, "Question");
             let fresh = std::mem::take(&mut d.fresh);
             if d.question.chars().count() > 300 {
                 d.question = d.question.chars().take(300).collect();
             }
-            field(ui, &mut d.question, "What question do you want to ask?", 44.0, 12.0, 12.0, fresh);
-            ui.add_space(4.0);
+            field(ui, &mut d.question, "What question do you want to ask?", 46.0, 12.0, 12.0, fresh);
+            ui.add_space(4.5);
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                 ui.label(RichText::new(format!("{} / 300", d.question.chars().count())).font(reg(12.0)).color(pal().text_muted));
             });
-            ui.add_space(16.0);
+            ui.add_space(25.0);
             label(ui, "Answers");
             let many = d.answers.len() > 2;
             for (i, (t, e)) in d.answers.iter_mut().enumerate() {
                 if i > 0 {
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                 }
                 if t.chars().count() > 55 {
                     *t = t.chars().take(55).collect();
@@ -140,13 +140,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     remove = Some(i);
                 }
             }
-            ui.add_space(8.0);
+            ui.add_space(4.0);
             if d.answers.len() < 10 {
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    let (r, resp) = ui.allocate_exact_size(vec2(166.0, 40.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(196.0, 40.0), Sense::click());
                     ui.painter().rect(r, 8, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(r.left() + 22.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
-                    ui.painter().text(pos2(r.left() + 38.0, r.center().y), Align2::LEFT_CENTER, "Add another answer", medium(14.0), pal().header_primary);
+                    ui.painter().text(pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, "Add another answer", medium(16.0), pal().header_primary);
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -155,7 +155,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                 });
             }
-            ui.add_space(16.0);
+            ui.add_space(16.5);
             label(ui, "Duration");
             let cur = DURATIONS.iter().find(|(h, _)| *h == d.hours).map_or("24 hours", |(_, n)| n);
             let mut hours = d.hours;
@@ -171,7 +171,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 check_row(ui, &mut d.multi, "Allow Multiple Answers");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let b = ui.add_enabled_ui(ready, |ui| button(ui, "Post", pal().blurple, 100.0)).inner;
+                    let b = ui.add_enabled_ui(ready, |ui| modal_button(ui, "Post", Some(pal().blurple), 100.0)).inner;
                     super::settings::mark(ui, "poll:post", b.rect);
                     post = b.clicked();
                 });
