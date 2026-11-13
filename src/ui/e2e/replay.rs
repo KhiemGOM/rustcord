@@ -118,7 +118,8 @@ fn fresh(app: &mut App, ctx: &egui::Context) {
     shut!(
         viewer, wizard, guild_modal, profile, picker, stickers, gifs, menu, user_menu, user_dialog, confirm, forward, invite, made_invite, status_edit, share,
         switcher, pins, inbox, guild_notifs, new_thread, poll, launcher, follow, modify, group_pick, topic, crop, status_text, leaving, source_pop, create,
-        active_threads, server, chan_settings, events, combos, breathe, demon, timeout, kickban, prune, settings_page, search, reactors, report
+        active_threads, server, chan_settings, events, combos, breathe, demon, timeout, kickban, prune, settings_page, search, reactors, report, full_profile,
+        tag_pop, role_pop
     );
     egui::Popup::close_all(ctx);
     app.friends_tab = 0;
