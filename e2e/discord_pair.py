@@ -349,9 +349,9 @@ def show(live, replayed, state, side, box, crop):
         if within(fill['b']):
             print(f'  fill {fill["b"]} {fill["fill"]} {fill["radius"]} {fill["border"] or ""}')
     print('rustcord pictures and boxes (box, fill, radius):')
-    for box in rustcord['boxes']:
-        if within(box['b']) and inside(centre(box['b']), box['clip']):
-            print(f'  {"picture" if box.get("img") else "box"} {brief(box["b"])} {box["fill"]} {box.get("radius") or ""}')
+    for drawn_box in rustcord['boxes']:
+        if within(drawn_box['b']) and inside(centre(drawn_box['b']), drawn_box['clip']):
+            print(f'  {"picture" if drawn_box.get("img") else "box"} {brief(drawn_box["b"])} {drawn_box["fill"]} {drawn_box.get("radius") or ""}')
     print('rustcord named rects:')
     for name, rect in sorted(rustcord['marks'].items(), key=lambda mark: (mark[1][1], mark[1][0])):
         if within(rect):
