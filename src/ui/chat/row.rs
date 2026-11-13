@@ -277,7 +277,8 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
             cui.label(RichText::new("(edited)").font(reg(10.0)).color(pal().text_muted));
         }
         if !m.reactions.is_empty() && d.s.reactions {
-            cui.add_space(acc);
+            // straight under the text, discord's reactions sit 4 down, not the accessories' 2
+            cui.add_space(if acc == 2.0 { 4.0 } else { acc });
             acc = 4.0;
             reactions(&mut cui, d, m);
         }
