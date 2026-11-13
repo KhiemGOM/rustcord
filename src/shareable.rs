@@ -242,14 +242,17 @@ unsafe fn print(h: HWND) -> Option<ColorImage> {
     }
 }
 
-/// The screen's pixels in this rectangle, as they are composed right now.
-pub fn screen(x: i32, y: i32, w: usize, h: usize) -> Option<ColorImage> {
+const PW_CLIENT_FULL_CONTENT: u32 = 3;
+
+/// A window's client area as it draws it, child windows included, even when other windows cover it.
+pub fn client(h: isize) -> Option<ColorImage> {
     unsafe {
-        let c = Canvas::new(w, h)?;
-        let dc = GetDC(std::ptr::null_mut());
-        let ok = BitBlt(c.dc, 0, 0, w as i32, h as i32, dc, x, y, SRCCOPY | CAPTUREBLT) != 0;
-        ReleaseDC(std::ptr::null_mut(), dc);
-        ok.then(|| ColorImage::new([w, h], c.pixels().chunks_exact(4).map(|p| Color32::from_rgb(p[2], p[1], p[0])).collect()))
+        let mut r: RECT = std::mem::zeroed();
+        GetClientRect(h as HWND, &mut r);
+        let (w, ht) = (r.right.max(1) as usize, r.bottom.max(1) as usize);
+        let c = Canvas::new(w, ht)?;
+        let ok = windows_sys::Win32::Storage::Xps::PrintWindow(h as HWND, c.dc, PW_CLIENT_FULL_CONTENT) != 0;
+        ok.then(|| ColorImage::new([w, ht], c.pixels().chunks_exact(4).map(|p| Color32::from_rgb(p[2], p[1], p[0])).collect()))
     }
 }
 

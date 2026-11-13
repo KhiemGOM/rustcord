@@ -3,7 +3,6 @@
 //! a time, gone with its channel; and the proxied file playing in the inline player.
 
 use egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};
-use std::time::Duration;
 
 use super::Run;
 use crate::media::{self, Phase};
@@ -49,21 +48,7 @@ impl Run {
     }
 
     pub(super) fn window_shot(&self, name: &str) {
-        use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
-        use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos};
-        let w = crate::winsys::WINDOW.load(std::sync::atomic::Ordering::Relaxed) as HWND;
-        let (mut r, mut o): (RECT, POINT) = unsafe { (std::mem::zeroed(), POINT { x: 0, y: 0 }) };
-        let lift = |z| unsafe { SetWindowPos(w, z, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) };
-        lift(HWND_TOPMOST);
-        std::thread::sleep(Duration::from_millis(250));
-        unsafe {
-            GetClientRect(w, &mut r);
-            ClientToScreen(w, &mut o);
-        }
-        let img = crate::shareable::screen(o.x, o.y, (r.right - r.left).max(1) as usize, (r.bottom - r.top).max(1) as usize);
-        lift(HWND_NOTOPMOST);
-        let Some(img) = img else { return };
+        let Some(img) = crate::shareable::client(crate::winsys::WINDOW.load(std::sync::atomic::Ordering::Relaxed)) else { return };
         let [iw, ih] = img.size;
         let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
         if let Some(buf) = image::RgbaImage::from_raw(iw as u32, ih as u32, bytes) {
