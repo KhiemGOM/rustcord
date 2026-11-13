@@ -20,7 +20,7 @@ pub(super) fn system_line(ui: &mut Ui, d: &mut D, m: &Message, sys: system::Sys)
         ui.spacing_mut().item_spacing.x = 0.0;
         for s in &sys.spans {
             let (text, color, go) = match s {
-                system::Span::Text(t) => (t, pal().header_secondary, None),
+                system::Span::Text(t) => (t, pal().channel_default, None),
                 system::Span::Bold(t) => (t, pal().header_primary, None),
                 system::Span::Name(t, id) => (t, pal().header_primary, Some(system::Go::Profile(*id))),
                 system::Span::Link(t, go) => (t, pal().link, Some(go.clone())),

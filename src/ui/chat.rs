@@ -161,6 +161,8 @@ fn day(ts: i64) -> (i32, u32) {
 pub(super) fn group_start(prev: Option<&Message>, m: &Message) -> bool {
     match prev {
         None => true,
+        // a run of system messages stacks without the gap between groups
+        Some(p) if !normal(p.kind) && !normal(m.kind) => day(p.ts()) != day(m.ts()),
         Some(p) => {
             p.author != m.author
                 || m.ts() - p.ts() > 7 * 60 * 1000

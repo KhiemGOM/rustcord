@@ -72,7 +72,10 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
     let w = ui.available_width();
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
-    let content = Rect::from_min_size(pos2(left + 72.0, top + 2.0), vec2((w - 72.0 - 48.0).max(120.0), 100_000.0));
+    // a system message is a 30 tall row with its line 4 down
+    let sys_row = sys.is_some();
+    let pad = if sys_row { 4.0 } else { 2.0 };
+    let content = Rect::from_min_size(pos2(left + 72.0, top + pad), vec2((w - 72.0 - 48.0).max(120.0), 100_000.0));
     let mut cui = ui.new_child(UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
     cui.spacing_mut().item_spacing = vec2(4.0, 0.0);
 
@@ -287,7 +290,9 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
         }
     }
 
-    let bottom = cui.min_rect().bottom().max(top + 22.0) + 2.0 + tail;
+    // a system line is 22 tall like discord's; egui's is a hair shorter
+    let floor = if sys_row { top + pad + 22.0 } else { top + 22.0 };
+    let bottom = cui.min_rect().bottom().max(floor) + pad + tail;
     let row = Rect::from_min_max(pos2(left, top), pos2(left + w, bottom));
     ui.advance_cursor_after_rect(row);
     ui.data_mut(|s| s.insert_temp(row_id, row));
