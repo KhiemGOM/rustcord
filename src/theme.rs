@@ -668,6 +668,7 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     let ui_i = gg("ggsans-400i", None).is_none() && add("ui-i", "segoeuii.ttf");
     let semi_i = gg("ggsans-600i", None).is_none() && add("semi-i", "seguisbi.ttf");
     let bold_i = gg("ggsans-700i", None).is_none() && add("bold-i", "segoeuiz.ttf");
+    let gadugi = add("gadugi", "gadugi.ttf");
     let sym = add("sym", "seguisym.ttf");
     let code = add("code", "consola.ttf");
     // last resort for pictographs the ui fonts lack; egui draws its monochrome outlines
@@ -681,6 +682,9 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         let mut v: Vec<String> = first.into_iter().map(str::to_string).collect();
         if ui {
             v.push("ui".into());
+        }
+        if gadugi {
+            v.push("gadugi".into());
         }
         if sym {
             v.push("sym".into());
@@ -710,6 +714,11 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         f.families.insert(FontFamily::Name(fam.into()), chain(first));
     }
     f.families.insert(FontFamily::Proportional, chain(gg("ggsans-400", None)));
+    let mut boxes = chain(gg("ggsans-500", None));
+    if hangul {
+        boxes.insert(0, "hangul".into());
+    }
+    f.families.insert(FontFamily::Name("boxes".into()), boxes);
     // every name font family exists from the start; until its file arrives it's just gg sans
     for (id, ..) in crate::fonts::NAME_FONTS {
         let key = format!("name{id}");
