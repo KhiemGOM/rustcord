@@ -702,7 +702,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         // an empty channel is its name, a line and the way in, stacked about the middle
         let empty = members.is_empty();
         if empty {
-            ui.painter().text(r.center() - vec2(0.0, 55.0), Align2::CENTER_CENTER, &chan.name, semi(32.0), pal().header_primary);
+            super::text::paint_em(ui.painter(), r.center() - vec2(0.0, 55.0), Align2::CENTER_CENTER, &chan.name, semi(32.0), pal().header_primary, r.width() - 32.0, 1.0);
             ui.painter().text(r.center() - vec2(0.0, 17.5), Align2::CENTER_CENTER, "No one is currently in voice", reg(14.0), pal().text_normal);
         }
         if app.activity.runs_in(chan.id) {
