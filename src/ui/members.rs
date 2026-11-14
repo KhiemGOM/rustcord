@@ -135,14 +135,14 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
                     let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
-                    let ny = if line.is_some() { row.top() + 15.0 } else { row.center().y };
+                    let ny = if line.is_some() { row.top() + 14.5 } else { row.center().y };
                     let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
                     if store.role_gradient(gid, *uid).is_some() {
                         named.push((format!("member_grad:{uid}"), nr));
                     }
                     if let Some(line) = line {
-                        status_line(ui.painter(), line, av.right() + 12.0, row.top() + 33.0, inner.right() - 8.0, pal().text_muted, 12.0, "");
+                        status_line(ui.painter(), line, av.right() + 12.0, row.top() + 31.0, inner.right() - 8.0, pal().text_muted, 12.0, "");
                     }
                     let mut tx = nr.right() + 4.0;
                     // discord leaves the crown off while the owner sits in the offline group
