@@ -11,6 +11,10 @@ speakers closed, so a test run never records you or makes noise.
     python e2e/run.py --real-devices   # warm run uses your real mic, speakers and desktop
     python e2e/run.py --real-camera    # ...and your webcam
     python e2e/run.py --real-video     # warm run streams a real screen, mic and speakers stay fake
+    python e2e/run.py --focus          # lets the test windows take focus, for the checks that need it
+
+Without --focus the test windows stay under everything and never take focus, and the checks that
+need focus (tidy.NEEDS_FOCUS) are listed as skipped instead of run.
 
 Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request log.
 """
@@ -189,6 +193,9 @@ def run_client(name, data_dir, extra=None):
 
 
 def main():
+    focus = "--focus" in sys.argv
+    if focus:
+        os.environ["RUSTCORD_E2E_FOCUS"] = "1"
     if "--no-build" not in sys.argv:
         build()
     # only this run's own outputs: recordings and reports from the other tools live beside them
@@ -621,11 +628,13 @@ def main():
         **rpc.checks({"cold": cold, "warm": warm}, reqs, data),
         **activity.checks({"cold": cold, "warm": warm}, reqs, data),
     }
-    report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
+    skipped = [] if focus else [k for k in tidy.NEEDS_FOCUS if checks.pop(k, None) is not None]
+    report = {"checks": checks, "skipped": skipped, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
 
     md = ["# rustcord e2e report", ""]
     md += [f"- [{'x' if ok else ' '}] {name}" for name, ok in checks.items()]
+    md += [f"- [-] skipped, needs --focus: {name}" for name in skipped]
     for name, r in (("cold", cold), ("warm", warm), ("login", signin)):
         md += ["", f"## {name} start", "", f"- spawn -> first frame: {r.get('spawn_to_first_frame_ms')} ms"]
         md += [f"- {k}: {v} ms" for k, v in r.get("marks_ms", {}).items()]

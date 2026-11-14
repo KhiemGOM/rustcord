@@ -215,8 +215,7 @@ fn barred(readonly: bool, harness: bool, base: &str) -> Option<&'static str> {
 /// run that isn't pointed at a server on this machine.
 pub fn charge_barred() -> Option<&'static str> {
     let readonly = FORCE_READONLY.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("RUSTCORD_READONLY").is_some();
-    let harness = ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some());
-    barred(readonly, harness, api::base())
+    barred(readonly, crate::winsys::harness(), api::base())
 }
 
 #[derive(Clone)]

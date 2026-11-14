@@ -68,7 +68,8 @@ fn main() -> eframe::Result {
     }
     // a harness run (e2e, tour, replay, bench) opens behind everything and never takes focus, so
     // whoever's at the machine isn't interrupted; its input is injected anyway
-    if ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some()) {
+    winsys::keep_down();
+    if winsys::harness() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
     } else if !std::env::args().any(|a| a == "--startup") {
         winsys::show_early(size, cache::window_color());

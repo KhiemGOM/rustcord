@@ -299,13 +299,56 @@ pub fn frameless(frame: &eframe::Frame) {
         BUTTON_CREATED.store(windows_sys::Win32::UI::WindowsAndMessaging::RegisterWindowMessageW(name.as_ptr()), Ordering::Relaxed);
         let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
         OLD_PROC.store(old, Ordering::Relaxed);
-        // e2e: maximise and fullscreen would otherwise activate the window over someone's game
-        if std::env::var_os("RUSTCORD_E2E").is_some() {
-            use windows_sys::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_NOACTIVATE};
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE as isize);
-        }
     }
     WINDOW.store(hwnd as isize, Ordering::Relaxed);
+}
+
+/// A test run's windows stay under everyone else's: every top-level window this thread makes is
+/// created at the bottom, kept there when it's shown, raised, maximised or made fullscreen, and
+/// never activated. Call on each thread that makes windows, before it makes them.
+pub fn keep_down() {
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowsHookExW, WH_CBT};
+    if !harness() {
+        return;
+    }
+    FOCUS_OK.store(std::env::var_os("RUSTCORD_E2E_FOCUS").is_some(), Ordering::Relaxed);
+    unsafe { SetWindowsHookExW(WH_CBT, Some(down_cbt), std::ptr::null_mut(), GetCurrentThreadId()) };
+}
+
+static FOCUS_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn top_level(hwnd: HWND) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GWL_STYLE, GetWindowLongPtrW, WS_CHILD};
+    (unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } & WS_CHILD as isize) == 0
+}
+
+unsafe extern "system" fn down_cbt(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CBT_CREATEWNDW, CallNextHookEx, HCBT_ACTIVATE, HCBT_CREATEWND, HWND_BOTTOM};
+    if code == HCBT_ACTIVATE as i32 && !FOCUS_OK.load(Ordering::Relaxed) && top_level(wp as HWND) {
+        return 1;
+    }
+    if code == HCBT_CREATEWND as i32 {
+        let c = unsafe { &mut *(lp as *mut CBT_CREATEWNDW) };
+        if (unsafe { (*c.lpcs).style } as u32 & windows_sys::Win32::UI::WindowsAndMessaging::WS_CHILD) == 0 {
+            c.hwndInsertAfter = HWND_BOTTOM;
+            unsafe { windows_sys::Win32::UI::Shell::SetWindowSubclass(wp as HWND, Some(down_sub), 1, 0) };
+        }
+    }
+    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wp, lp) }
+}
+
+unsafe extern "system" fn down_sub(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _: usize, _: usize) -> LRESULT {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if msg == WM_WINDOWPOSCHANGING {
+        let pos = unsafe { &mut *(lp as *mut WINDOWPOS) };
+        if pos.flags & SWP_NOZORDER == 0 {
+            pos.hwndInsertAfter = HWND_BOTTOM;
+        }
+    } else if msg == WM_SHOWWINDOW && wp != 0 {
+        unsafe { SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) };
+    }
+    unsafe { windows_sys::Win32::UI::Shell::DefSubclassProc(hwnd, msg, wp, lp) }
 }
 
 static BADGE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
@@ -402,6 +445,10 @@ pub fn send_close() {
 pub fn shown() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
     unsafe { IsWindowVisible(WINDOW.load(Ordering::Relaxed) as HWND) != 0 }
+}
+
+pub fn harness() -> bool {
+    ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some())
 }
 
 /// Minimizes or restores the window without activating anything, for the e2e run.
