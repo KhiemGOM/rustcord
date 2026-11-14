@@ -323,7 +323,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         slash::row(app, ui, chan, tid, w, off);
                     } else {
                         if off {
-                            ui.add_space(1.0);
+                            ui.add_space(-1.0);
                         } else {
                             let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
                             let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &presp));
