@@ -257,7 +257,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let ink = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &er));
         ui.painter().circle_stroke(esc.center(), 17.0, Stroke::new(2.0, ink));
         icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(esc.center(), vec2(18.0, 18.0)), ink);
-        ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(13.0), pal().header_secondary);
+        ui.painter().text(pos2(esc.center().x, esc.bottom() + 14.0), Align2::CENTER_CENTER, "ESC", semi(12.0), pal().header_secondary);
         close = er.clicked();
 
         let gutter = (col.tools - col.right).min(16.0);
@@ -294,7 +294,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 }
 
 fn heading(ui: &mut Ui, t: &str, desc: &str) {
-    ui.label(RichText::new(t).font(semi(20.0)).line_height(Some(24.0)).color(pal().header_primary));
+    ui.label(RichText::new(t).font(medium(20.0)).line_height(Some(24.0)).color(pal().header_primary));
     if !desc.is_empty() {
         ui.add_space(4.0);
         ui.label(RichText::new(desc).font(reg(14.0)).line_height(Some(18.0)).color(pal().text_normal));
