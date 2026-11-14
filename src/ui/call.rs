@@ -679,7 +679,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if chan.kind == 13 {
         return super::stage::room(app, ui, chan);
     }
-    let shown = awake(ui, ui.max_rect());
+    let shown = if app.voice.members(&app.store, chan.id).is_empty() { 1.0 } else { awake(ui, ui.max_rect()) };
     egui::Panel::top("room_head")
         .exact_size(48.0)
         .resizable(false)
