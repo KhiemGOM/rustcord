@@ -186,8 +186,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         egui::ScrollArea::vertical().id_salt("discover").auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             let data = d.data.get(&key);
+            let cat = cats.get(d.tab.saturating_sub(1)).filter(|_| key != "collections" && d.searched.is_empty()).map(|c| c.1.clone());
             if key == "collections" {
-                hero(ui);
+                hero(ui, &["FIND THINGS TO", "DO TOGETHER"], "Bring the fun to your hangouts with apps for games, music, creative tools, and more.");
+            } else if let Some(c) = &cat {
+                hero(ui, &[&c.to_uppercase()], blurb(c));
             }
             Frame::new().inner_margin(Margin { left: 44, right: 52, top: 23, bottom: 48 }).show(ui, |ui| {
                 match data {
@@ -208,9 +211,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     }
                     Some(v) => {
                         let apps: Vec<(Value, bool)> = v["results"].as_array().into_iter().flatten().map(|r| (r["data"].clone(), false)).collect();
-                        let title = if d.searched.is_empty() { cats.get(d.tab.saturating_sub(1)).map(|c| c.1.clone()).unwrap_or_default() } else { format!("Results for \u{201c}{}\u{201d}", d.searched) };
-                        ui.label(RichText::new(title).font(semi(20.0)).color(pal().header_primary));
-                        ui.add_space(24.0);
+                        if cat.is_none() {
+                            ui.label(RichText::new(format!("Results for \u{201c}{}\u{201d}", d.searched)).font(semi(20.0)).color(pal().header_primary));
+                            ui.add_space(24.0);
+                        }
                         if apps.is_empty() {
                             ui.label(RichText::new("No apps found.").font(reg(16.0)).color(pal().header_secondary));
                         }
@@ -310,7 +314,18 @@ fn help_card(ui: &mut Ui) {
     }
 }
 
-fn hero(ui: &mut Ui) {
+fn blurb(cat: &str) -> &'static str {
+    match cat {
+        "Games" => "Jump into solo puzzles, party games, competitive showdowns, and more.",
+        "Entertainment" => "Watch videos, listen to music, and share moments together.",
+        "Moderation and Tools" => "Build, manage, and grow a thriving community.",
+        "Social" => "Gather, spark conversations, and build connections.",
+        "Utilities" => "Add convenience, organization, and productivity to your hangouts.",
+        _ => "",
+    }
+}
+
+fn hero(ui: &mut Ui, lines: &[&str], sub: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 299.0), Sense::hover());
     let mut m = egui::Mesh::default();
     let (a, b) = (Color32::from_rgb(0x2b, 0x2f, 0x8c), Color32::from_rgb(0x13, 0x16, 0x4d));
@@ -322,9 +337,12 @@ fn hero(ui: &mut Ui) {
     m.add_triangle(0, 2, 3);
     ui.painter().add(m);
     let p = ui.painter();
-    p.text(pos2(r.left() + 43.5, r.top() + 120.3), Align2::LEFT_CENTER, "FIND THINGS TO", display(44.0), pal().header_primary);
-    p.text(pos2(r.left() + 43.5, r.top() + 164.3), Align2::LEFT_CENTER, "DO TOGETHER", display(44.0), pal().header_primary);
-    p.text(pos2(r.left() + 43.5, r.top() + 206.5), Align2::LEFT_CENTER, "Bring the fun to your hangouts with apps for games, music, creative tools, and more.", medium(16.0), pal().text_muted);
+    let mut y = r.top() + 115.0 + (2 - lines.len().min(2)) as f32 * 22.0;
+    for line in lines {
+        p.text(pos2(r.left() + 43.5, y + 5.3), Align2::LEFT_CENTER, *line, display(44.0), pal().header_primary);
+        y += 44.0;
+    }
+    p.text(pos2(r.left() + 43.5, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), pal().text_muted);
 }
 
 /// Four cards to a row: the cover, the icon over its corner, the name, its category, two lines
