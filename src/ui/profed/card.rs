@@ -233,7 +233,8 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let bg = ui.ctx().fonts_mut(|f| f.layout(ed.draft.bio.clone(), reg(14.0), ink(), br.width()));
     y += bg.size().y.max(20.0) + 28.0;
     head(ui, &mut y, "Member Since");
-    let r = ui.painter().text(pos2(x, y + 9.0), Align2::LEFT_CENTER, since(crate::state::snowflake_ms(me)), reg(14.0), ink());
+    icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(pos2(x + 8.0, y + 13.0), vec2(16.0, 16.0)), ink());
+    let r = ui.painter().text(pos2(x + 20.0, y + 13.0), Align2::LEFT_CENTER, since(crate::state::snowflake_ms(me)), reg(14.0), ink());
     // in a server, when you joined it follows, after its icon
     let joined = crate::state::iso_ms(&ed.raw["guild_member"]["joined_at"]);
     if let Some(g) = ed.guild.and_then(|g| app.store.guilds.get(&g)).filter(|_| joined > 0) {
@@ -245,9 +246,9 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
                 ui.painter().rect_filled(icon, CornerRadius::same(4), pal().bg_accent);
             }
         }
-        ui.painter().text(pos2(icon.right() + 8.0, y + 9.0), Align2::LEFT_CENTER, since(joined), reg(14.0), ink());
+        ui.painter().text(pos2(icon.right() + 8.0, y + 13.0), Align2::LEFT_CENTER, since(joined), reg(14.0), ink());
     }
-    y += 36.0;
+    y += 46.0;
     if let Some(g) = ed.guild {
         let roles = crate::ui::profile::member_roles(&app.store, Some(&ed.raw), g, me);
         if !roles.is_empty() {
@@ -278,8 +279,8 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     }
     let add = Rect::from_min_size(pos2(x, y), vec2(140.0, 20.0));
     let resp = ui.interact(add, ui.id().with("add_conn"), Sense::click());
-    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(x + 9.0, y + 10.0), vec2(16.0, 16.0)), dimmer());
-    ui.painter().text(pos2(x + 24.0, y + 10.0), Align2::LEFT_CENTER, "Add Connection", medium(12.0), dimmer());
+    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(x + 8.0, y + 10.0), vec2(16.0, 16.0)), dimmer());
+    ui.painter().text(pos2(x + 20.0, y + 10.0), Align2::LEFT_CENTER, "Add Connection", medium(12.0), dimmer());
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -287,7 +288,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
         app.settings_page = Some(crate::ui::settings::Page::Apps);
         app.profed = None;
     }
-    y += 36.0;
+    y += 43.0;
     head(ui, &mut y, "Note (only visible to you)");
     let saved = app.notes.get(&me).cloned().unwrap_or_default();
     let mut nc = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(x, y), vec2(w - 64.0, 24.0))));
