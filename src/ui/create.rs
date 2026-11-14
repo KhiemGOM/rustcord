@@ -117,6 +117,10 @@ pub(super) fn faint(a: u8) -> Color32 {
 
 /// Discord's modal: 480 wide, 24 in, the title and a close cross on top.
 pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
+    modal_with(ctx, id, title, None, add)
+}
+
+fn modal_with(ctx: &egui::Context, id: &'static str, title: Option<&str>, sub: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
     let r = crate::ui::motion::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
@@ -129,7 +133,13 @@ pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, 
             let resp = ui.interact(x, ui.id().with("close"), Sense::click());
             icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             close = resp.clicked();
-            ui.add_space(24.0);
+            match sub {
+                Some(s) => {
+                    ui.painter().text(pos2(r.left(), r.top() + 34.0), Align2::LEFT_TOP, s, reg(16.0), pal().header_secondary);
+                    ui.add_space(54.65);
+                }
+                None => ui.add_space(24.0),
+            }
         }
         let room = ctx.content_rect().height() - 80.0 - 48.0 - if title.is_some() { 48.0 } else { 0.0 };
         egui::ScrollArea::vertical().max_height(room.max(100.0)).auto_shrink([false, true]).show(ui, |ui| add(ui));
@@ -261,7 +271,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut name_emoji = None;
     match f.kind {
         Kind::Channel => {
-            close = modal(ctx, "create_channel", Some("Create Channel"), |ui| {
+            let within = f.parent.and_then(|p| app.store.channels.get(&p)).map(|c| format!("in {}", c.name));
+            close = modal_with(ctx, "create_channel", Some("Create Channel"), within.as_deref(), |ui| {
                 label(ui, "Channel Type");
                 for (t, icon, name, desc) in [
                     (0u8, Icon::Hash, "Text", "Send messages, images, GIFs, emoji, opinions, and puns"),
