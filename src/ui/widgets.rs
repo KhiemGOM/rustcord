@@ -67,8 +67,8 @@ pub(super) fn badge_scaled(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Col
 pub(crate) fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
     let fill = motion::mix(fill, fill.gamma_multiply(0.85), motion::hot(ui.ctx(), &resp));
-    ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, semi(14.0), Color32::WHITE);
+    ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), Color32::WHITE);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
