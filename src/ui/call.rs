@@ -795,7 +795,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             super::tile::options(app, ui, chan, *u, tile, shown);
         }
-        if shown > 0.0 {
+        if shown > 0.0 && !outside {
             if !app.activity.runs_in(chan.id) {
                 gradient(ui, r, true, shown);
             }
