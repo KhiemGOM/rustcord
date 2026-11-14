@@ -418,7 +418,6 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     let me = app.store.me;
     let bar = vec2(w.min(208.0), 42.0);
     let sq = 100.0f32.min((w - 8.0) / 2.0);
-    let guild = ed.guild.is_some();
     head(ui, y, "Nameplate", false);
     let r = Rect::from_min_size(pos2(x, *y), bar);
     let resp = tile(ui, r, "nameplate", false);

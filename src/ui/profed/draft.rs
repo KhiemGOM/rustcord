@@ -148,7 +148,7 @@ pub fn widgets_of(v: &Value) -> Vec<Widget> {
 pub fn from_profile(v: &Value, me: &User, guild: Option<Id>) -> Draft {
     let (p, m) = if guild.is_some() { (&v["guild_member_profile"], &v["guild_member"]) } else { (&v["user_profile"], &v["user"]) };
     let theme = |i: usize| p["theme_colors"][i].as_u64().map(|c| c as u32);
-    let s = &v["user"]["display_name_styles"];
+    let s = &m["display_name_styles"];
     let colors: Vec<u32> = s["colors"].as_array().into_iter().flatten().filter_map(|c| c.as_u64()).map(|c| c as u32).collect();
     let style = s.is_object().then(|| Style { font: s["font_id"].as_u64().unwrap_or(11) as u8, effect: s["effect_id"].as_u64().unwrap_or(1) as u8, colors });
     let uid = me.id;
