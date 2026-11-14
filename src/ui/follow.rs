@@ -116,11 +116,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.set_width(472.0);
             ui.add_space(8.0);
             let (t, _) = ui.allocate_exact_size(vec2(472.0, 32.0), Sense::hover());
-            ui.painter().text(t.center(), Align2::CENTER_CENTER, "Add this channel's updates to your server!", semi(24.0), pal().header_primary);
+            ui.painter().text(t.center(), Align2::CENTER_CENTER, "Add this channel's updates to your server!", semi(20.0), pal().header_primary);
             ui.add_space(8.0);
-            let body = ui.painter().layout("Select where you want these updates to go. You can remove this at any time in Server Settings > Integrations > Channels Followed.".into(), reg(14.0), pal().header_secondary, 440.0);
+            let body = ui.painter().layout("Select where you want these updates to go. You can remove this at any time in Server Settings > Integrations > Channels Followed.".into(), reg(14.0), pal().text_muted, 440.0);
             let (b, _) = ui.allocate_exact_size(vec2(472.0, body.size().y), Sense::hover());
-            ui.painter().galley(pos2(b.center().x - body.size().x / 2.0, b.top()), body, pal().header_secondary);
+            ui.painter().galley(pos2(b.center().x - body.size().x / 2.0, b.top()), body, pal().text_muted);
             ui.add_space(24.0);
             label(ui, "Send to");
             let shown = guild.and_then(|g| servers.iter().find(|s| s.0 == g)).map_or("Select...".to_string(), |s| s.1.clone());
@@ -144,9 +144,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 });
             });
             ui.add_space(16.0);
-            let note = ui.painter().layout("Only servers and channels you have webhook permissions in are shown.".into(), reg(14.0), pal().header_secondary, 472.0);
+            let note = ui.painter().layout("Only servers and channels you have webhook permissions in are shown.".into(), reg(14.0), pal().text_muted, 472.0);
             let (n, _) = ui.allocate_exact_size(vec2(472.0, note.size().y), Sense::hover());
-            ui.painter().galley(n.min, note, pal().header_secondary);
+            ui.painter().galley(n.min, note, pal().text_muted);
             ui.add_space(32.0);
             let (row, _) = ui.allocate_exact_size(vec2(472.0, 38.0), Sense::hover());
             let ready = target.is_some() && !busy;
@@ -181,7 +181,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 fn label(ui: &mut Ui, s: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, s, semi(16.0), pal().header_primary);
+    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, s, medium(16.0), pal().header_primary);
     ui.add_space(8.0);
 }
 
