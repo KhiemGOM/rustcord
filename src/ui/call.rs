@@ -1,6 +1,10 @@
+mod layout;
+mod preview;
+
 use egui::{Align2, Color32, ColorImage, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use std::sync::{Arc, Mutex};
 
+use layout::{focused, grid};
 use super::icons::{self, Icon};
 use super::{App, avatar, channel_title};
 use crate::state::{Channel, Id};
@@ -660,7 +664,9 @@ pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, shown: f32, icon: Icon) 
     ui.horizontal_centered(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
         icons::draw(ui.painter(), icon, r, pal().channel_default);
-        ui.add(egui::Label::new(egui::RichText::new(&chan.name).font(medium(16.0)).color(pal().header_primary)).selectable(false));
+        let t = super::text::layout_em(ui.ctx(), &chan.name, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
+        let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
+        t.paint(ui.painter(), r.min);
         if !app.voice_chat {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
@@ -679,7 +685,7 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
     if chan.kind == 13 {
         return super::stage::room(app, ui, chan);
     }
-    let shown = if app.voice.members(&app.store, chan.id).is_empty() { 1.0 } else { awake(ui, ui.max_rect()) };
+    let shown = if app.voice.chan != Some(chan.id) || app.voice.members(&app.store, chan.id).is_empty() { 1.0 } else { awake(ui, ui.max_rect()) };
     egui::Panel::top("room_head")
         .exact_size(48.0)
         .resizable(false)
@@ -701,10 +707,22 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         // an empty channel is its name, a line and the way in, stacked about the middle
         let empty = members.is_empty();
-        if empty {
-            super::text::paint_em(ui.painter(), r.center() - vec2(0.0, 55.0), Align2::CENTER_CENTER, &chan.name, semi(32.0), pal().header_primary, r.width() - 32.0, 1.0);
-            ui.painter().text(r.center() - vec2(0.0, 17.5), Align2::CENTER_CENTER, "No one is currently in voice", reg(14.0), pal().text_normal);
+        let outside = app.voice.chan != Some(chan.id) && !app.activity.runs_in(chan.id);
+        let drop = if empty { 0.0 } else { 49.0 };
+        if outside {
+            preview::backdrop(ui, r);
         }
+        if empty || outside {
+            if !empty {
+                preview::cards(app, ui, chan, &members, r.center().y - 147.5, r.center().x);
+            }
+            super::text::paint_em(ui.painter(), r.center() - vec2(0.0, 55.0 - drop), Align2::CENTER_CENTER, &chan.name, semi(32.0), pal().header_primary, r.width() - 32.0, 1.0);
+            ui.painter().text(r.center() - vec2(0.0, 17.5 - drop), Align2::CENTER_CENTER, preview::who(app, chan.guild, &members), reg(14.0), pal().text_normal);
+        }
+        if outside {
+            members.clear();
+        }
+        let focus = if outside { None } else { focus };
         if app.activity.runs_in(chan.id) {
             let big = Rect::from_min_max(area.min, pos2(area.right(), (area.bottom() - super::activity::view::STRIP - 8.0).max(area.top() + 160.0)));
             super::activity::view::stage(app, ui, big);
@@ -787,9 +805,9 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if app.voice.chan == Some(chan.id) {
             ui.multiply_opacity(shown);
         }
-        if empty && app.voice.chan != Some(chan.id) {
+        if (empty || outside) && app.voice.chan != Some(chan.id) {
             let label = ui.painter().layout_no_wrap("Join Voice".into(), medium(16.0), Color32::BLACK);
-            let b = Rect::from_center_size(r.center() + vec2(0.0, 35.5), vec2(label.size().x + 32.0, 40.0));
+            let b = Rect::from_center_size(r.center() + vec2(0.0, 35.5 + drop), vec2(label.size().x + 32.0, 40.0));
             let hit = ui.interact(b, egui::Id::new(("join", chan.id)), Sense::click());
             ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::WHITE, Color32::from_gray(0xdf), crate::ui::motion::hot(ui.ctx(), &hit)));
             ui.painter().galley(b.center() - label.size() / 2.0, label, Color32::BLACK);
@@ -804,57 +822,6 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
             super::callbar::controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
         }
     });
-}
-
-fn focused(area: Rect, members: &[Id], who: Id) -> Vec<Rect> {
-    let rest = members.len() - 1;
-    let strip = if rest == 0 { 0.0 } else { 120.0 };
-    let big = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - strip - if rest == 0 { 0.0 } else { 8.0 }));
-    let (w, h) = (192.0, 108.0);
-    let x0 = area.center().x - (rest as f32 * (w + 8.0) - 8.0) / 2.0;
-    let mut k = 0;
-    members
-        .iter()
-        .map(|u| {
-            if *u == who {
-                return big;
-            }
-            k += 1;
-            Rect::from_min_size(pos2(x0 + (k - 1) as f32 * (w + 8.0), area.bottom() - h - 6.0), vec2(w, h))
-        })
-        .collect()
-}
-
-pub fn grid(area: Rect, n: usize) -> Vec<Rect> {
-    if n == 0 {
-        return Vec::new();
-    }
-    let gap = 8.0;
-    // try every column count and keep whichever gives the biggest 16:9 tiles
-    let mut best = (0.0, 1, 1);
-    for cols in 1..=n {
-        let rows = n.div_ceil(cols);
-        let w = (area.width() - gap * (cols - 1) as f32) / cols as f32;
-        let h = (area.height() - gap * (rows - 1) as f32) / rows as f32;
-        let tw = w.min(h * 16.0 / 9.0);
-        if tw > best.0 {
-            best = (tw, cols, rows);
-        }
-    }
-    let (tw, cols, rows) = best;
-    let th = tw * 9.0 / 16.0;
-    let total_h = rows as f32 * th + (rows - 1) as f32 * gap;
-    let mut out = Vec::with_capacity(n);
-    for row in 0..rows {
-        let in_row = (n - row * cols).min(cols);
-        let row_w = in_row as f32 * tw + (in_row - 1) as f32 * gap;
-        let x0 = area.center().x - row_w / 2.0;
-        let y = area.center().y - total_h / 2.0 + row as f32 * (th + gap);
-        for k in 0..in_row {
-            out.push(Rect::from_min_size(pos2(x0 + k as f32 * (tw + gap), y), vec2(tw, th)));
-        }
-    }
-    out
 }
 
 type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;
