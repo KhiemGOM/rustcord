@@ -177,25 +177,39 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                 let resp = ui.add(Label::new(galley.clone()).sense(Sense::click()));
                 let origin = resp.rect.min;
                 let mut fills = Vec::new();
+                let mut lit = Vec::new();
+                let pointer = ui.ctx().pointer_hover_pos().filter(|_| ui.rect_contains_pointer(resp.rect));
                 for (r, fill, line, h) in &t.pills {
                     let a = galley.pos_from_cursor(CCursor { prefer_next_row: true, ..CCursor::new(r.start) });
                     let b = galley.pos_from_cursor(CCursor::new(r.end));
                     let piece = |l: f32, r: f32, row: Rect| {
                         let top = origin.y + row.center().y - line / 2.0;
-                        egui::Shape::rect_filled(Rect::from_min_max(pos2(origin.x + l, top), pos2(origin.x + r, top + h)), CornerRadius::same(3), *fill)
+                        Rect::from_min_max(pos2(origin.x + l, top), pos2(origin.x + r, top + h))
                     };
+                    let mut pieces = Vec::new();
                     if a.min.y == b.min.y {
-                        fills.push(piece(a.min.x - 2.0, b.min.x + 2.0, a));
+                        pieces.push(piece(a.min.x - 2.0, b.min.x + 2.0, a));
                     } else if let (Some(ra), Some(rb)) = (
                         galley.rows.iter().find(|row| row.min_y() == a.min.y).map(|row| row.rect()),
                         galley.rows.iter().find(|row| row.min_y() == b.min.y).map(|row| row.rect()),
                     ) {
                         // wrapped onto the next row: padded only at its two ends
-                        fills.push(piece(a.min.x - 2.0, ra.max.x, a));
-                        fills.push(piece(rb.min.x, b.min.x + 2.0, b));
+                        pieces.push(piece(a.min.x - 2.0, ra.max.x, a));
+                        pieces.push(piece(rb.min.x, b.min.x + 2.0, b));
+                    }
+                    let hot = *fill == pal().mention_bg && pointer.is_some_and(|p| pieces.iter().any(|q| q.contains(p)));
+                    for q in pieces {
+                        fills.push(egui::Shape::rect_filled(q, CornerRadius::same(3), if hot { pal().blurple } else { *fill }));
+                        if hot {
+                            lit.push(q);
+                        }
                     }
                 }
                 ui.painter().set(under, egui::Shape::Vec(fills));
+                for q in lit {
+                    ui.painter().with_clip_rect(q.intersect(ui.clip_rect())).galley_with_override_text_color(origin, galley.clone(), egui::Color32::WHITE);
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 // where links sit, for the e2e driver to click
                 for (r, l) in &t.links {
                     if matches!(l, Link::Url(_) | Link::Masked(_)) {
