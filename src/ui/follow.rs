@@ -30,8 +30,8 @@ pub fn can_follow(app: &App, chan: &Channel) -> bool {
 
 /// The small grey Follow button after an announcement channel's name.
 pub fn header_button(app: &mut App, ui: &mut Ui, chan: &Channel) {
-    ui.add_space(12.0);
-    let (r, resp) = ui.allocate_exact_size(vec2(62.0, 32.0), Sense::click());
+    ui.add_space(8.0);
+    let (r, resp) = ui.allocate_exact_size(vec2(63.7, 32.0), Sense::click());
     app.rects.insert("follow".into(), r);
     let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
