@@ -339,7 +339,7 @@ fn grid(ui: &mut Ui, apps: &[(Value, bool)], cat_name: &dyn Fn(&Value) -> Option
             let r = Rect::from_min_size(pos2(row.left() + i as f32 * (w + 16.0), row.top()), vec2(w, cover_h + 160.0));
             let resp = ui.interact(r, ui.id().with(("app", a["id"].as_str().unwrap_or_default())), Sense::click());
             let p = ui.painter();
-            p.rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_secondary, pal().bg_floating, crate::ui::motion::hot(ui.ctx(), &resp)));
+            p.rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_primary, pal().bg_floating, crate::ui::motion::hot(ui.ctx(), &resp)));
             p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
             let id = a["id"].as_str().unwrap_or_default();
             let cover = Rect::from_min_size(r.min + vec2(1.0, 1.0), vec2(w - 2.0, ((w - 2.0) * 9.0 / 16.0).round()));
@@ -351,7 +351,7 @@ fn grid(ui: &mut Ui, apps: &[(Value, bool)], cat_name: &dyn Fn(&Value) -> Option
             }
             let icon = Rect::from_min_size(pos2(r.left() + 13.0, cover.bottom() - 28.0), vec2(56.0, 56.0));
             if let Some(ic) = a["icon"].as_str() {
-                ui.painter().rect_filled(icon.expand(3.0), CornerRadius::same(15), pal().bg_secondary);
+                ui.painter().rect_filled(icon.expand(3.0), CornerRadius::same(15), pal().bg_primary);
                 egui::Image::from_uri(format!("{}/app-icons/{id}/{ic}.png?size=128", crate::api::cdn())).corner_radius(CornerRadius::same(12)).show_loading_spinner(false).paint_at(ui, icon);
             }
             let p = ui.painter();
