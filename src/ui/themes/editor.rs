@@ -391,10 +391,11 @@ pub fn show(app: &mut App, ui: &mut Ui, r: Rect) {
         }
         if unlocked {
             ui.add_space(24.0);
-            let (card, resp) = ui.allocate_exact_size(vec2(BODY, 60.0), Sense::click());
+            let sub = ui.painter().layout("Make your friends Discord match yours with sharing.".into(), reg(12.0), pal().header_secondary, BODY - 24.0);
+            let (card, resp) = ui.allocate_exact_size(vec2(BODY, 44.0 + sub.size().y), Sense::click());
             ui.painter().rect(card, 8, if resp.hovered() { pal().control_hover } else { pal().control }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             ui.painter().text(card.left_top() + vec2(12.0, 20.0), Align2::LEFT_CENTER, "Share your theme!", semi(14.0), pal().header_primary);
-            ui.painter().text(card.left_top() + vec2(12.0, 40.0), Align2::LEFT_CENTER, "Make your friends Discord match yours with sharing.", reg(12.0), pal().header_secondary);
+            ui.painter().galley(card.left_top() + vec2(12.0, 32.0), sub, pal().header_secondary);
             mark(ui, "themes:share", card);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
