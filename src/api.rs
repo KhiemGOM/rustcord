@@ -365,7 +365,7 @@ impl Api {
     }
 
     pub async fn schedule(&self, ch: Id, mut body: Value, files: &[(PathBuf, String, String)]) -> Result<Value, String> {
-        body["attachments"] = Value::Array(self.upload_files(ch, files, None).await?);
+        body["attachments"] = Value::Array(if files.is_empty() { Vec::new() } else { self.upload_files(ch, files, None).await? });
         self.call(Method::POST, "/users/@me/scheduled-messages", Some(body)).await
     }
 
