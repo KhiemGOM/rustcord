@@ -592,7 +592,8 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         }
     }
     let on_button = button.is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
-    if close || ctx.input(|i| i.key_pressed(Key::Escape)) || (popups::pressed_outside(ctx, &area.response) && !on_button) {
+    let under_dialog = app.sched.picker.is_some();
+    if close || (!under_dialog && (ctx.input(|i| i.key_pressed(Key::Escape)) || (popups::pressed_outside(ctx, &area.response) && !on_button))) {
         app.inbox = None;
     }
 }
