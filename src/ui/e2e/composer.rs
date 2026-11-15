@@ -52,17 +52,15 @@ impl Run {
                 self.click(r.center());
                 self.next(400);
             }),
-            563 => when!(Self::at(ctx, "poll:post").is_some() && (self.sub == 1 || self.step_at.elapsed() > Duration::from_millis(600)), {
-                if self.sub == 0 {
+            563 => when!(Self::at(ctx, "poll:post").is_some() && self.step_at.elapsed() > Duration::from_millis(600), {
+                let flagged = app.poll.as_ref().is_some_and(|p| p.errors().len() == 2);
+                if flagged {
+                    self.mark("poll_empty_post_errors");
+                } else if self.step_at.elapsed() < Duration::from_secs(5) {
                     let r = Self::at(ctx, "poll:post").unwrap_or(egui::Rect::ZERO);
                     self.click(r.center());
-                    self.sub = 1;
-                    self.wait = Instant::now() + Duration::from_millis(400);
+                    self.wait = Instant::now() + Duration::from_millis(700);
                     return;
-                }
-                self.sub = 0;
-                if app.poll.as_ref().is_some_and(|p| p.errors().len() == 2) {
-                    self.mark("poll_empty_post_errors");
                 }
                 if let Some(p) = app.poll.as_mut() {
                     p.question = "which crate?".into();
