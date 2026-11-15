@@ -70,7 +70,7 @@ fn tag_row(ui: &mut Ui, wearer: &crate::state::User) -> bool {
 }
 
 /// The menu under the server name.
-pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, dev: bool) -> Option<GuildAct> {
+pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, dev: bool) -> Option<GuildAct> {
     use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, SETTINGS_ACCESS, VIEW_GUILD_INSIGHTS};
     let g = store.guilds.get(&gid)?;
     let perms = store.my_perms(gid);
@@ -89,7 +89,7 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
         act = Some(GuildAct::Tag);
     }
     menu_sep(ui);
-    if can_invite && menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
+    if menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
         act = Some(GuildAct::Invite);
     }
     if perms & SETTINGS_ACCESS != 0 && menu_item(ui, Some(Icon::Gear), "Server Settings", false) {
@@ -164,7 +164,7 @@ fn favorite_item(ui: &mut Ui, store: &Store) -> Option<Id> {
     }
     let r = menu_row(ui, Some(Icon::Star), "Add to Favorites", None, false, Trail::Caret);
     let mut to = r.clicked().then_some(0);
-    egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+    super::submenu(ui, &r, |ui| {
         if menu_item(ui, None, "Favorites", false) {
             to = Some(0);
         }
@@ -181,13 +181,13 @@ fn favorite_item(ui: &mut Ui, store: &Store) -> Option<Id> {
 fn move_menu(ui: &mut Ui, store: &Store, c: &Channel) -> Option<Move> {
     let mut mv = None;
     let m = menu_row(ui, None, "Move to...", None, false, Trail::Caret);
-    egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+    super::submenu(ui, &m, |ui| {
         let peers = super::reorder::peers(store, c);
         let at = peers.iter().position(|x| *x == c.id);
         let cat = c.kind == 4;
         if !cat {
             let sub = menu_row(ui, None, "Category", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &sub, |ui| {
+            super::submenu(ui, &sub, |ui| {
                 if ui.add_enabled_ui(c.parent != 0, |ui| menu_item(ui, None, "Uncategorized", false)).inner {
                     mv = Some(Move::Category(0));
                 }
@@ -280,7 +280,7 @@ pub(super) fn channel_menu_in(r: &egui::Response, store: &Store, c: &Channel, un
             }
         } else {
             let m = menu_row(ui, None, &format!("Mute {what}"), None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 if let Some(secs) = super::mute_menu(ui) {
                     act = Some(ChanAct::Mute(true, secs));
                 }
@@ -290,7 +290,7 @@ pub(super) fn channel_menu_in(r: &egui::Response, store: &Store, c: &Channel, un
             let level = store.levels.get(&c.id).copied();
             let inherited = store.inherited_level(c);
             let n = menu_row(ui, None, "Notification Settings", Some(LEVELS[level.unwrap_or(inherited).min(2) as usize]), false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &n, |ui| {
+            super::submenu(ui, &n, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let default = if c.parent != 0 && !c.is_thread() { "Use Category Default" } else { "Use Server Default" };
                 if let Some(l) = super::level_menu(ui, level, inherited, default) {

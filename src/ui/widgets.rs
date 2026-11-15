@@ -132,6 +132,8 @@ pub(crate) struct Confirm {
     pub tip: Option<[&'static str; 3]>,
     // "Don't ask again" beside the buttons, and what ticking it does when the answer is yes
     pub check: Option<(bool, fn(&mut App))>,
+    pub alone: bool,
+    pub cancel: &'static str,
     pub run: Box<dyn FnOnce(&mut App)>,
     // Enter only answers once the dialog has been up a frame, not the Enter that opened it
     pub(super) shown: bool,
@@ -139,7 +141,17 @@ pub(crate) struct Confirm {
 
 impl Confirm {
     pub fn new(title: impl Into<String>, body: impl Into<String>, button: &'static str, run: impl FnOnce(&mut App) + 'static) -> Self {
-        Confirm { title: title.into(), body: body.into(), button, fill: pal().danger, msg: None, tip: None, check: None, run: Box::new(run), shown: false }
+        Confirm { title: title.into(), body: body.into(), button, fill: pal().danger, msg: None, tip: None, check: None, alone: false, cancel: "Cancel", run: Box::new(run), shown: false }
+    }
+
+    pub fn cancel(mut self, label: &'static str) -> Self {
+        self.cancel = label;
+        self
+    }
+
+    pub fn alone(mut self) -> Self {
+        self.alone = true;
+        self
     }
 
     pub fn blurple(mut self) -> Self {

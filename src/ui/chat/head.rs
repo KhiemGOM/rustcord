@@ -367,7 +367,7 @@ pub(crate) fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
         } else {
             let m = menu_row(ui, None, "Mute Channel", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            crate::ui::submenu(ui, &m, |ui| {
                 if let Some(secs) = crate::ui::mute_menu(ui) {
                     mute = Some((true, secs));
                 }

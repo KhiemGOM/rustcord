@@ -333,8 +333,12 @@ impl App {
                 ui.add_space(24.0);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
+                    if c.alone {
+                        go = button(ui, c.button, c.fill, 432.0).clicked();
+                        return;
+                    }
                     if msg.is_some() {
-                        close |= grey_button(ui, "Cancel", 212.0).clicked();
+                        close |= grey_button(ui, c.cancel, 212.0).clicked();
                         go = button(ui, c.button, c.fill, 212.0).clicked();
                         return;
                     }
@@ -355,7 +359,8 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let w = ui.painter().layout_no_wrap(c.button.to_string(), medium(16.0), Color32::WHITE).size().x + 32.0;
                         go = button(ui, c.button, c.fill, w.max(60.0)).clicked();
-                        close |= grey_button(ui, "Cancel", 92.0).clicked();
+                        let w = ui.painter().layout_no_wrap(c.cancel.to_string(), medium(16.0), Color32::WHITE).size().x + 32.0;
+                        close |= grey_button(ui, c.cancel, w.max(92.0)).clicked();
                     });
                 });
             });

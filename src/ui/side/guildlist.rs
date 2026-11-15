@@ -87,7 +87,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         app.rects.insert("guildmenu".into(), btn);
         egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).close_behavior(crate::ui::menu_closing(ui.ctx())).show(|ui| {
-            crate::ui::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, can_invite, dev));
+            crate::ui::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, dev));
         });
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -104,7 +104,8 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         Some(GuildAct::Create(k)) => app.create = Some(crate::ui::create::Form::new(k, gid, None)),
         Some(GuildAct::Threads) => app.active_threads = Some(gid),
         Some(GuildAct::Directory) => app.open_directory(),
-        Some(GuildAct::Invite) => invite = true,
+        Some(GuildAct::Invite) if can_invite => invite = true,
+        Some(GuildAct::Invite) => app.invite_denied(),
         Some(GuildAct::Notifs) => app.guild_notifs = Some(gid),
         Some(GuildAct::HideMuted) => toggle_hide_muted(app, gid),
         Some(GuildAct::ShowAll) => show_all_channels(app, gid),

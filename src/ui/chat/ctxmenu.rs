@@ -117,7 +117,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
                 if add.clicked() {
                     pick = Some(MenuPick::React);
                 }
-                egui::containers::menu::SubMenu::new().show(ui, &add, |ui| {
+                crate::ui::submenu(ui, &add, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for e in &frequent {
                         let name = if e.id != 0 { e.name.clone() } else { crate::ui::reactions::unicode_name(&e.name).to_string() };
@@ -165,7 +165,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             pick = Some(MenuPick::Bookmark);
         }
         let rem = menu_row(ui, Some(Icon::Clock), "Create Reminder", None, false, Trail::Caret);
-        egui::containers::menu::SubMenu::new().show(ui, &rem, |ui| {
+        crate::ui::submenu(ui, &rem, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             let (r, _) = ui.allocate_exact_size(vec2(170.0, 36.0), Sense::hover());
             ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, "Remind Me", medium(14.0), pal().chat_muted);
@@ -179,7 +179,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             }
         });
         let a = menu_row(ui, Some(Icon::Launched), "Apps", None, false, Trail::Caret);
-        egui::containers::menu::SubMenu::new().show(ui, &a, |ui| {
+        crate::ui::submenu(ui, &a, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             if apps.is_empty() {
                 ui.add_enabled_ui(false, |ui| menu_item(ui, None, "No Apps", false));
@@ -207,7 +207,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
         if let Some(i) = &interaction {
             let info = menu_row(ui, Some(Icon::Help), "View Interaction Info", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &info, |ui| {
+            crate::ui::submenu(ui, &info, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let (owner, url) = if i.in_guild {
                     let g = app_store.guilds.get(&i.owner);
@@ -237,7 +237,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         if group(ui, sent && manage && chan.guild != 0 && reacted || can_delete || can_report) {
             if sent && manage && chan.guild != 0 && reacted {
                 let rm = menu_row(ui, Some(Icon::Close), "Remove Reactions", None, true, Trail::Caret);
-                egui::containers::menu::SubMenu::new().show(ui, &rm, |ui| {
+                crate::ui::submenu(ui, &rm, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for r in &reaction_list {
                         let url = gif::uri(ui.ctx(), &emoji_url(&r.emoji), true);

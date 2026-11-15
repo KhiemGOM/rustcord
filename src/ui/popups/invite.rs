@@ -110,6 +110,11 @@ pub(super) enum Pick {
 }
 
 impl App {
+    pub fn invite_denied(&mut self) {
+        let body = "To add a friend to this server, ask someone with invite permissions for help.";
+        self.confirm = Some(crate::ui::Confirm::new("Invite permission required", body, "Got It", |_: &mut App| {}).blurple().alone());
+    }
+
     /// Invite People: a fresh link to the channel, good for 30 days like the official client's.
     pub fn invite_people(&mut self, ch: Id, source: &str) {
         // without the permission the dialog hands out the server's own link

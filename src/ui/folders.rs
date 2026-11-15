@@ -100,6 +100,54 @@ pub fn apply(f: &mut Vec<Folder>, src: Src, d: Drop) -> bool {
     }
 }
 
+pub fn name(store: &crate::state::Store, f: &Folder) -> String {
+    if let Some(n) = f.name.as_ref().filter(|n| !n.is_empty()) {
+        return n.clone();
+    }
+    let names: Vec<&str> = f.guilds.iter().filter_map(|g| store.guilds.get(g)).map(|g| g.name.as_str()).collect();
+    let mut left = 64;
+    let mut kept = Vec::new();
+    for n in &names {
+        let len = n.encode_utf16().count();
+        if len < left || kept.is_empty() {
+            kept.push(*n);
+            left = left.saturating_sub(len);
+        }
+    }
+    if kept.is_empty() {
+        return "Server Folder".into();
+    }
+    format!("{}{}", kept.join(", "), if kept.len() < names.len() { ", ..." } else { "" })
+}
+
+#[derive(Clone, Copy)]
+pub enum Move {
+    Out,
+    Into(Id),
+    First,
+    Last,
+}
+
+pub fn move_guild(app: &mut App, g: Id, m: Move) {
+    let mut f = current(app);
+    let Some((s, _)) = locate(&f, g) else { return };
+    let inside = f[s].id != 0;
+    let d = match m {
+        Move::Out => Drop::Before(s + 1),
+        Move::Into(id) => {
+            let Some(i) = f.iter().position(|x| x.id == id) else { return };
+            Drop::In(i, f[i].guilds.len())
+        }
+        Move::First if inside => Drop::In(s, 0),
+        Move::Last if inside => Drop::In(s, f[s].guilds.len()),
+        Move::First => Drop::Before(0),
+        Move::Last => Drop::Before(f.len()),
+    };
+    if apply(&mut f, Src::Guild(g), d) {
+        save(app, f);
+    }
+}
+
 pub fn current(app: &App) -> Vec<Folder> {
     if app.store.folders.is_empty() {
         app.store.guild_order.iter().map(|g| Folder { guilds: vec![*g], ..Default::default() }).collect()

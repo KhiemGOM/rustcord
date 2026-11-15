@@ -282,7 +282,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if ctx_ch.is_some() {
             let a = menu_row(ui, None, "Apps", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &a, |ui| {
+            super::submenu(ui, &a, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 if apps.is_empty() {
                     ui.add_enabled_ui(false, |ui| menu_row(ui, None, "No Apps", None, false, Trail::None));
@@ -291,7 +291,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
                 }
                 for (app_name, cmds) in &apps {
                     let m = menu_row(ui, None, app_name, None, false, Trail::Caret);
-                    egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+                    super::submenu(ui, &m, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         for c in cmds {
                             if menu_row(ui, None, c["name"].as_str().unwrap_or(""), None, false, Trail::None).clicked() {
@@ -310,7 +310,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if !invites.is_empty() {
             let m = menu_row(ui, None, "Invite to Server", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (_, n, c) in &invites {
                     if menu_row(ui, None, n, None, false, Trail::None).clicked() {
@@ -356,7 +356,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if !roles.is_empty() {
             let m = menu_row(ui, None, "Roles", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (id, n, on, off) in &roles {
                     if ui.add_enabled_ui(!off, |ui| menu_row(ui, None, n, None, false, Trail::Check(*on))).inner.clicked() {
@@ -367,7 +367,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
         }
         if !moves.is_empty() {
             let m = menu_row(ui, None, "Move to", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (id, n) in &moves {
                     if menu_row(ui, None, n, None, false, Trail::None).clicked() {
@@ -435,7 +435,7 @@ fn mute_rows(ui: &mut Ui, what: &str, muted: bool, act: &mut Option<Act>) {
         return;
     }
     let m = menu_row(ui, None, &if what == "Conversation" { "Mute Conversation".to_string() } else { format!("Mute {what}") }, None, false, Trail::Caret);
-    egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+    super::submenu(ui, &m, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         if let Some(secs) = super::mute_menu(ui) {
             *act = Some(Act::Mute(true, secs));

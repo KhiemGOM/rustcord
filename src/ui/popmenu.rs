@@ -204,11 +204,14 @@ pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str
         Trail::None => {}
         Trail::Caret => icons::draw(p, icons::Icon::ChevronRight, at, pal().text_muted),
         Trail::Check(true) => {
-            p.rect_filled(at.shrink(1.0), CornerRadius::same(4), pal().blurple);
-            icons::draw(p, icons::Icon::Check, at.shrink(3.0), Color32::WHITE);
+            p.rect_filled(at, CornerRadius::same(4), pal().blurple);
+            icons::draw(p, icons::Icon::Check, at.shrink(2.0), Color32::WHITE);
+        }
+        Trail::Check(false) if pal().dark => {
+            p.rect(at, CornerRadius::same(4), Color32::from_black_alpha(20), egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 163)), egui::StrokeKind::Inside);
         }
         Trail::Check(false) => {
-            p.rect_stroke(at.shrink(1.0), CornerRadius::same(4), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+            p.rect_stroke(at, CornerRadius::same(4), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
         }
         Trail::Radio(true) => {
             p.circle_filled(at.center(), 9.0, pal().blurple);
@@ -222,6 +225,12 @@ pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str
         }
     }
     (resp, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)))
+}
+
+pub(crate) fn submenu<R>(ui: &Ui, row: &egui::Response, content: impl FnOnce(&mut Ui) -> R) -> Option<egui::InnerResponse<R>> {
+    let mut row = row.clone();
+    row.interact_rect.max.x -= 6.7;
+    egui::containers::menu::SubMenu::new().show(ui, &row, content)
 }
 
 pub(crate) fn menu_sep(ui: &mut Ui) {

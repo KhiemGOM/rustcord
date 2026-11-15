@@ -650,7 +650,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
             let r = account_row(ui, None, label, true, true);
             let c = pos2(r.rect.left() + 24.0, r.rect.center().y);
             crate::ui::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), status, PROFILE_CARD);
-            egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+            crate::ui::submenu(ui, &r, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (key, label, sub, st) in [
                     ("online", "Online", None, Status::Online),
@@ -666,7 +666,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
                         act = Some(AccountAct::Status(key));
                     }
                     if timed {
-                        egui::containers::menu::SubMenu::new().show(ui, &resp, |ui| {
+                        crate::ui::submenu(ui, &resp, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
                             for (name, secs) in crate::ui::cstatus::STATUS_FOR {
                                 if crate::ui::menu_item(ui, None, name, false) {
@@ -684,7 +684,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
         let others = app_accounts.clone();
         card(ui, &mut |ui| {
             let r = account_row(ui, Some(Icon::Person), "Switch Accounts", true, false);
-            egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+            crate::ui::submenu(ui, &r, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for a in &others {
                     let (resp, lead) = crate::ui::menu_row_at(ui, true, &a.name, None, false, crate::ui::Trail::Check(a.id == me));
