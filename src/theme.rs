@@ -670,6 +670,7 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     let bold_i = gg("ggsans-700i", None).is_none() && add("bold-i", "segoeuiz.ttf");
     let gadugi = add("gadugi", "gadugi.ttf");
     let sym = add("sym", "seguisym.ttf");
+    let historic = add("historic", "seguihis.ttf");
     let code = add("code", "consola.ttf");
     // last resort for pictographs the ui fonts lack; egui draws its monochrome outlines
     let emoji = add("emoji", "seguiemj.ttf");
@@ -688,6 +689,9 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         }
         if sym {
             v.push("sym".into());
+        }
+        if historic {
+            v.push("historic".into());
         }
         v.extend(defaults.iter().cloned());
         if yahei {
