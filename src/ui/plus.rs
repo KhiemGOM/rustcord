@@ -16,6 +16,7 @@ pub enum Plus {
     Thread,
     Poll,
     Apps,
+    Schedule(Option<i64>),
 }
 
 /// The menu over the composer's plus: what you can add to a message here.
@@ -39,6 +40,11 @@ pub fn menu(app: &App, resp: &egui::Response, chan: &Channel) -> Option<Plus> {
         }
         if perms & USE_COMMANDS != 0 && menu_item(ui, Some(Icon::Apps), "Use Apps", false) {
             pick = Some(Plus::Apps);
+        }
+        if super::scheduled::can(&app.store, chan.id)
+            && let Some(at) = super::scheduled::menu(ui)
+        {
+            pick = Some(Plus::Schedule(at));
         }
     });
     pick

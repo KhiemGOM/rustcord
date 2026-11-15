@@ -104,6 +104,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             });
     }
 
+    super::scheduled::bar(app, ui, ch);
+
     if !app.slash.contains_key(&ch) {
         app.slash_from_draft(chan);
     }
@@ -509,6 +511,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         Some(super::plus::Plus::Thread) => app.new_thread = Some(super::popups::NewThread::blank(ch)),
         Some(super::plus::Plus::Poll) => app.poll = Some(super::poll::Draft::new(ch)),
         Some(super::plus::Plus::Apps) => app.launcher = Some(super::plus::Launcher::new()),
+        Some(super::plus::Plus::Schedule(Some(at))) => {
+            app.sched.drafts.insert(ch, at);
+        }
+        Some(super::plus::Plus::Schedule(None)) => app.sched.picker = Some(super::scheduled::Picker::new(super::scheduled::Target::Draft(ch), None)),
         None => {}
     }
     if let Some(i) = modify

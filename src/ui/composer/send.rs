@@ -118,6 +118,7 @@ impl App {
             "tableflip" => say(self, format!("{} (╯°□°)╯︵ ┻━┻", text("message")).trim().to_string(), false),
             "unflip" => say(self, format!("{} ┬─┬ノ( º _ ºノ)", text("message")).trim().to_string(), false),
             "me" => say(self, format!("_{}_", text("message")), false),
+            "schedule" => self.sched.picker = Some(crate::ui::scheduled::Picker::new(crate::ui::scheduled::Target::Send(ch), None).saying(text("message"))),
             "spoiler" => say(self, format!("||{}||", text("message")), false),
             "tts" => say(self, text("message"), true),
             "nick" => {

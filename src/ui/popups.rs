@@ -176,6 +176,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::kickban::show(app, ctx);
     super::prune::show(app, ctx);
     super::poll::show(app, ctx);
+    super::scheduled::show(app, ctx);
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
     super::dmpick::show(app, ctx);

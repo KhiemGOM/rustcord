@@ -21,7 +21,7 @@ pub fn can_add(store: &Store, c: &Channel) -> bool {
 }
 
 /// The hash Discord's experiment assignments carry for an experiment's name (murmur3, 32 bits).
-fn hashed(name: &str) -> u32 {
+pub(crate) fn hashed(name: &str) -> u32 {
     let mut h = 0u32;
     let scramble = |k: u32| k.wrapping_mul(0xcc9e2d51).rotate_left(15).wrapping_mul(0x1b873593);
     let mut chunks = name.as_bytes().chunks_exact(4);

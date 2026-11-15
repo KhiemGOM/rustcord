@@ -364,6 +364,11 @@ impl Api {
         Ok(atts)
     }
 
+    pub async fn schedule(&self, ch: Id, mut body: Value, files: &[(PathBuf, String, String)]) -> Result<Value, String> {
+        body["attachments"] = Value::Array(self.upload_files(ch, files, None).await?);
+        self.call(Method::POST, "/users/@me/scheduled-messages", Some(body)).await
+    }
+
     /// A forum post with its first message's files: they go up first, then the thread names them.
     pub async fn forum_post(&self, ch: Id, mut body: Value, files: &[(PathBuf, String, String)]) -> Result<Value, String> {
         body["message"]["attachments"] = Value::Array(self.upload_files(ch, files, None).await?);

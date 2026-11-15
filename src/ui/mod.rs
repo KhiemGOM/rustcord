@@ -66,6 +66,7 @@ mod picker;
 mod player;
 mod plus;
 mod poll;
+mod scheduled;
 mod blocked;
 mod pollvotes;
 mod remind;
@@ -362,6 +363,7 @@ pub struct App {
     pub profed: Option<profed::Editor>,
     pub new_thread: Option<popups::NewThread>,
     pub poll: Option<poll::Draft>,
+    pub sched: scheduled::State,
     pub launcher: Option<plus::Launcher>,
     pub follow: Option<follow::Follow>,
     pub modify: Option<attach::Modify>,
@@ -622,6 +624,7 @@ impl App {
             profed: None,
             new_thread: None,
             poll: None,
+            sched: Default::default(),
             launcher: None,
             follow: None,
             modify: None,

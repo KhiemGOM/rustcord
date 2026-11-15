@@ -530,7 +530,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         match tab {
                             0 => open_ch = unread_list(ui, app),
                             1 => jump = mention_list(ui, app),
-                            4 => super::inboxtip::show(ui, super::webart::NOTHING_SCHEDULED, "Send it at the perfect moment", "Draft your message then click the plus button and ", "Schedule Message", " to choose when to send. We'll handle the rest."),
+                            4 => open_ch = super::scheduled::list(ui, app),
                             _ => jump = saved_list(ui, app, tab == 3),
                         }
                     });
@@ -568,6 +568,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         match t {
             2 => app.rest("GET", "/users/@me/saved-messages/bookmarks?limit=25".into(), None, Tag::Saved(1)),
             3 => app.rest("GET", "/users/@me/saved-messages?bookmark_ids=true".into(), None, Tag::Saved(0)),
+            4 => app.sched.asked = false,
             _ => {}
         }
     }
@@ -602,6 +603,9 @@ fn body_height(app: &App) -> f32 {
     let Some(i) = &app.inbox else { return 0.0 };
     if i.friends {
         return 100.0 + 56.0 * app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as f32;
+    }
+    if i.tab == 4 {
+        return super::scheduled::height(app);
     }
     if i.tab >= 2 {
         return match &i.saved {

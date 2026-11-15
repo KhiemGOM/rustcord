@@ -20,13 +20,14 @@ pub struct Draft {
     hours: u32,
     multi: bool,
     fresh: bool,
+    pub at: Option<i64>,
     q_err: Option<&'static str>,
     a_errs: Vec<Option<&'static str>>,
 }
 
 impl Draft {
     pub fn new(ch: Id) -> Self {
-        Draft { ch, question: String::new(), answers: vec![Default::default(), Default::default()], hours: 24, multi: false, fresh: true, q_err: None, a_errs: vec![None, None] }
+        Draft { ch, question: String::new(), answers: vec![Default::default(), Default::default()], hours: 24, multi: false, fresh: true, at: None, q_err: None, a_errs: vec![None, None] }
     }
 
     fn body(&self) -> Value {
@@ -121,7 +122,8 @@ fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(d) = &mut app.poll else { return };
-    let (mut post, mut close) = (false, false);
+    let (mut post, mut close, mut schedule) = (false, false, false);
+    let can_schedule = super::scheduled::can(&app.store, d.ch);
     let mut pick_emoji = None;
     let mut remove = None;
     let modal = crate::ui::motion::Modal::new("poll".into())
@@ -222,9 +224,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.set_min_height(40.0);
                 check_row(ui, &mut d.multi, "Allow Multiple Answers");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     let b = modal_button(ui, "Post", Some(pal().blurple), 100.0);
                     super::settings::mark(ui, "poll:post", b.rect);
                     post = b.clicked();
+                    if can_schedule {
+                        let (r, resp) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::click());
+                        let fill = if d.at.is_some() { pal().blurple.gamma_multiply(0.3) } else { crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+                        ui.painter().rect(r, 8, fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+                        icons::draw(ui.painter(), Icon::CalendarPlus, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_primary);
+                        super::settings::mark(ui, "poll:schedule", r);
+                        let tip = d.at.map_or_else(|| "Schedule Poll".to_string(), |at| super::scheduled::scheduling_for(at, false));
+                        schedule = resp.on_hover_text(tip).clicked();
+                    }
                 });
             });
         });
@@ -239,10 +251,21 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if let Some((i, at)) = pick_emoji {
         app.picker = Some((Pick::Poll(i), at - vec2(0.0, 360.0)));
     }
-    if post && let Some(d) = app.poll.take() {
-        app.rest("POST", format!("/channels/{}/messages", d.ch), Some(d.body()), Tag::fail(super::SEND_FAILED));
-        app.jump_to_present(d.ch);
-    } else if (close || modal.should_close()) && app.picker.is_none() && app.confirm.is_none() {
+    if schedule {
+        let at = d.at;
+        app.sched.picker = Some(super::scheduled::Picker::new(super::scheduled::Target::Poll, at));
+    } else if post && let Some(d) = app.poll.take() {
+        match d.at {
+            Some(at) => {
+                let b = d.body();
+                app.schedule(d.ch, at, json!({ "content": "", "flags": 0, "sticker_ids": [], "poll": b["poll"] }), Vec::new());
+            }
+            None => {
+                app.rest("POST", format!("/channels/{}/messages", d.ch), Some(d.body()), Tag::fail(super::SEND_FAILED));
+                app.jump_to_present(d.ch);
+            }
+        }
+    } else if (close || modal.should_close()) && app.picker.is_none() && app.confirm.is_none() && app.sched.picker.is_none() {
         if pristine {
             app.poll = None;
         } else {

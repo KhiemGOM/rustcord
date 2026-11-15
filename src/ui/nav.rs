@@ -198,6 +198,16 @@ impl App {
         if text.is_empty() && files.is_empty() {
             return;
         }
+        if let Some(at) = self.sched.drafts.get(&ch).copied() {
+            let mut body = serde_json::json!({ "content": text, "flags": 0, "sticker_ids": [] });
+            if let Some(r) = self.reply.take() {
+                body["message_reference"] = serde_json::json!({ "channel_id": ch.to_string(), "message_id": r.to_string() });
+                if !self.reply_ping {
+                    body["allowed_mentions"] = serde_json::json!({ "parse": ["users", "roles", "everyone"], "replied_user": false });
+                }
+            }
+            return self.schedule(ch, at, body, files);
+        }
         let nonce = crate::state::make_nonce();
         let reply = self.reply.take();
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);

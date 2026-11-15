@@ -510,7 +510,7 @@ fn steps(ui: &mut Ui, back: bool, go: &str, ready: bool) -> (bool, bool, bool) {
     (close, next, went_back)
 }
 
-fn pair(ui: &mut Ui, a: &str, av: &mut String, b: &str, bv: &mut String) {
+pub(super) fn pair(ui: &mut Ui, a: &str, av: &mut String, b: &str, bv: &mut String) {
     let w = (ui.available_width() - 16.0) / 2.0;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
@@ -526,7 +526,7 @@ fn pair(ui: &mut Ui, a: &str, av: &mut String, b: &str, bv: &mut String) {
     });
 }
 
-fn when(date: &str, time: &str) -> Option<chrono::DateTime<chrono::Local>> {
+pub(super) fn when(date: &str, time: &str) -> Option<chrono::DateTime<chrono::Local>> {
     let d = chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
     let t = chrono::NaiveTime::parse_from_str(time.trim(), "%H:%M").ok()?;
     d.and_time(t).and_local_timezone(chrono::Local).single()
