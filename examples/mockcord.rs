@@ -27,6 +27,12 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 mod account;
 #[path = "mockcord/acks.rs"]
 mod acks;
+#[path = "mockcord/sched.rs"]
+mod sched;
+#[path = "mockcord/wallet.rs"]
+mod wallet;
+#[path = "mockcord/gameshop.rs"]
+mod gameshop;
 #[path = "mockcord/cdn.rs"]
 mod cdn_shape;
 #[path = "mockcord/frecency.rs"]
@@ -1040,6 +1046,7 @@ If you'd like to upvote a suggestion, use the reaction!");
         ] },
         "user_settings_proto": settings_proto(1, true),
         "user_settings": { "guild_folders": folders },
+        "apex_experiments": { "assignments": { "user": { ME.to_string(): { "assignments": [[sched::EXPERIMENT, 1], [wallet::EXPERIMENT, 1], [4184216579u32, 1]] } } } },
     })
 }
 
@@ -1457,6 +1464,15 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = acks::route(method, &parts, body) {
         return (code, "application/json", v.to_string().into_bytes());
     }
+    if let Some((code, v)) = gameshop::route(method, &parts) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = wallet::route(method, &parts) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = sched::route(method, &parts, body, ME, now_ms()) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     if let Some((code, v)) = buy::route(w, method, &parts, path, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1813,7 +1829,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
                 { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
             ]) } else { json!([]) };
-            ok(json!({
+            let mut out = json!({
                 "user": user(id), "user_profile": prof, "widgets": widgets,
                 "wishlist_settings": if id == 101 { json!({ "101": { "visibility": 1, "updated_at": "2026-11-01T10:00:00+00:00" } }) } else { json!({}) },
                 "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
@@ -1823,7 +1839,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 "mutual_friends": [user(102), user(103)], "mutual_friends_count": 2,
                 "mutual_guilds": [{ "id": "1000", "nick": null }, { "id": "1001", "nick": null }],
                 "guild_member": { "roles": member(id)["roles"], "joined_at": "2025-06-01T10:00:00+00:00", "premium_since": null },
-            }))
+            });
+            if id == 104 {
+                out["application"] = json!({ "id": "104", "flags": 1u64 << 18 | 1 << 15, "privacy_policy_url": "https://example.com/privacy", "terms_of_service_url": "https://example.com/terms" });
+            }
+            ok(out)
         }
         ("GET", ["api", "v9", "content-inventory", "users", _, "outbox"]) => ok(json!({ "entries": [
             { "content": { "id": snow(now_ms() - 7_200_000).to_string(), "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
