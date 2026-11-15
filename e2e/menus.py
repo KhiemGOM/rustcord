@@ -35,4 +35,6 @@ def checks(runs, reqs, data):
         "menus: a search with pinned, before and has went out as ids and params": any("pinned=true" in p and "max_id=" in p and "has=image" in p for p in searches),
         "menus: a timed status sent its expiry": any(s.get("status") == "idle" and s.get("expires") and s.get("created") for s in statuses),
         "menus: Create Your Server and Notification Settings fit a short window": both("new_server_fits_short") and both("notifs_fits_short"),
+        "menus: a server's menu offered Invite to Server and moved it with Move to...": both("guild_menu_invite") and both("guild_moved_from_menu")
+            and len(sent("PATCH", "/users/@me/settings-proto/1")) >= 2,
     }

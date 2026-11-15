@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 mod fill;
 mod palettes;
+mod profile;
 use palettes::*;
+pub use profile::{ProfileTheme, profile_palette, profile_theme, scope};
 pub(crate) use palettes::MENU_HOVER;
 pub(crate) use palettes::CRITICAL_BG;
 pub(crate) use palettes::PROFILE_CARD;
@@ -72,6 +74,8 @@ pub struct Palette {
     pub header_secondary: Color32,
     /// --channels-default
     pub channel_default: Color32,
+    /// --channel-text-area-placeholder
+    pub placeholder: Color32,
     /// --interactive-muted
     pub channel_muted: Color32,
     /// --interactive-text-hover
@@ -81,6 +85,8 @@ pub struct Palette {
     /// --mention-background and --mention-foreground
     pub mention_bg: Color32,
     pub mention_fg: Color32,
+    /// --reaction-text-reacted-default
+    pub reacted_fg: Color32,
     /// --message-mentioned-background-default and -hover, and the bar beside (--icon-feedback-warning)
     pub highlight_bg: Color32,
     pub highlight_hover: Color32,
@@ -130,11 +136,13 @@ impl Palette {
             header_primary: f(self.header_primary),
             header_secondary: f(self.header_secondary),
             channel_default: f(self.channel_default),
+            placeholder: f(self.placeholder),
             channel_muted: f(self.channel_muted),
             interactive_hover: f(self.interactive_hover),
             link: f(self.link),
             mention_bg: f(self.mention_bg),
             mention_fg: f(self.mention_fg),
+            reacted_fg: f(self.reacted_fg),
             highlight_bg: f(self.highlight_bg),
             highlight_hover: f(self.highlight_hover),
             mention_bar: f(self.mention_bar),
@@ -283,6 +291,11 @@ pub fn pal() -> &'static Palette {
 /// A 1px css border as Chromium draws it: whole device pixels, rounded down, never a blur.
 pub fn hairline(ppp: f32, color: Color32) -> Stroke {
     Stroke::new(ppp.floor().max(1.0) / ppp, color)
+}
+
+pub fn light() -> bool {
+    let c = pal().bg_primary;
+    c.r() as u32 + c.g() as u32 + c.b() as u32 > 384
 }
 
 /// Onyx draws a few hairlines the other themes leave out.
@@ -551,6 +564,10 @@ pub fn bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("bold".into()))
 }
 
+pub fn display(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("display".into()))
+}
+
 pub fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("medium".into()))
 }
@@ -653,7 +670,9 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
     let ui_i = gg("ggsans-400i", None).is_none() && add("ui-i", "segoeuii.ttf");
     let semi_i = gg("ggsans-600i", None).is_none() && add("semi-i", "seguisbi.ttf");
     let bold_i = gg("ggsans-700i", None).is_none() && add("bold-i", "segoeuiz.ttf");
+    let gadugi = add("gadugi", "gadugi.ttf");
     let sym = add("sym", "seguisym.ttf");
+    let historic = add("historic", "seguihis.ttf");
     let code = add("code", "consola.ttf");
     // last resort for pictographs the ui fonts lack; egui draws its monochrome outlines
     let emoji = add("emoji", "seguiemj.ttf");
@@ -667,8 +686,14 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         if ui {
             v.push("ui".into());
         }
+        if gadugi {
+            v.push("gadugi".into());
+        }
         if sym {
             v.push("sym".into());
+        }
+        if historic {
+            v.push("historic".into());
         }
         v.extend(defaults.iter().cloned());
         if yahei {
@@ -690,10 +715,16 @@ pub fn fonts(cjk: bool) -> FontDefinitions {
         ("italic", gg("ggsans-400i", ui_i.then_some("ui-i"))),
         ("semi-italic", gg("ggsans-600i", semi_i.then_some("semi-i"))),
         ("bold-italic", gg("ggsans-700i", bold_i.then_some("bold-i"))),
+        ("display", gg("ginto-nord-700", gg("ggsans-700", bold.then_some("bold")))),
     ] {
         f.families.insert(FontFamily::Name(fam.into()), chain(first));
     }
     f.families.insert(FontFamily::Proportional, chain(gg("ggsans-400", None)));
+    let mut boxes = chain(gg("ggsans-500", None));
+    if hangul {
+        boxes.insert(0, "hangul".into());
+    }
+    f.families.insert(FontFamily::Name("boxes".into()), boxes);
     // every name font family exists from the start; until its file arrives it's just gg sans
     for (id, ..) in crate::fonts::NAME_FONTS {
         let key = format!("name{id}");
@@ -723,6 +754,28 @@ pub fn name_font(font: u8, size: f32) -> FontId {
     } else {
         medium(size)
     }
+}
+
+/// The colour Discord draws someone's display name in on their profile: their style's first
+/// colour, lifted to read on the card, or the plain text colour.
+pub fn profile_name_ink(user: &crate::state::User) -> Color32 {
+    match user.style.as_ref().filter(|_| view().name_styles).and_then(|(_, c)| c.first()) {
+        Some(c) => contrast(role_color(*c), pal().bg_secondary, 3.0),
+        None => pal().text_normal,
+    }
+}
+
+/// The letter spacing Discord's css gives each display name font, in points at that size.
+pub fn name_spacing(font: &FontId) -> f32 {
+    let FontFamily::Name(family) = &font.family else { return 0.0 };
+    let em = match family.strip_prefix("name").and_then(|n| n.parse::<u8>().ok()) {
+        Some(3) => 0.04,
+        Some(12 | 14) => 0.03,
+        Some(7 | 8) => 0.02,
+        Some(6 | 10) => 0.01,
+        _ => 0.0,
+    };
+    em * font.size
 }
 
 pub fn install(ctx: &egui::Context) {

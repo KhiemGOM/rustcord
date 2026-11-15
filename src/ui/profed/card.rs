@@ -12,11 +12,11 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::{App, avatar, cosmo, status_dot, text};
 
 fn ink() -> Color32 {
-    Color32::WHITE.gamma_multiply(0.96)
+    pal().text_normal
 }
 
 fn dimmer() -> Color32 {
-    Color32::WHITE.gamma_multiply(0.76)
+    pal().text_muted
 }
 
 pub fn data_image(ctx: &egui::Context, uri: &str) -> Option<String> {
@@ -83,6 +83,7 @@ pub fn pick_image(app: &mut App) {
 #[allow(clippy::too_many_arguments)]
 fn field(ui: &mut Ui, r: Rect, id: &str, text: &mut String, hint: &str, font: egui::FontId, limit: usize, multi: bool) -> egui::Response {
     let mut c = ui.new_child(UiBuilder::new().max_rect(r).layout(egui::Layout::left_to_right(egui::Align::TOP)));
+    c.visuals_mut().weak_text_color = Some(dimmer());
     let hint = RichText::new(hint).font(italic(font.size)).color(dimmer());
     let edit = if multi { TextEdit::multiline(text).desired_rows(1) } else { TextEdit::singleline(text) };
     c.add(edit.id(ui.id().with(id)).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(font).text_color(ink()).hint_text(hint).char_limit(limit).desired_width(r.width()))
@@ -114,15 +115,16 @@ pub fn connections(ui: &mut Ui, accounts: &Value, x: f32, y: &mut f32, w: f32, i
 
 /// Draws the card at `rect.min`, as wide as `rect`; hands back how tall it came out.
 pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User) -> f32 {
+    let _theme = crate::theme::scope(super::theme_pair(&ed.draft).map(|t| crate::theme::profile_palette(t.light)));
     let me = app.store.me;
     let o = rect.min;
     let w = rect.width();
     let back = ui.painter().add(Shape::Noop);
     let banner = Rect::from_min_size(o, vec2(w, 140.0));
-    let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
-    let accent = ed.draft.accent.or(ed.draft.theme[0]).map(role_color).or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url())).unwrap_or(pal().blurple);
+    let cr = CornerRadius { nw: 16, ne: 16, sw: 0, se: 0 };
+    let accent = ed.draft.accent.or(ed.draft.theme[0]).or(ed.draft.inherit_theme[0]).map(role_color).or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url())).unwrap_or(pal().blurple);
     ui.painter().rect_filled(banner, cr, accent);
-    match (&ed.draft.banner, &ed.draft.banner_url) {
+    match (&ed.draft.banner, ed.draft.banner_url.as_ref().or(ed.draft.inherit_banner.as_ref())) {
         (Pic::New(u), _) => paint_data_image(ui, u, banner, cr),
         (Pic::Keep, Some(url)) => crate::gif::paint_still(ui, url, banner, cr, ui.rect_contains_pointer(banner)),
         _ => {}
@@ -160,7 +162,10 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     if focused {
         field(ui, nr, "name", &mut ed.draft.name, user.display(), semi(24.0), 32, false);
     } else {
-        let tr = style::paint_name(ui, pos2(x, y + 15.0), Align2::LEFT_CENTER, &shown, ed.draft.style.as_ref(), 24.0, name_w, true);
+        let tr = match ed.draft.style.as_ref() {
+            None => text::paint(ui.painter(), pos2(x, y + 15.0), Align2::LEFT_CENTER, &shown, semi(24.0), ink(), name_w),
+            st => style::paint_name(ui, pos2(x, y + 15.0), Align2::LEFT_CENTER, &shown, st, 24.0, name_w, true),
+        };
         let resp = ui.interact(Rect::from_min_size(nr.min, vec2(tr.width().max(60.0), 30.0)), ui.id().with("name_click"), Sense::click());
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
@@ -175,29 +180,37 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
         crate::ui::settings::mark(ui, "edit_dns", eb);
     }
     y += 42.0;
-    let ur = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), ink(), 160.0);
-    ui.painter().circle_filled(pos2(ur.right() + 9.0, ur.center().y), 2.0, ink());
-    let pr = Rect::from_min_size(pos2(ur.right() + 18.0, y), vec2(110.0, 18.0));
-    field(ui, pr, "pronouns", &mut ed.draft.pronouns, "Add pronouns", reg(14.0), 40, false);
+    let ur = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), pal().header_primary, 160.0);
+    ui.painter().circle_filled(pos2(ur.right() + 9.0, ur.center().y), 2.0, pal().header_primary);
+    let pr = Rect::from_min_size(pos2(ur.right() + 18.0, y), vec2(170.0, 18.0));
+    let hint = if ed.guild.is_some() { "Set per-server pronouns" } else { "Add pronouns" };
+    field(ui, pr, "pronouns", &mut ed.draft.pronouns, hint, reg(14.0), 40, false);
     crate::ui::settings::mark(ui, "profile:pronouns", pr);
-    if ed.guild.is_none() {
-        let tr = Rect::from_min_size(pos2(pr.right() + 12.0, y - 2.0), vec2(96.0, 22.0));
-        tag_button(ui, ed, app, tr);
-    }
     y += 32.0;
-    let end = crate::ui::profile::badges(ui, Some(&ed.raw), x, y + 10.0, 20.0);
-    let _ = end;
+    // discord's row under the name: the server tag picker, then the badges in a pill of their own
+    let tr = Rect::from_center_size(pos2(x + 43.5, y + 10.0), vec2(87.0, 24.0));
+    tag_button(ui, ed, app, tr);
+    let pill = ui.painter().add(Shape::Noop);
+    let start = tr.right() + 9.0;
+    let end = crate::ui::profile::badges(ui, Some(&ed.raw), start, y + 10.0, 20.0);
+    if end > start {
+        let r = Rect::from_min_max(pos2(start - 5.0, tr.top()), pos2(end + 3.0, tr.bottom()));
+        ui.painter().set(pill, Shape::rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(148, 148, 156, 31)));
+    }
     y += 46.0;
     for (i, (t, wd)) in [("Message", 96.0), ("", 32.0), ("", 32.0)].into_iter().enumerate() {
         let r = Rect::from_min_size(pos2(x + [0.0, 104.0, 144.0][i], y), vec2(wd, 32.0));
         let resp = ui.interact(r, ui.id().with(("card_btn", i)), Sense::click());
-        let fill = if i == 0 { pal().green.gamma_multiply(0.5) } else { Color32::WHITE.gamma_multiply(if resp.hovered() { 0.14 } else { 0.08 }) };
-        ui.painter().rect_filled(r, CornerRadius::same(8), fill);
+        // discord's Message takes the theme's colour, blurple without one
+        let main = super::theme_pair(&ed.draft).map_or(pal().blurple, |t| t.button);
+        let square = if pal().dark { Color32::WHITE.gamma_multiply(if resp.hovered() { 0.14 } else { 0.08 }) } else { Color32::from_white_alpha(if resp.hovered() { 224 } else { 184 }) };
+        let fill = if i == 0 { main.gamma_multiply(0.5) } else { square };
+        ui.painter().rect(r, CornerRadius::same(8), fill, egui::Stroke::new(1.0, Color32::WHITE.gamma_multiply(0.08)), egui::StrokeKind::Inside);
         if i == 0 {
-            icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(16.0, 16.0)), Color32::WHITE.gamma_multiply(0.6));
-            ui.painter().text(pos2(r.left() + 38.0, r.center().y), Align2::LEFT_CENTER, t, medium(14.0), Color32::WHITE.gamma_multiply(0.6));
+            icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(16.0, 16.0)), Color32::from_white_alpha(128));
+            ui.painter().text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, t, medium(14.0), Color32::from_white_alpha(128));
         } else {
-            icons::draw(ui.painter(), if i == 1 { Icon::Shop } else { Icon::More }, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), Color32::WHITE);
+            icons::draw(ui.painter(), if i == 1 { Icon::Shop } else { Icon::More }, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -208,12 +221,12 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     }
     y += 56.0;
     let head = |ui: &Ui, y: &mut f32, s: &str| {
-        ui.painter().text(pos2(x, *y + 8.0), Align2::LEFT_CENTER, s, medium(12.0), Color32::WHITE.gamma_multiply(0.88));
+        ui.painter().text(pos2(x, *y + 8.0), Align2::LEFT_CENTER, s, medium(12.0), pal().header_secondary);
         *y += 20.0;
     };
     head(ui, &mut y, if ed.guild.is_some() { "Server Bio" } else { "Bio" });
     let br = Rect::from_min_size(pos2(x, y), vec2(w - 64.0, 40.0));
-    let bio_prompt = BIO_PROMPTS[ed.prompts[0]];
+    let bio_prompt = if ed.guild.is_some() { "Tell this server a bit about yourself" } else { BIO_PROMPTS[ed.prompts[0]] };
     let before = ed.draft.bio.clone();
     field(ui, br, "bio", &mut ed.draft.bio, bio_prompt, reg(14.0), 190, true);
     if ed.draft.bio.matches('\n').count() > 9 {
@@ -223,8 +236,22 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let bg = ui.ctx().fonts_mut(|f| f.layout(ed.draft.bio.clone(), reg(14.0), ink(), br.width()));
     y += bg.size().y.max(20.0) + 28.0;
     head(ui, &mut y, "Member Since");
-    ui.painter().text(pos2(x, y + 9.0), Align2::LEFT_CENTER, since(crate::state::snowflake_ms(me)), reg(14.0), ink());
-    y += 36.0;
+    icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(pos2(x + 8.0, y + 13.0), vec2(16.0, 16.0)), ink());
+    let r = ui.painter().text(pos2(x + 20.0, y + 13.0), Align2::LEFT_CENTER, since(crate::state::snowflake_ms(me)), reg(14.0), ink());
+    // in a server, when you joined it follows, after its icon
+    let joined = crate::state::iso_ms(&ed.raw["guild_member"]["joined_at"]);
+    if let Some(g) = ed.guild.and_then(|g| app.store.guilds.get(&g)).filter(|_| joined > 0) {
+        ui.painter().circle_filled(pos2(r.right() + 8.0, r.center().y), 2.0, ink());
+        let icon = Rect::from_min_size(pos2(r.right() + 16.0, r.center().y - 8.0), vec2(16.0, 16.0));
+        match g.icon_url() {
+            Some(u) => crate::gif::paint_still(ui, &u, icon, CornerRadius::same(4), false),
+            None => {
+                ui.painter().rect_filled(icon, CornerRadius::same(4), pal().bg_accent);
+            }
+        }
+        ui.painter().text(pos2(icon.right() + 8.0, y + 13.0), Align2::LEFT_CENTER, since(joined), reg(14.0), ink());
+    }
+    y += 46.0;
     if let Some(g) = ed.guild {
         let roles = crate::ui::profile::member_roles(&app.store, Some(&ed.raw), g, me);
         if !roles.is_empty() {
@@ -255,8 +282,8 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     }
     let add = Rect::from_min_size(pos2(x, y), vec2(140.0, 20.0));
     let resp = ui.interact(add, ui.id().with("add_conn"), Sense::click());
-    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(x + 9.0, y + 10.0), vec2(16.0, 16.0)), dimmer());
-    ui.painter().text(pos2(x + 24.0, y + 10.0), Align2::LEFT_CENTER, "Add Connection", medium(12.0), dimmer());
+    icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pos2(x + 8.0, y + 10.0), vec2(16.0, 16.0)), dimmer());
+    ui.painter().text(pos2(x + 20.0, y + 10.0), Align2::LEFT_CENTER, "Add Connection", medium(12.0), dimmer());
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -264,10 +291,11 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
         app.settings_page = Some(crate::ui::settings::Page::Apps);
         app.profed = None;
     }
-    y += 36.0;
+    y += 43.0;
     head(ui, &mut y, "Note (only visible to you)");
     let saved = app.notes.get(&me).cloned().unwrap_or_default();
     let mut nc = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(x, y), vec2(w - 64.0, 24.0))));
+    nc.visuals_mut().weak_text_color = Some(dimmer());
     if let Some(n) = crate::ui::profile::note_box(&mut nc, &mut app.rects, "profed_note", me, &saved, w - 64.0, 14.0, false) {
         app.rest("PUT", format!("/users/@me/notes/{me}"), Some(serde_json::json!({ "note": n })), crate::net::Tag::Quiet);
         app.notes.insert(me, n);
@@ -276,8 +304,8 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let h = y - o.y;
     let card = Rect::from_min_size(o, vec2(w, h));
     let shape = match super::theme_pair(&ed.draft) {
-        Some((a, b)) => super::gradient_shape(ui, card, a, b, 8),
-        None => Shape::rect_filled(card, CornerRadius::same(8), pal().bg_secondary),
+        Some(t) => super::gradient_shape(ui, card, t.top, t.bottom, 16),
+        None => Shape::rect_filled(card, CornerRadius::same(16), pal().bg_secondary),
     };
     ui.painter().set(back, shape);
     let (eff, frame) = (ed.draft.effect.as_ref().map(|e| e.sku.clone()).unwrap_or_default(), ed.draft.frame.as_ref().map(|e| e.sku.clone()).unwrap_or_default());
@@ -287,7 +315,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
 }
 
 fn theme_ring(ed: &Editor) -> Color32 {
-    super::theme_pair(&ed.draft).map_or(pal().bg_secondary, |p| p.0)
+    super::theme_pair(&ed.draft).map_or(pal().bg_secondary, |p| p.top)
 }
 
 fn status_bubble(app: &mut App, ed: &mut Editor, ui: &mut Ui, at: Rect) {
@@ -319,12 +347,13 @@ fn status_bubble(app: &mut App, ed: &mut Editor, ui: &mut Ui, at: Rect) {
 fn tag_button(ui: &mut Ui, ed: &mut Editor, app: &App, r: Rect) {
     let resp = ui.interact(r, ui.id().with("tag_btn"), Sense::click());
     let on = ed.menu == Some(Menu::Tag);
-    ui.painter().rect_stroke(r, CornerRadius::same(4), egui::Stroke::new(1.0, faint(if resp.hovered() || on { 120 } else { 61 })), egui::StrokeKind::Inside);
+    let fill = if pal().dark { Color32::from_rgba_unmultiplied(148, 148, 156, if resp.hovered() || on { 51 } else { 31 }) } else { Color32::from_white_alpha(if resp.hovered() || on { 92 } else { 61 }) };
+    ui.painter().rect(r, CornerRadius::same(8), fill, egui::Stroke::new(1.0, faint(10)), egui::StrokeKind::Inside);
     let label = match ed.draft.tag.and_then(|g| app.guild_profiles.get(&g)).and_then(|p| p["tag"].as_str().map(str::to_string)) {
         Some(t) => t,
         None => "Server Tag".into(),
     };
-    ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, label, italic(12.0), dimmer());
+    ui.painter().text(pos2(r.left() + 7.0, r.center().y), Align2::LEFT_CENTER, label, italic(12.0), dimmer());
     icons::draw(ui.painter(), if on { Icon::ChevronUp } else { Icon::ChevronDown }, Rect::from_center_size(pos2(r.right() - 12.0, r.center().y), vec2(14.0, 14.0)), dimmer());
     crate::ui::settings::mark(ui, "tag_select", r);
     if resp.hovered() {

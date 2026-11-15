@@ -12,6 +12,6 @@ def checks(runs, reqs, data):
             and len(sent("PUT", "/guilds/1000/members/101/roles/1102")) == 2 and len(sent("DELETE", "/guilds/1000/members/101/roles/1102")) == 2,
         "people: the full profile opened on Activity with its recent entries and switched to Mutual Friends": both("full_profile") and both("full_profile_tabs")
             and len(sent("GET", "/content-inventory/users/101/outbox")) >= 2,
-        "people: a server tag's popout fetched the server's profile": both("tag_popout") and len(sent("GET", "/guild-profile/1001")) >= 2,
+        "people: a server tag's popout fetched the server's profile": both("tag_popout") and len(sent("GET", "/guilds/1001/profile")) >= 2,
         "people: a role mention's popout opened": both("role_popout"),
     }

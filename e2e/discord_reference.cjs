@@ -50,6 +50,8 @@ function actionsFor(node, layers = []) {
     if (node.role === 'home') return ['click', 'hover'];
     if (/^(Close|Cancel|Back)$/i.test(node.name)) return ['click', 'hover'];
     if (layers.some(layer => layer.role === 'dialog' && /delete|permanently|purchase|billing|payment|credit card|password|two.factor|security code|authorization|authorize/i.test(layer.text))) return ['hover'];
+    // the Favorites entry only exists once a channel was added in this session, and what it opens is local
+    if (node.role === 'guild' && node.name === 'Favorites') return ['click', 'right-click', 'hover'];
     if (['message', 'member', 'channel', 'guild', 'friend'].includes(node.role)) return ['right-click', 'hover'];
     if (node.submenu) return ['hover'];
     if (node.role === 'tab') return ['click', 'hover'];
@@ -62,7 +64,7 @@ function actionsFor(node, layers = []) {
 }
 
 function fingerprint(state) {
-    const controls = state.controls.map(({ key, box, selector, ...node }) => node);
+    const controls = state.controls.map(({ key, box, selector, text, ...node }) => node);
     const scrolls = state.scrolls?.map(({ key, box, ...scroll }) => scroll);
     return createHash('sha256').update(JSON.stringify({ route: state.route, layers: state.layers, textboxes: state.textboxes, scrolls, controls })).digest('hex').slice(0, 24);
 }
@@ -98,7 +100,8 @@ function inspect() {
         const href = e.getAttribute('href');
         const key = String(controls.length);
         e.setAttribute('data-discord-audit', key);
-        controls.push({ key, role, name, scope, id: e.id, item, href,
+        controls.push({ key, role, name, scope, id: e.id, item, href, layer: !!e.closest('[role=menu],[role=dialog],[role=listbox]'),
+            text: (e.innerText || '').trim().split('\n')[0].slice(0, 120),
             checked: e.getAttribute('aria-checked') ?? (['checkbox', 'radio'].includes(e.type) ? String(e.checked) : null), selected: e.getAttribute('aria-selected'), expanded: e.getAttribute('aria-expanded'),
             value: e.getAttribute('aria-valuenow') ?? (role === 'slider' ? e.value : null),
             disabled: e.hasAttribute('disabled') || e.getAttribute('aria-disabled') === 'true',
@@ -120,14 +123,99 @@ function inspect() {
         scrolls.push({ key, id: e.id, name: e.getAttribute('aria-label') || String(e.className).split(' ')[0], scope, top: Math.round(e.scrollTop), height: e.clientHeight,
             box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] });
     }
-    return { route: location.pathname, title: document.title, viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, layers, textboxes, scrolls, controls };
+    const texts = [], blocks = new Map(), walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), range = document.createRange();
+    const ink = document.createElement('canvas').getContext('2d', { willReadFrequently: true }), inks = new Map();
+    // computed colours come back as oklab() wherever the stylesheet mixes them
+    const srgb = value => {
+        if (!inks.has(value)) {
+            ink.clearRect(0, 0, 1, 1);
+            ink.fillStyle = value;
+            ink.fillRect(0, 0, 1, 1);
+            inks.set(value, '#' + [...ink.getImageData(0, 0, 1, 1).data].map(n => n.toString(16).padStart(2, '0')).join(''));
+        }
+        return inks.get(value);
+    };
+    const readerOnly = e => {
+        for (let i = 0; e && i < 4; i++, e = e.parentElement) {
+            const r = e.getBoundingClientRect();
+            if (r.width <= 1 || r.height <= 1 || getComputedStyle(e).clip !== 'auto') return true;
+        }
+        return false;
+    };
+    // what is on top at a point hides what is under it only if it paints something there: Discord
+    // lays transparent links over whole rows
+    const hidden = (e, x, y) => {
+        const hit = document.elementFromPoint(Math.min(innerWidth - 1, Math.max(0, x)), Math.min(innerHeight - 1, Math.max(0, y)));
+        if (!hit || e.contains(hit) || hit.contains(e)) return false;
+        for (let over = hit; over && !over.contains(e); over = over.parentElement) {
+            const s = getComputedStyle(over);
+            if (/^(IMG|VIDEO|CANVAS|svg)$/.test(over.tagName) || s.backgroundImage !== 'none' || !srgb(s.backgroundColor).endsWith('00')
+                || [...over.childNodes].some(node => node.nodeType === 3 && node.textContent.trim())) return true;
+        }
+        return false;
+    };
+    for (let node = walk.nextNode(); node && texts.length < 4000; node = walk.nextNode()) {
+        const t = node.textContent.replace(/\s+/g, ' ').trim(), parent = node.parentElement;
+        if (!t || !parent || readerOnly(parent)) continue;
+        range.selectNodeContents(node);
+        const r = range.getBoundingClientRect(), s = getComputedStyle(parent);
+        if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth || s.visibility === 'hidden' || +s.opacity === 0) continue;
+        let block = parent;
+        while (block.parentElement && /^inline/.test(getComputedStyle(block).display)) block = block.parentElement;
+        if (!blocks.has(block)) {
+            const b = block.getBoundingClientRect();
+            blocks.set(block, { i: blocks.size, t: (block.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 400), b: [b.x, b.y, b.width, b.height].map(n => Math.round(n * 10) / 10) });
+        }
+        texts.push({ t: t.slice(0, 400), b: [r.x, r.y, r.width, r.height].map(n => Math.round(n * 10) / 10), size: parseFloat(s.fontSize), weight: s.fontWeight, col: srgb(s.color),
+            font: s.fontFamily.split(',')[0].replace(/"/g, ''), line: s.lineHeight, covered: hidden(parent, r.x + r.width / 2, r.y + r.height / 2), block: blocks.get(block).i });
+    }
+    // pictures (what they are and where) and painted boxes, for what text alone can't show
+    const images = [], fills = [];
+    for (const e of document.querySelectorAll('body *')) {
+        if (images.length + fills.length >= 6000) break;
+        const r = e.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2 || r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) continue;
+        const s = getComputedStyle(e);
+        if (s.visibility === 'hidden' || +s.opacity === 0 || readerOnly(e)) continue;
+        const b = [r.x, r.y, r.width, r.height].map(n => Math.round(n * 10) / 10);
+        const svg = e.tagName === 'svg' && !e.parentElement.closest('svg');
+        const picture = s.backgroundImage.match(/url\("?([^")]+)"?\)/);
+        if (!svg && !/^(IMG|VIDEO|CANVAS)$/.test(e.tagName) && !picture && srgb(s.backgroundColor).endsWith('00') && parseFloat(s.borderTopWidth) === 0) continue;
+        if (hidden(e, r.x + r.width / 2, r.y + r.height / 2)) continue;
+        if (svg) {
+            const paths = [...e.querySelectorAll('path')].map(path => path.getAttribute('d') || '').join('|');
+            let sum = 0;
+            for (let i = 0; i < paths.length; i++) sum = (sum * 31 + paths.charCodeAt(i)) >>> 0;
+            images.push({ kind: 'svg', b, col: srgb(s.color), shape: paths ? sum.toString(16) : '' });
+        } else if (/^(IMG|VIDEO|CANVAS)$/.test(e.tagName)) {
+            images.push({ kind: e.tagName.toLowerCase(), b, src: (e.currentSrc || e.src || '').split('?')[0].slice(0, 300), radius: parseFloat(s.borderTopLeftRadius) || 0 });
+        } else if (picture) {
+            images.push({ kind: 'background', b, src: picture[1].split('?')[0].slice(0, 300), radius: parseFloat(s.borderTopLeftRadius) || 0 });
+        }
+        if (!srgb(s.backgroundColor).endsWith('00') || parseFloat(s.borderTopWidth) > 0) {
+            fills.push({ b, fill: srgb(s.backgroundColor), radius: parseFloat(s.borderTopLeftRadius) || 0, opacity: +s.opacity,
+                border: parseFloat(s.borderTopWidth) > 0 ? [parseFloat(s.borderTopWidth), srgb(s.borderTopColor)] : null });
+        }
+    }
+    return { route: location.pathname, title: document.title, viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, layers, textboxes, scrolls, controls, texts, blocks: [...blocks.values()], images, fills };
+}
+
+// A channel's label carries its unread state and who is in voice, and generated element ids change
+// on every load, so a list row or a message is the same one when its Discord id is.
+function sameControl(node, target) {
+    if (node.role !== target.role || node.scope !== target.scope) return false;
+    const flake = value => /\d{15,}$/.exec(value || '')?.[0];
+    if (flake(target.item)) return flake(node.item) === flake(target.item);
+    if (flake(target.id)) return node.id === target.id;
+    if (target.role === 'member') return node.text === target.text;
+    return node.name === target.name && node.href === target.href;
 }
 
 function resolveTarget(state, target) {
-    const candidates = state.controls.filter(node => node.role === target.role && node.name === target.name && node.scope === target.scope
-        && node.id === target.id && node.item === target.item && node.href === target.href);
-    if (candidates.length !== 1) throw new Error('reference target missing or ambiguous');
-    return candidates[0];
+    const candidates = state.controls.filter(node => sameControl(node, target));
+    if (!candidates.length) throw new Error('reference target missing');
+    const far = node => Math.hypot(node.box[0] - target.box[0], node.box[1] - target.box[1]);
+    return candidates.reduce((best, node) => far(node) < far(best) ? node : best);
 }
 
 function resolveScroll(state, target) {
@@ -137,7 +225,8 @@ function resolveScroll(state, target) {
 }
 
 function contextMatches(expected, current, target, scroll) {
-    if (expected.route !== current.route || JSON.stringify(expected.layers) !== JSON.stringify(current.layers)) return false;
+    const open = state => JSON.stringify(state.layers.filter(layer => layer.role !== 'tooltip').map(layer => [layer.role, layer.name]));
+    if (expected.route !== current.route || open(expected) !== open(current)) return false;
     if (scroll) {
         try { if (resolveScroll(current, scroll).top !== scroll.top) return false; } catch { return false; }
     }
@@ -169,4 +258,4 @@ function checkOutcome(step, before, after) {
     return { name: 'no declared outcome check', status: 'unreviewed' };
 }
 
-module.exports = { httpAllowed, gatewayAllowed, installGuard, actionsFor, fingerprint, inspect, resolveTarget, resolveScroll, contextMatches, checkOutcome };
+module.exports = { httpAllowed, gatewayAllowed, installGuard, actionsFor, fingerprint, inspect, sameControl, resolveTarget, resolveScroll, contextMatches, checkOutcome };

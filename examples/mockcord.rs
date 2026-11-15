@@ -27,6 +27,16 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 mod account;
 #[path = "mockcord/acks.rs"]
 mod acks;
+#[path = "mockcord/sched.rs"]
+mod sched;
+#[path = "mockcord/wallet.rs"]
+mod wallet;
+#[path = "mockcord/gameshop.rs"]
+mod gameshop;
+#[path = "mockcord/hub.rs"]
+mod hub;
+#[path = "mockcord/school.rs"]
+mod school;
 #[path = "mockcord/cdn.rs"]
 mod cdn_shape;
 #[path = "mockcord/frecency.rs"]
@@ -918,7 +928,7 @@ If you'd like to upvote a suggestion, use the reaction!");
     let mut secret = ch(2014, 0, "mods-only", 3, Some(2010));
     secret["permission_overwrites"] = json!([{ "id": "1000", "type": 0, "allow": "0", "deny": "1024" }]);
     let roles = json!([
-        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "844736315296768", "hoist": false },
+        { "id": "1000", "name": "@everyone", "color": 0, "position": 0, "permissions": "844736315296832", "hoist": false },
         { "id": "1100", "name": "Moderator", "color": 0xE67E22, "position": 3, "permissions": "8", "hoist": true },
         { "id": "1101", "name": "Contributor", "color": 0x3498DB, "position": 2, "permissions": "0", "hoist": false },
         { "id": "1102", "name": "Bots", "color": 0x9B59B6, "position": 1, "permissions": "0", "hoist": false },
@@ -959,11 +969,10 @@ If you'd like to upvote a suggestion, use the reaction!");
         { "id": "5200", "name": "omgBruh", "animated": false },
         { "id": "5201", "name": "omgLapsed", "animated": false, "available": false },
     ]);
+    // its Duo and Holographic roles are gradients, which discord only draws with this
+    guilds[0]["features"] = json!(["ENHANCED_ROLE_COLORS"]);
     // a community server of ours with onboarding, for the rows over its channels, and a voice
     // channel to open the chat of, edit and delete
-    if let Some(f) = guilds[0]["features"].as_array_mut() {
-        f.push(json!("GUILD_TAGS"));
-    }
     guilds[1]["owner_id"] = json!(ME.to_string());
     // the roles the members table shows, which only the first server has otherwise
     let mut roles = guilds[0]["roles"].as_array().cloned().unwrap_or_default();
@@ -1041,6 +1050,10 @@ If you'd like to upvote a suggestion, use the reaction!");
         ] },
         "user_settings_proto": settings_proto(1, true),
         "user_settings": { "guild_folders": folders },
+        "apex_experiments": { "assignments": {
+            "user": { ME.to_string(): { "assignments": [[sched::EXPERIMENT, 1], [wallet::EXPERIMENT, 1], [4184216579u32, 1]] } },
+            "guild": { hub::GUILD: { "assignments": [[hub::EXPERIMENT, 1]] } },
+        } },
     })
 }
 
@@ -1214,7 +1227,7 @@ fn gg_stand_in(face: &str) -> Vec<u8> {
     }
     let file = match face {
         "sans600normal" => "seguisb.ttf",
-        "sans700normal" => "segoeuib.ttf",
+        "sans700normal" | "ginto700normal" => "segoeuib.ttf",
         "sans600italic" => "seguisbi.ttf",
         "sans700italic" => "segoeuiz.ttf",
         f if f.starts_with("sans") && f.ends_with("italic") => "segoeuii.ttf",
@@ -1260,7 +1273,7 @@ fn profile_full(w: &W, gid: &str) -> Option<Value> {
     let g = guild_full(w, gid)?;
     let mut p = json!({ "id": gid, "name": g["name"], "description": "", "icon_hash": g["icon"], "brand_color_primary": null, "visibility": 1, "traits": [],
                         "game_application_ids": ["7100"], "games": [{ "id": "7100", "name": "Mockcord Quest" }], "member_count": g["member_count"], "online_count": 3,
-                        "tag": "", "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
+                        "tag": if gid == "1001" { "RUST" } else { "" }, "badge": 6, "badge_color_primary": "#8a43ff", "badge_color_secondary": "#bd95ff" });
     if let Some(e) = w.lock().unwrap().edits.get(&format!("p:{gid}")).and_then(|e| e.as_object()) {
         for (k, v) in e {
             p[k] = v.clone();
@@ -1458,6 +1471,21 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = acks::route(method, &parts, body) {
         return (code, "application/json", v.to_string().into_bytes());
     }
+    if let Some((code, v)) = school::route(method, &parts, body, user) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = hub::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = gameshop::route(method, &parts) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = wallet::route(method, &parts) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = sched::route(method, &parts, body, ME, now_ms()) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
+    }
     if let Some((code, v)) = buy::route(w, method, &parts, path, body) {
         return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
@@ -1589,6 +1617,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
+            if b["shared_client_theme"].is_object() {
+                m["shared_client_theme"] = b["shared_client_theme"].clone();
+            }
             if let Some(list) = b["attachments"].as_array() {
                 let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
                 let mut out = Vec::new();
@@ -1779,6 +1810,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("PUT", ["api", "v9", "channels", _, "recipients", _]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", ch, "followers"]) => ok(json!({ "channel_id": ch, "webhook_id": "9100" })),
+        ("GET", ["api", "v9", "channels", ch, "follower-stats"]) => ok(json!({ "channel_id": ch, "guilds_following": 3, "channels_following": 3, "guild_members": 8, "users_seen_ever": 120, "subscribers_gained_since_last_post": 1, "subscribers_lost_since_last_post": 0 })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
         ("GET", ["api", "v9", "channels", ch, "messages", "pins"]) => {
@@ -1814,7 +1846,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
                 { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
             ]) } else { json!([]) };
-            ok(json!({
+            let mut out = json!({
                 "user": user(id), "user_profile": prof, "widgets": widgets,
                 "wishlist_settings": if id == 101 { json!({ "101": { "visibility": 1, "updated_at": "2026-11-01T10:00:00+00:00" } }) } else { json!({}) },
                 "badges": [{ "id": "premium", "description": "Subscriber since 4/2/26", "icon": "2ba85e8901a8d6d1b8e4d9f2b7a6c3d1", "link": "https://discord.com/settings/premium" },
@@ -1824,16 +1856,16 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 "mutual_friends": [user(102), user(103)], "mutual_friends_count": 2,
                 "mutual_guilds": [{ "id": "1000", "nick": null }, { "id": "1001", "nick": null }],
                 "guild_member": { "roles": member(id)["roles"], "joined_at": "2025-06-01T10:00:00+00:00", "premium_since": null },
-            }))
+            });
+            if id == 104 {
+                out["application"] = json!({ "id": "104", "flags": 1u64 << 18 | 1 << 15, "privacy_policy_url": "https://example.com/privacy", "terms_of_service_url": "https://example.com/terms" });
+            }
+            ok(out)
         }
         ("GET", ["api", "v9", "content-inventory", "users", _, "outbox"]) => ok(json!({ "entries": [
             { "content": { "id": snow(now_ms() - 7_200_000).to_string(), "content_type": 1, "author_id": "101", "extra": { "game_name": "Rust Simulator", "media": { "image_url": null } } } },
             { "content": { "id": snow(now_ms() - 259_200_000).to_string(), "content_type": 6, "author_id": "101", "extra": { "artist": { "name": "marQ" } } } },
         ] })),
-        ("GET", ["api", "v9", "guild-profile", id]) => ok(json!({
-            "id": id, "name": "Rustaceans", "icon_hash": null, "description": "Crabs only.", "member_count": 4200, "online_count": 321,
-            "tag": "RUST", "badge_hash": "", "premium_tier": 2, "premium_subscription_count": 14, "game_application_ids": [], "brand_color_primary": "#e67e22",
-        })),
         ("GET", ["api", "v9", "users", "@me", "mentions"]) => {
             let w = w.lock().unwrap();
             let list: Vec<&Value> = w.msgs.iter().rev().filter(|m| m["mentions"].as_array().is_some_and(|u| !u.is_empty())).take(25).collect();
@@ -2551,6 +2583,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             }
             css += &face("gg mono", "normal", 400);
             css += &face("gg mono", "normal", 700);
+            css += "@font-face{font-display:swap;font-family:ABC Ginto Discord Nord;font-style:normal;font-weight:700;src:url(/assets/mock-ginto700normal.woff2) format(\"woff2\")}";
             css += &face("Source Code Pro", "normal", 400);
             (200, "text/css", css.into_bytes())
         }

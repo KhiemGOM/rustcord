@@ -167,6 +167,7 @@ pub fn show(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             ui.painter().rect(field, 8, pal().input_bg, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             let inner = Rect::from_min_max(pos2(field.left() + 12.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0));
             ui.put(inner, egui::TextEdit::singleline(&mut t.title).hint_text(RichText::new("Untitled").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
+            ui.advance_cursor_after_rect(field);
             ui.add_space(24.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;

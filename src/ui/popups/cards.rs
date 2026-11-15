@@ -9,7 +9,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         return;
     };
     ctx.data_mut(|d| d.insert_temp(key, uid));
-    let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
+    let worn = app.profile_of(uid, gid).cloned();
     let layers = crate::ui::cosmo::layers_of(app, worn.as_ref());
     let since = crate::ui::cosmo::since(ctx, ("popout", uid));
     let widgets = worn.as_ref().map(crate::ui::profed::widgets_of).unwrap_or_default();
@@ -22,8 +22,8 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         app.notes.insert(uid, String::new());
         app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
     }
-    let p = app.profiles.get(&uid);
-    let bio = p.and_then(|p| p["user_profile"]["bio"].as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
+    let p = app.member_profiles.get(&(uid, gid)).or(app.profiles.get(&uid)).filter(|p| !p.is_null());
+    let bio = p.and_then(|p| shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
     let roles = if gid != 0 { profile::member_roles(&app.store, p, gid, uid) } else { Vec::new() };
     let name = app.store.name_in(gid, uid);
     let status = app.store.status(uid);
@@ -55,6 +55,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
+                let _theme = crate::theme::scope(theme_palette(p));
                 let wash = ui.painter().add(egui::Shape::Noop);
                 let top = card_head(ui, &user, p, &name, status);
                 head = top;
@@ -110,7 +111,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    tab = mutuals(ui, store, p, pal().bg_secondary);
+                    tab = mutuals(ui, store, p, pal().bg_secondary, 19.0);
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         let mut job = egui::text::LayoutJob::single_section(bio.clone(), egui::TextFormat::simple(reg(14.0), pal().header_primary));
@@ -205,6 +206,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                         crate::ui::icons::draw(ui.painter(), Icon::Smile, Rect::from_center_size(pos2(r.right() - 29.0, r.center().y), vec2(18.0, 18.0)), pal().header_secondary);
                         let field = Rect::from_min_max(pos2(r.left() + 16.0, r.top() + 1.0), pos2(r.right() - 44.0, r.bottom() - 1.0));
                         let hint = if replying { format!("Reply to {name}'s status") } else { format!("Message @{name}") };
+                        // put: the last thing laid out in the footer
                         let edit = ui.put(
                             field,
                             egui::TextEdit::singleline(&mut text)
@@ -320,14 +322,14 @@ pub(super) fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool, friend: boo
 
 /// "6 Mutual Friends • 7 Mutual Servers" with the first three friends' faces; each count opens
 /// the full profile on its tab. `card` is what the faces' rings are cut from.
-pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32) -> Option<profile::Tab> {
+pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32, gap: f32) -> Option<profile::Tab> {
     let friends: Vec<Id> = p.and_then(|p| p["mutual_friends"].as_array()).into_iter().flatten().map(|f| crate::state::sid(&f["id"])).collect();
     let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
     let n_guilds = p.and_then(|p| p["mutual_guilds"].as_array()).map_or(0, |g| g.len() as u64);
     if n_friends == 0 && n_guilds == 0 {
         return None;
     }
-    ui.add_space(19.0);
+    ui.add_space(gap);
     let (r, _) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::hover());
     let mut x = r.left();
     for f in friends.iter().take(3) {
@@ -347,8 +349,8 @@ pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde
     let mut hit = None;
     for (i, (t, tab)) in parts.iter().enumerate() {
         if i > 0 {
-            ui.painter().circle_filled(pos2(x + 6.0, r.center().y), 2.0, pal().header_secondary);
-            x += 12.0;
+            ui.painter().circle_filled(pos2(x + 8.0, r.center().y), 2.0, pal().header_secondary);
+            x += 16.0;
         }
         let g = ui.painter().layout_no_wrap(t.clone(), reg(12.0), pal().header_secondary);
         let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, 16.0));
@@ -372,14 +374,12 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let Some(user) = app.store.user(uid).cloned() else { return };
     if !app.profiles.contains_key(&uid) {
         app.profiles.insert(uid, serde_json::Value::Null);
-        app.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true"), None, Tag::Profile(uid));
+        app.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true"), None, Tag::Profile(uid, 0));
     }
     if !app.notes.contains_key(&uid) {
         app.notes.insert(uid, String::new());
         app.rest("GET", format!("/users/@me/notes/{uid}"), None, Tag::Note(uid));
     }
-    let saved = app.notes.get(&uid).cloned().unwrap_or_default();
-    let mut save_note = None;
     let stranger = !user.bot && !app.store.relationships.contains_key(&uid);
     let status = app.store.status(uid);
     let worn = app.profiles.get(&uid).filter(|p| !p.is_null()).cloned();
@@ -388,36 +388,38 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let (mut banner, mut full, mut tab) = (BannerAct::default(), false, None);
     let height = ui.available_height();
     let store = &app.store;
-    let notes = &mut app.rects;
     let p = app.profiles.get(&uid);
-    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
+    let bio = p.and_then(|p| shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
+    Frame::new().fill(pal().bg_input).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
         ui.set_width(300.0);
         ui.set_min_height(height - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
+        let _theme = crate::theme::scope(theme_palette(p));
         let wash = ui.painter().add(egui::Shape::Noop);
         let top = card_head(ui, &user, p, user.display(), status);
         banner = banner_buttons(ui, top, stranger, !stranger && !user.bot, false);
+        full = clicked_flag(ui.ctx(), "card_name_clicked") == Some(uid);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
             ui.set_width(268.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            tab = mutuals(ui, store, p, pal().bg_primary);
+            tab = mutuals(ui, store, p, pal().bg_input, 14.4);
             ui.add_space(24.0);
+            if !bio.is_empty() {
+                let mut job = egui::text::LayoutJob::single_section(bio, egui::TextFormat::simple(reg(14.0), pal().header_primary));
+                job.wrap.max_width = 268.0;
+                ui.label(ui.painter().layout_job(job));
+                ui.add_space(19.0);
+            }
             ui.label(RichText::new("Member Since").font(semi(12.0)).color(pal().header_primary));
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
-            ui.label(RichText::new(since).font(reg(14.0)).color(pal().header_primary));
-            if !crate::theme::view().hide_personal {
-                ui.add_space(24.0);
-                ui.label(RichText::new("Note").font(semi(12.0)).color(pal().header_primary));
-                ui.add_space(4.0);
-                save_note = profile::note_box(ui, notes, "note", uid, &saved, 268.0, 12.0, false);
-            }
+            ui.label(RichText::new(since).font(reg(14.0)).color(pal().text_normal));
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
         ui.painter().rect(b, 8, egui::Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
-        full = resp.clicked();
+        full |= resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
         crate::ui::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
     });
@@ -427,9 +429,6 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     if banner.add {
         app.rest_in("PUT", format!("/users/@me/relationships/{uid}"), Some(json!({})), "User Profile", Tag::Friend);
     }
-    if let Some(n) = save_note {
-        app.save_note(uid, n);
-    }
     if let Some(t) = tab {
         app.open_full(uid, 0, t);
     } else if full {
@@ -437,30 +436,47 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     }
 }
 
-/// A profile's nitro theme as discord shows it: primary and accent, dimmed in dark themes.
-pub(super) fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)> {
-    let c = p.and_then(|p| p["user_profile"]["theme_colors"].as_array()).filter(|c| c.len() == 2)?;
+/// A profile's field the way Discord shows it in a server: what the person set for that server,
+/// else what their account has.
+pub(crate) fn shown<'a>(p: &'a serde_json::Value, key: &str) -> &'a serde_json::Value {
+    let here = &p["guild_member_profile"][key];
+    let unset = here.is_null() || here.as_str().is_some_and(str::is_empty) || here.as_array().is_some_and(|a| a.is_empty());
+    if unset { &p["user_profile"][key] } else { here }
+}
+
+pub(crate) fn banner(p: &serde_json::Value, uid: Id) -> Option<String> {
+    let cdn = crate::api::cdn();
+    let here = &p["guild_member_profile"];
+    match here["banner"].as_str() {
+        Some(b) => Some(format!("{cdn}/guilds/{}/users/{uid}/banners/{b}.png?size=600", here["guild_id"].as_str()?)),
+        None => p["user_profile"]["banner"].as_str().or(p["user"]["banner"].as_str()).map(|b| format!("{cdn}/banners/{uid}/{b}.png?size=600")),
+    }
+}
+
+/// A profile's nitro theme as discord shows it: primary and accent under a black veil, or a white
+/// one when the primary is light, which also turns the card's text dark.
+pub(super) fn theme(p: Option<&serde_json::Value>) -> Option<crate::theme::ProfileTheme> {
+    let c = p.and_then(|p| shown(p, "theme_colors").as_array()).filter(|c| c.len() == 2)?;
     let mine = p.and_then(|p| p["user"]["id"].as_str()).and_then(|id| id.parse::<u64>().ok()) == Some(crate::theme::me());
     if crate::theme::view().own_profiles && !mine {
         return None;
     }
-    let k = if pal().dark { 0.4 } else { 1.0 };
-    let col = |v: &serde_json::Value| {
-        let c = v.as_u64().unwrap_or(0) as u32;
-        let ch = |s: u32| (((c >> s) & 255) as f32 * k) as u8;
-        egui::Color32::from_rgb(ch(16), ch(8), ch(0))
-    };
-    Some((col(&c[0]), col(&c[1])))
+    let col = |v: &serde_json::Value| v.as_u64().unwrap_or(0) as u32;
+    Some(crate::theme::profile_theme(col(&c[0]), col(&c[1])))
+}
+
+pub(crate) fn theme_palette(p: Option<&serde_json::Value>) -> Option<&'static crate::theme::Palette> {
+    theme(p).map(|t| crate::theme::profile_palette(t.light))
 }
 
 pub(crate) fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> {
-    theme(p).map(|(a, _)| a)
+    theme(p).map(|t| t.top)
 }
 
-/// A nitro profile theme: the card washed from its primary colour down to its accent, dimmed the
-/// way discord dims them in dark themes. Paints into `slot`, reserved before the card's content.
+/// A nitro profile theme: the card washed from its primary colour down to its accent, under
+/// discord's veil. Paints into `slot`, reserved before the card's content.
 pub(crate) fn theme_wash(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Value>, rect: Rect) {
-    let Some((a, b)) = theme(p) else { return };
+    let Some(crate::theme::ProfileTheme { top: a, bottom: b, .. }) = theme(p) else { return };
     let mut mesh = egui::Mesh::default();
     let size = ui.ctx().fonts(|f| f.font_image_size());
     let mut tess = egui::epaint::Tessellator::new(ui.ctx().pixels_per_point(), Default::default(), size, Vec::new());
@@ -482,13 +498,13 @@ pub(super) fn card_avatar(top: Rect) -> Rect {
 
 pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
     let accent = p
-        .and_then(|p| p["user_profile"]["accent_color"].as_u64().or(p["user"]["accent_color"].as_u64()))
+        .and_then(|p| shown(p, "accent_color").as_u64().or(p["user"]["accent_color"].as_u64()))
         .map(|c| role_color(c as u32))
         // no banner colour set: discord's pick from the avatar, as in call tiles
         .or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url()))
         .unwrap_or(pal().blurple);
-    let banner = p.and_then(|p| p["user"]["banner"].as_str()).map(|b| format!("{}/banners/{}/{b}.png?size=600", crate::api::cdn(), user.id));
-    let pronouns = p.and_then(|p| p["user_profile"]["pronouns"].as_str()).filter(|s| !s.is_empty());
+    let banner = p.and_then(|p| banner(p, user.id));
+    let pronouns = p.and_then(|p| shown(p, "pronouns").as_str()).filter(|s| !s.is_empty());
     let (top, _) = ui.allocate_exact_size(vec2(300.0, 105.0), Sense::hover());
     let cr = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
     ui.painter().rect_filled(top, cr, accent);
@@ -510,8 +526,8 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { bold(20.0) };
-            let r = text::label(ui, name, face, pal().header_primary, Sense::click());
+            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { semi(20.0) };
+            let r = text::label(ui, name, face, profile_name_ink(user), Sense::click());
             if r.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -519,10 +535,10 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
                 click_flag(ui.ctx(), "card_name_clicked", user.id);
             }
             if user.bot {
-                crate::ui::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0);
+                crate::ui::app_tag(ui.painter(), pos2(r.rect.right() + 4.0, r.rect.center().y), user.flags & (1 << 16) != 0, 1.0, false);
             }
         });
-        ui.add_space(3.0);
+        ui.add_space(1.3);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let copy = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::click());
@@ -538,7 +554,7 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
                 ui.add_space(18.0);
                 r = text::label(ui, pr, reg(14.0), pal().header_primary, Sense::hover()).rect;
             }
-            let chip = crate::ui::tag_chip(ui.painter(), user, pos2(r.right() + 8.0, r.center().y), 1.0);
+            let chip = crate::ui::profile_tag(ui.painter(), user, pos2(r.right() + 8.0, r.center().y));
             if let Some(t) = chip
                 && crate::ui::tagpop::hit(ui, t, "card_tag")
                 && let Some((_, g, _)) = &user.tag
@@ -569,7 +585,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
     if !app.profiles.contains_key(&me) {
         // a placeholder until it lands, so this asks once
         app.profiles.insert(me, serde_json::Value::Null);
-        app.rest("GET", format!("/users/{me}/profile?with_mutual_guilds=false"), None, Tag::Profile(me));
+        app.rest("GET", format!("/users/{me}/profile?with_mutual_guilds=false"), None, Tag::Profile(me, 0));
     }
     let status = app.store.presence.get(&me).copied().unwrap_or(Status::Online);
     let dev = app.settings.dev;
@@ -579,6 +595,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
     let mut act = None;
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
+    let _theme = crate::theme::scope(theme_palette(app.profiles.get(&me)));
     let wash = ui.painter().add(egui::Shape::Noop);
     let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
     let hint = ui.painter().layout_no_wrap("Favorite collectible?".into(), italic(14.0), pal().header_primary.gamma_multiply(0.76));
@@ -636,7 +653,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
             let r = account_row(ui, None, label, true, true);
             let c = pos2(r.rect.left() + 24.0, r.rect.center().y);
             crate::ui::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), status, PROFILE_CARD);
-            egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+            crate::ui::submenu(ui, &r, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (key, label, sub, st) in [
                     ("online", "Online", None, Status::Online),
@@ -652,7 +669,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
                         act = Some(AccountAct::Status(key));
                     }
                     if timed {
-                        egui::containers::menu::SubMenu::new().show(ui, &resp, |ui| {
+                        crate::ui::submenu(ui, &resp, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
                             for (name, secs) in crate::ui::cstatus::STATUS_FOR {
                                 if crate::ui::menu_item(ui, None, name, false) {
@@ -670,7 +687,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
         let others = app_accounts.clone();
         card(ui, &mut |ui| {
             let r = account_row(ui, Some(Icon::Person), "Switch Accounts", true, false);
-            egui::containers::menu::SubMenu::new().show(ui, &r, |ui| {
+            crate::ui::submenu(ui, &r, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for a in &others {
                     let (resp, lead) = crate::ui::menu_row_at(ui, true, &a.name, None, false, crate::ui::Trail::Check(a.id == me));
@@ -724,4 +741,24 @@ pub(super) fn account_row(ui: &mut Ui, icon: Option<Icon>, label: &str, caret: b
         crate::ui::icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(16.0, 16.0)), pal().header_primary);
     }
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{banner, shown};
+    use serde_json::json;
+
+    #[test]
+    fn a_server_profile_overrides_the_account_only_where_it_set_something() {
+        let p = json!({
+            "user": { "banner": "aa" },
+            "user_profile": { "bio": "account", "pronouns": "they", "theme_colors": [1, 2] },
+            "guild_member_profile": { "guild_id": "7", "bio": "", "pronouns": "she", "theme_colors": [3, 4], "banner": "bb" },
+        });
+        assert_eq!(shown(&p, "bio"), "account");
+        assert_eq!(shown(&p, "pronouns"), "she");
+        assert_eq!(shown(&p, "theme_colors"), &json!([3, 4]));
+        assert!(banner(&p, 5).unwrap().ends_with("/guilds/7/users/5/banners/bb.png?size=600"));
+        assert!(banner(&json!({ "user": { "banner": "aa" } }), 5).unwrap().ends_with("/banners/5/aa.png?size=600"));
+    }
 }

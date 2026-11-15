@@ -485,12 +485,12 @@ fn run(parent: isize, boot: impl FnOnce(HWND, &Path) -> windows::core::Result<()
     sweep(&root);
     let data: PathBuf = root.join(format!("{}-{}", std::process::id(), COUNT.fetch_add(1, Relaxed)));
     LIVE.lock().unwrap().push(data.clone());
+    crate::winsys::keep_down();
     let hwnd = create_window(parent);
     let up = !hwnd.is_null() && boot(hwnd, &data).is_ok();
     if up {
         OPEN.store(hwnd as isize, Relaxed);
-        let quiet = std::env::var_os("RUSTCORD_E2E").is_some() || std::env::var_os("RUSTCORD_BENCH").is_some();
-        unsafe { ShowWindow(hwnd, if quiet { SW_SHOWNOACTIVATE } else { SW_SHOW }) };
+        unsafe { ShowWindow(hwnd, if crate::winsys::harness() { SW_SHOWNOACTIVATE } else { SW_SHOW }) };
         let mut msg = unsafe { std::mem::zeroed() };
         while unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) } > 0 {
             unsafe {

@@ -68,6 +68,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Search, Rect::from_center_size(pos2(bar.left() + 20.0, bar.center().y), vec2(16.0, 16.0)), pal().header_secondary);
         let field = Rect::from_min_max(pos2(bar.left() + 40.0, bar.top() + 4.0), pos2(bar.right() - 8.0, bar.bottom() - 4.0));
         let r = ui.put(field, egui::TextEdit::singleline(&mut sh.query).frame(Frame::NONE).hint_text("Search").font(reg(16.0)).desired_width(field.width()));
+        ui.advance_cursor_after_rect(bar);
         r.request_focus();
         app.rects.insert("activity:search".into(), bar);
         ui.add_space(20.0);

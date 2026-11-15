@@ -1,11 +1,11 @@
 //! The small dialogs behind a person's menu: the note on them, their nickname (a server's or the
 //! one you give a friend) and a group dm's name and icon.
 
-use egui::{Align, Frame, Layout, RichText, Sense, vec2};
+use egui::{Align, Frame, Layout, Margin, RichText, Sense, vec2};
 use serde_json::json;
 
 use super::icons::Icon;
-use super::{App, button, grey_button, icon_button};
+use super::{App, button, grey_button, icon_button, modal_button};
 use crate::net::Tag;
 use crate::state::{Id, Store};
 use crate::theme::*;
@@ -75,25 +75,25 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                 });
             });
-            ui.add_space(16.0);
+            ui.add_space(if matches!(d, Dialog::Group { .. }) { 24.0 } else { 16.0 });
             if let Some(a) = about {
                 ui.label(RichText::new(a).font(reg(14.0)).color(pal().text_normal));
                 ui.add_space(16.0);
             }
             if let Dialog::Group { ch, icon, .. } = d {
                 ui.vertical_centered(|ui| {
-                    let (r, resp) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(120.0, 120.0), Sense::click());
                     match (&*icon, icon_of(*ch)) {
                         (Some(uri), _) => {
-                            egui::Image::from_uri(uri.clone()).corner_radius(40).show_loading_spinner(false).paint_at(ui, r);
+                            egui::Image::from_uri(uri.clone()).corner_radius(60).show_loading_spinner(false).paint_at(ui, r);
                         }
                         (None, Some(h)) => super::avatar(ui, r, &format!("{}/channel-icons/{ch}/{h}.png?size=128", crate::api::cdn())),
                         (None, None) => {
-                            ui.painter().circle_filled(r.center(), 40.0, pal().bg_mod_selected);
-                            super::icons::draw(ui.painter(), Icon::People, egui::Rect::from_center_size(r.center(), vec2(40.0, 40.0)), pal().header_secondary);
+                            ui.painter().circle_filled(r.center(), 60.0, pal().bg_mod_selected);
+                            super::icons::draw(ui.painter(), Icon::People, egui::Rect::from_center_size(r.center(), vec2(60.0, 60.0)), pal().header_secondary);
                         }
                     }
-                    let badge = egui::Rect::from_center_size(r.right_top() + vec2(-6.0, 10.0), vec2(28.0, 28.0));
+                    let badge = egui::Rect::from_center_size(r.right_top() + vec2(-14.0, 16.0), vec2(28.0, 28.0));
                     ui.painter().circle_filled(badge.center(), 14.0, pal().bg_floating);
                     super::icons::draw(ui.painter(), Icon::Pencil, badge.shrink(6.0), pal().header_primary);
                     let resp = resp.on_hover_text("Edit Group Icon");
@@ -102,7 +102,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                     pick = resp.clicked();
                 });
-                ui.add_space(24.0);
+                ui.add_space(25.0);
             } else {
                 ui.label(RichText::new(label).font(semi(12.0)).color(pal().header_primary));
                 ui.add_space(8.0);
@@ -118,7 +118,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::Cleanup { .. } | Dialog::Accounts => return,
             };
             let multi = label == "Note";
-            input_frame().corner_radius(8).inner_margin(12).show(ui, |ui| {
+            input_frame().corner_radius(8).inner_margin(if multi { Margin::same(12) } else { Margin::symmetric(12, 7) }).show(ui, |ui| {
                 let edit = if multi { egui::TextEdit::multiline(text).desired_rows(4) } else { egui::TextEdit::singleline(text) };
                 let r = ui.add(edit.frame(Frame::NONE).font(reg(16.0)).hint_text(hint).desired_width(ui.available_width()));
                 if !ui.ctx().memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {
@@ -128,9 +128,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     done = Some(Done::Save);
                 }
             });
-            ui.add_space(24.0);
+            ui.add_space(25.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
+                if matches!(d, Dialog::Group { .. }) {
+                    if modal_button(ui, "Cancel", None, 212.0).clicked() {
+                        done = Some(Done::Close);
+                    }
+                    if modal_button(ui, "Save", Some(pal().blurple), 212.0).clicked() {
+                        done = Some(Done::Save);
+                    }
+                    return;
+                }
                 if matches!(d, Dialog::Nick { had: true, .. }) {
                     let reset = if matches!(d, Dialog::Nick { gid: 0, .. }) { "Reset Friend Nickname" } else { "Reset Nickname" };
                     let g = ui.painter().layout_no_wrap(reset.into(), medium(14.0), pal().link);

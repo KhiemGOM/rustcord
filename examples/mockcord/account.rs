@@ -87,7 +87,7 @@ fn fresh(settings: Vec<u8>) -> Acct {
         tickets: Vec::new(),
         tokens: Vec::new(),
         profile: Map::new(),
-        recent: vec![json!({ "id": "1", "hash": "recent1", "color": "668CE2" }), json!({ "id": "2", "hash": "recent2", "color": "A1B2C3" })],
+        recent: vec![json!({ "id": "1", "storage_hash": "recent1", "description": null }), json!({ "id": "2", "storage_hash": "recent2", "description": null })],
         widgets: Vec::new(),
         guild_profile: Map::new(),
         password: PASSWORD.into(),
@@ -348,11 +348,11 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             }
             if b["avatar"].is_string() {
                 let n = a.recent.len() + 3;
-                a.recent.insert(0, json!({ "id": n.to_string(), "hash": format!("e2eavatar{n}"), "color": "336699" }));
+                a.recent.insert(0, json!({ "id": n.to_string(), "storage_hash": format!("e2eavatar{n}"), "description": null }));
                 a.recent.truncate(6);
                 a.me.insert("avatar".into(), json!(format!("e2eavatar{n}")));
             } else if let Some(id) = b["avatar_id"].as_str() {
-                let hash = a.recent.iter().find(|r| r["id"] == id).map(|r| r["hash"].clone());
+                let hash = a.recent.iter().find(|r| r["id"] == id).map(|r| r["storage_hash"].clone());
                 match hash {
                     Some(h) => {
                         a.me.insert("avatar".into(), h);
@@ -435,7 +435,7 @@ pub fn route(method: &str, path: &str, body: &[u8], mfa_token: Option<&str>, use
             a.ignored.retain(|x| *x != id);
             Some((204, Value::Null))
         }
-        ("GET", ["users", "@me", "avatars"]) => ok(json!(a.recent)),
+        ("GET", ["users", "@me", "avatars"]) => ok(json!({ "avatars": a.recent })),
         ("DELETE", ["users", "@me", "avatars", id]) => {
             let before = a.recent.len();
             a.recent.retain(|r| r["id"] != *id);

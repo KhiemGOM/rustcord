@@ -9,6 +9,8 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     let mut wave = None;
     header(ui, |ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        // the button runs 8 from the sidebar's edges, where the server's name sits 16 in
+        let r = r.expand2(vec2(8.0, 0.0));
         ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
         ui.painter().text(r.center(), Align2::CENTER_CENTER, "Find or start a conversation", medium(14.0), pal().header_primary);
         if resp.hovered() {
@@ -24,10 +26,11 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro Home"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
             let shop = app.shop.as_ref().map(|s| s.page);
+            let promo = shop_promo(app);
             for (icon, label) in rows {
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
                 let inner = row.shrink2(vec2(8.0, 0.0));
@@ -43,9 +46,12 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 } else if resp.hovered() {
                     ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
                 }
-                let col = if on { pal().header_primary } else { crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+                let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
+                if label == "Shop" && promo.is_some() {
+                    new_pill(ui, pos2(inner.right() - 16.0, row.center().y));
+                }
                 if label == "Friends" {
                     if pending > 0 {
                         badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
@@ -59,7 +65,14 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     match label {
                         "Quests" => app.open_quests(),
                         "Nitro Home" => app.open_shop(crate::ui::shop::Page::Nitro),
-                        "Shop" => app.open_shop(crate::ui::shop::Page::Shop),
+                        "Shop" => {
+                            if let Some((dc, version)) = promo {
+                                let times = app.store.dismissed.get(&dc).map_or(0, |d| d.1) + 1;
+                                app.store.dismissed.insert(dc, (version, times));
+                                app.proto_patch(crate::proto::dismiss_patch(dc, version, chrono::Utc::now().timestamp_millis() as u64, times), crate::net::Tag::Quiet);
+                            }
+                            app.open_shop(crate::ui::shop::Page::Shop)
+                        }
                         _ => {
                             app.friends = true;
                             app.quests = None;
@@ -68,8 +81,13 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     }
                 }
             }
-            ui.add_space(14.0);
-            let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+            // discord: 12 either side of a hairline, then a 24 header whose last 4 are padding
+            ui.add_space(11.0);
+            let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().hline(rule.x_range().shrink(8.0), rule.center().y, egui::Stroke::new(1.0, pal().frame_border));
+            ui.add_space(10.0);
+            let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::hover());
+            let h = Rect::from_min_size(h.min, vec2(h.width(), 20.0));
             ui.painter().text(pos2(h.left() + 16.0, h.center().y), Align2::LEFT_CENTER, "Direct Messages", medium(14.0), pal().channel_default);
             let pr = Rect::from_center_size(pos2(h.right() - 24.0, h.center().y), vec2(16.0, 16.0));
             let plus = ui.interact(pr.expand(4.0), ui.id().with("new_dm"), Sense::click());
@@ -89,7 +107,6 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     cleanup = true;
                 }
             });
-            ui.add_space(4.0);
             let store = &app.store;
             let mut ids = store.dms.clone();
             ids.sort_by_key(|id| !store.pinned.contains(id));
@@ -129,6 +146,26 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     }
 }
 
+fn shop_promo(app: &mut App) -> Option<(u64, u64)> {
+    let (dc, version) = {
+        let Some(Ok(v)) = crate::ui::settings::remote(app, "shop_marketing", "/users/@me/collectibles-marketing?platform=0") else { return None };
+        let m = &v["marketings"]["0"];
+        if !matches!(m["type"].as_u64(), Some(1 | 3 | 4)) {
+            return None;
+        }
+        (m["dismissible_content"].as_u64()?, m["version"].as_u64()?)
+    };
+    (app.store.dismissed.get(&dc).map_or(0, |d| d.0) < version).then_some((dc, version))
+}
+
+fn new_pill(ui: &mut Ui, right_center: egui::Pos2) {
+    let g = ui.painter().layout_no_wrap("NEW".into(), semi(12.0), Color32::from_rgb(0x2f, 0x30, 0x35));
+    let r = Rect::from_min_max(pos2(right_center.x - g.size().x - 16.0, right_center.y - 8.0), pos2(right_center.x, right_center.y + 8.0));
+    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::WHITE);
+    ui.painter().galley(pos2(r.left() + 8.0, r.center().y - g.size().y / 2.0), g, Color32::WHITE);
+    crate::ui::settings::mark(ui, "home:shop_new", r);
+}
+
 pub(super) const WAVE_STICKER: Id = 749054660769218631;
 
 pub(super) fn wave_here(store: &Store, c: &Channel) -> bool {
@@ -151,9 +188,9 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     let inner = row.shrink2(vec2(8.0, 0.0));
     let hovered = resp.contains_pointer();
     if selected {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
     }
     // discord greys a muted dm out: muted text, the avatar at .3, no count and no bold
     let muted = store.dm_muted(c.id);
@@ -189,14 +226,14 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         pal().header_primary
     } else if hovered {
         pal().interactive_hover
-    } else if muted {
-        pal().text_muted
     } else {
-        pal().channel_default
+        pal().text_muted
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
     let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
-    let font = if unread { semi(16.0) } else { medium(16.0) };
+    // discord keeps a styled name's font when it's unread; a plain one goes semibold
+    let style = name_font(person.map_or(0, |u| u.font), 16.0);
+    let font = if unread && style == medium(16.0) { semi(16.0) } else { style };
     let tw = right - av.right() - 12.0;
     let clip = ui.painter().with_clip_rect(Rect::from_x_y_ranges(av.right()..=right, row.y_range()));
     if c.kind == 3 {
@@ -205,24 +242,31 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
             pos2(av.right() + 12.0, row.center().y + 9.0),
             Align2::LEFT_CENTER,
             format!("{} Members", c.recipients.len() + 1),
-            reg(12.0),
+            medium(12.0),
             pal().text_muted,
         );
     } else {
-        let r = text::paint_em(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
+        // with a status or an activity the name rides up and the line sits under it
+        let line = person.filter(|u| store.status(u.id) != Status::Offline).and_then(|u| store.activity_line(u.id));
+        let y = if line.is_some() { row.top() + 13.5 } else { row.center().y };
+        let r = text::paint_em(ui.painter(), pos2(av.right() + 12.0, y), Align2::LEFT_CENTER, title, font, col, tw, 1.0);
         if let Some(u) = person {
-            crate::ui::tag_chip(&clip, u, pos2(r.right() + 4.0, row.center().y), 1.0);
+            // discord's plain name keeps 3.5 more before the tag than one in a display font
+            crate::ui::tag_chip(&clip, u, pos2(r.right() + if u.font == 0 { 7.5 } else { 4.0 }, y), 1.0);
+        }
+        if let Some(line) = line {
+            crate::ui::members::status_line(&clip, line, av.right() + 12.0, row.top() + 30.0, right, col, 12.0, "");
         }
     }
     let mut act = None;
     if wave_here(store, c) {
-        let w = text::layout(ui.ctx(), "👋 Wave", medium(14.0), pal().text_normal, 400.0).size().x;
+        let w = text::layout_em(ui.ctx(), "👋 Wave", medium(14.0), pal().text_normal, 400.0, 1.0).size().x;
         let b = Rect::from_min_size(pos2(row.right() - 13.0 - w - 24.0, row.center().y - 16.0), vec2(w + 24.0, 32.0));
         let hit = ui.interact(b, ui.id().with(("dm_wave", c.id)), Sense::click());
         crate::ui::settings::mark(ui, &format!("dm_wave:{}", c.id), b);
         let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &hit));
-        ui.painter().rect_filled(b, CornerRadius::same(8), fill);
-        text::paint(ui.painter(), pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "👋 Wave", medium(14.0), pal().text_normal, w);
+        ui.painter().rect(b, CornerRadius::same(8), fill, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+        text::paint_em(ui.painter(), pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "👋 Wave", medium(14.0), pal().text_normal, w, 1.0);
         if hit.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }

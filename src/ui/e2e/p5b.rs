@@ -27,7 +27,7 @@ fn regex_errors(app: &App) -> bool {
 }
 
 impl Run {
-    fn in_view(&mut self, ctx: &egui::Context, r: egui::Rect) -> bool {
+    pub(super) fn in_view(&mut self, ctx: &egui::Context, r: egui::Rect) -> bool {
         let screen = ctx.content_rect();
         if r.top() > screen.top() + 120.0 && r.bottom() < screen.bottom() - 8.0 {
             return true;

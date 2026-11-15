@@ -395,6 +395,44 @@ impl Run {
                 }
                 app.directory = None;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(1280.0, 800.0)));
+                self.next(900);
+            }
+            3845 => {
+                let Some(r) = app.rects.get(&format!("guildicon:{guild}")).copied() else { return };
+                self.rclick(r.center());
+                self.next(500);
+            }
+            3846 => {
+                let Some(m) = row("Move to...") else { return };
+                if row("Invite to Server").is_some() {
+                    self.mark("guild_menu_invite");
+                }
+                self.queue.push_back(vec![Event::PointerMoved(m.center())]);
+                self.next(500);
+            }
+            3847 => {
+                let tree = crate::ui::folders::current(app);
+                let Some(s) = tree.iter().position(|f| f.guilds.contains(&guild)) else { return };
+                let inside = tree[s].id != 0;
+                let last = if inside { tree[s].guilds.last() == Some(&guild) } else { s + 1 == tree.len() };
+                let label = match (inside, last) {
+                    (true, false) => "Last in Folder",
+                    (true, true) => "First in Folder",
+                    (false, false) => "Last in List",
+                    (false, true) => "First in List",
+                };
+                let Some(r) = row(label) else { return };
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("e2e_rail"), tree));
+                self.click(r.center());
+                self.next(600);
+            }
+            3848 => {
+                let Some(before) = ctx.data_mut(|d| d.remove_temp::<Vec<crate::state::Folder>>(egui::Id::new("e2e_rail"))) else { return };
+                let order = |t: &[crate::state::Folder]| t.iter().flat_map(|f| f.guilds.clone()).collect::<Vec<Id>>();
+                if order(&crate::ui::folders::current(app)) != order(&before) {
+                    self.mark("guild_moved_from_menu");
+                }
+                crate::ui::folders::save(app, before);
                 self.step = 3900;
             }
             _ => self.step = 3900,

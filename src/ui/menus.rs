@@ -29,14 +29,20 @@ pub(super) enum ChanAct {
     Collapse,
     CollapseAll,
     Pin,
+    // onto the channel list of a server that only lists what was picked, or off it
+    List(bool),
     HideNames,
     Chat,
     Move(Move),
+    // into the Favorites server, under one of its categories (0 for none), or out of it
+    Favorite(Id),
+    Unfavorite,
 }
 
 pub(super) enum GuildAct {
     Web(String),
     Boosts,
+    Theme,
     Settings,
     Create(super::create::Kind),
     Threads,
@@ -65,7 +71,7 @@ fn tag_row(ui: &mut Ui, wearer: &crate::state::User) -> bool {
 }
 
 /// The menu under the server name.
-pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, dev: bool) -> Option<GuildAct> {
+pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, dev: bool, server_theme: Option<bool>) -> Option<GuildAct> {
     use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, SETTINGS_ACCESS, VIEW_GUILD_INSIGHTS};
     let g = store.guilds.get(&gid)?;
     let perms = store.my_perms(gid);
@@ -78,13 +84,18 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     if menu_item(ui, Some(Icon::Gem), "Server Boost", false) {
         act = Some(GuildAct::Boosts);
     }
+    if let Some(on) = server_theme
+        && menu_row(ui, Some(Icon::SideAppearance), "Use Server Theme", None, false, Trail::Check(on)).clicked()
+    {
+        act = Some(GuildAct::Theme);
+    }
     if let Some(w) = store.users.values().find(|u| u.tag.as_ref().is_some_and(|t| t.1 == gid))
         && tag_row(ui, w)
     {
         act = Some(GuildAct::Tag);
     }
     menu_sep(ui);
-    if can_invite && menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
+    if menu_item(ui, Some(Icon::PersonAdd), "Invite to Server", false) {
         act = Some(GuildAct::Invite);
     }
     if perms & SETTINGS_ACCESS != 0 && menu_item(ui, Some(Icon::Gear), "Server Settings", false) {
@@ -104,14 +115,14 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     if perms & MANAGE_EVENTS != 0 && menu_item(ui, Some(Icon::CalendarPlus), "Create Event", false) {
         act = Some(GuildAct::Create(super::create::Kind::Event));
     }
-    if menu_item(ui, Some(Icon::Bubble), "Active Threads", false) {
+    if store.channels.values().any(|c| c.guild == gid && c.is_thread()) && menu_item(ui, Some(Icon::Bubble), "Active Threads", false) {
         act = Some(GuildAct::Threads);
     }
-    if perms & MANAGE_GUILD != 0 && menu_item(ui, Some(Icon::Apps), "App Directory", false) {
+    if menu_item(ui, Some(Icon::Apps), "App Directory", false) {
         act = Some(GuildAct::Directory);
     }
     menu_sep(ui);
-    if has("GUILD_ONBOARDING") && menu_row(ui, None, "Show All Channels", None, false, Trail::Check(!store.opt_in.contains(&gid))).clicked() {
+    if community && menu_row(ui, Some(Icon::Eye), "Show All Channels", None, false, Trail::Check(!store.opt_in.contains(&gid))).clicked() {
         act = Some(GuildAct::ShowAll);
     }
     if menu_item(ui, Some(Icon::Bell), "Notification Settings", false) {
@@ -127,14 +138,15 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     if menu_row(ui, Some(Icon::EyeOff), "Hide Muted Channels", None, false, Trail::Check(hide)).clicked() {
         act = Some(GuildAct::HideMuted);
     }
-    if perms & MANAGE_GUILD != 0 || !owner {
+    let secure = community && perms & MANAGE_GUILD != 0;
+    if secure || !owner {
         menu_sep(ui);
     }
-    if perms & MANAGE_GUILD != 0 {
+    if secure {
         if menu_item(ui, Some(Icon::Lock), "Security Actions", true) {
             act = Some(GuildAct::Security);
         }
-        if community && menu_item(ui, Some(Icon::Shield), "Report Raid", true) {
+        if menu_item(ui, Some(Icon::Shield), "Report Raid", true) {
             act = Some(GuildAct::Raid);
         }
     }
@@ -150,16 +162,38 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, can_invite: bool, 
     act
 }
 
+/// Discord's Add to Favorites: a star row, or with categories of your own a submenu to pick one.
+fn favorite_item(ui: &mut Ui, store: &Store) -> Option<Id> {
+    let cats = super::favorites::categories(store);
+    if cats.is_empty() {
+        return menu_item(ui, Some(Icon::Star), "Add to Favorites", false).then_some(0);
+    }
+    let r = menu_row(ui, Some(Icon::Star), "Add to Favorites", None, false, Trail::Caret);
+    let mut to = r.clicked().then_some(0);
+    super::submenu(ui, &r, |ui| {
+        if menu_item(ui, None, "Favorites", false) {
+            to = Some(0);
+        }
+        menu_sep(ui);
+        for (id, name) in &cats {
+            if menu_item(ui, None, name, false) {
+                to = Some(*id);
+            }
+        }
+    });
+    to
+}
+
 fn move_menu(ui: &mut Ui, store: &Store, c: &Channel) -> Option<Move> {
     let mut mv = None;
     let m = menu_row(ui, None, "Move to...", None, false, Trail::Caret);
-    egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+    super::submenu(ui, &m, |ui| {
         let peers = super::reorder::peers(store, c);
         let at = peers.iter().position(|x| *x == c.id);
         let cat = c.kind == 4;
         if !cat {
             let sub = menu_row(ui, None, "Category", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &sub, |ui| {
+            super::submenu(ui, &sub, |ui| {
                 if ui.add_enabled_ui(c.parent != 0, |ui| menu_item(ui, None, "Uncategorized", false)).inner {
                     mv = Some(Move::Category(0));
                 }
@@ -186,6 +220,12 @@ fn move_menu(ui: &mut Ui, store: &Store, c: &Channel) -> Option<Move> {
 /// Discord's right-click menu for a channel, thread or category.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unread: bool, collapsed: bool, dev: bool, hide_names: bool, out: &mut Option<(Id, ChanAct)>) {
+    channel_menu_in(r, store, c, unread, collapsed, dev, hide_names, true, out);
+}
+
+/// The same menu; the Favorites server's leaves out moving, editing and deleting the channel.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn channel_menu_in(r: &egui::Response, store: &Store, c: &Channel, unread: bool, collapsed: bool, dev: bool, hide_names: bool, admin: bool, out: &mut Option<(Id, ChanAct)>) {
     let cat = c.kind == 4;
     let voice = c.is_voice();
     let what = if cat { "Category" } else if c.is_thread() { "Thread" } else { "Channel" };
@@ -196,8 +236,20 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
             act = Some(ChanAct::Read);
         }
+        if super::favorites::can_add(store, c) {
+            menu_sep(ui);
+            if let Some(p) = favorite_item(ui, store) {
+                act = Some(ChanAct::Favorite(p));
+            }
+        }
         menu_sep(ui);
+        let listed = store.opted.contains(&c.id);
+        let list = if listed { "Remove from Channel List" } else { "Add to Channel List" };
+        let picks = store.opt_in.contains(&c.guild) && !c.is_thread();
         if cat {
+            if picks && menu_item(ui, None, list, false) {
+                act = Some(ChanAct::List(!listed));
+            }
             if menu_row(ui, None, "Collapse Category", None, false, Trail::Check(collapsed)).clicked() {
                 act = Some(ChanAct::Collapse);
             }
@@ -205,11 +257,14 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
                 act = Some(ChanAct::CollapseAll);
             }
         } else {
-            if !c.is_thread() && perms & crate::state::CREATE_INVITE != 0 && menu_item(ui, None, if voice { "Invite to Voice" } else { "Invite to Channel" }, false) {
+            if !c.is_thread() && store.can_invite(c) && menu_item(ui, None, if voice { "Invite to Voice" } else { "Invite to Channel" }, false) {
                 act = Some(ChanAct::Invite);
             }
             if !c.is_thread() && menu_item(ui, None, if pinned { "Unpin Channel" } else { "Pin Channel to Top" }, false) {
                 act = Some(ChanAct::Pin);
+            }
+            if picks && menu_item(ui, None, list, false) {
+                act = Some(ChanAct::List(!listed));
             }
             if menu_item(ui, None, "Copy Link", false) {
                 act = Some(ChanAct::Link);
@@ -231,7 +286,7 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
             }
         } else {
             let m = menu_row(ui, None, &format!("Mute {what}"), None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 if let Some(secs) = super::mute_menu(ui) {
                     act = Some(ChanAct::Mute(true, secs));
                 }
@@ -241,7 +296,7 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
             let level = store.levels.get(&c.id).copied();
             let inherited = store.inherited_level(c);
             let n = menu_row(ui, None, "Notification Settings", Some(LEVELS[level.unwrap_or(inherited).min(2) as usize]), false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &n, |ui| {
+            super::submenu(ui, &n, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let default = if c.parent != 0 && !c.is_thread() { "Use Category Default" } else { "Use Server Default" };
                 if let Some(l) = super::level_menu(ui, level, inherited, default) {
@@ -249,7 +304,7 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
                 }
             });
         }
-        if perms & crate::state::MANAGE_CHANNELS != 0 && !c.is_thread() {
+        if admin && perms & crate::state::MANAGE_CHANNELS != 0 && !c.is_thread() {
             menu_sep(ui);
             if let Some(m) = move_menu(ui, store, c) {
                 act = Some(ChanAct::Move(m));
@@ -270,6 +325,12 @@ pub(super) fn channel_menu(r: &egui::Response, store: &Store, c: &Channel, unrea
                         _ => ChanAct::Edit,
                     });
                 }
+            }
+        }
+        if super::favorites::has(store, c.id) {
+            menu_sep(ui);
+            if menu_item(ui, None, "Remove from Favorites", true) {
+                act = Some(ChanAct::Unfavorite);
             }
         }
         if dev {

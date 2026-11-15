@@ -66,9 +66,10 @@ fn main() -> eframe::Result {
     if let Some(l) = logo {
         viewport = viewport.with_icon(egui::IconData { width: l.width(), height: l.height(), rgba: l.into_raw() });
     }
-    // the e2e run opens behind everything and never takes focus, so whoever's at the machine
-    // isn't interrupted; its input is injected anyway
-    if std::env::var_os("RUSTCORD_E2E").is_some() || std::env::var_os("RUSTCORD_BENCH").is_some() {
+    // a harness run (e2e, tour, replay, bench) opens behind everything and never takes focus, so
+    // whoever's at the machine isn't interrupted; its input is injected anyway
+    winsys::keep_down();
+    if winsys::harness() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
     } else if !std::env::args().any(|a| a == "--startup") {
         winsys::show_early(size, cache::window_color());

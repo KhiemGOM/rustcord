@@ -30,6 +30,8 @@ mod watchdog;
 pub(in crate::ui) mod stress;
 mod regressions;
 mod profcheck;
+mod reach;
+mod replay;
 
 pub use watchdog::beat;
 mod chatx;
@@ -53,6 +55,7 @@ mod p4b;
 mod p4c;
 mod p5;
 mod p5b;
+mod r1;
 mod themes;
 mod serverx;
 mod shopx;
@@ -153,6 +156,7 @@ pub struct Run {
     local: local::State,
     fx: live::State,
     sweep: tour::State,
+    replay: replay::State,
     local_log: Option<String>,
 }
 
@@ -263,6 +267,7 @@ impl Run {
             local: Default::default(),
             fx: Default::default(),
             sweep: Default::default(),
+            replay: Default::default(),
             local_log: None,
         })
     }
@@ -608,6 +613,9 @@ impl Run {
             return self.live_steps(app, ctx, ch);
         }
         if self.tour && self.step != 99 {
+            if std::env::var_os("RUSTCORD_REPLAY").is_some() {
+                return self.replay_steps(app, ctx);
+            }
             if std::env::var_os("RUSTCORD_TOUR_PROFILE").is_some() {
                 return self.profile_check(app, ctx);
             }
@@ -650,7 +658,7 @@ impl Run {
                 self.next(250);
             }
             2 => {
-                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 let head = app.rects.get("guildmenu").map_or(0.0, |h| h.bottom());
                 if r.top() < head {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, head + 200.0))]);
@@ -768,7 +776,7 @@ impl Run {
             14 => {
                 let g = self.target.0;
                 let forum = app.store.channels.values().find(|c| c.guild == g && c.is_forum()).map(|c| c.id);
-                let Some(r) = forum.and_then(|f| app.rects.get(&format!("chan:{f}")).copied()) else {
+                let Some(r) = forum.and_then(|f| self.reach_row(app, &format!("chan:{f}"))) else {
                     return self.fail("no forum channel in the sidebar".into());
                 };
                 self.click(r.center());
@@ -785,7 +793,7 @@ impl Run {
                 self.shot(ctx, "forum.png");
                 let g = self.target.0;
                 let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.name == "release planning").map(|c| c.id);
-                let Some(r) = thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) else {
+                let Some(r) = thread.and_then(|t| self.reach_row(app, &format!("chan:{t}"))) else {
                     return self.fail("no joined thread in the sidebar".into());
                 };
                 self.click(r.center());
@@ -876,7 +884,7 @@ impl Run {
                 let general = app.store.guilds.get(&self.target.0).and_then(|g| {
                     g.channels.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.name == "general"))
                 });
-                let Some(r) = general.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) else { return };
+                let Some(r) = general.and_then(|c| self.reach_row(app, &format!("chan:{c}"))) else { return };
                 self.click(r.center());
                 self.next(800);
             }
@@ -1128,10 +1136,10 @@ impl Run {
                 self.next(300);
             }
             54 => {
-                let Some(vc) = side::tree(&app.store, self.target.0, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
+                let Some(vc) = side::tree(&app.store, self.target.0).into_iter().flat_map(|(_, k)| k).find(|c| c.is_voice()).map(|c| c.id) else {
                     return self.fail("no voice channel".into());
                 };
-                let Some(r) = app.rects.get(&format!("chan:{vc}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{vc}")) else { return };
                 let covered = ["game:panel", "userpanel"].iter().filter_map(|k| app.rects.get(*k)).map(|p| p.top()).fold(ctx.content_rect().bottom(), f32::min);
                 if r.bottom() > covered {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, covered - 100.0))]);
@@ -1370,7 +1378,7 @@ impl Run {
                 let Some(dm) = app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1) && !app.store.dm_muted(*c)) else {
                     return self.fail("no dm".into());
                 };
-                let Some(r) = app.rects.get(&format!("chan:{dm}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{dm}")) else { return };
                 self.call = dm;
                 self.click(r.center());
                 self.next(800);
@@ -1501,6 +1509,7 @@ impl Run {
             5050..=5099 => self.p4c_steps(app, ctx),
             5100..=5119 => self.p5_steps(app, ctx),
             5120..=5199 => self.p5b_steps(app, ctx),
+            5200..=5299 => self.r1_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),
@@ -1521,7 +1530,7 @@ impl Run {
             _ => {
                 if self.pending_shots == 0 {
                     if !self.rects.contains_key("layout_side_final") {
-                        self.rects.insert("layout_side_final".into(), json!(if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 }));
+                        self.rects.insert("layout_side_final".into(), json!(if app.ui.side_w > 0.0 { app.ui.side_w } else { super::frame::SIDE_W }));
                         self.rects.insert("layout_members_final".into(), json!(if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 }));
                         if std::env::var_os("RUSTCORD_E2E_MEMBERS").is_some() {
                             app.rest("POST", "/mock/account-reset".into(), Some(json!({})), crate::net::Tag::Quiet);
@@ -2163,7 +2172,7 @@ impl Run {
                 self.next(300);
             }
             201 => {
-                let Some(r) = app.rects.get(&format!("chan:{MEDIA}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{MEDIA}")) else { return };
                 self.click(r.center());
                 self.next(300);
             }
@@ -2304,7 +2313,7 @@ impl Run {
                 if app.ui.guild != Some(self.target.0) {
                     return;
                 }
-                let Some(r) = rect(app, &format!("chan:{}", self.target.1)) else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(600);
             }
@@ -2398,8 +2407,9 @@ impl Run {
     /// Dragging panel edges.
     fn layout_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let chat_w = |app: &App| app.rects.get("composer").map(|r| r.width());
-        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { 302.0 };
+        let side_w = |app: &App| if app.ui.side_w > 0.0 { app.ui.side_w } else { super::frame::SIDE_W };
         let members_w = |app: &App| if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
+        let drawn = |ctx: &egui::Context| egui::containers::panel::PanelState::load(ctx, egui::Id::new("members")).map_or(0.0, |s| s.outer_rect.width());
         let drag = |run: &mut Self, from: Pos2, dx: f32| {
             run.queue.push_back(vec![Event::PointerMoved(from)]);
             run.queue.push_back(vec![Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
@@ -2418,7 +2428,7 @@ impl Run {
                 self.next(300);
             }
             241 => {
-                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(600);
             }
@@ -2443,7 +2453,7 @@ impl Run {
                 self.next(300);
             }
             243 => {
-                // narrower: the warm run starts where the cold one left it, which can be discord's 359 max
+                // narrower: the warm run starts where the cold one left it, which can be discord's 361 max
                 drag(self, pos2(72.0 + side_w(app), 400.0), -50.0);
                 self.next(400);
             }
@@ -2479,6 +2489,27 @@ impl Run {
                 // the save is debounced by a second
                 self.next(2000);
             }
+            249 => {
+                self.rects.insert("layout_window_w".into(), json!(ctx.content_rect().width()));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(940.0, ctx.content_rect().height())));
+                self.next(600);
+            }
+            250 => {
+                let Some(r) = app.rects.get("composer").copied() else { return };
+                self.rects.insert("layout_members_squeezed".into(), json!(drawn(ctx)));
+                self.click(r.center());
+                self.next(300);
+            }
+            251 => {
+                let w = self.rects["layout_window_w"].as_f64().unwrap_or(1280.0) as f32;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(w, ctx.content_rect().height())));
+                self.next(600);
+            }
+            252 => {
+                self.rects.insert("layout_members_back".into(), json!(drawn(ctx)));
+                self.rects.insert("layout_members_kept".into(), json!(members_w(app)));
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 330 };
+            }
             _ => self.step = 330,
         }
     }
@@ -2502,7 +2533,7 @@ impl Run {
                 if app.ui.guild != Some(1003) {
                     return;
                 }
-                let Some(r) = rect(app, &format!("chan:{chan}")) else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{chan}")) else { return };
                 self.click(r.center());
                 self.next(800);
             }
@@ -2553,7 +2584,7 @@ impl Run {
                 self.next(600);
             }
 340 => {
-                let Some(r) = rect(app, &format!("chan:{}", self.target.1)) else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(1200);
             }
@@ -2740,7 +2771,7 @@ impl Run {
                 let text = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.is_text() && !c.is_thread());
                 if !text {
                     let first = side::first_channel(&app.store, self.target.0);
-                    if let Some(r) = first.and_then(|c| app.rects.get(&format!("chan:{c}")).copied()) {
+                    if let Some(r) = first.and_then(|c| self.reach_row(app, &format!("chan:{c}"))) {
                         self.click(r.center());
                         self.wait = Instant::now() + Duration::from_millis(500);
                     }
@@ -2858,7 +2889,7 @@ impl Run {
                     let find = |p: &str| app.rects.iter().find(|(k, _)| k.starts_with(p) && !k.ends_with(&me)).map(|(_, r)| *r);
                     let (r, right) = match i {
                         0 => (find("stamp:"), true),
-                        1 => (app.rects.get(&format!("chan:{cur}")).copied(), true),
+                        1 => (self.reach_row(app, &format!("chan:{cur}")), true),
                         2 => (app.rects.get(&format!("guild:{}", self.target.0)).copied(), true),
                         3 => (app.rects.get("guildmenu").copied(), false),
                         4 => (find("member:"), true),
@@ -3007,7 +3038,7 @@ impl Run {
                 // a forum and a joined thread, if this server has them
                 let g = self.target.0;
                 let forum = app.store.channels.values().find(|c| c.guild == g && c.is_forum() && app.store.can_view(c)).map(|c| c.id);
-                match forum.and_then(|f| app.rects.get(&format!("chan:{f}")).copied()) {
+                match forum.and_then(|f| self.reach_row(app, &format!("chan:{f}"))) {
                     Some(r) => {
                         self.click(r.center());
                         self.next(3000);
@@ -3022,7 +3053,7 @@ impl Run {
             322 => {
                 let g = self.target.0;
                 let thread = app.store.channels.values().find(|c| c.guild == g && c.is_thread() && c.joined && !c.archived).map(|c| c.id);
-                match thread.and_then(|t| app.rects.get(&format!("chan:{t}")).copied()) {
+                match thread.and_then(|t| self.reach_row(app, &format!("chan:{t}"))) {
                     Some(r) => {
                         self.click(r.center());
                         self.next(3000);
@@ -3108,7 +3139,7 @@ impl Run {
                 self.next(250);
             }
             261 => {
-                let Some(r) = app.rects.get(&format!("chan:{general}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{general}")) else { return };
                 self.click(r.center());
                 self.next(100);
             }
@@ -3116,7 +3147,7 @@ impl Run {
                 if here != Some(general) {
                     return;
                 }
-                let Some(r) = app.rects.get(&format!("chan:{help}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{help}")) else { return };
                 self.click(r.center());
                 self.next(100);
             }
@@ -3681,9 +3712,32 @@ impl Run {
                 self.next(400);
             }
             423 => {
-                // discord lowercases a text channel's name and swaps spaces for dashes as you type
-                if app.create.as_ref().is_none_or(|f| f.name != "e2e-room") {
-                    return self.fail(format!("create channel name became {:?}", app.create.as_ref().map(|f| f.name.clone())));
+                let pause = |this: &mut Self, ms: u64| this.wait = Instant::now() + Duration::from_millis(ms);
+                match self.sub {
+                    0 => {
+                        // discord lowercases a text channel's name and swaps spaces for dashes as you type
+                        if app.create.as_ref().is_none_or(|f| f.name != "e2e-room") {
+                            return self.fail(format!("create channel name became {:?}", app.create.as_ref().map(|f| f.name.clone())));
+                        }
+                        let Some(r) = Self::at(ctx, "field:emoji") else { return };
+                        self.click(r.center());
+                        self.sub = 1;
+                        return pause(self, 500);
+                    }
+                    1 => {
+                        let Some(r) = Self::at(ctx, "emoji0").filter(|_| matches!(app.picker, Some((crate::ui::Pick::ChannelName, _)))) else { return };
+                        self.click(r.center());
+                        self.sub = 2;
+                        return pause(self, 400);
+                    }
+                    _ => {
+                        let Some(f) = app.create.as_mut() else { return self.fail("picking an emoji closed create channel".into()) };
+                        if app.picker.is_none() && f.name.len() > "e2e-room".len() && !f.name.is_ascii() {
+                            self.mark("channel_name_emoji");
+                        }
+                        f.name = "e2e-room".into();
+                        self.sub = 0;
+                    }
                 }
                 self.shot(ctx, "create_channel.png");
                 let Some(r) = Self::at(ctx, "plate:Create Channel") else { return };
@@ -4286,8 +4340,13 @@ impl Run {
             484 => {
                 if app.voice.ringing.is_none() {
                     self.mark("qol_decline");
-                    // the note you keep on alice, from her dm's profile panel
-                    let Some(r) = app.rects.get("note").copied() else { return };
+                    // the note you keep on alice, from her full profile
+                    if app.full_profile.is_none() {
+                        app.open_full(101, 0, super::profile::Tab::Activity);
+                        self.wait = Instant::now() + Duration::from_millis(700);
+                        return;
+                    }
+                    let Some(r) = app.rects.get("full_note").copied().filter(|r| *r != egui::Rect::NOTHING) else { return };
                     self.click(r.center());
                     self.queue.push_back(vec![Event::Text("likes rust".into())]);
                     self.key(Key::Enter);
@@ -4297,6 +4356,7 @@ impl Run {
             485 => {
                 if app.notes.get(&101).is_some_and(|n| n == "likes rust") {
                     self.mark("qol_note");
+                    app.full_profile = None;
                 }
                 // ctrl+alt+→ from the dms goes back to the server left for them
                 chord(self, Key::ArrowRight, Modifiers::COMMAND | Modifiers::ALT);
@@ -4554,7 +4614,7 @@ impl Run {
             530 => {
                 if app.store.opted.contains(&2101) {
                     self.mark_once("home_browse");
-                    let Some(r) = app.rects.get(&format!("chan:{HANGOUT}")).copied() else { return };
+                    let Some(r) = self.reach_row(app, &format!("chan:{HANGOUT}")) else { return };
                     hover(self, r.center());
                     self.next(500);
                 }
@@ -4588,7 +4648,7 @@ impl Run {
                 if app.voice_chat {
                     return;
                 }
-                let Some(r) = app.rects.get(&format!("chan:{HANGOUT}")).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{HANGOUT}")) else { return };
                 hover(self, r.center());
                 self.next(500);
             }
@@ -5022,6 +5082,7 @@ impl Run {
                 if r.bottom() > ctx.content_rect().bottom() - 10.0 {
                     self.queue.push_back(vec![Event::PointerMoved(egui::pos2(r.center().x, 300.0))]);
                     self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -300.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                    self.wait = Instant::now() + Duration::from_millis(400);
                     return;
                 }
                 self.click(r.center());
@@ -5029,6 +5090,9 @@ impl Run {
             }
             633 => {
                 if app.confirm.is_none() {
+                    if self.step_at.elapsed() > Duration::from_secs(2) {
+                        self.step = 632;
+                    }
                     return;
                 }
                 self.shot(ctx, "server_delete.png");
@@ -5853,7 +5917,7 @@ impl Run {
                 self.next(250);
             }
             281 => {
-                let Some(r) = app.rects.get(&format!("chan:{}", self.target.1)).copied() else { return };
+                let Some(r) = self.reach_row(app, &format!("chan:{}", self.target.1)) else { return };
                 self.click(r.center());
                 self.next(50);
             }

@@ -164,7 +164,7 @@ pub(crate) enum Trail {
 pub(crate) fn menu_row(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, sub: Option<&str>, danger: bool, trail: Trail) -> egui::Response {
     let (resp, lead) = menu_row_at(ui, icon.is_some(), label, sub, danger, trail);
     if let Some(i) = icon {
-        icons::draw(ui.painter(), i, lead, if danger { pal().critical } else { pal().header_primary });
+        icons::draw(ui.painter(), i, lead, if danger { pal().critical } else { pal().header_secondary });
     }
     resp
 }
@@ -173,7 +173,13 @@ pub(crate) fn menu_row(ui: &mut Ui, icon: Option<icons::Icon>, label: &str, sub:
 pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str>, danger: bool, trail: Trail) -> (egui::Response, Rect) {
     let ink = if danger { pal().critical } else { pal().header_primary };
     let text = ui.painter().layout_no_wrap(label.to_string(), medium(14.0), ink);
-    let sub = sub.map(|s| ui.painter().layout_no_wrap(s.to_string(), reg(12.0), pal().text_muted));
+    let sub = sub.map(|s| {
+        let (plain, bold) = s.split_at(s.find("@mentions").unwrap_or(s.len()));
+        let mut job = egui::text::LayoutJob::default();
+        job.append(plain, 0.0, egui::TextFormat::simple(reg(12.0), pal().text_muted));
+        job.append(bold, 0.0, egui::TextFormat::simple(semi(12.0), pal().text_muted));
+        ui.painter().layout_job(job)
+    });
     let indent = if lead { 36.0 } else { 8.0 };
     let tail = if trail == Trail::None { 8.0 } else { 36.0 };
     let w = indent + text.size().x.max(sub.as_ref().map_or(0.0, |s| s.size().x)) + tail;
@@ -198,11 +204,14 @@ pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str
         Trail::None => {}
         Trail::Caret => icons::draw(p, icons::Icon::ChevronRight, at, pal().text_muted),
         Trail::Check(true) => {
-            p.rect_filled(at.shrink(1.0), CornerRadius::same(4), pal().blurple);
-            icons::draw(p, icons::Icon::Check, at.shrink(3.0), Color32::WHITE);
+            p.rect_filled(at, CornerRadius::same(4), pal().blurple);
+            icons::draw(p, icons::Icon::Check, at.shrink(2.0), Color32::WHITE);
+        }
+        Trail::Check(false) if pal().dark => {
+            p.rect(at, CornerRadius::same(4), Color32::from_black_alpha(20), egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 163)), egui::StrokeKind::Inside);
         }
         Trail::Check(false) => {
-            p.rect_stroke(at.shrink(1.0), CornerRadius::same(4), egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+            p.rect_stroke(at, CornerRadius::same(4), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
         }
         Trail::Radio(true) => {
             p.circle_filled(at.center(), 9.0, pal().blurple);
@@ -218,6 +227,12 @@ pub(crate) fn menu_row_at(ui: &mut Ui, lead: bool, label: &str, sub: Option<&str
     (resp, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)))
 }
 
+pub(crate) fn submenu<R>(ui: &Ui, row: &egui::Response, content: impl FnOnce(&mut Ui) -> R) -> Option<egui::InnerResponse<R>> {
+    let mut row = row.clone();
+    row.interact_rect.max.x -= 6.7;
+    egui::containers::menu::SubMenu::new().show(ui, &row, content)
+}
+
 pub(crate) fn menu_sep(ui: &mut Ui) {
     let (r, _) = ui.allocate_at_least(vec2(0.0, 17.0), Sense::hover());
     ui.painter().hline(r.x_range().shrink(8.0), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
@@ -226,7 +241,7 @@ pub(crate) fn menu_sep(ui: &mut Ui) {
 /// Discord's server tag chip after a name: badge and tag on a grey wash, 16 tall.
 pub(crate) fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade: f32) -> Option<Rect> {
     let (tag, _, _) = u.tag.as_ref()?;
-    let ink = pal().header_primary.gamma_multiply(fade);
+    let ink = pal().text_normal.gamma_multiply(fade);
     let g = p.layout_no_wrap(tag.clone(), semi(12.0), ink);
     let badge = u.tag_badge_url();
     let w = 8.0 + if badge.is_some() { 16.0 } else { 0.0 } + g.size().x;
@@ -241,13 +256,32 @@ pub(crate) fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade
     Some(r)
 }
 
-/// The blurple "APP" tag after a bot's name, with the check for verified apps.
-pub(crate) fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32) -> Rect {
-    let g = p.layout_no_wrap("APP".into(), semi(12.0), Color32::WHITE);
-    let w = 8.0 + if verified { 16.0 } else { 0.0 } + g.size().x;
-    let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(w, 16.0));
+/// A profile's server tag: the same badge and tag as a button, 24 tall, in regular weight.
+pub(crate) fn profile_tag(p: &egui::Painter, u: &crate::state::User, at: Pos2) -> Option<Rect> {
+    let (tag, _, _) = u.tag.as_ref()?;
+    let g = p.layout_no_wrap(tag.clone(), reg(12.0), pal().text_normal);
+    let badge = u.tag_badge_url();
+    let w = 17.0 + if badge.is_some() { 16.0 } else { 0.0 } + g.size().x;
+    let r = Rect::from_min_size(pos2(at.x, at.y - 12.0), vec2(w, 24.0));
+    p.rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(151, 151, 159, 31));
+    let mut x = r.left() + 8.8;
+    if let Some(url) = badge {
+        text::image_tint(p, &url, Rect::from_min_size(pos2(x, at.y - 7.0), vec2(14.0, 14.0)), Color32::WHITE);
+        x += 16.0;
+    }
+    p.galley(pos2(x, at.y - g.size().y / 2.0), g, pal().text_normal);
+    Some(r)
+}
+
+/// The blurple "APP" tag after a bot's name, with the check for verified apps. A message's is a
+/// size up (0.8em of the name) and a pixel shorter.
+pub(crate) fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32, chat: bool) -> Rect {
+    let (size, pad, h) = if chat { (12.8, 4.4, 15.0) } else { (12.0, 4.0, 16.0) };
+    let g = p.layout_no_wrap("APP".into(), semi(size), Color32::WHITE);
+    let w = 2.0 * pad + if verified { 16.0 } else { 0.0 } + g.size().x;
+    let r = Rect::from_min_size(pos2(at.x, at.y - h / 2.0), vec2(w, h));
     p.rect_filled(r, CornerRadius::same(4), pal().blurple.gamma_multiply(fade.max(0.5)));
-    let mut x = r.left() + 4.0;
+    let mut x = r.left() + pad;
     if verified {
         icons::draw(p, icons::Icon::Verified, Rect::from_min_size(pos2(x - 2.0, at.y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
         x += 14.0;

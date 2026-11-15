@@ -104,6 +104,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
             });
     }
 
+    super::scheduled::bar(app, ui, ch);
+
     if !app.slash.contains_key(&ch) {
         app.slash_from_draft(chan);
     }
@@ -250,7 +252,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 
     let hint = match chan.kind {
-        1 | 3 => format!("Message @{}", channel_title(&app.store, ch)),
+        1 => format!("Message @{}", channel_title(&app.store, ch)),
+        3 => format!("Message {}", channel_title(&app.store, ch)),
         2 | 13 => format!("Message {}", chan.name),
         _ => format!("Message #{}", chan.name),
     };
@@ -321,18 +324,20 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     if slashing {
                         slash::row(app, ui, chan, tid, w, off);
                     } else {
-                        let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
-                        let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &presp));
-                        icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), if off { col.gamma_multiply(0.4) } else { col });
-                        if presp.hovered() && !off {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-                        app.rects.insert("plus_button".into(), pr);
-                        if !off {
+                        if off {
+                            ui.add_space(-1.0);
+                        } else {
+                            let (pr, presp) = ui.allocate_exact_size(vec2(24.0, 56.0), Sense::click());
+                            let col = crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &presp));
+                            icons::draw(ui.painter(), Icon::Plus, Rect::from_center_size(pr.center(), vec2(20.0, 20.0)), col);
+                            if presp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            app.rects.insert("plus_button".into(), pr);
                             plus = super::plus::menu(app, &presp, chan);
+                            // discord's text starts 64 in: 16, the 24 button, then 24 more
+                            ui.add_space(23.0);
                         }
-                        // discord's text starts 64 in: 16, the 24 button, then 24 more
-                        ui.add_space(23.0);
                         let preview = app.settings.md_preview && !app.settings.legacy_input;
                         let draft = app.drafts.entry(ch).or_default();
                         egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).id_salt(("composer_scroll", side)).show(ui, |ui| {
@@ -363,7 +368,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 }
                                 if draft.is_empty() {
                                     // painted here rather than as the hint so its emoji come from the system font, as discord's do
-                                    let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().channel_default, w, 1.0);
+                                    let t = super::text::layout_em(ui.ctx(), &hint, reg(16.0), pal().placeholder, w, 1.0);
                                     t.paint(ui.painter(), out.galley_pos);
                                 }
                                 if colon {
@@ -506,6 +511,10 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         Some(super::plus::Plus::Thread) => app.new_thread = Some(super::popups::NewThread::blank(ch)),
         Some(super::plus::Plus::Poll) => app.poll = Some(super::poll::Draft::new(ch)),
         Some(super::plus::Plus::Apps) => app.launcher = Some(super::plus::Launcher::new()),
+        Some(super::plus::Plus::Schedule(Some(at))) => {
+            app.sched.drafts.insert(ch, at);
+        }
+        Some(super::plus::Plus::Schedule(None)) => app.sched.picker = Some(super::scheduled::Picker::new(super::scheduled::Target::Draft(ch), None)),
         None => {}
     }
     if let Some(i) = modify

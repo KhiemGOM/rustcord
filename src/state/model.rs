@@ -134,6 +134,9 @@ pub(crate) struct Channel {
     pub default_react: Option<ReactEmoji>,
     #[serde(default)]
     pub require_tag: bool,
+    /// IS_GUILD_RESOURCE_CHANNEL: one of the Server Guide's resources
+    #[serde(default)]
+    pub resource: bool,
     #[serde(default)]
     pub archive_after: u32,
     #[serde(default)]
@@ -203,6 +206,7 @@ impl Channel {
                 .map(|e| ReactEmoji { id: sid(&e["emoji_id"]), name: st(&e["emoji_name"]), animated: false })
                 .filter(|e| e.id != 0 || !e.name.is_empty()),
             require_tag: v["flags"].as_u64().unwrap_or(0) & (1 << 4) != 0,
+            resource: v["flags"].as_u64().unwrap_or(0) & (1 << 7) != 0,
             archive_after: v["default_auto_archive_duration"].as_u64().unwrap_or(0) as u32,
             last_pin: iso_ms(&v["last_pin_timestamp"]),
             nsfw: v["nsfw"].as_bool().unwrap_or(false),
@@ -310,6 +314,13 @@ pub(crate) struct Guild {
     pub stickers: Vec<(Id, String, u8)>,
     #[serde(default)]
     pub features: Vec<String>,
+    /// The server's own invite link, which anyone in it may hand out.
+    #[serde(default)]
+    pub vanity: Option<String>,
+    #[serde(default)]
+    pub hub_enabled: Option<bool>,
+    #[serde(default)]
+    pub hub_published: bool,
     #[serde(skip)]
     pub theme: Option<crate::theme::Fill>,
     pub channels: Vec<Id>,
@@ -496,6 +507,8 @@ pub(crate) struct Embed {
     pub author: Option<String>,
     pub provider: Option<String>,
     pub footer: Option<String>,
+    #[serde(default)]
+    pub footer_icon: Option<String>,
     // unix ms
     pub timestamp: Option<i64>,
     pub fields: Vec<(String, String, bool)>,
@@ -515,6 +528,7 @@ impl Embed {
             author: ost(&v["author"]["name"]),
             provider: ost(&v["provider"]["name"]),
             footer: ost(&v["footer"]["text"]),
+            footer_icon: ost(&v["footer"]["proxy_icon_url"]).or_else(|| ost(&v["footer"]["icon_url"])),
             timestamp: v["timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
             fields: v["fields"]
                 .as_array()
@@ -568,6 +582,9 @@ pub(crate) struct Reaction {
     pub burst: u32,
     #[serde(default)]
     pub me_burst: bool,
+    /// The first of a super reaction's own colours, which tints its count.
+    #[serde(default)]
+    pub burst_color: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

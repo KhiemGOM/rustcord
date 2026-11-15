@@ -56,6 +56,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 ui.painter().rect_filled(r, 8, pal().input_bg);
                 let e = ui.put(r.shrink2(vec2(12.0, 10.0)), egui::TextEdit::singleline(text).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
                 ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.advance_cursor_after_rect(r);
                 if focus {
                     e.request_focus();
                 }
@@ -71,6 +72,7 @@ pub fn modify(app: &mut App, ctx: &egui::Context) {
                 egui::TextEdit::multiline(&mut m.alt).hint_text(RichText::new("Add a description").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO).desired_rows(3),
             );
             ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.advance_cursor_after_rect(r);
             if m.alt.chars().count() > 1024 {
                 m.alt = m.alt.chars().take(1024).collect();
             }

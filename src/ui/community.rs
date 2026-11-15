@@ -64,6 +64,7 @@ const SORTS: [(u8, &str); 4] = [(1, "Member Since (Newest first)"), (2, "Member 
 
 impl App {
     pub fn open_home(&mut self, gid: Id, page: Page) {
+        self.hub = None;
         self.boosts = None;
         self.server_shop = None;
         if let Some(h) = self.home.as_mut().filter(|h| h.guild == gid) {
@@ -854,7 +855,7 @@ const COMPLETED_ONBOARDING: u64 = 2;
 fn follow(app: &mut App, gid: Id, id: Id, cat: bool, fresh: bool, listed: &[Channel]) {
     let on = app.store.opted.contains(&id);
     if !on && let Some(c) = app.store.channels.get(&id).map(|c| if cat { id } else { c.parent }) {
-        app.ui.collapsed.remove(&c);
+        app.set_collapsed(&[c], false);
     }
     if !fresh {
         if on {
@@ -901,6 +902,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 .hint_text(RichText::new("Search Channels").font(reg(16.0)).color(pal().text_muted))
                 .desired_width(field.width()),
         );
+        ui.advance_cursor_after_rect(b);
         ui.add_space(20.0);
         create = super::button(ui, "+ Create", pal().blurple, 120.0).clicked();
     });

@@ -159,7 +159,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             guidelines(ui, forum, &mut rects);
             ui.add_space(16.0);
             filters(ui, forum, &mut v);
-            ui.add_space(20.0);
+            ui.add_space(19.0);
 
             let Some(posts) = app.store.forum_posts.get(&forum.id) else {
                 crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
@@ -185,11 +185,11 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             let seen = app.store.reads.get(&forum.id).map(|r| r.last_acked);
             let fresh = |p: &Channel| seen.is_some_and(|a| p.id > a);
             if v.gallery {
-                // discord's grid: as many columns of at least 400 as fit, 16 apart, 3:2 previews
+                // discord's grid: as many columns of at least 400 as fit, 16 apart, 16:9 previews
                 let w = ui.available_width();
                 let cols = ((w + 16.0) / 416.0).floor().max(1.0) as usize;
                 let cw = (w - 16.0 * (cols - 1) as f32) / cols as f32;
-                let ch = 120.0 + (cw - 26.0) * 2.0 / 3.0;
+                let ch = 120.8 + (cw - 26.0) * 9.0 / 16.0;
                 for row in posts.chunks(cols) {
                     let (band, _) = ui.allocate_exact_size(vec2(w, ch), Sense::hover());
                     for (i, p) in row.iter().enumerate() {
@@ -283,7 +283,7 @@ fn guidelines(ui: &mut Ui, forum: &Channel, rects: &mut Vec<(String, Rect)>) {
 /// (dimmed without permission to post). True when New Post was clicked.
 fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool, rects: &mut Vec<(String, Rect)>) -> bool {
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::hover());
-    ui.painter().rect(bar, 8, pal().bg_primary, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    ui.painter().rect(bar, 12, pal().bg_primary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(bar.left() + 26.0, bar.center().y), vec2(26.0, 26.0)), pal().header_secondary);
     let ink = if can_post { Color32::WHITE } else { Color32::from_white_alpha(128) };
     let label = ui.painter().layout_no_wrap("New Post".into(), medium(14.0), ink);
@@ -310,7 +310,7 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool, rects: &mut Vec<(Stri
             .font(medium(20.0))
             .margin(Margin::ZERO)
             .desired_width(field.width())
-            .hint_text(RichText::new("Search").font(medium(20.0)).color(pal().text_muted)),
+            .hint_text(RichText::new(if can_post { "Search or create a post..." } else { "Search" }).font(medium(20.0)).color(pal().text_muted)),
     );
     if can_post && !q.trim().is_empty() {
         ui.add_space(6.0);
@@ -489,10 +489,12 @@ fn pill(ui: &mut Ui, at: Pos2, icon: Option<Icon>, lead: Option<&str>, label: &s
     resp
 }
 
-/// Sort & View, a rule, then the forum's tags; the ones that don't fit wait under "All".
+/// Sort & View (a media channel is always a gallery, so just Sort), a rule, then the forum's tags; the
+/// ones that don't fit wait under "All".
 fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
-    let sv = pill(ui, row.min, Some(Icon::Sort), None, "Sort & View", true, false, ui.id().with("sort_view"));
+    let media = forum.kind == 16;
+    let sv = pill(ui, row.min, Some(Icon::Sort), None, if media { "Sort" } else { "Sort & View" }, true, false, ui.id().with("sort_view"));
     egui::Popup::menu(&sv).gap(4.0).show(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         let head = |ui: &mut Ui, t: &str| {
@@ -506,13 +508,15 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
         if menu_row(ui, None, "Date Posted", None, false, Trail::Radio(v.by_date)).clicked() {
             v.by_date = true;
         }
-        menu_sep(ui);
-        head(ui, "View as");
-        if menu_row(ui, None, "List", None, false, Trail::Radio(!v.gallery)).clicked() {
-            v.gallery = false;
-        }
-        if menu_row(ui, None, "Gallery", None, false, Trail::Radio(v.gallery)).clicked() {
-            v.gallery = true;
+        if !media {
+            menu_sep(ui);
+            head(ui, "View as");
+            if menu_row(ui, None, "List", None, false, Trail::Radio(!v.gallery)).clicked() {
+                v.gallery = false;
+            }
+            if menu_row(ui, None, "Gallery", None, false, Trail::Radio(v.gallery)).clicked() {
+                v.gallery = true;
+            }
         }
         if !forum.tags.is_empty() {
             menu_sep(ui);
@@ -571,17 +575,17 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
 }
 
 /// A gallery card: author and age (NEW if it came after your last visit), the title, the first
-/// image fitted into a 3:2 preview with the tags over its foot, and the message count.
+/// image fitted into a 16:9 preview with the tags over its foot, and the message count.
 fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bool) -> egui::Response {
     let resp = ui.interact(r, ui.id().with(("tile", p.id)), Sense::click());
     let first = app.store.refs.get(&p.id);
     let paint = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
-    paint.rect(r, 8, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    paint.rect(r, 12, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     let x = r.left() + 13.0;
     let who = first.map_or(p.owner, |m| m.author);
     let color = app.store.role_color(p.guild, who).map(role_color).unwrap_or(pal().header_primary);
-    let n = text::paint(&paint, pos2(x, r.top() + 22.5), Align2::LEFT_CENTER, &app.store.name_in(p.guild, who), semi(14.0), color, r.width() / 2.0);
-    paint.text(pos2(n.right() + 6.0, r.top() + 22.5), Align2::LEFT_CENTER, ago(p.id), reg(12.0), pal().text_normal);
+    let n = text::paint(&paint, pos2(x, r.top() + 21.5), Align2::LEFT_CENTER, &app.store.name_in(p.guild, who), semi(14.0), color, r.width() / 2.0);
+    paint.text(pos2(n.right() + 6.0, r.top() + 21.5), Align2::LEFT_CENTER, ago(p.id), reg(12.0), pal().text_normal);
     if fresh {
         let g = paint.layout_no_wrap("NEW".into(), bold(12.0), Color32::WHITE);
         let b = Rect::from_min_max(pos2(r.right() - 11.0 - g.size().x - 16.0, r.top() + 13.5), pos2(r.right() - 11.0, r.top() + 29.5));
@@ -589,9 +593,9 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
         paint.galley(b.center() - g.size() / 2.0, g, Color32::WHITE);
     }
     let title = if p.joined && app.store.unread(p) { pal().header_primary } else { pal().text_muted };
-    text::paint(&paint, pos2(x, r.top() + 46.5), Align2::LEFT_CENTER, &p.name, bold(16.0), title, r.width() - 26.0);
+    text::paint(&paint, pos2(x, r.top() + 45.0), Align2::LEFT_CENTER, &p.name, semi(16.0), title, r.width() - 26.0);
 
-    let media = Rect::from_min_size(pos2(x, r.top() + 66.5), vec2(r.width() - 26.0, (r.width() - 26.0) * 2.0 / 3.0));
+    let media = Rect::from_min_size(pos2(x + 1.0, r.top() + 66.5), vec2(r.width() - 26.0, (r.width() - 26.0) * 9.0 / 16.0));
     let pic = first.and_then(|m| {
         m.attachments
             .iter()
@@ -605,7 +609,7 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
             let fit = Rect::from_center_size(media.center(), vec2(w as f32 * s, h as f32 * s));
             let sep = if url.contains('?') { '&' } else { '?' };
             let url = format!("{url}{sep}width={}&height={}", (fit.width() * 2.0) as u32, (fit.height() * 2.0) as u32);
-            egui::Image::from_uri(url).show_loading_spinner(false).paint_at(&ui.new_child(UiBuilder::new().max_rect(r)), fit);
+            egui::Image::from_uri(url).corner_radius(8).show_loading_spinner(false).paint_at(&ui.new_child(UiBuilder::new().max_rect(r)), fit);
         }
         (None, Some(m)) => {
             let body = crate::markdown::plain(&m.content, &app.store, p.guild);
@@ -626,7 +630,7 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
         paint.galley(pos2(b.left() + 9.0, b.center().y - g.size().y / 2.0), g, pal().header_primary);
         tx = b.right() + 8.0;
     }
-    let cy = r.bottom() - 30.0;
+    let cy = r.bottom() - 29.5;
     icons::draw(&paint, Icon::Bubble, Rect::from_center_size(pos2(x + 8.0, cy), vec2(16.0, 16.0)), pal().text_muted);
     paint.text(pos2(x + 20.0, cy), Align2::LEFT_CENTER, p.msg_count.to_string(), medium(14.0), pal().header_secondary);
     if resp.hovered() {

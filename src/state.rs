@@ -70,6 +70,8 @@ pub const BAN_MEMBERS: u64 = 1 << 2;
 pub const MODERATE_MEMBERS: u64 = 1 << 40;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 pub const MANAGE_MESSAGES: u64 = 1 << 13;
+pub const ADD_REACTIONS: u64 = 1 << 6;
+pub const CREATE_PUBLIC_THREADS: u64 = 1 << 35;
 pub const SEND_MESSAGES: u64 = 1 << 11;
 pub const CONNECT: u64 = 1 << 20;
 pub const MANAGE_CHANNELS: u64 = 1 << 4;
@@ -132,6 +134,9 @@ pub struct Store {
     pub opt_in: Set<Id>,
     #[serde(default)]
     pub opted: Set<Id>,
+    /// Categories folded shut, which discord keeps on the account, not on the machine.
+    #[serde(default)]
+    pub collapsed: Set<Id>,
     // the flags of each channel override: 2048 pinned to the top, 4096 opted in
     #[serde(default)]
     pub chan_flags: Map<Id, u64>,
@@ -145,6 +150,14 @@ pub struct Store {
     pub folders: Vec<Folder>,
     #[serde(skip)]
     pub account: crate::proto::Account,
+    #[serde(default)]
+    pub favorites: crate::proto::favorites::Favorites,
+    #[serde(skip)]
+    pub dismissed: Map<u64, (u64, u64)>,
+    // the experiments READY put this account in, by the hash of their names; None when it sent none
+    #[serde(skip)]
+    pub experiments: Option<Set<u32>>,
+    pub guild_experiments: Map<Id, Set<u32>>,
     // who is in each thread, from the gateway's thread member lists
     #[serde(skip)]
     pub thread_members: Map<Id, Vec<Id>>,

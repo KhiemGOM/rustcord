@@ -385,7 +385,7 @@ impl Run {
                     return;
                 }
                 self.mark("shop_wishlist_explore");
-                let Some(r) = at("shop:tab:Orbs Exclusives") else { return };
+                let Some(r) = at("shop:tab:Orbs Shop") else { return };
                 self.click(r.center());
                 self.next(900);
             }

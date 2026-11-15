@@ -2,9 +2,9 @@ use egui::{Align, Align2, Frame, Key, Layout, Margin, Rect, RichText, Sense, Str
 use serde_json::json;
 
 use super::icons::{self, Icon};
-use super::{App, avatar, button, icon_button, text};
+use super::{App, Map, avatar, icon_button, modal_button, text};
 use crate::net::Tag;
-use crate::state::{FRIEND, Id};
+use crate::state::{FRIEND, Id, sid};
 use crate::theme::*;
 
 const LIMIT: usize = 10;
@@ -23,22 +23,42 @@ impl Pick {
     }
 }
 
+/// How likely Discord thinks you are to talk to each person, by their id; only asked for with the
+/// account's personalization consent, as Discord does.
+fn affinities(app: &mut App) -> Map<Id, f64> {
+    use crate::ui::settings::remote;
+    let consented = remote(app, "consent", "/users/@me/consent").and_then(|r| r.as_ref().ok()).is_some_and(|c| c["personalization"]["consented"].as_bool() == Some(true));
+    if !consented {
+        return Map::default();
+    }
+    let Some(Ok(v)) = remote(app, "affinities", "/users/@me/affinities/v2/users") else { return Map::default() };
+    v["user_affinities"].as_array().into_iter().flatten().map(|a| (sid(&a["other_user_id"]), a["communication_probability"].as_f64().unwrap_or(0.0))).collect()
+}
+
 pub fn show(app: &mut App, ctx: &egui::Context) {
+    if app.group_pick.is_none() {
+        return;
+    }
+    let close = affinities(app);
     let Some(p) = &mut app.group_pick else { return };
     let store = &app.store;
     let there: Vec<Id> = p.base.and_then(|c| store.channels.get(&c)).map(|c| c.recipients.clone()).unwrap_or_default();
     let adding = p.base.is_some_and(|c| store.channels.get(&c).is_some_and(|c| c.kind == 3));
     let max = LIMIT.saturating_sub(1 + there.len());
     let ql = p.q.trim().to_lowercase();
+    // friends, and the people Discord thinks you talk to who share a server with you
+    let shares = |u: &Id| store.members.values().any(|m| m.contains_key(u));
     let mut people: Vec<Id> = store.relationships.iter().filter(|(_, t)| **t == FRIEND).map(|(u, _)| *u).collect();
+    people.extend(close.keys().copied().filter(|u| !store.relationships.contains_key(u) && shares(u)));
     if !ql.is_empty()
         && let Some(g) = app.ui.guild
     {
         people.extend(store.members.get(&g).into_iter().flat_map(|m| m.keys().copied()));
     }
-    people.sort_by_key(|u| store.name_in(0, *u).to_lowercase());
+    let near = |u: &Id| close.get(u).copied().unwrap_or(0.0);
+    people.sort_by(|a, b| near(b).total_cmp(&near(a)).then_with(|| store.name_in(0, *a).to_lowercase().cmp(&store.name_in(0, *b).to_lowercase())));
     people.dedup();
-    people.retain(|u| *u != store.me && !there.contains(u));
+    people.retain(|u| *u != store.me && !there.contains(u) && store.user(*u).is_some_and(|x| !x.bot));
     people.retain(|u| ql.is_empty() || store.user(*u).is_some_and(|x| x.username.to_lowercase().contains(&ql) || store.name_in(0, *u).to_lowercase().contains(&ql)));
     people.truncate(60);
     let (mut go, mut close) = (false, false);
@@ -50,16 +70,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_width(480.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 8 }).show(ui, |ui| {
+            Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 4 }).show(ui, |ui| {
                 ui.set_width(432.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(title).font(semi(20.0)).color(pal().header_primary));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked());
                 });
-                ui.add_space(8.0);
+                ui.add_space(5.3);
                 let sub = if adding { format!("You can add {max} more {}.", if max == 1 { "person" } else { "people" }) } else { format!("Group DMs can have up to {LIMIT} members.") };
                 ui.label(RichText::new(sub).font(reg(16.0)).color(pal().header_secondary));
-                ui.add_space(16.0);
+                ui.add_space(24.7);
                 if p.q.is_empty() && ui.input_mut(|i| super::take_key(i, egui::Modifiers::NONE, Key::Backspace)) {
                     p.picked.pop();
                 }
@@ -80,27 +100,28 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     egui::TextEdit::singleline(&mut p.q).hint_text(RichText::new("Search").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(field, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
+                ui.advance_cursor_after_rect(row);
                 if std::mem::take(&mut p.fresh) || ui.memory(|m| m.focused().is_none()) {
                     e.request_focus();
                 }
-                ui.add_space(8.0);
+                ui.add_space(3.7);
                 ui.label(RichText::new("Add friends or server members to group DMs.").font(reg(12.0)).color(pal().header_secondary));
                 ui.add_space(8.0);
             });
-            let h = (ui.ctx().content_rect().height() - 320.0).clamp(144.0, 600.0);
+            let h = ((ui.ctx().content_rect().height() - 100.0).min(800.0) - 264.5).clamp(144.0, 600.0);
             egui::ScrollArea::vertical().max_height(h).auto_shrink([false, true]).show(ui, |ui| {
-                Frame::new().inner_margin(Margin::symmetric(8, 0)).show(ui, |ui| {
+                Frame::new().inner_margin(Margin::symmetric(17, 0)).show(ui, |ui| {
                     for u in &people {
                         let Some(user) = store.user(*u) else { continue };
-                        let (r, resp) = ui.allocate_exact_size(vec2(464.0, 48.0), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(446.0, 48.0), Sense::click());
                         super::settings::mark(ui, &format!("pick:{u}"), r);
                         let on = p.picked.contains(u);
                         if resp.hovered() || on {
                             ui.painter().rect_filled(r, 8, pal().control_hover);
                         }
                         avatar(ui, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0)), &user.avatar_url());
-                        let n = text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y - 8.0), Align2::LEFT_CENTER, &store.name_in(0, *u), semi(16.0), pal().header_primary, 300.0);
-                        ui.painter().text(pos2(n.left(), r.center().y + 10.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().header_secondary);
+                        let n = text::paint(ui.painter(), pos2(r.left() + 48.0, r.center().y - 9.0), Align2::LEFT_CENTER, &store.name_in(0, *u), medium(16.0), pal().text_normal, 300.0);
+                        ui.painter().text(pos2(n.left(), r.center().y + 10.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().text_muted);
                         let cb = Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(24.0, 24.0));
                         ui.painter().rect(cb, 4, if on { pal().blurple } else { egui::Color32::TRANSPARENT }, Stroke::new(2.0, if on { pal().blurple } else { pal().header_secondary }), egui::StrokeKind::Inside);
                         if on {
@@ -138,8 +159,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    close |= super::grey_button(ui, "Cancel", 212.0).clicked();
-                    let b = ui.add_enabled_ui(!p.picked.is_empty(), |ui| button(ui, button_text, pal().blurple, 212.0)).inner;
+                    close |= modal_button(ui, "Cancel", None, 212.0).clicked();
+                    let b = modal_button(ui, button_text, Some(pal().blurple), 212.0);
                     super::settings::mark(ui, "pick:go", b.rect);
                     go = b.clicked();
                 });

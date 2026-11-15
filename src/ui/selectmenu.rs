@@ -175,6 +175,7 @@ pub fn show(ui: &mut Ui, store: &Store, id: egui::Id, spec: &Spec, picked: &mut 
                     let (sr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
                     ui.painter().rect_filled(sr, 4, pal().input_bg);
                     let e = ui.put(sr.shrink2(vec2(8.0, 6.0)), egui::TextEdit::singleline(&mut q).hint_text("Search Options").font(reg(14.0)).frame(Frame::NONE).margin(Margin::ZERO));
+                    ui.advance_cursor_after_rect(sr);
                     if !ui.data(|d| d.get_temp::<bool>(id.with("focused")).unwrap_or(false)) {
                         e.request_focus();
                         ui.data_mut(|d| d.insert_temp(id.with("focused"), true));

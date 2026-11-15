@@ -12,6 +12,13 @@ def body(r):
         return {}
 
 
+NEEDS_FOCUS = (
+    "embed fullscreen: the page's own button went fullscreen and its window covered the whole app",
+    "embed fullscreen: leaving it put the window back over its embed",
+    "embeds at 150% zoom: the window sat over its embed in physical pixels, covered the app in fullscreen, and came back",
+)
+
+
 def checks(runs, reqs, data):
     both = lambda m: all(m in r.get("marks_ms", {}) for r in runs.values())
     path = lambda r: r.get("path", "").split("?")[0]

@@ -1,7 +1,6 @@
 //! Camera choice and video backgrounds. A person mask comes from MediaPipe's selfie model, run
 //! by the Windows ML runtime that ships with Windows, and a blur or a picture goes behind them.
 
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use windows::AI::MachineLearning::*;
@@ -127,7 +126,8 @@ impl Seg {
     }
 }
 
-struct Fx {
+/// One capture's video background. It goes when its capture does, on the thread that used it.
+pub struct Fx {
     seg: Option<Seg>,
     tried: bool,
     gpu: bool,
@@ -137,24 +137,26 @@ struct Fx {
     back: (usize, usize, u64, Vec<u8>),
 }
 
-thread_local! {
-    static FX: RefCell<Fx> = const { RefCell::new(Fx { seg: None, tried: false, gpu: false, mask: Vec::new(), reset: true, small: Vec::new(), back: (0, 0, 0, Vec::new()) }) };
-}
-
-/// Puts the chosen background behind whoever is in `bgra` (w*h, packed). The model loads on
-/// first use, on this thread, because WinRT objects stay where they were made.
-pub fn apply(bgra: &mut [u8], w: usize, h: usize) {
-    let (bg, rev) = {
-        let c = cfg();
-        (c.bg.clone(), c.rev)
-    };
-    if matches!(bg, Bg::None) || w < SIDE || h < SIDE {
-        return;
+impl Default for Fx {
+    fn default() -> Fx {
+        Fx { seg: None, tried: false, gpu: false, mask: Vec::new(), reset: true, small: Vec::new(), back: (0, 0, 0, Vec::new()) }
     }
-    FX.with_borrow_mut(|fx| fx.run(&bg, rev, bgra, w, h));
 }
 
 impl Fx {
+    /// Puts the chosen background behind whoever is in `bgra` (w*h, packed). The model loads on
+    /// first use, on this thread, because WinRT objects stay where they were made.
+    pub fn apply(&mut self, bgra: &mut [u8], w: usize, h: usize) {
+        let (bg, rev) = {
+            let c = cfg();
+            (c.bg.clone(), c.rev)
+        };
+        if matches!(bg, Bg::None) || w < SIDE || h < SIDE {
+            return;
+        }
+        self.run(&bg, rev, bgra, w, h);
+    }
+
     fn run(&mut self, bg: &Bg, rev: u64, bgra: &mut [u8], w: usize, h: usize) {
         if !self.tried {
             self.tried = true;
@@ -419,7 +421,7 @@ mod tests {
         }
         for (w, h) in [(640, 360), (1280, 720)] {
             let src = frame(w, h);
-            let mut fx = Fx { seg: Seg::new(LearningModelDeviceKind::DirectXHighPerformance).ok(), tried: true, gpu: true, mask: vec![0.0; SIDE * SIDE], reset: true, small: Vec::new(), back: (0, 0, 0, Vec::new()) };
+            let mut fx = Fx { seg: Seg::new(LearningModelDeviceKind::DirectXHighPerformance).ok(), tried: true, gpu: true, mask: vec![0.0; SIDE * SIDE], ..Default::default() };
             let times = (0..60).map(|_| lap(|| fx.run(&Bg::Blur, 1, &mut src.clone(), w, h))).collect();
             println!("blur {w}x{h}: {}", stats(times));
         }

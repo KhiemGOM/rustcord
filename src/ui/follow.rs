@@ -30,8 +30,8 @@ pub fn can_follow(app: &App, chan: &Channel) -> bool {
 
 /// The small grey Follow button after an announcement channel's name.
 pub fn header_button(app: &mut App, ui: &mut Ui, chan: &Channel) {
-    ui.add_space(12.0);
-    let (r, resp) = ui.allocate_exact_size(vec2(62.0, 32.0), Sense::click());
+    ui.add_space(8.0);
+    let (r, resp) = ui.allocate_exact_size(vec2(63.7, 32.0), Sense::click());
     app.rects.insert("follow".into(), r);
     let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
@@ -44,7 +44,35 @@ pub fn header_button(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 }
 
+/// What discord's publish dialog says, by how many servers follow the channel.
+pub fn publish_text(following: u64) -> String {
+    let rest = "You can edit or delete this message later, and it will update correspondingly in each following server.";
+    match following {
+        0 => format!("This message will be sent to all servers following this channel. {rest}"),
+        n => format!("This message will be sent to {n} server{} following this channel. {rest}\n\nAnnouncement stats can be found in Server Insights.", if n == 1 { "" } else { "s" }),
+    }
+}
+
+/// Opens the publish dialog once the channel's follower count is in.
+pub fn confirm_publish(app: &mut App) {
+    let Some((ch, id)) = app.publishing else { return };
+    let key = format!("follower_stats:{ch}");
+    let Some(Some(res)) = app.keyed.get(&key) else { return };
+    let following = res.as_ref().ok().and_then(|v| v["guilds_following"].as_u64()).unwrap_or(0);
+    app.keyed.remove(&key);
+    app.publishing = None;
+    app.confirm = Some(super::Confirm::new("Are you sure?", publish_text(following), "Confirm", move |app: &mut App| app.publish_msg(ch, id)).blurple());
+}
+
 impl App {
+    /// Discord asks before publishing, and says how many servers the message goes to.
+    pub fn ask_publish(&mut self, ch: Id, id: Id) {
+        let key = format!("follower_stats:{ch}");
+        self.keyed.insert(key.clone(), None);
+        self.rest("GET", format!("/channels/{ch}/follower-stats"), None, Tag::Keyed(key));
+        self.publishing = Some((ch, id));
+    }
+
     /// Crossposts an announcement to the servers following its channel.
     pub fn publish_msg(&mut self, ch: Id, id: Id) {
         self.rest("POST", format!("/channels/{ch}/messages/{id}/crosspost"), None, Tag::Remote("action"));
@@ -116,11 +144,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.set_width(472.0);
             ui.add_space(8.0);
             let (t, _) = ui.allocate_exact_size(vec2(472.0, 32.0), Sense::hover());
-            ui.painter().text(t.center(), Align2::CENTER_CENTER, "Add this channel's updates to your server!", semi(24.0), pal().header_primary);
+            ui.painter().text(t.center(), Align2::CENTER_CENTER, "Add this channel's updates to your server!", semi(20.0), pal().header_primary);
             ui.add_space(8.0);
-            let body = ui.painter().layout("Select where you want these updates to go. You can remove this at any time in Server Settings > Integrations > Channels Followed.".into(), reg(14.0), pal().header_secondary, 440.0);
+            let body = ui.painter().layout("Select where you want these updates to go. You can remove this at any time in Server Settings > Integrations > Channels Followed.".into(), reg(14.0), pal().text_muted, 440.0);
             let (b, _) = ui.allocate_exact_size(vec2(472.0, body.size().y), Sense::hover());
-            ui.painter().galley(pos2(b.center().x - body.size().x / 2.0, b.top()), body, pal().header_secondary);
+            ui.painter().galley(pos2(b.center().x - body.size().x / 2.0, b.top()), body, pal().text_muted);
             ui.add_space(24.0);
             label(ui, "Send to");
             let shown = guild.and_then(|g| servers.iter().find(|s| s.0 == g)).map_or("Select...".to_string(), |s| s.1.clone());
@@ -144,9 +172,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 });
             });
             ui.add_space(16.0);
-            let note = ui.painter().layout("Only servers and channels you have webhook permissions in are shown.".into(), reg(14.0), pal().header_secondary, 472.0);
+            let note = ui.painter().layout("Only servers and channels you have webhook permissions in are shown.".into(), reg(14.0), pal().text_muted, 472.0);
             let (n, _) = ui.allocate_exact_size(vec2(472.0, note.size().y), Sense::hover());
-            ui.painter().galley(n.min, note, pal().header_secondary);
+            ui.painter().galley(n.min, note, pal().text_muted);
             ui.add_space(32.0);
             let (row, _) = ui.allocate_exact_size(vec2(472.0, 38.0), Sense::hover());
             let ready = target.is_some() && !busy;
@@ -181,7 +209,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 fn label(ui: &mut Ui, s: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, s, semi(16.0), pal().header_primary);
+    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, s, medium(16.0), pal().header_primary);
     ui.add_space(8.0);
 }
 
@@ -202,4 +230,17 @@ fn button(ui: &Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::publish_text;
+
+    #[test]
+    fn the_publish_dialog_counts_the_servers_following() {
+        assert!(publish_text(0).starts_with("This message will be sent to all servers following this channel."));
+        assert!(publish_text(1).starts_with("This message will be sent to 1 server following this channel."));
+        assert!(publish_text(3).starts_with("This message will be sent to 3 servers following this channel."));
+        assert!(publish_text(3).ends_with("Server Insights."));
+    }
 }

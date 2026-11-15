@@ -11,20 +11,20 @@ mod guildlist;
 use guildlist::*;
 mod dmlist;
 use dmlist::*;
+mod favlist;
 
 fn sort_key(c: &Channel) -> (bool, i32, Id) {
     (c.is_voice(), c.position, c.id)
 }
 
-/// Visible channels grouped under their categories, in sidebar order. `keep` stays in even when
-/// onboarding's opt-in would leave it out, the way discord keeps the open channel.
-pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
+/// Visible channels grouped under their categories, in sidebar order.
+pub fn tree(store: &Store, gid: Id) -> Vec<(Option<&Channel>, Vec<&Channel>)> {
     let Some(g) = store.guilds.get(&gid) else { return Vec::new() };
     let all: Vec<&Channel> = g.channels.iter().filter_map(|c| store.channels.get(c)).collect();
     let visible: Vec<&Channel> = all
         .iter()
         .copied()
-        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c) && (keep == Some(c.id) || store.listed(c)))
+        .filter(|c| c.kind != 4 && !matches!(c.kind, 10..=12) && store.can_view(c) && store.listed(c))
         .collect();
     let opt_in = store.opt_in.contains(&gid);
     let mut cats: Vec<&Channel> = all.iter().copied().filter(|c| c.kind == 4).collect();
@@ -47,8 +47,35 @@ pub fn tree(store: &Store, gid: Id, keep: Option<Id>) -> Vec<(Option<&Channel>, 
     out
 }
 
+/// How many open posts each forum has started since you last looked.
+pub fn fresh_posts(store: &crate::state::Tracked, gid: Id) -> std::collections::HashMap<Id, usize> {
+    let mut fresh: std::collections::HashMap<Id, usize> = Default::default();
+    for t in store.threads_in(gid).filter(|t| !t.archived) {
+        if store.channels.get(&t.parent).is_some_and(|f| f.is_forum()) && store.reads.get(&t.parent).is_some_and(|r| t.id > r.last_acked) {
+            *fresh.entry(t.parent).or_default() += 1;
+        }
+    }
+    fresh
+}
+
+/// What discord lists under "Suggested" in a server that shows only picked channels: the open
+/// channel and the unread ones that aren't on the list, in channel order.
+pub fn suggested(store: &crate::state::Tracked, gid: Id, cur: Option<Id>) -> Vec<&Channel> {
+    let Some(g) = store.guilds.get(&gid).filter(|_| store.opt_in.contains(&gid)) else { return Vec::new() };
+    let fresh = fresh_posts(store, gid);
+    let mut out: Vec<&Channel> = g
+        .channels
+        .iter()
+        .filter_map(|c| store.channels.get(c))
+        .filter(|c| c.kind != 4 && !c.is_thread() && store.can_view(c) && !store.listed(c))
+        .filter(|c| cur == Some(c.id) || !c.is_voice() && !store.is_muted(c) && (c.is_text() && store.unread(c) || fresh.contains_key(&c.id)))
+        .collect();
+    out.sort_by_key(|c| (store.channels.get(&c.parent).map_or(-1, |k| k.position), sort_key(c)));
+    out
+}
+
 pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
-    tree(store, gid, None).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
+    tree(store, gid).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
 }
 
 /// How much of the bottom the floating account card takes, its 8 margin included. The rail and
@@ -61,7 +88,7 @@ pub fn foot(app: &App) -> f32 {
 /// sidebar's right edge. A game we detected gets the top of it, then the voice controls while
 /// connected.
 pub fn card(app: &mut App, ui: &mut Ui, rail: Rect, side: Rect) {
-    let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 8.0, side.bottom() - 8.0));
+    let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 9.0, side.bottom() - 8.0));
     ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 58.0), card.max);
     let mut top = card.top();
@@ -84,6 +111,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     egui::Panel::bottom("me").exact_size(foot(app)).resizable(false).show_separator_line(false).frame(Frame::NONE).show(ui, |_| {});
 
     match app.ui.guild {
+        Some(super::favorites::ID) => favlist::list(app, ui),
         Some(gid) => guild(app, ui, gid),
         None => dms(app, ui),
     }
@@ -111,7 +139,7 @@ fn header_ruled(ui: &mut Ui, rule: bool, add: impl FnOnce(&mut Ui)) {
 
 /// Out of onboarding's pick-your-channels list, or back into it; the unread bits of the
 /// server's flags stay as they were.
-fn show_all_channels(app: &mut App, gid: Id) {
+pub fn show_all_channels(app: &mut App, gid: Id) {
     let was_in = app.store.opt_in.contains(&gid);
     if !app.store.opt_in.remove(&gid) {
         app.store.opt_in.insert(gid);
@@ -177,9 +205,9 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
     ));
     let inner = Rect::from_min_max(pos2(row.left() + 36.0, row.top()), pos2(row.right() - 8.0, row.bottom()));
     if selected {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
     } else if resp.hovered() {
-        ui.painter().rect_filled(inner, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
     }
     let col = if selected || unread {
         pal().header_primary
@@ -235,14 +263,14 @@ fn boost_goal(ui: &mut Ui, boosts: u32, goal: u32, under_banner: bool) -> bool {
     let left = if next.is_none() { "Boost Goal 🎉".to_string() } else { "Boost Goal".to_string() };
     text::paint(p, pos2(bar.left() + 6.0, bar.center().y), Align2::LEFT_CENTER, &left, semi(12.0), pal().text_normal, 160.0);
     let caret = Rect::from_center_size(pos2(bar.right() - 12.0, bar.center().y), vec2(12.0, 12.0));
-    // the count and caret are the text colour at .7
+    // the caret is the text colour at .7
     let dim = pal().text_normal.gamma_multiply(0.7);
     icons::draw(p, Icon::ChevronRight, caret, dim);
     let count = match next {
         Some(n) => format!("{boosts}/{n} Boosts"),
         None => format!("{boosts} Boosts"),
     };
-    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), dim);
+    p.text(pos2(caret.left() - 2.0, bar.center().y), Align2::RIGHT_CENTER, count, semi(12.0), pal().text_normal);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -282,12 +310,15 @@ fn get_started(ui: &mut Ui, total: usize, done: usize) -> bool {
 /// and Channels & Roles are pages in place of the chat, Events is a window, and what's left opens
 /// discord's own page in the browser. Hands back the row clicked
 /// and which page is open.
-fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>) -> Option<&'static str> {
+fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>, hub: Option<bool>) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
     let has = |f: &str| g.features.iter().any(|x| x == f);
     let community = has("COMMUNITY");
     let perms = if perms & ADMINISTRATOR != 0 { u64::MAX } else { perms };
     let mut rows: Vec<(Icon, &'static str, String)> = Vec::new();
+    if hub.is_some() {
+        rows.push((Icon::Discover, "Server Hub", String::new()));
+    }
     if has("GUILD_SERVER_GUIDE") {
         rows.push((Icon::ServerGuide, "Server Guide", String::new()));
     }
@@ -333,10 +364,21 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         if lit && !selected {
             ui.painter().rect_filled(Rect::from_min_size(pos2(row.left(), row.center().y - 4.0), vec2(4.0, 8.0)), CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().header_primary);
         }
-        icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
+        let glyph = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
+        if label == "Server Hub" {
+            super::hub::house(ui.painter(), glyph, col);
+            if hub == Some(true) {
+                let g = ui.painter().layout_no_wrap("new".into(), semi(12.0), egui::Color32::WHITE);
+                let pill = Rect::from_min_size(pos2(inner.right() - 8.0 - g.size().x - 12.0, row.center().y - 8.0), vec2(g.size().x + 12.0, 16.0));
+                ui.painter().rect_filled(pill, 8, pal().blurple);
+                ui.painter().galley(pos2(pill.left() + 6.0, pill.center().y - g.size().y / 2.0), g, egui::Color32::WHITE);
+            }
+        } else {
+            icons::draw(ui.painter(), icon, glyph, col);
+        }
         let shown = if is_events && g.events > 0 { format!("{} Event{}", g.events, if g.events == 1 { "" } else { "s" }) } else { label.to_string() };
-        let room = inner.width() - 40.0 - if is_events && ev.mentions > 0 { 32.0 } else { 0.0 };
-        text::paint(ui.painter(), pos2(inner.left() + 34.0, row.center().y), Align2::LEFT_CENTER, &shown, if lit { semi(16.0) } else { medium(16.0) }, col, room);
+        let room = inner.width() - 42.0 - if is_events && ev.mentions > 0 { 32.0 } else { 0.0 };
+        text::paint(ui.painter(), pos2(inner.left() + 36.0, row.center().y), Align2::LEFT_CENTER, &shown, if lit { semi(16.0) } else { medium(16.0) }, col, room);
         if is_events {
             if ev.mentions > 0 {
                 super::badge(ui, pos2(inner.right() - 8.0, row.center().y), ev.mentions, None);
@@ -388,13 +430,14 @@ fn events_menu(r: &egui::Response, ev: EventsRow, out: &mut Option<EventsAct>) {
 }
 
 /// A category header, and whether its create-channel plus was clicked.
-fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::Response, bool) {
+fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool, muted: bool) -> (egui::Response, bool) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click_and_drag());
-    let col = crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
+    let idle = if muted { pal().text_muted } else { pal().channel_default };
+    let col = crate::ui::motion::mix(idle, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp));
     let turn = (1.0 - super::motion::tween(ui.ctx(), resp.id.with("chev"), !collapsed, 0.2, super::motion::EASE_OUT)) * -std::f32::consts::FRAC_PI_2;
     let y = rect.top() + 12.0;
     // the refresh's type consolidation: sentence case at 14 medium, caret after the name
-    let t = text::paint_em(ui.painter(), pos2(rect.left() + 8.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 52.0, 1.0);
+    let t = text::paint_em(ui.painter(), pos2(rect.left() + 16.0, y), Align2::LEFT_CENTER, name, medium(14.0), col, rect.width() - 60.0, 1.0);
     icons::draw_turned(ui.painter(), Icon::ChevronDown, Rect::from_center_size(pos2(t.right() + 9.0, y), vec2(12.0, 12.0)), col, turn);
     let mut add = false;
     if can_add {
@@ -407,6 +450,22 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool) -> (egui::R
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     (resp, add)
+}
+
+/// The "Suggested" label over the open and unread channels that aren't on the list, with its
+/// dismiss button. True when that was clicked.
+fn suggested_head(ui: &mut Ui) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::hover());
+    let y = rect.top() + 12.0;
+    text::paint_em(ui.painter(), pos2(rect.left() + 16.0, y), Align2::LEFT_CENTER, "Suggested", medium(14.0), pal().channel_default, rect.width() - 60.0, 1.0);
+    let at = pos2(rect.right() - 24.0, y - 1.0);
+    let hit = ui.interact(Rect::from_center_size(at, vec2(20.0, 20.0)), ui.id().with("suggested_off"), Sense::click());
+    ui.painter().circle_filled(at, 7.0, pal().border_muted);
+    icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(at, vec2(10.0, 10.0)), pal().bg_secondary_alt);
+    if hit.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    hit.clicked()
 }
 
 /// The channel's icon with the lock or warning discord adds for private and age-gated ones.
@@ -501,9 +560,9 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     // button away mid-click and hand the click to the row
     let hovered = resp.contains_pointer();
     if selected {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_selected);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_selected);
     } else if hovered {
-        ui.painter().rect_filled(hl, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
     }
     let col = if selected || here || (unread && !muted) {
         pal().header_primary
@@ -549,7 +608,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     let voice_room = c.is_voice();
     for (icon, tip, shown, out) in [
         (Icon::Gear, "Edit Channel", perms & crate::state::MANAGE_CHANNELS != 0, &mut edit),
-        (Icon::PersonAdd, if voice_room { "Invite to Voice" } else { "Invite to Channel" }, perms & crate::state::CREATE_INVITE != 0, &mut invite),
+        (Icon::PersonAdd, if voice_room { "Invite to Voice" } else { "Invite to Channel" }, store.can_invite(c), &mut invite),
         // a voice channel's own text chat, open beside the call
         (Icon::Bubble, "Open Chat", voice_room, &mut chat),
     ] {
@@ -565,7 +624,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         x -= 22.0;
     }
     if new > 0 && mentions == 0 && x == inner.right() - 16.0 {
-        let n = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, format!("{new} New"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
+        let n = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, format!("{new} NEW"), semi(12.0), Color32::from_rgb(0x63, 0x74, 0xf4));
         right = n.left() - 6.0;
     }
     if let Some(t) = timer.filter(|_| x == inner.right() - 16.0 && mentions == 0) {
@@ -573,9 +632,8 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         right = r.left() - 6.0;
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
-    // channel names are medium; unread ones go semibold
-    let font = if unread { semi(16.0) } else { medium(16.0) };
-    let left = inner.left() + 34.0;
+    let font = medium(16.0);
+    let left = inner.left() + 36.0;
     let name = text::layout_em(ui.ctx(), &c.name, font, col, right - left, 1.0);
     let at = pos2(left, y - name.size().y / 2.0);
     name.paint(ui.painter(), at);
@@ -629,7 +687,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
     for u in users {
         let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(4), pal().bg_mod_hover);
+            ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(8), pal().bg_mod_hover);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if resp.clicked() || resp.secondary_clicked() {
@@ -743,11 +801,12 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         status_dot(ui, av, status, pal().bg_secondary_alt);
         // leave room for the three buttons so long names elide instead of running under them
         let col = (ui.available_width() - 146.0 - if app.settings.clips { 32.0 } else { 0.0 }).max(40.0);
-        let hot = ui.rect_contains_pointer(ui.max_rect());
-        let names = ui.allocate_ui_with_layout(vec2(col, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+        // only the avatar and names count, as discord's account button; the buttons beside don't
+        let hot = ui.rect_contains_pointer(Rect::from_min_max(ui.max_rect().min, pos2(av.right() + 8.0 + col, ui.max_rect().bottom())));
+        let names = ui.allocate_ui_with_layout(vec2(col, 40.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
             ui.set_max_width(col);
-            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.spacing_mut().item_spacing.y = -2.0;
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
             text::label(ui, &name, medium(16.0), pal().header_primary, Sense::hover());
             let sub = match app.conn {
@@ -779,7 +838,7 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                     let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
                     let stage = app.voice.chan.and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 13);
                     icons::draw(ui.painter(), if stage { Icon::Stage } else { Icon::Speaker }, r, pal().green);
-                    ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().header_secondary)).selectable(false));
+                    ui.add(egui::Label::new(egui::RichText::new(if stage { "In a stage" } else { "In voice" }).font(medium(12.0)).color(pal().text_muted)).selectable(false));
                 });
             } else if let Some(e) = app.store.custom_emoji.clone().filter(|e| e.id != 0 && matches!(app.conn, crate::net::Conn::Online) && !hot && !app.settings.hiding_personal()) {
                 ui.horizontal(|ui| {

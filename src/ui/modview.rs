@@ -42,9 +42,7 @@ impl App {
     pub fn open_mod_view(&mut self, gid: Id, uid: Id) {
         self.profile = None;
         self.mod_view = Some(State { uid, gid, msgs: None });
-        if !self.profiles.contains_key(&uid) || self.profiles[&uid].is_null() {
-            self.rest("GET", format!("/users/{uid}/profile?with_mutual_guilds=true&with_mutual_friends=true&guild_id={gid}"), None, Tag::Profile(uid));
-        }
+        self.want_profile(uid, gid, "with_mutual_guilds=true&with_mutual_friends=true");
         self.rest("GET", format!("/guilds/{gid}/messages/search?author_id={uid}"), None, Tag::ModView(uid));
     }
 }
@@ -92,7 +90,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     };
     let me = app.store.me;
     let store = &app.store;
-    let p = app.profiles.get(&uid).filter(|p| !p.is_null());
+    let p = app.profile_of(uid, gid);
     let name = store.name_in(gid, uid);
     let roles = profile::member_roles(store, p, gid, uid);
     let owner = store.guilds.get(&gid).is_some_and(|g| g.owner == uid);

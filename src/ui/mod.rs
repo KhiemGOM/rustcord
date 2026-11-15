@@ -40,6 +40,7 @@ mod forumbar;
 mod gate;
 mod guide;
 mod guildmodal;
+mod inboxtip;
 mod friends;
 pub mod icons;
 mod interact;
@@ -63,8 +64,12 @@ mod newserver;
 mod menus;
 mod picker;
 mod player;
+mod botinfo;
+mod hub;
+mod hubjoin;
 mod plus;
 mod poll;
+mod scheduled;
 mod blocked;
 mod pollvotes;
 mod remind;
@@ -113,12 +118,15 @@ mod prefs;
 mod restmsg;
 mod pump;
 mod frame;
+mod webart;
+mod favorites;
 mod widgets;
 pub(crate) use widgets::avatar;
 pub(crate) use widgets::status_dot;
 pub(crate) use widgets::badge;
 pub(crate) use widgets::badge_in;
 pub(crate) use widgets::button;
+pub(crate) use widgets::modal_button;
 pub(crate) use widgets::icon_button;
 pub(crate) use widgets::toggle_button;
 pub(crate) use widgets::menu_item;
@@ -140,7 +148,9 @@ pub(crate) use popmenu::Trail;
 pub(crate) use popmenu::menu_row;
 pub(crate) use popmenu::menu_row_at;
 pub(crate) use popmenu::menu_sep;
+pub(crate) use popmenu::submenu;
 pub(crate) use popmenu::tag_chip;
+pub(crate) use popmenu::profile_tag;
 pub(crate) use popmenu::app_tag;
 pub(crate) use popmenu::channel_title;
 mod inputs;
@@ -177,6 +187,7 @@ pub enum Pick {
     Quick(usize),
     // the emoji of an answer in the poll being made
     Poll(usize),
+    ChannelName,
 }
 
 const SAVE_FAILED: &str = "Failed to update your settings. Please try again.";
@@ -271,6 +282,8 @@ pub struct App {
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
     pub profiles: Map<Id, serde_json::Value>,
+    // someone's profile as a server shows it, by (person, server)
+    pub member_profiles: Map<(Id, Id), serde_json::Value>,
     pub app_covers: Map<Id, Option<String>>,
     pub full_profile: Option<profile::Full>,
     pub outbox: Map<Id, Vec<profile::Recent>>,
@@ -286,6 +299,9 @@ pub struct App {
     pub friends: bool,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
+    pub hub: Option<hub::Hub>,
+    pub hub_join: Option<hubjoin::Join>,
+    pub referral: Option<settings::referral::Picker>,
     pub buy: Option<buy::Buy>,
     pub server_shop: Option<buy::server_shop::ServerShop>,
     pub boost_info: Map<Id, boosts::Info>,
@@ -314,6 +330,7 @@ pub struct App {
     pub shop: Option<shop::Shop>,
     pub friends_tab: u8,
     pub add_friend: String,
+    pub add_friend_words: String,
     pub status_until: Option<i64>,
     pub add_app: Option<addapp::AddApp>,
     pub add_friend_note: Option<(bool, String)>,
@@ -352,8 +369,10 @@ pub struct App {
     pub profed: Option<profed::Editor>,
     pub new_thread: Option<popups::NewThread>,
     pub poll: Option<poll::Draft>,
+    pub sched: scheduled::State,
     pub launcher: Option<plus::Launcher>,
     pub follow: Option<follow::Follow>,
+    pub publishing: Option<(Id, Id)>,
     pub modify: Option<attach::Modify>,
     pub group_pick: Option<dmpick::Pick>,
     pub topic: Option<Id>,
@@ -545,6 +564,7 @@ impl App {
             switcher: None,
             profile: None,
             profiles: Map::default(),
+            member_profiles: Map::default(),
             app_covers: Map::default(),
             full_profile: None,
             outbox: Map::default(),
@@ -557,6 +577,9 @@ impl App {
             search: None,
             friends: false,
             boosts: None,
+            hub: None,
+            hub_join: None,
+            referral: None,
             boost_info: Map::default(),
             create: None,
             active_threads: None,
@@ -583,6 +606,7 @@ impl App {
             status_until: None,
             add_app: None,
             add_friend_note: None,
+            add_friend_words: String::new(),
             post: None,
             scroll_to: None,
             scroll_tries: 0,
@@ -610,8 +634,10 @@ impl App {
             profed: None,
             new_thread: None,
             poll: None,
+            sched: Default::default(),
             launcher: None,
             follow: None,
+            publishing: None,
             modify: None,
             group_pick: None,
             topic: None,

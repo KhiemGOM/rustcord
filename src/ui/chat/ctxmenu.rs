@@ -63,7 +63,10 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
     let Some(chan) = app.store.channels.get(&ch).cloned() else { return };
     let manage = chan.guild == 0 || app.store.perms(&chan) & crate::state::MANAGE_MESSAGES != 0;
     let pin = app.store.can_pin(&chan);
-    let threads = chan.guild != 0 && matches!(chan.kind, 0 | 5) && !has_thread && editable;
+    let perms = app.store.perms(&chan);
+    let can_react = chan.guild == 0 || perms & crate::state::ADD_REACTIONS != 0;
+    let replyable = replyable && app.store.can_send(&chan);
+    let threads = chan.guild != 0 && matches!(chan.kind, 0 | 5) && !has_thread && editable && perms & crate::state::CREATE_PUBLIC_THREADS != 0;
     let configure = chan.guild != 0 && kind == 7 && app.store.perms(&chan) & crate::state::MANAGE_GUILD != 0;
     let publishable = chan.kind == 5 && (own || manage);
     let saved = app.bookmarks.contains(&id);
@@ -81,9 +84,9 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         use crate::ui::{Trail, menu_item, menu_row, menu_sep};
         ui.set_min_width(204.0);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            for (i, e) in quick.iter().enumerate() {
-                let (r, resp) = ui.allocate_exact_size(vec2(46.0, 40.0), Sense::click());
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for (i, e) in quick.iter().enumerate().filter(|_| can_react) {
+                let (r, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
                 tiles.push(r);
                 ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 let er = Rect::from_center_size(r.center(), vec2(24.0, 24.0));
@@ -97,7 +100,9 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
                 }
             }
         });
-        menu_sep(ui);
+        if can_react {
+            ui.add_space(8.0);
+        }
         let mut started = false;
         let mut group = |ui: &mut Ui, on: bool| {
             if on && started {
@@ -106,25 +111,27 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             started |= on;
             on
         };
-        if group(ui, true) {
-            let add = menu_row(ui, Some(Icon::AddReaction), "Add Reaction", None, false, Trail::Caret);
-            if add.clicked() {
-                pick = Some(MenuPick::React);
-            }
-            egui::containers::menu::SubMenu::new().show(ui, &add, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for e in &frequent {
-                    let name = if e.id != 0 { e.name.clone() } else { crate::ui::reactions::unicode_name(&e.name).to_string() };
-                    let url = gif::uri(ui.ctx(), &emoji_url(e), true);
-                    if menu_row(ui, None, &format!(":{name}:"), None, false, Trail::Image(url)).clicked() {
-                        react = Some(e.clone());
-                    }
-                }
-                menu_sep(ui);
-                if menu_item(ui, None, "View More", false) {
+        if group(ui, can_react || reacted) {
+            if can_react {
+                let add = menu_row(ui, Some(Icon::AddReaction), "Add Reaction", None, false, Trail::Caret);
+                if add.clicked() {
                     pick = Some(MenuPick::React);
                 }
-            });
+                crate::ui::submenu(ui, &add, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for e in &frequent {
+                        let name = if e.id != 0 { e.name.clone() } else { crate::ui::reactions::unicode_name(&e.name).to_string() };
+                        let url = gif::uri(ui.ctx(), &emoji_url(e), true);
+                        if menu_row(ui, None, &format!(":{name}:"), None, false, Trail::Image(url)).clicked() {
+                            react = Some(e.clone());
+                        }
+                    }
+                    menu_sep(ui);
+                    if menu_item(ui, None, "View More", false) {
+                        pick = Some(MenuPick::React);
+                    }
+                });
+            }
             if reacted && menu_item(ui, Some(Icon::Smile), "View Reactions", false) {
                 pick = Some(MenuPick::ViewReactions);
             }
@@ -158,7 +165,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             pick = Some(MenuPick::Bookmark);
         }
         let rem = menu_row(ui, Some(Icon::Clock), "Create Reminder", None, false, Trail::Caret);
-        egui::containers::menu::SubMenu::new().show(ui, &rem, |ui| {
+        crate::ui::submenu(ui, &rem, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             let (r, _) = ui.allocate_exact_size(vec2(170.0, 36.0), Sense::hover());
             ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, "Remind Me", medium(14.0), pal().chat_muted);
@@ -172,7 +179,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             }
         });
         let a = menu_row(ui, Some(Icon::Launched), "Apps", None, false, Trail::Caret);
-        egui::containers::menu::SubMenu::new().show(ui, &a, |ui| {
+        crate::ui::submenu(ui, &a, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             if apps.is_empty() {
                 ui.add_enabled_ui(false, |ui| menu_item(ui, None, "No Apps", false));
@@ -195,12 +202,12 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         if menu_item(ui, Some(Icon::Link), "Copy Message Link", false) {
             pick = Some(MenuPick::Link);
         }
-        if !content.is_empty() && menu_item(ui, Some(Icon::Bubble), "Speak Message", false) {
+        if !content.is_empty() && menu_item(ui, Some(Icon::Volume), "Speak Message", false) {
             pick = Some(MenuPick::Speak);
         }
         if let Some(i) = &interaction {
             let info = menu_row(ui, Some(Icon::Help), "View Interaction Info", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &info, |ui| {
+            crate::ui::submenu(ui, &info, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let (owner, url) = if i.in_guild {
                     let g = app_store.guilds.get(&i.owner);
@@ -230,7 +237,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         if group(ui, sent && manage && chan.guild != 0 && reacted || can_delete || can_report) {
             if sent && manage && chan.guild != 0 && reacted {
                 let rm = menu_row(ui, Some(Icon::Close), "Remove Reactions", None, true, Trail::Caret);
-                egui::containers::menu::SubMenu::new().show(ui, &rm, |ui| {
+                crate::ui::submenu(ui, &rm, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for r in &reaction_list {
                         let url = gif::uri(ui.ctx(), &emoji_url(&r.emoji), true);
@@ -285,7 +292,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
         Some(MenuPick::Forward) => app.forward = Some(crate::ui::popups::Forward::new(ch, id)),
         Some(MenuPick::Thread) => app.new_thread = Some(crate::ui::popups::NewThread::from(app, ch, id)),
-        Some(MenuPick::Publish) => app.publish_msg(ch, id),
+        Some(MenuPick::Publish) => app.ask_publish(ch, id),
         Some(MenuPick::Copy) => ctx.copy_text(content),
         Some(MenuPick::Pin) => app.pin_msg(ch, id, !shift),
         Some(MenuPick::Bookmark) => app.bookmark(ch, id),

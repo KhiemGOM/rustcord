@@ -162,7 +162,7 @@ pub fn paint_wishlist(ui: &mut Ui, r: Rect, w: &Wish, ink: Color32) -> (f32, boo
     }
     if w.rows.is_empty() {
         let c = r.center().x;
-        text::paint(ui.painter(), pos2(c, r.top() + 72.0), Align2::CENTER_CENTER, "No hearts yet \u{1F494}", semi(16.0), ink, r.width());
+        text::paint(ui.painter(), pos2(c, r.top() + 72.0), Align2::CENTER_CENTER, "No hearts yet \u{1F494}", medium(16.0), ink, r.width());
         let g = ui.painter().layout("Browse the Shop and heart the items you love to add them here.".into(), reg(14.0), ink, (r.width() - 32.0).min(380.0));
         let gh = g.size().y;
         ui.painter().galley(pos2(c - g.size().x / 2.0, r.top() + 96.0), g.clone(), ink);

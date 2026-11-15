@@ -54,10 +54,10 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .show_separator_line(false)
         // discord's search box sits 8 from the window's edge
         // and everything centres in the 48 above the border
-        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 16, right: 8, top: 0, bottom: 1 }))
+        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin { left: 15, right: 8, top: 0, bottom: 1 }))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().hline(r.left() - 16.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
+            ui.painter().hline(r.left() - 15.0..=r.right() + 8.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
             let panel = ui.max_rect();
             ui.horizontal_centered(|ui| {
                 let title = channel_title(&app.store, chan.id);
@@ -68,22 +68,24 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let room = ui.available_width();
                 let name_w = (room - bar - SEARCH_W).max(0.0);
                 let search_w = (SEARCH_W - (bar + SEARCH_W - room).max(0.0)).max(0.0);
+                ui.spacing_mut().item_spacing.x = 0.0;
                 let (name, _) = ui.allocate_exact_size(vec2(name_w, 32.0), Sense::hover());
                 app.rects.insert("header:name".into(), name);
                 let mut group = ui.new_child(UiBuilder::new().max_rect(name).layout(Layout::left_to_right(Align::Center)));
                 group.set_clip_rect(name.intersect(ui.clip_rect()));
                 {
                     let ui = &mut group;
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     // discord's header icons are 20, the name 9 past them
                     let glyph = |ui: &mut Ui, icon: Icon| {
                         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                         icons::draw(ui.painter(), icon, r, pal().channel_default);
-                        ui.add_space(4.0);
+                        ui.add_space(1.0);
                     };
                     let chan_glyph = |ui: &mut Ui, store: &crate::state::Store, c: &Channel| {
                         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                         side::chan_icon(store, ui.painter(), c, r, pal().channel_default);
-                        ui.add_space(4.0);
+                        ui.add_space(1.0);
                         r
                     };
                     match chan.kind {
@@ -117,8 +119,16 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     }
                     // the name keeps its width and is clipped by the group, as discord's overflow does
                     let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
-                    let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
+                    let (r, resp) = ui.allocate_exact_size(t.size(), if chan.kind == 3 { Sense::click() } else { Sense::hover() });
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
+                    if chan.kind == 3 {
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if resp.clicked() {
+                            app.user_dialog = Some(crate::ui::userdlg::Dialog::group(&app.store, chan.id));
+                        }
+                    }
                     if crate::ui::follow::can_follow(app, chan) {
                         crate::ui::follow::header_button(app, ui, chan);
                     }
@@ -154,7 +164,6 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     fade.add_triangle(0, 2, 3);
                     ui.painter().add(fade);
                 }
-                ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(8.0);
                 for tool in &tools {
                     match tool {
@@ -235,10 +244,10 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 let (slot, _) = ui.allocate_exact_size(vec2(search_w, 32.0), Sense::hover());
                 let mut field = ui.new_child(UiBuilder::new().max_rect(slot).layout(Layout::left_to_right(Align::Center)));
                 field.set_clip_rect(slot.intersect(ui.clip_rect()));
-                let r = {
+                let (r, outer) = {
                     let ui = &mut field;
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    Frame::new()
+                    let boxed = Frame::new()
                         .fill(pal().input_bg)
                         .stroke(Stroke::new(1.0, pal().border_subtle))
                         .corner_radius(8)
@@ -249,7 +258,7 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                     .id(egui::Id::new("search_box"))
                                     .frame(Frame::NONE)
                                     .font(medium(14.0))
-                                    .hint_text(RichText::new(hint).color(pal().text_muted))
+                                    .hint_text(RichText::new(hint).font(medium(14.0)).color(pal().text_muted))
                                     .desired_width((search_w - 42.0).max(0.0)),
                             );
                             // the magnifier turns into a clear button once there's a query
@@ -261,8 +270,8 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                 clear = x.clicked();
                             }
                             r
-                        })
-                        .inner
+                        });
+                    (boxed.inner, boxed.response.rect)
                 };
                 app.rects.insert("search".into(), r.rect);
                 if clear {
@@ -272,7 +281,7 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !q.trim().is_empty() {
                     app.start_search(chan.id, q.trim().to_string());
                 }
-                if let Some(past) = crate::ui::popups::search_options(app, ui.ctx(), &r, &mut q, chan.guild) {
+                if let Some(past) = crate::ui::popups::search_options(app, ui.ctx(), &r, outer, &mut q, chan.guild) {
                     app.start_search(chan.id, past.clone());
                     q = past;
                 }
@@ -358,7 +367,7 @@ pub(crate) fn bell(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
         } else {
             let m = menu_row(ui, None, "Mute Channel", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            crate::ui::submenu(ui, &m, |ui| {
                 if let Some(secs) = crate::ui::mute_menu(ui) {
                     mute = Some((true, secs));
                 }

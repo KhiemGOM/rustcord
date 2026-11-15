@@ -6,7 +6,9 @@
 mod browse;
 mod catalog;
 mod cursor;
+mod games;
 mod nitro;
+mod wallet;
 pub mod product;
 pub mod wish;
 
@@ -38,8 +40,10 @@ pub enum Page {
 
 pub struct Shop {
     pub page: Page,
-    // 0 Featured, 1 Browse, 2 Orbs Exclusives
+    // 0 Featured, 1 Browse, 2 Orbs Shop, 3 a Game Shop
     pub tab: u8,
+    pub game: Option<String>,
+    pub game_page: usize,
     pub search: String,
     pub product: Option<String>,
     pub slide: usize,
@@ -78,6 +82,8 @@ impl App {
             wish: Vec::new(),
             wish_id: None,
             wish_load: 0,
+            game: None,
+            game_page: 0,
             feed_sort: 0,
             feed_shown: 12,
             shuffle: 0,
@@ -93,6 +99,7 @@ impl App {
 pub fn show(app: &mut App, ui: &mut Ui) {
     match app.shop.as_ref().map(|s| s.page) {
         Some(Page::Nitro) => nitro::show(app, ui),
+        Some(Page::Shop) if app.shop.as_ref().is_some_and(|s| s.game.is_some()) => games::show(app, ui),
         Some(Page::Shop) => {
             let area = ui.max_rect();
             catalog::show(app, ui);

@@ -198,9 +198,9 @@ fn price_row(ui: &Ui, at: Pos2, p: &Price, size: f32, orbs: bool) {
     } else {
         p.money.clone()
     };
-    let t = painter.text(pos2(at.x + 24.0, at.y), Align2::LEFT_CENTER, text, bold(size), Color32::WHITE);
+    let t = painter.text(pos2(at.x + 24.0, at.y), Align2::LEFT_CENTER, text, semi(size), pal().header_primary);
     if let Some(off) = p.off {
-        painter.text(pos2(t.right() + 6.0, at.y), Align2::LEFT_CENTER, format!("(-{off}%)"), bold(size), pal().green);
+        painter.text(pos2(t.right() + 6.0, at.y), Align2::LEFT_CENTER, format!("(-{off}%)"), semi(size), pal().green);
     }
 }
 

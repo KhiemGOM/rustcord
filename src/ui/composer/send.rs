@@ -7,6 +7,12 @@ impl App {
             return;
         }
         self.commands.insert(scope, Commands::default());
+        // a dm has commands of its own only when the other side is an app: for anyone else's
+        // discord answers Unknown Channel, which went up as an error toast
+        let app = chan.kind == 1 && chan.recipients.first().and_then(|u| self.store.user(*u)).is_some_and(|u| u.bot);
+        if chan.guild == 0 && !app {
+            return;
+        }
         let path = if chan.guild != 0 {
             format!("/guilds/{}/application-command-index", chan.guild)
         } else {
@@ -112,6 +118,7 @@ impl App {
             "tableflip" => say(self, format!("{} (╯°□°)╯︵ ┻━┻", text("message")).trim().to_string(), false),
             "unflip" => say(self, format!("{} ┬─┬ノ( º _ ºノ)", text("message")).trim().to_string(), false),
             "me" => say(self, format!("_{}_", text("message")), false),
+            "schedule" => self.sched.picker = Some(crate::ui::scheduled::Picker::new(crate::ui::scheduled::Target::Send(ch), None).saying(text("message"))),
             "spoiler" => say(self, format!("||{}||", text("message")), false),
             "tts" => say(self, text("message"), true),
             "nick" => {

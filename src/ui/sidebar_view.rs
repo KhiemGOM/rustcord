@@ -17,6 +17,8 @@ const TOOLS: f32 = 36.0 + 21.0 + 14.0;
 const PAD: f32 = 40.0;
 /// `.contentColumnWide` padding-inline-end
 const PAD_WIDE_END: f32 = 10.0;
+/// where user settings' Edit buttons end, as measured: 696 from the labels
+const PAD_USER_END: f32 = 4.0;
 
 #[derive(Clone, Copy)]
 pub enum Kind {
@@ -58,7 +60,8 @@ pub fn column(origin: f32, width: f32, sidebar: f32, kind: Kind, tools: bool) ->
     .max(MIN_COLUMN);
     let end = match kind {
         Kind::Default => PAD,
-        _ => PAD_WIDE_END,
+        Kind::Wide => PAD_USER_END,
+        Kind::Fill => PAD_WIDE_END,
     };
     let edge = origin + width;
     let notice = ((width - region - TOOLS).min(MAX_COLUMN) - 2.0 * NOTICE_PAD).max(0.0);

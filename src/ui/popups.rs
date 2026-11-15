@@ -17,7 +17,7 @@ use switcher::*;
 mod cards;
 use cards::*;
 pub(crate) use cards::dm_profile;
-pub(super) use cards::theme_top;
+pub(super) use cards::{banner, shown, theme_palette, theme_top};
 pub(super) use cards::theme_wash;
 pub(crate) use cards::account;
 mod lookup;
@@ -113,10 +113,7 @@ impl App {
 
     pub fn open_profile(&mut self, user: Id, guild: Id, at: Pos2) {
         self.profile = Some((user, guild, at));
-        if !self.profiles.contains_key(&user) {
-            let q = if guild != 0 { format!("&guild_id={guild}") } else { String::new() };
-            self.rest("GET", format!("/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true{q}"), None, Tag::Profile(user));
-        }
+        self.want_profile(user, guild, "with_mutual_guilds=true&with_mutual_friends=true");
     }
 
     pub fn open_timeout(&mut self, gid: Id, uid: Id) {
@@ -179,6 +176,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::kickban::show(app, ctx);
     super::prune::show(app, ctx);
     super::poll::show(app, ctx);
+    super::scheduled::show(app, ctx);
+    super::follow::confirm_publish(app);
+    super::settings::referral::modal(app, ctx);
+    super::hubjoin::show(app, ctx);
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
     super::dmpick::show(app, ctx);
@@ -227,6 +228,7 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO),
             );
+            ui.advance_cursor_after_rect(field);
             save = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             r.request_focus();
             ui.add_space(24.0);

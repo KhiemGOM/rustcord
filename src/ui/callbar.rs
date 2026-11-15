@@ -258,14 +258,14 @@ pub(super) fn audio_popup(app: &mut App, at: &Response, output: bool) {
 
 pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> (bool, bool) {
     let (mut changed, mut voice) = (false, false);
-    ui.set_width(222.0);
+    ui.set_width(204.0);
     menu_body(ui, |ui| {
         let (ins, outs) = super::call::devices(ui.ctx());
         let names = if output { outs } else { ins };
         let cur = if output { s.speaker.clone() } else { s.mic.clone() };
         let hint = cur.clone().unwrap_or_else(|| "Default".into());
         let row = menu_row(ui, None, if output { "Output Device" } else { "Input Device" }, Some(&hint), false, Trail::Caret);
-        egui::containers::menu::SubMenu::new().show(ui, &row, |ui| {
+        super::submenu(ui, &row, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for name in std::iter::once(None).chain(names.iter().map(Some)) {
                 let label = name.map(String::as_str).unwrap_or("Default");
@@ -283,7 +283,7 @@ pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> 
             };
             let names = ["Voice Isolation", "Studio", "Custom"];
             let row = menu_row(ui, None, "Input Profile", Some(names[at]), false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &row, |ui| {
+            super::submenu(ui, &row, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (i, n) in names.iter().enumerate() {
                     if menu_row(ui, None, n, None, false, Trail::Radio(at == i)).clicked() && at != i {
@@ -295,27 +295,13 @@ pub fn audio_menu(ui: &mut Ui, s: &mut crate::cache::Settings, output: bool) -> 
         }
         menu_sep(ui);
         let vol = if output { &mut s.output_volume } else { &mut s.input_volume };
-        let mut pct = *vol * 100.0;
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(RichText::new(if output { "Output Volume" } else { "Input Volume" }).font(medium(14.0)).color(pal().header_primary));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
-                ui.label(RichText::new(format!("{}%", pct.round())).font(reg(12.0)).color(pal().text_muted));
-            });
-        });
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            let w = ui.available_width() - 8.0;
-            if super::settings::slider(ui, w, &mut pct, 0.0, 200.0) {
-                *vol = pct.round() / 100.0;
-                changed = true;
-            }
-        });
-        ui.add_space(4.0);
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::hover());
+        ui.painter().text(row.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, if output { "Output Volume" } else { "Input Volume" }, medium(14.0), pal().header_primary);
+        let w = row.width() - 16.0;
+        let mut track = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(row.left_top() + vec2(8.0, 34.0), vec2(w, 16.0))));
+        changed |= super::settings::volume_slider(&mut track, w, vol, if output { 200.0 } else { 100.0 });
         menu_sep(ui);
-        voice = menu_item(ui, None, "Voice Settings", false);
+        voice = menu_item(ui, Some(Icon::Gear), "Voice Settings", false);
     });
     (changed, voice)
 }
@@ -329,7 +315,7 @@ fn camera_popup(app: &mut App, at: &Response) {
         menu_body(ui, |ui| {
             let row = menu_row(ui, None, "Camera", Some(&cur), false, Trail::Caret);
             super::settings::mark(ui, "callcam:row", row.rect);
-            egui::containers::menu::SubMenu::new().show(ui, &row, |ui| {
+            super::submenu(ui, &row, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for name in &cams {
                     let item = menu_row(ui, None, name, None, false, Trail::Radio(*name == cur));

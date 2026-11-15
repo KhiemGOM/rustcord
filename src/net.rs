@@ -55,7 +55,7 @@ pub enum Tag {
     TopEmojis(Id),
     Pins(Id),
     Search(Id),
-    Profile(Id),
+    Profile(Id, Id),
     // the recent activity on someone's full profile
     Outbox(Id),
     // a server's tag popout data
@@ -167,6 +167,7 @@ pub enum Cmd {
     Sticker { guild: Id, name: String, tags: String, description: String, file: PathBuf },
     /// A forum post with files on its first message.
     ForumPost { channel: Id, body: Value, files: Vec<(PathBuf, String, String)>, tag: Tag },
+    Schedule { channel: Id, body: Value, files: Vec<(PathBuf, String, String)>, tag: Tag },
     Sudo { method: &'static str, path: String, body: Option<Value>, mfa: Option<String>, tag: Tag },
     /// A write that says where in the app it came from, in X-Context-Properties.
     Located { method: &'static str, path: String, body: Option<Value>, context: Value, tag: Tag },
@@ -187,7 +188,7 @@ fn allowed(c: &Cmd) -> bool {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
         Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
-        Cmd::Sticker { .. } | Cmd::ForumPost { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
+        Cmd::Sticker { .. } | Cmd::ForumPost { .. } | Cmd::Schedule { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
         // member requests and lazy member-list subscriptions only read
         Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
         _ => true,
@@ -215,8 +216,7 @@ fn barred(readonly: bool, harness: bool, base: &str) -> Option<&'static str> {
 /// run that isn't pointed at a server on this machine.
 pub fn charge_barred() -> Option<&'static str> {
     let readonly = FORCE_READONLY.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("RUSTCORD_READONLY").is_some();
-    let harness = ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some());
-    barred(readonly, harness, api::base())
+    barred(readonly, crate::winsys::harness(), api::base())
 }
 
 #[derive(Clone)]
@@ -441,6 +441,12 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             Cmd::ForumPost { channel, body, files, tag } => {
                 tokio::spawn(async move {
                     let res = a.forum_post(channel, body, &files).await;
+                    tx.send(Ev::Rest { tag, res });
+                });
+            }
+            Cmd::Schedule { channel, body, files, tag } => {
+                tokio::spawn(async move {
+                    let res = a.schedule(channel, body, &files).await;
                     tx.send(Ev::Rest { tag, res });
                 });
             }

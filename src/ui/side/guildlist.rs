@@ -5,7 +5,9 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let name = app.store.guilds.get(&gid).map(|g| g.name.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
     let badge = app.store.guilds.get(&gid).and_then(|g| {
         let has = |f: &str| g.features.iter().any(|x| x == f);
-        if has("PARTNERED") {
+        if has("VERIFIED") {
+            Some(Icon::Verified)
+        } else if has("PARTNERED") {
             Some(Icon::BadgePartner)
         } else if has("COMMUNITY") {
             Some(if g.tier > 0 || g.boosts >= 2 { Icon::BadgeCommunityBoosted } else { Icon::BadgeCommunity })
@@ -15,7 +17,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     });
     // anything else that's boosted gets discord's grey flower with the gem in it
     let boosted = app.store.guilds.get(&gid).filter(|g| badge.is_none() && (g.tier > 0 || g.boosts > 0)).map(|g| g.tier);
-    let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.perms(c) & crate::state::CREATE_INVITE != 0);
+    let can_invite = app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.guild == gid && app.store.can_invite(c));
     let dev = app.settings.dev;
     let mut invite = false;
     let mut act = None;
@@ -56,7 +58,12 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         let left = ui.cursor().left();
         if let Some(b) = badge {
             let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-            icons::draw(ui.painter(), b, r, Color32::WHITE);
+            if matches!(b, Icon::Verified) {
+                icons::draw(ui.painter(), Icon::FlowerStar, r, pal().green);
+                icons::draw(ui.painter(), b, Rect::from_center_size(r.center(), vec2(13.0, 13.0)), Color32::WHITE);
+            } else {
+                icons::draw(ui.painter(), b, r, Color32::WHITE);
+            }
             ui.add_space(5.0);
         } else if let Some(tier) = boosted {
             let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
@@ -80,7 +87,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         app.rects.insert("guildmenu".into(), btn);
         egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).close_behavior(crate::ui::menu_closing(ui.ctx())).show(|ui| {
-            crate::ui::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, can_invite, dev));
+            crate::ui::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, dev, crate::ui::themes::has_theme(app, gid).then(|| crate::ui::themes::uses_server_theme(app, gid))));
         });
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -93,11 +100,13 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     match act {
         Some(GuildAct::Web(url)) => ui.ctx().open_url(egui::OpenUrl::new_tab(url)),
         Some(GuildAct::Boosts) => app.open_boosts(gid),
+        Some(GuildAct::Theme) => crate::ui::themes::toggle_server_theme(app, ui.ctx(), gid),
         Some(GuildAct::Settings) => app.open_server_settings(gid),
         Some(GuildAct::Create(k)) => app.create = Some(crate::ui::create::Form::new(k, gid, None)),
         Some(GuildAct::Threads) => app.active_threads = Some(gid),
         Some(GuildAct::Directory) => app.open_directory(),
-        Some(GuildAct::Invite) => invite = true,
+        Some(GuildAct::Invite) if can_invite => invite = true,
+        Some(GuildAct::Invite) => app.invite_denied(),
         Some(GuildAct::Notifs) => app.guild_notifs = Some(gid),
         Some(GuildAct::HideMuted) => toggle_hide_muted(app, gid),
         Some(GuildAct::ShowAll) => show_all_channels(app, gid),
@@ -137,7 +146,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut join_act: Option<(Id, Id)> = None;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
-    let open_page = if app.boosts == Some(gid) {
+    let hub_row = crate::ui::hub::offered(&app.store, gid).then_some(!app.settings.hub_seen);
+    let mut hub_page = false;
+    let open_page = if app.hub.as_ref().is_some_and(|h| h.guild == gid) {
+        Some("Server Hub")
+    } else if app.boosts == Some(gid) {
         Some("Server Boosts")
     } else if app.server_shop.as_ref().is_some_and(|s| s.guild == gid) {
         Some("Server Shop")
@@ -150,22 +163,19 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
     };
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
-        let out = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let out = egui::ScrollArea::vertical().id_salt(("side_list", gid)).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             // under a banner the list starts where the banner ends
-            ui.add_space(if banner.is_some() { 81.0 } else { 8.0 });
+            ui.add_space(if banner.is_some() { 81.0 } else { 13.0 });
             let store = &app.store;
-            if let Some(g) = store.guilds.get(&gid).filter(|g| g.boost_bar) {
-                boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some());
+            match store.guilds.get(&gid).filter(|g| g.boost_bar) {
+                Some(g) => boost_page |= boost_goal(ui, g.boosts, goal, banner.is_some()),
+                None if banner.is_some() => ui.add_space(15.5),
+                None => {}
             }
             let threads: Vec<&Channel> = store.threads_in(gid).filter(|c| c.joined && !c.archived).collect();
             // discord's "N New" on forums: open posts started since you last looked
-            let mut fresh: std::collections::HashMap<Id, usize> = Default::default();
-            for t in store.threads_in(gid).filter(|t| !t.archived) {
-                if store.channels.get(&t.parent).is_some_and(|f| f.is_forum()) && store.reads.get(&t.parent).is_some_and(|r| t.id > r.last_acked) {
-                    *fresh.entry(t.parent).or_default() += 1;
-                }
-            }
+            let fresh = fresh_posts(store, gid);
             let revealed = egui::Id::new("side_revealed");
             if let Some(g) = store.guilds.get(&gid) {
                 // discord counts only the steps in channels you can see
@@ -180,7 +190,8 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let read = store.event_reads.get(&gid);
                 let mentions = if muted { 0 } else { read.map_or(0, |r| r.mentions) };
                 let unread = !muted && g.newest_event > read.map_or(0, |r| r.last_acked);
-                match home_rows(ui, g, store.my_perms(gid), open_page, EventsRow { muted, unread, mentions }, &mut events_act) {
+                match home_rows(ui, g, store.my_perms(gid), open_page, EventsRow { muted, unread, mentions }, &mut events_act, hub_row) {
+                    Some("Server Hub") => hub_page = true,
                     Some("Server Boosts") => boost_page = true,
                     Some("Server Shop") => shop_page = true,
                     Some("Events") => events_page = true,
@@ -191,7 +202,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
             }
             let hide = store.hide_muted.contains(&gid);
-            let mut groups = tree(store, gid, cur);
+            let off_id = egui::Id::new(("suggested_off", gid));
+            let off: Vec<Id> = ui.ctx().data(|d| d.get_temp(off_id)).unwrap_or_default();
+            let mut suggested = suggested(store, gid, cur);
+            suggested.retain(|c| !off.contains(&c.id));
+            let mut groups = tree(store, gid);
             let mut pinned: Vec<&Channel> = Vec::new();
             for (_, kids) in &mut groups {
                 kids.retain(|c| {
@@ -202,17 +217,25 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     !on
                 });
             }
-            let sections = Some((true, None, pinned)).filter(|s| !s.2.is_empty()).into_iter().chain(groups.into_iter().map(|(c, k)| (false, c, k)));
-            for (pin_sec, cat, kids) in sections {
+            let sections = Some((Some("Suggested"), None, suggested)).filter(|s| !s.2.is_empty()).into_iter().chain(Some((Some("Pinned Channels"), None, pinned)).filter(|s| !s.2.is_empty())).chain(groups.into_iter().map(|(c, k)| (None, c, k)));
+            for (virt, cat, kids) in sections {
+                let (suggest_sec, pin_sec) = (virt == Some("Suggested"), virt == Some("Pinned Channels"));
                 // hiding muted channels takes empty categories with them, but never the open channel
                 let kids: Vec<&Channel> = kids.into_iter().filter(|c| !hide || cur == Some(c.id) || !store.is_muted(c)).collect();
                 if hide && kids.is_empty() && (cat.is_some() || pin_sec) {
                     continue;
                 }
-                let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.ui.collapsed.contains(&c.id)) };
+                let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.store.collapsed.contains(&c.id)) };
+                if suggest_sec {
+                    ui.add_space(15.0);
+                    if suggested_head(ui) {
+                        let ids: Vec<Id> = kids.iter().map(|c| c.id).collect();
+                        ui.ctx().data_mut(|d| d.insert_temp(off_id, ids));
+                    }
+                }
                 if pin_sec {
                     ui.add_space(15.0);
-                    let (head, _) = category(ui, "Pinned Channels", collapsed, false);
+                    let (head, _) = category(ui, "Pinned Channels", collapsed, false, false);
                     app.rects.insert("side:pinned".into(), head.rect);
                     if head.clicked() {
                         toggle = Some(gid);
@@ -221,7 +244,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 if let Some(cat) = cat {
                     // discord's category is 16 of padding over a 24 row, the first channel 1 under it
                     ui.add_space(15.0);
-                    let (r, add) = category(ui, &cat.name, collapsed, store.perms(cat) & crate::state::MANAGE_CHANNELS != 0);
+                    let (r, add) = category(ui, &cat.name, collapsed, store.perms(cat) & crate::state::MANAGE_CHANNELS != 0, store.muted.contains(&cat.id));
                     if r.clicked() {
                         toggle = Some(cat.id);
                     }
@@ -237,10 +260,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 }
                 for c in kids {
                     let selected = cur == Some(c.id);
-                    let muted = store.is_muted(c);
+                    // a muted category folds its unread channels away with the rest, but doesn't dim them
+                    let muted = store.muted.contains(&c.id);
                     let new = if muted { 0 } else { fresh.get(&c.id).copied().unwrap_or(0) };
-                    let unread = (c.is_text() && store.unread(c)) || new > 0;
-                    if collapsed && !selected && !unread {
+                    let unread = (c.is_text() && store.unread_row(c)) || new > 0;
+                    if collapsed && !selected && (!unread || store.is_muted(c)) {
                         continue;
                     }
                     let vr = c.is_voice().then(|| {
@@ -311,6 +335,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         }
                     }
                 }
+                if suggest_sec {
+                    ui.add_space(9.0);
+                    let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                    ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y + 1.0, egui::Stroke::new(1.0, pal().border_subtle));
+                }
             }
             ui.add_space(12.0);
         });
@@ -358,6 +387,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
             }
             app.create = Some(f);
         }
+        Some((c, ChanAct::List(on))) => app.chan_flag(c, crate::ui::OPTED, on),
         Some((c, ChanAct::Pin)) => {
             let on = app.store.chan_flags.get(&c).is_none_or(|f| f & crate::ui::PINNED == 0);
             app.chan_flag(c, crate::ui::PINNED, on);
@@ -379,17 +409,25 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 Move::Last => crate::ui::reorder::move_to(app, c, at, None),
             }
         }
+        Some((c, ChanAct::Favorite(p))) => crate::ui::favorites::add(app, c, p),
+        Some((c, ChanAct::Unfavorite)) => crate::ui::favorites::remove(app, c),
         Some((c, ChanAct::Collapse)) => toggle = Some(c),
         Some((_, ChanAct::CollapseAll)) => {
-            let cats = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id);
-            app.ui.collapsed.extend(cats);
+            let cats: Vec<Id> = app.store.channels.values().filter(|x| x.guild == gid && x.kind == 4).map(|x| x.id).collect();
+            app.set_collapsed(&cats, true);
         }
         None => {}
     }
-    if let Some(c) = toggle
-        && !app.ui.collapsed.remove(&c)
-    {
-        app.ui.collapsed.insert(c);
+    // the pinned section's fold is the server's own id, and only this machine's
+    if toggle == Some(gid) {
+        if !app.ui.collapsed.remove(&gid) {
+            app.ui.collapsed.insert(gid);
+        }
+    } else if let Some(c) = toggle {
+        app.set_collapsed(&[c], !app.store.collapsed.contains(&c));
+    }
+    if hub_page {
+        app.open_hub(gid);
     }
     if boost_page {
         app.open_boosts(gid);

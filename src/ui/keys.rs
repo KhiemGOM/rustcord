@@ -253,11 +253,8 @@ impl App {
             && let Some(g) = self.ui.guild
         {
             let cats: Vec<Id> = self.store.channels.values().filter(|c| c.guild == g && c.kind == 4).map(|c| c.id).collect();
-            if cats.iter().all(|c| self.ui.collapsed.contains(c)) {
-                self.ui.collapsed.retain(|c| !cats.contains(c));
-            } else {
-                self.ui.collapsed.extend(cats);
-            }
+            let all = cats.iter().all(|c| self.store.collapsed.contains(c));
+            self.set_collapsed(&cats, !all);
         }
         if k(ctrl_shift, Key::N) {
             self.invite = Some(String::new());
@@ -333,9 +330,9 @@ impl App {
     /// (2) the next with a mention.
     fn walk_channels(&mut self, down: bool, only: u8) {
         let list: Vec<Id> = match self.ui.guild {
-            Some(g) => side::tree(&self.store, g, self.cur())
+            Some(g) => side::suggested(&self.store, g, self.cur())
                 .into_iter()
-                .flat_map(|(_, k)| k)
+                .chain(side::tree(&self.store, g).into_iter().flat_map(|(_, k)| k))
                 .filter(|c| c.is_text() || c.is_forum())
                 .map(|c| c.id)
                 .collect(),

@@ -23,7 +23,7 @@ pub(super) enum Item {
 }
 
 /// Discord's own commands, listed after the apps' as "Built-In": name, options, description.
-pub(super) const BUILT_IN: [(&str, &str, &str); 15] = [
+pub(super) const BUILT_IN: [(&str, &str, &str); 16] = [
     ("shrug", "message", "Appends ¯\\_(ツ)_/¯ to your message."),
     ("tableflip", "message", "Appends (╯°□°)╯︵ ┻━┻ to your message."),
     ("unflip", "message", "Appends ┬─┬ ノ( ゜-゜ノ) to your message."),
@@ -39,6 +39,7 @@ pub(super) const BUILT_IN: [(&str, &str, &str); 15] = [
     ("timeout", "user duration reason", "Timeout user"),
     ("msg", "user message", "Message user"),
     ("leave", "silent", "Leave Group"),
+    ("schedule", "message", "Schedule a message to send later"),
 ];
 
 /// A built-in as the application command it is in discord, so it gets the same pills.
@@ -72,6 +73,7 @@ pub(super) fn built_in_here(app: &App, chan: &Channel, name: &str) -> bool {
         "ban" => chan.guild != 0 && perms & BAN_MEMBERS != 0,
         "timeout" => chan.guild != 0 && perms & MODERATE_MEMBERS != 0,
         "leave" => chan.kind == 3,
+        "schedule" => crate::ui::scheduled::can(&app.store, chan.id),
         _ => true,
     }
 }

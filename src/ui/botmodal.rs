@@ -345,6 +345,7 @@ fn field(ui: &mut Ui, store: &crate::state::Store, guild: Id, m_channel: Id, i: 
             super::settings::mark(ui, &format!("bot_input:{}", inp.custom_id), r);
             let bad = shown.is_some();
             ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if bad { pal().red } else if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+            ui.advance_cursor_after_rect(r);
             if !inp.long && e.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 *submit = true;
             }

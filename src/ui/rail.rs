@@ -80,6 +80,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     app.open(c);
                 }
             }
+            if super::favorites::shown(app) {
+                favorites(app, ui);
+            }
 
             separator(ui);
 
@@ -143,6 +146,23 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         });
 }
 
+/// Discord's Favorites server: a star on the home tile's grey, under the dms.
+fn favorites(app: &mut App, ui: &mut Ui) {
+    let (unread, mentions) = super::favorites::badge(&app.store);
+    let selected = app.ui.guild == Some(super::favorites::ID);
+    let r = item(ui, egui::Id::new("favorites"), selected, unread, |ui, rect, radius, _, k| {
+        ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().blurple, k));
+        icons::draw(ui.painter(), Icon::Star, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
+    });
+    if mentions > 0 {
+        badge(ui, r.rect.right_bottom() - vec2(12.0, 8.0), mentions, Some(pal().bg_tertiary));
+    }
+    app.rects.insert("guild:favorites".into(), r.rect);
+    if tip(r, "Favorites").clicked() {
+        super::favorites::select(app);
+    }
+}
+
 fn separator(ui: &mut Ui) {
     let (sep, _) = ui.allocate_exact_size(vec2(72.0, 1.0), Sense::hover());
     ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 1.0)), CornerRadius::same(1), pal().frame_border);
@@ -156,7 +176,9 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
             crate::gif::paint_still(ui, &url, rect, radius, hot);
         }
         None => {
-            ui.painter().rect_filled(rect, radius, motion::mix(pal().bg_mod_selected, pal().blurple, k));
+            let mini = rect.width() < 30.0;
+            let under = if mini { pal().bg_primary } else { pal().bg_mod_selected };
+            ui.painter().rect_filled(rect, radius, motion::mix(under, pal().blurple, k));
             let acr = g.acronym();
             let size = match acr.chars().count() {
                 0..=2 => 17.0,
@@ -164,9 +186,11 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
                 4..=5 => 13.0,
                 _ => 11.0,
             } * rect.width()
-                / ICON;
+                / ICON
+                * if mini { 1.24 } else { 1.0 };
             let col = motion::mix(pal().text_normal, Color32::WHITE, k);
-            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, semi(size), col, rect.width() - 4.0);
+            let font = if mini { reg(size) } else { semi(size) };
+            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, font, col, rect.width() - 4.0);
         }
     }
 }
@@ -199,39 +223,44 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
 
 enum Act {
     Read,
-    Invite(Id),
+    Invite(Option<Id>),
     Mute(bool, Option<i64>),
-    Notifs,
+    Level(u8),
+    Flag(super::notifs::Flag),
     HideMuted,
+    ShowAll,
     Privacy,
     Profile,
     Leave,
     CopyId,
+    Move(super::folders::Move),
 }
 
 /// Discord's right-click menu on a server icon.
 fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
     use super::{Trail, menu_item, menu_row, menu_sep};
+    use super::notifs::Flag;
     let store = &app.store;
     let muted = store.muted.contains(&gid);
     let hide = store.hide_muted.contains(&gid);
     let owner = store.guilds.get(&gid).is_some_and(|g| g.owner == store.me);
-    // invites need a channel; discord picks the first one we may invite to
-    let invite_to = super::side::first_channel(store, gid)
-        .and_then(|c| store.channels.get(&c))
-        .filter(|c| store.perms(c) & crate::state::CREATE_INVITE != 0)
-        .map(|c| c.id);
+    let invite_to = super::side::first_channel(store, gid).and_then(|c| store.channels.get(&c)).filter(|c| store.can_invite(c)).map(|c| c.id);
+    let tree = super::folders::current(app);
+    let at = tree.iter().enumerate().find_map(|(i, f)| f.guilds.iter().position(|g| *g == gid).map(|p| (i, p)));
+    let dests: Vec<(Id, String)> = tree.iter().filter(|f| f.id != 0).map(|f| (f.id, super::folders::name(store, f))).collect();
     let dev = app.settings.dev;
+    let community = store.guilds.get(&gid).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY"));
+    let level = store.levels.get(&gid).copied().unwrap_or_else(|| store.guilds.get(&gid).map_or(0, |g| g.default_notif)).min(2);
+    let prefs = store.gprefs.get(&gid).cloned().unwrap_or_default();
+    let events_muted = store.events_muted.contains(&gid);
     let mut act = None;
     egui::Popup::context_menu(r).close_behavior(super::menu_closing(&r.ctx)).show(|ui| super::menu_body(ui, |ui| {
         if ui.add_enabled_ui(unread, |ui| menu_item(ui, None, "Mark As Read", false)).inner {
             act = Some(Act::Read);
         }
-        if let Some(c) = invite_to {
-            menu_sep(ui);
-            if menu_item(ui, None, "Invite to Server", false) {
-                act = Some(Act::Invite(c));
-            }
+        menu_sep(ui);
+        if menu_item(ui, None, "Invite to Server", false) {
+            act = Some(Act::Invite(invite_to));
         }
         menu_sep(ui);
         if muted {
@@ -240,17 +269,42 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             }
         } else {
             let m = menu_row(ui, None, "Mute Server", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 if let Some(secs) = super::mute_menu(ui) {
                     act = Some(Act::Mute(true, secs));
                 }
             });
         }
-        if menu_item(ui, None, "Notification Settings", false) {
-            act = Some(Act::Notifs);
-        }
+        let n = menu_row(ui, None, "Notification Settings", Some(super::LEVELS[level as usize]), false, Trail::Caret);
+        super::submenu(ui, &n, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.set_min_width(224.0);
+            for (i, l) in super::LEVELS.iter().enumerate() {
+                if menu_row(ui, None, l, None, false, Trail::Radio(level == i as u8)).clicked() {
+                    act = Some(Act::Level(i as u8));
+                }
+            }
+            menu_sep(ui);
+            for (flag, label, on) in [
+                (Flag::Everyone, "Suppress @everyone and @here", prefs.suppress_everyone),
+                (Flag::Roles, "Suppress All Role @mentions", prefs.suppress_roles),
+                (Flag::Highlights, "Suppress Highlights", prefs.highlights_off),
+                (Flag::Events, "Mute New Events", events_muted),
+            ] {
+                if menu_row(ui, None, label, None, false, Trail::Check(on)).clicked() {
+                    act = Some(Act::Flag(flag));
+                }
+            }
+            menu_sep(ui);
+            if menu_row(ui, None, "Mobile Push Notifications", None, false, Trail::Check(prefs.mobile_push)).clicked() {
+                act = Some(Act::Flag(Flag::Mobile));
+            }
+        });
         if menu_row(ui, None, "Hide Muted Channels", None, false, Trail::Check(hide)).clicked() {
             act = Some(Act::HideMuted);
+        }
+        if community && menu_row(ui, None, "Show All Channels", None, false, Trail::Check(!store.opt_in.contains(&gid))).clicked() {
+            act = Some(Act::ShowAll);
         }
         menu_sep(ui);
         if menu_item(ui, None, "Privacy Settings", false) {
@@ -258,6 +312,43 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
         }
         if menu_item(ui, None, "Edit Per-server Profile", false) {
             act = Some(Act::Profile);
+        }
+        if let Some((s, p)) = at {
+            use super::folders::Move;
+            let inside = tree[s].id != 0;
+            let (n, i) = if inside { (tree[s].guilds.len(), p) } else { (tree.len(), s) };
+            if !dests.is_empty() || n > 1 {
+                menu_sep(ui);
+                let m = menu_row(ui, None, "Move to...", None, false, Trail::Caret);
+                super::submenu(ui, &m, |ui| {
+                    if !dests.is_empty() {
+                        let f = menu_row(ui, None, "Folder", None, false, Trail::Caret);
+                        super::submenu(ui, &f, |ui| {
+                            if ui.add_enabled_ui(inside, |ui| menu_item(ui, None, "No Folder", false)).inner {
+                                act = Some(Act::Move(Move::Out));
+                            }
+                            menu_sep(ui);
+                            for (id, name) in &dests {
+                                if ui.add_enabled_ui(*id != tree[s].id, |ui| menu_item(ui, None, name, false)).inner {
+                                    act = Some(Act::Move(Move::Into(*id)));
+                                }
+                            }
+                        });
+                    }
+                    if n > 1 {
+                        if !dests.is_empty() {
+                            menu_sep(ui);
+                        }
+                        let (first, last) = if inside { ("First in Folder", "Last in Folder") } else { ("First in List", "Last in List") };
+                        if ui.add_enabled_ui(i != 0, |ui| menu_item(ui, None, first, false)).inner {
+                            act = Some(Act::Move(Move::First));
+                        }
+                        if ui.add_enabled_ui(i + 1 != n, |ui| menu_item(ui, None, last, false)).inner {
+                            act = Some(Act::Move(Move::Last));
+                        }
+                    }
+                });
+            }
         }
         if !owner {
             menu_sep(ui);
@@ -277,12 +368,14 @@ fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
             let chans = app.store.guilds.get(&gid).map(|g| g.channels.clone()).unwrap_or_default();
             app.mark_read(&chans);
         }
-        Some(Act::Invite(c)) => {
-            app.invite_people(c, "Guild Context Menu");
-        }
+        Some(Act::Invite(Some(c))) => app.invite_people(c, "Guild Context Menu"),
+        Some(Act::Invite(None)) => app.invite_denied(),
+        Some(Act::Move(m)) => super::folders::move_guild(app, gid, m),
         Some(Act::Mute(m, secs)) => app.mute_for(gid, true, m, secs),
-        Some(Act::Notifs) => app.guild_notifs = Some(gid),
+        Some(Act::Level(l)) => app.set_level(gid, Some(l)),
+        Some(Act::Flag(f)) => super::notifs::toggle(app, gid, f),
         Some(Act::HideMuted) => super::side::toggle_hide_muted(app, gid),
+        Some(Act::ShowAll) => super::side::show_all_channels(app, gid),
         Some(Act::Privacy) => app.guild_modal = Some(super::guildmodal::Modal::Privacy(gid)),
         Some(Act::Profile) => app.edit_server_profile(gid),
         Some(Act::Leave) => super::side::leave(app, gid),
@@ -344,7 +437,7 @@ fn upper_badge(ui: &Ui, icon_rect: Rect, icon: Icon, mine: bool, hole: Color32) 
 
 fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let open = app.ui.open_folders.contains(&f.id);
-    let color = f.color.map(role_color);
+    let color = f.color.filter(|c| *c != 0x5865f2).map(role_color);
     let mut unread = false;
     let mut mentions = 0;
     for g in &f.guilds {
@@ -380,10 +473,10 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
             // the corner on the folder's outside edge is the round one
             let mut cr = CornerRadius::same(4);
             match i {
-                0 => cr.nw = 10,
-                1 => cr.ne = 10,
-                2 => cr.sw = 10,
-                _ => cr.se = 10,
+                0 => cr.nw = 13,
+                1 => cr.ne = 13,
+                2 => cr.sw = 13,
+                _ => cr.se = 13,
             }
             guild_icon(app, ui, *g, cell, cr, false, 0.0);
         }
@@ -397,9 +490,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
         upper_badge(ui, Rect::from_center_size(r.rect.center(), vec2(48.0, 48.0)), icon, true, pal().bg_tertiary);
     }
     app.rects.insert(format!("folder:{}", f.id), r.rect);
-    let name = f.name.clone().unwrap_or_else(|| {
-        f.guilds.iter().filter_map(|g| app.store.guilds.get(g)).map(|g| g.name.clone()).collect::<Vec<_>>().join(", ")
-    });
+    let name = super::folders::name(&app.store, f);
     let r = tip(r, &name);
     if r.clicked() && !app.ui.open_folders.remove(&f.id) {
         app.ui.open_folders.insert(f.id);
@@ -414,7 +505,7 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
             }
             menu_sep(ui);
             let m = menu_row(ui, None, "Move to...", None, false, Trail::Caret);
-            egui::containers::menu::SubMenu::new().show(ui, &m, |ui| {
+            super::submenu(ui, &m, |ui| {
                 if menu_item(ui, None, "First in List", false) {
                     act = Some(1);
                 }

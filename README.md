@@ -16,7 +16,7 @@ Or build it yourself with a recent stable Rust (edition 2024):
 cargo run --release
 ```
 
-Log in with email/password (2FA supported) or paste a token. The token and a snapshot of your servers, channels and recent messages live in `%LOCALAPPDATA%\Rustcord`, which is why the second launch paints your servers before the gateway has even connected.
+Log in with email/password (2FA supported), a passkey, a QR code or a pasted token. The token and a snapshot of your servers, channels and recent messages live in `%LOCALAPPDATA%\Rustcord`, which is why the second launch paints your servers before the gateway has even connected.
 
 ## What works
 
@@ -32,13 +32,19 @@ Log in with email/password (2FA supported) or paste a token. The token and a sna
 - right-click menus: mark as read, mute, copy link, pin, mark unread, copy IDs (developer mode)
 - desktop notifications for mentions and DMs, taskbar flash, unread count in the window title
 - settings, laid out like Discord's (searchable sidebar, 24 pages):
-  - User: My Account (display name, username, email, password, account removal), Profiles (live preview, per-server nickname, unsaved-changes bar), Content & Social, Data & Privacy, Family Center, Authorized Apps, Devices, Connections, Nitro/Subscriptions/Gift Inventory/Billing (read-only)
-  - App: Appearance (Light/Ash/Dark/Onyx/Sync themes, cozy/compact, font scaling, group spacing, zoom), Accessibility, Voice & Video (devices, volumes, voice activity or push to talk), Chat, Notifications (with sounds), Keybinds (global), Language, Windows Settings (run on startup), Streamer Mode (incl. hiding the window from capture), Advanced
+  - User: My Account (display name, username, email, password, account removal), Profiles (live preview, per-server nickname, unsaved-changes bar), Content & Social, Data & Privacy, Family Center, Authorized Apps, Devices, Connections, Nitro, Subscriptions, Gift Inventory and Billing (checkout happens in the client; only typing in a new card opens a small web view)
+  - App: Appearance (Light/Ash/Dark/Onyx/Sync themes, Nitro colour themes and your own in an editor, a server's own theme, dark sidebar, app icons, cozy/compact, font scaling, group spacing, zoom), Accessibility, Voice & Video (devices, volumes, voice activity or push to talk), Chat, Notifications (with sounds), Keybinds (global), Language, Windows Settings (run on startup), Streamer Mode (incl. hiding the window from capture), Advanced
   - Activity: Activity Privacy, HypeSquad
 - emoji render as twemoji everywhere (messages, channel names, nicknames, server names), CJK fallback fonts
 - composer: Ctrl+V images/files, upload cards with spoiler toggle, `@` `#` `:` `/` autocomplete, slash commands, GIF picker, reply ping toggle
 - bot buttons and select menus, jump to replied/pinned/searched messages, "new messages" and "jump to present" bars, image viewer
 - shortcuts: Ctrl+K, Alt+↑/↓, Alt+Shift+↑/↓ (unread), Ctrl+E, Ctrl+Shift+U, Esc marks read, ↑ edits, Alt+click marks unread
+- polls, scheduled messages (for accounts Discord has given them to), saved messages and reminders, forwarding
+- the Shop: collectibles with previews on your profile, bundles, the Orbs shop and wallet, wishlist, game shops; Nitro and server boosts; Quests
+- the profile editor with per-server profiles, display name styles, profile themes and widgets
+- Discover: apps, servers and Student Hubs
+- server settings: roles and permissions, channels, AutoMod, members and applications, discovery and insights, Server Hub
+- activities and video embeds in a WebView2 view, inline video and audio players, clips, soundboard, stage channels
 - voice channels and DM / group DM calls: join from the sidebar or the call button, mute / deafen, voice activity detection, speaking rings, the "Voice Connected" panel
 - video: camera, screen share (Go Live) and watching other people's cameras and streams, H264 via openh264
 - DAVE end-to-end encryption (the `davey` crate) for audio and video, on top of the transport encryption

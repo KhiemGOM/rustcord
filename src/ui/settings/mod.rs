@@ -10,6 +10,7 @@ pub use app::backfill;
 mod theme;
 pub mod apps;
 pub mod billing;
+pub mod referral;
 pub mod camera;
 mod clips;
 mod privacy;
@@ -126,6 +127,8 @@ const SIDEBAR: &[Item] = &[
 ];
 
 const SIDE: f32 = 253.0;
+/// user settings' sidebar region as the capture measures it: the column starts 632 in a 1400 card
+const SIDEBAR_TOTAL: f32 = 277.0;
 const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
 pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
@@ -363,7 +366,7 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     }
 
     let view = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
-    let cols = super::sidebar_view::column(area.left() - SIDE, area.width() + SIDE, SIDE, super::sidebar_view::Kind::Wide, false);
+    let cols = super::sidebar_view::column(area.left() - SIDE, area.width() + SIDE, SIDEBAR_TOTAL, super::sidebar_view::Kind::Wide, false);
     ui.ctx().data_mut(|d| d.insert_temp(Id::new("notice"), cols.notice));
     let mut changed = false;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(view));
@@ -489,7 +492,7 @@ pub fn section_with(ui: &mut Ui, title: &str, button: Option<&str>) -> bool {
         ui.add_space(40.0);
     }
     ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
-    let r = ui.add(egui::Label::new(RichText::new(title).font(reg(24.0)).color(pal().header_primary)).selectable(false)).rect;
+    let r = ui.add(egui::Label::new(RichText::new(title).font(medium(24.0)).color(pal().header_primary)).selectable(false)).rect;
     ui.data_mut(|d| {
         let mut v = d.get_temp::<Vec<(String, f32)>>(id).unwrap_or_default();
         v.push((title.to_string(), r.top()));
@@ -663,6 +666,39 @@ pub fn slider(ui: &mut Ui, w: f32, value: &mut f32, lo: f32, hi: f32) -> bool {
         }
     }
     false
+}
+
+fn volume_pos(a: f32) -> f32 {
+    if a <= 0.0 { 0.0 } else if a < 1.0 { a.powf(1.0 / 2.8) * 100.0 } else { (20.0 * a.log10() / 6.0 + 1.0) * 100.0 }
+}
+
+fn volume_amp(p: f32) -> f32 {
+    let n = p / 100.0;
+    if n <= 0.0 { 0.0 } else if n < 1.0 { n.powf(2.8) } else { 10f32.powf((n - 1.0) * 0.3) }
+}
+
+pub fn volume_slider(ui: &mut Ui, w: f32, v: &mut f32, max: f32) -> bool {
+    let mut p = volume_pos(*v);
+    if !slider(ui, w, &mut p, 0.0, max) {
+        return false;
+    }
+    *v = volume_amp(p);
+    true
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::{volume_amp, volume_pos};
+
+    #[test]
+    fn the_slider_follows_discords_volume_curve() {
+        assert!((volume_amp(50.0) - 0.5f32.powf(2.8)).abs() < 1e-6);
+        assert!((volume_pos(1.0) - 100.0).abs() < 1e-4);
+        assert!((volume_amp(200.0) - 10f32.powf(0.3)).abs() < 1e-5);
+        for p in [0.0, 12.5, 50.0, 99.0, 100.0, 150.0, 200.0] {
+            assert!((volume_pos(volume_amp(p)) - p).abs() < 1e-3, "{p}");
+        }
+    }
 }
 
 /// The slider with labelled tick marks used for font size, spacing and zoom. Ticks sit

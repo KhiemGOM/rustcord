@@ -72,7 +72,10 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
     let w = ui.available_width();
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
-    let content = Rect::from_min_size(pos2(left + 72.0, top + 2.0), vec2((w - 72.0 - 48.0).max(120.0), 100_000.0));
+    // a system message is a 30 tall row with its line 4 down
+    let sys_row = sys.is_some();
+    let pad = if sys_row { 4.0 } else { 2.0 };
+    let content = Rect::from_min_size(pos2(left + 72.0, top + pad), vec2((w - 72.0 - 48.0).max(120.0), 100_000.0));
     let mut cui = ui.new_child(UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
     cui.spacing_mut().item_spacing = vec2(4.0, 0.0);
 
@@ -127,8 +130,8 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
         if let Some(s) = interaction::status(d, m) {
             interaction::status_line(&mut cui, d, font, &s);
         }
-        // discord's accessories: 2 under the text, 4 apart, 2 under the last
-        let mut acc = 2.0;
+        // discord's accessories: 2 under the text, 4 apart, 2 under the last; 9 under a name line with no text
+        let mut acc = if m.content.is_empty() && start && !compact { 9.0 } else { 2.0 };
         // a components-v2 message shows its files through its own gallery, file and thumbnail nodes
         let files: &[crate::state::Attachment] = if m.flags & (1 << 15) != 0 { &[] } else { &m.attachments };
         let tiled: Vec<&crate::state::Attachment> = files.iter().filter(|a| (a.is_image() && d.s.inline_uploads) || a.is_video()).collect();
@@ -236,6 +239,11 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
             acc = 4.0;
             poll(&mut cui, d, m);
         }
+        if m.extra["shared_client_theme"].is_object() {
+            cui.add_space(acc);
+            acc = 4.0;
+            theme_card(&mut cui, d, m);
+        }
         if let Some(t) = m.thread.and_then(|t| d.store.channels.get(&t)) {
             cui.add_space(acc);
             acc = 4.0;
@@ -277,7 +285,8 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
             cui.label(RichText::new("(edited)").font(reg(10.0)).color(pal().text_muted));
         }
         if !m.reactions.is_empty() && d.s.reactions {
-            cui.add_space(acc);
+            // straight under the text, discord's reactions sit 4 down, not the accessories' 2
+            cui.add_space(if acc == 2.0 { 4.0 } else { acc });
             acc = 4.0;
             reactions(&mut cui, d, m);
         }
@@ -286,7 +295,9 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
         }
     }
 
-    let bottom = cui.min_rect().bottom().max(top + 22.0) + 2.0 + tail;
+    // a system line is 22 tall like discord's; egui's is a hair shorter
+    let floor = if sys_row { top + pad + 22.0 } else { top + 22.0 };
+    let bottom = cui.min_rect().bottom().max(floor) + pad + tail;
     let row = Rect::from_min_max(pos2(left, top), pos2(left + w, bottom));
     ui.advance_cursor_after_rect(row);
     ui.data_mut(|s| s.insert_temp(row_id, row));

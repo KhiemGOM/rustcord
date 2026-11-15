@@ -142,7 +142,7 @@ impl Run {
                 self.next(800);
             }
             8851 => {
-                let Some(r) = Self::at(ctx, "shop:tab:Orbs Exclusives") else { return };
+                let Some(r) = Self::at(ctx, "shop:tab:Orbs Shop") else { return };
                 self.click(r.center());
                 self.next(800);
             }
@@ -358,9 +358,9 @@ impl Run {
                 app.friends = false;
                 app.select_guild(Some(self.target.0));
                 app.open(self.target.1);
-                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5200 };
             }
-            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 },
+            _ => self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5200 },
         }
     }
 }

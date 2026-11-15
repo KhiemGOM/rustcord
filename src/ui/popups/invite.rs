@@ -110,9 +110,20 @@ pub(super) enum Pick {
 }
 
 impl App {
+    pub fn invite_denied(&mut self) {
+        let body = "To add a friend to this server, ask someone with invite permissions for help.";
+        self.confirm = Some(crate::ui::Confirm::new("Invite permission required", body, "Got It", |_: &mut App| {}).blurple().alone());
+    }
+
     /// Invite People: a fresh link to the channel, good for 30 days like the official client's.
     pub fn invite_people(&mut self, ch: Id, source: &str) {
-        self.made_invite = Some(MadeInvite { ch, code: None, query: String::new(), sent: Default::default() });
+        // without the permission the dialog hands out the server's own link
+        let chan = self.store.channels.get(&ch);
+        let own = chan.filter(|c| self.store.perms(c) & crate::state::CREATE_INVITE == 0).and_then(|c| self.store.guilds.get(&c.guild)).and_then(|g| g.vanity.clone());
+        self.made_invite = Some(MadeInvite { ch, code: own.clone(), query: String::new(), sent: Default::default() });
+        if own.is_some() {
+            return;
+        }
         let body = Some(json!({ "max_age": 2_592_000, "max_uses": 0, "temporary": false }));
         if source.is_empty() {
             self.rest("POST", format!("/channels/{ch}/invites"), body, Tag::MadeInvite);
@@ -195,6 +206,7 @@ pub(super) fn made_invite(app: &mut App, ctx: &egui::Context) {
                 );
                 ui.painter().rect_stroke(field, 8, egui::Stroke::new(1.0, if r.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 crate::ui::icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 20.0, field.center().y), vec2(16.0, 16.0)), pal().header_primary);
+                ui.advance_cursor_after_rect(field);
                 // discord's warning circle: yellow with the "!" cut out of it
                 if store.locked(chan) {
                     ui.add_space(8.0);

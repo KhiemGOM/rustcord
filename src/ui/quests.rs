@@ -268,7 +268,7 @@ fn hero(ui: &mut Ui, acts: &mut Vec<Act>) {
     let x = r.left() + 38.0;
     ui.painter().text(pos2(x, r.bottom() - 190.0), Align2::LEFT_BOTTOM, "INTRODUCING", bold(56.0), Color32::WHITE);
     ui.painter().text(pos2(x, r.bottom() - 140.0), Align2::LEFT_BOTTOM, "DISCORD ORBS", bold(56.0), Color32::WHITE);
-    ui.painter().text(pos2(x, r.bottom() - 100.0), Align2::LEFT_CENTER, "Reward Your Play. Earn through Quests. Spend in the Shop.", reg(18.0), Color32::from_rgb(0xdc, 0xdc, 0xdf));
+    ui.painter().text(pos2(x, r.bottom() - 100.0), Align2::LEFT_CENTER, "Reward Your Play. Earn through Quests. Spend in the Shop.", medium(16.0), Color32::from_rgb(0xdc, 0xdc, 0xdf));
     let a = Rect::from_min_size(pos2(x, r.bottom() - 74.0), vec2(190.0, 46.0));
     if white(ui, a, "Explore Orbs Exclusives", true) {
         acts.push(Act::Shop);

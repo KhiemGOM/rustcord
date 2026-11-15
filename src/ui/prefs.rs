@@ -373,8 +373,7 @@ impl App {
     pub(super) fn show_window(&self, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        // winit focuses by faking an alt press, which the e2e mustn't do to whoever's at the machine
-        if self.e2e.is_none() {
+        if !crate::winsys::harness() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
     }

@@ -17,7 +17,7 @@ SURFACES = {
     "Ash": dict(rail="2c2d32", side="323339", chat="323339", members="323339", header="323339", input="393a41"),
     "Light": dict(rail="f3f3f4", side="fbfbfb", chat="fbfbfb", members="fbfbfb", header="fbfbfb", input="ffffff"),
 }
-FONTS = ("ggsans-400", "ggsans-500", "ggsans-600", "ggsans-700", "ggsans-400i", "ggsans-600i", "ggsans-700i", "ggmono-400", "ggmono-700")
+FONTS = ("ggsans-400", "ggsans-500", "ggsans-600", "ggsans-700", "ggsans-400i", "ggsans-600i", "ggsans-700i", "ggmono-400", "ggmono-700", "ginto-nord-700")
 # the nitro display name fonts' asset names (src/fonts.rs)
 NAME_FONTS = {
     "33d4f12a85e1f736", "e6f5f44abb520735", "c560709c3470bb66", "52b541f86401a5b6", "69c735ca5c604de7", "8f20cb550d739cea",

@@ -57,6 +57,7 @@ impl Cx<'_> {
 #[derive(Clone, Copy)]
 struct St {
     bold: bool,
+    medium: bool,
     italic: bool,
     under: bool,
     strike: bool,
@@ -86,6 +87,7 @@ impl B<'_, '_> {
             (_, true, true) => bold_italic(st.size),
             (_, true, _) => bold(st.size),
             (_, _, true) => italic(st.size),
+            _ if st.medium => medium(st.size),
             _ => reg(st.size),
         };
         let (color, bg) = if st.spoiler && !self.cx.revealed {
@@ -521,6 +523,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             b.text(&s[plain..i], st);
             let mut s2 = st;
             s2.color = pal().mention_fg;
+            s2.medium = true;
             b.pill(&rest[..n], s2, pal().mention_bg, None);
             Some(n)
         } else if let Some(n) = take_emoji(rest) {
@@ -587,6 +590,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
         b.text(&s[plain..i], st);
         let mut s2 = st;
         s2.color = color;
+        s2.medium = bg != Color32::TRANSPARENT && color != st.color;
         match link {
             Some(l) if bg == Color32::TRANSPARENT => b.linked(text, s2, l),
             _ => b.pill(text, s2, bg, link),
@@ -644,6 +648,7 @@ fn angle(b: &mut B, s: &str, plain: usize, i: usize, st: St) -> Option<usize> {
 fn base(cx: &Cx) -> St {
     St {
         bold: false,
+        medium: false,
         italic: false,
         under: false,
         strike: false,
@@ -702,6 +707,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
         }
         first = false;
         let mut st = base(cx);
+        let (line, under) = bold_item(line).unwrap_or((line, ""));
         let mut body = line;
         for (p, size) in [("### ", 16.0), ("## ", 20.0), ("# ", 24.0)] {
             if let Some(rest) = line.strip_prefix(p) {
@@ -723,11 +729,26 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
             body = rest;
         }
         inline(&mut b, body, st);
+        if !under.is_empty() {
+            b.text("\n", base(cx));
+            inline(&mut b, under, base(cx));
+        }
     }
     flush_quote(&mut quote, out);
     if b.chars > 0 {
         out.push(finish(b));
     }
+}
+
+/// A line that opens with a bolded list item, "**3. Be kind** and so on": discord reads the bold's
+/// inside as a list, a block, so what follows the bold starts on a line of its own.
+fn bold_item(line: &str) -> Option<(&str, &str)> {
+    let inside = line.strip_prefix("**")?;
+    let end = inside.find("**")?;
+    let digits = inside.bytes().take_while(u8::is_ascii_digit).count();
+    let item = digits > 0 && inside[digits..].starts_with(". ") || inside.starts_with("- ") || inside.starts_with("* ");
+    let under = inside[end + 2..].trim_start();
+    (item && end > 0 && !under.is_empty()).then(|| (&line[..end + 4], under))
 }
 
 /// What's between the fences: the language on its own first line when something follows it, as
@@ -785,7 +806,17 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
 
 #[cfg(test)]
 mod tests {
-    use super::fence;
+    use super::{bold_item, fence};
+
+    #[test]
+    fn what_follows_a_bolded_list_item_drops_to_its_own_line() {
+        assert_eq!(bold_item("**11. Respect All Players** Be respectful and kind."), Some(("**11. Respect All Players**", "Be respectful and kind.")));
+        assert_eq!(bold_item("**- Rules** apply"), Some(("**- Rules**", "apply")));
+        assert_eq!(bold_item("**11. Respect All Players**"), None);
+        assert_eq!(bold_item("**Respect** everyone"), None);
+        assert_eq!(bold_item("**3.5 stars** out of five"), None);
+        assert_eq!(bold_item("11. **Respect** everyone"), None);
+    }
 
     #[test]
     fn a_fence_names_its_language_only_on_its_own_line() {

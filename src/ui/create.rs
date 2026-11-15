@@ -117,10 +117,16 @@ pub(super) fn faint(a: u8) -> Color32 {
 
 /// Discord's modal: 480 wide, 24 in, the title and a close cross on top.
 pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
+    modal_with(ctx, id, title, None, add)
+}
+
+fn modal_with(ctx: &egui::Context, id: &'static str, title: Option<&str>, sub: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
     let r = crate::ui::motion::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
         ui.set_width(432.0);
+        let room = (ctx.content_rect().height() - 80.0 - 48.0 - if title.is_some() { 48.0 } else { 0.0 }).max(100.0);
+        ui.set_max_height(room + if title.is_some() { 48.0 } else { 0.0 });
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         if let Some(t) = title {
             let (r, _) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::hover());
@@ -129,10 +135,15 @@ pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, 
             let resp = ui.interact(x, ui.id().with("close"), Sense::click());
             icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             close = resp.clicked();
-            ui.add_space(24.0);
+            match sub {
+                Some(s) => {
+                    ui.painter().text(pos2(r.left(), r.top() + 34.0), Align2::LEFT_TOP, s, reg(16.0), pal().header_secondary);
+                    ui.add_space(54.65);
+                }
+                None => ui.add_space(24.0),
+            }
         }
-        let room = ctx.content_rect().height() - 80.0 - 48.0 - if title.is_some() { 48.0 } else { 0.0 };
-        egui::ScrollArea::vertical().max_height(room.max(100.0)).auto_shrink([false, true]).show(ui, |ui| add(ui));
+        egui::ScrollArea::vertical().max_height(room).auto_shrink([false, true]).show(ui, |ui| add(ui));
     });
     super::settings::mark_in(ctx, &format!("modal:{id}"), r.response.rect);
     close || r.should_close()
@@ -166,7 +177,7 @@ pub(super) fn choice(ui: &mut Ui, on: bool, icon: Icon, name: &str, desc: &str) 
 }
 
 /// A 40 tall box with an optional glyph in front, the way discord's channel name field looks.
-pub(super) fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<Icon>, rows: usize) -> egui::Response {
+pub(super) fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<Icon>, rows: usize, emoji: Option<&mut Option<egui::Pos2>>) -> egui::Response {
     let r = Frame::new()
         .fill(Color32::from_black_alpha(31))
         .stroke(Stroke::new(1.0, faint(61)))
@@ -180,14 +191,25 @@ pub(super) fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<I
                     ui.add_space(8.0);
                 }
                 let edit = if rows > 1 { egui::TextEdit::multiline(value).desired_rows(rows) } else { egui::TextEdit::singleline(value) };
-                ui.add(
+                let trail = if emoji.is_some() { 28.0 } else { 0.0 };
+                let resp = ui.add(
                     edit.frame(Frame::NONE)
                         .margin(Margin::ZERO)
                         .font(reg(16.0))
                         .text_color(pal().text_normal)
                         .hint_text(RichText::new(hint).color(pal().text_muted))
-                        .desired_width(ui.available_width()),
-                )
+                        .desired_width(ui.available_width() - trail),
+                );
+                if let Some(open) = emoji {
+                    let (r, b) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+                    let icon = Rect::from_center_size(pos2(r.right() - 10.0, r.center().y), vec2(20.0, 20.0));
+                    icons::draw(ui.painter(), Icon::Smile, icon, crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &b)));
+                    super::settings::mark(ui, "field:emoji", icon);
+                    if b.on_hover_text("Add Emoji").clicked() {
+                        *open = Some(icon.left_top());
+                    }
+                }
+                resp
             })
             .inner
         })
@@ -247,9 +269,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let close;
     let mut cancel = false;
     let mut send = false;
+    let mut name_emoji = None;
     match f.kind {
         Kind::Channel => {
-            close = modal(ctx, "create_channel", Some("Create Channel"), |ui| {
+            let within = f.parent.and_then(|p| app.store.channels.get(&p)).map(|c| format!("in {}", c.name));
+            close = modal_with(ctx, "create_channel", Some("Create Channel"), within.as_deref(), |ui| {
                 label(ui, "Channel Type");
                 for (t, icon, name, desc) in [
                     (0u8, Icon::Hash, "Text", "Send messages, images, GIFs, emoji, opinions, and puns"),
@@ -267,7 +291,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     15 => Icon::Forum,
                     _ => Icon::Hash,
                 };
-                field(ui, &mut f.name, "new-channel", Some(glyph), 1);
+                field(ui, &mut f.name, "new-channel", Some(glyph), 1, Some(&mut name_emoji));
                 // text and forum names are lowercase with dashes, as discord rewrites them while you type
                 if f.chan != 2 {
                     let fixed = f.name.to_lowercase().replace(' ', "-");
@@ -283,7 +307,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Kind::Category => {
             close = modal(ctx, "create_category", Some("Create Category"), |ui| {
                 label(ui, "Category Name");
-                field(ui, &mut f.name, "New Category", None, 1);
+                field(ui, &mut f.name, "New Category", None, 1, None);
                 ui.add_space(20.0);
                 private(
                     ui,
@@ -308,6 +332,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let f = app.create.as_mut().unwrap();
             close = modal(ctx, "create_event", None, |ui| cancel = event(ui, f, &voices, &mut send));
         }
+    }
+    if let Some(at) = name_emoji {
+        app.picker = Some((super::Pick::ChannelName, at - vec2(0.0, 360.0)));
     }
     let Some(f) = app.create.as_ref() else { return };
     let ready = !f.name.trim().is_empty() && !f.busy;
@@ -385,7 +412,7 @@ fn event(ui: &mut Ui, f: &mut Form, voices: &[(Id, String)], send: &mut bool) ->
                 });
             } else {
                 label(ui, "Enter a location");
-                field(ui, &mut f.location, "Add a location, link, or something.", None, 1);
+                field(ui, &mut f.location, "Add a location, link, or something.", None, 1, None);
             }
             let ready = if f.voice { f.place.is_some() } else { !f.location.trim().is_empty() };
             let (c, next, _) = steps(ui, false, "Next", ready);
@@ -397,7 +424,7 @@ fn event(ui: &mut Ui, f: &mut Form, voices: &[(Id, String)], send: &mut bool) ->
         1 => {
             heading(ui, "What's your event about?", "Fill out the details of your event.");
             label(ui, "Event Topic");
-            field(ui, &mut f.name, "What's your event?", None, 1);
+            field(ui, &mut f.name, "What's your event?", None, 1, None);
             ui.add_space(20.0);
             pair(ui, "Start Date", &mut f.date, "Start Time", &mut f.time);
             if !f.voice {
@@ -416,7 +443,7 @@ fn event(ui: &mut Ui, f: &mut Form, voices: &[(Id, String)], send: &mut bool) ->
             });
             ui.add_space(20.0);
             label(ui, "Description");
-            field(ui, &mut f.about, "Tell people a little more about your event. Markdown, new lines, and links are supported.", None, 3);
+            field(ui, &mut f.about, "Tell people a little more about your event. Markdown, new lines, and links are supported.", None, 3, None);
             ui.add_space(20.0);
             label(ui, "Cover Image");
             cover(ui, f);
@@ -484,7 +511,7 @@ fn steps(ui: &mut Ui, back: bool, go: &str, ready: bool) -> (bool, bool, bool) {
     (close, next, went_back)
 }
 
-fn pair(ui: &mut Ui, a: &str, av: &mut String, b: &str, bv: &mut String) {
+pub(super) fn pair(ui: &mut Ui, a: &str, av: &mut String, b: &str, bv: &mut String) {
     let w = (ui.available_width() - 16.0) / 2.0;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
@@ -493,14 +520,14 @@ fn pair(ui: &mut Ui, a: &str, av: &mut String, b: &str, bv: &mut String) {
                 ui.set_width(w);
                 ui.vertical(|ui| {
                     label(ui, name);
-                    field(ui, v, hint, Some(if hint.starts_with('Y') { Icon::Events } else { Icon::Clock }), 1);
+                    field(ui, v, hint, Some(if hint.starts_with('Y') { Icon::Events } else { Icon::Clock }), 1, None);
                 });
             });
         }
     });
 }
 
-fn when(date: &str, time: &str) -> Option<chrono::DateTime<chrono::Local>> {
+pub(super) fn when(date: &str, time: &str) -> Option<chrono::DateTime<chrono::Local>> {
     let d = chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
     let t = chrono::NaiveTime::parse_from_str(time.trim(), "%H:%M").ok()?;
     d.and_time(t).and_local_timezone(chrono::Local).single()

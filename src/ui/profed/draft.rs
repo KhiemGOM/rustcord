@@ -97,6 +97,9 @@ pub struct Draft {
     pub widgets: Vec<Widget>,
     pub avatar_url: String,
     pub banner_url: Option<String>,
+    /// For a server's profile: what the account has, which the preview shows where this has none.
+    pub inherit_theme: [Option<u32>; 2],
+    pub inherit_banner: Option<String>,
 }
 
 fn worn(v: &Value, asset_key: &str) -> Option<Item> {
@@ -145,7 +148,7 @@ pub fn widgets_of(v: &Value) -> Vec<Widget> {
 pub fn from_profile(v: &Value, me: &User, guild: Option<Id>) -> Draft {
     let (p, m) = if guild.is_some() { (&v["guild_member_profile"], &v["guild_member"]) } else { (&v["user_profile"], &v["user"]) };
     let theme = |i: usize| p["theme_colors"][i].as_u64().map(|c| c as u32);
-    let s = &v["user"]["display_name_styles"];
+    let s = &m["display_name_styles"];
     let colors: Vec<u32> = s["colors"].as_array().into_iter().flatten().filter_map(|c| c.as_u64()).map(|c| c as u32).collect();
     let style = s.is_object().then(|| Style { font: s["font_id"].as_u64().unwrap_or(11) as u8, effect: s["effect_id"].as_u64().unwrap_or(1) as u8, colors });
     let uid = me.id;
@@ -158,6 +161,9 @@ pub fn from_profile(v: &Value, me: &User, guild: Option<Id>) -> Draft {
         _ => me.avatar_url().replace("size=80", "size=256"),
     };
     let (effect, frame) = crate::ui::cosmo::worn(v);
+    let account = &v["user_profile"];
+    let inherit = |i: usize| guild.and(account["theme_colors"][i].as_u64()).map(|c| c as u32);
+    let inherit_banner = guild.and(account["banner"].as_str().or(v["user"]["banner"].as_str())).map(|b| format!("{}/banners/{uid}/{b}.png?size=600", crate::api::cdn()));
     Draft {
         name: if guild.is_some() { m["nick"].as_str().unwrap_or("").to_string() } else { me.global_name.clone().unwrap_or_default() },
         pronouns: p["pronouns"].as_str().unwrap_or("").to_string(),
@@ -178,6 +184,8 @@ pub fn from_profile(v: &Value, me: &User, guild: Option<Id>) -> Draft {
         widgets: widgets_of(v),
         avatar_url,
         banner_url: banner,
+        inherit_theme: [inherit(0), inherit(1)],
+        inherit_banner,
     }
 }
 

@@ -37,7 +37,7 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
         let order = here.into_iter().chain(store.guild_order.iter().copied().filter(|g| Some(*g) != here));
         let unread: Vec<Id> = order
             .filter(|g| !store.muted.contains(g))
-            .flat_map(|g| crate::ui::side::tree(store, g, None).into_iter().flat_map(|(_, k)| k))
+            .flat_map(|g| crate::ui::side::tree(store, g).into_iter().flat_map(|(_, k)| k))
             .filter(|c| c.is_text() && Some(c.id) != cur && store.unread(c))
             .map(|c| c.id)
             .take(20)

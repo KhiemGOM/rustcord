@@ -1,5 +1,5 @@
 use egui::Key;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::Run;
 use crate::state::{BLOCKED, FRIEND, Id};
@@ -52,7 +52,16 @@ impl Run {
                 self.click(r.center());
                 self.next(400);
             }),
-            563 => when!(app.poll.is_some(), {
+            563 => when!(Self::at(ctx, "poll:post").is_some() && self.step_at.elapsed() > Duration::from_millis(600), {
+                let flagged = app.poll.as_ref().is_some_and(|p| p.errors().len() == 2);
+                if flagged {
+                    self.mark("poll_empty_post_errors");
+                } else if self.step_at.elapsed() < Duration::from_secs(5) {
+                    let r = Self::at(ctx, "poll:post").unwrap_or(egui::Rect::ZERO);
+                    self.click(r.center());
+                    self.wait = Instant::now() + Duration::from_millis(700);
+                    return;
+                }
                 if let Some(p) = app.poll.as_mut() {
                     p.question = "which crate?".into();
                     p.answers[0].0 = "serde".into();
@@ -107,6 +116,7 @@ impl Run {
             }),
             570 => when!(matches!(gate_of(app, NEWS), Some(Gate::Bar(gate::Bar::Follow))) && at(app, "gate:button").is_some(), {
                 self.mark("composer_follow_bar");
+                self.rects.insert("composer_follow_bar_h".into(), serde_json::json!(at(app, "composer").map(|r| r.height())));
                 self.shot(ctx, "composer_follow_bar.png");
                 let r = at(app, "gate:button").unwrap_or(egui::Rect::ZERO);
                 self.click(r.center());

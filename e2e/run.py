@@ -11,6 +11,10 @@ speakers closed, so a test run never records you or makes noise.
     python e2e/run.py --real-devices   # warm run uses your real mic, speakers and desktop
     python e2e/run.py --real-camera    # ...and your webcam
     python e2e/run.py --real-video     # warm run streams a real screen, mic and speakers stay fake
+    python e2e/run.py --focus          # lets the test windows take focus, for the checks that need it
+
+Without --focus the test windows stay under everything and never take focus, and the checks that
+need focus (tidy.NEEDS_FOCUS) are listed as skipped instead of run.
 
 Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request log.
 """
@@ -71,6 +75,7 @@ import p4b
 import tidy
 import p4c
 import p5
+import r1
 import regressions
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -189,11 +194,18 @@ def run_client(name, data_dir, extra=None):
 
 
 def main():
+    focus = "--focus" in sys.argv
+    if focus:
+        os.environ["RUSTCORD_E2E_FOCUS"] = "1"
     if "--no-build" not in sys.argv:
         build()
-    if ART.exists():
-        shutil.rmtree(ART)
-    ART.mkdir(parents=True)
+    # only this run's own outputs: recordings and reports from the other tools live beside them
+    for name in ("cold", "warm", "login", "data", "login_data", "sounds", "mock_requests.jsonl", "report.json", "report.md"):
+        if (ART / name).is_dir():
+            shutil.rmtree(ART / name)
+        else:
+            (ART / name).unlink(missing_ok=True)
+    ART.mkdir(parents=True, exist_ok=True)
     data = ART / "data"
     log = ART / "mock_requests.jsonl"
 
@@ -272,8 +284,8 @@ def main():
             and near((g("guildicon:1008")[0] or 0) + 40 - (g("voicebadge:1008")[0] or 0), 16)
             and near(g("chan:2303")[3], 32)
             and near(g("chanicon:2303")[2], 20)
-            # discord draws emoji in names at about the text size, not 1.25x of it
-            and 14 <= (g("chanemoji:2303")[3] or 0) <= 18
+            # segoe ui emoji draws a name's emoji at the text size, in a box a third taller than it
+            and 20 <= (g("chanemoji:2303")[3] or 0) <= 23
             and near(g("userpanel")[3], 56, 8.5)
             and near(g("member:101")[3], 42)
             and g("voicebadge:1008")[2] is not None and g("voicebadge:1004")[2] is None
@@ -376,6 +388,8 @@ def main():
         "friend menu: right-clicking a friend gave the whole menu": all("friend_menu" in r.get("marks_ms", {}) for r in (cold, warm)),
         "pinned dm: Pin sent the dm's override flags": all("pin_dm" in r.get("marks_ms", {}) for r in (cold, warm)) and any(r.get("method") == "PATCH" and r.get("path", "").endswith("/users/@me/guilds/@me/settings") and "2048" in r.get("body", "") for r in reqs),
         "accounts: the signed-in account is in the Switch Accounts list, and a custom status went to the server": all("accounts" in r.get("marks_ms", {}) for r in (cold, warm)) and any(s.get("custom", {}).get("text") == "mock status" for s in protowire.status_writes(reqs)),
+        "a dm with a person is never asked for commands of its own, which discord answers with Unknown Channel": not any(
+            r.get("method") == "GET" and r["path"].startswith("/api/v9/channels/") and r["path"].endswith("/application-command-index") for r in reqs),
         "quick reactions: right-clicking one in the message menu and picking an emoji replaced it": all("quick_reactions" in r.get("marks_ms", {}) for r in (cold, warm)),
         "new messages bar: a wheel down at the bottom of the channel takes it away": all("bar_read" in r.get("marks_ms", {}) for r in (cold, warm)),
         "autoscroll: a middle click then moving up scrolled the chat up, a click ended it": all("autoscroll" in r.get("marks_ms", {}) for r in (cold, warm)),
@@ -415,6 +429,7 @@ def main():
                               ("member list: a gradient role's name is drawn as its gradient", "member_grad"),
                               ("boosts: Server Boost opens the boosts page in the app, levels and perks from the catalogue", "boosts"),
                               ("create channel: typed into discord's modal, sent, and the new channel opened", "create_channel"),
+                              ("create channel: the name field's emoji button added a unicode emoji without closing the modal", "channel_name_emoji"),
                               ("active threads: the modal lists the server's threads and a card opens one", "active_threads"),
                               ("app directory: discover opens in the app with the featured collections", "directory"),
                               ("server settings: the layer opens on Roles with discord's member counts", "server_settings"),
@@ -552,8 +567,11 @@ def main():
             all(lay(r, "side_start") - lay(r, "side_dragged") > 40 and lay(r, "chat_after_side") > lay(r, "chat_start") + 40 for r in (cold, warm)),
         "layout: dragging the member list edge left widened it and the chat column reflowed again (both runs)":
             all(lay(r, "members_dragged") - lay(r, "members_start") > 30 and lay(r, "chat_after_members") < lay(r, "chat_after_side") - 30 for r in (cold, warm)),
-        "layout: dragging the channel list far past its limit stops at discord's 359 and leaves the chat column >= 400 (both runs)":
-            all(lay(r, "side_max") <= 359.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
+        "layout: a member list squeezed by a narrow window gets its width back, and a click while squeezed saves nothing (both runs)":
+            all(lay(r, "members_squeezed") < lay(r, "members_dragged") - 30 and near(lay(r, "members_back"), lay(r, "members_dragged"), 1)
+                and near(lay(r, "members_kept"), lay(r, "members_dragged"), 1) for r in (cold, warm)),
+        "layout: dragging the channel list far past its limit stops at discord's 361 and leaves the chat column >= 400 (both runs)":
+            all(lay(r, "side_max") <= 361.5 and lay(r, "chat_min") >= 400 for r in (cold, warm)),
         "layout: warm run starts with the panel widths the cold run left":
             abs(lay(warm, "side_boot") - lay(cold, "side_final")) < 1 and abs(lay(warm, "members_boot") - lay(cold, "members_final")) < 1,
         "frame cpu p99 < 8ms (cold)": cold.get("frame_cpu_ms", {}).get("p99", 1e9) < 8.0,
@@ -602,6 +620,7 @@ def main():
         **tidy.checks({"cold": cold, "warm": warm}, reqs, data),
         **p4c.checks({"cold": cold, "warm": warm}, reqs),
         **p5.checks({"cold": cold, "warm": warm}, reqs),
+        **r1.checks({"cold": cold, "warm": warm}, reqs),
         **regressions.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
@@ -611,11 +630,13 @@ def main():
         **rpc.checks({"cold": cold, "warm": warm}, reqs, data),
         **activity.checks({"cold": cold, "warm": warm}, reqs, data),
     }
-    report = {"checks": checks, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
+    skipped = [] if focus else [k for k in tidy.NEEDS_FOCUS if checks.pop(k, None) is not None]
+    report = {"checks": checks, "skipped": skipped, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
 
     md = ["# rustcord e2e report", ""]
     md += [f"- [{'x' if ok else ' '}] {name}" for name, ok in checks.items()]
+    md += [f"- [-] skipped, needs --focus: {name}" for name in skipped]
     for name, r in (("cold", cold), ("warm", warm), ("login", signin)):
         md += ["", f"## {name} start", "", f"- spawn -> first frame: {r.get('spawn_to_first_frame_ms')} ms"]
         md += [f"- {k}: {v} ms" for k, v in r.get("marks_ms", {}).items()]

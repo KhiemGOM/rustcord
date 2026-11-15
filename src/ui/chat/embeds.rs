@@ -151,15 +151,17 @@ pub(crate) fn human_size(n: u64) -> String {
 /// file glyph, the name as a link that underlines under the pointer, and the size.
 pub(super) fn file_card(ui: &mut Ui, name: &str, size: u64) -> egui::Response {
     let w = ui.available_width().min(432.0);
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 66.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 74.0), Sense::click());
     ui.painter().rect(rect, CornerRadius::same(8), pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-    icons::draw(ui.painter(), Icon::File, Rect::from_min_size(rect.min + vec2(16.0, 21.0), vec2(24.0, 24.0)), pal().blurple);
-    let n = text::paint(ui.painter(), pos2(rect.left() + 52.0, rect.top() + 23.0), Align2::LEFT_CENTER, name, reg(14.0), pal().link, rect.width() - 64.0);
+    if !crate::ui::webart::draw(ui.painter(), crate::ui::webart::file_icon(name), Rect::from_min_size(rect.min + vec2(17.0, 17.0), vec2(30.0, 40.0))) {
+        icons::draw(ui.painter(), Icon::File, Rect::from_center_size(pos2(rect.left() + 32.0, rect.center().y), vec2(30.0, 30.0)), pal().blurple);
+    }
+    let n = text::paint(ui.painter(), pos2(rect.left() + 55.0, rect.top() + 29.0), Align2::LEFT_CENTER, name, reg(16.0), pal().link, rect.width() - 72.0);
     if resp.hovered() {
         ui.painter().hline(n.x_range(), n.bottom() - 1.0, Stroke::new(1.0, pal().link));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    ui.painter().with_clip_rect(rect.shrink(8.0)).text(pos2(rect.left() + 52.0, rect.top() + 44.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), pal().text_muted);
+    ui.painter().with_clip_rect(rect.shrink(8.0)).text(pos2(rect.left() + 55.0, rect.top() + 47.0), Align2::LEFT_CENTER, human_size(size), reg(12.0), pal().text_muted);
     resp
 }
 
@@ -375,7 +377,20 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
             };
             if let Some(f) = foot {
                 ui.add_space(8.0);
-                ui.label(RichText::new(f).font(reg(12.0)).line_height(Some(16.0)).color(pal().text_normal));
+                let label = RichText::new(f).font(medium(12.0)).line_height(Some(16.0)).color(pal().text_normal);
+                match &e.footer_icon {
+                    Some(url) => {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                            avatar(ui, r, url);
+                            ui.label(label);
+                        });
+                    }
+                    None => {
+                        ui.label(label);
+                    }
+                }
             }
         });
     let rect = r.response.rect;
@@ -411,31 +426,46 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
         for r in &m.reactions {
-            let count = r.count.to_string();
-            let g = ui.painter().layout_no_wrap(count, semi(14.0), if r.me { pal().mention_fg } else { pal().header_secondary });
-            let size = vec2(6.0 + 16.0 + 6.0 + g.size().x + 8.0, 24.0);
-            let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-            let on = crate::ui::motion::tween(ui.ctx(), resp.id.with("me"), r.me, 0.1, crate::ui::motion::EASE);
-            let hot = crate::ui::motion::hot(ui.ctx(), &resp);
-            let idle = (pal().bg_secondary, crate::ui::motion::mix(Color32::TRANSPARENT, pal().bg_accent, hot));
-            let (fill, stroke) = (
-                crate::ui::motion::mix(idle.0, wash(pal().blurple, 38), on),
-                crate::ui::motion::mix(idle.1, pal().blurple, on),
-            );
-            ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-            let er = Rect::from_min_size(pos2(rect.left() + 7.0, rect.center().y - 8.0), vec2(16.0, 16.0));
-            Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
-            ui.painter().galley(pos2(er.right() + 6.0, rect.center().y - g.size().y / 2.0), g, pal().header_secondary);
-            if resp.clicked() {
-                d.acts.push(Act::React(m.id, r.emoji.clone(), !r.me));
+            for burst in [true, false] {
+                let (n, me) = if burst { (r.burst, r.me_burst) } else { (r.count.saturating_sub(r.burst), r.me) };
+                if n == 0 {
+                    continue;
+                }
+                let count = n.to_string();
+                // discord gives the count a slot per digit, so a pill doesn't change width as it ticks over
+                let slot = 12.0 * count.len() as f32 - 2.0;
+                let g = ui.painter().layout_no_wrap(count, semi(16.0), pal().header_secondary);
+                let slot = slot.max(g.size().x);
+                let size = vec2(8.0 + 20.0 + 6.0 + slot + 8.0, 30.0);
+                let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+                let on = crate::ui::motion::tween(ui.ctx(), resp.id.with("me"), me, 0.1, crate::ui::motion::EASE);
+                let hot = crate::ui::motion::hot(ui.ctx(), &resp);
+                let mix = crate::ui::motion::mix;
+                let (fill, stroke, ink) = match r.burst_color.filter(|_| burst) {
+                    Some(c) => {
+                        let (ink, fill) = crate::ui::reactions::burst_look(c, light());
+                        (fill, if me { solid(fill) } else { Color32::TRANSPARENT }, ink)
+                    }
+                    None => (
+                        mix(mix(pal().control, pal().control_hover, hot), wash(pal().blurple, 61), on),
+                        mix(mix(Color32::TRANSPARENT, pal().bg_accent, hot), pal().blurple, on),
+                        mix(mix(pal().header_secondary, pal().header_primary, hot), pal().reacted_fg, on),
+                    ),
+                };
+                ui.painter().rect(rect, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+                let er = Rect::from_min_size(pos2(rect.left() + 8.0, rect.center().y - 10.0), vec2(20.0, 20.0));
+                Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&r.emoji), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
+                ui.painter().galley_with_override_text_color(pos2(er.right() + 6.0 + (slot - g.size().x) / 2.0, rect.center().y - g.size().y / 2.0), g, ink);
+                if resp.clicked() {
+                    d.acts.push(Act::React(m.id, r.emoji.clone(), !r.me));
+                }
+                if resp.hovered() {
+                    d.acts.push(Act::Reactors(m.id, r.emoji.clone(), burst, n));
+                }
+                resp.on_hover_ui(|ui| {
+                    ui.label(crate::ui::reactions::tooltip(d.store, d.guild, m, r, burst));
+                });
             }
-            let burst = r.burst > 0 && r.burst == r.count;
-            if resp.hovered() {
-                d.acts.push(Act::Reactors(m.id, r.emoji.clone(), burst, r.count));
-            }
-            resp.on_hover_ui(|ui| {
-                ui.label(crate::ui::reactions::tooltip(d.store, d.guild, m, r, burst));
-            });
         }
     });
 }

@@ -16,7 +16,8 @@ const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 3
 // background-mod-normal
 const NAV_HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 51);
 
-const INBOX_W: f32 = 597.0;
+const INBOX_W: f32 = 560.0;
+const INBOX_TABS: [(&str, &str); 5] = [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders"), ("scheduled", "Scheduled")];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Loc {
@@ -61,7 +62,7 @@ impl Nav {
 }
 
 pub struct Inbox {
-    // discord's four tabs: unreads, mentions, bookmarks, reminders
+    // discord's five tabs: unreads, mentions, bookmarks, reminders, scheduled
     pub tab: u8,
     pub mentions: Option<Vec<Message>>,
     // what the bookmarks or reminders tab lists, once it's loaded
@@ -186,14 +187,14 @@ impl App {
 fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
     let radius = CornerRadius::same((rect.width() * 0.25) as u8);
     let Some(g) = store.guilds.get(&gid) else { return };
-    ui.painter().rect_filled(rect, radius, pal().bg_accent);
+    ui.painter().rect_filled(rect, radius, pal().bg_tertiary);
     match g.icon_url() {
         Some(url) => {
             Image::from_uri(url).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
         }
         None => {
             let size = if g.acronym().chars().count() > 2 { 7.0 } else { 8.0 } * rect.width() / 16.0;
-            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &g.acronym(), semi(size), pal().text_normal, rect.width());
+            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &g.acronym(), reg(size), pal().text_normal, rect.width());
         }
     }
 }
@@ -202,7 +203,6 @@ enum Mark {
     Icon(Icon),
     Guild(Id),
     Page(Icon),
-    Avatar(String),
     People,
     None,
 }
@@ -224,15 +224,16 @@ fn place(app: &App) -> (Mark, String) {
             super::shop::Page::Shop => (Mark::Icon(Icon::Shop), "Shop".into()),
         };
     }
+    if app.ui.guild == Some(super::favorites::ID) {
+        return (Mark::Icon(Icon::Star), "Favorites".into());
+    }
     if let Some(g) = app.ui.guild.and_then(|g| s.guilds.get(&g)) {
         return (Mark::Guild(g.id), g.name.clone());
     }
-    let Some(c) = app.cur().and_then(|c| s.channels.get(&c)) else { return (Mark::None, "Rustcord".into()) };
-    let mark = match c.kind {
-        1 => c.recipients.first().and_then(|u| s.user(*u)).map(|u| Mark::Avatar(u.avatar_url())).unwrap_or(Mark::None),
-        _ => Mark::People,
-    };
-    (mark, super::channel_title(s, c.id))
+    if app.cur().and_then(|c| s.channels.get(&c)).is_none() {
+        return (Mark::None, "Rustcord".into());
+    }
+    (Mark::Icon(Icon::Discord), "Direct Messages".into())
 }
 
 /// Double-clicking the bar or its middle button: out of fullscreen if in it, else maximise or restore.
@@ -381,14 +382,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
                 // centred on the window, not on the space between the buttons
                 let half = (bar.center().x - (bar.left() + 72.0)).min(inbox.left() - 12.0 - bar.center().x);
-                let label = text::layout(&ctx, &title, semi(14.0), pal().header_primary, (half * 2.0 - 32.0).max(0.0));
+                let label = text::layout(&ctx, &title, medium(14.0), pal().text_normal, (half * 2.0 - 32.0).max(0.0));
                 let width = 16.0 + 8.0 + label.size().x;
                 let left = bar.center().x - width / 2.0;
                 let icon = Rect::from_min_size(pos2(left, mid - 8.0), vec2(16.0, 16.0));
                 let bare = matches!(mark, Mark::None);
                 match mark {
                     Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
-                    Mark::Avatar(url) => super::avatar(ui, icon, &url),
                     Mark::Page(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
                     Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
                     Mark::Icon(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
@@ -422,11 +422,11 @@ fn keys(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// Discord's inbox tabs each take a quarter of the width, the open one underlined in brand.
+/// Discord's inbox tabs share the width 8 apart, the open one underlined in brand.
 fn tab(ui: &mut Ui, app: &mut App, name: &str, label: &str, on: bool) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(vec2(INBOX_W / 4.0, 40.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2((INBOX_W - 8.0 * (INBOX_TABS.len() - 1) as f32) / INBOX_TABS.len() as f32, 36.0), Sense::click());
     let col = if on { pal().blurple } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
-    let galley = ui.painter().layout_no_wrap(label.into(), medium(14.0), col);
+    let galley = ui.painter().layout_no_wrap(label.into(), semi(14.0), col);
     app.rects.insert(format!("inbox:{name}"), rect);
     if on {
         let w = galley.size().x + 32.0;
@@ -443,7 +443,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
     let Some(state) = &app.inbox else { return };
     let tab = state.tab;
     let button = app.rects.get("title:inbox").copied();
-    let at = button.map(|r| pos2(r.right() - INBOX_W, r.bottom() + 6.0)).unwrap_or(pos2(100.0, HEIGHT + 6.0));
+    let at = button.map(|r| pos2(r.right() - INBOX_W, r.bottom() + 8.0)).unwrap_or(pos2(100.0, HEIGHT + 8.0));
     let room = (ctx.content_rect().bottom() - at.y - 16.0).clamp(160.0, 560.0);
     let body = body_height(app);
     let mut jump = None;
@@ -463,9 +463,10 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(INBOX_W);
                 ui.spacing_mut().item_spacing.y = 0.0;
-                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 4 }).show(ui, |ui| {
+                Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 17 }).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.set_min_height(32.0);
                         let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
                         icons::draw(ui.painter(), Icon::Inbox, r, pal().header_primary);
                         ui.label(RichText::new("Inbox").font(semi(20.0)).color(pal().header_primary));
@@ -510,8 +511,8 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                     });
                 });
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    for (i, (name, label)) in [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders")].into_iter().enumerate() {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    for (i, (name, label)) in INBOX_TABS.into_iter().enumerate() {
                         if self::tab(ui, app, name, label, tab == i as u8) {
                             switch = Some(i as u8);
                         }
@@ -529,6 +530,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                         match tab {
                             0 => open_ch = unread_list(ui, app),
                             1 => jump = mention_list(ui, app),
+                            4 => open_ch = super::scheduled::list(ui, app),
                             _ => jump = saved_list(ui, app, tab == 3),
                         }
                     });
@@ -566,6 +568,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         match t {
             2 => app.rest("GET", "/users/@me/saved-messages/bookmarks?limit=25".into(), None, Tag::Saved(1)),
             3 => app.rest("GET", "/users/@me/saved-messages?bookmark_ids=true".into(), None, Tag::Saved(0)),
+            4 => app.sched.asked = false,
             _ => {}
         }
     }
@@ -589,7 +592,8 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
         }
     }
     let on_button = button.is_some_and(|r| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
-    if close || (popups::dismissed(ctx, &area.response) && !on_button) {
+    let under_dialog = app.sched.picker.is_some();
+    if close || (!under_dialog && (ctx.input(|i| i.key_pressed(Key::Escape)) || (popups::pressed_outside(ctx, &area.response) && !on_button))) {
         app.inbox = None;
     }
 }
@@ -600,6 +604,9 @@ fn body_height(app: &App) -> f32 {
     let Some(i) = &app.inbox else { return 0.0 };
     if i.friends {
         return 100.0 + 56.0 * app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as f32;
+    }
+    if i.tab == 4 {
+        return super::scheduled::height(app);
     }
     if i.tab >= 2 {
         return match &i.saved {
@@ -905,6 +912,7 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
 
 /// Bookmarks or reminders: each message as a card under where it was said, a reminder's time
 /// over it, the message jumped to on a click.
+/// A tab's empty state: a heading, then how to fill it with the action in bold.
 fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     let Some(list) = app.inbox.as_ref().and_then(|i| i.saved.as_ref()) else {
         ui.add_space(24.0);
@@ -917,20 +925,8 @@ fn saved_list(ui: &mut Ui, app: &mut App, reminders: bool) -> Option<(Id, Id)> {
     } else {
         ("Collect your favorite memories", "Right-click any message and pick ", "Bookmark Message", ". Find it here, for your eyes only.")
     };
-    ui.add_space(16.0);
-    ui.vertical_centered(|ui| {
-        ui.label(RichText::new(head).font(semi(24.0)).color(pal().header_primary));
-        ui.add_space(8.0);
-        let mut job = egui::text::LayoutJob::default();
-        let fmt = |font| egui::TextFormat { font_id: font, color: pal().text_normal, ..Default::default() };
-        job.append(how, 0.0, fmt(reg(14.0)));
-        job.append(action, 0.0, fmt(bold(14.0)));
-        job.append(tail, 0.0, fmt(reg(14.0)));
-        job.halign = egui::Align::Center;
-        ui.label(job);
-    });
-    ui.add_space(24.0);
     if list.is_empty() {
+        super::inboxtip::show(ui, if reminders { super::webart::NO_REMINDERS } else { super::webart::NO_BOOKMARKS }, head, how, action, tail);
         return None;
     }
     let s = &app.store;

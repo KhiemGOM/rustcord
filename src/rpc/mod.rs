@@ -47,7 +47,7 @@ static PIPE: OnceLock<String> = OnceLock::new();
 /// Test runs bind names and ports of their own, so they never answer for a Discord that's
 /// really running, or hand a game's presence to the mock.
 pub fn testing() -> bool {
-    ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some())
+    crate::winsys::harness()
 }
 
 pub fn scope_text(scope: &str) -> Option<&'static str> {

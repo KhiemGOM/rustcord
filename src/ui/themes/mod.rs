@@ -69,8 +69,48 @@ fn mine(app: &App) -> Option<Fill> {
     }
 }
 
+/// Discord's Dark Sidebar: in the light theme, with no client or server theme over it, the
+/// server rail and the channel list take the Ash palette.
+pub fn dark_sidebar_offered(app: &App) -> bool {
+    !pal().dark && mine(app).is_none() && server(app).is_none() && app.themes.preview.is_none()
+}
+
+pub fn dark_sidebar(app: &App) -> Option<&'static Palette> {
+    (app.settings.dark_sidebar && dark_sidebar_offered(app)).then(|| crate::theme::palette(1))
+}
+
+/// Whether a server's own theme shows there: its switch in the server menu, else the default.
+pub fn uses_server_theme(app: &App, gid: crate::state::Id) -> bool {
+    match app.settings.theme_prefs.iter().find(|p| p.0 == gid) {
+        Some((_, pref)) => *pref == 2,
+        None => app.settings.server_themes,
+    }
+}
+
+pub fn has_theme(app: &App, gid: crate::state::Id) -> bool {
+    app.store.guilds.get(&gid).is_some_and(|g| g.theme.is_some() && g.features.iter().any(|f| f == "GUILD_THEME"))
+}
+
+pub fn toggle_server_theme(app: &mut App, ctx: &egui::Context, gid: crate::state::Id) {
+    let pref = if uses_server_theme(app, gid) { 1 } else { 2 };
+    set_server_theme(app, ctx, gid, pref);
+}
+
+/// One server's theme source: 1 mine, 2 the server's, 0 to follow the default again.
+pub fn set_server_theme(app: &mut App, ctx: &egui::Context, gid: crate::state::Id, pref: u8) {
+    app.settings.theme_prefs.retain(|p| p.0 != gid);
+    if pref != 0 {
+        app.settings.theme_prefs.push((gid, pref));
+    }
+    let body = crate::proto::guild_theme(&app.settings.guilds_raw, gid, pref);
+    let settings = base64::engine::general_purpose::STANDARD.encode(crate::proto::guilds_patch(&body));
+    app.settings.guilds_raw = body;
+    app.save_settings(ctx);
+    app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": settings })), Tag::fail(SAVE_FAILED));
+}
+
 fn server(app: &App) -> Option<Fill> {
-    if !app.settings.server_themes {
+    if !uses_server_theme(app, app.ui.guild?) {
         return None;
     }
     let g = app.store.guilds.get(&app.ui.guild?)?;
@@ -114,6 +154,21 @@ pub fn open_editor(app: &mut App, ctx: &egui::Context, back: Back) {
     app.apply_look(ctx);
 }
 
+/// A theme from someone's message, opened in the editor to look at and keep.
+pub fn try_shared(app: &mut App, ctx: &egui::Context, theme: crate::theme::Custom) {
+    app.settings_page = None;
+    app.themes.edit = editor::Draft::open(Some(theme), false);
+    app.themes.panel = Some(Panel::Editor);
+    app.themes.preview = Some(Fill::Custom(app.themes.edit.now.clone()));
+    app.themes.back = Back::Settings;
+    app.apply_look(ctx);
+}
+
+/// What a message carries to share the theme being edited.
+pub fn shared(app: &App, c: &crate::theme::Custom) -> serde_json::Value {
+    json!({ "colors": c.colors.iter().map(|c| format!("{c:06x}")).collect::<Vec<_>>(), "gradient_angle": c.angle, "base_mix": c.mix, "base_theme": crate::proto::theme_number(app.settings.theme, c.light) })
+}
+
 pub fn close(app: &mut App, ctx: &egui::Context, settings: bool) {
     app.themes.panel = None;
     app.themes.preview = None;
@@ -140,7 +195,7 @@ pub fn push(app: &mut App) {
         return;
     }
     let fill = mine(app);
-    let body = crate::proto::appearance(&app.settings.appearance_raw, app.settings.theme, fill.as_ref(), app.settings.server_themes);
+    let body = crate::proto::appearance(&app.settings.appearance_raw, app.settings.theme, fill.as_ref(), app.settings.server_themes, app.settings.dark_sidebar);
     let settings = base64::engine::general_purpose::STANDARD.encode(crate::proto::appearance_patch(&body));
     app.settings.appearance_raw = body;
     app.rest("PATCH", "/users/@me/settings-proto/1".into(), Some(json!({ "settings": settings })), Tag::fail(SAVE_FAILED));
@@ -341,14 +396,15 @@ mod tests {
     #[test]
     fn the_appearance_message_round_trips() {
         let c = Custom { colors: vec![0xff0066, 0x00ff99], angle: 90, mix: 40, light: false };
-        let body = crate::proto::appearance(&[], Theme::Onyx, Some(&Fill::Custom(c.clone())), false);
+        let body = crate::proto::appearance(&[], Theme::Onyx, Some(&Fill::Custom(c.clone())), false, false);
         let blob = crate::proto::appearance_patch(&body);
         let a = crate::proto::account(&blob, true);
         assert_eq!(a.own_theme, Some(Some(c)));
         assert_eq!(a.theme, Some(Theme::Onyx));
         assert_eq!(a.server_themes, Some(false));
-        let body = crate::proto::appearance(&body, Theme::Ash, Some(&Fill::Preset(19)), true);
+        let body = crate::proto::appearance(&body, Theme::Ash, Some(&Fill::Preset(19)), true, true);
         let a = crate::proto::account(&crate::proto::appearance_patch(&body), true);
         assert_eq!((a.custom_theme, a.own_theme, a.server_themes), (Some(Some(19)), Some(None), Some(true)));
+        assert_eq!(a.dark_sidebar, Some(true));
     }
 }

@@ -16,7 +16,7 @@ use super::effects;
 use super::video::Source;
 
 pub enum Grab {
-    Fake { screen: bool, t0: Instant },
+    Fake { screen: bool, t0: Instant, fx: effects::Fx },
     Screen(Box<Screen>),
     Wgc(Box<Wgc>),
     Camera(Box<Camera>),
@@ -27,7 +27,7 @@ impl Grab {
         if !screen {
             effects::note_open(effects::device().filter(|d| effects::FAKE_CAMERAS.contains(&d.as_str())).unwrap_or_else(|| effects::FAKE_CAMERAS[0].into()));
         }
-        Grab::Fake { screen, t0: Instant::now() }
+        Grab::Fake { screen, t0: Instant::now(), fx: Default::default() }
     }
 
     pub fn open(src: Source) -> Result<Grab, String> {
@@ -69,10 +69,10 @@ impl Grab {
     /// Fills `out` (w*h BGRA) with the latest frame, scaled. False if nothing new came in.
     pub fn frame(&mut self, out: &mut [u8], w: usize, h: usize) -> bool {
         match self {
-            Grab::Fake { screen, t0 } => {
+            Grab::Fake { screen, t0, fx } => {
                 pattern(out, w, h, t0.elapsed().as_secs_f32(), *screen);
                 if !*screen {
-                    effects::apply(out, w, h);
+                    fx.apply(out, w, h);
                 }
                 true
             }
@@ -80,8 +80,8 @@ impl Grab {
             Grab::Wgc(s) => unsafe { s.frame(out, w, h) },
             Grab::Camera(c) => {
                 let got = unsafe { c.frame(out, w, h) };
-                if got && c.fx {
-                    effects::apply(out, w, h);
+                if got && let Some(fx) = &mut c.fx {
+                    fx.apply(out, w, h);
                 }
                 got
             }
@@ -365,7 +365,7 @@ unsafe fn devices() -> windows::core::Result<Vec<Option<IMFActivate>>> {
 
 pub struct Camera {
     reader: IMFSourceReader,
-    fx: bool,
+    fx: Option<effects::Fx>,
     w: usize,
     h: usize,
     stride: i32,
@@ -399,7 +399,7 @@ impl Camera {
             let size = cur.GetUINT64(&MF_MT_FRAME_SIZE)?;
             let (w, h) = ((size >> 32) as usize, (size & 0xffff_ffff) as usize);
             let stride = cur.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|s| s as i32).unwrap_or(w as i32 * 4);
-            Ok(Camera { reader, fx, w, h, stride })
+            Ok(Camera { reader, fx: fx.then(Default::default), w, h, stride })
         }
     }
 

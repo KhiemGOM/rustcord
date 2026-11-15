@@ -40,6 +40,13 @@ impl Store {
         m.roles.iter().filter_map(|r| g.roles.get(r)).filter(|r| r.color != 0).max_by_key(|r| r.position)
     }
 
+    /// Their top coloured role when it is a gradient and the server has Discord's enhanced role
+    /// colours; elsewhere Discord draws only a gradient role's first colour.
+    pub fn role_gradient(&self, guild: Id, user: Id) -> Option<&Role> {
+        let on = self.guilds.get(&guild)?.features.iter().any(|f| f == "ENHANCED_ROLE_COLORS");
+        self.role_look(guild, user).filter(|r| on && r.grad.len() >= 2)
+    }
+
     /// The role whose icon or emoji shows next to a member's name.
     pub fn role_icon(&self, guild: Id, user: Id) -> Option<&Role> {
         let g = self.guilds.get(&guild)?;
@@ -72,6 +79,12 @@ impl Store {
         out
     }
 
+    /// Discord offers Invite to whoever may create one, and to everyone where the server has a
+    /// link of its own.
+    pub fn can_invite(&self, c: &Channel) -> bool {
+        self.perms(c) & CREATE_INVITE != 0 || self.guilds.get(&c.guild).is_some_and(|g| g.vanity.is_some())
+    }
+
     pub fn can_view(&self, c: &Channel) -> bool {
         self.perms(c) & VIEW_CHANNEL != 0
     }
@@ -81,6 +94,10 @@ impl Store {
     pub fn listed(&self, c: &Channel) -> bool {
         if !self.opt_in.contains(&c.guild) {
             return true;
+        }
+        // the server guide's resources live there and nowhere in the list, picked or not
+        if c.resource && self.guilds.get(&c.guild).is_some_and(|g| g.features.iter().any(|f| f == "COMMUNITY")) {
+            return false;
         }
         let mut id = c.id;
         for _ in 0..3 {

@@ -10,7 +10,7 @@ mod style;
 mod suggest;
 
 pub use draft::{Pic, Slot, widgets_of};
-pub use pick::gif_arrived;
+pub use pick::{gif_arrived, gif_modal};
 pub use style::PRESETS;
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
@@ -216,12 +216,6 @@ pub(self) fn hex(c: u32) -> String {
 }
 
 /// A theme colour as the profile shows it: dimmed in dark themes.
-pub(self) fn dim(c: u32) -> Color32 {
-    let k = if pal().dark { 0.4 } else { 1.0 };
-    let ch = |s: u32| (((c >> s) & 255) as f32 * k) as u8;
-    Color32::from_rgb(ch(16), ch(8), ch(0))
-}
-
 pub(self) fn gradient(ui: &Ui, r: Rect, top: Color32, bottom: Color32, radius: u8) {
     ui.painter().add(gradient_shape(ui, r, top, bottom, radius));
 }
@@ -239,10 +233,11 @@ pub(self) fn gradient_shape(ui: &Ui, r: Rect, top: Color32, bottom: Color32, rad
     egui::Shape::mesh(mesh)
 }
 
-pub fn theme_pair(d: &Draft) -> Option<(Color32, Color32)> {
-    match d.theme {
-        [Some(a), Some(b)] => Some((dim(a), dim(b))),
-        [Some(a), None] | [None, Some(a)] => Some((dim(a), dim(a))),
+pub fn theme_pair(d: &Draft) -> Option<crate::theme::ProfileTheme> {
+    let theme = if d.theme == [None, None] { d.inherit_theme } else { d.theme };
+    match theme {
+        [Some(a), Some(b)] => Some(crate::theme::profile_theme(a, b)),
+        [Some(a), None] | [None, Some(a)] => Some(crate::theme::profile_theme(a, a)),
         _ => None,
     }
 }
@@ -311,23 +306,34 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 fn panel_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, panel: Rect, user: &crate::state::User) {
     ui.painter().rect_filled(panel, CornerRadius { nw: 16, ne: 0, sw: 16, se: 0 }, pal().bg_secondary);
-    let head = Rect::from_min_size(panel.min, vec2(panel.width(), 64.0));
+    let head = Rect::from_min_size(panel.min, vec2(panel.width(), 51.0));
     let guilds: Vec<(Id, String)> = app.store.guild_order.iter().filter_map(|g| app.store.guilds.get(g).map(|x| (*g, x.name.clone()))).collect();
     let shown = ed.guild.and_then(|g| guilds.iter().find(|x| x.0 == g)).map_or("Main Profile".to_string(), |g| g.1.clone());
-    let sel = Rect::from_min_size(head.min + vec2(10.0, 10.0), vec2(head.width() - 64.0, 44.0));
+    let sel = Rect::from_min_size(head.min + vec2(9.5, 9.5), vec2(head.width() - 54.0, 32.0));
+    let icon = ed.guild.and_then(|g| app.store.guilds.get(&g)).and_then(|g| g.icon_url());
     let resp = ui.interact(sel, ui.id().with("select_profile"), Sense::click());
     mark(ui, "profile_select", sel);
     if resp.hovered() {
         ui.painter().rect_filled(sel, CornerRadius::same(8), faint(20));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let r = text::paint(ui.painter(), pos2(sel.left() + 8.0, sel.center().y), Align2::LEFT_CENTER, &shown, medium(16.0), pal().header_primary, sel.width() - 40.0);
+    let lead = match &icon {
+        Some(url) => {
+            let ir = Rect::from_center_size(pos2(sel.left() + 17.5, sel.center().y), vec2(20.0, 20.0));
+            egui::Image::from_uri(url.as_str()).corner_radius(CornerRadius::same(4)).show_loading_spinner(false).paint_at(ui, ir);
+            31.5
+        }
+        None => 8.0,
+    };
+    let r = text::paint(ui.painter(), pos2(sel.left() + lead, sel.center().y), Align2::LEFT_CENTER, &shown, medium(16.0), pal().header_primary, sel.width() - lead - 32.0);
     icons::draw(ui.painter(), if ed.menu == Some(Menu::Profile) { Icon::ChevronUp } else { Icon::ChevronDown }, Rect::from_center_size(pos2(r.right() + 14.0, sel.center().y), vec2(18.0, 18.0)), pal().header_primary);
     if resp.clicked() {
         ed.menu = if ed.menu == Some(Menu::Profile) { None } else { Some(Menu::Profile) };
     }
-    let hb = Rect::from_min_size(pos2(panel.right() - 42.0, panel.top() + 16.0), vec2(32.0, 32.0));
-    if round_icon(ui, hb, Icon::ArrowLeft, "Hide Styles", false).clicked() {
+    let hb = Rect::from_min_size(pos2(panel.right() - 40.5, panel.top() + 9.5), vec2(32.0, 32.0));
+    let hide = round_icon(ui, hb, Icon::ChevronRight, "Hide Styles", false);
+    icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(hb.center() - vec2(5.0, 0.0), vec2(16.0, 16.0)), pal().header_secondary);
+    if hide.clicked() {
         ed.hide = true;
     }
     mark(ui, "hide_styles", hb);
@@ -347,9 +353,9 @@ fn panel_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, panel: Rect, user: &cra
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(list));
     egui::ScrollArea::vertical().id_salt(("profed_panel", ed.opened)).auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        let x = list.left() + 18.0;
-        let w = list.width() - 36.0;
-        let mut y = ui.cursor().top() + 16.0;
+        let x = list.left() + 17.0;
+        let w = list.width() - 34.0;
+        let mut y = ui.cursor().top() + 15.0;
         let head = |ui: &mut Ui, y: &mut f32, s: &str, nitro: bool| {
             let r = ui.painter().text(pos2(x, *y + 9.0), Align2::LEFT_CENTER, s, medium(14.0), pal().header_primary);
             if nitro {
@@ -369,10 +375,10 @@ fn panel_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, panel: Rect, user: &cra
 
 fn notice(app: &mut App, ui: &mut Ui, x: f32, w: f32, y: &mut f32) {
     let g = ui.painter().layout("You can customize styles, display name, pronouns, and bio for each server.".into(), reg(14.0), pal().text_normal, w - 52.0);
-    let r = Rect::from_min_size(pos2(x, *y), vec2(w, g.size().y + 20.0));
-    ui.painter().rect_filled(r, CornerRadius::same(8), wash(pal().blurple, 12));
-    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
-    ui.painter().galley(r.min + vec2(10.0, 10.0), g, pal().text_normal);
+    let r = Rect::from_min_size(pos2(x, *y), vec2(w, g.size().y + 18.0));
+    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::from_rgba_unmultiplied(0x00, 0x73, 0xe6, 20));
+    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x45, 0x91, 0xec)), egui::StrokeKind::Inside);
+    ui.painter().galley(r.min + vec2(9.0, 9.0), g, pal().text_normal);
     let b = Rect::from_center_size(pos2(r.right() - 20.0, r.top() + 20.0), vec2(20.0, 20.0));
     let resp = ui.interact(b, ui.id().with("profed_notice_x"), Sense::click());
     icons::draw(ui.painter(), Icon::Close, b, if resp.hovered() { pal().header_primary } else { pal().header_secondary });
@@ -384,7 +390,7 @@ fn notice(app: &mut App, ui: &mut Ui, x: f32, w: f32, y: &mut f32) {
         app.settings.profed_notice = true;
         crate::cache::set_settings(&app.settings);
     }
-    *y += r.height() + 16.0;
+    *y += r.height() + 24.0;
 }
 
 fn profile_menu(ui: &mut Ui, under: Rect, cur: Option<Id>, guilds: &[(Id, String)]) -> Option<Option<Id>> {
@@ -417,7 +423,6 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     let me = app.store.me;
     let bar = vec2(w.min(208.0), 42.0);
     let sq = 100.0f32.min((w - 8.0) / 2.0);
-    let guild = ed.guild.is_some();
     head(ui, y, "Nameplate", false);
     let r = Rect::from_min_size(pos2(x, *y), bar);
     let resp = tile(ui, r, "nameplate", false);
@@ -484,19 +489,17 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     }
     *y += sq + 24.0;
     let _ = me;
-    if !guild {
-        head(ui, y, "Display Name Style", true);
-        let r = Rect::from_min_size(pos2(x, *y), bar);
-        let resp = tile(ui, r, "dns", false);
-        mark(ui, "tile:dns", r);
-        let nm = if ed.draft.name.is_empty() { user.display().to_string() } else { ed.draft.name.clone() };
-        style::paint_name(ui, pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, &nm, ed.draft.style.as_ref(), 24.0, r.width() - 32.0, true);
-        overlay_icon(ui, r, resp.hovered(), ed.draft.style.is_some(), ed.draft.style.is_none());
-        if resp.on_hover_text(if ed.draft.style.is_some() { "Display name style: Set" } else { "Display name style: Not set" }).clicked() && nitro(app, "Display name styles") {
-            ed.dlg = Dlg::Style(style::Edit::from(ed.draft.style.as_ref()));
-        }
-        *y += bar.y + 24.0;
+    head(ui, y, "Display Name Style", true);
+    let r = Rect::from_min_size(pos2(x, *y), bar);
+    let resp = tile(ui, r, "dns", false);
+    mark(ui, "tile:dns", r);
+    let nm = if ed.draft.name.is_empty() { user.display().to_string() } else { ed.draft.name.clone() };
+    style::paint_name(ui, pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, &nm, ed.draft.style.as_ref(), 24.0, r.width() - 32.0, true);
+    overlay_icon(ui, r, resp.hovered(), ed.draft.style.is_some(), ed.draft.style.is_none());
+    if resp.on_hover_text(if ed.draft.style.is_some() { "Display name style: Set" } else { "Display name style: Not set" }).clicked() && nitro(app, "Display name styles") {
+        ed.dlg = Dlg::Style(style::Edit::from(ed.draft.style.as_ref()));
     }
+    *y += bar.y + 24.0;
     head(ui, y, "Theme & Banner", true);
     let rt = Rect::from_min_size(pos2(x, *y), vec2(sq, sq));
     let rb = Rect::from_min_size(pos2(x + sq + 8.0, *y), vec2(sq, sq));
@@ -591,8 +594,8 @@ fn overlay_icon(ui: &Ui, r: Rect, hot: bool, set: bool, always: bool) {
 fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &crate::state::User) {
     let cr = CornerRadius { nw: 0, ne: 16, sw: 0, se: 16 };
     ui.painter().rect_filled(region, cr, Color32::BLACK);
-    if let Some((a, b)) = theme_pair(&ed.draft) {
-        gradient(ui, region.shrink(1.0), a.gamma_multiply(0.7), b.gamma_multiply(0.7), 15);
+    if let Some(t) = theme_pair(&ed.draft) {
+        gradient(ui, region.shrink(1.0), t.top.gamma_multiply(0.7), t.bottom.gamma_multiply(0.7), 15);
     }
     ed.backdrop.paint(ui, &ed.draft, region);
     if !ed.ready {

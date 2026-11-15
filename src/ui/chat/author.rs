@@ -91,7 +91,7 @@ pub(super) fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     let solid = role.map(|r| role_color(r.color));
     match d.s.role_colors {
         InNames => match role {
-            Some(r) if r.grad.len() >= 2 => (grad_ink(r), None),
+            Some(r) if d.store.role_gradient(d.guild, who).is_some() => (grad_ink(r), None),
             _ => (Ink::flat(solid.unwrap_or(pal().header_primary)), None),
         },
         NextToNames => (Ink::flat(pal().header_primary), solid),
@@ -132,7 +132,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
         if crate::ui::tagpop::hit(ui, r, ("msg_tag", m.id))
             && let Some((_, g, _)) = user.and_then(|u| u.tag.as_ref())
         {
-            d.acts.push(Act::Tag(*g, r.left_bottom() + vec2(0.0, 8.0)));
+            d.acts.push(Act::Tag(*g, r.right_top() + vec2(8.0, -3.0)));
         }
         x = r.right() + 4.0;
     }
@@ -146,7 +146,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
         x = ir.right();
     }
     if let Some(u) = user.filter(|u| u.bot) {
-        x = crate::ui::app_tag(ui.painter(), pos2(x, cy), u.flags & (1 << 16) != 0, 1.0).right() + 4.0;
+        x = crate::ui::app_tag(ui.painter(), pos2(x, cy + 0.6), u.flags & (1 << 16) != 0, 1.0, true).right() + 4.0;
     }
     let op = d.store.channels.get(&d.ch).is_some_and(|c| c.is_thread() && c.owner == m.author && d.store.channels.get(&c.parent).is_some_and(|p| p.is_forum()));
     if op {

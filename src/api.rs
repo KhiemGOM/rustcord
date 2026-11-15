@@ -85,7 +85,7 @@ pub fn props() -> Value {
         "has_client_mods": false,
         "browser_user_agent": UA,
         "browser_version": "35.3.0",
-        "client_build_number": 455000,
+        "client_build_number": 670026,
         "native_build_number": 66000,
         "client_event_source": null
     })
@@ -362,6 +362,11 @@ impl Api {
             atts[i]["uploaded_filename"] = slot["upload_filename"].clone();
         }
         Ok(atts)
+    }
+
+    pub async fn schedule(&self, ch: Id, mut body: Value, files: &[(PathBuf, String, String)]) -> Result<Value, String> {
+        body["attachments"] = Value::Array(if files.is_empty() { Vec::new() } else { self.upload_files(ch, files, None).await? });
+        self.call(Method::POST, "/users/@me/scheduled-messages", Some(body)).await
     }
 
     /// A forum post with its first message's files: they go up first, then the thread names them.

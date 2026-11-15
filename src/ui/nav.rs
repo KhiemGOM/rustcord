@@ -11,6 +11,7 @@ impl App {
             self.prev_guild = self.ui.guild;
         }
         self.ui.guild = g;
+        self.hub = None;
         self.boosts = None;
         self.server_shop = None;
         self.home = None;
@@ -29,6 +30,7 @@ impl App {
 
     pub fn open(&mut self, ch: Id) {
         let Some(c) = self.store.channels.get(&ch) else { return };
+        self.hub = None;
         self.boosts = None;
         self.server_shop = None;
         self.home = None;
@@ -95,7 +97,7 @@ impl App {
         }
     }
 
-    // history from REST has no member objects; ask the gateway for the authors it hasn't sent this
+    // history and forum posts from REST have no member objects; ask the gateway for the authors it hasn't sent this
     // connection (the cache's roles and nicknames may be old), and whoever they mention, bots'
     // embeds included, so names show nicknames and role colours like discord's
     pub(super) fn request_members(&mut self, ch: Id) {
@@ -107,6 +109,9 @@ impl App {
                 ids.push(id.to_string());
             }
         };
+        for p in self.store.forum_posts.get(&ch).into_iter().flatten() {
+            want(self.store.channels.get(p).map_or(0, |c| c.owner));
+        }
         for m in self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default() {
             want(m.author);
             m.mentions.iter().for_each(|u| want(*u));
@@ -128,10 +133,9 @@ impl App {
         })));
     }
 
-    /// The size a panel was dragged to, if it was; only counts while a button is held, so a
-    /// shrinking window doesn't overwrite what the user picked, and an untouched default isn't saved.
-    pub fn dragged(&mut self, ctx: &egui::Context, now: f32, was: f32) -> Option<f32> {
-        if (now - was).abs() < 0.5 || !ctx.input(|i| i.pointer.any_down()) {
+    /// The size a panel's edge was dragged to, if it was.
+    pub fn dragged(&mut self, ctx: &egui::Context, panel: &str, now: f32, was: f32) -> Option<f32> {
+        if (now - was).abs() < 0.5 || !edge_held(ctx, panel) {
             return None;
         }
         self.save_at = Some(Instant::now() + Duration::from_secs(1));
@@ -196,6 +200,16 @@ impl App {
         if text.is_empty() && files.is_empty() {
             return;
         }
+        if let Some(at) = self.sched.drafts.get(&ch).copied() {
+            let mut body = serde_json::json!({ "content": text, "flags": 0, "sticker_ids": [] });
+            if let Some(r) = self.reply.take() {
+                body["message_reference"] = serde_json::json!({ "channel_id": ch.to_string(), "message_id": r.to_string() });
+                if !self.reply_ping {
+                    body["allowed_mentions"] = serde_json::json!({ "parse": ["users", "roles", "everyone"], "replied_user": false });
+                }
+            }
+            return self.schedule(ch, at, body, files);
+        }
         let nonce = crate::state::make_nonce();
         let reply = self.reply.take();
         self.store.add_pending(ch, text.clone(), nonce.clone(), reply);
@@ -224,7 +238,12 @@ impl App {
     /// The four one-click reactions on top of the message menu, the toolbar taking the first three:
     /// the ones picked by hand, else the latest used, topped up with discord's defaults.
     pub fn quick_reactions(&self) -> Vec<ReactEmoji> {
-        let mut list = if self.settings.quick_reactions.is_empty() { self.ui.quick.clone() } else { self.settings.quick_reactions.clone() };
+        // discord's four are the account's most used; what was used here leads until those arrive
+        let mut list = match (self.settings.quick_reactions.is_empty(), self.ui.frequent.is_empty()) {
+            (false, _) => self.settings.quick_reactions.clone(),
+            (true, false) => self.ui.frequent.iter().take(4).cloned().collect(),
+            (true, true) => self.ui.quick.clone(),
+        };
         for n in ["✅", "❤️", "🔥", "😂"] {
             if list.len() < 4 && !list.iter().any(|q| q.id == 0 && q.name == n) {
                 list.push(ReactEmoji { id: 0, name: n.to_string(), animated: false });
@@ -293,6 +312,27 @@ impl App {
 
     /// Notification settings the way discord saves them: servers go in the bulk route keyed by
     /// id, direct messages on their own.
+    /// Fold categories shut or open, here and on the account.
+    pub fn set_collapsed(&mut self, cats: &[Id], shut: bool) {
+        let mut by_guild: std::collections::BTreeMap<Id, serde_json::Map<String, serde_json::Value>> = Default::default();
+        for c in cats {
+            let changed = if shut { !self.store.collapsed.contains(c) } else { self.store.collapsed.contains(c) };
+            if !changed {
+                continue;
+            }
+            if shut {
+                self.store.collapsed.insert(*c);
+            } else {
+                self.store.collapsed.remove(c);
+            }
+            let gid = self.store.channels.get(c).map_or(0, |c| c.guild);
+            by_guild.entry(gid).or_default().insert(c.to_string(), json!({ "collapsed": shut }));
+        }
+        for (gid, overrides) in by_guild {
+            self.guild_settings(gid, json!({ "channel_overrides": overrides }), Tag::Quiet);
+        }
+    }
+
     pub fn guild_settings(&self, gid: Id, body: serde_json::Value, tag: Tag) {
         if gid == 0 {
             self.rest("PATCH", "/users/@me/guilds/@me/settings".into(), Some(body), tag);
@@ -490,5 +530,53 @@ impl App {
         self.shared = self.presence_key();
         let activities = if self.store.hide_game { json!([]) } else { json!(self.activities()) };
         self.net.send(Cmd::Gateway(json!({ "op": 3, "d": { "status": status, "since": 0, "activities": activities, "afk": false } })));
+    }
+}
+
+fn edge_held(ctx: &egui::Context, panel: &str) -> bool {
+    ctx.read_response(egui::Id::new(panel).with("__resize")).is_some_and(|r| r.dragged() || r.drag_stopped())
+}
+
+/// Gives a panel its saved size back: egui remembers the one a small window last squeezed it to.
+pub fn keep_size(ctx: &egui::Context, panel: &str, axis: usize, size: f32) {
+    use egui::containers::panel::PanelState;
+    let id = egui::Id::new(panel);
+    if edge_held(ctx, panel) {
+        return;
+    }
+    let Some(mut st) = PanelState::load(ctx, id) else { return };
+    let mut now = st.outer_rect.size();
+    if (now[axis] - size).abs() >= 0.5 {
+        now[axis] = size;
+        st.outer_rect = egui::Rect::from_min_size(st.outer_rect.min, now);
+        ctx.data_mut(|d| d.insert_persisted(id, st));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn members_w(ctx: &egui::Context, screen: f32, keep: bool) -> f32 {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(screen, 600.0))), ..Default::default() };
+        let mut w = 0.0;
+        let mut out = ctx.run_ui(raw, |ui| {
+            if keep {
+                super::keep_size(ui.ctx(), "members", 0, 300.0);
+            }
+            let room = ui.available_width();
+            let r = egui::Panel::right("members").default_size(300.0).size_range(200.0..=(room - 420.0).clamp(200.0, 480.0)).resizable(true).show(ui, |ui| ui.allocate_space(ui.available_size()));
+            w = r.response.rect.width();
+        });
+        out.textures_delta.clear();
+        w
+    }
+
+    #[test]
+    fn a_panel_squeezed_by_a_narrow_window_gets_its_width_back() {
+        for keep in [false, true] {
+            let ctx = egui::Context::default();
+            assert_eq!(members_w(&ctx, 1400.0, keep).round(), 300.0);
+            assert_eq!(members_w(&ctx, 640.0, keep).round(), 220.0);
+            assert_eq!(members_w(&ctx, 1400.0, keep).round(), if keep { 300.0 } else { 220.0 });
+        }
     }
 }

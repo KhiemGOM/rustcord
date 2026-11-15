@@ -25,6 +25,7 @@ pub struct ServerShop {
 
 impl App {
     pub fn open_server_shop(&mut self, gid: Id) {
+        self.hub = None;
         self.boosts = None;
         self.home = None;
         self.server_shop = Some(ServerShop { guild: gid, listings: None });

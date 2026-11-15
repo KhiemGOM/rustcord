@@ -13,7 +13,7 @@ use crate::ui::{App, menu_row};
 const HOME: &str = "/collectibles-shop?tab=home&include_bundles=true&include_dynamic_blocks=true&variants_return_style=2&skip_num_categories=0";
 const ORBS_HOME: &str = "/collectibles-shop?tab=orbs&include_bundles=true&include_dynamic_blocks=true&variants_return_style=2&skip_num_categories=0";
 const CATS: &str = "/collectibles-categories/v2?include_bundles=true&variants_return_style=2&skip_num_categories=0";
-const TABS: [&str; 3] = ["Featured", "Browse", "Orbs Exclusives"];
+const TABS: [&str; 3] = ["Featured", "Browse", "Orbs Shop"];
 const FEED_SORTS: [&str; 3] = ["Popular", "Recently Added", "Price: Low to High"];
 const FEED_STEP: usize = 12;
 const FEED_MAX: usize = 36;
@@ -32,7 +32,7 @@ const TILE_HEIGHT: f32 = 236.0;
 const BANNER_HEIGHT: f32 = 180.0;
 const STRIP_ARROW: f32 = 40.0;
 
-enum Act {
+pub(super) enum Act {
     Go(u8),
     Open(String),
     Close,
@@ -41,6 +41,8 @@ enum Act {
     Collection(Option<String>),
     Pick(usize),
     Heart,
+    Game(String),
+    Wallet(super::wallet::Go),
     Only(usize),
     Collabs,
     FeedSort(usize),
@@ -359,7 +361,7 @@ fn banner(ui: &mut Ui, left: f32, y: f32, w: f32, cat: &Value, acts: &mut Vec<Ac
     }
 }
 
-fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts: &mut Vec<Act>) {
+pub(super) fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts: &mut Vec<Act>) {
     let orbs = get(app, "shop_orbs").and_then(|v| v["balance"].as_u64());
     egui::Panel::top("shop_head")
         .exact_size(49.0)
@@ -417,6 +419,7 @@ fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts: &mut Vec<A
                 }
                 x = tr.right() + SPACE_24;
             }
+            x = super::games::tab(app, ui, x, r, tab == 3, acts);
             let mut right = r.right();
             if let Some(n) = orbs {
                 let g = ui.painter().layout_no_wrap(n.to_string(), semi(16.0), pal().header_primary);
@@ -425,6 +428,18 @@ fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts: &mut Vec<A
                 icons::draw(ui.painter(), Icon::Gem, Rect::from_center_size(pos2(chip.left() + 20.0, chip.center().y), vec2(20.0, 20.0)), pal().header_primary);
                 ui.painter().galley(pos2(chip.left() + 38.0, chip.center().y - g.size().y / 2.0), g, pal().header_primary);
                 mark(ui, "shop:orbs", chip);
+                if super::wallet::enabled(app) {
+                    let resp = ui.interact(chip, ui.id().with("shop_orbs_chip"), Sense::click());
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).shadow(ui.style().visuals.popup_shadow);
+                    egui::Popup::menu(&resp).align(egui::RectAlign::BOTTOM_END).gap(8.0).frame(frame).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                        if let Some(go) = super::wallet::body(app, ui, n) {
+                            acts.push(Act::Wallet(go));
+                        }
+                    });
+                }
                 right = chip.left() - SPACE_8;
             }
             let heart = Rect::from_min_size(pos2(right - 32.0, r.center().y - 16.0), vec2(32.0, 32.0));
@@ -440,6 +455,7 @@ fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts: &mut Vec<A
                 let clear = if search.is_empty() { 0.0 } else { 24.0 };
                 let inner = Rect::from_min_max(pos2(field.left() + 30.0, field.top() + 2.0), pos2(field.right() - SPACE_8 - clear, field.bottom() - 2.0));
                 let edit = TextEdit::singleline(search).frame(Frame::NONE).hint_text("Search the Shop").font(reg(14.0)).desired_width(inner.width()).vertical_align(egui::Align::Center);
+                // put: the header is placed by rect
                 ui.put(inner, edit);
                 mark(ui, "shop:search", field);
                 if clear > 0.0 {
@@ -526,6 +542,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     want(app, "shop_home", HOME);
     want(app, "shop_cats", CATS);
     want(app, "shop_orbs", "/users/@me/virtual-currency/balance");
+    super::wallet::fetch(app);
+    super::games::fetch(app);
+    if app.keyed.iter().any(|(k, v)| k.starts_with("orb_claim:") && matches!(v, Some(Ok(_)))) {
+        app.keyed.retain(|k, _| !k.starts_with("orb_claim:"));
+        app.rest("GET", super::wallet::CHALLENGES.into(), None, crate::net::Tag::Remote("orb_challenges"));
+        app.rest("GET", "/users/@me/virtual-currency/balance".into(), None, crate::net::Tag::Remote("shop_orbs"));
+    }
     wish::sync(app);
     let Some(s) = app.shop.as_ref() else { return };
     let (tab, filters, collection, open, wishing, slide) = (s.tab, s.browse.clone(), s.collection.clone(), s.product.clone(), s.wish.clone(), s.slide);
@@ -697,11 +720,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     apply(app, acts);
 }
 
-fn apply(app: &mut App, acts: Vec<Act>) {
+pub(super) fn apply(app: &mut App, acts: Vec<Act>) {
     for a in acts {
         match a {
+            Act::Game(id) => {
+                if let Some(s) = &mut app.shop {
+                    s.tab = 3;
+                    s.game = Some(id);
+                    s.game_page = 0;
+                    s.collection = None;
+                    s.product = None;
+                }
+            }
             Act::Go(t) => {
                 if let Some(s) = &mut app.shop {
+                    s.game = None;
                     s.tab = t;
                     s.collection = None;
                     s.search.clear();
@@ -750,6 +783,28 @@ fn apply(app: &mut App, acts: Vec<Act>) {
                 }
             }
             Act::Heart => wish::open(app),
+            Act::Wallet(go) => {
+                use super::wallet::Go;
+                match go {
+                    Go::Shop | Go::Orbs => {
+                        if let Some(s) = &mut app.shop {
+                            s.game = None;
+                            s.tab = if matches!(go, Go::Orbs) { 2 } else { 0 };
+                            s.collection = None;
+                            s.search.clear();
+                            s.browse.reset();
+                        }
+                    }
+                    Go::Quests => app.open_quests(),
+                    Go::Nitro => app.open_shop(super::Page::Nitro),
+                    Go::Retry => crate::ui::settings::refetch(app, "orb_challenges"),
+                    Go::Claim(id) => {
+                        app.keyed.retain(|k, _| !k.starts_with("orb_claim:"));
+                        app.keyed.insert(format!("orb_claim:{id}"), None);
+                        app.rest("POST", format!("/users/@me/achievements/{id}/claim"), None, crate::net::Tag::Keyed(format!("orb_claim:{id}")));
+                    }
+                }
+            }
             Act::FeedSort(i) => {
                 if let Some(s) = &mut app.shop {
                     s.feed_sort = i;

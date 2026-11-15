@@ -6,11 +6,16 @@ pub(crate) struct Forward {
     pub(super) query: String,
     pub(super) picked: Vec<Id>,
     pub(super) note: String,
+    pub(super) theme: Option<serde_json::Value>,
 }
 
 impl Forward {
     pub fn new(ch: Id, msg: Id) -> Self {
-        Forward { ch, msg, query: String::new(), picked: Vec::new(), note: String::new() }
+        Forward { ch, msg, query: String::new(), picked: Vec::new(), note: String::new(), theme: None }
+    }
+
+    pub fn theme(theme: serde_json::Value) -> Self {
+        Forward { theme: Some(theme), ..Forward::new(0, 0) }
     }
 }
 
@@ -44,19 +49,22 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
             Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 16 }).show(ui, |ui| {
                 ui.set_width(430.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Forward To").font(semi(20.0)).color(pal().header_primary));
+                    ui.label(RichText::new(if f.theme.is_some() { "Share custom theme" } else { "Forward To" }).font(semi(20.0)).color(pal().header_primary));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
                             close = true;
                         }
                     });
                 });
-                ui.add_space(4.0);
-                ui.label(RichText::new("Select where you want to share this message.").font(reg(16.0)).color(pal().header_secondary));
+                if f.theme.is_none() {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Select where you want to share this message.").font(reg(16.0)).color(pal().header_secondary));
+                }
                 ui.add_space(16.0);
                 let (field, _) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::hover());
                 ui.painter().rect_filled(field, 8, pal().input_bg);
                 let inner = Rect::from_min_max(pos2(field.left() + 38.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0));
+                // put: the rest of the field is painted by rect
                 let r = ui.put(
                     inner,
                     egui::TextEdit::singleline(&mut f.query)
@@ -75,6 +83,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                     for c in &places {
                         let Some(ch) = store.channels.get(c) else { continue };
                         let (r, resp) = ui.allocate_exact_size(vec2(430.0, 48.0), Sense::click());
+                        crate::ui::settings::mark(ui, &format!("forward:{c}"), r);
                         let on = f.picked.contains(c);
                         crate::ui::motion::wash(ui, &resp, r.expand2(vec2(8.0, 0.0)), 8, MENU_HOVER, 0.05);
                         let icon = Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(32.0, 32.0));
@@ -146,6 +155,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                     let field = Rect::from_min_size(row.min, vec2(320.0, 40.0));
                     ui.painter().rect(field, 8, pal().input_bg, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     let inner = Rect::from_min_max(pos2(field.left() + 16.0, field.center().y - 10.0), pos2(field.right() - 44.0, field.center().y + 10.0));
+                    // put: the rest of the row is placed by rect
                     ui.put(
                         inner,
                         egui::TextEdit::singleline(&mut f.note)
@@ -173,6 +183,12 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
     if send {
         let f = app.forward.take().expect("checked above");
         let guild = app.store.channels.get(&f.ch).map_or(0, |c| c.guild);
+        if let Some(theme) = &f.theme {
+            for to in &f.picked {
+                app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": f.note.trim(), "shared_client_theme": theme })), Tag::fail(crate::ui::SEND_FAILED));
+            }
+            return;
+        }
         for to in f.picked {
             let mut reference = json!({ "type": 1, "message_id": f.msg.to_string(), "channel_id": f.ch.to_string() });
             if guild != 0 {
@@ -247,6 +263,7 @@ pub(super) fn new_thread(app: &mut App, ctx: &egui::Context) {
                     egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(r, 8, egui::Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
+                ui.advance_cursor_after_rect(r);
                 if focus {
                     e.request_focus();
                 }

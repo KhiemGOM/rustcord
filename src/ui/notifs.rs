@@ -89,6 +89,45 @@ fn patch(app: &mut App, gid: Id, body: Value) {
     app.guild_settings(gid, body, Tag::Quiet);
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum Flag {
+    Everyone,
+    Roles,
+    Highlights,
+    Events,
+    Mobile,
+}
+
+pub(super) fn toggle(app: &mut App, gid: Id, flag: Flag) {
+    let prefs = app.store.gprefs.entry(gid).or_default();
+    let body = match flag {
+        Flag::Everyone => {
+            prefs.suppress_everyone ^= true;
+            json!({ "suppress_everyone": prefs.suppress_everyone })
+        }
+        Flag::Roles => {
+            prefs.suppress_roles ^= true;
+            json!({ "suppress_roles": prefs.suppress_roles })
+        }
+        Flag::Highlights => {
+            prefs.highlights_off ^= true;
+            json!({ "notify_highlights": if prefs.highlights_off { 2 } else { 1 } })
+        }
+        Flag::Mobile => {
+            prefs.mobile_push ^= true;
+            json!({ "mobile_push": prefs.mobile_push })
+        }
+        Flag::Events => {
+            let muted = !app.store.events_muted.remove(&gid);
+            if muted {
+                app.store.events_muted.insert(gid);
+            }
+            json!({ "mute_scheduled_events": muted })
+        }
+    };
+    patch(app, gid, body);
+}
+
 fn overrides(app: &App, gid: Id, added: &[Id]) -> Vec<Id> {
     let mut v: Vec<Id> = app
         .store
@@ -166,26 +205,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             let label = bold_label(ui, &[("Suppress ", false), ("@everyone", true), (" and ", false), ("@here", true)]);
             if switch_row(ui, "notifs:everyone", label, "", prefs.suppress_everyone) {
-                act.push(Box::new(move |a: &mut App| {
-                    a.store.gprefs.entry(gid).or_default().suppress_everyone ^= true;
-                    patch(a, gid, json!({ "suppress_everyone": !prefs.suppress_everyone }));
-                }));
+                act.push(Box::new(move |a: &mut App| toggle(a, gid, Flag::Everyone)));
             }
             rule(ui);
             let label = plain(ui, "Suppress All Role @mentions");
             if switch_row(ui, "notifs:roles", label, "", prefs.suppress_roles) {
-                act.push(Box::new(move |a: &mut App| {
-                    a.store.gprefs.entry(gid).or_default().suppress_roles ^= true;
-                    patch(a, gid, json!({ "suppress_roles": !prefs.suppress_roles }));
-                }));
+                act.push(Box::new(move |a: &mut App| toggle(a, gid, Flag::Roles)));
             }
             rule(ui);
             let label = plain(ui, "Suppress Highlights");
             if switch_row(ui, "notifs:highlights", label, "Highlights provide occasional updates when your friends are chatting in busy servers, and more.", prefs.highlights_off) {
-                act.push(Box::new(move |a: &mut App| {
-                    a.store.gprefs.entry(gid).or_default().highlights_off ^= true;
-                    patch(a, gid, json!({ "notify_highlights": if prefs.highlights_off { 1 } else { 2 } }));
-                }));
+                act.push(Box::new(move |a: &mut App| toggle(a, gid, Flag::Highlights)));
             }
             let (r, resp) = ui.allocate_exact_size(vec2(w - 12.0, 22.0), Sense::click());
             let ink = if resp.hovered() { pal().link } else { pal().link.gamma_multiply(0.9) };
@@ -198,22 +228,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             rule(ui);
             let label = plain(ui, "Mute New Events");
             if switch_row(ui, "notifs:events", label, "", events_muted) {
-                act.push(Box::new(move |a: &mut App| {
-                    if events_muted {
-                        a.store.events_muted.remove(&gid);
-                    } else {
-                        a.store.events_muted.insert(gid);
-                    }
-                    patch(a, gid, json!({ "mute_scheduled_events": !events_muted }));
-                }));
+                act.push(Box::new(move |a: &mut App| toggle(a, gid, Flag::Events)));
             }
             rule(ui);
             let label = plain(ui, "Mobile Push Notifications");
             if switch_row(ui, "notifs:mobile", label, "", prefs.mobile_push) {
-                act.push(Box::new(move |a: &mut App| {
-                    a.store.gprefs.entry(gid).or_default().mobile_push ^= true;
-                    patch(a, gid, json!({ "mobile_push": !prefs.mobile_push }));
-                }));
+                act.push(Box::new(move |a: &mut App| toggle(a, gid, Flag::Mobile)));
             }
             ui.add_space(32.0);
             heading(ui, "Select a channel or category…");

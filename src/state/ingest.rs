@@ -62,6 +62,15 @@ impl Store {
         }
         for o in s["channel_overrides"].as_array().into_iter().flatten() {
             let cid = sid(&o["channel_id"]);
+            match o["collapsed"].as_bool() {
+                Some(true) => {
+                    self.collapsed.insert(cid);
+                }
+                Some(false) => {
+                    self.collapsed.remove(&cid);
+                }
+                None => {}
+            }
             if let Some(flags) = o["flags"].as_u64() {
                 self.chan_flags.insert(cid, flags);
                 if flags & (1 << 12) != 0 {
@@ -113,7 +122,14 @@ impl Store {
     }
 
     pub fn unread(&self, c: &Channel) -> bool {
-        if c.last_msg == 0 || self.is_muted(c) || (c.is_thread() && !c.joined) {
+        !self.is_muted(c) && self.unread_row(c)
+    }
+
+    /// Whether the channel's own row shows as unread. A muted category keeps its channels out of
+    /// the server's unread mark, but discord still lights the rows inside it; only a channel's own
+    /// mute quiets its row.
+    pub fn unread_row(&self, c: &Channel) -> bool {
+        if c.last_msg == 0 || self.muted.contains(&c.id) || (c.is_thread() && !c.joined) {
             return false;
         }
         if c.guild != 0 && !self.unreads_all(c) {
@@ -185,13 +201,14 @@ impl Store {
     }
 
     /// The member list's second line: the custom status if there is one, else what they're
-    /// doing ("Playing", bold name). (emoji url, prefix, bold part)
-    pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String)> {
+    /// doing ("Playing", bold name). (emoji url, prefix, bold part, the kind of activity going on
+    /// beside a custom status)
+    pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String, Option<u8>)> {
         let list = self.activities.get(&uid)?;
         if let Some(a) = list.iter().find(|a| a.kind == 4)
             && (a.state.is_some() || a.emoji.is_some())
         {
-            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new()));
+            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new(), list.iter().find(|a| a.kind != 4).map(|a| a.kind)));
         }
         let a = list.iter().find(|a| a.kind != 4)?;
         let verb = match a.kind {
@@ -201,7 +218,7 @@ impl Store {
             5 => "Competing in ",
             _ => "Playing ",
         };
-        Some((None, verb.to_string(), a.name.clone()))
+        Some((None, verb.to_string(), a.name.clone(), None))
     }
 
     pub fn upsert_user(&mut self, v: &Value) -> Id {
@@ -277,6 +294,9 @@ impl Store {
         g.afk = sid(&p["afk_channel_id"]);
         g.default_notif = p["default_message_notifications"].as_u64().unwrap_or(0) as u8;
         g.banner = ost(&p["banner"]);
+        g.vanity = ost(&p["vanity_url_code"]);
+        g.hub_enabled = p["guild_space_settings"]["enabled"].as_bool();
+        g.hub_published = p["guild_space_settings"]["publish_status"].as_u64() == Some(1);
         g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
         g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
         g.tier = p["premium_tier"].as_u64().or(v["premium_tier"].as_u64()).unwrap_or(0) as u8;
@@ -412,6 +432,7 @@ impl Store {
         self.levels.clear();
         self.opt_in.clear();
         self.opted.clear();
+        self.collapsed.clear();
         self.new_notifs = d["notification_settings"]["flags"].as_u64().unwrap_or(0) & 16 != 0;
         for s in ugs.as_array().into_iter().flatten() {
             self.guild_settings(s);
@@ -419,6 +440,17 @@ impl Store {
 
         self.email = ost(&d["user"]["email"]);
         self.me_raw = d["user"].clone();
+        self.experiments = d["apex_experiments"]["assignments"].as_object().map(|kinds| {
+            let units = kinds.values().filter_map(|k| k.as_object()).flat_map(|k| k.values());
+            let given = units.flat_map(|u| u["assignments"].as_array().into_iter().flatten());
+            let hash = |a: &Value| a[0].as_u64().or_else(|| a[0].as_str()?.parse().ok());
+            given.filter(|a| a[1].as_u64().is_some_and(|variant| variant != 0)).filter_map(|a| hash(a).map(|h| h as u32)).collect()
+        });
+        let hashes = |u: &Value| -> Set<u32> {
+            let given = u["assignments"].as_array().into_iter().flatten();
+            given.filter(|a| a[1].as_u64().is_some_and(|variant| variant != 0)).filter_map(|a| a[0].as_u64().or_else(|| a[0].as_str()?.parse().ok()).map(|h| h as u32)).collect()
+        };
+        self.guild_experiments = d["apex_experiments"]["assignments"]["guild"].as_object().into_iter().flatten().filter_map(|(g, u)| Some((g.parse().ok()?, hashes(u)))).collect();
         self.relationships.clear();
         for r in d["relationships"].as_array().into_iter().flatten() {
             let uid = sid(&r["id"]);
@@ -438,6 +470,8 @@ impl Store {
                 folders = crate::proto::guild_folders(&raw);
                 self.load_privacy(&raw, true);
                 self.account = crate::proto::account(&raw, true);
+                self.favorites = crate::proto::favorites::read(&raw).unwrap_or_default();
+                self.dismissed = crate::proto::dismissed_versions(&raw);
                 (self.custom_status, self.custom_emoji) = Self::own_custom(crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten());
                 self.own_status(&raw);
             }

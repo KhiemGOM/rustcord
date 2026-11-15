@@ -121,14 +121,18 @@ impl App {
                     s.results = Some(list);
                 }
             }
-            Tag::Profile(u) => {
+            Tag::Profile(u, g) => {
                 if v["user"].is_object() {
                     self.store.apply("USER_UPDATE", &v["user"]);
                 }
                 for f in v["mutual_friends"].as_array().into_iter().flatten() {
                     self.store.apply("USER_UPDATE", f);
                 }
-                self.profiles.insert(u, v);
+                if g != 0 {
+                    self.member_profiles.insert((u, g), v);
+                } else {
+                    self.profiles.insert(u, v);
+                }
             }
             Tag::Outbox(u) => {
                 self.outbox.insert(u, profile::recents(&v));
@@ -143,7 +147,10 @@ impl App {
                     i.mentions = Some(list);
                 }
             }
-            Tag::Forum(f) => self.store.load_forum(f, &v),
+            Tag::Forum(f) => {
+                self.store.load_forum(f, &v);
+                self.request_members(f);
+            }
             Tag::Boosts(g, k) => boosts::load(self, g, k, &v),
             Tag::Created => create::created(self, &v),
             Tag::NewServer => newserver::created(self, &v),

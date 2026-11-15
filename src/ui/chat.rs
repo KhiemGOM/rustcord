@@ -37,6 +37,8 @@ pub(super) use embeds::human_size;
 pub(crate) use embeds::emoji_url;
 mod polls;
 use polls::*;
+mod themecard;
+use themecard::*;
 mod actions;
 use actions::*;
 mod ctxmenu;
@@ -79,6 +81,7 @@ enum Act {
     // a [text](url) link, which asks before leaving
     Masked(String),
     ClearEmbeds(Id),
+    TryTheme(crate::theme::Custom),
     // a poll vote: the message and the answer ids now picked (empty clears the vote)
     Vote(Id, Vec<u8>),
     // play/pause an audio attachment (voice message, soundboard) by its url
@@ -161,6 +164,8 @@ fn day(ts: i64) -> (i32, u32) {
 pub(super) fn group_start(prev: Option<&Message>, m: &Message) -> bool {
     match prev {
         None => true,
+        // a run of system messages stacks without the gap between groups
+        Some(p) if !normal(p.kind) && !normal(m.kind) => day(p.ts()) != day(m.ts()),
         Some(p) => {
             p.author != m.author
                 || m.ts() - p.ts() > 7 * 60 * 1000
@@ -218,6 +223,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }
+    if let Some(g) = app.hub.as_ref().map(|h| h.guild).filter(|g| app.ui.guild == Some(*g)) {
+        return super::hub::show(app, ui, g);
+    }
     if let Some(g) = app.server_shop.as_ref().map(|s| s.guild).filter(|g| app.ui.guild == Some(*g)) {
         return super::buy::server_shop::show(app, ui, g);
     }
@@ -266,6 +274,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let members_w = if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
     if app.search.is_some() {
         let search_w = if app.ui.search_w > 0.0 { app.ui.search_w } else { 420.0 };
+        super::nav::keep_size(&ctx, "search", 0, search_w);
         let r = egui::Panel::right("search")
             .default_size(search_w)
             .size_range(300.0..=(room - 320.0).clamp(300.0, 640.0))
@@ -273,7 +282,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(Frame::new().fill(pal().bg_primary))
             .show(ui, |ui| super::popups::search_panel(app, ui));
-        if let Some(w) = app.dragged(&ctx, r.response.rect.width(), search_w) {
+        if let Some(w) = app.dragged(&ctx, "search", r.response.rect.width(), search_w) {
             app.ui.search_w = w;
         }
     } else if chan.kind == 1 && !app.ui.hide_dm_profile && !dm_profile_unavailable(app, &ctx, &chan) {
@@ -297,6 +306,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let gr = r.response.rect;
         ui.painter().vline(gr.left() + 0.5, gr.y_range(), hairline(ui.pixels_per_point(), pal().border_subtle));
     } else if chan.guild != 0 && side.is_none() && !app.ui.hide_members {
+        super::nav::keep_size(&ctx, "members", 0, members_w);
         let r = egui::Panel::right("members")
             .default_size(members_w)
             .size_range(200.0..=(room - 420.0).clamp(200.0, 480.0))
@@ -306,12 +316,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .show(ui, |ui| super::members::show(app, ui, chan.guild, chan.is_thread().then_some(chan.id)));
         let mr = r.response.rect;
         ui.painter().vline(mr.left() + 0.5, mr.y_range(), hairline(ui.pixels_per_point(), pal().border_subtle));
-        if let Some(w) = app.dragged(&ctx, r.response.rect.width(), members_w) {
+        if let Some(w) = app.dragged(&ctx, "members", r.response.rect.width(), members_w) {
             app.ui.members_w = w;
         }
     }
     // a channel opened from elsewhere in a server that only lists the ones you picked
-    if chan.guild != 0 && !chan.is_thread() && !app.store.listed(&chan) {
+    if chan.guild != 0 && !chan.is_thread() && !chan.resource && !app.store.listed(&chan) {
         egui::Panel::top("unlisted")
             .exact_size(49.0)
             .resizable(false)
@@ -603,6 +613,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Thread(id) => app.new_thread = Some(super::popups::NewThread::from(app, ch, id)),
             Act::Mention(u) => app.mention(u, chan.guild),
             Act::ClearEmbeds(id) => app.clear_embeds(ch, id, !shift),
+            Act::TryTheme(c) => super::themes::try_shared(app, ui.ctx(), c),
             Act::Vote(id, picks) => app.vote(ch, id, picks),
             Act::PlayAudio(url) => app.play_audio(url),
             Act::Player(d) => {

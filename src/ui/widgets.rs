@@ -67,8 +67,23 @@ pub(super) fn badge_scaled(ui: &Ui, right_center: Pos2, n: u32, ring: Option<Col
 pub(crate) fn button(ui: &mut Ui, text: &str, fill: Color32, width: f32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
     let fill = motion::mix(fill, fill.gamma_multiply(0.85), motion::hot(ui.ctx(), &resp));
-    ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, semi(14.0), Color32::WHITE);
+    ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), Color32::WHITE);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+pub(crate) fn modal_button(ui: &mut Ui, text: &str, fill: Option<Color32>, width: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
+    let k = motion::hot(ui.ctx(), &resp);
+    let (fill, ink, edge) = match fill {
+        Some(c) => (motion::mix(c, c.gamma_multiply(0.85), k), Color32::WHITE, egui::Stroke::NONE),
+        None => (motion::mix(pal().control, pal().control_hover, k), pal().header_primary, egui::Stroke::new(1.0, pal().border_subtle)),
+    };
+    ui.painter().rect(rect, CornerRadius::same(8), fill, edge, egui::StrokeKind::Inside);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, medium(16.0), ink);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -117,6 +132,8 @@ pub(crate) struct Confirm {
     pub tip: Option<[&'static str; 3]>,
     // "Don't ask again" beside the buttons, and what ticking it does when the answer is yes
     pub check: Option<(bool, fn(&mut App))>,
+    pub alone: bool,
+    pub cancel: &'static str,
     pub run: Box<dyn FnOnce(&mut App)>,
     // Enter only answers once the dialog has been up a frame, not the Enter that opened it
     pub(super) shown: bool,
@@ -124,7 +141,17 @@ pub(crate) struct Confirm {
 
 impl Confirm {
     pub fn new(title: impl Into<String>, body: impl Into<String>, button: &'static str, run: impl FnOnce(&mut App) + 'static) -> Self {
-        Confirm { title: title.into(), body: body.into(), button, fill: pal().danger, msg: None, tip: None, check: None, run: Box::new(run), shown: false }
+        Confirm { title: title.into(), body: body.into(), button, fill: pal().danger, msg: None, tip: None, check: None, alone: false, cancel: "Cancel", run: Box::new(run), shown: false }
+    }
+
+    pub fn cancel(mut self, label: &'static str) -> Self {
+        self.cancel = label;
+        self
+    }
+
+    pub fn alone(mut self) -> Self {
+        self.alone = true;
+        self
     }
 
     pub fn blurple(mut self) -> Self {

@@ -112,7 +112,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 label(ui, "Server Name");
             });
-            field(ui, &mut w.name, "", None, 1);
+            field(ui, &mut w.name, "", None, 1, None);
             ui.add_space(8.0);
             ui.label(RichText::new("By creating a server, you agree to Discord's Community Guidelines.").font(reg(12.0)).color(pal().header_secondary));
             ui.add_space(24.0);

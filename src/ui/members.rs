@@ -135,33 +135,14 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     let name = store.name_in(gid, *uid);
                     let bot = store.user(*uid).is_some_and(|u| u.bot);
                     let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
-                    let ny = if line.is_some() { row.top() + 15.0 } else { row.center().y };
+                    let ny = if line.is_some() { row.top() + 14.5 } else { row.center().y };
                     let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
-                    if store.role_look(gid, *uid).is_some_and(|r| r.grad.len() >= 2) {
+                    if store.role_gradient(gid, *uid).is_some() {
                         named.push((format!("member_grad:{uid}"), nr));
                     }
-                    if let Some((emoji, plain, bold)) = line {
-                        let mut x = av.right() + 12.0;
-                        let y = row.top() + 33.0;
-                        if let Some(url) = emoji {
-                            super::text::image(ui.painter(), &url, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)));
-                            x += 18.0;
-                        } else if plain == "Playing " {
-                            // discord: a green controller and the game, no verb
-                            super::icons::draw(ui.painter(), super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
-                            x += 18.0;
-                        }
-                        // watching and playing show just the name
-                        let (plain, bold) = if plain == "Playing " || plain == "Watching " { (bold, String::new()) } else { (plain, bold) };
-                        let mut job = egui::text::LayoutJob::default();
-                        job.wrap.max_width = inner.right() - 8.0 - x;
-                        job.wrap.max_rows = 1;
-                        job.wrap.break_anywhere = true;
-                        job.append(&plain, 0.0, egui::TextFormat { font_id: medium(12.0), color: pal().text_muted, ..Default::default() });
-                        job.append(&bold, 0.0, egui::TextFormat { font_id: semi(12.0), color: pal().text_muted, ..Default::default() });
-                        let g = ui.painter().layout_job(job);
-                        ui.painter().galley(pos2(x, y - g.size().y / 2.0), g, pal().text_muted);
+                    if let Some(line) = line {
+                        status_line(ui.painter(), line, av.right() + 12.0, row.top() + 31.0, inner.right() - 8.0, pal().text_muted, 12.0, "");
                     }
                     let mut tx = nr.right() + 4.0;
                     // discord leaves the crown off while the owner sits in the offline group
@@ -173,7 +154,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     }
                     if let Some(u) = store.user(*uid) {
                         if bot {
-                            tx = super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade).right() + 4.0;
+                            tx = super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade, false).right() + 4.0;
                         } else if let Some(r) = super::tag_chip(ui.painter(), u, pos2(tx, ny), fade) {
                             tx = r.right() + 4.0;
                         }
@@ -221,8 +202,45 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
 /// A member's name as the list draws it: a gradient role's colours run along it, anything else
 /// is the flat colour given. Anchored left-centre at `at`.
 #[allow(clippy::too_many_arguments)]
+/// The line under a name in a list: the custom status with its emoji, or what they're doing.
+pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option<String>, String, String, Option<u8>), mut x: f32, y: f32, right: f32, col: egui::Color32, size: f32, doing: &str) {
+    let pic = if size > 12.0 { 16.0 } else { 14.0 };
+    // doing something as well: its icon, its name if asked for, and a dot lead the status
+    if let Some(kind) = also {
+        let icon = if kind == 2 { super::icons::Icon::Music } else { super::icons::Icon::Controller };
+        super::icons::draw(p, icon, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
+        x += 16.0;
+        if !doing.is_empty() {
+            x = super::text::paint(p, pos2(x + 2.0, y), egui::Align2::LEFT_CENTER, doing, medium(size), col, (right - x) * 0.5).right();
+        }
+        x = p.text(pos2(x + if doing.is_empty() { 0.0 } else { 4.0 }, y), egui::Align2::LEFT_CENTER, "•", reg(size), col).right() + 4.0;
+    }
+    if let Some(url) = emoji {
+        super::text::image(p, &url, Rect::from_center_size(pos2(x + pic / 2.0, y), vec2(pic, pic)));
+        x += pic + 4.0;
+    } else if plain == "Playing " {
+        // discord: a green controller and the game, no verb
+        super::icons::draw(p, super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
+        x += 18.0;
+    }
+    // watching and playing show just the name
+    let (plain, bold) = if plain == "Playing " || plain == "Watching " { (bold, String::new()) } else { (plain, bold) };
+    if bold.is_empty() {
+        super::text::paint_em(p, pos2(x, y), egui::Align2::LEFT_CENTER, &plain, medium(size), col, right - x, 1.0);
+        return;
+    }
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = right - x;
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.append(&plain, 0.0, egui::TextFormat { font_id: medium(size), color: col, ..Default::default() });
+    job.append(&bold, 0.0, egui::TextFormat { font_id: semi(size), color: col, ..Default::default() });
+    let g = p.layout_job(job);
+    p.galley(pos2(x, y - g.size().y / 2.0), g, col);
+}
+
 fn name_in(ui: &Ui, store: &Store, gid: Id, uid: Id, name: &str, face: egui::FontId, at: egui::Pos2, flat: Color32, fade: f32, max_w: f32, hot: bool) -> Rect {
-    match store.role_look(gid, uid).filter(|r| r.grad.len() >= 2) {
+    match store.role_gradient(gid, uid) {
         Some(r) => {
             let mut ink = super::chat::grad_ink(r);
             for s in &mut ink.stops {
@@ -426,17 +444,18 @@ fn ago(ms: i64) -> String {
 pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     let store = &app.store;
     let mut people: Vec<Id> = chan.recipients.iter().copied().chain(std::iter::once(store.me)).collect();
-    people.sort_by_key(|u| store.user(*u).map(|u| u.display().to_lowercase()).unwrap_or_default());
+    people.sort_by_key(|u| store.user(*u).map(|u| u.username.to_lowercase()).unwrap_or_default());
     let mut clicked = None;
     // shift+click puts an @mention of them in the composer
     let mut mention = None;
     let mut menu = None;
     let mut invite = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        ui.add_space(16.0);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add_space(19.5);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Members — {}", people.len()), medium(14.0), pal().channel_default);
+        ui.painter().text(pos2(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, format!("Members—{}", people.len()), medium(14.0), pal().channel_default);
+        ui.add_space(2.0);
         for uid in people {
             let Some(u) = store.user(uid) else { continue };
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
@@ -454,12 +473,14 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             } else {
                 status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
-            let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), medium(16.0), pal().header_secondary.gamma_multiply(fade), inner.right() - av.right() - 40.0);
+            let mut nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), name_font(u.font, 16.0), crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)).gamma_multiply(fade), inner.right() - av.right() - 40.0);
             if chan.owner == uid {
                 let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
                 ui.interact(cr, ui.id().with(("owner", uid)), Sense::hover()).on_hover_text("Group Owner");
+                nr = nr.union(cr);
             }
+            super::tag_chip(ui.painter(), u, pos2(nr.right() + 4.0, row.center().y), fade);
             if resp.clicked() && ui.input(|i| i.modifiers.shift) {
                 mention = Some(uid);
             } else if resp.clicked() {
