@@ -64,6 +64,7 @@ mod newserver;
 mod menus;
 mod picker;
 mod player;
+mod botinfo;
 mod plus;
 mod poll;
 mod scheduled;

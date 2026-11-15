@@ -19,6 +19,8 @@ pub enum Tab {
     Servers,
     Wishlist,
     Board,
+    Bio,
+    Data,
 }
 
 pub struct Full {
@@ -682,10 +684,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
         let rx = area.left() + 481.0;
         let mut tabs: Vec<(Tab, String)> = Vec::new();
-        if !widgets.is_empty() {
-            tabs.push((Tab::Board, "Board".into()));
+        if user.bot {
+            tabs.extend([
+                (Tab::Bio, "Bio".to_string()),
+                (Tab::Servers, format!("{} Mutual Server{}", servers.len(), if servers.len() == 1 { "" } else { "s" })),
+                (Tab::Data, "Data Access".to_string()),
+            ]);
+        } else {
+            if !widgets.is_empty() {
+                tabs.push((Tab::Board, "Board".into()));
+            }
+            tabs.push((Tab::Activity, "Activity".into()));
         }
-        tabs.push((Tab::Activity, "Activity".into()));
+        let tab = if user.bot && !matches!(tab, Tab::Servers | Tab::Data) { Tab::Bio } else { tab };
         if !user.bot && (tab == Tab::Wishlist || p.is_some_and(|p| p["wishlist_settings"].as_object().is_some_and(|m| !m.is_empty()))) {
             tabs.push((Tab::Wishlist, "Wishlist".into()));
         }
@@ -803,6 +814,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     }
                 }
+                Tab::Bio => super::botinfo::bio(ui, p, uid),
+                Tab::Data => super::botinfo::data_access(ui, p),
                 Tab::Servers => {
                     if servers.is_empty() {
                         ui.label(RichText::new("No Mutual Servers").font(semi(16.0)).color(pal().header_primary));
