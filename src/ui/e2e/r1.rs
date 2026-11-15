@@ -13,6 +13,7 @@ use crate::ui::{App, themes};
 const BOT: u64 = 104;
 const HUB_GUILD: u64 = 1001;
 const THEMED: u64 = 1002;
+const NEWS: u64 = 2002;
 
 fn menu(ctx: &egui::Context, label: &str) -> Option<egui::Rect> {
     Run::at(ctx, &format!("menu_row:{label}"))
@@ -698,6 +699,33 @@ impl Run {
                 }
                 app.store.me_raw["premium_type"] = serde_json::from_str(&self.text).unwrap_or_default();
                 self.text.clear();
+                self.step = 5286;
+            }
+            5286 => {
+                app.ask_publish(NEWS, 2);
+                self.next(600);
+            }
+            5287 => {
+                let Some(c) = &app.confirm else {
+                    if stuck {
+                        self.step = 5290;
+                    }
+                    return;
+                };
+                if c.title == "Are you sure?" && c.body.starts_with("This message will be sent to 3 servers following this channel.") {
+                    self.mark("publish_asks");
+                    self.shot(ctx, "publish_confirm.png");
+                }
+                self.key(Key::Enter);
+                self.next(700);
+            }
+            5288 => {
+                if app.confirm.is_none() {
+                    self.mark("publish_confirmed");
+                } else if !stuck {
+                    return;
+                }
+                app.confirm = None;
                 self.step = 5290;
             }
             _ => {

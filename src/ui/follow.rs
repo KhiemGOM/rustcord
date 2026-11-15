@@ -44,7 +44,35 @@ pub fn header_button(app: &mut App, ui: &mut Ui, chan: &Channel) {
     }
 }
 
+/// What discord's publish dialog says, by how many servers follow the channel.
+pub fn publish_text(following: u64) -> String {
+    let rest = "You can edit or delete this message later, and it will update correspondingly in each following server.";
+    match following {
+        0 => format!("This message will be sent to all servers following this channel. {rest}"),
+        n => format!("This message will be sent to {n} server{} following this channel. {rest}\n\nAnnouncement stats can be found in Server Insights.", if n == 1 { "" } else { "s" }),
+    }
+}
+
+/// Opens the publish dialog once the channel's follower count is in.
+pub fn confirm_publish(app: &mut App) {
+    let Some((ch, id)) = app.publishing else { return };
+    let key = format!("follower_stats:{ch}");
+    let Some(Some(res)) = app.keyed.get(&key) else { return };
+    let following = res.as_ref().ok().and_then(|v| v["guilds_following"].as_u64()).unwrap_or(0);
+    app.keyed.remove(&key);
+    app.publishing = None;
+    app.confirm = Some(super::Confirm::new("Are you sure?", publish_text(following), "Confirm", move |app: &mut App| app.publish_msg(ch, id)).blurple());
+}
+
 impl App {
+    /// Discord asks before publishing, and says how many servers the message goes to.
+    pub fn ask_publish(&mut self, ch: Id, id: Id) {
+        let key = format!("follower_stats:{ch}");
+        self.keyed.insert(key.clone(), None);
+        self.rest("GET", format!("/channels/{ch}/follower-stats"), None, Tag::Keyed(key));
+        self.publishing = Some((ch, id));
+    }
+
     /// Crossposts an announcement to the servers following its channel.
     pub fn publish_msg(&mut self, ch: Id, id: Id) {
         self.rest("POST", format!("/channels/{ch}/messages/{id}/crosspost"), None, Tag::Remote("action"));
@@ -202,4 +230,17 @@ fn button(ui: &Ui, r: Rect, label: &str, primary: bool, on: bool) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::publish_text;
+
+    #[test]
+    fn the_publish_dialog_counts_the_servers_following() {
+        assert!(publish_text(0).starts_with("This message will be sent to all servers following this channel."));
+        assert!(publish_text(1).starts_with("This message will be sent to 1 server following this channel."));
+        assert!(publish_text(3).starts_with("This message will be sent to 3 servers following this channel."));
+        assert!(publish_text(3).ends_with("Server Insights."));
+    }
 }

@@ -1810,6 +1810,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("POST", ["api", "v9", "channels", _, "typing"]) => (204, "application/json", Vec::new()),
         ("PUT", ["api", "v9", "channels", _, "recipients", _]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "channels", ch, "followers"]) => ok(json!({ "channel_id": ch, "webhook_id": "9100" })),
+        ("GET", ["api", "v9", "channels", ch, "follower-stats"]) => ok(json!({ "channel_id": ch, "guilds_following": 3, "channels_following": 3, "guild_members": 8, "users_seen_ever": 120, "subscribers_gained_since_last_post": 1, "subscribers_lost_since_last_post": 0 })),
         ("PUT", ["api", "v9", "channels", _, "polls", _, "answers", "@me"]) => (204, "application/json", Vec::new()),
         ("GET", ["api", "v9", "channels", _, "threads", "search"]) => ok(forum_posts()),
         ("GET", ["api", "v9", "channels", ch, "messages", "pins"]) => {

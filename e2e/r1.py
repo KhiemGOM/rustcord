@@ -48,5 +48,8 @@ def checks(runs, reqs):
             and all(dark(r, "rail") and dark(r, "side") and not dark(r, "chat") for r in runs.values()),
         "themes: Share your theme sent the custom theme to a channel, and its card's Preview opened it in the editor": both("theme_shared") and both("theme_previewed")
             and any(b and len((b.get("shared_client_theme") or {}).get("colors", [])) >= 1 and "base_theme" in b["shared_client_theme"] for b in sent(reqs, "POST", "/messages")),
+        "announcements: Publish asks first, saying how many servers follow the channel, and Confirm crossposts": both("publish_asks") and both("publish_confirmed")
+            and any(r.get("method") == "GET" and r.get("path", "").endswith("/channels/2002/follower-stats") for r in reqs)
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/channels/2002/messages/2/crosspost") for r in reqs),
         "apps: a bot's full profile has Bio, Mutual Servers and Data Access tabs, and Data Access lists what its intents allow": both("bot_profile_tabs") and both("bot_data_access"),
     }

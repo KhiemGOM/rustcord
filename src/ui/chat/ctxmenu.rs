@@ -292,7 +292,7 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         }
         Some(MenuPick::Forward) => app.forward = Some(crate::ui::popups::Forward::new(ch, id)),
         Some(MenuPick::Thread) => app.new_thread = Some(crate::ui::popups::NewThread::from(app, ch, id)),
-        Some(MenuPick::Publish) => app.publish_msg(ch, id),
+        Some(MenuPick::Publish) => app.ask_publish(ch, id),
         Some(MenuPick::Copy) => ctx.copy_text(content),
         Some(MenuPick::Pin) => app.pin_msg(ch, id, !shift),
         Some(MenuPick::Bookmark) => app.bookmark(ch, id),

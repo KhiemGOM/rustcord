@@ -177,6 +177,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::prune::show(app, ctx);
     super::poll::show(app, ctx);
     super::scheduled::show(app, ctx);
+    super::follow::confirm_publish(app);
     super::settings::referral::modal(app, ctx);
     super::hubjoin::show(app, ctx);
     super::attach::modify(app, ctx);
