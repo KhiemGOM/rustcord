@@ -1,5 +1,5 @@
 use egui::Key;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::Run;
 use crate::state::{BLOCKED, FRIEND, Id};
@@ -52,7 +52,18 @@ impl Run {
                 self.click(r.center());
                 self.next(400);
             }),
-            563 => when!(app.poll.is_some(), {
+            563 => when!(Self::at(ctx, "poll:post").is_some() && (self.sub == 1 || self.step_at.elapsed() > Duration::from_millis(600)), {
+                if self.sub == 0 {
+                    let r = Self::at(ctx, "poll:post").unwrap_or(egui::Rect::ZERO);
+                    self.click(r.center());
+                    self.sub = 1;
+                    self.wait = Instant::now() + Duration::from_millis(400);
+                    return;
+                }
+                self.sub = 0;
+                if app.poll.as_ref().is_some_and(|p| p.errors().len() == 2) {
+                    self.mark("poll_empty_post_errors");
+                }
                 if let Some(p) = app.poll.as_mut() {
                     p.question = "which crate?".into();
                     p.answers[0].0 = "serde".into();

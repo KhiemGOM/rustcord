@@ -19,6 +19,7 @@ def checks(runs, reqs, data):
         "composer: the plus menu lists Upload a File, Create Thread, Create Poll and Use Apps": both("composer_plus_menu"),
         "composer: Create Poll posted its question, answers, duration and multiselect": both("composer_poll") and len(polls) >= 2
             and all(p["question"]["text"] == "which crate?" and [a["poll_media"]["text"] for a in p["answers"]] == ["serde", "tokio"] and p["duration"] == 24 and p["allow_multiselect"] is False for p in polls),
+        "composer: Post on an empty poll stayed open and flagged the question and first answer": both("poll_empty_post_errors"),
         "composer: slowmode showed its countdown and held the second message back": both("composer_slowmode") and both("composer_slow_blocked")
             and len([r for r in sent("POST", "/channels/2015/messages")]) == 2,
         "composer: a channel you can't post in disabled the box": both("composer_no_perm"),
