@@ -59,6 +59,8 @@ impl Store {
             m.extra = if v["role_subscription_data"].is_object() { v["role_subscription_data"].clone() } else { v["purchase_notification"].clone() };
         } else if matches!(m.kind, 32..=34 | 49) {
             m.extra = serde_json::json!({ "application": v["application"]["name"] });
+        } else if v["shared_client_theme"].is_object() {
+            m.extra = serde_json::json!({ "shared_client_theme": v["shared_client_theme"] });
         }
         if v["referenced_message"].is_object() {
             let r = self.parse_message(&v["referenced_message"]);

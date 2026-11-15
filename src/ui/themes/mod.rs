@@ -147,6 +147,21 @@ pub fn open_editor(app: &mut App, ctx: &egui::Context, back: Back) {
     app.apply_look(ctx);
 }
 
+/// A theme from someone's message, opened in the editor to look at and keep.
+pub fn try_shared(app: &mut App, ctx: &egui::Context, theme: crate::theme::Custom) {
+    app.settings_page = None;
+    app.themes.edit = editor::Draft::open(Some(theme), false);
+    app.themes.panel = Some(Panel::Editor);
+    app.themes.preview = Some(Fill::Custom(app.themes.edit.now.clone()));
+    app.themes.back = Back::Settings;
+    app.apply_look(ctx);
+}
+
+/// What a message carries to share the theme being edited.
+pub fn shared(app: &App, c: &crate::theme::Custom) -> serde_json::Value {
+    json!({ "colors": c.colors.iter().map(|c| format!("{c:06x}")).collect::<Vec<_>>(), "gradient_angle": c.angle, "base_mix": c.mix, "base_theme": crate::proto::theme_number(app.settings.theme, c.light) })
+}
+
 pub fn close(app: &mut App, ctx: &egui::Context, settings: bool) {
     app.themes.panel = None;
     app.themes.preview = None;

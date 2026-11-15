@@ -239,6 +239,11 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
             acc = 4.0;
             poll(&mut cui, d, m);
         }
+        if m.extra["shared_client_theme"].is_object() {
+            cui.add_space(acc);
+            acc = 4.0;
+            theme_card(&mut cui, d, m);
+        }
         if let Some(t) = m.thread.and_then(|t| d.store.channels.get(&t)) {
             cui.add_space(acc);
             acc = 4.0;

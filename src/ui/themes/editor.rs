@@ -282,6 +282,7 @@ pub fn show(app: &mut App, ui: &mut Ui, r: Rect) {
         }
     }
     let before = d.now.clone();
+    let mut share = false;
     let mut scroll = child(ui, body);
     egui::ScrollArea::vertical().id_salt("themes_editor").auto_shrink([false, false]).show(&mut scroll, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -388,6 +389,18 @@ pub fn show(app: &mut App, ui: &mut Ui, r: Rect) {
             d.now = d.reset.clone();
             d.at = 0;
         }
+        if unlocked {
+            ui.add_space(24.0);
+            let (card, resp) = ui.allocate_exact_size(vec2(BODY, 60.0), Sense::click());
+            ui.painter().rect(card, 8, if resp.hovered() { pal().control_hover } else { pal().control }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            ui.painter().text(card.left_top() + vec2(12.0, 20.0), Align2::LEFT_CENTER, "Share your theme!", semi(14.0), pal().header_primary);
+            ui.painter().text(card.left_top() + vec2(12.0, 40.0), Align2::LEFT_CENTER, "Make your friends Discord match yours with sharing.", reg(12.0), pal().header_secondary);
+            mark(ui, "themes:share", card);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            share = resp.clicked();
+        }
     });
     if let Some(c) = eyedrop::pick(&ctx, PIPETTE, &mut d.pipette) {
         d.now.colors[d.at] = pack(c);
@@ -414,6 +427,10 @@ pub fn show(app: &mut App, ui: &mut Ui, r: Rect) {
         app.apply_look(&ctx);
     }
     app.themes.edit = d;
+    if share {
+        let theme = super::shared(app, &app.themes.edit.now);
+        app.forward = Some(crate::ui::popups::Forward::theme(theme));
+    }
     if apply {
         let fill = Fill::Custom(app.themes.edit.now.clone());
         super::apply(app, &ctx, Some(fill));

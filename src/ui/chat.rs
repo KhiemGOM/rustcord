@@ -37,6 +37,8 @@ pub(super) use embeds::human_size;
 pub(crate) use embeds::emoji_url;
 mod polls;
 use polls::*;
+mod themecard;
+use themecard::*;
 mod actions;
 use actions::*;
 mod ctxmenu;
@@ -79,6 +81,7 @@ enum Act {
     // a [text](url) link, which asks before leaving
     Masked(String),
     ClearEmbeds(Id),
+    TryTheme(crate::theme::Custom),
     // a poll vote: the message and the answer ids now picked (empty clears the vote)
     Vote(Id, Vec<u8>),
     // play/pause an audio attachment (voice message, soundboard) by its url
@@ -607,6 +610,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Thread(id) => app.new_thread = Some(super::popups::NewThread::from(app, ch, id)),
             Act::Mention(u) => app.mention(u, chan.guild),
             Act::ClearEmbeds(id) => app.clear_embeds(ch, id, !shift),
+            Act::TryTheme(c) => super::themes::try_shared(app, ui.ctx(), c),
             Act::Vote(id, picks) => app.vote(ch, id, picks),
             Act::PlayAudio(url) => app.play_audio(url),
             Act::Player(d) => {

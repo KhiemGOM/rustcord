@@ -6,11 +6,16 @@ pub(crate) struct Forward {
     pub(super) query: String,
     pub(super) picked: Vec<Id>,
     pub(super) note: String,
+    pub(super) theme: Option<serde_json::Value>,
 }
 
 impl Forward {
     pub fn new(ch: Id, msg: Id) -> Self {
-        Forward { ch, msg, query: String::new(), picked: Vec::new(), note: String::new() }
+        Forward { ch, msg, query: String::new(), picked: Vec::new(), note: String::new(), theme: None }
+    }
+
+    pub fn theme(theme: serde_json::Value) -> Self {
+        Forward { theme: Some(theme), ..Forward::new(0, 0) }
     }
 }
 
@@ -44,15 +49,17 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
             Frame::new().inner_margin(Margin { left: 24, right: 24, top: 24, bottom: 16 }).show(ui, |ui| {
                 ui.set_width(430.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Forward To").font(semi(20.0)).color(pal().header_primary));
+                    ui.label(RichText::new(if f.theme.is_some() { "Share custom theme" } else { "Forward To" }).font(semi(20.0)).color(pal().header_primary));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icon_button(ui, Icon::Close, 24.0, "Close").clicked() {
                             close = true;
                         }
                     });
                 });
-                ui.add_space(4.0);
-                ui.label(RichText::new("Select where you want to share this message.").font(reg(16.0)).color(pal().header_secondary));
+                if f.theme.is_none() {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Select where you want to share this message.").font(reg(16.0)).color(pal().header_secondary));
+                }
                 ui.add_space(16.0);
                 let (field, _) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::hover());
                 ui.painter().rect_filled(field, 8, pal().input_bg);
@@ -175,6 +182,12 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
     if send {
         let f = app.forward.take().expect("checked above");
         let guild = app.store.channels.get(&f.ch).map_or(0, |c| c.guild);
+        if let Some(theme) = &f.theme {
+            for to in &f.picked {
+                app.rest("POST", format!("/channels/{to}/messages"), Some(json!({ "content": f.note.trim(), "shared_client_theme": theme })), Tag::fail(crate::ui::SEND_FAILED));
+            }
+            return;
+        }
         for to in f.picked {
             let mut reference = json!({ "type": 1, "message_id": f.msg.to_string(), "channel_id": f.ch.to_string() });
             if guild != 0 {
