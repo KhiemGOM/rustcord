@@ -142,7 +142,7 @@ impl Run {
                 self.next(800);
             }
             8851 => {
-                let Some(r) = Self::at(ctx, "shop:tab:Orbs Exclusives") else { return };
+                let Some(r) = Self::at(ctx, "shop:tab:Orbs Shop") else { return };
                 self.click(r.center());
                 self.next(800);
             }

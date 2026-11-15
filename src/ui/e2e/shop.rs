@@ -256,7 +256,7 @@ impl Run {
                 if loaded(app, "shop_orbs") && at("shop:orbs").is_some() {
                     self.mark("shop_orbs");
                 }
-                let Some(r) = at("shop:tab:Orbs Exclusives") else { return };
+                let Some(r) = at("shop:tab:Orbs Shop") else { return };
                 self.click(r.center());
                 self.next(400);
             }
