@@ -178,6 +178,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::poll::show(app, ctx);
     super::scheduled::show(app, ctx);
     super::settings::referral::modal(app, ctx);
+    super::hubjoin::show(app, ctx);
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
     super::dmpick::show(app, ctx);

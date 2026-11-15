@@ -21,6 +21,8 @@ pub struct Dir {
     pub card: Option<Value>,
     pub servers: bool,
     pub sv: super::discover::Servers,
+    /// The search field folded to its icon because the tabs need the room, and opened by hand.
+    pub search_open: bool,
 }
 
 impl App {
@@ -50,6 +52,11 @@ pub fn loaded(app: &mut App, key: String, v: Value) {
             d.data.insert(key, v);
         }
     }
+}
+
+/// Discover > Servers on its Student Hubs tab, which has nothing to search.
+fn hubs_tab(d: &Dir) -> bool {
+    d.servers && !d.sv.cats.is_empty() && d.tab == d.sv.cats.len() + 1 && d.searched.is_empty()
 }
 
 pub fn faint(a: u8) -> Color32 {
@@ -101,9 +108,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let (ir, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
             icons::draw(ui.painter(), if d.servers { Icon::Discover } else { Icon::Apps }, ir, pal().header_primary);
             ui.add_space(20.0);
-            let names: Vec<String> = std::iter::once(if d.servers { "Home" } else { "Featured" }.to_string()).chain(cats.iter().map(|c| c.1.clone())).collect();
-            let search = Rect::from_min_size(pos2(r.right() - 240.0, r.center().y - 16.0), vec2(240.0, 32.0));
-            let strip = Rect::from_min_max(pos2(ui.cursor().left(), r.top()), pos2(search.left() - 16.0, r.bottom()));
+            let hubs = (d.servers && !cats.is_empty()).then(|| "Student Hubs".to_string());
+            let names: Vec<String> = std::iter::once(if d.servers { "Home" } else { "Featured" }.to_string()).chain(cats.iter().map(|c| c.1.clone())).chain(hubs).collect();
+            let on_hubs = hubs_tab(d);
+            let need: f32 = names.iter().map(|n| ui.painter().layout_no_wrap(n.clone(), medium(14.0), Color32::WHITE).size().x + 24.0).sum();
+            let wide = Rect::from_min_size(pos2(r.right() - 240.0, r.center().y - 16.0), vec2(240.0, 32.0));
+            let folded = d.servers && !d.search_open && d.query.is_empty() && ui.cursor().left() + need - 24.0 + 20.0 > wide.left() - 16.0;
+            let search = if folded { Rect::from_min_size(pos2(r.right() - 32.0, r.center().y - 16.0), vec2(32.0, 32.0)) } else { wide };
+            let strip = Rect::from_min_max(pos2(ui.cursor().left(), r.top()), pos2(if on_hubs { r.right() } else { search.left() - 16.0 }, r.bottom()));
             let mut tabs = ui.new_child(egui::UiBuilder::new().max_rect(strip).layout(egui::Layout::left_to_right(egui::Align::Center)));
             egui::ScrollArea::horizontal().id_salt("discover_tabs_scroll").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(&mut tabs, |ui| {
                 for (i, n) in names.iter().enumerate() {
@@ -127,6 +139,22 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.add_space(24.0);
                 }
             });
+            let field_id = egui::Id::new("discover_search");
+            if on_hubs {
+                app.rects.remove("discover:search");
+                return;
+            }
+            if folded {
+                let resp = ui.interact(search, ui.id().with("search_folded"), Sense::click());
+                ui.painter().rect(search, 8, if resp.hovered() { faint(51) } else { Color32::from_black_alpha(31) }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+                icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(search.center(), vec2(16.0, 16.0)), pal().header_secondary);
+                app.rects.insert("discover:search".into(), search);
+                if resp.on_hover_text("Search").clicked() {
+                    d.search_open = true;
+                    ui.memory_mut(|m| m.request_focus(field_id));
+                }
+                return;
+            }
             let mut field = ui.new_child(egui::UiBuilder::new().max_rect(search));
             let hit = Frame::new()
                 .fill(Color32::from_black_alpha(31))
@@ -139,7 +167,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         let (sr, _) = ui.allocate_exact_size(vec2(12.0, 16.0), Sense::hover());
                         icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(sr.center(), vec2(12.0, 12.0)), pal().header_secondary);
                         ui.add_space(8.0);
-                        ui.add(egui::TextEdit::singleline(&mut d.query).frame(Frame::NONE).font(reg(14.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
+                        ui.add(egui::TextEdit::singleline(&mut d.query).id(field_id).frame(Frame::NONE).font(reg(14.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
                     })
                     .inner
                 })
@@ -148,18 +176,26 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if hit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 d.searched = d.query.trim().to_string();
             }
+            if hit.lost_focus() {
+                d.search_open = false;
+            }
         });
     });
     if d.servers {
         let mut out = None;
-        egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| out = Some(super::discover::main(d, ui, &mut app.rects)));
+        let hubs: Vec<Value> = app.store.guilds.values().filter(|g| g.features.iter().any(|f| f == "HUB")).map(|g| serde_json::json!({ "id": g.id.to_string(), "name": g.name, "icon": g.icon, "banner": g.banner })).collect();
+        egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_primary)).show(ui, |ui| out = Some(super::discover::main(d, ui, &mut app.rects, &hubs)));
         if let Some(o) = out {
             if let Some((k, p)) = o.fetch {
                 app.rest("GET", p, None, Tag::Directory(k));
             }
-            if let Some(id) = o.pick {
-                super::lurk::start(app, id, 0);
-
+            if o.join {
+                app.hub_join = Some(Default::default());
+            }
+            match o.pick {
+                Some(id) if hubs.iter().any(|h| h["id"] == id.to_string()) => app.select_guild(Some(id)),
+                Some(id) => super::lurk::start(app, id, 0),
+                None => {}
             }
         }
         return;

@@ -33,6 +33,7 @@ pub struct Servers {
 pub struct Out {
     pub fetch: Option<(String, String)>,
     pub pick: Option<Id>,
+    pub join: bool,
 }
 
 impl App {
@@ -81,9 +82,12 @@ fn commas(n: u64) -> String {
     out
 }
 
-pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, Rect>) -> Out {
+pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, Rect>, hubs: &[Value]) -> Out {
     let cat = d.tab.checked_sub(1).and_then(|i| d.sv.cats.get(i)).cloned();
     let searching = !d.searched.is_empty();
+    if !searching && !d.sv.cats.is_empty() && d.tab == d.sv.cats.len() + 1 {
+        return student_hubs(ui, app_rects, hubs);
+    }
     let feed = if searching {
         format!("q:{}", d.searched)
     } else if let Some((id, _)) = &cat {
@@ -91,7 +95,7 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
     } else {
         "home".into()
     };
-    let mut out = Out { fetch: None, pick: None };
+    let mut out = Out { fetch: None, pick: None, join: false };
     let f = d.sv.feeds.entry(feed.clone()).or_default();
     let mut ask = |f: &mut Feed| {
         if !f.loading && !f.fetched {
@@ -178,6 +182,76 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
         out.fetch = Some((format!("sv:{feed}@{}", f.guilds.len()), path(&feed, f.guilds.len())));
     }
     out
+}
+
+/// The Student Hubs tab: the hubs you're in and the card that joins one.
+fn student_hubs(ui: &mut Ui, app_rects: &mut crate::state::Map<String, Rect>, hubs: &[Value]) -> Out {
+    let mut out = Out { fetch: None, pick: None, join: false };
+    egui::ScrollArea::vertical().id_salt("discover_hubs").auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        let w = ui.available_width();
+        hero(ui, "Join the Student Hub for your school", "Meet classmates from your school, discover communities, and share your servers.");
+        if hubs.is_empty() {
+            ui.add_space(32.0);
+        } else {
+            let (hr, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
+            ui.painter().text(pos2(hr.left() + 44.0, hr.bottom() - 12.0), Align2::LEFT_BOTTOM, "Your Hubs", semi(20.0), pal().header_primary);
+            ui.add_space(16.0);
+        }
+        egui::Frame::new().inner_margin(Margin { left: 32, right: 40, top: 0, bottom: 0 }).show(ui, |ui| {
+            let cols = (((ui.available_width() + GAP) / (280.0 + GAP)).floor() as usize).clamp(1, 6);
+            let cw = (ui.available_width() - GAP * (cols as f32 - 1.0)) / cols as f32;
+            let cells: Vec<Option<&Value>> = hubs.iter().map(Some).chain([None]).collect();
+            for row in cells.chunks(cols) {
+                let (rr, _) = ui.allocate_exact_size(vec2(ui.available_width(), CARD_H), Sense::hover());
+                for (i, g) in row.iter().enumerate() {
+                    let r = Rect::from_min_size(pos2(rr.left() + i as f32 * (cw + GAP), rr.top()), vec2(cw, CARD_H));
+                    match g {
+                        Some(g) => {
+                            if card(ui, r, g) {
+                                out.pick = g["id"].as_str().and_then(|s| s.parse().ok());
+                            }
+                        }
+                        None => out.join = join_card(ui, r, !hubs.is_empty(), app_rects),
+                    }
+                }
+                ui.add_space(GAP);
+            }
+            ui.add_space(16.0);
+            let y = ui.cursor().top();
+            ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0, pal().border_subtle));
+            ui.add_space(24.0);
+            for line in ["Hubs are not affiliated with or managed by schools.", "Servers listed in the school\u{2019}s Student Hub are run by students. Users do not need to be a member of a Student Hub to be invited to join a server listed there."] {
+                ui.add(egui::Label::new(RichText::new(line).font(medium(14.0)).color(pal().text_normal)).wrap());
+            }
+            ui.add_space(48.0);
+        });
+    });
+    out
+}
+
+fn join_card(ui: &mut Ui, r: Rect, has_hub: bool, app_rects: &mut crate::state::Map<String, Rect>) -> bool {
+    ui.painter().rect(r, CornerRadius::same(8), pal().bg_primary, Stroke::new(1.0, pal().border_subtle), StrokeKind::Inside);
+    let inner = r.shrink(16.0);
+    let dot = Rect::from_min_size(inner.min, vec2(48.0, 48.0));
+    ui.painter().circle_filled(dot.center(), 24.0, pal().green);
+    icons::draw(ui.painter(), Icon::People, Rect::from_center_size(dot.center(), vec2(24.0, 24.0)), Color32::WHITE);
+    let (title, sub, button) = if has_hub {
+        ("Attend multiple schools?", "Join the Student Hub for any school you\u{2019}re attending.", "Join Another Hub")
+    } else {
+        ("Find study groups, clubs, and friends in the Student Hub for your school!", "Meet classmates from your school, discover communities, and share your servers, all in one place.", "Join Hub")
+    };
+    let head = ui.painter().layout(title.into(), semi(18.0), pal().header_primary, inner.width());
+    let body = ui.painter().layout(sub.into(), reg(14.0), pal().text_normal, inner.width());
+    let y = dot.bottom() + 16.0;
+    let h = head.size().y;
+    ui.painter().galley(pos2(inner.left(), y), head, pal().header_primary);
+    ui.painter().galley(pos2(inner.left(), y + h + 16.0), body, pal().text_normal);
+    let slot = Rect::from_min_max(pos2(inner.left(), inner.bottom() - 40.0), inner.max);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(slot));
+    let go = super::modal_button(&mut child, button, (!has_hub).then_some(pal().blurple), slot.width());
+    app_rects.insert("discover:hub_join".into(), go.rect);
+    go.clicked()
 }
 
 fn hero_paint(ui: &Ui, r: Rect) {
