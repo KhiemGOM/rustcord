@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 mod fill;
 mod palettes;
+mod profile;
 use palettes::*;
+pub use profile::{ProfileTheme, profile_palette, profile_theme, scope};
 pub(crate) use palettes::MENU_HOVER;
 pub(crate) use palettes::CRITICAL_BG;
 pub(crate) use palettes::PROFILE_CARD;

@@ -216,12 +216,6 @@ pub(self) fn hex(c: u32) -> String {
 }
 
 /// A theme colour as the profile shows it: dimmed in dark themes.
-pub(self) fn dim(c: u32) -> Color32 {
-    let k = if pal().dark { 0.4 } else { 1.0 };
-    let ch = |s: u32| (((c >> s) & 255) as f32 * k) as u8;
-    Color32::from_rgb(ch(16), ch(8), ch(0))
-}
-
 pub(self) fn gradient(ui: &Ui, r: Rect, top: Color32, bottom: Color32, radius: u8) {
     ui.painter().add(gradient_shape(ui, r, top, bottom, radius));
 }
@@ -239,11 +233,11 @@ pub(self) fn gradient_shape(ui: &Ui, r: Rect, top: Color32, bottom: Color32, rad
     egui::Shape::mesh(mesh)
 }
 
-pub fn theme_pair(d: &Draft) -> Option<(Color32, Color32)> {
+pub fn theme_pair(d: &Draft) -> Option<crate::theme::ProfileTheme> {
     let theme = if d.theme == [None, None] { d.inherit_theme } else { d.theme };
     match theme {
-        [Some(a), Some(b)] => Some((dim(a), dim(b))),
-        [Some(a), None] | [None, Some(a)] => Some((dim(a), dim(a))),
+        [Some(a), Some(b)] => Some(crate::theme::profile_theme(a, b)),
+        [Some(a), None] | [None, Some(a)] => Some(crate::theme::profile_theme(a, a)),
         _ => None,
     }
 }
@@ -600,8 +594,8 @@ fn overlay_icon(ui: &Ui, r: Rect, hot: bool, set: bool, always: bool) {
 fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &crate::state::User) {
     let cr = CornerRadius { nw: 0, ne: 16, sw: 0, se: 16 };
     ui.painter().rect_filled(region, cr, Color32::BLACK);
-    if let Some((a, b)) = theme_pair(&ed.draft) {
-        gradient(ui, region.shrink(1.0), a.gamma_multiply(0.7), b.gamma_multiply(0.7), 15);
+    if let Some(t) = theme_pair(&ed.draft) {
+        gradient(ui, region.shrink(1.0), t.top.gamma_multiply(0.7), t.bottom.gamma_multiply(0.7), 15);
     }
     ed.backdrop.paint(ui, &ed.draft, region);
     if !ed.ready {

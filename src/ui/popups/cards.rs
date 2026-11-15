@@ -55,6 +55,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
             Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(300.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
+                let _theme = crate::theme::scope(theme_palette(p));
                 let wash = ui.painter().add(egui::Shape::Noop);
                 let top = card_head(ui, &user, p, &name, status);
                 head = top;
@@ -393,6 +394,7 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.set_width(300.0);
         ui.set_min_height(height - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
+        let _theme = crate::theme::scope(theme_palette(p));
         let wash = ui.painter().add(egui::Shape::Noop);
         let top = card_head(ui, &user, p, user.display(), status);
         banner = banner_buttons(ui, top, stranger, !stranger && !user.bot, false);
@@ -451,30 +453,30 @@ pub(crate) fn banner(p: &serde_json::Value, uid: Id) -> Option<String> {
     }
 }
 
-/// A profile's nitro theme as discord shows it: primary and accent, dimmed in dark themes.
-pub(super) fn theme(p: Option<&serde_json::Value>) -> Option<(egui::Color32, egui::Color32)> {
+/// A profile's nitro theme as discord shows it: primary and accent under a black veil, or a white
+/// one when the primary is light, which also turns the card's text dark.
+pub(super) fn theme(p: Option<&serde_json::Value>) -> Option<crate::theme::ProfileTheme> {
     let c = p.and_then(|p| shown(p, "theme_colors").as_array()).filter(|c| c.len() == 2)?;
     let mine = p.and_then(|p| p["user"]["id"].as_str()).and_then(|id| id.parse::<u64>().ok()) == Some(crate::theme::me());
     if crate::theme::view().own_profiles && !mine {
         return None;
     }
-    let k = if pal().dark { 0.4 } else { 1.0 };
-    let col = |v: &serde_json::Value| {
-        let c = v.as_u64().unwrap_or(0) as u32;
-        let ch = |s: u32| (((c >> s) & 255) as f32 * k) as u8;
-        egui::Color32::from_rgb(ch(16), ch(8), ch(0))
-    };
-    Some((col(&c[0]), col(&c[1])))
+    let col = |v: &serde_json::Value| v.as_u64().unwrap_or(0) as u32;
+    Some(crate::theme::profile_theme(col(&c[0]), col(&c[1])))
+}
+
+pub(crate) fn theme_palette(p: Option<&serde_json::Value>) -> Option<&'static crate::theme::Palette> {
+    theme(p).map(|t| crate::theme::profile_palette(t.light))
 }
 
 pub(crate) fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> {
-    theme(p).map(|(a, _)| a)
+    theme(p).map(|t| t.top)
 }
 
-/// A nitro profile theme: the card washed from its primary colour down to its accent, dimmed the
-/// way discord dims them in dark themes. Paints into `slot`, reserved before the card's content.
+/// A nitro profile theme: the card washed from its primary colour down to its accent, under
+/// discord's veil. Paints into `slot`, reserved before the card's content.
 pub(crate) fn theme_wash(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Value>, rect: Rect) {
-    let Some((a, b)) = theme(p) else { return };
+    let Some(crate::theme::ProfileTheme { top: a, bottom: b, .. }) = theme(p) else { return };
     let mut mesh = egui::Mesh::default();
     let size = ui.ctx().fonts(|f| f.font_image_size());
     let mut tess = egui::epaint::Tessellator::new(ui.ctx().pixels_per_point(), Default::default(), size, Vec::new());
@@ -593,6 +595,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
     let mut act = None;
     ui.set_width(300.0);
     ui.spacing_mut().item_spacing.y = 0.0;
+    let _theme = crate::theme::scope(theme_palette(app.profiles.get(&me)));
     let wash = ui.painter().add(egui::Shape::Noop);
     let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
     let hint = ui.painter().layout_no_wrap("Favorite collectible?".into(), italic(14.0), pal().header_primary.gamma_multiply(0.76));

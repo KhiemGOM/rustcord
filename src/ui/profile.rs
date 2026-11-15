@@ -540,6 +540,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let area = ui.max_rect();
         let panel = Rect::from_min_max(pos2(area.left() + 48.0, area.top() + 48.0), pos2(area.left() + 448.0, area.bottom()));
+        let _theme = crate::theme::scope(popups::theme_palette(p));
         let wash = ui.painter().add(egui::Shape::Noop);
         let cr = CornerRadius { nw: 16, ne: 16, sw: 0, se: 0 };
         ui.painter().rect_filled(panel, cr, pal().bg_secondary);

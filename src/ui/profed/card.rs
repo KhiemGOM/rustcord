@@ -12,11 +12,11 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::{App, avatar, cosmo, status_dot, text};
 
 fn ink() -> Color32 {
-    Color32::WHITE.gamma_multiply(0.96)
+    pal().text_normal
 }
 
 fn dimmer() -> Color32 {
-    Color32::WHITE.gamma_multiply(0.76)
+    pal().text_muted
 }
 
 pub fn data_image(ctx: &egui::Context, uri: &str) -> Option<String> {
@@ -83,6 +83,7 @@ pub fn pick_image(app: &mut App) {
 #[allow(clippy::too_many_arguments)]
 fn field(ui: &mut Ui, r: Rect, id: &str, text: &mut String, hint: &str, font: egui::FontId, limit: usize, multi: bool) -> egui::Response {
     let mut c = ui.new_child(UiBuilder::new().max_rect(r).layout(egui::Layout::left_to_right(egui::Align::TOP)));
+    c.visuals_mut().weak_text_color = Some(dimmer());
     let hint = RichText::new(hint).font(italic(font.size)).color(dimmer());
     let edit = if multi { TextEdit::multiline(text).desired_rows(1) } else { TextEdit::singleline(text) };
     c.add(edit.id(ui.id().with(id)).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(font).text_color(ink()).hint_text(hint).char_limit(limit).desired_width(r.width()))
@@ -114,6 +115,7 @@ pub fn connections(ui: &mut Ui, accounts: &Value, x: f32, y: &mut f32, w: f32, i
 
 /// Draws the card at `rect.min`, as wide as `rect`; hands back how tall it came out.
 pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User) -> f32 {
+    let _theme = crate::theme::scope(super::theme_pair(&ed.draft).map(|t| crate::theme::profile_palette(t.light)));
     let me = app.store.me;
     let o = rect.min;
     let w = rect.width();
@@ -178,8 +180,8 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
         crate::ui::settings::mark(ui, "edit_dns", eb);
     }
     y += 42.0;
-    let ur = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), ink(), 160.0);
-    ui.painter().circle_filled(pos2(ur.right() + 9.0, ur.center().y), 2.0, ink());
+    let ur = text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &user.username, reg(14.0), pal().header_primary, 160.0);
+    ui.painter().circle_filled(pos2(ur.right() + 9.0, ur.center().y), 2.0, pal().header_primary);
     let pr = Rect::from_min_size(pos2(ur.right() + 18.0, y), vec2(170.0, 18.0));
     let hint = if ed.guild.is_some() { "Set per-server pronouns" } else { "Add pronouns" };
     field(ui, pr, "pronouns", &mut ed.draft.pronouns, hint, reg(14.0), 40, false);
@@ -200,14 +202,15 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
         let r = Rect::from_min_size(pos2(x + [0.0, 104.0, 144.0][i], y), vec2(wd, 32.0));
         let resp = ui.interact(r, ui.id().with(("card_btn", i)), Sense::click());
         // discord's Message takes the theme's colour, blurple without one
-        let main = super::theme_pair(&ed.draft).map_or(pal().blurple, |t| t.0.lerp_to_gamma(Color32::WHITE, 0.08));
-        let fill = if i == 0 { main } else { Color32::WHITE.gamma_multiply(if resp.hovered() { 0.14 } else { 0.08 }) };
+        let main = super::theme_pair(&ed.draft).map_or(pal().blurple, |t| t.button);
+        let square = if pal().dark { Color32::WHITE.gamma_multiply(if resp.hovered() { 0.14 } else { 0.08 }) } else { Color32::from_white_alpha(if resp.hovered() { 224 } else { 184 }) };
+        let fill = if i == 0 { main.gamma_multiply(0.5) } else { square };
         ui.painter().rect(r, CornerRadius::same(8), fill, egui::Stroke::new(1.0, Color32::WHITE.gamma_multiply(0.08)), egui::StrokeKind::Inside);
         if i == 0 {
-            icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(16.0, 16.0)), Color32::WHITE);
-            ui.painter().text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, t, medium(14.0), Color32::WHITE);
+            icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(16.0, 16.0)), Color32::from_white_alpha(128));
+            ui.painter().text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, t, medium(14.0), Color32::from_white_alpha(128));
         } else {
-            icons::draw(ui.painter(), if i == 1 { Icon::Shop } else { Icon::More }, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), Color32::WHITE);
+            icons::draw(ui.painter(), if i == 1 { Icon::Shop } else { Icon::More }, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -218,7 +221,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     }
     y += 56.0;
     let head = |ui: &Ui, y: &mut f32, s: &str| {
-        ui.painter().text(pos2(x, *y + 8.0), Align2::LEFT_CENTER, s, medium(12.0), Color32::WHITE.gamma_multiply(0.88));
+        ui.painter().text(pos2(x, *y + 8.0), Align2::LEFT_CENTER, s, medium(12.0), pal().header_secondary);
         *y += 20.0;
     };
     head(ui, &mut y, if ed.guild.is_some() { "Server Bio" } else { "Bio" });
@@ -292,6 +295,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     head(ui, &mut y, "Note (only visible to you)");
     let saved = app.notes.get(&me).cloned().unwrap_or_default();
     let mut nc = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(pos2(x, y), vec2(w - 64.0, 24.0))));
+    nc.visuals_mut().weak_text_color = Some(dimmer());
     if let Some(n) = crate::ui::profile::note_box(&mut nc, &mut app.rects, "profed_note", me, &saved, w - 64.0, 14.0, false) {
         app.rest("PUT", format!("/users/@me/notes/{me}"), Some(serde_json::json!({ "note": n })), crate::net::Tag::Quiet);
         app.notes.insert(me, n);
@@ -300,7 +304,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
     let h = y - o.y;
     let card = Rect::from_min_size(o, vec2(w, h));
     let shape = match super::theme_pair(&ed.draft) {
-        Some((a, b)) => super::gradient_shape(ui, card, a, b, 16),
+        Some(t) => super::gradient_shape(ui, card, t.top, t.bottom, 16),
         None => Shape::rect_filled(card, CornerRadius::same(16), pal().bg_secondary),
     };
     ui.painter().set(back, shape);
@@ -311,7 +315,7 @@ pub fn show(app: &mut App, ed: &mut Editor, ui: &mut Ui, rect: Rect, user: &User
 }
 
 fn theme_ring(ed: &Editor) -> Color32 {
-    super::theme_pair(&ed.draft).map_or(pal().bg_secondary, |p| p.0)
+    super::theme_pair(&ed.draft).map_or(pal().bg_secondary, |p| p.top)
 }
 
 fn status_bubble(app: &mut App, ed: &mut Editor, ui: &mut Ui, at: Rect) {
@@ -343,7 +347,7 @@ fn status_bubble(app: &mut App, ed: &mut Editor, ui: &mut Ui, at: Rect) {
 fn tag_button(ui: &mut Ui, ed: &mut Editor, app: &App, r: Rect) {
     let resp = ui.interact(r, ui.id().with("tag_btn"), Sense::click());
     let on = ed.menu == Some(Menu::Tag);
-    let fill = Color32::from_rgba_unmultiplied(148, 148, 156, if resp.hovered() || on { 51 } else { 31 });
+    let fill = if pal().dark { Color32::from_rgba_unmultiplied(148, 148, 156, if resp.hovered() || on { 51 } else { 31 }) } else { Color32::from_white_alpha(if resp.hovered() || on { 92 } else { 61 }) };
     ui.painter().rect(r, CornerRadius::same(8), fill, egui::Stroke::new(1.0, faint(10)), egui::StrokeKind::Inside);
     let label = match ed.draft.tag.and_then(|g| app.guild_profiles.get(&g)).and_then(|p| p["tag"].as_str().map(str::to_string)) {
         Some(t) => t,
