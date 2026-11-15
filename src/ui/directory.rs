@@ -105,20 +105,36 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let r = ui.max_rect();
         ui.painter().hline(r.left() - 16.0..=r.right() + 16.0, r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
         ui.horizontal_centered(|ui| {
-            let (ir, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
-            icons::draw(ui.painter(), if d.servers { Icon::Discover } else { Icon::Apps }, ir, pal().header_primary);
+            let searching = d.servers && !d.searched.is_empty();
+            let (ir, back) = ui.allocate_exact_size(vec2(24.0, 24.0), if searching { Sense::click() } else { Sense::hover() });
+            let mark = if searching { Icon::ArrowLeft } else if d.servers { Icon::Discover } else { Icon::Apps };
+            icons::draw(ui.painter(), mark, ir, if searching && !back.hovered() { pal().header_secondary } else { pal().header_primary });
+            if searching {
+                app.rects.insert("discover:back".into(), ir);
+                if back.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if back.clicked() {
+                    d.searched.clear();
+                    d.query.clear();
+                    d.sv.cat = None;
+                }
+            }
             ui.add_space(20.0);
             let hubs = (d.servers && !cats.is_empty()).then(|| "Student Hubs".to_string());
             let names: Vec<String> = std::iter::once(if d.servers { "Home" } else { "Featured" }.to_string()).chain(cats.iter().map(|c| c.1.clone())).chain(hubs).collect();
             let on_hubs = hubs_tab(d);
             let need: f32 = names.iter().map(|n| ui.painter().layout_no_wrap(n.clone(), medium(14.0), Color32::WHITE).size().x + 24.0).sum();
             let wide = Rect::from_min_size(pos2(r.right() - 240.0, r.center().y - 16.0), vec2(240.0, 32.0));
-            let folded = d.servers && !d.search_open && d.query.is_empty() && ui.cursor().left() + need - 24.0 + 20.0 > wide.left() - 16.0;
+            let folded = d.servers && !searching && !d.search_open && d.query.is_empty() && ui.cursor().left() + need - 24.0 + 20.0 > wide.left() - 16.0;
             let search = if folded { Rect::from_min_size(pos2(r.right() - 32.0, r.center().y - 16.0), vec2(32.0, 32.0)) } else { wide };
             let strip = Rect::from_min_max(pos2(ui.cursor().left(), r.top()), pos2(if on_hubs { r.right() } else { search.left() - 16.0 }, r.bottom()));
             let mut tabs = ui.new_child(egui::UiBuilder::new().max_rect(strip).layout(egui::Layout::left_to_right(egui::Align::Center)));
+            if searching {
+                super::text::paint(ui.painter(), pos2(strip.left(), strip.center().y), Align2::LEFT_CENTER, &format!("Search results for \u{201c}{}\u{201d}", d.searched), semi(20.0), pal().header_primary, strip.width());
+            }
             egui::ScrollArea::horizontal().id_salt("discover_tabs_scroll").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(&mut tabs, |ui| {
-                for (i, n) in names.iter().enumerate() {
+                for (i, n) in names.iter().enumerate().filter(|_| !searching) {
                     let g = ui.painter().layout_no_wrap(n.clone(), medium(14.0), Color32::WHITE);
                     let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
                     app.rects.insert(format!("discover:tab:{i}"), tr);
@@ -174,6 +190,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .inner;
             app.rects.insert("discover:search".into(), search);
             if hit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if d.servers && d.searched.is_empty() {
+                    d.sv.cat = d.tab.checked_sub(1).and_then(|i| cats.get(i)).map(|c| c.0);
+                }
                 d.searched = d.query.trim().to_string();
             }
             if hit.lost_focus() {

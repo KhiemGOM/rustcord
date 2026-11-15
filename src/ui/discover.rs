@@ -1,5 +1,6 @@
-//! Discover > Servers: the home banner and its featured servers, a tab per category and search,
-//! every result a card that opens the server's preview. Pages come 24 at a time as you scroll.
+//! Discover > Servers: the home banner and its featured servers, a tab per category, and the
+//! search page with the categories that matched. Every result is a card that opens the server's
+//! preview; pages come as you scroll.
 
 use egui::{Align2, Color32, CornerRadius, Margin, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::Value;
@@ -13,8 +14,11 @@ use crate::state::Id;
 use crate::theme::*;
 
 const PAGE: usize = 24;
+const SEARCH_PAGE: usize = 12;
 const CARD_H: f32 = 322.0;
+const RESULT_H: f32 = 320.0;
 const GAP: f32 = 16.0;
+const SEP: char = '\u{1f}';
 
 #[derive(Default)]
 pub struct Feed {
@@ -27,7 +31,14 @@ pub struct Feed {
 #[derive(Default)]
 pub struct Servers {
     pub cats: Vec<(u64, String)>,
+    names: HashMap<u64, String>,
     feeds: HashMap<String, Feed>,
+    /// A search's category (None is All), its language, and how many servers matched in each
+    /// category of the query and language named by `counted`.
+    pub cat: Option<u64>,
+    pub lang: Option<&'static str>,
+    counts: Vec<(u64, u64)>,
+    counted: String,
 }
 
 pub struct Out {
@@ -45,13 +56,16 @@ impl App {
 
 pub fn loaded(d: &mut Dir, key: &str, v: Value) {
     if key == "sv:cats" {
-        d.sv.cats = [1, 2, 3, 5, 6]
-            .into_iter()
-            .filter_map(|id| v.as_array()?.iter().find(|c| c["id"].as_u64() == Some(id)).map(|c| (id, c["name"].as_str().unwrap_or_default().to_string())))
-            .collect();
+        d.sv.names = v.as_array().into_iter().flatten().filter_map(|c| Some((c["id"].as_u64()?, c["name"].as_str()?.to_string()))).collect();
+        d.sv.cats = [1, 2, 3, 5, 6].into_iter().filter_map(|id| d.sv.names.get(&id).map(|n| (id, n.clone()))).collect();
         return;
     }
     let Some((feed, _)) = key.strip_prefix("sv:").and_then(|k| k.rsplit_once('@')) else { return };
+    if feed.starts_with("q:")
+        && let Some(counts) = v["categories"].as_array().filter(|c| !c.is_empty())
+    {
+        d.sv.counts = counts.iter().take(8).filter_map(|c| Some((c["id"].as_u64().or_else(|| c["id"].as_str()?.parse().ok())?, c["count"].as_u64()?))).collect();
+    }
     let f = d.sv.feeds.entry(feed.to_string()).or_default();
     f.loading = false;
     f.fetched = true;
@@ -62,12 +76,35 @@ pub fn loaded(d: &mut Dir, key: &str, v: Value) {
 }
 
 
-fn path(feed: &str, offset: usize) -> String {
+/// The feed a search fills: its words, its category (none for All) and its language.
+pub fn search_key(q: &str, cat: Option<u64>, lang: Option<&str>) -> String {
+    format!("q:{q}{SEP}{}{SEP}{}", cat.map_or(String::new(), |c| c.to_string()), lang.unwrap_or("en-US"))
+}
+
+fn path(feed: &str, offset: usize, counts: bool) -> String {
     if feed == "home" {
         return "/discoverable-guilds?offset=0&limit=30".into();
     }
-    let (cat, q) = if let Some(q) = feed.strip_prefix("q:") { (String::new(), q) } else { (feed.trim_start_matches("c:").to_string(), "") };
-    format!("/discoverable-guilds/search?query={}&category_id={cat}&offset={offset}&limit={PAGE}&language_code=en-US&with_counts=true", super::directory::urlencode(q))
+    if let Some(rest) = feed.strip_prefix("q:") {
+        let mut part = rest.split(SEP);
+        let (q, cat, lang) = (part.next().unwrap_or(""), part.next().unwrap_or(""), part.next().unwrap_or("en-US"));
+        let cat = if cat.is_empty() { String::new() } else { format!("&category_id={cat}") };
+        return format!("/discoverable-guilds/search?query={}{cat}&offset={offset}&limit={SEARCH_PAGE}&language_code={lang}&with_counts={counts}", super::directory::urlencode(q));
+    }
+    let cat = feed.trim_start_matches("c:");
+    format!("/discoverable-guilds/search?query=&category_id={cat}&offset={offset}&limit={PAGE}&language_code=en-US&with_counts=true")
+}
+
+/// Discord's column count for search results, by the page's width and whether the categories
+/// sit beside the grid.
+pub fn result_columns(width: f32, beside: bool) -> usize {
+    let mut left = width - if beside { 450.0 } else { 0.0 } - 280.0;
+    let mut n = 1;
+    while left > 0.0 {
+        left -= 264.0;
+        n += 1;
+    }
+    n
 }
 
 fn commas(n: u64) -> String {
@@ -83,24 +120,23 @@ fn commas(n: u64) -> String {
 }
 
 pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, Rect>, hubs: &[Value]) -> Out {
+    if !d.searched.is_empty() {
+        return results(d, ui, app_rects);
+    }
     let cat = d.tab.checked_sub(1).and_then(|i| d.sv.cats.get(i)).cloned();
-    let searching = !d.searched.is_empty();
-    if !searching && !d.sv.cats.is_empty() && d.tab == d.sv.cats.len() + 1 {
+    if !d.sv.cats.is_empty() && d.tab == d.sv.cats.len() + 1 {
         return student_hubs(ui, app_rects, hubs);
     }
-    let feed = if searching {
-        format!("q:{}", d.searched)
-    } else if let Some((id, _)) = &cat {
-        format!("c:{id}")
-    } else {
-        "home".into()
+    let feed = match &cat {
+        Some((id, _)) => format!("c:{id}"),
+        None => "home".into(),
     };
     let mut out = Out { fetch: None, pick: None, join: false };
     let f = d.sv.feeds.entry(feed.clone()).or_default();
     let mut ask = |f: &mut Feed| {
         if !f.loading && !f.fetched {
             f.loading = true;
-            out.fetch = Some((format!("sv:{feed}@{}", f.guilds.len()), path(&feed, f.guilds.len())));
+            out.fetch = Some((format!("sv:{feed}@{}", f.guilds.len()), path(&feed, f.guilds.len(), false)));
         }
     };
     ask(f);
@@ -111,30 +147,27 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
     let scroll = egui::ScrollArea::vertical().id_salt("discover_servers").auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let w = ui.available_width();
-        if !searching {
-            let title = cat.as_ref().map_or("Find your community on Discord".to_string(), |c| c.1.clone());
-            let sub = match cat.as_ref().map(|c| c.0) {
-                None => "From gaming, to music, to learning, there's a place for you.",
-                Some(1) => "Get updates, connect with developers, and chat with other players.",
-                Some(2) => "Get updates, connect with artists, and chat with other music fans.",
-                Some(3) => "Connect with your favorite creators and their fans.",
-                Some(5) => "Connect with developers, aficionados, and technology brands.",
-                _ => "Connect with students, teachers, and learning centers.",
-            };
-            hero(ui, &title, sub);
-        }
-        let head = match (&cat, searching) {
-            (_, true) => format!("Search results for \u{201c}{}\u{201d}", d.searched),
-            (None, _) => "Featured Servers".into(),
-            (Some(c), _) => format!("Popular {} Servers", c.1),
+        let title = cat.as_ref().map_or("Find your community on Discord".to_string(), |c| c.1.clone());
+        let sub = match cat.as_ref().map(|c| c.0) {
+            None => "From gaming, to music, to learning, there's a place for you.",
+            Some(1) => "Get updates, connect with developers, and chat with other players.",
+            Some(2) => "Get updates, connect with artists, and chat with other music fans.",
+            Some(3) => "Connect with your favorite creators and their fans.",
+            Some(5) => "Connect with developers, aficionados, and technology brands.",
+            _ => "Connect with students, teachers, and learning centers.",
         };
-        let (hr, _) = ui.allocate_exact_size(vec2(w, if searching { 72.0 } else { 48.0 }), Sense::hover());
+        hero(ui, &title, sub);
+        let head = match &cat {
+            None => "Featured Servers".into(),
+            Some(c) => format!("Popular {} Servers", c.1),
+        };
+        let (hr, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
         ui.painter().text(pos2(hr.left() + 44.0, hr.bottom() - 12.0), Align2::LEFT_BOTTOM, head, semi(20.0), pal().header_primary);
         ui.add_space(16.0);
         // discord's grid stops a scrollbar's width short on the right
         egui::Frame::new().inner_margin(Margin { left: 32, right: 40, top: 0, bottom: 0 }).show(ui, |ui| {
             if guilds.is_empty() {
-                let msg = if first && loading { None } else { Some(if searching { "No servers found." } else { "Nothing here yet." }) };
+                let msg = if first && loading { None } else { Some("Nothing here yet.") };
                 match msg {
                     None => {
                         crate::ui::motion::spinner(ui, 24.0, pal().text_muted);
@@ -179,7 +212,203 @@ pub fn main(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, 
         && !f.loading
     {
         f.loading = true;
-        out.fetch = Some((format!("sv:{feed}@{}", f.guilds.len()), path(&feed, f.guilds.len())));
+        out.fetch = Some((format!("sv:{feed}@{}", f.guilds.len()), path(&feed, f.guilds.len(), false)));
+    }
+    out
+}
+
+/// The rows of a search's category list: All, each category discord counted, and the one being
+/// shown when it has no count.
+fn category_rows(sv: &Servers, all: Option<u64>, here: usize) -> Vec<(Option<u64>, String, Option<u64>)> {
+    let mut rows = vec![(None, "All".to_string(), all)];
+    rows.extend(sv.counts.iter().filter_map(|(id, n)| Some((Some(*id), sv.names.get(id)?.clone(), Some(*n)))));
+    if let Some(c) = sv.cat
+        && !rows.iter().any(|r| r.0 == Some(c))
+        && let Some(name) = sv.names.get(&c)
+    {
+        rows.push((Some(c), name.clone(), Some(here as u64)));
+    }
+    rows
+}
+
+fn language(ui: &mut Ui, w: f32, now: Option<&'static str>, pick: &mut Option<&'static str>) {
+    let named = |code: &str, native: &'static str| if code == "en-US" { "English" } else { native };
+    let locales = crate::ui::settings::system::LOCALES.iter().filter(|l| l.0 != "en-GB");
+    let shown = locales.clone().find(|l| l.0 == now.unwrap_or("en-US")).map_or("English", |l| named(l.0, l.1));
+    crate::ui::settings::dropdown(ui, w, None, shown, |ui| {
+        for l in locales {
+            if ui.selectable_label(l.0 == now.unwrap_or("en-US"), named(l.0, l.1)).clicked() {
+                *pick = Some(l.0);
+            }
+        }
+    });
+}
+
+fn category_row(ui: &mut Ui, name: &str, count: Option<u64>, on: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+    if on {
+        ui.painter().rect_filled(r, 4, pal().bg_mod_selected);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(r, 4, pal().bg_mod_hover);
+    }
+    let mut right = r.right() - 8.0;
+    if let Some(n) = count {
+        let c = ui.painter().text(pos2(right, r.center().y), Align2::RIGHT_CENTER, commas(n), reg(14.0), pal().text_muted);
+        right = c.left() - 8.0;
+    }
+    text::paint(ui.painter(), pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, name, medium(14.0), pal().header_primary, right - r.left() - 8.0);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+/// A search's results: discord's grid, with the categories that matched and the language beside
+/// it, or over it when the page is under 1024 wide.
+fn results(d: &mut Dir, ui: &mut Ui, app_rects: &mut crate::state::Map<String, Rect>) -> Out {
+    let mut out = Out { fetch: None, pick: None, join: false };
+    let (cat, lang) = (d.sv.cat, d.sv.lang);
+    let feed = search_key(&d.searched, cat, lang);
+    let counted = format!("{}{SEP}{}", d.searched, lang.unwrap_or("en-US"));
+    let f = d.sv.feeds.entry(feed.clone()).or_default();
+    if !f.loading && !f.fetched {
+        f.loading = true;
+        let counts = d.sv.counted != counted;
+        out.fetch = Some((format!("sv:{feed}@0"), path(&feed, 0, counts)));
+        if counts {
+            d.sv.counted = counted;
+            d.sv.counts.clear();
+        }
+    }
+    let f = &d.sv.feeds[&feed];
+    let (guilds, total, loading) = (f.guilds.clone(), f.total, f.loading);
+    let all = d.sv.feeds.get(&search_key(&d.searched, None, lang)).filter(|f| f.fetched).map(|f| f.total as u64);
+    let rows = category_rows(&d.sv, all, total);
+    let page = ui.max_rect();
+    let beside = page.width() >= 1024.0;
+    let (mut to_cat, mut to_lang) = (None, None);
+    let scroll = egui::ScrollArea::vertical().id_salt("discover_results").auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        if beside {
+            ui.add_space(16.0);
+        } else {
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                ui.set_height(44.0);
+                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.add_space(32.0);
+                ui.label(RichText::new("Show").font(medium(14.0)).color(pal().header_secondary));
+                let shown = rows.iter().find(|r| r.0 == cat).map_or("All", |r| r.1.as_str());
+                crate::ui::settings::dropdown(ui, 200.0, None, shown, |ui| {
+                    for (id, name, _) in &rows {
+                        let row = ui.selectable_label(*id == cat, name.as_str());
+                        crate::ui::settings::mark(ui, &format!("option:{name}"), row.rect);
+                        if row.clicked() {
+                            to_cat = Some(*id);
+                        }
+                    }
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(32.0);
+                    language(ui, 180.0, lang, &mut to_lang);
+                });
+            });
+        }
+        let left = ui.max_rect().left() + 32.0;
+        let width = ui.available_width() - 32.0 - if beside { 202.0 } else { 32.0 };
+        if guilds.is_empty() {
+            if loading {
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 120.0), Sense::hover());
+                let mut at = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(pos2(left + width / 2.0, r.center().y), vec2(24.0, 24.0))));
+                crate::ui::motion::spinner(&mut at, 24.0, pal().text_muted);
+                return;
+            }
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 448.0), Sense::hover());
+            let mid = pos2(left + width / 2.0, r.center().y);
+            let title = match rows.iter().find(|r| r.0 == cat && cat.is_some()) {
+                Some(r) => format!("No results found in {}", r.1),
+                None => "No results found".to_string(),
+            };
+            ui.painter().text(mid - vec2(0.0, 16.0), Align2::CENTER_CENTER, title, semi(24.0), pal().header_primary);
+            if cat.is_none() {
+                ui.painter().text(mid + vec2(0.0, 16.0), Align2::CENTER_CENTER, "Try searching for something else.", reg(16.0), pal().text_normal);
+                return;
+            }
+            let lead = ui.painter().layout_no_wrap("Try searching for something else or ".into(), reg(16.0), pal().text_normal);
+            let link = ui.painter().layout_no_wrap("see results from all categories".into(), reg(16.0), pal().link);
+            let x = mid.x - (lead.size().x + link.size().x) / 2.0;
+            let y = mid.y + 16.0 - lead.size().y / 2.0;
+            let hit = Rect::from_min_size(pos2(x + lead.size().x, y), link.size());
+            let end = hit.right_top();
+            ui.painter().galley(pos2(x, y), lead, pal().text_normal);
+            ui.painter().galley(hit.min, link, pal().link);
+            ui.painter().text(end, Align2::LEFT_TOP, ".", reg(16.0), pal().text_normal);
+            let resp = ui.interact(hit, ui.id().with("all_categories"), Sense::click());
+            app_rects.insert("discover:all_categories".into(), hit);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if resp.clicked() {
+                to_cat = Some(None);
+            }
+            return;
+        }
+        let cols = result_columns(page.width(), beside);
+        let cw = (width - GAP * (cols as f32 - 1.0)) / cols as f32;
+        for row in guilds.chunks(cols) {
+            let (rr, _) = ui.allocate_exact_size(vec2(ui.available_width(), RESULT_H), Sense::hover());
+            if ui.is_rect_visible(rr) {
+                for (i, g) in row.iter().enumerate() {
+                    let r = Rect::from_min_size(pos2(left + i as f32 * (cw + GAP), rr.top()), vec2(cw, RESULT_H));
+                    let id: Id = g["id"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
+                    app_rects.insert(format!("discover:card:{id}"), r);
+                    if card(ui, r, g) {
+                        out.pick = Some(id);
+                    }
+                }
+            }
+            ui.add_space(GAP);
+        }
+        if let Some(r) = app_rects.get(&format!("discover:card:{}", guilds[0]["id"].as_str().unwrap_or_default())).copied() {
+            app_rects.insert(format!("discover:feed:q:{}", d.searched), r);
+        }
+        if loading || guilds.len() < total {
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 120.0), Sense::hover());
+            let mut at = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(pos2(left + width / 2.0, r.center().y), vec2(24.0, 24.0))));
+            crate::ui::motion::spinner(&mut at, 24.0, pal().text_muted);
+        }
+    });
+    if beside {
+        let side = Rect::from_min_max(pos2(page.right() - 170.0, page.top()), pos2(page.right() - 8.0, page.bottom()));
+        let mut s = ui.new_child(egui::UiBuilder::new().max_rect(side).layout(egui::Layout::top_down(egui::Align::Min)));
+        s.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        s.add_space(5.0);
+        language(&mut s, side.width(), lang, &mut to_lang);
+        s.add_space(23.0);
+        for (id, name, count) in &rows {
+            let resp = category_row(&mut s, name, *count, *id == cat);
+            app_rects.insert(format!("discover:cat:{name}"), resp.rect);
+            if resp.clicked() {
+                to_cat = Some(*id);
+            }
+            s.add_space(2.0);
+        }
+    }
+    if let Some(c) = to_cat {
+        d.sv.cat = c;
+    }
+    if let Some(l) = to_lang {
+        d.sv.lang = Some(l);
+    }
+    let (offset, view, content) = (scroll.state.offset.y, scroll.inner_rect.height(), scroll.content_size.y);
+    if offset + view > content - 240.0
+        && let Some(f) = d.sv.feeds.get_mut(&feed)
+        && f.fetched
+        && f.guilds.len() < f.total
+        && !f.loading
+    {
+        f.loading = true;
+        out.fetch = Some((format!("sv:{feed}@{}", f.guilds.len()), path(&feed, f.guilds.len(), false)));
     }
     out
 }
@@ -338,4 +567,31 @@ fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_search_asks_for_its_category_and_language() {
+        assert_eq!(path(&search_key("rust", Some(1), None), 0, true), "/discoverable-guilds/search?query=rust&category_id=1&offset=0&limit=12&language_code=en-US&with_counts=true");
+        assert_eq!(path(&search_key("a b", None, Some("fr")), 12, false), "/discoverable-guilds/search?query=a%20b&offset=12&limit=12&language_code=fr&with_counts=false");
+        assert_eq!(path("c:5", 24, false), "/discoverable-guilds/search?query=&category_id=5&offset=24&limit=24&language_code=en-US&with_counts=true");
+    }
+
+    #[test]
+    fn result_columns_follow_discords_widths() {
+        assert_eq!(result_columns(904.0, false), 4);
+        assert_eq!(result_columns(1024.0, true), 3);
+        assert_eq!(result_columns(1600.0, true), 5);
+    }
+
+    #[test]
+    fn the_category_list_is_all_then_what_discord_counted() {
+        let mut sv = Servers { counts: vec![(1, 4), (9, 2)], cat: Some(2), ..Servers::default() };
+        sv.names = [(1, "Gaming".to_string()), (2, "Music".to_string())].into();
+        let rows = category_rows(&sv, Some(7), 3);
+        assert_eq!(rows, vec![(None, "All".to_string(), Some(7)), (Some(1), "Gaming".to_string(), Some(4)), (Some(2), "Music".to_string(), Some(3))]);
+    }
 }

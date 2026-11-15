@@ -117,13 +117,42 @@ impl Run {
                 self.next(800);
             }
             1723 => {
-                let Some(card) = feed(app, "q:rust") else { return };
+                let (Some(_), Some(shown)) = (feed(app, "q:rust"), Self::at(ctx, "dropdown:Gaming")) else { return };
                 self.mark("discover_search");
+                if app.directory.as_ref().is_some_and(|d| d.sv.cat == Some(1)) && app.rects.contains_key("discover:back") {
+                    self.mark("discover_search_in_category");
+                }
                 self.shot(ctx, "discover_search.png");
+                self.click(shown.center());
+                self.next(500);
+            }
+            1724 => {
+                let Some(all) = Self::at(ctx, "option:All") else { return };
+                if Self::at(ctx, "option:Gaming").is_some() && Self::at(ctx, "option:Music").is_some() {
+                    self.mark("discover_search_categories");
+                }
+                self.click(all.center());
+                self.next(800);
+            }
+            1725 => {
+                let (Some(_), Some(back)) = (Self::at(ctx, "dropdown:All"), app.rects.get("discover:back").copied()) else { return };
+                if app.directory.as_ref().is_some_and(|d| d.sv.cat.is_none()) {
+                    self.mark("discover_search_all");
+                    self.shot(ctx, "discover_search_all.png");
+                }
+                self.click(back.center());
+                self.next(800);
+            }
+            1726 => {
+                if app.directory.as_ref().is_none_or(|d| !d.searched.is_empty() || !d.query.is_empty()) {
+                    return;
+                }
+                let Some(card) = feed(app, "c:1") else { return };
+                self.mark("discover_search_back");
                 self.click(card.center());
                 self.next(800);
             }
-            1724 => {
+            1727 => {
                 if app.directory.is_some() {
                     return;
                 }
