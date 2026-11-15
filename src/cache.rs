@@ -67,6 +67,7 @@ pub struct Settings {
     pub app_icon: String,
     // servers that made a theme show it to people who haven't picked "Use my theme"
     pub server_themes: bool,
+    pub dark_sidebar: bool,
     // the appearance message the account last sent, so an update keeps the fields we don't know
     #[serde(skip)]
     pub appearance_raw: Vec<u8>,
@@ -162,6 +163,8 @@ pub struct Settings {
     pub soundboard_volume: f32,
     // (guild, sound, the guild it came from) to play on joining that guild's calls; guild 0 is all servers
     pub entrance: Vec<(Id, Id, Id)>,
+    pub theme_prefs: Vec<(Id, u8)>,
+    pub guilds_raw: Vec<u8>,
     // keybinds: (action, windows virtual-key codes)
     pub keybinds: Vec<(String, Vec<u32>)>,
     // language
@@ -322,6 +325,7 @@ impl Default for Settings {
             own_theme: None,
             app_icon: "AppIcon".into(),
             server_themes: true,
+            dark_sidebar: false,
             appearance_raw: Vec::new(),
             sync_theme: true,
             own_theme_on_profiles: false,
@@ -402,6 +406,8 @@ impl Default for Settings {
             stream_previews: true,
             soundboard_volume: 1.0,
             entrance: Vec::new(),
+            theme_prefs: Vec::new(),
+            guilds_raw: Vec::new(),
             keybinds: Vec::new(),
             locale: "en-US".into(),
             spellcheck: true,

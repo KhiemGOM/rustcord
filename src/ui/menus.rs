@@ -42,6 +42,7 @@ pub(super) enum ChanAct {
 pub(super) enum GuildAct {
     Web(String),
     Boosts,
+    Theme,
     Settings,
     Create(super::create::Kind),
     Threads,
@@ -70,7 +71,7 @@ fn tag_row(ui: &mut Ui, wearer: &crate::state::User) -> bool {
 }
 
 /// The menu under the server name.
-pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, dev: bool) -> Option<GuildAct> {
+pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, dev: bool, server_theme: Option<bool>) -> Option<GuildAct> {
     use crate::state::{MANAGE_CHANNELS, MANAGE_EVENTS, MANAGE_GUILD, SETTINGS_ACCESS, VIEW_GUILD_INSIGHTS};
     let g = store.guilds.get(&gid)?;
     let perms = store.my_perms(gid);
@@ -82,6 +83,11 @@ pub(super) fn guild_menu(ui: &mut Ui, store: &Store, gid: Id, dev: bool) -> Opti
     let mut act = None;
     if menu_item(ui, Some(Icon::Gem), "Server Boost", false) {
         act = Some(GuildAct::Boosts);
+    }
+    if let Some(on) = server_theme
+        && menu_row(ui, Some(Icon::SideAppearance), "Use Server Theme", None, false, Trail::Check(on)).clicked()
+    {
+        act = Some(GuildAct::Theme);
     }
     if let Some(w) = store.users.values().find(|u| u.tag.as_ref().is_some_and(|t| t.1 == gid))
         && tag_row(ui, w)

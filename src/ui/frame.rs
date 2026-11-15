@@ -109,9 +109,11 @@ impl eframe::App for App {
             let full = self.call.full && self.voice.chan.is_some() && self.cur() == self.voice.chan;
             self.call.full = full;
             self.apply_look(&ctx);
+            let ash = themes::dark_sidebar(self);
             let rail = if full {
                 Rect::NOTHING
             } else {
+                let _ash = crate::theme::scope(ash);
                 egui::Panel::left("rail")
                     .exact_size(72.0)
                     .resizable(false)
@@ -141,6 +143,7 @@ impl eframe::App for App {
                 nav::keep_size(&ctx, "side", 0, side_w);
                 // discord's dm list sits a pixel right of where a server's channels do
                 let dms = self.ui.guild.is_none() as i8;
+                let dark = crate::theme::scope(ash);
                 let r = egui::Panel::left("side")
                     .default_size(side_w)
                     .size_range(193.0..=(w - 72.0 - 420.0).clamp(193.0, 361.0))
@@ -150,6 +153,7 @@ impl eframe::App for App {
                     .show(ui, |ui| side::show(self, ui));
                 side_edge(ui.painter(), r.response.rect);
                 side::card(self, ui, rail, r.response.rect);
+                drop(dark);
                 if let Some(w) = self.dragged(&ctx, "side", r.response.rect.width(), side_w) {
                     self.ui.side_w = w;
                 }

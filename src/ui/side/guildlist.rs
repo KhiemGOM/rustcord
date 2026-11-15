@@ -87,7 +87,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
         app.rects.insert("guildmenu".into(), btn);
         egui::Popup::menu(&resp).anchor(head).align(egui::RectAlign::BOTTOM).gap(5.0).close_behavior(crate::ui::menu_closing(ui.ctx())).show(|ui| {
-            crate::ui::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, dev));
+            crate::ui::menu_body(ui, |ui| act = guild_menu(ui, &app.store, gid, dev, crate::ui::themes::has_theme(app, gid).then(|| crate::ui::themes::uses_server_theme(app, gid))));
         });
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -100,6 +100,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     match act {
         Some(GuildAct::Web(url)) => ui.ctx().open_url(egui::OpenUrl::new_tab(url)),
         Some(GuildAct::Boosts) => app.open_boosts(gid),
+        Some(GuildAct::Theme) => crate::ui::themes::toggle_server_theme(app, ui.ctx(), gid),
         Some(GuildAct::Settings) => app.open_server_settings(gid),
         Some(GuildAct::Create(k)) => app.create = Some(crate::ui::create::Form::new(k, gid, None)),
         Some(GuildAct::Threads) => app.active_threads = Some(gid),

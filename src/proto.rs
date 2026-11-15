@@ -271,6 +271,7 @@ account! {
     custom_theme: Option<u8>,
     own_theme: Option<Custom>,
     server_themes: bool,
+    dark_sidebar: bool,
     appearance_raw: Vec<u8>,
     dev: bool,
     hour_cycle: u8,
@@ -289,6 +290,8 @@ account! {
     stream_previews: bool,
     soundboard_volume: f32,
     entrance: Vec<(Id, Id, Id)>,
+    theme_prefs: Vec<(Id, u8)>,
+    guilds_raw: Vec<u8>,
     reaction_notify: u8,
     stream_notify: bool,
     friend_anniv: bool,
@@ -353,14 +356,19 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         match n {
             3 => {
                 let mut sounds = Vec::new();
+                let mut prefs = Vec::new();
+                a.guilds_raw = Some(b.to_vec());
                 for (n, v) in fields(b) {
                     let (1, Val::Bytes(entry)) = (n, v) else { continue };
-                    let (mut guild, mut sound) = (0, (0, 0));
+                    let (mut guild, mut sound, mut pref) = (0, (0, 0), 0u8);
                     for (n, v) in fields(entry) {
                         match (n, v) {
                             (1, Val::Fixed(g)) => guild = g,
                             (2, Val::Bytes(gs)) => {
                                 for (n, v) in fields(gs) {
+                                    if let (13, Val::Int(p)) = (n, &v) {
+                                        pref = *p as u8;
+                                    }
                                     let (6, Val::Bytes(js)) = (n, v) else { continue };
                                     for (n, v) in fields(js) {
                                         match (n, v) {
@@ -377,9 +385,14 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                     if sound.0 != 0 {
                         sounds.push((guild, sound.0, sound.1));
                     }
+                    if pref != 0 {
+                        prefs.push((guild, pref));
+                    }
                 }
                 sounds.sort();
+                prefs.sort();
                 a.entrance = Some(sounds);
+                a.theme_prefs = Some(prefs);
             }
             5 => {
                 for (n, v) in fields(b) {
@@ -502,6 +515,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                     a.custom_theme = Some(None);
                     a.own_theme = Some(None);
                     a.server_themes = Some(true);
+                    a.dark_sidebar = Some(false);
                 }
                 a.appearance_raw = Some(b.to_vec());
                 let mut light = false;
@@ -542,6 +556,7 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                             })
                         }
                         (14, Val::Int(i)) => a.server_themes = Some(i != 1),
+                        (15, Val::Int(i)) => a.dark_sidebar = Some(i != 0),
                         _ => {}
                     }
                 }
@@ -735,6 +750,60 @@ pub fn entrance_patch(guild: Id, sound: Id, source: Id) -> Vec<u8> {
     out
 }
 
+/// The per-server settings with one server's theme source set (1 mine, 2 the server's, 0 to
+/// follow the default): `raw` is the message the account last sent, every other field kept.
+pub fn guild_theme(raw: &[u8], guild: Id, pref: u8) -> Vec<u8> {
+    let settings = |old: &[u8]| {
+        let mut gs = Vec::new();
+        for (n, v) in fields(old) {
+            if n != 13 {
+                copy(&mut gs, n, &v);
+            }
+        }
+        if pref != 0 {
+            tag(&mut gs, 13, 0);
+            put(&mut gs, pref as u64);
+        }
+        gs
+    };
+    let entry = |gs: &[u8]| {
+        let mut e = Vec::new();
+        tag(&mut e, 1, 1);
+        e.extend_from_slice(&guild.to_le_bytes());
+        message(&mut e, 2, gs);
+        e
+    };
+    let mut all = Vec::new();
+    let mut found = false;
+    for (n, v) in fields(raw) {
+        let mine = match (n, &v) {
+            (1, Val::Bytes(e)) => fields(e).into_iter().any(|(n, v)| n == 1 && matches!(v, Val::Fixed(g) if g == guild)),
+            _ => false,
+        };
+        if !mine {
+            copy(&mut all, n, &v);
+            continue;
+        }
+        let Val::Bytes(e) = v else { continue };
+        let old = fields(e).into_iter().find_map(|(n, v)| match (n, v) {
+            (2, Val::Bytes(gs)) => Some(gs),
+            _ => None,
+        });
+        message(&mut all, 1, &entry(&settings(old.unwrap_or(&[]))));
+        found = true;
+    }
+    if !found {
+        message(&mut all, 1, &entry(&settings(&[])));
+    }
+    all
+}
+
+pub fn guilds_patch(body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    message(&mut out, 3, body);
+    out
+}
+
 fn copy(out: &mut Vec<u8>, n: u64, v: &Val) {
     match v {
         Val::Int(i) => {
@@ -754,7 +823,7 @@ fn copy(out: &mut Vec<u8>, n: u64, v: &Val) {
 }
 
 /// The base theme's number in the theme enum.
-fn theme_number(t: Theme, light: bool) -> u64 {
+pub fn theme_number(t: Theme, light: bool) -> u64 {
     match t {
         Theme::Ash => 1,
         Theme::Light => 2,
@@ -768,7 +837,7 @@ fn theme_number(t: Theme, light: bool) -> u64 {
 /// The whole appearance settings message: `raw` is the one the account last sent, with the theme,
 /// the client theme (a preset or the user's own colours) and the default for server themes put in
 /// place and every other field left as it was.
-pub fn appearance(raw: &[u8], theme: Theme, fill: Option<&Fill>, server_themes: bool) -> Vec<u8> {
+pub fn appearance(raw: &[u8], theme: Theme, fill: Option<&Fill>, server_themes: bool, dark_sidebar: bool) -> Vec<u8> {
     let mut body = Vec::new();
     let light = matches!(fill, Some(Fill::Custom(c)) if c.light);
     tag(&mut body, 1, 0);
@@ -796,12 +865,16 @@ pub fn appearance(raw: &[u8], theme: Theme, fill: Option<&Fill>, server_themes: 
     }
     message(&mut body, 3, &client);
     for (n, v) in fields(raw) {
-        if !matches!(n, 1 | 3 | 14) {
+        if !matches!(n, 1 | 3 | 14 | 15) {
             copy(&mut body, n, &v);
         }
     }
     tag(&mut body, 14, 0);
     put(&mut body, if server_themes { 2 } else { 1 });
+    if dark_sidebar {
+        tag(&mut body, 15, 0);
+        put(&mut body, 1);
+    }
     body
 }
 
@@ -820,5 +893,25 @@ mod tests {
         let read = super::dismissed_versions(&raw);
         assert_eq!(read.get(&422), Some(&(104, 4)));
         assert_eq!(read.get(&470), Some(&(3, 1)));
+    }
+}
+
+#[cfg(test)]
+mod guild_theme_tests {
+    use super::*;
+
+    #[test]
+    fn a_server_theme_switch_keeps_the_rest_of_that_servers_settings() {
+        let raw = entrance_patch(7, 55, 66);
+        let Some((_, Val::Bytes(all))) = fields(&raw).into_iter().next() else { panic!() };
+        let out = guild_theme(all, 7, 2);
+        let a = account(&guilds_patch(&out), false);
+        assert_eq!(a.theme_prefs, Some(vec![(7, 2)]));
+        assert_eq!(a.entrance, Some(vec![(7, 55, 66)]));
+        let two = guild_theme(&out, 9, 1);
+        let a = account(&guilds_patch(&two), false);
+        assert_eq!(a.theme_prefs, Some(vec![(7, 2), (9, 1)]));
+        let cleared = guild_theme(&two, 7, 0);
+        assert_eq!(account(&guilds_patch(&cleared), false).theme_prefs, Some(vec![(9, 1)]));
     }
 }

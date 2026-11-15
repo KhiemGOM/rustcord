@@ -92,6 +92,10 @@ pub fn page(app: &mut App, ui: &mut Ui) -> bool {
         }
     }
     super::end(ui, 32.0);
+    if themes::dark_sidebar_offered(app) && toggle(ui, &mut app.settings.dark_sidebar, "Dark sidebar", "") {
+        themes::push(app);
+        changed = true;
+    }
     if toggle(ui, &mut app.settings.sync_theme, "Sync theme across my devices", "") {
         if app.settings.sync_theme {
             themes::push(app);
