@@ -418,31 +418,7 @@ pub fn nitro(app: &mut App, ui: &mut Ui) -> bool {
         }
     }
     if tier == 2 {
-        section(ui, "Share Nitro with Friends");
-        for n in 1..=3 {
-            card(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 16.0;
-                    ui.label(RichText::new(n.to_string()).font(semi(24.0)).color(pal().header_primary));
-                    let text = if n == 3 {
-                        "Either you have more trials to send or this trial offer has expired. You can resend or share with another friend. Send three friends a 2-week Nitro trial and become the MVP of the group chat."
-                    } else {
-                        "Either you have more trials to send or this trial offer has expired. You can resend or share with another friend."
-                    };
-                    ui.add(egui::Label::new(RichText::new(text).font(reg(14.0)).color(pal().header_secondary)).wrap());
-                });
-            });
-        }
-        lead(ui);
-        ui.horizontal(|ui| {
-            if link(ui, "Learn more").clicked() {
-                let _ = open::that_detached(format!("{SUPPORT}22567595858327"));
-            }
-        });
-        end(ui, 16.0);
-        if primary(ui, "Select Friends").clicked() {
-            super::open_web("/settings/premium");
-        }
+        super::referral::show(app, ui);
     }
     if tier != 0 {
         section(ui, "What You’ve Got");

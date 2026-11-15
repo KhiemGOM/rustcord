@@ -10,6 +10,7 @@ pub use app::backfill;
 mod theme;
 pub mod apps;
 pub mod billing;
+pub mod referral;
 pub mod camera;
 mod clips;
 mod privacy;

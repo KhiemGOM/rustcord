@@ -299,6 +299,7 @@ pub struct App {
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
     pub hub: Option<hub::Hub>,
+    pub referral: Option<settings::referral::Picker>,
     pub buy: Option<buy::Buy>,
     pub server_shop: Option<buy::server_shop::ServerShop>,
     pub boost_info: Map<Id, boosts::Info>,
@@ -574,6 +575,7 @@ impl App {
             friends: false,
             boosts: None,
             hub: None,
+            referral: None,
             boost_info: Map::default(),
             create: None,
             active_threads: None,
