@@ -667,6 +667,39 @@ pub fn slider(ui: &mut Ui, w: f32, value: &mut f32, lo: f32, hi: f32) -> bool {
     false
 }
 
+fn volume_pos(a: f32) -> f32 {
+    if a <= 0.0 { 0.0 } else if a < 1.0 { a.powf(1.0 / 2.8) * 100.0 } else { (20.0 * a.log10() / 6.0 + 1.0) * 100.0 }
+}
+
+fn volume_amp(p: f32) -> f32 {
+    let n = p / 100.0;
+    if n <= 0.0 { 0.0 } else if n < 1.0 { n.powf(2.8) } else { 10f32.powf((n - 1.0) * 0.3) }
+}
+
+pub fn volume_slider(ui: &mut Ui, w: f32, v: &mut f32, max: f32) -> bool {
+    let mut p = volume_pos(*v);
+    if !slider(ui, w, &mut p, 0.0, max) {
+        return false;
+    }
+    *v = volume_amp(p);
+    true
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::{volume_amp, volume_pos};
+
+    #[test]
+    fn the_slider_follows_discords_volume_curve() {
+        assert!((volume_amp(50.0) - 0.5f32.powf(2.8)).abs() < 1e-6);
+        assert!((volume_pos(1.0) - 100.0).abs() < 1e-4);
+        assert!((volume_amp(200.0) - 10f32.powf(0.3)).abs() < 1e-5);
+        for p in [0.0, 12.5, 50.0, 99.0, 100.0, 150.0, 200.0] {
+            assert!((volume_pos(volume_amp(p)) - p).abs() < 1e-3, "{p}");
+        }
+    }
+}
+
 /// The slider with labelled tick marks used for font size, spacing and zoom. Ticks sit
 /// where their values fall on the rail, so uneven stops show up uneven.
 pub fn markers(ui: &mut Ui, value: &mut f32, stops: &[f32], label: impl Fn(f32) -> String, default: f32) -> bool {

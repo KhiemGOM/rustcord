@@ -58,13 +58,8 @@ fn pick(ui: &mut Ui, label: &str, icon: Icon, names: &[String], cur: &mut Option
 fn volume(ui: &mut Ui, label: &str, v: &mut f32, max: f32) -> bool {
     ui.label(RichText::new(label).font(medium(16.0)).color(pal().header_primary));
     ui.add_space(12.0);
-    let mut pct = *v * 100.0;
     let w = ui.available_width();
-    let moved = slider(ui, w, &mut pct, 0.0, max);
-    if moved {
-        *v = pct.round() / 100.0;
-    }
-    moved
+    super::volume_slider(ui, w, v, max)
 }
 
 fn bars(ui: &mut Ui, w: f32, level: i32, live: bool) {
