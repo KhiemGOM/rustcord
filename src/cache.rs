@@ -68,6 +68,7 @@ pub struct Settings {
     // servers that made a theme show it to people who haven't picked "Use my theme"
     pub server_themes: bool,
     pub dark_sidebar: bool,
+    pub hub_seen: bool,
     // the appearance message the account last sent, so an update keeps the fields we don't know
     #[serde(skip)]
     pub appearance_raw: Vec<u8>,
@@ -326,6 +327,7 @@ impl Default for Settings {
             app_icon: "AppIcon".into(),
             server_themes: true,
             dark_sidebar: false,
+            hub_seen: false,
             appearance_raw: Vec::new(),
             sync_theme: true,
             own_theme_on_profiles: false,

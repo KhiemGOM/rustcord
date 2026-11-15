@@ -146,7 +146,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut join_act: Option<(Id, Id)> = None;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
-    let open_page = if app.boosts == Some(gid) {
+    let hub_row = crate::ui::hub::offered(&app.store, gid).then_some(!app.settings.hub_seen);
+    let mut hub_page = false;
+    let open_page = if app.hub.as_ref().is_some_and(|h| h.guild == gid) {
+        Some("Server Hub")
+    } else if app.boosts == Some(gid) {
         Some("Server Boosts")
     } else if app.server_shop.as_ref().is_some_and(|s| s.guild == gid) {
         Some("Server Shop")
@@ -186,7 +190,8 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let read = store.event_reads.get(&gid);
                 let mentions = if muted { 0 } else { read.map_or(0, |r| r.mentions) };
                 let unread = !muted && g.newest_event > read.map_or(0, |r| r.last_acked);
-                match home_rows(ui, g, store.my_perms(gid), open_page, EventsRow { muted, unread, mentions }, &mut events_act) {
+                match home_rows(ui, g, store.my_perms(gid), open_page, EventsRow { muted, unread, mentions }, &mut events_act, hub_row) {
+                    Some("Server Hub") => hub_page = true,
                     Some("Server Boosts") => boost_page = true,
                     Some("Server Shop") => shop_page = true,
                     Some("Events") => events_page = true,
@@ -420,6 +425,9 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         }
     } else if let Some(c) = toggle {
         app.set_collapsed(&[c], !app.store.collapsed.contains(&c));
+    }
+    if hub_page {
+        app.open_hub(gid);
     }
     if boost_page {
         app.open_boosts(gid);

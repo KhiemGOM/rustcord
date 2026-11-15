@@ -295,6 +295,8 @@ impl Store {
         g.default_notif = p["default_message_notifications"].as_u64().unwrap_or(0) as u8;
         g.banner = ost(&p["banner"]);
         g.vanity = ost(&p["vanity_url_code"]);
+        g.hub_enabled = p["guild_space_settings"]["enabled"].as_bool();
+        g.hub_published = p["guild_space_settings"]["publish_status"].as_u64() == Some(1);
         g.boosts = p["premium_subscription_count"].as_u64().or(v["premium_subscription_count"].as_u64()).unwrap_or(0) as u32;
         g.boost_bar = p["premium_progress_bar_enabled"].as_bool().unwrap_or(false);
         g.tier = p["premium_tier"].as_u64().or(v["premium_tier"].as_u64()).unwrap_or(0) as u8;
@@ -444,6 +446,11 @@ impl Store {
             let hash = |a: &Value| a[0].as_u64().or_else(|| a[0].as_str()?.parse().ok());
             given.filter(|a| a[1].as_u64().is_some_and(|variant| variant != 0)).filter_map(|a| hash(a).map(|h| h as u32)).collect()
         });
+        let hashes = |u: &Value| -> Set<u32> {
+            let given = u["assignments"].as_array().into_iter().flatten();
+            given.filter(|a| a[1].as_u64().is_some_and(|variant| variant != 0)).filter_map(|a| a[0].as_u64().or_else(|| a[0].as_str()?.parse().ok()).map(|h| h as u32)).collect()
+        };
+        self.guild_experiments = d["apex_experiments"]["assignments"]["guild"].as_object().into_iter().flatten().filter_map(|(g, u)| Some((g.parse().ok()?, hashes(u)))).collect();
         self.relationships.clear();
         for r in d["relationships"].as_array().into_iter().flatten() {
             let uid = sid(&r["id"]);

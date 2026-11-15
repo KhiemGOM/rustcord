@@ -65,6 +65,7 @@ mod menus;
 mod picker;
 mod player;
 mod botinfo;
+mod hub;
 mod plus;
 mod poll;
 mod scheduled;
@@ -297,6 +298,7 @@ pub struct App {
     pub friends: bool,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
+    pub hub: Option<hub::Hub>,
     pub buy: Option<buy::Buy>,
     pub server_shop: Option<buy::server_shop::ServerShop>,
     pub boost_info: Map<Id, boosts::Info>,
@@ -571,6 +573,7 @@ impl App {
             search: None,
             friends: false,
             boosts: None,
+            hub: None,
             boost_info: Map::default(),
             create: None,
             active_threads: None,

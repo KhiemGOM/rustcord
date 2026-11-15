@@ -310,12 +310,15 @@ fn get_started(ui: &mut Ui, total: usize, done: usize) -> bool {
 /// and Channels & Roles are pages in place of the chat, Events is a window, and what's left opens
 /// discord's own page in the browser. Hands back the row clicked
 /// and which page is open.
-fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>) -> Option<&'static str> {
+fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str>, ev: EventsRow, ev_act: &mut Option<EventsAct>, hub: Option<bool>) -> Option<&'static str> {
     use crate::state::{ADMINISTRATOR, BAN_MEMBERS, CREATE_EVENTS, KICK_MEMBERS, MANAGE_EVENTS, MANAGE_GUILD, MODERATE_MEMBERS};
     let has = |f: &str| g.features.iter().any(|x| x == f);
     let community = has("COMMUNITY");
     let perms = if perms & ADMINISTRATOR != 0 { u64::MAX } else { perms };
     let mut rows: Vec<(Icon, &'static str, String)> = Vec::new();
+    if hub.is_some() {
+        rows.push((Icon::Discover, "Server Hub", String::new()));
+    }
     if has("GUILD_SERVER_GUIDE") {
         rows.push((Icon::ServerGuide, "Server Guide", String::new()));
     }
@@ -361,7 +364,18 @@ fn home_rows(ui: &mut Ui, g: &crate::state::Guild, perms: u64, open: Option<&str
         if lit && !selected {
             ui.painter().rect_filled(Rect::from_min_size(pos2(row.left(), row.center().y - 4.0), vec2(4.0, 8.0)), CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, pal().header_primary);
         }
-        icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
+        let glyph = Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0));
+        if label == "Server Hub" {
+            super::hub::house(ui.painter(), glyph, col);
+            if hub == Some(true) {
+                let g = ui.painter().layout_no_wrap("new".into(), semi(12.0), egui::Color32::WHITE);
+                let pill = Rect::from_min_size(pos2(inner.right() - 8.0 - g.size().x - 12.0, row.center().y - 8.0), vec2(g.size().x + 12.0, 16.0));
+                ui.painter().rect_filled(pill, 8, pal().blurple);
+                ui.painter().galley(pos2(pill.left() + 6.0, pill.center().y - g.size().y / 2.0), g, egui::Color32::WHITE);
+            }
+        } else {
+            icons::draw(ui.painter(), icon, glyph, col);
+        }
         let shown = if is_events && g.events > 0 { format!("{} Event{}", g.events, if g.events == 1 { "" } else { "s" }) } else { label.to_string() };
         let room = inner.width() - 42.0 - if is_events && ev.mentions > 0 { 32.0 } else { 0.0 };
         text::paint(ui.painter(), pos2(inner.left() + 36.0, row.center().y), Align2::LEFT_CENTER, &shown, if lit { semi(16.0) } else { medium(16.0) }, col, room);

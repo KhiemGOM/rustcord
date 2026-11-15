@@ -11,6 +11,7 @@ impl App {
             self.prev_guild = self.ui.guild;
         }
         self.ui.guild = g;
+        self.hub = None;
         self.boosts = None;
         self.server_shop = None;
         self.home = None;
@@ -29,6 +30,7 @@ impl App {
 
     pub fn open(&mut self, ch: Id) {
         let Some(c) = self.store.channels.get(&ch) else { return };
+        self.hub = None;
         self.boosts = None;
         self.server_shop = None;
         self.home = None;

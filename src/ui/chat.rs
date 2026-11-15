@@ -223,6 +223,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }
+    if let Some(g) = app.hub.as_ref().map(|h| h.guild).filter(|g| app.ui.guild == Some(*g)) {
+        return super::hub::show(app, ui, g);
+    }
     if let Some(g) = app.server_shop.as_ref().map(|s| s.guild).filter(|g| app.ui.guild == Some(*g)) {
         return super::buy::server_shop::show(app, ui, g);
     }

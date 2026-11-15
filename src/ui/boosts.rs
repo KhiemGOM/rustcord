@@ -53,6 +53,7 @@ impl Info {
 impl App {
     pub fn open_boosts(&mut self, gid: Id) {
         self.boosts = Some(gid);
+        self.hub = None;
         self.home = None;
         self.server_shop = None;
         self.boost_info.insert(gid, Info::default());

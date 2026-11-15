@@ -157,6 +157,7 @@ pub struct Store {
     // the experiments READY put this account in, by the hash of their names; None when it sent none
     #[serde(skip)]
     pub experiments: Option<Set<u32>>,
+    pub guild_experiments: Map<Id, Set<u32>>,
     // who is in each thread, from the gateway's thread member lists
     #[serde(skip)]
     pub thread_members: Map<Id, Vec<Id>>,

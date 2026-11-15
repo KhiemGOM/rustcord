@@ -111,6 +111,14 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     ui.add_space(12.0);
     form::small(ui, "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers.");
 
+    if crate::ui::hub::in_experiment(&app.store, gid) {
+        form::head(ui, false, "Server Hub", "Manage settings for your Server Hub.");
+        let mut on = app.store.guilds.get(&gid).is_some_and(|g| g.hub_enabled != Some(false));
+        if toggle(ui, &mut on, "Show Server Hub tab in channel list", "") {
+            crate::ui::hub::set_enabled(app, gid, on);
+        }
+    }
+
     form::head(ui, false, "Server Widget", "Embed an HTML widget on your website to display your online members, voice channels, and invite link.");
     let mut enabled = widget["enabled"].as_bool().unwrap_or(false);
     let wch = widget["channel_id"].as_str().and_then(|s| s.parse::<Snow>().ok());

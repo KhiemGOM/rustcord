@@ -317,6 +317,10 @@ pub(crate) struct Guild {
     /// The server's own invite link, which anyone in it may hand out.
     #[serde(default)]
     pub vanity: Option<String>,
+    #[serde(default)]
+    pub hub_enabled: Option<bool>,
+    #[serde(default)]
+    pub hub_published: bool,
     #[serde(skip)]
     pub theme: Option<crate::theme::Fill>,
     pub channels: Vec<Id>,
