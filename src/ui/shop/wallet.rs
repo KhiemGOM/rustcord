@@ -14,6 +14,7 @@ const CLAIMED: u64 = 3;
 const SHOP_CARD_FROM: u64 = 1400;
 const TO_SHOP: [&str; 2] = ["1531422538125676707", "1531422538125676708"];
 const TO_NITRO: &str = "1531422538125676709";
+pub const CHALLENGES: &str = "/users/@me/achievements/list?reward_type=orbs";
 const HELP: &str = "https://support.discord.com/hc/articles/30593690165783-Discord-Orbs-FAQ#h_01M3WB2TWDD7WVN8ETJCW2PKDM";
 
 pub enum Go {
@@ -31,7 +32,7 @@ pub fn enabled(app: &App) -> bool {
 
 pub fn fetch(app: &mut App) {
     if enabled(app) {
-        want(app, "orb_challenges", "/users/@me/achievements/list?reward_type=orbs");
+        want(app, "orb_challenges", CHALLENGES);
         want(app, "orb_redeemed", "/users/@me/virtual-currency/total-redeemed");
     }
 }

@@ -546,8 +546,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     super::games::fetch(app);
     if app.keyed.iter().any(|(k, v)| k.starts_with("orb_claim:") && matches!(v, Some(Ok(_)))) {
         app.keyed.retain(|k, _| !k.starts_with("orb_claim:"));
-        crate::ui::settings::refetch(app, "orb_challenges");
-        crate::ui::settings::refetch(app, "shop_orbs");
+        app.rest("GET", super::wallet::CHALLENGES.into(), None, crate::net::Tag::Remote("orb_challenges"));
+        app.rest("GET", "/users/@me/virtual-currency/balance".into(), None, crate::net::Tag::Remote("shop_orbs"));
     }
     wish::sync(app);
     let Some(s) = app.shop.as_ref() else { return };
