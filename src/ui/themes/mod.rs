@@ -93,8 +93,15 @@ pub fn has_theme(app: &App, gid: crate::state::Id) -> bool {
 
 pub fn toggle_server_theme(app: &mut App, ctx: &egui::Context, gid: crate::state::Id) {
     let pref = if uses_server_theme(app, gid) { 1 } else { 2 };
+    set_server_theme(app, ctx, gid, pref);
+}
+
+/// One server's theme source: 1 mine, 2 the server's, 0 to follow the default again.
+pub fn set_server_theme(app: &mut App, ctx: &egui::Context, gid: crate::state::Id, pref: u8) {
     app.settings.theme_prefs.retain(|p| p.0 != gid);
-    app.settings.theme_prefs.push((gid, pref));
+    if pref != 0 {
+        app.settings.theme_prefs.push((gid, pref));
+    }
     let body = crate::proto::guild_theme(&app.settings.guilds_raw, gid, pref);
     let settings = base64::engine::general_purpose::STANDARD.encode(crate::proto::guilds_patch(&body));
     app.settings.guilds_raw = body;

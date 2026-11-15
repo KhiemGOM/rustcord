@@ -33,6 +33,10 @@ mod sched;
 mod wallet;
 #[path = "mockcord/gameshop.rs"]
 mod gameshop;
+#[path = "mockcord/hub.rs"]
+mod hub;
+#[path = "mockcord/school.rs"]
+mod school;
 #[path = "mockcord/cdn.rs"]
 mod cdn_shape;
 #[path = "mockcord/frecency.rs"]
@@ -1046,7 +1050,10 @@ If you'd like to upvote a suggestion, use the reaction!");
         ] },
         "user_settings_proto": settings_proto(1, true),
         "user_settings": { "guild_folders": folders },
-        "apex_experiments": { "assignments": { "user": { ME.to_string(): { "assignments": [[sched::EXPERIMENT, 1], [wallet::EXPERIMENT, 1], [4184216579u32, 1]] } } } },
+        "apex_experiments": { "assignments": {
+            "user": { ME.to_string(): { "assignments": [[sched::EXPERIMENT, 1], [wallet::EXPERIMENT, 1], [4184216579u32, 1]] } },
+            "guild": { hub::GUILD: { "assignments": [[hub::EXPERIMENT, 1]] } },
+        } },
     })
 }
 
@@ -1464,6 +1471,12 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     if let Some((code, v)) = acks::route(method, &parts, body) {
         return (code, "application/json", v.to_string().into_bytes());
     }
+    if let Some((code, v)) = school::route(method, &parts, body, user) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = hub::route(method, &parts, body) {
+        return (code, "application/json", v.to_string().into_bytes());
+    }
     if let Some((code, v)) = gameshop::route(method, &parts) {
         return (code, "application/json", v.to_string().into_bytes());
     }
@@ -1604,6 +1617,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let mut m = msg(fresh(), ch, ME, b["content"].as_str().unwrap_or(""));
             m["nonce"] = b["nonce"].clone();
             m["member"] = member(ME);
+            if b["shared_client_theme"].is_object() {
+                m["shared_client_theme"] = b["shared_client_theme"].clone();
+            }
             if let Some(list) = b["attachments"].as_array() {
                 let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
                 let mut out = Vec::new();

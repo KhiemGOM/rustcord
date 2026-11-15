@@ -83,6 +83,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                     for c in &places {
                         let Some(ch) = store.channels.get(c) else { continue };
                         let (r, resp) = ui.allocate_exact_size(vec2(430.0, 48.0), Sense::click());
+                        crate::ui::settings::mark(ui, &format!("forward:{c}"), r);
                         let on = f.picked.contains(c);
                         crate::ui::motion::wash(ui, &resp, r.expand2(vec2(8.0, 0.0)), 8, MENU_HOVER, 0.05);
                         let icon = Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(32.0, 32.0));
