@@ -553,12 +553,20 @@ fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {
     ui.painter().galley(pos2(r.left() + 16.0, r.top() + 199.0), gal, pal().text_normal);
     let mut x = r.left() + 16.0;
     let cy = r.top() + 297.0;
-    for (n, label, dot) in [(g["approximate_presence_count"].as_u64(), "Online", pal().green), (g["approximate_member_count"].as_u64(), "Members", Color32::from_rgb(201, 202, 206))] {
-        let Some(n) = n else { continue };
+    let counts: Vec<(String, f32, Color32)> = [(g["approximate_presence_count"].as_u64(), "Online", pal().green), (g["approximate_member_count"].as_u64(), "Members", Color32::from_rgb(201, 202, 206))]
+        .into_iter()
+        .filter_map(|(n, label, dot)| {
+            let text = format!("{} {label}", commas(n?));
+            let w = ui.painter().layout_no_wrap(text.clone(), reg(12.0), pal().text_normal).size().x;
+            Some((text, w, dot))
+        })
+        .collect();
+    let (wanted, room) = (counts.iter().map(|c| 12.0 + c.1).sum::<f32>(), r.width() - 32.0 - 16.0 * counts.len().saturating_sub(1) as f32);
+    let squeeze = (room / wanted).min(1.0);
+    for (label, w, dot) in counts {
+        let w = (12.0 + w) * squeeze - 12.0;
         ui.painter().circle_filled(pos2(x + 4.0, cy), 4.0, dot);
-        let t = ui.painter().layout_no_wrap(format!("{} {label}", commas(n)), reg(12.0), pal().text_normal);
-        let w = t.size().x;
-        ui.painter().galley(pos2(x + 12.0, cy - t.size().y / 2.0), t, pal().text_normal);
+        text::paint(ui.painter(), pos2(x + 12.0, cy), Align2::LEFT_CENTER, &label, reg(12.0), pal().text_normal, w);
         x += 12.0 + w + 16.0;
     }
     let edge = crate::ui::motion::mix(faint(51), faint(110), crate::ui::motion::hot(ui.ctx(), &resp));
