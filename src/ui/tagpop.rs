@@ -46,6 +46,10 @@ fn tag(app: &mut App, ctx: &egui::Context) {
             app.tag_pop = None;
             app.select_guild(Some(g));
         }
+        Some(go @ super::chatinvite::Go::Adopt(_)) => {
+            app.tag_pop = None;
+            app.chat_invite(go);
+        }
         Some(_) => {
             app.tag_pop = None;
             let manual = p.is_some_and(|p| p["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "MEMBER_VERIFICATION_MANUAL_APPROVAL")));

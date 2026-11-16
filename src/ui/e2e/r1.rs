@@ -726,6 +726,35 @@ impl Run {
                     return;
                 }
                 app.confirm = None;
+                self.step = 5291;
+            }
+            5291 => {
+                let me = app.store.me;
+                if let Some(u) = app.store.users.get_mut(&me) {
+                    u.tag = None;
+                }
+                app.tag_pop = Some((HUB_GUILD, egui::pos2(400.0, 300.0)));
+                self.next(900);
+            }
+            5292 => {
+                let Some(r) = Self::at(ctx, &format!("invite:tag:{HUB_GUILD}:join")) else {
+                    if stuck {
+                        app.tag_pop = None;
+                        self.step = 5290;
+                    }
+                    return;
+                };
+                self.shot(ctx, "tag_adopt.png");
+                self.click(r.center());
+                self.next(700);
+            }
+            5293 => {
+                if app.tag_pop.is_none() && app.ui.guild != Some(HUB_GUILD) {
+                    self.mark("tag_adopted");
+                } else if !stuck {
+                    return;
+                }
+                app.tag_pop = None;
                 self.step = 5290;
             }
             _ => {

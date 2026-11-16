@@ -44,6 +44,7 @@ pub enum Go {
     Ask(String),
     Join(String),
     Open(Id),
+    Adopt(Id),
 }
 
 /// The invite codes a message links to, once each, in order.
@@ -114,6 +115,7 @@ impl App {
                 self.rest_in("POST", format!("/invites/{code}"), Some(serde_json::json!({ "session_id": session })), "Invite Button Embed", Tag::ChatJoin(code));
             }
             Go::Open(g) => self.select_guild(Some(g)),
+            Go::Adopt(g) => self.rest("PUT", "/users/@me/clan".into(), Some(serde_json::json!({ "identity_guild_id": g.to_string(), "identity_enabled": true })), Tag::reason()),
         }
     }
 }
@@ -182,7 +184,9 @@ pub fn popout(ui: &mut Ui, store: &Store, guild: Id, p: &serde_json::Value) -> O
         tag: set("tag").map(|t| (t.to_string(), set("badge_hash").map(|b| format!("{cdn}/guild-tag-badges/{guild}/{b}.png?size=32")))),
         traits: traits(p),
     };
-    live(ui, &inv, store.guilds.contains_key(&guild), false, &format!("tag:{guild}"), 300.0, 120.0)
+    let member = store.guilds.contains_key(&guild);
+    let wearing = store.user(store.me).and_then(|u| u.tag.as_ref()).is_some_and(|t| t.1 == guild);
+    live(ui, &inv, member, false, member && inv.tag.is_some() && !wearing, &format!("tag:{guild}"), 300.0, 120.0)
 }
 
 pub fn card(ui: &mut Ui, store: &Store, cache: &mut Cache, code: &str, own: bool) -> Option<Go> {
@@ -206,7 +210,7 @@ pub fn card(ui: &mut Ui, store: &Store, cache: &mut Cache, code: &str, own: bool
         Some(Entry::Found(inv)) => {
             let member = store.guilds.contains_key(&inv.guild);
             let joining = cache.joining.contains(code) && !member;
-            live(ui, inv, member, joining, code, WIDTH, 72.0)
+            live(ui, inv, member, joining, false, code, WIDTH, 72.0)
         }
     }
 }
@@ -233,7 +237,9 @@ fn gone(ui: &mut Ui, own: bool) -> Rect {
 }
 
 /// `tall` is how far the banner runs: 72 under a message, 120 in a tag's popout.
-fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str, width: f32, tall: f32) -> Option<Go> {
+/// `adopt` is the tag popout in a server you're in whose tag you don't wear: discord's button
+/// there puts the tag on.
+fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, adopt: bool, code: &str, width: f32, tall: f32) -> Option<Go> {
     let down = tall - 72.0;
     // the popout is discord's profile surface with lighter small print; a message's card keeps the embed's
     let (fill, quiet) = if down > 0.0 { (pal().bg_tertiary.blend(PROFILE_CARD), pal().header_secondary) } else { (pal().bg_secondary, pal().text_muted) };
@@ -326,16 +332,17 @@ fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, code: &str, widt
     let resp = ui.interact(b, egui::Id::new(("invite_join", code)), Sense::click());
     super::settings::mark(ui, &format!("invite:{code}:join"), b);
     let hot = resp.hovered() && !joining;
-    let fill = if member { pal().control } else { super::motion::mix(sat(JOIN), sat(JOIN).gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)) };
-    p.rect_filled(b, CornerRadius::same(8), if member && hot { pal().control_hover } else { fill });
+    let plain = member && !adopt;
+    let fill = if plain { pal().control } else { super::motion::mix(sat(JOIN), sat(JOIN).gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)) };
+    p.rect_filled(b, CornerRadius::same(8), if plain && hot { pal().control_hover } else { fill });
     p.rect_stroke(b, CornerRadius::same(8), Stroke::new(1.0, Color32::from_white_alpha(20)), StrokeKind::Inside);
-    let label = if member { "Joined" } else if joining { "Joining..." } else { "Join" };
+    let label = if adopt { "Adopt Tag" } else if member { "Joined" } else if joining { "Joining..." } else { "Join" };
     p.text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), Color32::WHITE);
     if hot {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     if resp.clicked() {
-        return if member { Some(Go::Open(inv.guild)) } else if joining { None } else { Some(Go::Join(code.to_string())) };
+        return if adopt { Some(Go::Adopt(inv.guild)) } else if member { Some(Go::Open(inv.guild)) } else if joining { None } else { Some(Go::Join(code.to_string())) };
     }
     None
 }
