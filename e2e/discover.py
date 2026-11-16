@@ -15,6 +15,7 @@ def checks(runs, reqs, data):
             and len(got("GET", "category_id=1&")) >= 2 and len(got("GET", "query=rust")) >= 2,
         "discover: a search starts in the tab's category with discord's counts, All widens it, and the back arrow returns to the tabs": both("discover_search_in_category")
             and both("discover_search_categories") and both("discover_search_all") and both("discover_search_back")
+            and both("discover_search_beside") and both("discover_search_side_pick")
             and len(got("GET", "query=rust&category_id=1&offset=0&limit=12&language_code=en-US&with_counts=true")) >= 2
             and len(got("GET", "query=rust&offset=0&limit=12&language_code=en-US&with_counts=false")) >= 2,
         "discover: clicking a server joined its preview as a lurker": both("discover_preview")
