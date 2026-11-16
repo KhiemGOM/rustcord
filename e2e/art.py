@@ -5,6 +5,7 @@ data dir for the warm run."""
 import urllib.request
 
 SEEDS = ["web.843cc7edc28c426c", "1a1518aa502a9482"]
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 
 
 def make(dest):
@@ -15,7 +16,8 @@ def make(dest):
         if f.exists():
             continue
         try:
-            with urllib.request.urlopen(f"https://discord.com/assets/{seed}.js", timeout=60) as r:
+            req = urllib.request.Request(f"https://discord.com/assets/{seed}.js", headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=60) as r:
                 f.write_bytes(r.read())
         except OSError:
             return None
@@ -24,7 +26,7 @@ def make(dest):
 
 def checks(runs, reqs, data, served):
     if not served:
-        return {}
+        return {"art: discord's seed chunks were downloaded for the mock to serve": False}
     marks = {k: set(r.get("marks_ms", {})) for k, r in runs.items()}
     return {
         "art: the cold run fetched discord's icons from its bundle into the data dir": "art_fetched" in marks["cold"]
