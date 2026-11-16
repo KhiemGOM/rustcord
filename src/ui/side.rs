@@ -216,7 +216,7 @@ fn thread_row(ui: &mut Ui, t: &Channel, selected: bool, unread: bool, last: bool
     } else {
         pal().channel_default
     };
-    let font = if selected || unread { semi(15.0) } else { reg(15.0) };
+    let font = if selected || unread { semi(14.0) } else { medium(14.0) };
     text::paint_em(ui.painter(), pos2(inner.left() + 8.0, row.center().y), Align2::LEFT_CENTER, &t.name, font, col, inner.width() - 16.0, 1.0);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
