@@ -22,6 +22,8 @@ import urllib.request
 from ctypes import wintypes
 from pathlib import Path
 
+import art
+
 ROOT = Path(__file__).resolve().parent.parent
 PROFILE = sys.argv[sys.argv.index("--profile") + 1] if "--profile" in sys.argv else "release"
 TARGET = ROOT / (sys.argv[sys.argv.index("--target") + 1] if "--target" in sys.argv else "target") / PROFILE
@@ -232,9 +234,10 @@ def main():
     if artifacts:
         tmp.mkdir(parents=True, exist_ok=False)
     mock = subprocess.Popen([str(TARGET / "examples" / "mockcord.exe"), str(http), str(ws), str(tmp / "mock.jsonl"), str(free_both())],
-                            env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history), stdout=subprocess.PIPE)
+                            env=dict(os.environ, MOCK_GUILDS=guilds, MOCK_HISTORY=history, MOCK_ART=str(art.make(ROOT / "target" / "e2e-art") or "")), stdout=subprocess.PIPE)
     env = dict(os.environ, RUSTCORD_API=f"http://127.0.0.1:{http}/api/v9", RUSTCORD_CDN=f"http://127.0.0.1:{http}/cdn",
                RUSTCORD_EMOJI_CDN=f"http://127.0.0.1:{http}/cdn/emoji", RUSTCORD_FONTS=f"http://127.0.0.1:{http}", RUSTCORD_SOUNDS=f"http://127.0.0.1:{http}",
+               RUSTCORD_ART=f"http://127.0.0.1:{http}",
                RUSTCORD_GATEWAY=f"ws://127.0.0.1:{ws}", RUSTCORD_TOKEN="mock-token", RUSTCORD_DATA=str(tmp / "data"), RUSTCORD_SILENT="1")
     report: dict = {"exe_mb": round(EXE.stat().st_size / 2**20, 1), "guilds": int(guilds)}
     try:

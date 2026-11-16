@@ -774,14 +774,14 @@ pub fn breathe(app: &mut App, ctx: &egui::Context) {
             for (grow, a) in [(1.0, 18), (0.75, 26), (0.5, 34)] {
                 ui.painter().circle_filled(c, 50.0 + 30.0 * k * grow, wash(pal().blurple, a));
             }
-            let img = egui::Image::new(egui::include_image!("../../assets/wumpus.png"));
-            let h = 150.0 * (0.96 + 0.04 * k);
-            img.paint_at(ui, Rect::from_center_size(c, vec2(h * 131.0 / 202.0, h)));
+            let img = egui::Image::from_bytes("bytes://rustcord.svg", crate::logo::SVG.as_bytes());
+            let h = 120.0 * (0.96 + 0.04 * k);
+            img.paint_at(ui, Rect::from_center_size(c, vec2(h, h)));
             ui.add_space(16.0);
             ui.vertical_centered(|ui| {
                 ui.label(RichText::new("Chats can be a lot").font(semi(24.0)).color(pal().header_primary));
                 ui.add_space(8.0);
-                ui.label(RichText::new("Let's practice breathing with Wumpus.").font(reg(16.0)).color(pal().header_secondary));
+                ui.label(RichText::new("Let's practice breathing.").font(reg(16.0)).color(pal().header_secondary));
             });
             ui.add_space(28.0);
             ui.horizontal(|ui| {

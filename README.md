@@ -61,4 +61,4 @@ Env overrides used by the harness: `RUSTCORD_API`, `RUSTCORD_CDN`, `RUSTCORD_EMO
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option. Unless you state otherwise, any contribution you submit for inclusion in this project is dual licensed as above, without any additional terms or conditions.
 
-Bundled third-party files keep their own licenses: `assets/selfie_segmentation.onnx` is MediaPipe's model under Apache-2.0 (see `assets/selfie_segmentation.NOTICE`). Discord's names, logos and artwork belong to Discord Inc. and are not covered by this project's license.
+Bundled third-party files keep their own licenses: `assets/selfie_segmentation.onnx` is MediaPipe's model under Apache-2.0 (see `assets/selfie_segmentation.NOTICE`). Discord's names, logos and artwork belong to Discord Inc. and are not covered by this project's license; none of them are in this repository or the exe. Discord's icons, fonts and sounds are downloaded from discord.com on first start, as its web client does, and the logo is Rustcord's own (`assets/rustcord.svg`).

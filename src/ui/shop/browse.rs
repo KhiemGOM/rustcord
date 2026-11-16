@@ -41,11 +41,11 @@ const COLORS: [(&str, &str, u32); 10] = [
 
 macro_rules! theme {
     ($label:literal, $name:literal, $file:literal) => {
-        ($label, $name, concat!("bytes://icon/theme_", $file, ".svg"), include_bytes!(concat!("../../../assets/icons/theme_", $file, ".svg")).as_slice())
+        ($label, $name, concat!("bytes://icon/theme_", $file, ".svg"), concat!("theme_", $file))
     };
 }
 
-const THEMES: [(&str, &str, &str, &[u8]); 10] = [
+const THEMES: [(&str, &str, &str, &str); 10] = [
     theme!("Anime", "ANIME", "anime"),
     theme!("Gaming", "GAMING", "gaming"),
     theme!("Cute & Cozy", "CUTE_COZY", "cute"),
@@ -368,7 +368,8 @@ fn swatch(ui: &mut Ui, c: Pos2, name: &str, rgb: u32, on: bool) -> bool {
 }
 
 fn theme_icon(ui: &Ui, i: usize, r: Rect, tint: Color32) {
-    let (_, _, uri, bytes) = THEMES[i];
+    let (_, _, uri, name) = THEMES[i];
+    let Some(bytes) = crate::art::get(name) else { return };
     let src = egui::ImageSource::Bytes { uri: uri.into(), bytes: egui::load::Bytes::Static(bytes) };
     if let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src).load_for_size(ui.ctx(), r.size()) {
         ui.painter().image(texture.id, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), tint);

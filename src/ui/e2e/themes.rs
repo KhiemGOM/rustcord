@@ -420,7 +420,7 @@ impl Run {
                     return;
                 }
                 self.mark("app_icon_chosen");
-                if icon::applied() == 1 {
+                if icon::applied() == 2 {
                     self.mark("app_icon_on_window");
                     self.shot(ctx, "app_icon_chosen.png");
                     self.next(300);
@@ -446,7 +446,7 @@ impl Run {
                 self.next(500);
             }
             4551 => {
-                if app.themes.icon == Some(3) && app.settings.app_icon == "BrandDarkIcon" {
+                if app.themes.icon == Some(4) && app.settings.app_icon == "BrandDarkIcon" {
                     self.mark("app_icon_previews");
                     self.shot(ctx, "app_icon_panel.png");
                     let Some(r) = at("themes:Exit Preview") else { return };
@@ -459,7 +459,7 @@ impl Run {
                     self.mark("app_icon_exit");
                     app.settings.custom_theme = None;
                     app.settings.own_theme = None;
-                    app.settings.app_icon = "AppIcon".into();
+                    app.settings.app_icon = "Rustcord".into();
                     app.settings.server_themes = true;
                     app.save_settings(ctx);
                     self.next(300);
