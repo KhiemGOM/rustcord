@@ -1,6 +1,6 @@
 [package]
 name = "rustcord"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "An unofficial native Discord desktop client for Windows, in Rust (egui + wgpu)"
 license = "MIT OR Apache-2.0"
