@@ -39,6 +39,7 @@ mod polls;
 use polls::*;
 mod themecard;
 mod dmstart;
+mod obscure;
 use themecard::*;
 mod actions;
 use actions::*;

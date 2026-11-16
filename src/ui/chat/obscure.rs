@@ -1,0 +1,90 @@
+use super::*;
+use crate::cache::Spoilers;
+use crate::state::Attachment;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Why {
+    Spoiler,
+    Sensitive,
+}
+
+const EXPLICIT: u32 = 16;
+const GORE: u32 = 64 | 128;
+const SHOW: u8 = 1;
+
+/// Which of the account's three filter settings a message falls under: a friend's DM, anyone
+/// else's, or a server.
+pub(super) fn context(store: &Store, ch: Id, author: Id) -> usize {
+    match store.channels.get(&ch) {
+        Some(c) if c.guild == 0 && store.relationships.get(&author) == Some(&crate::state::FRIEND) => 0,
+        Some(c) if c.guild == 0 => 1,
+        _ => 2,
+    }
+}
+
+/// Whether discord's filters hide media with these flags from this viewer; never their own.
+pub(crate) fn filtered(flags: u32, own: bool, explicit: u8, gore: u8) -> bool {
+    !own && ((flags & EXPLICIT != 0 && explicit != SHOW) || (flags & GORE != 0 && gore != SHOW))
+}
+
+pub(super) fn why(d: &D, m: &Message, a: &Attachment) -> Option<Why> {
+    if d.revealed.contains(&m.id) {
+        return None;
+    }
+    let at = context(d.store, m.channel, m.author);
+    if filtered(a.flags, m.author == d.store.me, d.s.explicit[at], d.s.gore[at]) {
+        return Some(Why::Sensitive);
+    }
+    let shown = d.s.spoilers == Spoilers::Always || (d.s.spoilers == Spoilers::Moderated && d.moderator);
+    (a.spoiler() && !shown).then_some(Why::Spoiler)
+}
+
+/// The cover over one picture or video; true when it was clicked away. The blur is the picture
+/// asked for at 16 pixels and stretched.
+pub(super) fn cover(ui: &mut Ui, d: &mut D, rect: Rect, radius: CornerRadius, a: &Attachment, why: Why, alone: bool, key: (Id, usize)) -> bool {
+    let resp = ui.interact(rect, ui.id().with(("obscured", key)), Sense::click());
+    ui.painter().rect_filled(rect, radius, pal().bg_tertiary);
+    if a.w > 0 {
+        let sep = if a.proxy.contains('?') { '&' } else { '?' };
+        let still = if a.is_video() { "format=webp&" } else { "" };
+        egui::Image::from_uri(format!("{}{sep}{still}width=16&height=16", a.proxy)).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
+    }
+    ui.painter().rect_filled(rect, radius, Color32::from_black_alpha(if resp.hovered() { 100 } else { 130 }));
+    match why {
+        Why::Spoiler => {
+            let g = ui.painter().layout_no_wrap("SPOILER".into(), semi(15.0), Color32::WHITE);
+            let pill = Rect::from_center_size(rect.center(), g.size() + vec2(24.0, 16.0));
+            ui.painter().rect_filled(pill, pill.height() / 2.0, Color32::from_black_alpha(if resp.hovered() { 230 } else { 153 }));
+            ui.painter().galley(pill.center() - g.size() / 2.0, g, Color32::WHITE);
+        }
+        Why::Sensitive => {
+            let says = alone && rect.width() >= 240.0 && rect.height() >= 90.0;
+            let mid = rect.center() - vec2(0.0, if says { 12.0 } else { 0.0 });
+            icons::draw(ui.painter(), Icon::EyeOff, Rect::from_center_size(mid, vec2(32.0, 32.0)), Color32::WHITE);
+            if says {
+                ui.painter().text(mid + vec2(0.0, 30.0), Align2::CENTER_CENTER, "May contain sensitive content", reg(14.0), Color32::WHITE);
+            }
+        }
+    }
+    d.rects.push((format!("obscured:{}:{}", key.0, key.1), rect));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.on_hover_text(if why == Why::Spoiler { "Spoiler" } else { "Content Warning: This may contain sensitive content" }).clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filters_hide_flagged_media_unless_set_to_show_or_your_own() {
+        assert!(filtered(EXPLICIT, false, 2, 1));
+        assert!(filtered(EXPLICIT, false, 3, 1));
+        assert!(!filtered(EXPLICIT, false, SHOW, 3));
+        assert!(!filtered(EXPLICIT, true, 2, 2));
+        assert!(filtered(64, false, SHOW, 2));
+        assert!(filtered(128, false, SHOW, 3));
+        assert!(!filtered(8, false, 2, 2));
+    }
+}

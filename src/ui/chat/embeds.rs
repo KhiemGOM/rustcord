@@ -187,7 +187,7 @@ pub(super) fn direct(v: &crate::state::Media) -> bool {
 
 pub(super) fn inline_video(ui: &mut Ui, d: &mut D, e: &Embed, v: &crate::state::Media, msg: Id) -> Rect {
     let name = v.url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("video.mp4").to_string();
-    let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new(), description: String::new() };
+    let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), ..Default::default() };
     let (w, h) = fit(v.w, v.h, 400.0, 300.0, ui.available_width());
     let poster = e.thumb.as_ref().map_or(v.url.as_str(), |t| t.url.as_str());
     let mut outs = Vec::new();

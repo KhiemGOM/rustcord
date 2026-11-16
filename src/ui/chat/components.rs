@@ -36,7 +36,7 @@ pub(super) fn render_comp(ui: &mut Ui, d: &mut D, m: &Message, c: &Comp, width: 
                 .map(|(url, w, h)| crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: "image.png".into(), ctype: "image/png".into(), w: *w, h: *h, ..Default::default() })
                 .collect();
             let refs: Vec<&crate::state::Attachment> = pictures.iter().collect();
-            mosaic::show(ui, d, m.id, &refs);
+            mosaic::show(ui, d, m, &refs);
         }
         Comp::Gallery(items) => {
             for (url, iw, ih) in items {

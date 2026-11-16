@@ -140,12 +140,22 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
                 if std::ptr::eq(tiled[0], a) {
                     cui.add_space(acc);
                     acc = 4.0;
-                    mosaic::show(&mut cui, d, m.id, &tiled);
+                    mosaic::show(&mut cui, d, m, &tiled);
                 }
                 continue;
             }
             cui.add_space(acc);
             acc = 4.0;
+            if ((a.is_image() && d.s.inline_uploads) || a.is_video())
+                && let Some(why) = obscure::why(d, m, a)
+            {
+                let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
+                let (rect, _) = cui.allocate_exact_size(vec2(w, h), Sense::hover());
+                if obscure::cover(&mut cui, d, rect, CornerRadius::same(8), a, why, true, (m.id, 0)) {
+                    d.acts.push(Act::Reveal(m.id));
+                }
+                continue;
+            }
             if a.is_image() && d.s.inline_uploads {
                 let sep = if a.proxy.contains('?') { '&' } else { '?' };
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());

@@ -119,6 +119,10 @@ pub struct Settings {
     pub quick_reactions: Vec<crate::state::ReactEmoji>,
     pub emoticons: bool,
     pub spoilers: Spoilers,
+    /// The sensitive content filters for mature and for graphic media: what to do with it in a
+    /// friend's DM, anyone else's, and in servers (1 show, 2 blur, 3 block).
+    pub explicit: [u8; 3],
+    pub gore: [u8; 3],
     pub animate_emoji: bool,
     pub gif_autoplay: bool,
     // the inbox's filter: @here and @everyone, role mentions, and every server rather than the one open
@@ -370,6 +374,8 @@ impl Default for Settings {
             quick_reactions: Vec::new(),
             emoticons: true,
             spoilers: Spoilers::OnClick,
+            explicit: [1, 2, 1],
+            gore: [2, 3, 2],
             animate_emoji: true,
             gif_autoplay: true,
             inbox_everyone: true,

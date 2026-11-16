@@ -38,6 +38,7 @@ const ROUTES: &[(&str, &str, Spec)] = &[
     ("POST", "guilds/*/bulk-ban/v2", &[("user_ids", "a!"), ("delete_message_seconds", "i")]),
     ("PATCH", "guilds/*", &[("name", "s"), ("region", "s?"), ("icon", "s?"), ("splash", "s?"), ("banner", "s?"), ("discovery_splash", "s?"), ("home_header", "s?"), ("description", "s?"), ("afk_channel_id", "n?"), ("afk_timeout", "i"), ("system_channel_id", "n?"), ("system_channel_flags", "i"), ("verification_level", "i"), ("explicit_content_filter", "i"), ("default_message_notifications", "i"), ("owner_configured_content_level", "i"), ("rules_channel_id", "n?"), ("public_updates_channel_id", "n?"), ("safety_alerts_channel_id", "n?"), ("premium_progress_bar_enabled", "b"), ("features", "a"), ("preferred_locale", "s")]),
     ("PUT", "users/@me/saved-messages/*/*", &[("source", "s"), ("due_at", "s?")]),
+    ("POST", "attachments/report-false-positive", &[("channel_id", "n!"), ("message_id", "n!"), ("attachment_ids", "a!"), ("embed_ids", "a!")]),
     ("PUT", "guilds/*/space", &[("header", "o!"), ("widgets", "a!")]),
     ("POST", "guilds/automations/email-domain-lookup", &[("email", "s!"), ("guild_id", "n?"), ("allow_multiple_guilds", "b"), ("use_verification_code", "b")]),
     ("POST", "guilds/automations/email-domain-lookup/verify-code", &[("code", "s!"), ("guild_id", "n!"), ("email", "s!")]),

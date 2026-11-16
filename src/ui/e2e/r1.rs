@@ -783,6 +783,96 @@ impl Run {
                     return;
                 }
                 super::live::event(app, "PRESENCE_UPDATE", serde_json::json!({ "user": { "id": ALICE.to_string() }, "status": "online", "activities": [] }));
+                self.step = 5296;
+            }
+            5296 => {
+                let base = ((chrono::Utc::now().timestamp_millis() - 1_420_070_400_000) as u64) << 22;
+                self.text = base.to_string();
+                let picture = format!("{}/attachments/2011/1/photo-800x450-1.png", crate::api::cdn());
+                for (n, name, flags) in [(1u64, "SPOILER_photo.png", 0), (2, "photo.png", 64)] {
+                    super::live::event(app, "MESSAGE_CREATE", serde_json::json!({
+                        "id": (base + n).to_string(), "channel_id": general.to_string(), "guild_id": self.target.0.to_string(), "type": 0, "content": "",
+                        "author": { "id": "101", "username": "alice" }, "timestamp": chrono::Utc::now().to_rfc3339(), "embeds": [], "mentions": [],
+                        "attachments": [{ "id": (7000 + n).to_string(), "filename": name, "size": 4096, "url": picture, "proxy_url": picture, "width": 800, "height": 450, "content_type": "image/png", "flags": flags }],
+                    }));
+                }
+                app.select_guild(Some(self.target.0));
+                app.open(general);
+                app.jump_to_present(general);
+                self.sub = 0;
+                self.next(1200);
+            }
+            5297 => {
+                let base: u64 = self.text.parse().unwrap_or(0);
+                let screen = ctx.content_rect();
+                let seen = |n: u64| app.rects.get(&format!("obscured:{}:0", base + n)).copied().filter(|r| screen.contains(r.center()));
+                let (Some(spoiler), Some(_)) = (seen(1), seen(2)) else {
+                    if stuck {
+                        self.shot(ctx, "media_cover_missing.png");
+                        self.step = 5299;
+                        self.sub = 2;
+                    }
+                    return;
+                };
+                self.mark("media_covered");
+                self.shot(ctx, "media_covered.png");
+                self.click(spoiler.center());
+                self.next(600);
+            }
+            5298 => {
+                let base: u64 = self.text.parse().unwrap_or(0);
+                if self.sub == 0 {
+                    if !app.revealed.contains(&(base + 1)) {
+                        if stuck {
+                            self.step = 5299;
+                            self.sub = 2;
+                        }
+                        return;
+                    }
+                    if !app.revealed.contains(&(base + 2)) {
+                        self.mark("media_revealed");
+                    }
+                    app.menu = Some((general, base + 2, ctx.content_rect().center()));
+                    self.sub = 1;
+                    self.wait = Instant::now() + Duration::from_millis(500);
+                    return;
+                }
+                let Some(r) = menu(ctx, "Mark As Not Sensitive") else {
+                    if stuck {
+                        app.menu = None;
+                        self.step = 5299;
+                        self.sub = 2;
+                    }
+                    return;
+                };
+                self.click(r.center());
+                self.sub = 0;
+                self.next(600);
+            }
+            5299 => {
+                let base: u64 = self.text.parse().unwrap_or(0);
+                if self.sub == 0 {
+                    if app.confirm.as_ref().is_some_and(|c| c.title == "Mark as not sensitive") {
+                        self.mark("media_report_asks");
+                        self.key(Key::Enter);
+                        self.sub = 1;
+                        self.wait = Instant::now() + Duration::from_millis(700);
+                    } else if stuck {
+                        self.sub = 2;
+                    }
+                    return;
+                }
+                if self.sub == 1 && app.confirm.is_some() && !stuck {
+                    return;
+                }
+                for n in [1u64, 2] {
+                    super::live::event(app, "MESSAGE_DELETE", serde_json::json!({ "id": (base + n).to_string(), "channel_id": general.to_string(), "guild_id": self.target.0.to_string() }));
+                    app.revealed.remove(&(base + n));
+                }
+                app.confirm = None;
+                app.menu = None;
+                self.text.clear();
+                self.sub = 0;
                 self.step = 5290;
             }
             _ => {

@@ -91,6 +91,8 @@ impl Message {
                     duration: a["duration_secs"].as_f64().unwrap_or(0.0) as f32,
                     waveform: st(&a["waveform"]),
                     description: st(&a["description"]),
+                    id: sid(&a["id"]),
+                    flags: a["flags"].as_u64().unwrap_or(0) as u32,
                 })
                 .collect();
         }

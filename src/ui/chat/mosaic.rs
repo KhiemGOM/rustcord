@@ -3,7 +3,7 @@
 use egui::{Align2, Color32, CornerRadius, Rect, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
 
 use super::{Act, D, alt_badge, media_at};
-use crate::state::{Attachment, Id};
+use crate::state::{Attachment, Message};
 use crate::theme::*;
 use crate::ui::player::{self, Look};
 
@@ -68,7 +68,8 @@ fn corners(cell: Rect, whole: Rect) -> CornerRadius {
     CornerRadius { nw: pick(l && t), ne: pick(r && t), sw: pick(l && b), se: pick(r && b) }
 }
 
-pub fn show(ui: &mut Ui, d: &mut D, msg: Id, items: &[&Attachment]) {
+pub fn show(ui: &mut Ui, d: &mut D, m: &Message, items: &[&Attachment]) {
+    let msg = m.id;
     let w = ui.available_width().min(MAX_W);
     let shown = items.len().min(SHOWN);
     let cells = layout(shown, w);
@@ -81,7 +82,11 @@ pub fn show(ui: &mut Ui, d: &mut D, msg: Id, items: &[&Attachment]) {
         let look = Look { radius: corners(cell, whole), uv };
         d.rects.push((format!("mosaic:{msg}:{i}:{}", d.ch), cell));
         let sep = if a.proxy.contains('?') { '&' } else { '?' };
-        if a.is_video() {
+        if let Some(why) = super::obscure::why(d, m, a) {
+            if super::obscure::cover(ui, d, cell, look.radius, a, why, false, (msg, i)) {
+                d.acts.push(Act::Reveal(msg));
+            }
+        } else if a.is_video() {
             let poster = format!("{}{sep}format=webp&width={}&height={}", a.proxy, (full.x * 2.0) as u32, (full.y * 2.0) as u32);
             let mut outs = Vec::new();
             let mut cell_ui = ui.new_child(UiBuilder::new().max_rect(cell));

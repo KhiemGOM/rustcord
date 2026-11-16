@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) enum MenuPick {
     Publish,
+    NotSensitive,
     React,
     Edit,
     Reply,
@@ -51,6 +52,8 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
     let forwardable = matches!(kind, 0 | 19 | 20 | 23 | 35 | 69) && m.poll.is_none();
     let replyable = matches!(kind, 0 | 7 | 19 | 20 | 23 | 24 | 25 | 32..=42 | 45 | 46 | 69);
     let published = m.flags & 1 != 0;
+    let filter = super::obscure::context(&app.store, ch, m.author);
+    let flagged: Vec<String> = m.attachments.iter().filter(|a| super::obscure::filtered(a.flags, own, app.settings.explicit[filter], app.settings.gore[filter])).map(|a| a.id.to_string()).collect();
     let dev = app.settings.dev;
     let mut frequent: Vec<ReactEmoji> = app.ui.quick.clone();
     for n in ["✅", "❤️", "🔥", "😂", "👍", "😭", "💀", "👀", "🙏", "😊"] {
@@ -151,6 +154,9 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
             }
             if sent && publishable && !published && menu_item(ui, Some(Icon::Megaphone), "Publish", false) {
                 pick = Some(MenuPick::Publish);
+            }
+            if sent && !flagged.is_empty() && menu_item(ui, Some(Icon::EyeOff), "Mark As Not Sensitive", false) {
+                pick = Some(MenuPick::NotSensitive);
             }
         }
         group(ui, true);
@@ -293,6 +299,13 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
         Some(MenuPick::Forward) => app.forward = Some(crate::ui::popups::Forward::new(ch, id)),
         Some(MenuPick::Thread) => app.new_thread = Some(crate::ui::popups::NewThread::from(app, ch, id)),
         Some(MenuPick::Publish) => app.ask_publish(ch, id),
+        Some(MenuPick::NotSensitive) => {
+            let body = serde_json::json!({ "channel_id": ch.to_string(), "message_id": id.to_string(), "attachment_ids": flagged, "embed_ids": [] });
+            let ask = crate::ui::Confirm::new("Mark as not sensitive", "Help improve our sensitive content filters by forwarding this media to Discord.", "Confirm", move |app: &mut App| {
+                app.rest("POST", "/attachments/report-false-positive".into(), Some(body), crate::net::Tag::ok("Thanks for letting us know!"))
+            });
+            app.confirm = Some(ask.blurple());
+        }
         Some(MenuPick::Copy) => ctx.copy_text(content),
         Some(MenuPick::Pin) => app.pin_msg(ch, id, !shift),
         Some(MenuPick::Bookmark) => app.bookmark(ch, id),
