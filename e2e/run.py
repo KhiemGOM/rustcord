@@ -52,6 +52,7 @@ import qol
 import buy
 import shop
 import web
+import art
 import sound
 import activity
 import clips
@@ -168,6 +169,7 @@ def run_client(name, data_dir, extra=None):
         "RUSTCORD_FONTS": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_WEB": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_SOUNDS": f"http://127.0.0.1:{HTTP}",
+        "RUSTCORD_ART": f"http://127.0.0.1:{HTTP}",
         "RUSTCORD_ACTIVITY": f"http://127.0.0.1:{HTTP}/activity/{{app}}",
         "RUSTCORD_HCAPTCHA": f"http://127.0.0.1:{HTTP}/hcaptcha",
         "RUSTCORD_GATEWAY": f"ws://127.0.0.1:{WS}",
@@ -211,8 +213,9 @@ def main():
 
     prime()
     served = sound.make(ART / "sounds")
+    chunks = art.make(ROOT / "target" / "e2e-art")
     mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)],
-                            env=dict(os.environ, MOCK_SOUNDS=str(served or "")))
+                            env=dict(os.environ, MOCK_SOUNDS=str(served or ""), MOCK_ART=str(chunks or "")))
     time.sleep(0.5)
     try:
         # real mic, speakers, desktop and webcam are all opt-in
@@ -626,6 +629,7 @@ def main():
         **auth.checks(signin, reqs),
         **players.checks({"cold": cold, "warm": warm}, reqs, data),
         **sound.checks({"cold": cold, "warm": warm}, reqs, data, served),
+        **art.checks({"cold": cold, "warm": warm}, reqs, data, chunks),
         **voice_settings.checks({"cold": cold, "warm": warm}, reqs, data),
         **rpc.checks({"cold": cold, "warm": warm}, reqs, data),
         **activity.checks({"cold": cold, "warm": warm}, reqs, data),
