@@ -91,8 +91,9 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     match chan.kind {
                         1 => {
                             if let Some(u) = chan.recipients.first().and_then(|u| app.store.user(*u)) {
-                                let (av, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                                let (av, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                                 avatar(ui, av, &u.avatar_url());
+                                crate::ui::status_dot(ui, av, app.store.status(u.id), pal().bg_primary);
                             }
                         }
                         3 => glyph(ui, Icon::People),
@@ -121,6 +122,21 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
                     let (r, resp) = ui.allocate_exact_size(t.size(), if chan.kind == 3 { Sense::click() } else { Sense::hover() });
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
+                    if chan.kind == 1
+                        && let Some(doing) = chan.recipients.first().and_then(|u| app.store.activities.get(u)).and_then(|l| l.iter().find(|a| a.kind != 4))
+                    {
+                        ui.add_space(8.0);
+                        let g = ui.painter().layout_no_wrap(doing.name.clone(), medium(14.0), pal().text_normal);
+                        let (chip, _) = ui.allocate_exact_size(vec2(g.size().x + 26.0, 22.0), Sense::hover());
+                        let icon = match doing.kind {
+                            2 => Icon::Music,
+                            1 | 3 => Icon::Screen,
+                            _ => Icon::Controller,
+                        };
+                        icons::draw(ui.painter(), icon, egui::Rect::from_min_size(egui::pos2(chip.left() + 4.0, chip.center().y - 7.0), vec2(14.0, 14.0)), pal().positive);
+                        ui.painter().galley(egui::pos2(chip.left() + 22.0, chip.center().y - g.size().y / 2.0), g, pal().text_normal);
+                        app.rects.insert("header:activity".into(), chip);
+                    }
                     if chan.kind == 3 {
                         if resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

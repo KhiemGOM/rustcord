@@ -14,6 +14,8 @@ const BOT: u64 = 104;
 const HUB_GUILD: u64 = 1001;
 const THEMED: u64 = 1002;
 const NEWS: u64 = 2002;
+const ALICE: u64 = 101;
+const ALICE_DM: u64 = 3000;
 
 fn menu(ctx: &egui::Context, label: &str) -> Option<egui::Rect> {
     Run::at(ctx, &format!("menu_row:{label}"))
@@ -755,6 +757,24 @@ impl Run {
                     return;
                 }
                 app.tag_pop = None;
+                self.step = 5294;
+            }
+            5294 => {
+                super::live::event(app, "PRESENCE_UPDATE", serde_json::json!({ "user": { "id": ALICE.to_string() }, "status": "dnd", "activities": [{ "name": "Rocket Crab", "type": 0, "id": "e2e" }] }));
+                app.rects.remove("header:activity");
+                app.select_guild(None);
+                app.open(ALICE_DM);
+                self.next(900);
+            }
+            5295 => {
+                let chip = app.rects.get("header:activity").copied().filter(|r| r.bottom() < 90.0);
+                if chip.is_some() && app.store.status(ALICE) == crate::state::Status::Dnd {
+                    self.mark("dm_header_activity");
+                    self.shot(ctx, "dm_header_activity.png");
+                } else if !stuck {
+                    return;
+                }
+                super::live::event(app, "PRESENCE_UPDATE", serde_json::json!({ "user": { "id": ALICE.to_string() }, "status": "online", "activities": [] }));
                 self.step = 5290;
             }
             _ => {
