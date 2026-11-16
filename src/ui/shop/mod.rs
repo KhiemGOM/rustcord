@@ -8,7 +8,7 @@ mod catalog;
 mod cursor;
 mod games;
 mod nitro;
-mod wallet;
+pub mod wallet;
 pub mod product;
 pub mod wish;
 

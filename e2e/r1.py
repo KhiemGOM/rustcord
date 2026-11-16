@@ -54,5 +54,8 @@ def checks(runs, reqs):
         "tags: the tag popout of a server you're in offers Adopt Tag, which puts the tag on": both("tag_adopted")
             and any(b == {"identity_guild_id": "1001", "identity_enabled": True} for b in sent(reqs, "PUT", "/users/@me/clan")),
         "dms: a DM's header shows the other person's status on their avatar and what they are playing": both("dm_header_activity"),
+        "shop: the Orb chip carries discord's dot while a challenge is new or unclaimed, and opening the wallet and claiming clears it": both("orb_dot") and both("orb_dot_cleared")
+            and any(r.get("method") == "GET" and r.get("path", "").endswith("/users/@me/achievements/unread-state") for r in reqs)
+            and any(r.get("method") == "POST" and r.get("path", "").endswith("/users/@me/achievements/unread-ack") for r in reqs),
         "apps: a bot's full profile has Bio, Mutual Servers and Data Access tabs, and Data Access lists what its intents allow": both("bot_profile_tabs") and both("bot_data_access"),
     }

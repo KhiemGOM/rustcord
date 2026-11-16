@@ -429,7 +429,13 @@ pub(super) fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts:
                 ui.painter().galley(pos2(chip.left() + 38.0, chip.center().y - g.size().y / 2.0), g, pal().header_primary);
                 mark(ui, "shop:orbs", chip);
                 if super::wallet::enabled(app) {
+                    if super::wallet::unread(app) {
+                        super::wallet::dot(ui, chip);
+                    }
                     let resp = ui.interact(chip, ui.id().with("shop_orbs_chip"), Sense::click());
+                    if egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp)) {
+                        acts.push(Act::Wallet(super::wallet::Go::Seen));
+                    }
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -798,6 +804,7 @@ pub(super) fn apply(app: &mut App, acts: Vec<Act>) {
                     Go::Quests => app.open_quests(),
                     Go::Nitro => app.open_shop(super::Page::Nitro),
                     Go::Retry => crate::ui::settings::refetch(app, "orb_challenges"),
+                    Go::Seen => super::wallet::seen(app),
                     Go::Claim(id) => {
                         app.keyed.retain(|k, _| !k.starts_with("orb_claim:"));
                         app.keyed.insert(format!("orb_claim:{id}"), None);

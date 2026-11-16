@@ -206,6 +206,11 @@ impl Run {
                     }
                     return;
                 };
+                if Self::at(ctx, "orbs:dot").is_some() {
+                    self.mark("orb_dot");
+                } else if !stuck {
+                    return;
+                }
                 self.click(r.center());
                 self.next(900);
             }
@@ -225,6 +230,9 @@ impl Run {
             }
             5226 => {
                 if Self::at(ctx, "wallet:challenge:shop_visit").is_some() && Self::at(ctx, "wallet:challenge:first_message").is_none() {
+                    if Self::at(ctx, "orbs:dot").is_none() {
+                        self.mark("orb_dot_cleared");
+                    }
                     self.mark("wallet_claimed");
                 } else if !stuck {
                     return;

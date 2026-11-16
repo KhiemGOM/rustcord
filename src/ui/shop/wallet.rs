@@ -5,6 +5,7 @@ use egui::{Align2, Color32, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, po
 use serde_json::Value;
 
 use super::{get, want};
+use crate::net::Tag;
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::{App, modal_button};
@@ -18,6 +19,7 @@ pub const CHALLENGES: &str = "/users/@me/achievements/list?reward_type=orbs";
 const HELP: &str = "https://support.discord.com/hc/articles/30593690165783-Discord-Orbs-FAQ#h_01M3WB2TWDD7WVN8ETJCW2PKDM";
 
 pub enum Go {
+    Seen,
     Shop,
     Orbs,
     Quests,
@@ -34,6 +36,36 @@ pub fn fetch(app: &mut App) {
     if enabled(app) {
         want(app, "orb_challenges", CHALLENGES);
         want(app, "orb_redeemed", "/users/@me/virtual-currency/total-redeemed");
+        want(app, "orb_unread", "/users/@me/achievements/unread-state");
+    }
+}
+
+/// Discord's dot on the Orb chip: a challenge that is new since the wallet was last opened, or
+/// one that is finished and not claimed.
+pub fn unread(app: &App) -> bool {
+    let (state, list) = (get(app, "orb_unread"), get(app, "orb_challenges"));
+    let fresh = state.is_some_and(|s| s["has_unread_new_achievement"] == true);
+    let unclaimed = match list {
+        Some(l) => l["achievements"].as_array().is_some_and(|a| a.iter().any(|c| c["status"].as_u64() == Some(COMPLETED))),
+        None => state.is_some_and(|s| s["has_unclaimed_achievements"] == true),
+    };
+    fresh || unclaimed
+}
+
+pub fn dot(ui: &Ui, chip: Rect) {
+    let at = Rect::from_min_size(pos2(chip.right() - 8.0, chip.top()), vec2(8.0, 8.0));
+    ui.painter().circle_filled(at.center(), 4.0, pal().blurple);
+    crate::ui::settings::mark(ui, "orbs:dot", at);
+}
+
+/// Opening the wallet tells discord its new challenges were seen.
+pub fn seen(app: &mut App) {
+    let fresh = get(app, "orb_unread").is_some_and(|s| s["has_unread_new_achievement"] == true);
+    if !fresh {
+        app.keyed.remove("orb_ack");
+    } else if !app.keyed.contains_key("orb_ack") {
+        app.keyed.insert("orb_ack".into(), None);
+        app.rest("POST", "/users/@me/achievements/unread-ack".into(), None, Tag::Remote("orb_unread"));
     }
 }
 

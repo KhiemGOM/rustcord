@@ -296,6 +296,8 @@ fn white(ui: &mut Ui, r: Rect, label: &str, solid: bool) -> bool {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
+    crate::ui::shop::wallet::fetch(app);
+    let dot = crate::ui::shop::wallet::enabled(app) && crate::ui::shop::wallet::unread(app);
     let Some(q) = app.quests.as_ref() else { return };
     let tab = q.tab;
     let orbs = q.orbs;
@@ -335,6 +337,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.painter().rect(chip, 8, Color32::from_rgba_unmultiplied(151, 151, 159, 31), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                 icons::draw(ui.painter(), Icon::Gem, Rect::from_center_size(pos2(chip.left() + 19.0, chip.center().y), vec2(20.0, 20.0)), pal().header_primary);
                 ui.painter().galley(pos2(chip.left() + 37.0, chip.center().y - g.size().y / 2.0), g, pal().header_primary);
+                if dot {
+                    crate::ui::shop::wallet::dot(ui, chip);
+                }
             }
         });
     let mut acts: Vec<Act> = Vec::new();
