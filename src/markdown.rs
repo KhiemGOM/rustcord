@@ -1,11 +1,13 @@
 use chrono::{Local, TimeZone};
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Align, Color32, Stroke};
+use std::cell::Cell;
+use std::hash::Hash;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::api;
-use crate::state::{Id, Store};
+use crate::state::{Id, Set, Store};
 use crate::theme::*;
 
 pub enum Link {
@@ -15,7 +17,8 @@ pub enum Link {
     User(Id),
     Channel(Id),
     Role(Id),
-    Spoiler,
+    /// a spoiler still covered, by the key a click opens it with
+    Spoiler(Id),
     // a custom emoji: its id, name and whether it moves
     Emoji(Id, String, bool),
 }
@@ -27,6 +30,16 @@ pub struct Inline {
     pub links: Vec<(Range<usize>, Link)>,
     // mentions and timestamps: (chars, fill, line height, pill height), painted under the text
     pub pills: Vec<(Range<usize>, Color32, f32, f32)>,
+    // spoilers and inline code: (chars, which, line height, box height), painted under the text
+    pub boxes: Vec<(Range<usize>, Boxed, f32, f32)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Boxed {
+    /// a spoiler, with its key while it is covered
+    Spoiler(Option<Id>),
+    /// inline code, with the room its box takes either side of the text
+    Code(f32),
 }
 
 pub enum Block {
@@ -35,13 +48,38 @@ pub enum Block {
     Quote(Vec<Block>),
 }
 
+/// Which of a text's spoilers are open. Discord opens each one on its own click, so every
+/// spoiler has a key made of the text it is in and its place there.
+pub struct Spoilers<'a> {
+    open: Option<&'a Set<Id>>,
+    all: bool,
+    text: Id,
+    seen: Cell<u32>,
+}
+
+impl<'a> Spoilers<'a> {
+    pub fn all(shown: bool) -> Self {
+        Self { open: None, all: shown, text: 0, seen: Cell::new(0) }
+    }
+
+    pub fn clicked(open: &'a Set<Id>, text: impl Hash) -> Self {
+        Self { open: Some(open), all: false, text: egui::util::hash(text), seen: Cell::new(0) }
+    }
+
+    fn next(&self) -> Option<Id> {
+        let n = self.seen.replace(self.seen.get() + 1);
+        let key = egui::util::hash((self.text, n));
+        (!self.all && !self.open.is_some_and(|o| o.contains(&key))).then_some(key)
+    }
+}
+
 pub struct Cx<'a> {
     pub store: &'a Store,
     pub ctx: &'a egui::Context,
     pub guild: Id,
     pub size: f32,
     pub color: Color32,
-    pub revealed: bool,
+    pub spoilers: Spoilers<'a>,
     pub edited: bool,
     // embeds show an unknown user's mention as written, <@id>, not "@Unknown User"
     pub embed: bool,
@@ -63,6 +101,7 @@ struct St {
     strike: bool,
     code: bool,
     spoiler: bool,
+    hidden: bool,
     size: f32,
     color: Color32,
 }
@@ -74,6 +113,7 @@ struct B<'a, 'b> {
     emojis: Vec<(usize, String, f32, f32)>,
     links: Vec<(Range<usize>, Link)>,
     pills: Vec<(Range<usize>, Color32, f32, f32)>,
+    boxes: Vec<(Range<usize>, Boxed, f32, f32)>,
     // room left before the next text, the inside of a pill
     pad: f32,
     jumbo: bool,
@@ -82,26 +122,19 @@ struct B<'a, 'b> {
 impl B<'_, '_> {
     fn fmt(&self, st: St) -> TextFormat {
         let family = match (st.code, st.bold, st.italic) {
-            (true, true, _) => mono_bold(st.size * 0.875),
-            (true, ..) => mono(st.size * 0.875),
+            (true, true, _) => mono_bold(st.size * 0.85),
+            (true, ..) => mono(st.size * 0.85),
             (_, true, true) => bold_italic(st.size),
             (_, true, _) => bold(st.size),
             (_, _, true) => italic(st.size),
             _ if st.medium => medium(st.size),
             _ => reg(st.size),
         };
-        let (color, bg) = if st.spoiler && !self.cx.revealed {
-            (pal().spoiler, pal().spoiler)
-        } else if st.spoiler {
-            (st.color, pal().spoiler_revealed)
-        } else {
-            (st.color, Color32::TRANSPARENT)
-        };
+        let color = if st.hidden { Color32::TRANSPARENT } else { st.color };
         TextFormat {
             font_id: family,
             line_height: Some(self.cx.line(st.size)),
             color,
-            background: if st.code { pal().bg_code } else { bg },
             italics: st.italic && st.code,
             underline: if st.under { Stroke::new(1.0, color) } else { Stroke::NONE },
             strikethrough: if st.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
@@ -120,6 +153,20 @@ impl B<'_, '_> {
         self.chars += s.chars().count();
     }
 
+    /// Discord's inline code: 85% of the text's size in a bordered box with 0.2em either side,
+    /// as tall as the code font plus the border.
+    fn code(&mut self, s: &str, st: St) {
+        let size = st.size * 0.85;
+        let pad = size * 0.2 + 1.0;
+        let start = self.chars;
+        self.pad += pad;
+        self.text(s, St { code: true, ..st });
+        if !st.hidden {
+            self.boxes.push((start..self.chars, Boxed::Code(pad), self.cx.line(st.size), (size * 1.32).round() + 2.0));
+        }
+        self.pad = pad;
+    }
+
     /// Discord's mention pill: 2px of fill either side, radius 3, as tall as the font
     /// rather than the line.
     fn pill(&mut self, s: &str, st: St, fill: Color32, link: Option<Link>) {
@@ -129,7 +176,9 @@ impl B<'_, '_> {
             Some(l) => self.linked(s, st, l),
             None => self.text(s, st),
         }
-        self.pills.push((start..self.chars, fill, self.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+        if !st.hidden {
+            self.pills.push((start..self.chars, fill, self.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+        }
         self.pad = 2.0;
     }
 
@@ -153,7 +202,9 @@ impl B<'_, '_> {
         // epaint skips letter spacing on a paragraph's first glyph, leading space it always honours
         let lead = size - w + 1.0;
         self.job.append("\u{a0}", lead + std::mem::take(&mut self.pad), f);
-        self.emojis.push((self.chars, url, size, lead));
+        if !st.hidden {
+            self.emojis.push((self.chars, url, size, lead));
+        }
         self.chars += 1;
     }
 }
@@ -280,6 +331,9 @@ pub fn prepend(t: &mut Inline, text: &str, fmt: TextFormat, link: Option<Link>) 
     }
     for p in &mut t.pills {
         p.0 = p.0.start + chars..p.0.end + chars;
+    }
+    for b in &mut t.boxes {
+        b.0 = b.0.start + chars..b.0.end + chars;
     }
     if let Some(l) = link {
         t.links.push((0..chars, l));
@@ -466,9 +520,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             let d = if rest.starts_with("``") { "``" } else { "`" };
             closing(rest, d).map(|end| {
                 b.text(&s[plain..i], st);
-                let mut s2 = st;
-                s2.code = true;
-                b.text(&rest[d.len()..d.len() + end], s2);
+                b.code(&rest[d.len()..d.len() + end], st);
                 end + d.len() * 2
             })
         } else if rest.starts_with("**") {
@@ -477,12 +529,21 @@ fn inline(b: &mut B, s: &str, st: St) {
             wrap(b, s, plain, i, st, "__", |s| s.under = true)
         } else if rest.starts_with("~~") {
             wrap(b, s, plain, i, st, "~~", |s| s.strike = true)
-        } else if rest.starts_with("||") && closing(rest, "||").is_some() {
+        } else if let Some(end) = rest.starts_with("||").then(|| closing(rest, "||")).flatten() {
             b.text(&s[plain..i], st);
-            let start = b.chars;
-            let r = wrap(b, s, i, i, st, "||", |s| s.spoiler = true);
-            b.links.push((start..b.chars, Link::Spoiler));
-            r
+            let (start, first, under) = (b.chars, b.links.len(), b.boxes.len());
+            let key = if st.spoiler { None } else { b.cx.spoilers.next() };
+            let mut s2 = st;
+            s2.spoiler = true;
+            s2.hidden |= key.is_some();
+            inline(b, &rest[2..2 + end], s2);
+            if let Some(key) = key {
+                b.links.insert(first, (start..b.chars, Link::Spoiler(key)));
+            }
+            if !st.spoiler {
+                b.boxes.insert(under, (start..b.chars, Boxed::Spoiler(key), b.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+            }
+            Some(end + 4)
         } else if (rest.starts_with('*') && !rest[1..].starts_with(char::is_whitespace))
             || (rest.starts_with('_') && !prev.is_some_and(char::is_alphanumeric))
         {
@@ -654,6 +715,7 @@ fn base(cx: &Cx) -> St {
         strike: false,
         code: false,
         spoiler: false,
+        hidden: false,
         size: cx.size,
         color: cx.color,
     }
@@ -662,11 +724,11 @@ fn base(cx: &Cx) -> St {
 fn new_b<'a, 'b>(cx: &'b Cx<'a>, jumbo: bool) -> B<'a, 'b> {
     let mut job = LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
-    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), pad: 0.0, jumbo }
+    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), boxes: Vec::new(), pad: 0.0, jumbo }
 }
 
 fn finish(b: B) -> Block {
-    Block::Text(Inline { job: b.job, emojis: b.emojis, links: b.links, pills: b.pills })
+    Block::Text(Inline { job: b.job, emojis: b.emojis, links: b.links, pills: b.pills, boxes: b.boxes })
 }
 
 fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
@@ -806,7 +868,81 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bold_item, fence};
+    use super::{Block, Boxed, Cx, Inline, Link, Spoilers, bold_item, fence, parse};
+    use crate::state::{Id, Set};
+
+    fn texts(text: &str, open: &Set<Id>) -> Vec<Inline> {
+        let store = crate::state::Store::default();
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::fonts(false));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::clicked(open, 7u64), edited: false, embed: false };
+        parse(text, &cx).into_iter().filter_map(|b| if let Block::Text(t) = b { Some(t) } else { None }).collect()
+    }
+
+    fn covered(text: &str, open: &Set<Id>) -> Vec<(String, Id)> {
+        let mut out = Vec::new();
+        for t in texts(text, open) {
+            for (r, l) in &t.links {
+                if let Link::Spoiler(key) = l {
+                    out.push((t.job.text.chars().skip(r.start).take(r.len()).collect(), *key));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_click_opens_one_spoiler_and_leaves_the_others_covered() {
+        let text = "||one|| and ||two||\n||three||";
+        let mut open = Set::default();
+        let all = covered(text, &open);
+        assert_eq!(all.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["one", "two", "three"]);
+        open.insert(all[1].1);
+        let left = covered(text, &open);
+        assert_eq!(left, [all[0].clone(), all[2].clone()]);
+    }
+
+    #[test]
+    fn a_covered_spoiler_takes_the_click_before_the_link_inside_it() {
+        let t = &texts("||https://example.test/||", &Set::default())[0];
+        assert!(matches!(t.links.first(), Some((_, Link::Spoiler(_)))));
+        assert!(t.links.iter().any(|(_, l)| matches!(l, Link::Url(_))));
+    }
+
+    #[test]
+    fn a_covered_spoiler_shows_nothing_of_what_is_inside() {
+        let text = "||<t:0:R> `code` words|| after";
+        let mut open = Set::default();
+        let t = &texts(text, &open)[0];
+        let (inside, Boxed::Spoiler(Some(key))) = (t.boxes[0].0.clone(), t.boxes[0].1) else { panic!("not covered") };
+        assert!(t.pills.is_empty() && t.boxes.len() == 1);
+        let mut at = 0;
+        for s in &t.job.sections {
+            let chars = t.job.text[s.byte_range.start.0..s.byte_range.end.0].chars().count();
+            if at < inside.end {
+                assert_eq!(s.format.color, egui::Color32::TRANSPARENT);
+            } else {
+                assert_eq!(s.format.color, egui::Color32::WHITE);
+            }
+            at += chars;
+        }
+        open.insert(key);
+        let t = &texts(text, &open)[0];
+        assert_eq!(t.pills.len(), 1);
+        assert_eq!(t.boxes.iter().map(|b| b.1).collect::<Vec<_>>(), [Boxed::Spoiler(None), Boxed::Code(16.0 * 0.85 * 0.2 + 1.0)]);
+    }
+
+    #[test]
+    fn inline_code_sits_in_a_box_with_room_either_side() {
+        let t = &texts("run `cargo test` now", &Set::default())[0];
+        let (r, kind, line, h) = t.boxes[0].clone();
+        assert_eq!(t.job.text.chars().skip(r.start).take(r.len()).collect::<String>(), "cargo test");
+        let pad = 16.0 * 0.85 * 0.2 + 1.0;
+        assert_eq!((kind, line, h), (Boxed::Code(pad), 22.0, 20.0));
+        let pads: Vec<f32> = t.job.sections.iter().map(|s| s.leading_space).collect();
+        assert_eq!(pads, [0.0, pad, pad]);
+    }
 
     #[test]
     fn what_follows_a_bolded_list_item_drops_to_its_own_line() {

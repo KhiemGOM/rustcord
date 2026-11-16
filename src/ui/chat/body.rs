@@ -205,6 +205,37 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                         }
                     }
                 }
+                for (r, kind, line, h) in &t.boxes {
+                    let a = galley.pos_from_cursor(CCursor { prefer_next_row: true, ..CCursor::new(r.start) });
+                    let b = galley.pos_from_cursor(CCursor::new(r.end));
+                    let (grow, top) = match kind {
+                        Boxed::Code(pad) => (*pad, (line - h) / 2.0),
+                        Boxed::Spoiler(_) => (0.0, 0.0),
+                    };
+                    let pieces: Vec<Rect> = galley
+                        .rows
+                        .iter()
+                        .filter(|row| row.min_y() >= a.min.y && row.min_y() <= b.min.y)
+                        .map(|row| {
+                            let all = row.rect();
+                            let left = if row.min_y() == a.min.y { a.min.x - grow } else { all.min.x };
+                            let right = if row.min_y() == b.min.y { b.min.x + grow } else { all.max.x };
+                            let top = origin.y + all.center().y - line / 2.0 + top;
+                            Rect::from_min_max(pos2(origin.x + left, top), pos2(origin.x + right, top + h))
+                        })
+                        .filter(|q| q.width() > grow)
+                        .collect();
+                    let (fill, edge) = match kind {
+                        Boxed::Code(_) => (pal().bg_code, Stroke::new(1.0, pal().border_normal)),
+                        Boxed::Spoiler(None) => (pal().spoiler_revealed, Stroke::NONE),
+                        Boxed::Spoiler(Some(key)) => {
+                            let over = pointer.is_some_and(|p| pieces.iter().any(|q| q.contains(p)));
+                            let t = crate::ui::motion::tween(ui.ctx(), egui::Id::new(("spoiler", key)), over, 0.2, crate::ui::motion::EASE);
+                            (crate::ui::motion::mix(pal().spoiler, pal().spoiler_hover, t), Stroke::NONE)
+                        }
+                    };
+                    fills.extend(pieces.into_iter().map(|q| egui::epaint::RectShape::new(q, CornerRadius::same(4), fill, edge, egui::StrokeKind::Inside).into()));
+                }
                 ui.painter().set(under, egui::Shape::Vec(fills));
                 for q in lit {
                     ui.painter().with_clip_rect(q.intersect(ui.clip_rect())).galley_with_override_text_color(origin, galley.clone(), egui::Color32::WHITE);
@@ -273,7 +304,7 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                                 Link::Masked(u) => d.acts.push(Act::Masked(u.clone())),
                                 Link::Channel(c) => d.acts.push(Act::Channel(*c)),
                                 Link::Role(r) => d.acts.push(Act::Role(*r, p + vec2(8.0, 8.0))),
-                                Link::Spoiler => d.acts.push(Act::Reveal(msg)),
+                                Link::Spoiler(key) => d.acts.push(Act::Reveal(*key)),
                                 Link::User(u) if ui.input(|i| i.modifiers.shift) => d.acts.push(Act::Mention(*u)),
                                 Link::User(u) => {
                                     let at = p + vec2(8.0, 0.0);

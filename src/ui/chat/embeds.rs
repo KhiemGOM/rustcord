@@ -257,7 +257,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
     let thumb = e.thumb.as_ref().filter(|_| media_ok && e.kind != "video" && e.image.is_none());
     let text_w = inner - if thumb.is_some() { 96.0 } else { 0.0 };
     let desc = e.desc.as_ref().map(|t| {
-        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
+        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, idx)), edited: false, embed: true };
         markdown::parse(t, &cx)
     });
     let widest = desc
@@ -424,7 +424,7 @@ pub(super) fn field(ui: &mut Ui, d: &mut D, f: &(String, String, bool), msg: Id)
     ui.vertical(|ui| {
         ui.label(RichText::new(&f.0).font(semi(14.0)).line_height(Some(18.0)).color(pal().header_primary));
         ui.add_space(2.0);
-        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, revealed: d.revealed.contains(&msg), edited: false, embed: true };
+        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, &f.0, &f.1)), edited: false, embed: true };
         let blocks = markdown::parse(&f.1, &cx);
         blocks_ui(ui, &blocks, d, msg);
     });

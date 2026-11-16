@@ -397,7 +397,7 @@ pub(crate) fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response
                     ui.label(RichText::new(store.name_in(guild, m.author)).font(medium(16.0)).color(color));
                     ui.label(RichText::new(stamp(m.ts())).font(medium(12.0)).color(pal().chat_muted));
                 });
-                let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: pal().text_normal, revealed: false, edited: m.edited, embed: false };
+                let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: pal().text_normal, spoilers: markdown::Spoilers::all(false), edited: m.edited, embed: false };
                 let blocks = markdown::parse(&m.content, &cx);
                 blocks_ui(ui, &blocks, &mut d, m.id);
                 for a in &m.attachments {
