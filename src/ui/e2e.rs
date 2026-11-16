@@ -2616,6 +2616,9 @@ impl Run {
                     ("chat".into(), Probe::At(code.left_center() - vec2(4.0, 0.0))),
                 ];
                 self.probes.push(("polish_code.png".into(), probes));
+                if code.width() <= ctx.content_rect().width() / 2.0 + 0.5 {
+                    self.mark("polish_code_capped");
+                }
                 save(self, app, "codeblock");
                 save(self, app, "codeblock_tinted");
                 self.shot(ctx, "polish_code.png");

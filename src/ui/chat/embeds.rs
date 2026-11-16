@@ -307,7 +307,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
                     }
                     if let Some(blocks) = &desc {
                         ui.add_space(8.0);
-                        blocks_ui(ui, blocks, d, msg);
+                        blocks_wide(ui, blocks, d, msg);
                     }
                     // the fields are a grid 8 apart, three inline ones to a row
                     let mut row: Vec<&(String, String, bool)> = Vec::new();
@@ -426,7 +426,7 @@ pub(super) fn field(ui: &mut Ui, d: &mut D, f: &(String, String, bool), msg: Id)
         ui.add_space(2.0);
         let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, &f.0, &f.1)), edited: false, embed: true };
         let blocks = markdown::parse(&f.1, &cx);
-        blocks_ui(ui, &blocks, d, msg);
+        blocks_wide(ui, &blocks, d, msg);
     });
 }
 
