@@ -84,7 +84,7 @@ pub fn show(ui: &mut Ui, d: &mut D, m: &Message, items: &[&Attachment]) {
         let sep = if a.proxy.contains('?') { '&' } else { '?' };
         if let Some(why) = super::obscure::why(d, m, a) {
             if super::obscure::cover(ui, d, cell, look.radius, a, why, false, (msg, i)) {
-                d.acts.push(Act::Reveal(msg));
+                d.acts.push(Act::Unveil(a.id, true));
             }
         } else if a.is_video() {
             let poster = format!("{}{sep}format=webp&width={}&height={}", a.proxy, (full.x * 2.0) as u32, (full.y * 2.0) as u32);
@@ -103,6 +103,7 @@ pub fn show(ui: &mut Ui, d: &mut D, m: &Message, items: &[&Attachment]) {
             if ui.clip_rect().contains(cell.center()) {
                 d.rects.push(("image".into(), cell.intersect(ui.clip_rect())));
             }
+            super::obscure::eye(ui, d, cell, m, a);
             if resp.clicked() {
                 d.acts.push(Act::View(a.proxy.clone(), a.url.clone(), a.w, a.h));
             }

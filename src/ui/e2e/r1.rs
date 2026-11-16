@@ -822,14 +822,14 @@ impl Run {
             5298 => {
                 let base: u64 = self.text.parse().unwrap_or(0);
                 if self.sub == 0 {
-                    if !app.revealed.contains(&(base + 1)) {
+                    if !app.unveiled.contains(&7001) {
                         if stuck {
                             self.step = 5299;
                             self.sub = 2;
                         }
                         return;
                     }
-                    if !app.revealed.contains(&(base + 2)) {
+                    if !app.unveiled.contains(&7002) {
                         self.mark("media_revealed");
                     }
                     app.menu = Some((general, base + 2, ctx.content_rect().center()));
@@ -862,12 +862,41 @@ impl Run {
                     }
                     return;
                 }
-                if self.sub == 1 && app.confirm.is_some() && !stuck {
+                if self.sub == 1 {
+                    if app.confirm.is_some() && !stuck {
+                        return;
+                    }
+                    app.confirm = None;
+                    app.unveiled.insert(7002);
+                    self.sub = 3;
+                    self.step_at = Instant::now();
+                    self.wait = Instant::now() + Duration::from_millis(500);
                     return;
+                }
+                if self.sub == 3 {
+                    let screen = ctx.content_rect();
+                    match app.rects.get("veil:7002").copied().filter(|r| screen.contains(r.center())) {
+                        Some(r) => {
+                            self.click(r.center());
+                            self.sub = 4;
+                            self.step_at = Instant::now();
+                            self.wait = Instant::now() + Duration::from_millis(500);
+                            return;
+                        }
+                        None if !stuck => return,
+                        None => {}
+                    }
+                }
+                if self.sub == 4 {
+                    if !app.unveiled.contains(&7002) {
+                        self.mark("media_rehidden");
+                    } else if !stuck {
+                        return;
+                    }
                 }
                 for n in [1u64, 2] {
                     super::live::event(app, "MESSAGE_DELETE", serde_json::json!({ "id": (base + n).to_string(), "channel_id": general.to_string(), "guild_id": self.target.0.to_string() }));
-                    app.revealed.remove(&(base + n));
+                    app.unveiled.remove(&(7000 + n));
                 }
                 app.confirm = None;
                 app.menu = None;

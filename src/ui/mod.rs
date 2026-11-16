@@ -225,6 +225,7 @@ pub struct App {
     pub pinned: Set<Id>,
     pub scroll_fix: Option<(Id, f32)>,
     pub revealed: Set<Id>,
+    pub unveiled: Set<Id>,
     pub picker: Option<(Pick, Pos2)>,
     // the sticker picker, anchored where it opened
     pub stickers: Option<Pos2>,
@@ -515,6 +516,7 @@ impl App {
             pinned: Set::default(),
             scroll_fix: None,
             revealed: Set::default(),
+            unveiled: Set::default(),
             picker: None,
             stickers: None,
             packs: Vec::new(),

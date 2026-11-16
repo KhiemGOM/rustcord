@@ -152,7 +152,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
                 let (w, h) = fit(a.w, a.h, 550.0, 350.0, cui.available_width());
                 let (rect, _) = cui.allocate_exact_size(vec2(w, h), Sense::hover());
                 if obscure::cover(&mut cui, d, rect, CornerRadius::same(8), a, why, true, (m.id, 0)) {
-                    d.acts.push(Act::Reveal(m.id));
+                    d.acts.push(Act::Unveil(a.id, true));
                 }
                 continue;
             }
@@ -164,6 +164,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
                 if d.s.image_descriptions && !a.description.is_empty() {
                     alt_badge(&cui, &r, &a.description);
                 }
+                obscure::eye(&mut cui, d, r.rect, m, a);
                 if cui.clip_rect().contains(r.rect.center()) {
                     d.rects.push(("image".into(), r.rect.intersect(cui.clip_rect())));
                 }
@@ -176,6 +177,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
                 let poster = format!("{}{sep}format=webp&width={}&height={}", a.proxy, (w * 2.0) as u32, (h * 2.0) as u32);
                 let mut outs = Vec::new();
                 let r = crate::ui::player::video(&mut cui, a, vec2(w, h), &poster, &mut outs);
+                obscure::eye(&mut cui, d, r, m, a);
                 d.card("player_video", &cui, r);
                 d.player(outs);
             } else if a.is_audio() && (m.flags & (1 << 13) != 0 || !a.waveform.is_empty()) {

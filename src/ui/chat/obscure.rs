@@ -27,16 +27,36 @@ pub(crate) fn filtered(flags: u32, own: bool, explicit: u8, gore: u8) -> bool {
     !own && ((flags & EXPLICIT != 0 && explicit != SHOW) || (flags & GORE != 0 && gore != SHOW))
 }
 
-pub(super) fn why(d: &D, m: &Message, a: &Attachment) -> Option<Why> {
-    if d.revealed.contains(&m.id) {
-        return None;
-    }
+/// Why a file would be covered, whether or not it has been clicked open.
+fn reason(d: &D, m: &Message, a: &Attachment) -> Option<Why> {
     let at = context(d.store, m.channel, m.author);
     if filtered(a.flags, m.author == d.store.me, d.s.explicit[at], d.s.gore[at]) {
         return Some(Why::Sensitive);
     }
     let shown = d.s.spoilers == Spoilers::Always || (d.s.spoilers == Spoilers::Moderated && d.moderator);
     (a.spoiler() && !shown).then_some(Why::Spoiler)
+}
+
+pub(super) fn why(d: &D, m: &Message, a: &Attachment) -> Option<Why> {
+    reason(d, m, a).filter(|_| !d.unveiled.contains(&a.id))
+}
+
+/// Discord's eye on sensitive media that was opened: a click covers it again.
+pub(super) fn eye(ui: &mut Ui, d: &mut D, rect: Rect, m: &Message, a: &Attachment) {
+    if !d.unveiled.contains(&a.id) || reason(d, m, a) != Some(Why::Sensitive) {
+        return;
+    }
+    let b = Rect::from_min_size(pos2(rect.right() - 40.0, rect.top() + 8.0), vec2(32.0, 32.0));
+    let resp = ui.interact(b, ui.id().with(("veil", a.id)), Sense::click());
+    ui.painter().circle_filled(b.center(), 16.0, Color32::from_black_alpha(if resp.hovered() { 204 } else { 153 }));
+    icons::draw(ui.painter(), Icon::Eye, b.shrink(6.0), Color32::WHITE);
+    d.rects.push((format!("veil:{}", a.id), b));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        d.acts.push(Act::Unveil(a.id, false));
+    }
 }
 
 /// The cover over one picture or video; true when it was clicked away. The blur is the picture

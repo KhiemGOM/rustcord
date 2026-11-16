@@ -353,6 +353,7 @@ pub(crate) fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response
         guild,
         ch: m.channel,
         revealed: &revealed,
+        unveiled: &revealed,
         editing: &mut editing,
         marker: None,
         hover_lock: None,
