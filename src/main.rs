@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
+mod art;
 #[cfg(test)]
 mod fuzz;
 mod audioplay;
@@ -16,6 +17,7 @@ mod gif;
 mod highlight;
 mod hotkeys;
 mod imgcache;
+mod logo;
 mod lottie;
 mod markdown;
 mod media;
@@ -56,7 +58,7 @@ fn main() -> eframe::Result {
     let snap = std::sync::Mutex::new(Some(std::thread::spawn(cache::load)));
     let size = cache::window().unwrap_or([1280.0, 800.0]);
     // the logo on the window and taskbar, as on the exe
-    let logo = image::load_from_memory(include_bytes!("../assets/discord.png")).map(|i| i.into_rgba8()).ok();
+    let logo = logo::rgba(256);
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Rustcord")
         .with_decorations(false)
@@ -64,7 +66,7 @@ fn main() -> eframe::Result {
         .with_inner_size(size)
         .with_min_inner_size([940.0, 500.0]);
     if let Some(l) = logo {
-        viewport = viewport.with_icon(egui::IconData { width: l.width(), height: l.height(), rgba: l.into_raw() });
+        viewport = viewport.with_icon(l);
     }
     // a harness run (e2e, tour, replay, bench) opens behind everything and never takes focus, so
     // whoever's at the machine isn't interrupted; its input is injected anyway

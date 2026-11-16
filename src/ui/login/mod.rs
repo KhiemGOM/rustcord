@@ -107,8 +107,9 @@ fn backdrop(ui: &Ui) {
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(0, 2, 3);
     ui.painter().add(mesh);
-    let logo = egui::Image::new(egui::include_image!("../../../assets/login/wordmark.svg"));
-    logo.paint_at(ui, Rect::from_min_size(r.left_top() + vec2(32.0, 32.0), vec2(130.0, 36.0)));
+    let logo = egui::Image::from_bytes("bytes://rustcord.svg", crate::logo::SVG.as_bytes());
+    logo.paint_at(ui, Rect::from_min_size(r.left_top() + vec2(32.0, 32.0), vec2(36.0, 36.0)));
+    ui.painter().text(r.left_top() + vec2(78.0, 50.0), egui::Align2::LEFT_CENTER, "Rustcord", semi(24.0), Color32::WHITE);
 }
 
 pub(super) fn heading(ui: &mut Ui, title: &str, sub: &str) {

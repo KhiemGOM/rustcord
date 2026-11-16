@@ -12,17 +12,17 @@ use crate::state::Id as Snow;
 use crate::theme::*;
 
 // (badge id, picture), in the order discord lists them
-const BADGES: [(u64, &str, &[u8]); 10] = [
-    (6, "leaf", include_bytes!("../../../assets/tag_badges/leaf.svg")),
-    (0, "sword", include_bytes!("../../../assets/tag_badges/sword.svg")),
-    (7, "heart", include_bytes!("../../../assets/tag_badges/heart.svg")),
-    (8, "fire", include_bytes!("../../../assets/tag_badges/fire.svg")),
-    (1, "drop", include_bytes!("../../../assets/tag_badges/drop.svg")),
-    (2, "skull", include_bytes!("../../../assets/tag_badges/skull.svg")),
-    (4, "moon", include_bytes!("../../../assets/tag_badges/moon.svg")),
-    (5, "lightning", include_bytes!("../../../assets/tag_badges/lightning.svg")),
-    (9, "compass", include_bytes!("../../../assets/tag_badges/compass.svg")),
-    (3, "toadstool", include_bytes!("../../../assets/tag_badges/toadstool.svg")),
+const BADGES: [(u64, &str); 10] = [
+    (6, "leaf"),
+    (0, "sword"),
+    (7, "heart"),
+    (8, "fire"),
+    (1, "drop"),
+    (2, "skull"),
+    (4, "moon"),
+    (5, "lightning"),
+    (9, "compass"),
+    (3, "toadstool"),
 ];
 
 const COLORS: [(&str, &str, &str); 13] = [
@@ -60,8 +60,10 @@ fn norm(p: &Value) -> Value {
 }
 
 pub fn badge(ui: &Ui, r: Rect, id: u64) {
-    if let Some((_, name, svg)) = BADGES.iter().find(|b| b.0 == id) {
-        egui::Image::from_bytes(format!("bytes://tag-badge-{name}.svg"), *svg).show_loading_spinner(false).paint_at(ui, r);
+    if let Some((_, name)) = BADGES.iter().find(|b| b.0 == id)
+        && let Some(svg) = crate::art::get(&format!("tag_{name}"))
+    {
+        egui::Image::from_bytes(format!("bytes://tag-badge-{name}.svg"), svg).show_loading_spinner(false).paint_at(ui, r);
     }
 }
 
@@ -174,7 +176,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
     ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
     for row in BADGES.chunks(5) {
         ui.horizontal(|ui| {
-            for (bid, name, _) in row {
+            for (bid, name) in row {
                 let (r, resp) = ui.allocate_exact_size(vec2(60.0, 60.0), Sense::click());
                 ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if *bid == id { pal().blurple } else { faint(51) }), egui::StrokeKind::Inside);
                 badge(ui, r.shrink(14.0), *bid);

@@ -324,7 +324,7 @@ impl Default for Settings {
             theme: Default::default(),
             custom_theme: None,
             own_theme: None,
-            app_icon: "AppIcon".into(),
+            app_icon: "Rustcord".into(),
             server_themes: true,
             dark_sidebar: false,
             hub_seen: false,
