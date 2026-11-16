@@ -57,7 +57,7 @@ def checks(runs, reqs):
         "shop: the Orb chip carries discord's dot while a challenge is new or unclaimed, and opening the wallet and claiming clears it": both("orb_dot") and both("orb_dot_cleared")
             and any(r.get("method") == "GET" and r.get("path", "").endswith("/users/@me/achievements/unread-state") for r in reqs)
             and any(r.get("method") == "POST" and r.get("path", "").endswith("/users/@me/achievements/unread-ack") for r in reqs),
-        "media: a spoiler picture and one the graphic filter flags are covered, a click reveals only that picture, the eye covers revealed sensitive media again, and Mark As Not Sensitive reports the flagged file": both("media_covered") and both("media_revealed") and both("media_report_asks") and both("media_rehidden")
+        "media: a spoiler picture and one the graphic filter flags are covered, a click reveals only that picture, the eye covers revealed sensitive media again, and Mark As Not Sensitive reports the flagged file": both("media_covered") and both("media_embed_covered") and both("media_revealed") and both("media_report_asks") and both("media_rehidden")
             and any(b and b.get("attachment_ids") == ["7002"] and b.get("embed_ids") == [] for b in sent(reqs, "POST", "/attachments/report-false-positive")),
         "apps: a bot's full profile has Bio, Mutual Servers and Data Access tabs, and Data Access lists what its intents allow": both("bot_profile_tabs") and both("bot_data_access"),
     }

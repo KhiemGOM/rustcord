@@ -43,19 +43,45 @@ pub(super) fn why(d: &D, m: &Message, a: &Attachment) -> Option<Why> {
 
 /// Discord's eye on sensitive media that was opened: a click covers it again.
 pub(super) fn eye(ui: &mut Ui, d: &mut D, rect: Rect, m: &Message, a: &Attachment) {
-    if !d.unveiled.contains(&a.id) || reason(d, m, a) != Some(Why::Sensitive) {
-        return;
+    if d.unveiled.contains(&a.id) && reason(d, m, a) == Some(Why::Sensitive) {
+        eye_button(ui, d, rect, a.id);
     }
+}
+
+fn embed_key(msg: Id, idx: usize) -> Id {
+    (1 << 63) | msg.wrapping_mul(31).wrapping_add(idx as u64)
+}
+
+fn embed_flagged(d: &D, msg: Id, flags: u32) -> bool {
+    let author = d.store.find_msg(d.ch, msg).map_or(0, |m| m.author);
+    let at = context(d.store, d.ch, author);
+    filtered(flags, author == d.store.me, d.s.explicit[at], d.s.gore[at])
+}
+
+/// A flagged embed's pictures stay covered until opened; hands back what opening it records.
+pub(super) fn embed_hidden(d: &D, msg: Id, idx: usize, flags: u32) -> Option<Id> {
+    let key = embed_key(msg, idx);
+    (embed_flagged(d, msg, flags) && !d.unveiled.contains(&key)).then_some(key)
+}
+
+pub(super) fn embed_eye(ui: &mut Ui, d: &mut D, rect: Rect, msg: Id, idx: usize, flags: u32) {
+    let key = embed_key(msg, idx);
+    if d.unveiled.contains(&key) && embed_flagged(d, msg, flags) {
+        eye_button(ui, d, rect, key);
+    }
+}
+
+fn eye_button(ui: &mut Ui, d: &mut D, rect: Rect, key: Id) {
     let b = Rect::from_min_size(pos2(rect.right() - 40.0, rect.top() + 8.0), vec2(32.0, 32.0));
-    let resp = ui.interact(b, ui.id().with(("veil", a.id)), Sense::click());
+    let resp = ui.interact(b, ui.id().with(("veil", key)), Sense::click());
     ui.painter().circle_filled(b.center(), 16.0, Color32::from_black_alpha(if resp.hovered() { 204 } else { 153 }));
     icons::draw(ui.painter(), Icon::Eye, b.shrink(6.0), Color32::WHITE);
-    d.rects.push((format!("veil:{}", a.id), b));
+    d.rects.push((format!("veil:{key}"), b));
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     if resp.clicked() {
-        d.acts.push(Act::Unveil(a.id, false));
+        d.acts.push(Act::Unveil(key, false));
     }
 }
 

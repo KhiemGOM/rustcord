@@ -793,9 +793,14 @@ impl Run {
                     super::live::event(app, "MESSAGE_CREATE", serde_json::json!({
                         "id": (base + n).to_string(), "channel_id": general.to_string(), "guild_id": self.target.0.to_string(), "type": 0, "content": "",
                         "author": { "id": "101", "username": "alice" }, "timestamp": chrono::Utc::now().to_rfc3339(), "embeds": [], "mentions": [],
-                        "attachments": [{ "id": (7000 + n).to_string(), "filename": name, "size": 4096, "url": picture, "proxy_url": picture, "width": 800, "height": 450, "content_type": "image/png", "flags": flags }],
+                        "attachments": [{ "id": (7000 + n).to_string(), "filename": name, "size": 4096, "url": picture, "proxy_url": picture, "width": 400, "height": 100, "content_type": "image/png", "flags": flags }],
                     }));
                 }
+                super::live::event(app, "MESSAGE_CREATE", serde_json::json!({
+                    "id": (base + 3).to_string(), "channel_id": general.to_string(), "guild_id": self.target.0.to_string(), "type": 0, "content": "",
+                    "author": { "id": "101", "username": "alice" }, "timestamp": chrono::Utc::now().to_rfc3339(), "attachments": [], "mentions": [],
+                    "embeds": [{ "type": "image", "url": picture, "thumbnail": { "url": picture, "proxy_url": picture, "width": 400, "height": 100 }, "flags": 64 }],
+                }));
                 app.select_guild(Some(self.target.0));
                 app.open(general);
                 app.jump_to_present(general);
@@ -815,6 +820,9 @@ impl Run {
                     return;
                 };
                 self.mark("media_covered");
+                if app.rects.contains_key(&format!("obscured:{}:100", base + 3)) {
+                    self.mark("media_embed_covered");
+                }
                 self.shot(ctx, "media_covered.png");
                 self.click(spoiler.center());
                 self.next(600);
@@ -894,7 +902,7 @@ impl Run {
                         return;
                     }
                 }
-                for n in [1u64, 2] {
+                for n in [1u64, 2, 3] {
                     super::live::event(app, "MESSAGE_DELETE", serde_json::json!({ "id": (base + n).to_string(), "channel_id": general.to_string(), "guild_id": self.target.0.to_string() }));
                     app.unveiled.remove(&(7000 + n));
                 }

@@ -523,6 +523,8 @@ pub(crate) struct Embed {
     pub image: Option<Media>,
     pub thumb: Option<Media>,
     pub video: Option<Media>,
+    #[serde(default)]
+    pub flags: u32,
 }
 
 impl Embed {
@@ -551,6 +553,7 @@ impl Embed {
             image: Media::parse(&v["image"]),
             thumb: Media::parse(&v["thumbnail"]),
             video: Media::parse(&v["video"]),
+            flags: v["flags"].as_u64().unwrap_or(0) as u32,
         }
     }
 }
