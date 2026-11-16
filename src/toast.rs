@@ -37,8 +37,9 @@ fn wide(s: &str) -> Vec<u16> {
 fn register(dir: &Path) {
     use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegSetKeyValueW};
     let icon = dir.join("rustcord.png");
-    let logo = include_bytes!("../assets/discord.png");
-    if std::fs::read(&icon).ok().as_deref() != Some(logo.as_slice()) {
+    if let Some(logo) = crate::logo::png(crate::logo::SVG, 256)
+        && std::fs::read(&icon).ok().as_deref() != Some(logo.as_slice())
+    {
         let _ = std::fs::write(&icon, logo);
     }
     let key = wide(&format!("Software\\Classes\\AppUserModelId\\{AUMID}"));

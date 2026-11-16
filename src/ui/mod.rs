@@ -473,6 +473,7 @@ impl App {
         let (net, rx) = Net::new(ctx.clone());
         crate::fonts::fetch(&net.rt, ctx.clone());
         crate::sound::fetch(&net.rt);
+        crate::art::fetch(&net.rt, ctx.clone());
         ctx.add_bytes_loader(std::sync::Arc::new(crate::imgcache::DiskLoader::new(
             cache::dir().join("img"),
             net.rt.clone(),

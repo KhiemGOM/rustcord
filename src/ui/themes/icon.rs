@@ -1,5 +1,6 @@
-//! The in-app icon: Discord's 23 icons (the pictures come from discord.com/assets at runtime), the
-//! grid in Appearance, the preview panel, and putting the chosen one on the window and taskbar.
+//! The in-app icon: Rustcord's own, then Discord's 23 (their pictures come from discord.com/assets
+//! at runtime), the grid in Appearance, the preview panel, and putting the chosen one on the window
+//! and taskbar. Ours and Discord's default are free; the rest need Nitro, as in Discord.
 
 use egui::load::BytesPoll;
 use egui::{Align2, Color32, CornerRadius, Rect, Sense, Stroke, Ui, pos2, vec2};
@@ -10,8 +11,9 @@ use crate::ui::App;
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings::mark;
 
-pub const ICONS: [(&str, &str, &str); 23] = [
-    ("AppIcon", "Blurple (Default)", "5926a37cee0904ce"),
+pub const ICONS: [(&str, &str, &str); 24] = [
+    ("Rustcord", "Rustcord (Default)", ""),
+    ("AppIcon", "Blurple", "5926a37cee0904ce"),
     ("BrandDarkIcon", "Goth", "e8396e79419904ca"),
     ("MangaIcon", "WHAM", "2d62663c4b493f8e"),
     ("MatteDarkIcon", "Charcoal", "28f89b5f78dd6f80"),
@@ -36,7 +38,7 @@ pub const ICONS: [(&str, &str, &str); 23] = [
     ("ColorWaveIcon", "Color Wave", "7ce5a942a5cc7cba"),
 ];
 
-static DONE: std::sync::Mutex<usize> = std::sync::Mutex::new(usize::MAX);
+static DONE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 
 /// The icon the window was last given.
 pub fn applied() -> usize {
@@ -51,7 +53,15 @@ pub fn index(id: &str) -> usize {
     ICONS.iter().position(|i| i.0 == id).unwrap_or(0)
 }
 
+pub fn free(i: usize) -> bool {
+    i < 2
+}
+
 fn draw(ui: &Ui, r: Rect, i: usize) {
+    if i == 0 {
+        egui::Image::from_bytes("bytes://rustcord.svg", crate::logo::SVG.as_bytes()).paint_at(ui, r);
+        return;
+    }
     let u = crate::gif::uri(ui.ctx(), &url(i), true);
     egui::Image::from_uri(u).corner_radius(CornerRadius::same((r.width() / 6.0) as u8)).show_loading_spinner(false).paint_at(ui, r);
 }
@@ -83,7 +93,7 @@ pub fn grid(ui: &mut Ui, size: f32, chosen: usize, live: bool) -> Option<usize> 
         draw(ui, r, i);
         let resp = ring(ui, r, i == chosen, egui::Id::new(("app_icon", i)));
         mark(ui, &format!("icon:{}", ICONS[i].1), r);
-        if resp.on_hover_text(ICONS[i].1).clicked() && live {
+        if resp.on_hover_text(ICONS[i].1).clicked() && (live || free(i)) {
             clicked = Some(i);
         }
     }
@@ -98,6 +108,11 @@ pub fn choose(app: &mut App, ctx: &egui::Context, i: usize) {
 /// Hands the window and taskbar the chosen icon once its picture has arrived.
 pub fn put(ctx: &egui::Context, i: usize) {
     if *DONE.lock().unwrap() == i {
+        return;
+    }
+    if i == 0 {
+        *DONE.lock().unwrap() = i;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Icon(crate::logo::rgba(256).map(std::sync::Arc::new)));
         return;
     }
     let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(&url(i)) else {
@@ -140,7 +155,7 @@ pub fn panel(app: &mut App, ui: &mut Ui, r: Rect) {
     }
     let leave = wide(&mut foot, if unlocked { "Back to Settings" } else { "Exit Preview" }, Look::Secondary, true).clicked();
     if let Some(i) = pick {
-        if unlocked {
+        if unlocked || free(i) {
             choose(app, &ctx, i);
             app.themes.icon = None;
         } else {

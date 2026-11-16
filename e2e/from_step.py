@@ -15,6 +15,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import art as icons
 import auth
 import run
 
@@ -30,7 +31,8 @@ def main():
     run.ART = art
     log = art / "mock_requests.jsonl"
     mock_exe = os.environ.get("RUSTCORD_MOCK_EXE") or run.ROOT / "target" / "release" / "examples" / "mockcord.exe"
-    mock = subprocess.Popen([str(mock_exe), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)])
+    chunks = icons.make(run.ROOT / "target" / "e2e-art")
+    mock = subprocess.Popen([str(mock_exe), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)], env=dict(os.environ, MOCK_ART=str(chunks or "")))
     time.sleep(0.5)
     try:
         if args.step == "login":

@@ -6066,6 +6066,12 @@ impl Run {
                     if crate::sound::stats().0 > 0 {
                         self.mark("sound_fetched");
                     }
+                    if crate::art::fetched() > 0 {
+                        self.mark("art_fetched");
+                    }
+                    if crate::art::get("hash").is_some() && crate::art::get("tag_leaf").is_some() {
+                        self.mark("art_ready");
+                    }
                     self.rects.insert("sound_queued_before".into(), json!(crate::sound::stats().2));
                     crate::sound::play("message");
                     self.next(0);

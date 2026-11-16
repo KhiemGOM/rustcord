@@ -1,6 +1,6 @@
-//! Icons. Discord's own SVGs (assets/icons, white so a tint colours them), rasterised once
-//! per size; the hand-drawn vectors below cover the first frame before a texture exists
-//! and the few glyphs Discord has no icon for (window buttons).
+//! Icons. Discord's own SVGs (fetched by `art`, white so a tint colours them), rasterised once
+//! per size; the hand-drawn vectors below cover the time before they're here or a texture
+//! exists, and the few glyphs Discord has no icon for (window buttons).
 //! Coordinates are on a 24x24 grid and scale with the target rect.
 
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
@@ -190,11 +190,11 @@ pub enum Icon {
 
 macro_rules! svg {
     ($name:literal) => {
-        (concat!("bytes://icon/", $name, ".svg"), include_bytes!(concat!("../../assets/icons/", $name, ".svg")).as_slice())
+        (concat!("bytes://icon/", $name, ".svg"), $name)
     };
 }
 
-type Svg = (&'static str, &'static [u8]);
+type Svg = (&'static str, &'static str);
 
 fn discord(icon: Icon) -> Option<Svg> {
     Some(match icon {
@@ -377,7 +377,8 @@ fn discord(icon: Icon) -> Option<Svg> {
 
 /// Paint one of Discord's icons tinted `c`, square and centred in `rect`. False until the
 /// texture for this size exists.
-fn paint_svg(p: &Painter, (uri, bytes): Svg, rect: Rect, c: Color32) -> bool {
+fn paint_svg(p: &Painter, (uri, name): Svg, rect: Rect, c: Color32) -> bool {
+    let Some(bytes) = crate::art::get(name) else { return false };
     let side = rect.width().min(rect.height());
     let r = Rect::from_center_size(rect.center(), vec2(side, side));
     let src = egui::ImageSource::Bytes { uri: uri.into(), bytes: egui::load::Bytes::Static(bytes) };
@@ -509,7 +510,8 @@ pub fn draw_marked(p: &Painter, icon: Icon, mark: Mark, rect: Rect, c: Color32) 
 /// `draw`, turned by `angle` radians (clockwise) about its centre.
 pub fn draw_turned(p: &Painter, icon: Icon, rect: Rect, c: Color32, angle: f32) {
     if angle != 0.0
-        && let Some((uri, bytes)) = discord(icon)
+        && let Some((uri, name)) = discord(icon)
+        && let Some(bytes) = crate::art::get(name)
     {
         let side = rect.width().min(rect.height());
         let r = Rect::from_center_size(rect.center(), vec2(side, side));

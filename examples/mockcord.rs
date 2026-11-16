@@ -2605,6 +2605,13 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 None => (404, "text/plain", Vec::new()),
             }
         }
+        // discord's bundle chunks, for the icons in them: the real files run.py put in MOCK_ART
+        ("GET", ["assets", f]) if f.ends_with(".js") => {
+            match std::env::var_os("MOCK_ART").map(|d| std::path::PathBuf::from(d).join(f)).and_then(|p| std::fs::read(p).ok()) {
+                Some(b) => (200, "text/javascript", b),
+                None => (404, "text/plain", Vec::new()),
+            }
+        }
         ("GET", ["assets", f]) if f.starts_with("mock-") && f.ends_with(".woff2") => (200, "font/woff2", gg_stand_in(&f[5..f.len() - 6])),
         ("GET", ["cdn", "attachments", _, _, name]) => {
             let natural = cdn_shape::attachment_size(name);
