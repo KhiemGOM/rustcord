@@ -170,6 +170,7 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
     for b in blocks {
         match b {
             Block::Text(t) => {
+                ui.add_space(t.lead);
                 let mut job = t.job.clone();
                 job.wrap.max_width = ui.available_width();
                 let galley = ui.fonts_mut(|f| f.layout_job(job));
@@ -337,6 +338,7 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                 ui.add_space(4.0);
             }
             Block::Quote(inner) => {
+                ui.add_space(4.0);
                 let top = ui.cursor().top();
                 let x = ui.cursor().left();
                 let r = ui
@@ -346,11 +348,8 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     )
                     .response
                     .rect;
-                ui.painter().rect_filled(
-                    Rect::from_min_max(pos2(x, top), pos2(x + 4.0, r.bottom())),
-                    CornerRadius::same(2),
-                    pal().bg_accent,
-                );
+                ui.painter().rect_filled(Rect::from_min_max(pos2(x, top), pos2(x + 4.0, r.bottom())), CornerRadius::same(4), pal().spine);
+                ui.add_space(4.0);
             }
         }
     }
