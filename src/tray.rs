@@ -1,4 +1,4 @@
-//! Discord's icon in the notification area: idle, unread, and its four voice faces, the
+//! Rustcord's icon in the notification area: idle, unread, and its four voice faces, the
 //! right-click menu its desktop app builds, a click that brings the window back, and the
 //! one-time balloon saying the app keeps running there. It lives on its own thread with a
 //! hidden window, so the menu's modal loop never runs inside winit's. What the user picks
@@ -29,17 +29,30 @@ pub struct State {
     pub server_deaf: bool,
 }
 
-const IDLE: &[u8] = include_bytes!("../assets/tray/tray.ico");
+const RED: &str = "#f23f43";
+const GREEN: &str = "#23a55a";
+
+/// A white glyph struck through in red on a dark disc, so it reads on light and dark taskbars.
+fn struck(glyph: &str) -> String {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><circle cx="128" cy="128" r="128" fill="#2b2d31"/><mask id="gap"><rect width="256" height="256" fill="#fff"/><path d="M40 40 216 216" stroke="#000" stroke-width="56"/></mask><g transform="translate(128 128) scale(.72) translate(-128 -128)"><g mask="url(#gap)" fill="none" stroke="#fff" stroke-width="20" stroke-linecap="round">{glyph}</g><path d="M44 44 212 212" stroke="{RED}" stroke-width="24" stroke-linecap="round"/></g></svg>"##
+    )
+}
 
 impl State {
-    fn face(&self) -> &'static [u8] {
+    fn face(&self) -> String {
+        let dot = |c: &str, extra: &str| crate::logo::with(&format!(r#"<circle cx="204" cy="204" r="46" fill="{c}"/>{extra}"#), Some((204.0, 204.0, 64.0)));
         match self {
-            s if s.connected && (s.deaf || s.server_deaf) => include_bytes!("../assets/tray/tray-deafened.ico"),
-            s if s.connected && (s.mute || s.server_mute) => include_bytes!("../assets/tray/tray-muted.ico"),
-            s if s.connected && s.speaking => include_bytes!("../assets/tray/tray-speaking.ico"),
-            s if s.connected => include_bytes!("../assets/tray/tray-connected.ico"),
-            s if s.unread => include_bytes!("../assets/tray/tray-unread.ico"),
-            _ => IDLE,
+            s if s.connected && (s.deaf || s.server_deaf) => {
+                struck(r##"<path d="M50 168v-32a78 78 0 0 1 156 0v32"/><rect x="44" y="146" width="44" height="78" rx="18" fill="#fff"/><rect x="168" y="146" width="44" height="78" rx="18" fill="#fff"/>"##)
+            }
+            s if s.connected && (s.mute || s.server_mute) => {
+                struck(r##"<rect x="98" y="24" width="60" height="120" rx="30" fill="#fff" stroke="none"/><path d="M62 118a66 66 0 0 0 132 0M128 186v38M90 226h76"/>"##)
+            }
+            s if s.connected && s.speaking => dot(GREEN, r##"<circle cx="204" cy="204" r="26" fill="none" stroke="#fff" stroke-width="10"/>"##),
+            s if s.connected => dot(GREEN, ""),
+            s if s.unread => crate::logo::with(&format!(r#"<circle cx="204" cy="52" r="46" fill="{RED}"/>"#), Some((204.0, 52.0, 64.0))),
+            _ => crate::logo::SVG.into(),
         }
     }
 }
@@ -187,8 +200,7 @@ fn data(hwnd: HWND) -> NOTIFYICONDATAW {
 
 /// The face for the current state at the notification area's size; the shell keeps its own copy.
 fn icon() -> HICON {
-    let face = current().face();
-    let h = crate::winsys::ico(face, unsafe { GetSystemMetrics(SM_CXSMICON) }).unwrap_or(std::ptr::null_mut());
+    let h = crate::logo::hicon(&current().face(), unsafe { GetSystemMetrics(SM_CXSMICON) }).unwrap_or(std::ptr::null_mut());
     let old = ICON.with(|c| c.replace(h));
     if !old.is_null() {
         unsafe { DestroyIcon(old) };
@@ -287,13 +299,12 @@ unsafe fn menu(hwnd: HWND, x: i32, y: i32) {
     }
 }
 
-/// The idle face as a 32-bit bitmap with premultiplied alpha, which is what a menu item takes.
+/// The logo as a 32-bit bitmap with premultiplied alpha, which is what a menu item takes.
 fn bitmap() -> HBITMAP {
     let px = unsafe { GetSystemMetrics(SM_CXSMICON) };
-    let Some(img) = crate::winsys::ico_entry(IDLE, px).and_then(|(_, png)| image::load_from_memory(png).ok()) else {
+    let Some(img) = crate::logo::pixmap(crate::logo::SVG, px as u32) else {
         return std::ptr::null_mut();
     };
-    let img = image::imageops::resize(&img.to_rgba8(), px as u32, px as u32, image::imageops::FilterType::Triangle);
     let mut bmi: BITMAPINFO = unsafe { std::mem::zeroed() };
     bmi.bmiHeader = BITMAPINFOHEADER {
         biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -311,9 +322,7 @@ fn bitmap() -> HBITMAP {
     }
     let out = unsafe { std::slice::from_raw_parts_mut(bits as *mut u8, (px * px * 4) as usize) };
     for (o, p) in out.chunks_exact_mut(4).zip(img.pixels()) {
-        let [r, g, b, a] = p.0;
-        let pre = |c: u8| (c as u32 * a as u32 / 255) as u8;
-        o.copy_from_slice(&[pre(b), pre(g), pre(r), a]);
+        o.copy_from_slice(&[p.blue(), p.green(), p.red(), p.alpha()]);
     }
     bmp
 }

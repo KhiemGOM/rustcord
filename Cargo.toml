@@ -68,8 +68,9 @@ latex-rust = "3.0.3"
 pulldown-cmark = { version = "0.13.6", default-features = false }
 
 [build-dependencies]
-# the exe's icon: discord's own
+# the exe's icon, drawn from assets/rustcord.svg
 winresource = "0.1"
+resvg = { version = "0.45.1", default-features = false }
 
 [dev-dependencies]
 # the mock serves a system font as woff2 so the client's gg sans download path runs for real
