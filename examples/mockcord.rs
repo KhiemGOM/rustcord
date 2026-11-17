@@ -2053,9 +2053,15 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["api", "v9", "discoverable-guilds"]) => ok(json!({ "guilds": (0..8).map(discoverable).collect::<Vec<_>>(), "total": 8, "offset": 0, "limit": 30 })),
         ("GET", ["api", "v9", "discoverable-guilds", "search"]) => {
             let (q, cat) = (query_str(path, "query").to_lowercase(), query(path, "category_id"));
-            let hits: Vec<Value> = (0..30).map(discoverable).filter(|g| g["name"].as_str().unwrap().to_lowercase().contains(&q) && cat.is_none_or(|c| g["primary_category_id"] == c)).collect();
+            let named: Vec<Value> = (0..30).map(discoverable).filter(|g| g["name"].as_str().unwrap().to_lowercase().contains(&q)).collect();
+            let hits: Vec<&Value> = named.iter().filter(|g| cat.is_none_or(|c| g["primary_category_id"] == c)).collect();
+            let counts: Vec<Value> = if query_str(path, "with_counts") == "true" && !q.is_empty() {
+                [1u64, 2, 3, 5, 6].iter().map(|c| (c, named.iter().filter(|g| g["primary_category_id"] == *c).count())).filter(|c| c.1 > 0).map(|(id, count)| json!({ "id": id, "count": count })).collect()
+            } else {
+                Vec::new()
+            };
             let (offset, limit) = (query(path, "offset").unwrap_or(0) as usize, query(path, "limit").unwrap_or(24) as usize);
-            ok(json!({ "guilds": hits.iter().skip(offset).take(limit).collect::<Vec<_>>(), "total_count": hits.len(), "categories": [] }))
+            ok(json!({ "guilds": hits.iter().skip(offset).take(limit).collect::<Vec<_>>(), "total_count": hits.len(), "categories": counts }))
         }
         ("PUT", ["api", "v9", "guilds", _, "members", "@me"]) => (201, "application/json", b"{}".to_vec()),
         ("GET", ["api", "v9", "application-directory-static", "categories"]) => ok(json!([{ "id": 6, "name": "Games" }, { "id": 9, "name": "Social" }])),

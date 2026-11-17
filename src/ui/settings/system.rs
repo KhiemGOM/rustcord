@@ -7,7 +7,7 @@ use crate::ui::App;
 
 pub use super::keybinds::combo;
 
-const LOCALES: [(&str, &str, &str); 32] = [
+pub const LOCALES: [(&str, &str, &str); 32] = [
     ("id", "Bahasa Indonesia", "Indonesian"),
     ("da", "Dansk", "Danish"),
     ("de", "Deutsch", "German"),
