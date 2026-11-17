@@ -452,7 +452,7 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
             ui.label(RichText::new(since).font(reg(14.0)).color(pal().text_normal));
             if !widgets.is_empty() {
                 ui.add_space(20.0);
-                if games_row(ui, &crate::ui::profed::board::game_ids(&widgets), app_icons) {
+                if games_row(ui, &crate::ui::profed::board::game_ids(&widgets), &app.game_info, app_icons) {
                     tab = Some(profile::Tab::Board);
                 }
             }
@@ -528,7 +528,7 @@ pub(crate) fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> 
     theme(p).map(|t| t.top)
 }
 
-fn games_row(ui: &mut Ui, ids: &[String], icons: &crate::state::Map<Id, Option<String>>) -> bool {
+fn games_row(ui: &mut Ui, ids: &[String], games: &crate::state::Map<String, Option<crate::ui::profed::board::Info>>, icons: &crate::state::Map<Id, Option<String>>) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(268.0, 40.0), Sense::click());
     ui.painter().rect_filled(r, 8, egui::Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 31 } else { 13 }));
     ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, "Game Collection", medium(14.0), pal().header_primary);
@@ -541,8 +541,8 @@ fn games_row(ui: &mut Ui, ids: &[String], icons: &crate::state::Map<Id, Option<S
     for (i, id) in ids.iter().take(3).enumerate() {
         let ir = Rect::from_min_size(pos2(x - 24.0 - (shown - 1 - i) as f32 * 28.0, r.center().y - 12.0), vec2(24.0, 24.0));
         ui.painter().rect_filled(ir, 4, egui::Color32::from_white_alpha(20));
-        if let Some((a, h)) = id.parse::<u64>().ok().and_then(|a| icons.get(&a).cloned().flatten().map(|h| (a, h))) {
-            text::image(ui.painter(), &format!("{}/app-icons/{a}/{h}.png?size=48", crate::api::cdn()), ir);
+        if let Some(u) = crate::ui::profed::board::cover_url(games, icons, id, 48) {
+            text::image(ui.painter(), &u, ir);
         }
     }
     if resp.hovered() {
