@@ -56,6 +56,8 @@ mod p4c;
 mod p5;
 mod p5b;
 mod r1;
+mod mdtext;
+mod dmopen;
 mod themes;
 mod serverx;
 mod shopx;
@@ -1510,6 +1512,8 @@ impl Run {
             5100..=5119 => self.p5_steps(app, ctx),
             5120..=5199 => self.p5b_steps(app, ctx),
             5200..=5299 => self.r1_steps(app, ctx),
+            5300..=5309 => self.mdtext_steps(app, ctx),
+            5310..=5319 => self.dmopen_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),

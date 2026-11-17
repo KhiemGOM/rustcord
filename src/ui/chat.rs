@@ -13,7 +13,7 @@ use super::{App, Pick, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
 use super::{side, system, text};
 use crate::gif;
-use crate::markdown::{self, Block, Boxed, Cx, Link};
+use crate::markdown::{self, Block, Boxed, Cx, Link, Marker};
 use crate::net::Cmd;
 use crate::state::{Channel, Embed, Id, Message, Page, ReactEmoji, Set, Store};
 use crate::theme::*;

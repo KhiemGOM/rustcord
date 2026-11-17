@@ -77,6 +77,8 @@ import tidy
 import p4c
 import p5
 import r1
+import mdtext
+import dmopen
 import regressions
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -624,6 +626,8 @@ def main():
         **p4c.checks({"cold": cold, "warm": warm}, reqs),
         **p5.checks({"cold": cold, "warm": warm}, reqs),
         **r1.checks({"cold": cold, "warm": warm}, reqs),
+        **mdtext.checks({"cold": cold, "warm": warm}),
+        **dmopen.checks({"cold": cold, "warm": warm}, reqs),
         **regressions.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),
