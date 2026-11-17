@@ -461,7 +461,7 @@ fn colour(ed: &mut Editor, ctx: &egui::Context) {
         }
         pipette |= eb.clicked();
         ui.add_space(8.0);
-        let r = ui.add(egui::TextEdit::singleline(&mut text_hex).desired_width(100.0).font(reg(14.0)));
+        let r = ui.add(egui::TextEdit::singleline(&mut text_hex).desired_width(100.0).font(field_font(ui.ctx(), 14.0)));
         mark(ui, "colour:hex", r.rect);
         if r.changed()
             && let Ok(v) = u32::from_str_radix(text_hex.trim_start_matches('#'), 16)
@@ -574,7 +574,7 @@ fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let area = egui::Area::new("profed_tag_menu".into()).order(egui::Order::Tooltip).fixed_pos(ed.anchor.left_bottom() + vec2(-4.0, 6.0)).show(ctx, |ui| {
         Frame::popup(ui.style()).fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, faint(41))).show(ui, |ui| {
             ui.set_width(320.0);
-            let r = ui.add(egui::TextEdit::singleline(&mut ed.tag_q).hint_text("Search").desired_width(f32::INFINITY).font(reg(16.0)));
+            let r = ui.add(egui::TextEdit::singleline(&mut ed.tag_q).hint_text("Search").desired_width(f32::INFINITY).font(field_font(ui.ctx(), 16.0)));
             mark(ui, "tag:search", r.rect);
             ui.add_space(6.0);
             egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {

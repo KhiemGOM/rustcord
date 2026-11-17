@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.painter().rect_filled(field, 8, pal().input_bg);
                 let e = ui.put(
                     Rect::from_min_max(pos2(field.left() + 12.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0)),
-                    egui::TextEdit::singleline(&mut p.q).hint_text(RichText::new("Search").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
+                    egui::TextEdit::singleline(&mut p.q).hint_text(RichText::new("Search").color(pal().text_muted)).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(field, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
                 ui.advance_cursor_after_rect(row);

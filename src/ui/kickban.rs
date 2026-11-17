@@ -77,7 +77,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             if !d.ban || d.pick == Some(3) {
                 input_frame().corner_radius(8).inner_margin(12).show(ui, |ui| {
-                    let r = ui.add(egui::TextEdit::multiline(&mut d.text).frame(Frame::NONE).desired_rows(if d.ban { 5 } else { 2 }).char_limit(MAX_REASON).desired_width(ui.available_width()));
+                    let r = ui.add(egui::TextEdit::multiline(&mut d.text).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).desired_rows(if d.ban { 5 } else { 2 }).char_limit(MAX_REASON).desired_width(ui.available_width()));
                     settings::mark(ui, "kickban:reason", r.rect);
                 });
             }

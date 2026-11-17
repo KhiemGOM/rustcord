@@ -138,7 +138,7 @@ pub fn emoji_field(ui: &mut Ui, text: &mut String, hint: &str, id: egui::Id, max
     let mut emoji = None;
     let out = Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            let r = ui.add(egui::TextEdit::singleline(text).id(id).frame(Frame::NONE).margin(Margin::ZERO).font(reg(16.0)).text_color(pal().text_normal).hint_text(RichText::new(hint).color(pal().text_muted)).char_limit(max).desired_width(ui.available_width() - 30.0));
+            let r = ui.add(egui::TextEdit::singleline(text).id(id).frame(Frame::NONE).margin(Margin::ZERO).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).hint_text(RichText::new(hint).color(pal().text_muted)).char_limit(max).desired_width(ui.available_width() - 30.0));
             let (b, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
             let resp = smile(ui, b, "emoji_btn");
             emoji = emoji_popup(&resp);
@@ -248,7 +248,7 @@ fn topic(ui: &mut Ui, d: &mut Value, forum: bool) {
                     .id(id)
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO)
-                    .font(reg(16.0))
+                    .font(field_font(ui.ctx(), 16.0))
                     .text_color(pal().text_normal)
                     .hint_text(RichText::new("Let everyone know how to use this channel!").color(pal().text_muted))
                     .desired_rows(8)

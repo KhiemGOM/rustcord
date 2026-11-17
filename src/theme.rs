@@ -588,6 +588,12 @@ pub fn heavy(ctx: &egui::Context) -> bool {
     !pal().dark && ctx.pixels_per_point() <= 1.0
 }
 
+/// The font of a text box and its placeholder: regular, medium where `heavy` says so
+/// (`.theme-light input, textarea, ::placeholder`).
+pub fn field_font(ctx: &egui::Context, size: f32) -> FontId {
+    if heavy(ctx) { medium(size) } else { reg(size) }
+}
+
 pub fn mono(size: f32) -> FontId {
     FontId::monospace(size)
 }

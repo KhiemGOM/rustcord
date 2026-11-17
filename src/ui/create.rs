@@ -190,7 +190,7 @@ pub(super) fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<I
                     icons::draw(ui.painter(), g, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().text_normal);
                     ui.add_space(8.0);
                 }
-                let edit = if rows > 1 { egui::TextEdit::multiline(value).desired_rows(rows) } else { egui::TextEdit::singleline(value) };
+                let edit = if rows > 1 { egui::TextEdit::multiline(value).font(field_font(ui.ctx(), 16.0)).desired_rows(rows) } else { egui::TextEdit::singleline(value).font(field_font(ui.ctx(), 16.0)) };
                 let trail = if emoji.is_some() { 28.0 } else { 0.0 };
                 let resp = ui.add(
                     edit.frame(Frame::NONE)

@@ -119,7 +119,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             };
             let multi = label == "Note";
             input_frame().corner_radius(8).inner_margin(if multi { Margin::same(12) } else { Margin::symmetric(12, 7) }).show(ui, |ui| {
-                let edit = if multi { egui::TextEdit::multiline(text).desired_rows(4) } else { egui::TextEdit::singleline(text) };
+                let edit = if multi { egui::TextEdit::multiline(text).font(field_font(ui.ctx(), 16.0)).desired_rows(4) } else { egui::TextEdit::singleline(text).font(field_font(ui.ctx(), 16.0)) };
                 let r = ui.add(edit.frame(Frame::NONE).font(reg(16.0)).hint_text(hint).desired_width(ui.available_width()));
                 if !ui.ctx().memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {
                     r.request_focus();

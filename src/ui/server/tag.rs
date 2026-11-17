@@ -158,7 +158,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
                 badge(ui, r, id);
-                let resp = ui.add(egui::TextEdit::singleline(&mut tag).frame(Frame::NONE).margin(Margin::ZERO).char_limit(4).font(reg(28.0)).text_color(pal().text_normal).hint_text(RichText::new("WUMP").color(pal().text_muted)).desired_width(ui.available_width()));
+                let resp = ui.add(egui::TextEdit::singleline(&mut tag).frame(Frame::NONE).margin(Margin::ZERO).char_limit(4).font(field_font(ui.ctx(), 28.0)).text_color(pal().text_normal).hint_text(RichText::new("WUMP").color(pal().text_muted)).desired_width(ui.available_width()));
                 super::super::settings::mark(ui, "field:tag", resp.rect);
             });
         });

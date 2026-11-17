@@ -183,7 +183,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         let (sr, _) = ui.allocate_exact_size(vec2(12.0, 16.0), Sense::hover());
                         icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(sr.center(), vec2(12.0, 12.0)), pal().header_secondary);
                         ui.add_space(8.0);
-                        ui.add(egui::TextEdit::singleline(&mut d.query).id(field_id).frame(Frame::NONE).font(reg(14.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
+                        ui.add(egui::TextEdit::singleline(&mut d.query).id(field_id).frame(Frame::NONE).font(field_font(ui.ctx(), 14.0)).hint_text(RichText::new("Search").color(pal().text_muted)).desired_width(ui.available_width()))
                     })
                     .inner
                 })

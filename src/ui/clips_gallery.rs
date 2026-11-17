@@ -171,7 +171,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.painter().rect(field, 8, pal().input_bg, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 16.0, field.center().y), vec2(16.0, 16.0)), pal().header_secondary);
                     let inner = Rect::from_min_max(pos2(field.left() + 32.0, field.center().y - 10.0), pos2(field.right() - 8.0, field.center().y + 10.0));
-                    ui.put(inner, egui::TextEdit::singleline(&mut g.query).hint_text(RichText::new("Search clips").color(pal().text_muted)).font(reg(14.0)).frame(Frame::NONE).margin(Margin::ZERO));
+                    ui.put(inner, egui::TextEdit::singleline(&mut g.query).hint_text(RichText::new("Search clips").color(pal().text_muted)).font(field_font(ui.ctx(), 14.0)).frame(Frame::NONE).margin(Margin::ZERO));
                     ui.advance_cursor_after_rect(field);
                     ui.add_space(12.0);
                     for (label, on) in [("All Clips", !g.favs), ("Favorites", g.favs)] {
@@ -401,7 +401,7 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             let (field, _) = ui.allocate_exact_size(vec2(430.0, 40.0), Sense::hover());
             ui.painter().rect(field, 8, pal().input_bg, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             let inner = Rect::from_min_max(pos2(field.left() + 12.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0));
-            ui.put(inner, egui::TextEdit::singleline(&mut s.query).hint_text(RichText::new("Search").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
+            ui.put(inner, egui::TextEdit::singleline(&mut s.query).hint_text(RichText::new("Search").color(pal().text_muted)).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(Margin::ZERO));
             ui.advance_cursor_after_rect(field);
             ui.add_space(8.0);
             egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(ui, |ui| {
@@ -428,7 +428,7 @@ fn share(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             ui.painter().rect(field, 8, pal().input_bg, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             let inner = Rect::from_min_max(pos2(field.left() + 12.0, field.center().y - 10.0), pos2(field.right() - 12.0, field.center().y + 10.0));
             // put: the rest of the row is placed by rect
-            ui.put(inner, egui::TextEdit::singleline(&mut s.note).hint_text(RichText::new("Add an optional message...").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
+            ui.put(inner, egui::TextEdit::singleline(&mut s.note).hint_text(RichText::new("Add an optional message...").color(pal().text_muted)).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(Margin::ZERO));
             let b = Rect::from_min_size(pos2(row.right() - 100.0, row.top()), vec2(100.0, 40.0));
             let mut c = ui.new_child(egui::UiBuilder::new().max_rect(b));
             c.add_enabled_ui(s.to.is_some(), |ui| send = super::button(ui, "Send", pal().blurple, 100.0).clicked());

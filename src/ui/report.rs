@@ -245,7 +245,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                 }
                                 let mut text = r.input(&name).and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 let rows = d["rows"].as_u64().unwrap_or(1).max(1) as usize;
-                                let mut edit = if rows == 1 { egui::TextEdit::singleline(&mut text) } else { egui::TextEdit::multiline(&mut text).desired_rows(rows) };
+                                let mut edit = if rows == 1 { egui::TextEdit::singleline(&mut text).font(field_font(ui.ctx(), 16.0)) } else { egui::TextEdit::multiline(&mut text).font(field_font(ui.ctx(), 16.0)).desired_rows(rows) };
                                 edit = edit.desired_width(392.0).font(reg(14.0)).hint_text(RichText::new(d["placeholder"].as_str().unwrap_or("")).color(pal().text_muted));
                                 if let Some(n) = d["character_limit"].as_u64() {
                                     edit = edit.char_limit(n as usize);

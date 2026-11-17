@@ -502,7 +502,7 @@ pub fn modals(app: &mut App, ctx: &egui::Context) {
             ui.label(RichText::new("Give the user a reason for the denial (OPTIONAL)").font(semi(20.0)).color(pal().header_primary));
             ui.add_space(16.0);
             let r = Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
-                ui.add(egui::TextEdit::multiline(&mut reason).frame(Frame::NONE).desired_rows(3).desired_width(f32::INFINITY).font(reg(14.0)));
+                ui.add(egui::TextEdit::multiline(&mut reason).frame(Frame::NONE).desired_rows(3).desired_width(f32::INFINITY).font(field_font(ui.ctx(), 14.0)));
             });
             app.rects.insert("joins:reason".into(), r.response.rect);
             reason = reason.chars().take(160).collect();

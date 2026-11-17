@@ -174,7 +174,7 @@ pub fn search_box_in(ui: &mut Ui, q: &mut String, hint: &str, back: Option<&mut 
         inner,
         egui::TextEdit::singleline(q)
             .hint_text(RichText::new(hint).color(pal().text_muted))
-            .font(reg(16.0))
+            .font(field_font(ui.ctx(), 16.0))
             .frame(Frame::NONE)
             .margin(egui::Margin::ZERO),
     );
