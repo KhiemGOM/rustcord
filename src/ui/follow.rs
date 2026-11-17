@@ -154,7 +154,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let shown = guild.and_then(|g| servers.iter().find(|s| s.0 == g)).map_or("Select...".to_string(), |s| s.1.clone());
             super::settings::dropdown(ui, 402.0, None, &shown, |ui| {
                 for (id, name) in &servers {
-                    if super::menu_item(ui, None, name, false) {
+                    if super::option(ui, guild == Some(*id), name).clicked() {
                         pick_guild = Some(*id);
                     }
                 }
@@ -165,7 +165,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.add_enabled_ui(guild.is_some(), |ui| {
                 super::settings::dropdown(ui, 402.0, None, &shown, |ui| {
                     for (id, name) in &channels {
-                        if super::menu_item(ui, Some(Icon::Hash), name, false) {
+                        if super::option(ui, target == Some(*id), &format!("#{name}")).clicked() {
                             pick_chan = Some(*id);
                         }
                     }

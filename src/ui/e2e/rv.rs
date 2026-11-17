@@ -187,8 +187,7 @@ impl Run {
                 self.next(600);
             }
             5316 => {
-                let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
-                let Some(r) = Self::at(ctx, &format!("menu_row:{name}")) else {
+                let Some(r) = Self::at(ctx, &format!("studio:server:{gid}")) else {
                     if stuck {
                         self.shot(ctx, "rv_studio_no_menu.png");
                         self.step = 5319;

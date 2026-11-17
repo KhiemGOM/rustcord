@@ -112,7 +112,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let shown = s.guild.and_then(|g| servers.iter().find(|x| x.0 == g)).map_or("Select a server", |x| x.1.as_str()).to_string();
         let pr = super::settings::dropdown(ui, w, None, &shown, |ui| {
             for (id, name) in &servers {
-                if super::menu_item(ui, None, name, false) {
+                let r = super::option(ui, s.guild == Some(*id), name);
+                super::settings::mark(ui, &format!("studio:server:{id}"), r.rect);
+                if r.clicked() {
                     pick = Some(*id);
                 }
             }
