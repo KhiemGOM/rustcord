@@ -237,7 +237,7 @@ fn dims(kind: Kind) -> (f32, f32, usize) {
 fn tile_art(ui: &Ui, r: Rect, it: &Item, locked: bool) {
     let p = ui.painter().with_clip_rect(r);
     match it.kind {
-        Kind::Decoration => text::image(&p, &cosmo::deco(&it.asset, 128), Rect::from_center_size(r.center(), vec2(64.0, 64.0))),
+        Kind::Decoration => text::image(&p, &cosmo::deco(&it.asset, 240), Rect::from_center_size(r.center(), vec2(64.0, 64.0))),
         Kind::Nameplate => text::image(&p, &cosmo::plate(&it.asset), r),
         _ => text::image(&p, &it.thumb, r),
     }
@@ -399,7 +399,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
             let av = Rect::from_center_size(r.center(), vec2(d, d));
             avatar(ui, av, &user.avatar_url());
             if let Some(it) = it {
-                text::image(ui.painter(), &cosmo::deco(&it.asset, 256), Rect::from_center_size(av.center(), av.size() * 1.2));
+                text::image(ui.painter(), &cosmo::deco(&it.asset, 240), Rect::from_center_size(av.center(), av.size() * 1.2));
             }
         }
         Kind::Nameplate => {

@@ -91,7 +91,7 @@ impl Item {
 
     pub fn still(&self) -> String {
         match self.kind {
-            Kind::Decoration => deco(&self.asset, 96),
+            Kind::Decoration => deco(&self.asset, 240),
             Kind::Nameplate => plate(&self.asset),
             Kind::Effect | Kind::Frame => self.thumb.clone(),
         }

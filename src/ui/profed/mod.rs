@@ -479,7 +479,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     ui.painter().circle_stroke(c.center(), c.width() / 2.0, Stroke::new(1.0, faint(61)));
     if let Some(dec) = &d.decoration {
         avatar(ui, c, &user.avatar_url());
-        text::image(ui.painter(), &cosmo::deco(&dec.asset, 128), Rect::from_center_size(c.center(), c.size() * 1.2));
+        text::image(ui.painter(), &cosmo::deco(&dec.asset, 240), Rect::from_center_size(c.center(), c.size() * 1.2));
     } else {
         ui.painter().circle_filled(c.center(), c.width() / 2.0, faint(31));
         icons::draw(ui.painter(), Icon::Discord, c.shrink(16.0), faint(100));
