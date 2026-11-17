@@ -47,7 +47,7 @@ fn fuzz_message_text() {
     ctx.set_fonts(crate::theme::fonts(false));
     let mut frame = ctx.run_ui(Default::default(), |_| {});
     frame.textures_delta.clear();
-    let cx = crate::markdown::Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: Color32::WHITE, spoilers: crate::markdown::Spoilers::all(false), edited: false, embed: false };
+    let cx = crate::markdown::Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: Color32::WHITE, spoilers: crate::markdown::Spoilers::all(false), edited: false, embed: false, heavy: false };
     let tokens = ["a", "é", "中", "🦀", "\u{200d}", "\u{fe0f}", "\0", "\n", "\\", "*", "**", "_", "~~", "||", "`", "```", "> ", "<", ">", "[", "](", ")", ":", "<@1>", "<t:0:R>", "https://a.b/", "<:x:1>"];
     for case in 0..4096 {
         let mut text = String::new();

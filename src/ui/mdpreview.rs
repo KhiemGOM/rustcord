@@ -16,6 +16,8 @@ struct Style {
     strike: bool,
     spoiler: bool,
     code: bool,
+    /// `.theme-light .textArea` on a 1x screen
+    heavy: bool,
 }
 
 const MARKS: [&str; 7] = ["```", "**", "__", "~~", "||", "`", "*"];
@@ -23,7 +25,7 @@ const MARKS: [&str; 7] = ["```", "**", "__", "~~", "||", "`", "*"];
 pub fn layout(ui: &Ui, text: &str, wrap: f32) -> Arc<Galley> {
     let mut job = LayoutJob::default();
     job.wrap.max_width = wrap;
-    let mut st = Style::default();
+    let mut st = Style { heavy: heavy(ui.ctx()), ..Default::default() };
     let mut i = 0;
     while i < text.len() {
         let rest = &text[i..];
@@ -82,6 +84,7 @@ fn format(st: Style, mark: bool) -> TextFormat {
         (_, true, true) => bold_italic(16.0),
         (_, true, false) => bold(16.0),
         (_, false, true) => italic(16.0),
+        _ if st.heavy => medium(16.0),
         _ => reg(16.0),
     };
     let ink = if mark { pal().channel_default } else if st.spoiler { pal().header_secondary } else { pal().text_normal };

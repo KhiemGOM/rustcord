@@ -112,7 +112,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
                 crate::ui::motion::mix(pal().text_muted, pal().text_normal, crate::ui::motion::tween(d.ctx, egui::Id::new(("sent", m.id)), !m.pending, 0.2, crate::ui::motion::EASE))
             };
             // with no text the marker goes under the embeds and buttons instead
-            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color, spoilers: obscure::spoilers(d, m.id), edited: m.edited && !m.content.trim().is_empty(), embed: false };
+            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: font, color, spoilers: obscure::spoilers(d, m.id), edited: m.edited && !m.content.trim().is_empty(), embed: false, heavy: heavy(d.ctx) };
             let mut blocks = markdown::parse(&m.content, &cx);
             if compact {
                 compact_prefix(d, m, &mut blocks, &name, color, font);

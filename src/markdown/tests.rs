@@ -6,7 +6,7 @@ fn texts(text: &str, open: &Set<Id>) -> Vec<Inline> {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::fonts(false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::clicked(open, 7u64), edited: false, embed: false };
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::clicked(open, 7u64), edited: false, embed: false, heavy: false };
     parse(text, &cx).into_iter().filter_map(|b| if let Block::Text(t) = b { Some(t) } else { None }).collect()
 }
 
@@ -72,8 +72,24 @@ fn blocks(text: &str) -> Vec<Block> {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::fonts(false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false };
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy: false };
     parse(text, &cx)
+}
+
+#[test]
+fn plain_text_is_medium_where_discord_makes_it_so() {
+    let store = crate::state::Store::default();
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::fonts(false));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let fonts = |heavy: bool| {
+        let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy };
+        let b = parse("plain **bold**", &cx);
+        let Block::Text(t) = &b[0] else { panic!("no text") };
+        t.job.sections.iter().map(|s| s.format.font_id.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(fonts(false), [crate::theme::reg(16.0), crate::theme::bold(16.0)]);
+    assert_eq!(fonts(true), [crate::theme::medium(16.0), crate::theme::bold(16.0)]);
 }
 
 #[test]
@@ -132,7 +148,7 @@ fn quotes_and_subtext_are_in_the_subtle_colour() {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::fonts(false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false };
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy: false };
     let subtle = crate::theme::pal().header_secondary;
     let blocks = parse("> quoted\n-# small", &cx);
     let [Block::Quote(q), Block::Text(small)] = &blocks[..] else { panic!("not a quote and a line") };
