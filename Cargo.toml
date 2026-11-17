@@ -100,5 +100,20 @@ incremental = true
 debug = "line-tables-only"
 strip = false
 
+# for iterating on the e2e: no LTO and incremental, so a one-file rebuild took 23 s and 1.5 GB
+# where release took 7 min 55 s and 3.2 GB (`python tools/build_cost.py cargo build ...` on a
+# 6-core machine at jobs = 2). `cargo build --profile iter --bin rustcord --example mockcord`, then
+# `python e2e/run.py --profile iter --no-build` or `python e2e/from_step.py <step> --profile iter`.
+# Too slow to judge speed by: run.py lists its timing checks as skipped off release.
+[profile.iter]
+inherits = "release"
+opt-level = 1
+lto = "off"
+codegen-units = 256
+incremental = true
+
+[profile.iter.package."*"]
+opt-level = 3
+
 [profile.dev.package."*"]
 opt-level = 2

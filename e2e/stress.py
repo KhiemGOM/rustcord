@@ -16,12 +16,13 @@ def main():
     parser.add_argument("seeds", nargs="*", type=int, default=[1, 42, 8675309])
     parser.add_argument("--actions", type=int, default=300)
     parser.add_argument("--corpus", type=Path)
+    parser.add_argument("--profile", help="read by run.py")
     args = parser.parse_args()
     if not 1 <= args.actions <= 800 or any(seed < 1 or seed >= 2**64 for seed in args.seeds):
         parser.error("actions must be 1..800 and seeds must be 1..2^64-1")
     art = Path(tempfile.mkdtemp(prefix="rustcord_stress_"))
     run.ART = art
-    mock = subprocess.Popen([str(run.ROOT / "target/release/examples/mockcord.exe"), str(run.HTTP), str(run.WS),
+    mock = subprocess.Popen([str(run.MOCK), str(run.HTTP), str(run.WS),
                              str(art / "mock_requests.jsonl"), str(run.VOICE), str(run.REMOTE)])
     ok = True
     try:
