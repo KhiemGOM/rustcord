@@ -408,7 +408,9 @@ fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot
     let label_y = cell.top() + 84.0 - 14.0;
     let label = if w.is_some() { format!("{} ({})", slot.title(), w.map_or(0, |w| w.games.len())) } else { slot.title().to_string() };
     ui.painter().text(pos2(cell.center().x, label_y + 18.0), Align2::CENTER_CENTER, label, medium(16.0), Color32::WHITE);
-    plus(ui, pos2(cell.center().x, cell.top() + 40.0), w.is_some());
+    if w.is_none() || resp.hovered() {
+        plus(ui, pos2(cell.center().x, cell.top() + 40.0), w.is_some());
+    }
     mark(ui, &format!("widget:{}", slot.wire()), cell);
     if resp.clicked() {
         let games = w.map(|w| w.games.clone()).unwrap_or_default();
