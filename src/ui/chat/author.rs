@@ -31,7 +31,9 @@ impl Ink {
             return text::layout_em(ctx, name, font, self.stops[0], max_w, em);
         }
         let rich = text::layout_em(ctx, name, font, Color32::WHITE, max_w, em);
-        let phase = if hot && self.tile { ctx.input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
+        // .full-motion.app-focused .animateGradient: not under reduced motion, not without focus
+        let moving = hot && self.tile && crate::theme::focused() && crate::theme::anim(1.0) > 0.0;
+        let phase = if moving { ctx.input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
         if phase > 0.0 {
             ctx.request_repaint();
         }
