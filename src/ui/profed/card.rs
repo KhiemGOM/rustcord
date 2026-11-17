@@ -85,7 +85,7 @@ fn field(ui: &mut Ui, r: Rect, id: &str, text: &mut String, hint: &str, font: eg
     let mut c = ui.new_child(UiBuilder::new().max_rect(r).layout(egui::Layout::left_to_right(egui::Align::TOP)));
     c.visuals_mut().weak_text_color = Some(dimmer());
     let hint = RichText::new(hint).font(italic(font.size)).color(dimmer());
-    let edit = if multi { TextEdit::multiline(text).desired_rows(1) } else { TextEdit::singleline(text) };
+    let edit = if multi { TextEdit::multiline(text).font(field_font(ui.ctx(), 16.0)).desired_rows(1) } else { TextEdit::singleline(text).font(field_font(ui.ctx(), 16.0)) };
     c.add(edit.id(ui.id().with(id)).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(font).text_color(ink()).hint_text(hint).char_limit(limit).desired_width(r.width()))
 }
 

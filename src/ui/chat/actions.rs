@@ -165,7 +165,7 @@ pub(super) fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
                 .id(tid)
                 .frame(Frame::NONE)
                 .desired_rows(1)
-                .font(reg(16.0))
+                .font(field_font(ui.ctx(), 16.0))
                 .text_color(pal().text_normal)
                 .desired_width(ui.available_width()),
         );

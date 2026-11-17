@@ -102,8 +102,8 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
                 let r = ui.add(
                     egui::TextEdit::singleline(q)
                         .frame(Frame::NONE)
-                        .font(reg(22.0))
-                        .hint_text(RichText::new("Where would you like to go?").font(reg(22.0)).color(pal().text_muted))
+                        .font(field_font(ui.ctx(), 22.0))
+                        .hint_text(RichText::new("Where would you like to go?").font(field_font(ui.ctx(), 22.0)).color(pal().text_muted))
                         .desired_width(ui.available_width()),
                 );
                 r.request_focus();

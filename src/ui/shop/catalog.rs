@@ -460,7 +460,7 @@ pub(super) fn header(app: &App, ui: &mut Ui, tab: u8, search: &mut String, acts:
                 icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(field.left() + 16.0, field.center().y), vec2(16.0, 16.0)), pal().text_muted);
                 let clear = if search.is_empty() { 0.0 } else { 24.0 };
                 let inner = Rect::from_min_max(pos2(field.left() + 30.0, field.top() + 2.0), pos2(field.right() - SPACE_8 - clear, field.bottom() - 2.0));
-                let edit = TextEdit::singleline(search).frame(Frame::NONE).hint_text("Search the Shop").font(reg(14.0)).desired_width(inner.width()).vertical_align(egui::Align::Center);
+                let edit = TextEdit::singleline(search).frame(Frame::NONE).hint_text("Search the Shop").font(field_font(ui.ctx(), 14.0)).desired_width(inner.width()).vertical_align(egui::Align::Center);
                 // put: the header is placed by rect
                 ui.put(inner, edit);
                 mark(ui, "shop:search", field);

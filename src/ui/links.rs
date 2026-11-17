@@ -260,7 +260,7 @@ fn template(app: &mut App, ctx: &egui::Context) {
                 ui.label(RichText::new("SERVER NAME").font(semi(12.0)).color(pal().header_secondary));
                 ui.add_space(8.0);
                 input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut t.name).frame(Frame::NONE).desired_width(ui.available_width()));
+                    ui.add(egui::TextEdit::singleline(&mut t.name).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).desired_width(ui.available_width()));
                 });
                 ui.add_space(16.0);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

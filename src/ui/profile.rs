@@ -314,7 +314,7 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut query)
-                        .font(reg(14.0))
+                        .font(field_font(ui.ctx(), 14.0))
                         .hint_text("Role")
                         .desired_width(204.0),
                 );
@@ -437,8 +437,8 @@ pub fn note_box(ui: &mut Ui, rects: &mut crate::state::Map<String, Rect>, key: &
             .id(nid)
             .frame(Frame::NONE)
             .desired_rows(1)
-            .font(reg(size))
-            .hint_text(RichText::new("Click to add a note").font(reg(size)).color(pal().text_muted))
+            .font(field_font(ui.ctx(), size))
+            .hint_text(RichText::new("Click to add a note").font(field_font(ui.ctx(), size)).color(pal().text_muted))
             .desired_width(w),
     );
     if focus && !ui.memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {

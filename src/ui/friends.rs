@@ -104,7 +104,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let out = egui::TextEdit::singleline(&mut app.add_friend)
                 .frame(Frame::NONE)
-                .font(reg(16.0))
+                .font(field_font(ui.ctx(), 16.0))
                 .vertical_align(Align::Center)
                 .min_size(vec2(0.0, 38.0))
                 .hint_text("Enter a username")
@@ -138,7 +138,7 @@ fn add_friend(app: &mut App, ui: &mut Ui) {
             ui.add(
                 egui::TextEdit::multiline(&mut app.add_friend_words)
                     .frame(Frame::NONE)
-                    .font(reg(16.0))
+                    .font(field_font(ui.ctx(), 16.0))
                     .char_limit(120)
                     .desired_rows(3)
                     .desired_width(f32::INFINITY)
@@ -222,7 +222,7 @@ fn list(app: &mut App, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
             super::icons::draw(ui.painter(), Icon::Search, ir, pal().header_secondary);
-            ui.add(egui::TextEdit::singleline(&mut q).frame(Frame::NONE).font(reg(16.0)).hint_text("Search").desired_width(ui.available_width()));
+            ui.add(egui::TextEdit::singleline(&mut q).frame(Frame::NONE).font(field_font(ui.ctx(), 16.0)).hint_text("Search").desired_width(ui.available_width()));
         });
     });
     ui.data_mut(|d| d.insert_temp(qid, q.clone()));

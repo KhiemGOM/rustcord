@@ -329,9 +329,9 @@ fn field(ui: &mut Ui, store: &crate::state::Store, guild: Id, m_channel: Id, i: 
             ui.painter().rect_filled(r, 8, pal().input_bg);
             let id = egui::Id::new(("bot_modal_input", i));
             let e = if inp.long {
-                egui::TextEdit::multiline(&mut inp.value).desired_rows(4)
+                egui::TextEdit::multiline(&mut inp.value).font(field_font(ui.ctx(), 16.0)).desired_rows(4)
             } else {
-                egui::TextEdit::singleline(&mut inp.value)
+                egui::TextEdit::singleline(&mut inp.value).font(field_font(ui.ctx(), 16.0))
             };
             let e = ui.put(
                 r.shrink2(vec2(12.0, 10.0)),

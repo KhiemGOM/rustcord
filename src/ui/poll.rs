@@ -110,7 +110,7 @@ fn field(ui: &mut Ui, text: &mut String, hint: &str, h: f32, left: f32, right: f
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     ui.painter().rect_filled(r, 8, if err { egui::Color32::from_rgba_unmultiplied(204, 51, 51, 10) } else { pal().input_bg });
     let inner = Rect::from_min_max(pos2(r.left() + left, r.top() + (h - 20.0) / 2.0), pos2(r.right() - right, r.bottom() - (h - 20.0) / 2.0));
-    let e = ui.put(inner, egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO));
+    let e = ui.put(inner, egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(Margin::ZERO));
     let edge = if err { pal().critical } else if e.has_focus() { pal().blurple } else { pal().border_subtle };
     ui.painter().rect_stroke(r, 8, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
     ui.advance_cursor_after_rect(r);

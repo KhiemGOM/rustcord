@@ -392,7 +392,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         let cb = Rect::from_min_size(pos2(area.right() - 32.0, area.top()), vec2(32.0, 32.0));
         close |= round_icon(ui, cb, Icon::Close, "Close", false).clicked();
         ui.add_space(60.0);
-        let r = ui.add(egui::TextEdit::singleline(&mut e.q).hint_text("Search games").desired_width(f32::INFINITY).font(reg(16.0)));
+        let r = ui.add(egui::TextEdit::singleline(&mut e.q).hint_text("Search games").desired_width(f32::INFINITY).font(field_font(ui.ctx(), 16.0)));
         mark(ui, "widget:search", r.rect);
         ui.add_space(8.0);
         let q = e.q.to_lowercase();
