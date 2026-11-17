@@ -26,7 +26,7 @@ pub(super) fn render_comp(ui: &mut Ui, d: &mut D, m: &Message, c: &Comp, width: 
     match c {
         Comp::Row(children) => render_row(ui, d, m, children),
         Comp::Text(s) => {
-            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 16.0, color: pal().text_normal, revealed: true, edited: false, embed: false };
+            let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 16.0, color: pal().text_normal, spoilers: markdown::Spoilers::all(true), edited: false, embed: false };
             let blocks = markdown::parse(s, &cx);
             blocks_ui(ui, &blocks, d, m.id);
         }

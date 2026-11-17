@@ -59,8 +59,9 @@ pub struct Palette {
     pub positive: Color32,
     /// --background-code
     pub bg_code: Color32,
-    /// --spoiler-hidden-background and --spoiler-revealed-background
+    /// --spoiler-hidden-background, its -hover and --spoiler-revealed-background
     pub spoiler: Color32,
+    pub spoiler_hover: Color32,
     pub spoiler_revealed: Color32,
     /// --text-default
     pub text_normal: Color32,
@@ -129,6 +130,7 @@ impl Palette {
             positive: f(self.positive),
             bg_code: f(self.bg_code),
             spoiler: f(self.spoiler),
+            spoiler_hover: f(self.spoiler_hover),
             spoiler_revealed: f(self.spoiler_revealed),
             text_normal: f(self.text_normal),
             text_muted: f(self.text_muted),

@@ -27,14 +27,23 @@ pub(crate) fn filtered(flags: u32, own: bool, explicit: u8, gore: u8) -> bool {
     !own && ((flags & EXPLICIT != 0 && explicit != SHOW) || (flags & GORE != 0 && gore != SHOW))
 }
 
+/// The "show spoiler content" setting: always, or in servers this account moderates.
+fn spoilers_shown(d: &D) -> bool {
+    d.s.spoilers == Spoilers::Always || (d.s.spoilers == Spoilers::Moderated && d.moderator)
+}
+
+/// The spoilers of one text of a message: all open under that setting, else the ones clicked.
+pub(super) fn spoilers<'a>(d: &D<'a>, text: impl std::hash::Hash) -> markdown::Spoilers<'a> {
+    if spoilers_shown(d) { markdown::Spoilers::all(true) } else { markdown::Spoilers::clicked(d.revealed, text) }
+}
+
 /// Why a file would be covered, whether or not it has been clicked open.
 fn reason(d: &D, m: &Message, a: &Attachment) -> Option<Why> {
     let at = context(d.store, m.channel, m.author);
     if filtered(a.flags, m.author == d.store.me, d.s.explicit[at], d.s.gore[at]) {
         return Some(Why::Sensitive);
     }
-    let shown = d.s.spoilers == Spoilers::Always || (d.s.spoilers == Spoilers::Moderated && d.moderator);
-    (a.spoiler() && !shown).then_some(Why::Spoiler)
+    (a.spoiler() && !spoilers_shown(d)).then_some(Why::Spoiler)
 }
 
 pub(super) fn why(d: &D, m: &Message, a: &Attachment) -> Option<Why> {

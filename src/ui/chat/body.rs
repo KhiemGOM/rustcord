@@ -166,10 +166,37 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     }
 }
 
+/// The stretch of each row that a run of characters covers: the row's rect, then where the run
+/// starts and ends on it.
+fn spans(galley: &egui::Galley, r: &std::ops::Range<usize>) -> Vec<(Rect, f32, f32)> {
+    let a = galley.pos_from_cursor(CCursor { prefer_next_row: true, ..CCursor::new(r.start) });
+    let b = galley.pos_from_cursor(CCursor::new(r.end));
+    galley
+        .rows
+        .iter()
+        .filter(|row| row.min_y() >= a.min.y && row.min_y() <= b.min.y)
+        .map(|row| {
+            let all = row.rect();
+            (all, if row.min_y() == a.min.y { a.min.x } else { all.min.x }, if row.min_y() == b.min.y { b.min.x } else { all.max.x })
+        })
+        .collect()
+}
+
+/// A message's text. Discord keeps its code blocks and quotes to 90% of the text's width.
 pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
+    blocks_in(ui, blocks, d, msg, 0.9);
+}
+
+/// An embed's text, and a quote's: there they may be as wide as the text.
+pub(super) fn blocks_wide(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
+    blocks_in(ui, blocks, d, msg, 1.0);
+}
+
+fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
     for b in blocks {
         match b {
             Block::Text(t) => {
+                ui.add_space(t.lead);
                 let mut job = t.job.clone();
                 job.wrap.max_width = ui.available_width();
                 let galley = ui.fonts_mut(|f| f.layout_job(job));
@@ -204,6 +231,35 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                             lit.push(q);
                         }
                     }
+                }
+                for (r, kind, line, h) in &t.boxes {
+                    let (grow, top) = match kind {
+                        Boxed::Code(pad) => (*pad, (line - h) / 2.0),
+                        Boxed::Spoiler(_) => (0.0, 0.0),
+                    };
+                    let rows = spans(&galley, r);
+                    let last = rows.len().saturating_sub(1);
+                    let pieces: Vec<Rect> = rows
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, (row, left, right))| {
+                            let left = if i == 0 { left - grow } else { left };
+                            let right = if i == last { right + grow } else { right };
+                            let top = origin.y + row.center().y - line / 2.0 + top;
+                            Rect::from_min_max(pos2(origin.x + left, top), pos2(origin.x + right, top + h))
+                        })
+                        .filter(|q| q.width() > grow)
+                        .collect();
+                    let (fill, edge) = match kind {
+                        Boxed::Code(_) => (pal().bg_code, Stroke::new(1.0, pal().border_normal)),
+                        Boxed::Spoiler(None) => (pal().spoiler_revealed, Stroke::NONE),
+                        Boxed::Spoiler(Some(key)) => {
+                            let over = pointer.is_some_and(|p| pieces.iter().any(|q| q.contains(p)));
+                            let t = crate::ui::motion::tween(ui.ctx(), egui::Id::new(("spoiler", key)), over, 0.2, crate::ui::motion::EASE);
+                            (crate::ui::motion::mix(pal().spoiler, pal().spoiler_hover, t), Stroke::NONE)
+                        }
+                    };
+                    fills.extend(pieces.into_iter().map(|q| egui::epaint::RectShape::new(q, CornerRadius::same(4), fill, edge, egui::StrokeKind::Inside).into()));
                 }
                 ui.painter().set(under, egui::Shape::Vec(fills));
                 for q in lit {
@@ -246,8 +302,13 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                     if let Some(i) = over_emoji {
                         idx = i;
                     }
-                    if let Some((_, l)) = t.links.iter().find(|(r, _)| r.contains(&idx)) {
+                    if let Some((r, l)) = t.links.iter().find(|(r, _)| r.contains(&idx)) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        if matches!(l, Link::Url(_) | Link::Masked(_)) && !crate::theme::view().underline_links {
+                            for (row, left, right) in spans(&galley, r) {
+                                ui.painter().hline(origin.x + left..=origin.x + right, origin.y + row.max.y, Stroke::new(1.0, pal().link));
+                            }
+                        }
                         if let Link::Emoji(_, name, _) = l {
                             let tip = egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.id().with(("emoji_tip", msg)), egui::PopupAnchor::Pointer).show(|ui| {
                                 ui.label(RichText::new(format!(":{name}:")).font(semi(14.0)).color(pal().header_primary));
@@ -273,7 +334,7 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                                 Link::Masked(u) => d.acts.push(Act::Masked(u.clone())),
                                 Link::Channel(c) => d.acts.push(Act::Channel(*c)),
                                 Link::Role(r) => d.acts.push(Act::Role(*r, p + vec2(8.0, 8.0))),
-                                Link::Spoiler => d.acts.push(Act::Reveal(msg)),
+                                Link::Spoiler(key) => d.acts.push(Act::Reveal(*key)),
                                 Link::User(u) if ui.input(|i| i.modifiers.shift) => d.acts.push(Act::Mention(*u)),
                                 Link::User(u) => {
                                     let at = p + vec2(8.0, 0.0);
@@ -288,13 +349,15 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
             Block::Code(lang, code) => {
                 ui.add_space(6.0);
                 let job = ui.ctx().memory_mut(|m| m.caches.cache::<CodeJobs>().get((msg, lang.as_str(), code.as_str(), pal().text_normal, pal().text_muted)).clone());
+                // .markup pre is at most 90% wide, and the .codeContainer in it at most 50vw
+                let wide = (ui.available_width() * cap).min(ui.ctx().content_rect().width() / 2.0);
                 let r = Frame::new()
                     .fill(pal().bg_code)
                     .stroke(Stroke::new(1.0, pal().border_normal))
                     .corner_radius(4)
                     .inner_margin(7)
                     .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
+                        ui.set_width(wide - 16.0);
                         ui.add(Label::new(job.clone()).wrap());
                     });
                 if ui.clip_rect().contains_rect(r.response.rect) {
@@ -306,20 +369,17 @@ pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
                 ui.add_space(4.0);
             }
             Block::Quote(inner) => {
+                ui.add_space(4.0);
                 let top = ui.cursor().top();
                 let x = ui.cursor().left();
+                // a bar of 4, then the blockquote: 12 and 8 of padding inside its 90%
+                let wide = (ui.available_width() * cap).min(ui.available_width() - 4.0) - 20.0;
                 let r = ui
-                    .scope_builder(
-                        UiBuilder::new().max_rect(Rect::from_min_size(pos2(x + 16.0, top), vec2(ui.available_width() - 16.0, 100_000.0))),
-                        |ui| blocks_ui(ui, inner, d, msg),
-                    )
+                    .scope_builder(UiBuilder::new().max_rect(Rect::from_min_size(pos2(x + 16.0, top), vec2(wide, 100_000.0))), |ui| blocks_wide(ui, inner, d, msg))
                     .response
                     .rect;
-                ui.painter().rect_filled(
-                    Rect::from_min_max(pos2(x, top), pos2(x + 4.0, r.bottom())),
-                    CornerRadius::same(2),
-                    pal().bg_accent,
-                );
+                ui.painter().rect_filled(Rect::from_min_max(pos2(x, top), pos2(x + 4.0, r.bottom())), CornerRadius::same(4), pal().spine);
+                ui.add_space(4.0);
             }
         }
     }

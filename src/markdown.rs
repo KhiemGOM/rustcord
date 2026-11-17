@@ -1,11 +1,13 @@
 use chrono::{Local, TimeZone};
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Align, Color32, Stroke};
+use std::cell::Cell;
+use std::hash::Hash;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::api;
-use crate::state::{Id, Store};
+use crate::state::{Id, Set, Store};
 use crate::theme::*;
 
 pub enum Link {
@@ -15,7 +17,8 @@ pub enum Link {
     User(Id),
     Channel(Id),
     Role(Id),
-    Spoiler,
+    /// a spoiler still covered, by the key a click opens it with
+    Spoiler(Id),
     // a custom emoji: its id, name and whether it moves
     Emoji(Id, String, bool),
 }
@@ -27,6 +30,18 @@ pub struct Inline {
     pub links: Vec<(Range<usize>, Link)>,
     // mentions and timestamps: (chars, fill, line height, pill height), painted under the text
     pub pills: Vec<(Range<usize>, Color32, f32, f32)>,
+    // spoilers and inline code: (chars, which, line height, box height), painted under the text
+    pub boxes: Vec<(Range<usize>, Boxed, f32, f32)>,
+    /// room above the block: the top margin of a heading that opens it
+    pub lead: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Boxed {
+    /// a spoiler, with its key while it is covered
+    Spoiler(Option<Id>),
+    /// inline code, with the room its box takes either side of the text
+    Code(f32),
 }
 
 pub enum Block {
@@ -35,13 +50,38 @@ pub enum Block {
     Quote(Vec<Block>),
 }
 
+/// Which of a text's spoilers are open. Discord opens each one on its own click, so every
+/// spoiler has a key made of the text it is in and its place there.
+pub struct Spoilers<'a> {
+    open: Option<&'a Set<Id>>,
+    all: bool,
+    text: Id,
+    seen: Cell<u32>,
+}
+
+impl<'a> Spoilers<'a> {
+    pub fn all(shown: bool) -> Self {
+        Self { open: None, all: shown, text: 0, seen: Cell::new(0) }
+    }
+
+    pub fn clicked(open: &'a Set<Id>, text: impl Hash) -> Self {
+        Self { open: Some(open), all: false, text: egui::util::hash(text), seen: Cell::new(0) }
+    }
+
+    fn next(&self) -> Option<Id> {
+        let n = self.seen.replace(self.seen.get() + 1);
+        let key = egui::util::hash((self.text, n));
+        (!self.all && !self.open.is_some_and(|o| o.contains(&key))).then_some(key)
+    }
+}
+
 pub struct Cx<'a> {
     pub store: &'a Store,
     pub ctx: &'a egui::Context,
     pub guild: Id,
     pub size: f32,
     pub color: Color32,
-    pub revealed: bool,
+    pub spoilers: Spoilers<'a>,
     pub edited: bool,
     // embeds show an unknown user's mention as written, <@id>, not "@Unknown User"
     pub embed: bool,
@@ -63,6 +103,7 @@ struct St {
     strike: bool,
     code: bool,
     spoiler: bool,
+    hidden: bool,
     size: f32,
     color: Color32,
 }
@@ -74,6 +115,8 @@ struct B<'a, 'b> {
     emojis: Vec<(usize, String, f32, f32)>,
     links: Vec<(Range<usize>, Link)>,
     pills: Vec<(Range<usize>, Color32, f32, f32)>,
+    boxes: Vec<(Range<usize>, Boxed, f32, f32)>,
+    lead: f32,
     // room left before the next text, the inside of a pill
     pad: f32,
     jumbo: bool,
@@ -82,26 +125,19 @@ struct B<'a, 'b> {
 impl B<'_, '_> {
     fn fmt(&self, st: St) -> TextFormat {
         let family = match (st.code, st.bold, st.italic) {
-            (true, true, _) => mono_bold(st.size * 0.875),
-            (true, ..) => mono(st.size * 0.875),
+            (true, true, _) => mono_bold(st.size * 0.85),
+            (true, ..) => mono(st.size * 0.85),
             (_, true, true) => bold_italic(st.size),
             (_, true, _) => bold(st.size),
             (_, _, true) => italic(st.size),
             _ if st.medium => medium(st.size),
             _ => reg(st.size),
         };
-        let (color, bg) = if st.spoiler && !self.cx.revealed {
-            (pal().spoiler, pal().spoiler)
-        } else if st.spoiler {
-            (st.color, pal().spoiler_revealed)
-        } else {
-            (st.color, Color32::TRANSPARENT)
-        };
+        let color = if st.hidden { Color32::TRANSPARENT } else { st.color };
         TextFormat {
             font_id: family,
             line_height: Some(self.cx.line(st.size)),
             color,
-            background: if st.code { pal().bg_code } else { bg },
             italics: st.italic && st.code,
             underline: if st.under { Stroke::new(1.0, color) } else { Stroke::NONE },
             strikethrough: if st.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
@@ -120,6 +156,26 @@ impl B<'_, '_> {
         self.chars += s.chars().count();
     }
 
+    /// An empty row `h` tall: a block's margin inside one run of text.
+    fn gap(&mut self, h: f32) {
+        self.job.append("\n", 0.0, TextFormat { font_id: reg(1.0), line_height: Some(h), ..Default::default() });
+        self.chars += 1;
+    }
+
+    /// Discord's inline code: 85% of the text's size in a bordered box with 0.2em either side,
+    /// as tall as the code font plus the border.
+    fn code(&mut self, s: &str, st: St) {
+        let size = st.size * 0.85;
+        let pad = size * 0.2 + 1.0;
+        let start = self.chars;
+        self.pad += pad;
+        self.text(s, St { code: true, ..st });
+        if !st.hidden {
+            self.boxes.push((start..self.chars, Boxed::Code(pad), self.cx.line(st.size), (size * 1.32).round() + 2.0));
+        }
+        self.pad = pad;
+    }
+
     /// Discord's mention pill: 2px of fill either side, radius 3, as tall as the font
     /// rather than the line.
     fn pill(&mut self, s: &str, st: St, fill: Color32, link: Option<Link>) {
@@ -129,7 +185,9 @@ impl B<'_, '_> {
             Some(l) => self.linked(s, st, l),
             None => self.text(s, st),
         }
-        self.pills.push((start..self.chars, fill, self.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+        if !st.hidden {
+            self.pills.push((start..self.chars, fill, self.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+        }
         self.pad = 2.0;
     }
 
@@ -153,7 +211,9 @@ impl B<'_, '_> {
         // epaint skips letter spacing on a paragraph's first glyph, leading space it always honours
         let lead = size - w + 1.0;
         self.job.append("\u{a0}", lead + std::mem::take(&mut self.pad), f);
-        self.emojis.push((self.chars, url, size, lead));
+        if !st.hidden {
+            self.emojis.push((self.chars, url, size, lead));
+        }
         self.chars += 1;
     }
 }
@@ -281,6 +341,10 @@ pub fn prepend(t: &mut Inline, text: &str, fmt: TextFormat, link: Option<Link>) 
     for p in &mut t.pills {
         p.0 = p.0.start + chars..p.0.end + chars;
     }
+    for b in &mut t.boxes {
+        b.0 = b.0.start + chars..b.0.end + chars;
+    }
+    t.lead = 0.0;
     if let Some(l) = link {
         t.links.push((0..chars, l));
     }
@@ -466,9 +530,7 @@ fn inline(b: &mut B, s: &str, st: St) {
             let d = if rest.starts_with("``") { "``" } else { "`" };
             closing(rest, d).map(|end| {
                 b.text(&s[plain..i], st);
-                let mut s2 = st;
-                s2.code = true;
-                b.text(&rest[d.len()..d.len() + end], s2);
+                b.code(&rest[d.len()..d.len() + end], st);
                 end + d.len() * 2
             })
         } else if rest.starts_with("**") {
@@ -477,12 +539,21 @@ fn inline(b: &mut B, s: &str, st: St) {
             wrap(b, s, plain, i, st, "__", |s| s.under = true)
         } else if rest.starts_with("~~") {
             wrap(b, s, plain, i, st, "~~", |s| s.strike = true)
-        } else if rest.starts_with("||") && closing(rest, "||").is_some() {
+        } else if let Some(end) = rest.starts_with("||").then(|| closing(rest, "||")).flatten() {
             b.text(&s[plain..i], st);
-            let start = b.chars;
-            let r = wrap(b, s, i, i, st, "||", |s| s.spoiler = true);
-            b.links.push((start..b.chars, Link::Spoiler));
-            r
+            let (start, first, under) = (b.chars, b.links.len(), b.boxes.len());
+            let key = if st.spoiler { None } else { b.cx.spoilers.next() };
+            let mut s2 = st;
+            s2.spoiler = true;
+            s2.hidden |= key.is_some();
+            inline(b, &rest[2..2 + end], s2);
+            if let Some(key) = key {
+                b.links.insert(first, (start..b.chars, Link::Spoiler(key)));
+            }
+            if !st.spoiler {
+                b.boxes.insert(under, (start..b.chars, Boxed::Spoiler(key), b.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+            }
+            Some(end + 4)
         } else if (rest.starts_with('*') && !rest[1..].starts_with(char::is_whitespace))
             || (rest.starts_with('_') && !prev.is_some_and(char::is_alphanumeric))
         {
@@ -654,6 +725,7 @@ fn base(cx: &Cx) -> St {
         strike: false,
         code: false,
         spoiler: false,
+        hidden: false,
         size: cx.size,
         color: cx.color,
     }
@@ -662,23 +734,27 @@ fn base(cx: &Cx) -> St {
 fn new_b<'a, 'b>(cx: &'b Cx<'a>, jumbo: bool) -> B<'a, 'b> {
     let mut job = LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
-    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), pad: 0.0, jumbo }
+    B { cx, job, chars: 0, emojis: Vec::new(), links: Vec::new(), pills: Vec::new(), boxes: Vec::new(), lead: 0.0, pad: 0.0, jumbo }
 }
 
 fn finish(b: B) -> Block {
-    Block::Text(Inline { job: b.job, emojis: b.emojis, links: b.links, pills: b.pills })
+    Block::Text(Inline { job: b.job, emojis: b.emojis, links: b.links, pills: b.pills, boxes: b.boxes, lead: b.lead })
 }
 
-fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
+/// Lines of text and the quotes among them. Discord's headings are blocks with a margin of
+/// 16 above (8 or 4 when they come first) and 8 below, and its quotes are in --text-subtle.
+fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, out: &mut Vec<Block>) {
+    let plain = St { color, ..base(cx) };
     let mut b = new_b(cx, jumbo);
     let mut quote: Vec<&str> = Vec::new();
     let mut lines = text.split('\n').peekable();
     let mut first = true;
+    let mut below = 0.0f32;
     let flush_quote = |quote: &mut Vec<&str>, out: &mut Vec<Block>| {
         if !quote.is_empty() {
             let inner = quote.join("\n");
             let mut q = Vec::new();
-            text_lines(cx, &inner, false, &mut q);
+            text_lines(cx, &inner, false, pal().header_secondary, &mut q);
             out.push(Block::Quote(q));
             quote.clear();
         }
@@ -702,21 +778,32 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
             continue;
         }
         flush_quote(&mut quote, out);
+        let (line, under) = bold_item(line).unwrap_or((line, ""));
+        let head = [("### ", 16.0), ("## ", 20.0), ("# ", 24.0)].into_iter().find_map(|(p, size)| Some((line.strip_prefix(p)?, size)));
         if !first {
-            b.text("\n", base(cx));
+            b.text("\n", plain);
+            let margin = below.max(if head.is_some() { 16.0 } else { 0.0 });
+            if margin > 0.0 {
+                b.gap(margin);
+            }
+        } else if let Some((_, size)) = head {
+            b.lead = if !out.is_empty() {
+                16.0
+            } else if size > 16.0 {
+                8.0
+            } else {
+                4.0
+            };
         }
         first = false;
-        let mut st = base(cx);
-        let (line, under) = bold_item(line).unwrap_or((line, ""));
+        below = if head.is_some() { 8.0 } else { 0.0 };
+        let mut st = plain;
         let mut body = line;
-        for (p, size) in [("### ", 16.0), ("## ", 20.0), ("# ", 24.0)] {
-            if let Some(rest) = line.strip_prefix(p) {
-                st.size = size;
-                st.bold = true;
-                st.color = pal().header_primary;
-                body = rest;
-                break;
-            }
+        if let Some((rest, size)) = head {
+            st.size = size;
+            st.bold = true;
+            st.color = pal().header_primary;
+            body = rest;
         }
         let trimmed = body.trim_start();
         let indent = body.len() - trimmed.len();
@@ -724,14 +811,14 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, out: &mut Vec<Block>) {
             b.text(&format!("{}• ", "    ".repeat(indent / 2 + 1)), st);
             body = item;
         } else if let Some(rest) = trimmed.strip_prefix("-# ") {
-            st.size = 13.0;
-            st.color = pal().text_muted;
+            st.size = 14.0;
+            st.color = pal().header_secondary;
             body = rest;
         }
         inline(&mut b, body, st);
         if !under.is_empty() {
-            b.text("\n", base(cx));
-            inline(&mut b, under, base(cx));
+            b.text("\n", plain);
+            inline(&mut b, under, plain);
         }
     }
     flush_quote(&mut quote, out);
@@ -773,14 +860,14 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         let Some(end) = after.find("```") else { break };
         let before = rest[..start].trim_end_matches('\n');
         if !before.is_empty() {
-            text_lines(cx, before, false, &mut out);
+            text_lines(cx, before, false, cx.color, &mut out);
         }
         let (lang, code) = fence(&after[..end]);
         out.push(Block::Code(lang.to_string(), code.to_string()));
         rest = after[end + 3..].trim_start_matches('\n');
     }
     if !rest.is_empty() {
-        text_lines(cx, rest, jumbo, &mut out);
+        text_lines(cx, rest, jumbo, cx.color, &mut out);
     }
     if cx.edited {
         let mut st = base(cx);
@@ -805,26 +892,4 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{bold_item, fence};
-
-    #[test]
-    fn what_follows_a_bolded_list_item_drops_to_its_own_line() {
-        assert_eq!(bold_item("**11. Respect All Players** Be respectful and kind."), Some(("**11. Respect All Players**", "Be respectful and kind.")));
-        assert_eq!(bold_item("**- Rules** apply"), Some(("**- Rules**", "apply")));
-        assert_eq!(bold_item("**11. Respect All Players**"), None);
-        assert_eq!(bold_item("**Respect** everyone"), None);
-        assert_eq!(bold_item("**3.5 stars** out of five"), None);
-        assert_eq!(bold_item("11. **Respect** everyone"), None);
-    }
-
-    #[test]
-    fn a_fence_names_its_language_only_on_its_own_line() {
-        assert_eq!(fence("rust\nfn main() {}\n"), ("rust", "fn main() {}"));
-        assert_eq!(fence("c++\n\nint x;"), ("c++", "int x;"));
-        assert_eq!(fence("rust"), ("", "rust"));
-        assert_eq!(fence("rust\n"), ("", "rust"));
-        assert_eq!(fence("\nfn main() {}"), ("", "fn main() {}"));
-        assert_eq!(fence("two words\nx"), ("", "two words\nx"));
-    }
-}
+mod tests;
