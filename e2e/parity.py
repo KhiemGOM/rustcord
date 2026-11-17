@@ -294,7 +294,7 @@ def worker(name, folder, sizes):
         return dict(checks=checks)
     log = folder / 'mock_requests.jsonl'
     mock_env = dict(os.environ, MOCK_SETTINGS_LIVE='1') if name == 'restart' else dict(os.environ)
-    mock = subprocess.Popen([str(run.ROOT / 'target/release/examples/mockcord.exe'), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)], env=mock_env)
+    mock = subprocess.Popen([str(run.MOCK), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)], env=mock_env)
     try:
         time.sleep(.5)
         fake = dict(RUSTCORD_FAKE_MIC='1', RUSTCORD_FAKE_CAM='1', RUSTCORD_FAKE_VIDEO='1', RUSTCORD_SILENT='1')

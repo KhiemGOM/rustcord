@@ -2,6 +2,7 @@
 whole run. The steps before it that open the first channel still run.
 
     python e2e/from_step.py 1900     # needs target/release built; prints the marks it reached
+    python e2e/from_step.py 1900 --profile iter   # ...or target/iter, the cheap build
     python e2e/from_step.py login    # the login run on its own, scored by auth.checks
 """
 
@@ -24,15 +25,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("step")
     parser.add_argument("--data", type=Path)
+    parser.add_argument("--profile", help="read by run.py")
     args = parser.parse_args()
     art = Path(tempfile.mkdtemp(prefix="rustcord_from_step_"))
     if args.data:
         shutil.copytree(args.data, art / "data")
     run.ART = art
     log = art / "mock_requests.jsonl"
-    mock_exe = os.environ.get("RUSTCORD_MOCK_EXE") or run.ROOT / "target" / "release" / "examples" / "mockcord.exe"
     chunks = icons.make(run.ROOT / "target" / "e2e-art")
-    mock = subprocess.Popen([str(mock_exe), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)], env=dict(os.environ, MOCK_ART=str(chunks or "")))
+    mock = subprocess.Popen([str(run.MOCK), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)], env=dict(os.environ, MOCK_ART=str(chunks or "")))
     time.sleep(0.5)
     try:
         if args.step == "login":

@@ -19,7 +19,7 @@ def request(method, path, body=None):
 
 def main():
     with tempfile.TemporaryDirectory(prefix="rustcord_reset_") as tmp:
-        mock = subprocess.Popen([str(run.ROOT / "target/release/examples/mockcord.exe"), str(run.HTTP), str(run.WS),
+        mock = subprocess.Popen([str(run.MOCK), str(run.HTTP), str(run.WS),
                                  str(Path(tmp) / "requests.jsonl"), str(run.VOICE), str(run.REMOTE)])
         try:
             time.sleep(0.5)

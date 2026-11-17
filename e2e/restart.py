@@ -1,7 +1,7 @@
 """Changes account settings through their controls, restarts the client on the same data folder against
 the same mock, and checks they stuck (a login must not put back what the account was never told).
 
-    python e2e/restart.py     # needs target/release built; exits 1 if a setting came back changed
+    python e2e/restart.py     # needs target/release built (or --profile); exits 1 if a setting came back changed
 """
 
 import json
@@ -19,7 +19,7 @@ def main():
     art = Path(tempfile.mkdtemp(prefix="rustcord_restart_"))
     run.ART = art
     log = art / "mock_requests.jsonl"
-    mock = subprocess.Popen([str(run.ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)],
+    mock = subprocess.Popen([str(run.MOCK), str(run.HTTP), str(run.WS), str(log), str(run.VOICE), str(run.REMOTE)],
                             env=dict(os.environ, MOCK_SETTINGS_LIVE="1"))
     time.sleep(0.5)
     fake = {"RUSTCORD_FAKE_MIC": "1", "RUSTCORD_FAKE_CAM": "1", "RUSTCORD_FAKE_VIDEO": "1", "RUSTCORD_SILENT": "1"}

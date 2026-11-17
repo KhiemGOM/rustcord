@@ -1,5 +1,5 @@
-//! Steps 5300 to 5349: a tester's reports, each driven through the real control.
-//! `RUSTCORD_E2E_TO=1 python e2e/from_step.py 5300` runs just this group.
+//! Steps 5400 to 5449: a tester's reports, each driven through the real control.
+//! `RUSTCORD_E2E_TO=1 python e2e/from_step.py 5400` runs just this group.
 
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,7 @@ impl Run {
         let (gid, general) = self.target;
         let stuck = self.step_at.elapsed() > Duration::from_secs(10);
         match self.step {
-            5300 => {
+            5400 => {
                 app.profile = None;
                 app.inbox = None;
                 app.ui.hide_members = false;
@@ -32,7 +32,7 @@ impl Run {
                 self.sub = 0;
                 self.next(1000);
             }
-            5301 => {
+            5401 => {
                 let Some(row) = app.rects.get(&format!("member:{ALICE}")).copied() else {
                     if stuck {
                         self.next(0);
@@ -63,16 +63,16 @@ impl Run {
                 }
                 self.wait = Instant::now() + Duration::from_millis(800);
             }
-            5302 => {
+            5402 => {
                 app.open_profile(app.store.me, 0, pos2(300.0, 160.0));
                 self.next(1200);
             }
-            5303 => {
+            5403 => {
                 app.profile = None;
                 app.drafts.insert(general, "words that run on and on ".repeat(40));
                 self.next(600);
             }
-            5304 => {
+            5404 => {
                 if let (Some(text), Some(strip)) = (app.rects.get("composer_text_box").copied(), app.rects.get("composer:buttons").copied()) {
                     self.rects.insert("rv_composer".into(), serde_json::json!([text.right(), strip.left()]));
                     if text.width() > 100.0 && text.right() <= strip.left() + 0.5 {
@@ -85,7 +85,7 @@ impl Run {
                 self.queue.push_back(vec![Event::PointerMoved(pos2(900.0, 400.0))]);
                 self.next(900);
             }
-            5305 => {
+            5405 => {
                 if Self::at(ctx, &format!("dm_mark:{ALICE_DM}")).is_some() {
                     self.mark("rv_dm_pin");
                 } else if !stuck {
@@ -95,12 +95,12 @@ impl Run {
                 app.open_quests();
                 self.next(2500);
             }
-            5306 => {
+            5406 => {
                 app.quests = None;
                 app.select_guild(Some(gid));
                 app.open(general);
                 let Some(vc) = Self::busy_voice(app, gid) else {
-                    self.step = 5314;
+                    self.step = 5414;
                     return;
                 };
                 app.store.opt_in.insert(gid);
@@ -116,11 +116,11 @@ impl Run {
                 self.rects.insert("rv_vc".into(), serde_json::json!(vc));
                 self.next(1200);
             }
-            5307 => {
+            5407 => {
                 let vc = self.rects.get("rv_vc").and_then(|v| v.as_u64()).unwrap_or(0);
                 let Some(t) = Self::at(ctx, "side:voice_toggle") else {
                     if stuck {
-                        self.step = 5313;
+                        self.step = 5413;
                     }
                     return;
                 };
@@ -131,29 +131,29 @@ impl Run {
                 self.click(t.center());
                 self.next(900);
             }
-            5308 => {
+            5408 => {
                 if app.ui.voice_open.contains(&gid) {
                     self.mark("rv_voice_shown_all");
                 }
                 let Some(row) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("voice_row", ALICE)))) else {
                     if stuck {
-                        self.step = 5313;
+                        self.step = 5413;
                     }
                     return;
                 };
                 self.queue.push_back(vec![Event::PointerMoved(row.center())]);
                 self.next(1800);
             }
-            5309 => {
+            5409 => {
                 if Self::at(ctx, "stream_tip").is_some() {
                     self.mark("rv_stream_tip");
                     self.shot(ctx, "rv_stream_tip.png");
                 } else if !stuck {
                     return;
                 }
-                self.step = 5313;
+                self.step = 5413;
             }
-            5313 => {
+            5413 => {
                 app.store.opt_in.remove(&gid);
                 let perms = self.rects.get("rv_perms").and_then(|v| v.as_u64());
                 if let Some(g) = app.store.guilds.get_mut(&gid) {
@@ -167,17 +167,17 @@ impl Run {
                 self.queue.push_back(vec![Event::PointerMoved(pos2(900.0, 400.0))]);
                 self.next(500);
             }
-            5314 => {
+            5414 => {
                 let path = self.dir.join("studio_pick.png");
                 let _ = image::RgbaImage::from_pixel(64, 64, image::Rgba([88, 101, 242, 255])).save(&path);
                 app.select_guild(None);
                 crate::ui::emojistudio::start(app, path, 0);
                 self.next(900);
             }
-            5315 => {
+            5415 => {
                 if app.emoji_studio.is_none() || Self::at(ctx, "studio:finish").is_none() {
                     if stuck {
-                        self.step = 5319;
+                        self.step = 5419;
                     }
                     return;
                 }
@@ -186,35 +186,35 @@ impl Run {
                 self.click(r.center());
                 self.next(600);
             }
-            5316 => {
+            5416 => {
                 let mine = app.store.guild_order.iter().copied().find(|g| app.store.my_perms(*g) & (crate::state::CREATE_GUILD_EXPRESSIONS | crate::state::MANAGE_GUILD_EXPRESSIONS) != 0);
                 let Some(r) = mine.and_then(|g| Self::at(ctx, &format!("studio:server:{g}"))) else {
                     if stuck {
                         self.shot(ctx, "rv_studio_no_menu.png");
-                        self.step = 5319;
+                        self.step = 5419;
                     }
                     return;
                 };
                 self.click(r.center());
                 self.next(600);
             }
-            5317 => {
+            5417 => {
                 let Some(r) = Self::at(ctx, "studio:finish") else {
                     if stuck {
-                        self.step = 5319;
+                        self.step = 5419;
                     }
                     return;
                 };
                 self.click(r.center());
                 self.next(1500);
             }
-            5318 => {
+            5418 => {
                 if app.emoji_studio.is_none() {
                     self.mark("rv_studio_uploaded");
                 } else if !stuck {
                     return;
                 }
-                self.step = 5319;
+                self.step = 5419;
             }
             _ => {
                 app.emoji_studio = None;

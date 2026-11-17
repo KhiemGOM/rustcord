@@ -173,6 +173,19 @@ fn separator(ui: &mut Ui) {
     ui.painter().rect_filled(Rect::from_center_size(sep.center(), vec2(32.0, 1.0)), CornerRadius::same(1), pal().frame_border);
 }
 
+/// Discord's font size for a server's initials, by how many there are: the rail's own table,
+/// and the 16px icon's for the ones inside a folder.
+fn initials_px(mini: bool, chars: usize) -> f32 {
+    let sizes: &[f32] = if mini { &[10.0, 10.0, 8.0, 6.0, 6.0, 4.0] } else { &[18.0, 18.0, 16.0, 16.0, 14.0, 12.0, 10.0] };
+    sizes[chars.clamp(1, sizes.len()) - 1]
+}
+
+#[test]
+fn initials_shrink_as_discord_shrinks_them() {
+    assert_eq!([1, 2, 3, 4, 5, 6, 7, 12].map(|n| initials_px(false, n)), [18.0, 18.0, 16.0, 16.0, 14.0, 12.0, 10.0, 10.0]);
+    assert_eq!([1, 2, 3, 6, 9].map(|n| initials_px(true, n)), [10.0, 10.0, 8.0, 4.0, 4.0]);
+}
+
 fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerRadius>, hot: bool, k: f32) {
     let Some(g) = app.store.guilds.get(&gid) else { return };
     let radius = radius.into();
@@ -185,17 +198,11 @@ fn guild_icon(app: &App, ui: &Ui, gid: Id, rect: Rect, radius: impl Into<CornerR
             let under = if mini { pal().bg_primary } else { pal().bg_mod_selected };
             ui.painter().rect_filled(rect, radius, motion::mix(under, pal().blurple, k));
             let acr = g.acronym();
-            let size = match acr.chars().count() {
-                0..=2 => 17.0,
-                3 => 15.0,
-                4..=5 => 13.0,
-                _ => 11.0,
-            } * rect.width()
-                / ICON
-                * if mini { 1.24 } else { 1.0 };
+            let size = initials_px(mini, acr.chars().count()) * rect.width() / if mini { 16.0 } else { ICON };
             let col = motion::mix(pal().text_normal, Color32::WHITE, k);
-            let font = if mini { reg(size) } else { semi(size) };
-            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &acr, font, col, rect.width() - 4.0);
+            let font = if mini { reg(size) } else { medium(size) };
+            // discord cuts initials that run past the icon; it doesn't elide them
+            text::paint(&ui.painter().with_clip_rect(rect.intersect(ui.clip_rect())), rect.center(), Align2::CENTER_CENTER, &acr, font, col, f32::INFINITY);
         }
     }
 }

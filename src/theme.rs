@@ -586,6 +586,12 @@ pub fn reg(size: f32) -> FontId {
     FontId::proportional(size)
 }
 
+/// Whether what people wrote is drawn at medium weight: discord does on the light theme on a
+/// 1x screen (`.theme-light .markup` and its kin under `-webkit-max-device-pixel-ratio: 1`).
+pub fn heavy(ctx: &egui::Context) -> bool {
+    !pal().dark && ctx.pixels_per_point() <= 1.0
+}
+
 pub fn mono(size: f32) -> FontId {
     FontId::monospace(size)
 }

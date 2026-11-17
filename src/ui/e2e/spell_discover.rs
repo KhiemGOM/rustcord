@@ -117,13 +117,78 @@ impl Run {
                 self.next(800);
             }
             1723 => {
-                let Some(card) = feed(app, "q:rust") else { return };
+                let (Some(_), Some(shown)) = (feed(app, "q:rust"), Self::at(ctx, "dropdown:Gaming")) else { return };
                 self.mark("discover_search");
+                if app.directory.as_ref().is_some_and(|d| d.sv.cat == Some(1)) && app.rects.contains_key("discover:back") {
+                    self.mark("discover_search_in_category");
+                }
                 self.shot(ctx, "discover_search.png");
+                self.click(shown.center());
+                self.next(500);
+            }
+            1724 => {
+                let Some(all) = Self::at(ctx, "option:All") else { return };
+                if Self::at(ctx, "option:Gaming").is_some() && Self::at(ctx, "option:Music").is_some() {
+                    self.mark("discover_search_categories");
+                }
+                self.click(all.center());
+                self.next(800);
+            }
+            1725 => {
+                if Self::at(ctx, "dropdown:All").is_none() {
+                    return;
+                }
+                if app.directory.as_ref().is_some_and(|d| d.sv.cat.is_none()) {
+                    self.mark("discover_search_all");
+                    self.shot(ctx, "discover_search_all.png");
+                }
+                app.rects.remove("discover:cat:Gaming");
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(1600.0, 900.0)));
+                self.next(1000);
+            }
+            1726 => {
+                let wide = ctx.content_rect().width() > 1500.0;
+                let (Some(all), Some(gaming)) = (app.rects.get("discover:cat:All").copied(), app.rects.get("discover:cat:Gaming").copied()) else {
+                    if self.step_at.elapsed() > std::time::Duration::from_secs(10) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(1280.0, 800.0)));
+                        self.step = 1728;
+                    }
+                    return;
+                };
+                if wide && Self::at(ctx, "dropdown:All").is_none() && all.left() > ctx.content_rect().right() - 180.0 && gaming.top() > all.top() {
+                    self.mark("discover_search_beside");
+                    self.shot(ctx, "discover_search_wide.png");
+                }
+                self.click(gaming.center());
+                self.next(800);
+            }
+            1727 => {
+                if app.directory.as_ref().is_some_and(|d| d.sv.cat == Some(1)) {
+                    self.mark("discover_search_side_pick");
+                } else if self.step_at.elapsed() < std::time::Duration::from_secs(10) {
+                    return;
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(1280.0, 800.0)));
+                self.next(1000);
+            }
+            1728 => {
+                if ctx.content_rect().width() > 1300.0 && self.step_at.elapsed() < std::time::Duration::from_secs(10) {
+                    return;
+                }
+                let Some(back) = app.rects.get("discover:back").copied() else { return };
+                self.click(back.center());
+                self.next(800);
+            }
+            1729 => {
+                if app.directory.as_ref().is_none_or(|d| !d.searched.is_empty() || !d.query.is_empty()) {
+                    return;
+                }
+                let Some(card) = feed(app, "c:1") else { return };
+                self.mark("discover_search_back");
                 self.click(card.center());
                 self.next(800);
             }
-            1724 => {
+            1730 => {
                 if app.directory.is_some() {
                     return;
                 }

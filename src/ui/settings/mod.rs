@@ -18,7 +18,7 @@ pub use privacy::send;
 mod keybinds;
 mod notify;
 mod search;
-mod system;
+pub mod system;
 mod testmode;
 mod user;
 mod voice;

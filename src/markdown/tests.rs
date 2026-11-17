@@ -1,4 +1,4 @@
-use super::{Block, Boxed, Cx, Inline, Link, Spoilers, bold_item, fence, parse};
+use super::{Block, Boxed, Cx, Inline, Link, Marker, Spoilers, bold_item, fence, item, parse};
 use crate::state::{Id, Set};
 
 fn texts(text: &str, open: &Set<Id>) -> Vec<Inline> {
@@ -6,7 +6,7 @@ fn texts(text: &str, open: &Set<Id>) -> Vec<Inline> {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::fonts(false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::clicked(open, 7u64), edited: false, embed: false };
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::clicked(open, 7u64), edited: false, embed: false, heavy: false };
     parse(text, &cx).into_iter().filter_map(|b| if let Block::Text(t) = b { Some(t) } else { None }).collect()
 }
 
@@ -63,6 +63,73 @@ fn a_covered_spoiler_shows_nothing_of_what_is_inside() {
     assert_eq!(t.boxes.iter().map(|b| b.1).collect::<Vec<_>>(), [Boxed::Spoiler(None), Boxed::Code(16.0 * 0.85 * 0.2 + 1.0)]);
 }
 
+fn plain(blocks: &[Block]) -> String {
+    blocks.iter().map(|b| if let Block::Text(t) = b { t.job.text.clone() } else { "?".into() }).collect()
+}
+
+fn blocks(text: &str) -> Vec<Block> {
+    let store = crate::state::Store::default();
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::fonts(false));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy: false };
+    parse(text, &cx)
+}
+
+#[test]
+fn plain_text_is_medium_where_discord_makes_it_so() {
+    let store = crate::state::Store::default();
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::fonts(false));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let fonts = |heavy: bool| {
+        let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy };
+        let b = parse("plain **bold**", &cx);
+        let Block::Text(t) = &b[0] else { panic!("no text") };
+        t.job.sections.iter().map(|s| s.format.font_id.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(fonts(false), [crate::theme::reg(16.0), crate::theme::bold(16.0)]);
+    assert_eq!(fonts(true), [crate::theme::medium(16.0), crate::theme::bold(16.0)]);
+}
+
+#[test]
+fn a_list_line_is_a_bullet_and_a_space() {
+    assert_eq!(item("- one"), Some((0, "-", "one")));
+    assert_eq!(item("  *   two"), Some((2, "*", "two")));
+    assert_eq!(item("12. twelve"), Some((0, "12.", "twelve")));
+    for not in ["-# small", "*italic* text", "1.5 stars", "2023 was long", "-", "- ", "text - more"] {
+        assert_eq!(item(not), None, "{not}");
+    }
+}
+
+#[test]
+fn a_list_numbers_from_its_first_item_and_sits_in_by_its_digits() {
+    let b = blocks("before\n9. nine\n1. ten\n- eleven\nafter");
+    let [Block::Text(before), Block::List(list), Block::Text(after)] = &b[..] else { panic!("not text, list, text") };
+    assert_eq!((before.job.text.as_str(), after.job.text.as_str()), ("before", "after"));
+    assert_eq!(list.items.iter().map(|(m, _)| *m).collect::<Vec<_>>(), [Marker::Number(9), Marker::Number(10), Marker::Number(11)]);
+    assert_eq!(list.items.iter().map(|(_, b)| plain(b)).collect::<Vec<_>>(), ["nine", "ten", "eleven"]);
+    assert_eq!((list.indent, list.line), ((0.4 + 0.6 * 2.0) * 16.0, 22.0));
+}
+
+#[test]
+fn deeper_lines_stay_with_the_item_above_them() {
+    let b = blocks("- one\n  more of one\n  - inside\n- two");
+    let [Block::List(list)] = &b[..] else { panic!("not one list") };
+    assert_eq!((list.indent, list.items.len()), (16.0, 2));
+    let (Marker::Disc, [Block::Text(one), Block::List(inside)]) = (list.items[0].0, &list.items[0].1[..]) else { panic!("no list inside the first item") };
+    assert_eq!(one.job.text, "one\nmore of one");
+    assert_eq!((inside.items[0].0, plain(&inside.items[0].1)), (Marker::Circle, "inside".to_string()));
+    assert_eq!(plain(&list.items[1].1), "two");
+}
+
+#[test]
+fn a_list_item_holds_no_heading() {
+    let b = blocks("- # not a title");
+    let [Block::List(list)] = &b[..] else { panic!("not one list") };
+    assert_eq!(plain(&list.items[0].1), "# not a title");
+}
+
 #[test]
 fn a_heading_keeps_its_margins() {
     let none = Set::default();
@@ -81,7 +148,7 @@ fn quotes_and_subtext_are_in_the_subtle_colour() {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::fonts(false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false };
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy: false };
     let subtle = crate::theme::pal().header_secondary;
     let blocks = parse("> quoted\n-# small", &cx);
     let [Block::Quote(q), Block::Text(small)] = &blocks[..] else { panic!("not a quote and a line") };
