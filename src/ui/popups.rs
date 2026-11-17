@@ -187,6 +187,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
     super::emojistudio::show(app, ctx);
+    super::streamtip::show(app, ctx);
     super::dmpick::show(app, ctx);
     super::topic::show(app, ctx);
     super::feedabout::show(app, ctx);

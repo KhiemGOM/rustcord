@@ -35,6 +35,7 @@ pub mod failed;
 mod feedabout;
 mod folders;
 mod emojistudio;
+mod streamtip;
 mod follow;
 mod forum;
 mod forumbar;

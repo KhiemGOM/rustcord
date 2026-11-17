@@ -1739,6 +1739,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ])),
         ("POST", ["api", "v9", "channels", _, "send-soundboard-sound"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "streams", _, "preview"]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "streams", _, "preview"]) => {
+            let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+            ok(json!({ "url": format!("http://127.0.0.1:{port}/cdn/attachments/2011/1/photo-800x450-1.png") }))
+        }
         // e2e/bench.py: a busy account's background traffic for `secs`, `rate` events a second:
         // presences in the open server, typing and messages in another one
         ("POST", ["api", "v9", "mock", "busy"]) => {

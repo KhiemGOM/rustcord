@@ -758,6 +758,9 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         if resp.hovered() {
             ui.painter().rect_filled(row.shrink2(vec2(8.0, 0.0)), CornerRadius::same(8), pal().bg_mod_hover);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            if voice.live.contains(&u) || g.streaming.contains(&u) {
+                super::streamtip::hover(ui, gid, ch, u, row);
+            }
         }
         if resp.clicked() || resp.secondary_clicked() {
             hit = Some((u, resp.secondary_clicked(), resp.interact_pointer_pos().unwrap_or(row.center())));
