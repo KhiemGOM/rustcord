@@ -255,7 +255,7 @@ fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut V
 
 fn hero(ui: &mut Ui, acts: &mut Vec<Act>) {
     let w = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(w, 420.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(w, 500.0), Sense::hover());
     let round = CornerRadius::same(24);
     ui.painter().rect_filled(r, round, Color32::from_rgb(0x0b, 0x0b, 0x1f));
     for (c, rad, a) in [(pal().blurple, 260.0, 70u8), (Color32::from_rgb(0xeb, 0x45, 0x9e), 150.0, 40)] {
@@ -265,15 +265,17 @@ fn hero(ui: &mut Ui, acts: &mut Vec<Act>) {
         }
     }
     icons::draw(ui.painter(), Icon::Gem, Rect::from_center_size(pos2(r.right() - 220.0, r.center().y - 20.0), vec2(150.0, 150.0)), Color32::from_rgb(0xdd, 0xe3, 0xff));
-    let x = r.left() + 38.0;
-    ui.painter().text(pos2(x, r.bottom() - 190.0), Align2::LEFT_BOTTOM, "INTRODUCING", bold(56.0), Color32::WHITE);
-    ui.painter().text(pos2(x, r.bottom() - 140.0), Align2::LEFT_BOTTOM, "DISCORD ORBS", bold(56.0), Color32::WHITE);
-    ui.painter().text(pos2(x, r.bottom() - 100.0), Align2::LEFT_CENTER, "Reward Your Play. Earn through Quests. Spend in the Shop.", medium(16.0), Color32::from_rgb(0xdc, 0xdc, 0xdf));
-    let a = Rect::from_min_size(pos2(x, r.bottom() - 74.0), vec2(190.0, 46.0));
-    if white(ui, a, "Explore Orbs Exclusives", true) {
+    let x = r.left() + 32.0;
+    for (line, up) in [("INTRODUCING", 183.0), ("DISCORD ORBS", 139.0)] {
+        ui.painter().text(pos2(x, r.bottom() - up), Align2::LEFT_CENTER, line, display(44.0), Color32::from_rgb(0xdc, 0xdc, 0xdf));
+    }
+    ui.painter().text(pos2(x, r.bottom() - 100.0), Align2::LEFT_CENTER, "Reward Your Play. Earn through Quests. Spend in the Shop.", reg(16.0), Color32::from_rgb(0xdc, 0xdc, 0xdf));
+    let wide = |ui: &Ui, label: &str| ui.painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE).size().x + 32.0;
+    let a = Rect::from_min_size(pos2(x, r.bottom() - 73.0), vec2(wide(ui, "Explore Orbs Shop"), 40.0));
+    if white(ui, a, "Explore Orbs Shop", true) {
         acts.push(Act::Shop);
     }
-    let b = Rect::from_min_size(pos2(a.right() + 12.0, a.top()), vec2(160.0, 46.0));
+    let b = Rect::from_min_size(pos2(a.right() + 8.0, a.top()), vec2(wide(ui, "Discord Orbs Terms"), 40.0));
     if white(ui, b, "Discord Orbs Terms", false) {
         acts.push(Act::Open("https://discord.com/terms/orbs"));
     }
@@ -281,8 +283,11 @@ fn hero(ui: &mut Ui, acts: &mut Vec<Act>) {
 
 fn white(ui: &mut Ui, r: Rect, label: &str, solid: bool) -> bool {
     let resp = ui.interact(r, ui.id().with(("hero_btn", label)), Sense::click());
-    let fill = if solid { Color32::WHITE } else { Color32::from_black_alpha(if resp.hovered() { 170 } else { 120 }) };
+    let fill = if solid { Color32::WHITE } else { Color32::from_black_alpha(if resp.hovered() { 170 } else { 143 }) };
     ui.painter().rect_filled(r, CornerRadius::same(8), if solid && resp.hovered() { Color32::from_gray(0xe6) } else { fill });
+    if !solid {
+        ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgba_unmultiplied(149, 149, 162, 41)), egui::StrokeKind::Inside);
+    }
     ui.painter().text(r.center(), Align2::CENTER_CENTER, label, medium(16.0), if solid { Color32::BLACK } else { Color32::WHITE });
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -291,6 +296,8 @@ fn white(ui: &mut Ui, r: Rect, label: &str, solid: bool) -> bool {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
+    crate::ui::shop::wallet::fetch(app);
+    let dot = crate::ui::shop::wallet::enabled(app) && crate::ui::shop::wallet::unread(app);
     let Some(q) = app.quests.as_ref() else { return };
     let tab = q.tab;
     let orbs = q.orbs;
@@ -304,7 +311,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let r = ui.max_rect();
             ui.painter().hline(r.x_range().expand(16.0), r.bottom() + 0.5, Stroke::new(1.0, pal().border_subtle));
             icons::draw(ui.painter(), Icon::Quests, Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(24.0, 24.0)), pal().channel_default);
-            let mut x = r.left() + 56.0;
+            let mut x = r.left() + 68.0;
             for (i, name) in ["All Quests", "Claimed Quests"].iter().enumerate() {
                 let g = ui.painter().layout_no_wrap(name.to_string(), medium(16.0), pal().header_primary);
                 let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, 48.0));
@@ -322,14 +329,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     set_tab = Some(i as u8);
                 }
-                x = tr.right() + 20.0;
+                x = tr.right() + 32.0;
             }
             if let Some(n) = orbs {
                 let g = ui.painter().layout_no_wrap(n.to_string(), semi(16.0), pal().header_primary);
-                let chip = Rect::from_min_size(pos2(r.right() - 40.0 - g.size().x - 24.0, r.center().y - 16.0), vec2(g.size().x + 64.0, 32.0));
+                let chip = Rect::from_min_size(pos2(r.right() + 4.0 - g.size().x - 50.0, r.center().y - 16.0), vec2(g.size().x + 50.0, 32.0));
                 ui.painter().rect(chip, 8, Color32::from_rgba_unmultiplied(151, 151, 159, 31), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
-                icons::draw(ui.painter(), Icon::Gem, Rect::from_center_size(pos2(chip.left() + 20.0, chip.center().y), vec2(20.0, 20.0)), pal().header_primary);
-                ui.painter().galley(pos2(chip.left() + 38.0, chip.center().y - g.size().y / 2.0), g, pal().header_primary);
+                icons::draw(ui.painter(), Icon::Gem, Rect::from_center_size(pos2(chip.left() + 19.0, chip.center().y), vec2(20.0, 20.0)), pal().header_primary);
+                ui.painter().galley(pos2(chip.left() + 37.0, chip.center().y - g.size().y / 2.0), g, pal().header_primary);
+                if dot {
+                    crate::ui::shop::wallet::dot(ui, chip);
+                }
             }
         });
     let mut acts: Vec<Act> = Vec::new();
@@ -345,7 +355,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     };
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            Frame::new().inner_margin(Margin { left: 32, right: 32, top: 24, bottom: 32 }).show(ui, |ui| {
+            Frame::new().inner_margin(Margin { left: 32, right: 40, top: 24, bottom: 32 }).show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 let list = if tab == 0 { offered.as_ref() } else { claimed.as_ref() };
                 if tab == 0 {

@@ -2413,6 +2413,13 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             (204, "application/json", Vec::new())
         }
         ("GET", ["api", "v9", "guilds", g, "profile"]) => ok(profile_full(w, g).unwrap_or_default()),
+        ("PUT", ["api", "v9", "users", "@me", "clan"]) => {
+            let b: Value = serde_json::from_slice(body).unwrap_or_default();
+            if b["identity_guild_id"].as_str().is_none_or(|g| g.parse::<u64>().is_err()) || !b["identity_enabled"].is_boolean() {
+                return (400, "application/json", json!({ "message": "Invalid Form Body", "code": 50035 }).to_string().into_bytes());
+            }
+            ok(b)
+        }
         ("PATCH", ["api", "v9", "guilds", g, "profile"]) => {
             keep(w, format!("p:{g}"), body);
             ok(profile_full(w, g).unwrap_or_default())

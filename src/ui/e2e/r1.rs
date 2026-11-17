@@ -14,6 +14,8 @@ const BOT: u64 = 104;
 const HUB_GUILD: u64 = 1001;
 const THEMED: u64 = 1002;
 const NEWS: u64 = 2002;
+const ALICE: u64 = 101;
+const ALICE_DM: u64 = 3000;
 
 fn menu(ctx: &egui::Context, label: &str) -> Option<egui::Rect> {
     Run::at(ctx, &format!("menu_row:{label}"))
@@ -204,6 +206,11 @@ impl Run {
                     }
                     return;
                 };
+                if Self::at(ctx, "orbs:dot").is_some() {
+                    self.mark("orb_dot");
+                } else if !stuck {
+                    return;
+                }
                 self.click(r.center());
                 self.next(900);
             }
@@ -223,6 +230,9 @@ impl Run {
             }
             5226 => {
                 if Self::at(ctx, "wallet:challenge:shop_visit").is_some() && Self::at(ctx, "wallet:challenge:first_message").is_none() {
+                    if Self::at(ctx, "orbs:dot").is_none() {
+                        self.mark("orb_dot_cleared");
+                    }
                     self.mark("wallet_claimed");
                 } else if !stuck {
                     return;
@@ -726,6 +736,53 @@ impl Run {
                     return;
                 }
                 app.confirm = None;
+                self.step = 5291;
+            }
+            5291 => {
+                let me = app.store.me;
+                if let Some(u) = app.store.users.get_mut(&me) {
+                    u.tag = None;
+                }
+                app.tag_pop = Some((HUB_GUILD, egui::pos2(400.0, 300.0)));
+                self.next(900);
+            }
+            5292 => {
+                let Some(r) = Self::at(ctx, &format!("invite:tag:{HUB_GUILD}:join")) else {
+                    if stuck {
+                        app.tag_pop = None;
+                        self.step = 5290;
+                    }
+                    return;
+                };
+                self.shot(ctx, "tag_adopt.png");
+                self.click(r.center());
+                self.next(700);
+            }
+            5293 => {
+                if app.tag_pop.is_none() && app.ui.guild != Some(HUB_GUILD) {
+                    self.mark("tag_adopted");
+                } else if !stuck {
+                    return;
+                }
+                app.tag_pop = None;
+                self.step = 5294;
+            }
+            5294 => {
+                super::live::event(app, "PRESENCE_UPDATE", serde_json::json!({ "user": { "id": ALICE.to_string() }, "status": "dnd", "activities": [{ "name": "Rocket Crab", "type": 0, "id": "e2e" }] }));
+                app.rects.remove("header:activity");
+                app.select_guild(None);
+                app.open(ALICE_DM);
+                self.next(900);
+            }
+            5295 => {
+                let chip = app.rects.get("header:activity").copied().filter(|r| r.bottom() < 90.0);
+                if chip.is_some() && app.store.status(ALICE) == crate::state::Status::Dnd {
+                    self.mark("dm_header_activity");
+                    self.shot(ctx, "dm_header_activity.png");
+                } else if !stuck {
+                    return;
+                }
+                super::live::event(app, "PRESENCE_UPDATE", serde_json::json!({ "user": { "id": ALICE.to_string() }, "status": "online", "activities": [] }));
                 self.step = 5290;
             }
             _ => {

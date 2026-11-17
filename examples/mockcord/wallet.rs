@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
 static CLAIMED: AtomicBool = AtomicBool::new(false);
+static SEEN: AtomicBool = AtomicBool::new(false);
 
 pub const EXPERIMENT: u32 = 2185542098;
 
@@ -17,6 +18,11 @@ pub fn route(method: &str, parts: &[&str]) -> Option<(u16, Value)> {
             "orb_multiplier": 1.0, "nitro_gated_orb_multiplier": 1.2, "has_unclaimed_achievements": !CLAIMED.load(Relaxed),
         })),
         ("GET", ["api", "v9", "users", "@me", "virtual-currency", "total-redeemed"]) => (200, json!({ "total_redeemed": 15600 })),
+        ("GET", ["api", "v9", "users", "@me", "achievements", "unread-state"]) => (200, json!({ "has_unread_new_achievement": !SEEN.load(Relaxed), "has_unclaimed_achievements": !CLAIMED.load(Relaxed) })),
+        ("POST", ["api", "v9", "users", "@me", "achievements", "unread-ack"]) => {
+            SEEN.store(true, Relaxed);
+            (200, json!({ "has_unread_new_achievement": false, "has_unclaimed_achievements": !CLAIMED.load(Relaxed) }))
+        }
         ("POST", ["api", "v9", "users", "@me", "achievements", id, "claim"]) => {
             if *id != "first_message" || CLAIMED.swap(true, Relaxed) {
                 (400, json!({ "message": "Achievement cannot be claimed", "code": 50035 }))
@@ -26,6 +32,7 @@ pub fn route(method: &str, parts: &[&str]) -> Option<(u16, Value)> {
         }
         ("POST", ["api", "v9", "mock", "wallet-reset"]) => {
             CLAIMED.store(false, Relaxed);
+            SEEN.store(false, Relaxed);
             (200, json!({}))
         }
         _ => return None,

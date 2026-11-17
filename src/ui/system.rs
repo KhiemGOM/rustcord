@@ -328,11 +328,14 @@ pub fn describe(store: &Store, guild: Id, m: &Message) -> Option<Sys> {
         53 => sys(Icon::ArrowLeft, pal().red, vec![Text("This application was rejected.".into())]),
         54 => sys(Icon::ArrowLeft, pal().red, vec![Text("This application has been withdrawn.".into())]),
         67 => {
-            let s = match (m.author == me, m.content.is_empty()) {
-                (true, true) => vec![Text("You accepted a friend request.".into())],
-                (false, true) => vec![u, Text(" accepted your friend request.".into())],
-                (false, false) => vec![u, Text(" accepted your friend request. You said: ".into()), Bold(m.content.clone())],
-                (true, false) => vec![Text("You accepted a friend request. They said: ".into()), Bold(m.content.clone())],
+            let them = chan.and_then(|c| c.recipients.first()).map(|t| who(store, guild, *t));
+            let s = match (m.author == me, m.content.is_empty(), them) {
+                (true, true, Some(them)) => vec![Text("You accepted ".into()), them, Text("\u{2019}s friend request.".into())],
+                (true, false, Some(them)) => vec![Text("You accepted ".into()), them, Text("\u{2019}s friend request. They said: ".into()), Bold(m.content.clone())],
+                (true, true, None) => vec![Text("You accepted a friend request.".into())],
+                (true, false, None) => vec![Text("You accepted a friend request. They said: ".into()), Bold(m.content.clone())],
+                (false, true, _) => vec![u, Text(" accepted your friend request.".into())],
+                (false, false, _) => vec![u, Text(" accepted your friend request. You said: ".into()), Bold(m.content.clone())],
             };
             sys(Icon::ArrowRight, pal().green, s)
         }

@@ -38,6 +38,7 @@ pub(crate) use embeds::emoji_url;
 mod polls;
 use polls::*;
 mod themecard;
+mod dmstart;
 use themecard::*;
 mod actions;
 use actions::*;
@@ -46,6 +47,7 @@ pub(crate) use ctxmenu::context_menu;
 pub(crate) use ctxmenu::preview;
 
 enum Act {
+    Start(dmstart::Start),
     Reply(Id),
     Edit(Id),
     Delete(Id),
@@ -391,6 +393,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let marker = app.marker.filter(|(c, _)| *c == ch).map(|(_, m)| m);
     let quick = app.quick_reactions();
     let ctx = ui.ctx().clone();
+    let mutual: Option<Vec<Id>> = chan.recipients.first().filter(|_| chan.kind == 1).and_then(|u| app.profile_of(*u, 0)).and_then(|p| p["mutual_guilds"].as_array()).map(|l| l.iter().map(|g| crate::state::sid(&g["id"])).collect());
     let mut d = D {
         store: &app.store,
         ctx: &ctx,
@@ -450,7 +453,9 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         let origin = ui.max_rect().top();
         let w = ui.available_width();
         if at_start {
-            if welcome(ui, d.store, chan) {
+            if chan.guild == 0 && chan.kind == 1 {
+                dmstart::show(ui, &mut d, chan, mutual.as_deref());
+            } else if welcome(ui, d.store, chan) {
                 d.acts.push(Act::EditChannel);
             }
         } else {
@@ -623,6 +628,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 super::player::apply(app, ui.ctx(), d)
             }
             Act::EditChannel => app.open_chan_settings(ch),
+            Act::Start(what) => dmstart::act(app, what),
             Act::Resend(id) => app.resend(ch, id),
             Act::Invite(go) => app.chat_invite(go),
             Act::CopyImage(url) => app.copy_image(url),
@@ -926,20 +932,7 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) -> bool {
     ui.add_space(16.0);
     Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
         let title = channel_title(store, chan.id);
-        if chan.guild == 0 {
-            if let Some(u) = chan.recipients.first().and_then(|u| store.user(*u)) {
-                let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
-                avatar(ui, r, &u.avatar_url());
-                ui.add_space(8.0);
-                ui.label(RichText::new(&title).font(semi(32.0)).color(pal().header_primary));
-                ui.label(RichText::new(&u.username).font(reg(20.0)).color(pal().header_primary));
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(format!("This is the beginning of your direct message history with {title}."))
-                        .color(pal().header_secondary),
-                );
-            }
-        } else if let Some(forum) = store.channels.get(&chan.parent).filter(|f| chan.is_thread() && f.is_forum()) {
+        if let Some(forum) = store.channels.get(&chan.parent).filter(|f| chan.is_thread() && f.is_forum()) {
             super::forum::post_intro(ui, chan, forum);
         } else {
             // a voice channel's chat has a bubble and no # before the name

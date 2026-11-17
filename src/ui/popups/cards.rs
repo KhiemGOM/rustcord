@@ -321,17 +321,38 @@ pub(super) fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool, friend: boo
 }
 
 /// "6 Mutual Friends • 7 Mutual Servers" with the first three friends' faces; each count opens
-/// the full profile on its tab. `card` is what the faces' rings are cut from.
+/// the full profile on its tab. `card` is what the faces' rings are cut from. With no friends in
+/// common discord shows the servers alone, a size up, behind their icons.
 pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde_json::Value>, card: egui::Color32, gap: f32) -> Option<profile::Tab> {
     let friends: Vec<Id> = p.and_then(|p| p["mutual_friends"].as_array()).into_iter().flatten().map(|f| crate::state::sid(&f["id"])).collect();
     let n_friends = p.and_then(|p| p["mutual_friends_count"].as_u64()).unwrap_or(friends.len() as u64);
-    let n_guilds = p.and_then(|p| p["mutual_guilds"].as_array()).map_or(0, |g| g.len() as u64);
+    let guilds: Vec<Id> = p.and_then(|p| p["mutual_guilds"].as_array()).into_iter().flatten().map(|g| crate::state::sid(&g["id"])).collect();
+    let n_guilds = guilds.len() as u64;
     if n_friends == 0 && n_guilds == 0 {
         return None;
     }
+    let alone = n_friends == 0;
+    let size = if alone { 14.0 } else { 12.0 };
     ui.add_space(gap);
-    let (r, _) = ui.allocate_exact_size(vec2(268.0, 16.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(268.0, if alone { 18.0 } else { 16.0 }), Sense::hover());
     let mut x = r.left();
+    if alone {
+        let shown: Vec<&crate::state::Guild> = guilds.iter().filter_map(|g| store.guilds.get(g)).take(3).collect();
+        for g in &shown {
+            let a = Rect::from_min_size(pos2(x, r.center().y - 8.0), vec2(16.0, 16.0));
+            ui.painter().rect_filled(a.expand(1.5), 5, card);
+            match g.icon_url() {
+                Some(url) => egui::Image::from_uri(url).corner_radius(4).show_loading_spinner(false).paint_at(ui, a),
+                None => {
+                    ui.painter().rect_filled(a, 4, pal().bg_accent);
+                }
+            }
+            x += 13.0;
+        }
+        if !shown.is_empty() {
+            x += 7.0;
+        }
+    }
     for f in friends.iter().take(3) {
         let a = Rect::from_min_size(pos2(x, r.top()), vec2(16.0, 16.0));
         // each face sits on a ring of the card over the one before
@@ -352,8 +373,8 @@ pub(super) fn mutuals(ui: &mut Ui, store: &crate::state::Store, p: Option<&serde
             ui.painter().circle_filled(pos2(x + 8.0, r.center().y), 2.0, pal().header_secondary);
             x += 16.0;
         }
-        let g = ui.painter().layout_no_wrap(t.clone(), reg(12.0), pal().header_secondary);
-        let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, 16.0));
+        let g = ui.painter().layout_no_wrap(t.clone(), reg(size), pal().header_secondary);
+        let tr = Rect::from_min_size(pos2(x, r.top()), vec2(g.size().x, r.height()));
         let resp = ui.interact(tr, ui.id().with(("mutual", t)), Sense::click());
         let ink = crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp));
         if resp.hovered() {

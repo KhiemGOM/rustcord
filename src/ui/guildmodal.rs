@@ -1,7 +1,7 @@
 //! The server menu's own windows: Privacy Settings, Security Actions, Report Raid and the Server
 //! Tag popout.
 
-use egui::{Align2, Rect, RichText, Sense, Ui, pos2, vec2};
+use egui::{Align2, Color32, Frame, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
 
 use super::App;
@@ -18,12 +18,78 @@ pub enum Modal {
     Tag(Id),
 }
 
-const PRIVACY: [(u64, &str, &str); 4] = [
-    (3, "Direct Messages", "Allow DMs from other members in this server"),
-    (16, "Message requests", "Filter messages from server members you may not know."),
-    (13, "Share my activity", "Share activity information from games and connected apps I use, including when and how I engage."),
-    (15, "Activity joining", "Allow users to join your activity in this server."),
+const PRIVACY: [(u64, &str, &str, Option<&str>); 4] = [
+    (3, "Direct Messages", "Allow DMs from other members in this server", None),
+    (16, "Message requests", "Filter messages from server members you may not know.", Some("https://support.discord.com/hc/en-us/articles/7924992471191")),
+    (13, "Share my activity", "Share activity information from games and connected apps I use, including when and how I engage.", None),
+    (15, "Activity joining", "Allow users to join your activity in this server.", Some("https://support.discord.com/hc/en-us/articles/7931156448919")),
 ];
+const POLICIES: &str = "https://discord.com/safety/360043709612-our-policies";
+
+fn link(ui: &mut Ui, text: &str, url: &str) {
+    let r = ui.add(egui::Label::new(RichText::new(text).font(reg(14.0)).color(pal().link)).sense(Sense::click()));
+    if r.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if r.clicked() {
+        let _ = open::that_detached(url);
+    }
+}
+
+/// One of Privacy Settings' switches: discord's 350 wide column, the copy wrapping short of the
+/// switch, and Learn more after it.
+fn privacy_row(ui: &mut Ui, title: &str, desc: &str, more: Option<&str>, on: bool) -> bool {
+    let top = ui.cursor().left_top();
+    let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(pos2(top.x + 302.0, top.y + 1.0), vec2(48.0, 24.0))));
+    let flipped = switch(&mut c, on).clicked();
+    ui.label(RichText::new(title).font(medium(16.0)).color(pal().header_primary));
+    ui.add_space(4.0);
+    ui.scope(|ui| {
+        ui.set_max_width(286.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+            ui.label(RichText::new(desc).font(reg(14.0)).color(pal().header_secondary));
+            if let Some(url) = more {
+                link(ui, "Learn more", url);
+            }
+        });
+    });
+    ui.add_space(15.0);
+    flipped
+}
+
+/// Privacy Settings is narrower than the other server dialogs: 400 wide, its title wrapping
+/// beside the close button, and Done across the foot.
+fn privacy(ctx: &egui::Context, name: &str, community: bool, add: impl FnOnce(&mut Ui)) -> (bool, bool) {
+    let (mut close, mut done) = (false, false);
+    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(150, 150, 160, 51))).inner_margin(24);
+    let m = crate::ui::motion::Modal::new("guild_privacy".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+        ui.set_width(350.0);
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        let title = ui.painter().layout(format!("Privacy Settings\u{2014}{name}"), semi(20.0), pal().header_primary, 318.0);
+        let (t, _) = ui.allocate_exact_size(vec2(350.0, title.size().y), Sense::hover());
+        ui.painter().galley(t.min, title, pal().header_primary);
+        let x = Rect::from_min_size(pos2(t.right() - 24.0, t.top() - 15.0), vec2(40.0, 40.0));
+        let resp = ui.interact(x, ui.id().with("close"), Sense::click());
+        crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Close, Rect::from_center_size(x.center(), vec2(20.0, 20.0)), if resp.hovered() { pal().interactive_hover } else { pal().header_secondary });
+        close = resp.clicked();
+        ui.add_space(22.0);
+        add(ui);
+        if community {
+            ui.add_space(1.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+                ui.label(RichText::new("Learn about enhanced safety measures in Community Servers").font(reg(14.0)).color(pal().text_normal));
+                link(ui, "here", POLICIES);
+            });
+            ui.add_space(24.0);
+        }
+        let (r, _) = ui.allocate_exact_size(vec2(350.0, 40.0), Sense::hover());
+        done = plate(ui, r, "Done", true, true);
+    });
+    crate::ui::settings::mark_in(ctx, "modal:guild_privacy", m.response.rect);
+    (close || m.should_close(), done)
+}
 
 fn row(ui: &mut Ui, title: &str, desc: &str, on: bool) -> bool {
     let w = ui.available_width();
@@ -74,18 +140,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut act = false;
     match m {
         Modal::Privacy(gid) => {
-            let name = app.store.guilds.get(gid).map(|g| g.name.clone()).unwrap_or_default();
+            let (name, community) = app.store.guilds.get(gid).map(|g| (g.name.clone(), g.features.iter().any(|f| f == "COMMUNITY"))).unwrap_or_default();
             let gid = *gid;
-            close = modal(ctx, "guild_privacy", Some(&format!("Privacy Settings—{name}")), |ui| {
-                for (field, title, desc) in PRIVACY {
+            (close, act) = privacy(ctx, &name, community, |ui| {
+                for (field, title, desc, more) in PRIVACY {
                     let on = !app.store.privacy.get(&field).is_some_and(|l| l.contains(&gid));
-                    if row(ui, title, desc, on) {
+                    if privacy_row(ui, title, desc, more, on) {
                         toggled = Some((field, on));
                     }
                 }
-                ui.add_space(8.0);
-                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-                act = plate(ui, r, "Done", true, true);
             });
             if let Some((field, was_on)) = toggled {
                 privacy_set(app, gid, field, was_on);
