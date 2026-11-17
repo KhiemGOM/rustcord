@@ -6,7 +6,8 @@ use crate::state::{CONNECT, Id};
 use crate::theme::*;
 
 pub fn hover(ui: &egui::Ui, gid: Id, ch: Id, user: Id, row: Rect) {
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("stream_tip"), (gid, ch, user, row, ui.ctx().cumulative_pass_nr())));
+    let pass = ui.ctx().cumulative_pass_nr();
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("stream_tip"), (gid, ch, user, row, pass)));
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
