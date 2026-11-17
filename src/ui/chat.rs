@@ -276,7 +276,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     message_keys(app, ui, &chan);
     let ctx = ui.ctx().clone();
     let room = ui.available_width();
-    let members_w = if app.ui.members_w > 0.0 { app.ui.members_w } else { 264.0 };
+    let members_w = if app.ui.members_w > 0.0 { app.ui.members_w } else { crate::theme::members_w() };
     if app.search.is_some() {
         let search_w = if app.ui.search_w > 0.0 { app.ui.search_w } else { 420.0 };
         super::nav::keep_size(&ctx, "search", 0, search_w);
