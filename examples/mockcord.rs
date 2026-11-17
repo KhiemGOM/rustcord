@@ -770,7 +770,9 @@ fn quests_base() -> Vec<Value> {
     let quest = |id: &str, name: &str, task: Value, reward: Value, hue: &str| {
         json!({ "id": id, "preview": false, "config": {
             "id": id, "config_version": 2, "starts_at": iso(now_ms() - 86_400_000), "expires_at": iso(now_ms() + 6 * 86_400_000), "features": [],
-            "assets": { "hero": "hero.png", "quest_bar_hero": "hero.png", "game_tile": "tile.png", "logotype": "logo.png" },
+            "assets": { "hero": format!("quests/{id}/hero.png"), "quest_bar_hero": format!("quests/{id}/hero.png"), "game_tile": "PLACEHOLDER", "logotype": "PLACEHOLDER",
+                        "game_tile_dark": format!("quests/{id}/tile.png"), "game_tile_light": format!("quests/{id}/tile.png"),
+                        "logotype_dark": format!("quests/{id}/logo.png"), "logotype_light": format!("quests/{id}/logo.png") },
             "colors": { "primary": hue, "secondary": "#404a7b" },
             "messages": { "quest_name": name, "game_title": "Mock Racers", "game_publisher": "Mock Games" },
             "task_config_v2": { "tasks": task, "join_operator": "or" },
