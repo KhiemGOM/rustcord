@@ -844,10 +844,43 @@ pub fn dropdown(ui: &mut Ui, w: f32, icon: Option<Icon>, shown: &str, menu: impl
         egui::Popup::open_id(ui.ctx(), id);
     }
     let mut rows = Vec::new();
-    egui::Popup::menu(&resp).width(w).show(|ui| rows = super::rows_of(|| menu(ui)));
+    egui::Popup::menu(&resp)
+        .width(w)
+        .gap(8.0)
+        .frame(Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(4))
+        .show(|ui| {
+            select_style(ui, w);
+            egui::ScrollArea::vertical().max_height(7.0 * OPTION_H).show(ui, |ui| rows = super::rows_of(|| menu(ui)));
+        });
     super::select_keys(ui.ctx(), &rows, id);
     mark(ui, &format!("dropdown:{shown}"), r);
     resp
+}
+
+const OPTION_H: f32 = 44.0;
+
+fn select_style(ui: &mut Ui, w: f32) {
+    ui.set_min_width(w);
+    let st = ui.style_mut();
+    st.spacing.item_spacing.y = 0.0;
+    st.spacing.button_padding = vec2(12.0, 12.0);
+    st.text_styles.insert(egui::TextStyle::Button, medium(16.0));
+    let v = &mut st.visuals;
+    v.button_frame = true;
+    v.selection.bg_fill = pal().bg_mod_selected;
+    v.selection.stroke = Stroke::new(1.0, pal().text_normal);
+    for (w, fg, fill) in [
+        (&mut v.widgets.inactive, pal().text_muted, Color32::TRANSPARENT),
+        (&mut v.widgets.hovered, pal().text_normal, pal().bg_mod_hover),
+        (&mut v.widgets.active, pal().text_normal, pal().bg_mod_hover),
+    ] {
+        w.fg_stroke = Stroke::new(1.0, fg);
+        w.weak_bg_fill = fill;
+        w.bg_fill = fill;
+        w.bg_stroke = Stroke::NONE;
+        w.corner_radius = CornerRadius::ZERO;
+        w.expansion = 0.0;
+    }
 }
 
 /// A card for lists: devices, apps, connections.
