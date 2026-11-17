@@ -4,7 +4,7 @@
 use egui::{Color32, CornerRadius, Frame, Key, Margin, Rect, RichText, Sense, Stroke, TextEdit, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, Pick, button, icon_button, menu_item, settings};
+use super::{App, Pick, button, icon_button, option, settings};
 use crate::net::Tag;
 use crate::state::ReactEmoji;
 use crate::theme::*;
@@ -120,7 +120,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let w = ui.available_width() - 136.0 - 16.0;
                 settings::dropdown(ui, w, None, &ends(s.length, clock24), |ui| {
                     for i in 0..LENGTHS.len() {
-                        if menu_item(ui, None, &ends(i, clock24), false) {
+                        if option(ui, s.length == i, &ends(i, clock24)).clicked() {
                             s.length = i;
                         }
                     }

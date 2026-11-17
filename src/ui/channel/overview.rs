@@ -8,7 +8,7 @@ use crate::state::Channel;
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings;
-use crate::ui::{bolded, menu_item};
+use crate::ui::{bolded, option};
 
 const SLOWMODE: [(u64, &str); 14] = [
     (0, "Off"),
@@ -63,7 +63,7 @@ fn pick<T: Copy + PartialEq>(ui: &mut Ui, key: &str, cur: T, opts: &[(T, &str)],
     let mut out = None;
     let r = settings::dropdown(ui, w, None, &shown, |ui| {
         for (v, l) in opts {
-            if menu_item(ui, None, l, false) {
+            if option(ui, *v == cur, l).clicked() {
                 out = Some(*v);
             }
         }
@@ -613,11 +613,11 @@ pub fn overview(app: &mut App, ui: &mut Ui, c: &Channel) {
     let mut chosen: Option<Option<String>> = None;
     let w = ui.available_width();
     settings::dropdown(ui, w, None, &shown, |ui| {
-        if menu_item(ui, None, "Automatic", false) {
+        if option(ui, region.is_none(), "Automatic").clicked() {
             chosen = Some(None);
         }
         for (id, n) in &list {
-            if menu_item(ui, None, n, false) {
+            if option(ui, region.as_deref() == Some(id.as_str()), n).clicked() {
                 chosen = Some(Some(id.clone()));
             }
         }

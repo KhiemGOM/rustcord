@@ -2,7 +2,7 @@ use egui::{Align, Align2, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, 
 use serde_json::{Value, json};
 
 use super::icons::{self, Icon};
-use super::{App, Pick, menu_item, modal_button, text};
+use super::{App, Pick, modal_button, option, text};
 use crate::net::Tag;
 use crate::state::{Id, ReactEmoji, make_nonce};
 use crate::theme::*;
@@ -213,7 +213,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let mut hours = d.hours;
             super::settings::dropdown(ui, 430.0, None, cur, |ui| {
                 for (h, n) in DURATIONS {
-                    if menu_item(ui, (h == hours).then_some(Icon::Check), n, false) {
+                    if option(ui, h == hours, n).clicked() {
                         hours = h;
                     }
                 }
