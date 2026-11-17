@@ -111,7 +111,9 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                 Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
                     ui.set_width(268.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    tab = mutuals(ui, store, p, pal().bg_secondary, 19.0);
+                    if uid != me {
+                        tab = mutuals(ui, store, p, pal().bg_secondary, 19.0);
+                    }
                     if !bio.is_empty() {
                         ui.add_space(16.0);
                         let mut job = egui::text::LayoutJob::single_section(bio.clone(), egui::TextFormat::simple(reg(14.0), pal().header_primary));
