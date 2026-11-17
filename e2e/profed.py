@@ -48,7 +48,7 @@ def checks(runs, reqs, data):
             and acct.get("avatar_decoration_sku_id") == "7001" and acct.get("nameplate_sku_id") == "7002" and acct.get("avatar_id") == "2"
             and acct.get("display_name_font_id") == 7 and acct.get("display_name_effect_id") == 2 and len(acct.get("display_name_colors", [])) == 2 and bool(acct.get("primary_guild_id"))
             and widgets and {w["data"]["type"] for w in widgets[-1]["widgets"]} == {"favorite_games", "played_games"},
-        "profed: Hide Styles collapses the panel": has("profed_hide_styles"),
+        "profed: Hide Styles collapses the panel and Show Styles brings it back": has("profed_hide_styles", "profed_show_styles"),
         "profed: a server's profile opens from the guild, and Save writes /guilds/{id}/profile/@me": has("profed_server_profile", "profed_server_saved")
             and any(b.get("pronouns") == "ze/zir" for b in body(reqs, "PATCH", "/api/v9/guilds/1001/profile/@me")),
         "profile: someone's effect and frame resolve from /collectibles-products and play on their popout": has("profile_effect_resolved", "profile_effect_plays_on_profile") and fetched("/collectibles-products/7003"),
