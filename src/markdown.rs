@@ -103,6 +103,8 @@ pub struct Cx<'a> {
     pub edited: bool,
     // embeds show an unknown user's mention as written, <@id>, not "@Unknown User"
     pub embed: bool,
+    /// plain text at medium weight: `crate::theme::heavy`, but never an embed field's value
+    pub heavy: bool,
 }
 
 impl Cx<'_> {
@@ -148,7 +150,7 @@ impl B<'_, '_> {
             (_, true, true) => bold_italic(st.size),
             (_, true, _) => bold(st.size),
             (_, _, true) => italic(st.size),
-            _ if st.medium => medium(st.size),
+            _ if st.medium || self.cx.heavy => medium(st.size),
             _ => reg(st.size),
         };
         let color = if st.hidden { Color32::TRANSPARENT } else { st.color };

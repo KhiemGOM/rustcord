@@ -156,7 +156,8 @@ pub(super) fn file_card(ui: &mut Ui, name: &str, size: u64) -> egui::Response {
     if !crate::ui::webart::draw(ui.painter(), crate::ui::webart::file_icon(name), Rect::from_min_size(rect.min + vec2(17.0, 17.0), vec2(30.0, 40.0))) {
         icons::draw(ui.painter(), Icon::File, Rect::from_center_size(pos2(rect.left() + 32.0, rect.center().y), vec2(30.0, 30.0)), pal().blurple);
     }
-    let n = text::paint(ui.painter(), pos2(rect.left() + 55.0, rect.top() + 29.0), Align2::LEFT_CENTER, name, reg(16.0), pal().link, rect.width() - 72.0);
+    let font = if heavy(ui.ctx()) { medium(16.0) } else { reg(16.0) };
+    let n = text::paint(ui.painter(), pos2(rect.left() + 55.0, rect.top() + 29.0), Align2::LEFT_CENTER, name, font, pal().link, rect.width() - 72.0);
     if resp.hovered() {
         ui.painter().hline(n.x_range(), n.bottom() - 1.0, Stroke::new(1.0, pal().link));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -257,7 +258,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
     let thumb = e.thumb.as_ref().filter(|_| media_ok && e.kind != "video" && e.image.is_none());
     let text_w = inner - if thumb.is_some() { 96.0 } else { 0.0 };
     let desc = e.desc.as_ref().map(|t| {
-        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, idx)), edited: false, embed: true };
+        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, idx)), edited: false, embed: true, heavy: heavy(d.ctx) };
         markdown::parse(t, &cx)
     });
     let widest = desc
@@ -280,11 +281,13 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
                     }
                     if let Some(p) = &e.provider {
                         ui.add_space(8.0);
-                        ui.label(RichText::new(p).font(reg(12.0)).line_height(Some(16.0)).color(pal().text_normal));
+                        let font = if heavy(ui.ctx()) { medium(12.0) } else { reg(12.0) };
+                        ui.label(RichText::new(p).font(font).line_height(Some(16.0)).color(pal().text_normal));
                     }
                     if let Some(a) = &e.author {
                         ui.add_space(8.0);
-                        ui.label(RichText::new(a).font(semi(14.0)).line_height(Some(22.0)).color(pal().header_primary));
+                        let font = if heavy(ui.ctx()) { medium(14.0) } else { semi(14.0) };
+                        ui.label(RichText::new(a).font(font).line_height(Some(22.0)).color(pal().header_primary));
                     }
                     if let Some(t) = &e.title {
                         ui.add_space(8.0);
@@ -430,7 +433,7 @@ pub(super) fn field(ui: &mut Ui, d: &mut D, f: &(String, String, bool), msg: Id)
     ui.vertical(|ui| {
         ui.label(RichText::new(&f.0).font(semi(14.0)).line_height(Some(18.0)).color(pal().header_primary));
         ui.add_space(2.0);
-        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, &f.0, &f.1)), edited: false, embed: true };
+        let cx = Cx { store: d.store, ctx: d.ctx, guild: d.guild, size: 14.0, color: pal().text_normal, spoilers: obscure::spoilers(d, (msg, &f.0, &f.1)), edited: false, embed: true, heavy: false };
         let blocks = markdown::parse(&f.1, &cx);
         blocks_wide(ui, &blocks, d, msg);
     });
