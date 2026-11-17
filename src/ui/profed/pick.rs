@@ -234,11 +234,11 @@ fn dims(kind: Kind) -> (f32, f32, usize) {
     }
 }
 
-fn tile_art(ui: &Ui, r: Rect, it: &Item, locked: bool) {
+fn tile_art(ui: &Ui, r: Rect, it: &Item, locked: bool, hot: bool, picked: Option<f64>) {
     let p = ui.painter().with_clip_rect(r);
     match it.kind {
         Kind::Decoration => text::image(&p, &cosmo::deco(&it.asset, 240), Rect::from_center_size(r.center(), vec2(64.0, 64.0))),
-        Kind::Nameplate => text::image(&p, &cosmo::plate(&it.asset), r),
+        Kind::Nameplate => cosmo::paint_plate(ui, r.shrink(1.0), &it.asset, CornerRadius::same(7), Color32::WHITE, hot, picked),
         _ => text::image(&p, &it.thumb, r),
     }
     if locked {
@@ -269,6 +269,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
     let free: Vec<Item> = shop.iter().filter(|i| i.kind == kind && i.nitro && !owned_skus.contains(&i.sku.as_str())).cloned().collect();
     let buy: Vec<Item> = shop.iter().filter(|i| i.kind == kind && !i.nitro && !owned_skus.contains(&i.sku.as_str())).cloned().collect();
     let selected = sel.clone();
+    let picked = |ui: &Ui, it: &Item| (selected.as_ref() == Some(it)).then(|| cosmo::since(ui.ctx(), ("plate_picked", it.sku.clone())));
     let can_use = |i: &Item| owned_skus.contains(&i.sku.as_str()) || (i.nitro && nitro);
     let (mut apply, mut cancel, mut shop_open) = (false, false, false);
     let screen = ctx.content_rect();
@@ -316,7 +317,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
             for (i, it) in mine_items.iter().enumerate() {
                 let r = place(i + 2, y);
                 let resp = tile(ui, r, &it.sku, selected.as_ref() == Some(it));
-                tile_art(ui, r, it, false);
+                tile_art(ui, r, it, false, resp.hovered(), picked(ui, it));
                 mark(ui, &format!("collectible:{}", it.sku), r);
                 if resp.on_hover_text(if it.label.is_empty() { &it.name } else { &it.label }).clicked() {
                     chosen = Some(Some(it.clone()));
@@ -331,7 +332,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
                 for (i, it) in items.iter().enumerate() {
                     let r = place(i, y);
                     let resp = tile(ui, r, &it.sku, selected.as_ref() == Some(it));
-                    tile_art(ui, r, it, lock);
+                    tile_art(ui, r, it, lock, resp.hovered(), picked(ui, it));
                     mark(ui, &format!("collectible:{}", it.sku), r);
                     if resp.on_hover_text(if it.label.is_empty() { &it.name } else { &it.label }).clicked() {
                         chosen = Some(Some(it.clone()));
@@ -357,12 +358,18 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
         apply = footer_button(ui, ap, if ok { "Apply" } else { "Get in Shop" }, true, true, "pick:apply");
         ui.allocate_rect(Rect::from_min_size(area.min, vec2(w, max_h)), Sense::hover());
     });
+    let chosen_new = chosen.is_some();
     if let Dlg::Pick(_, s) = &mut ed.dlg
         && let Some(c) = chosen
     {
         *s = c;
     }
     ed.to_shop |= shop_open;
+    if let Some(it) = &selected
+        && (chosen_new || apply || cancel || m.should_close())
+    {
+        cosmo::forget(ctx, ("plate_picked", it.sku.clone()));
+    }
     if apply {
         let it = selected.clone();
         if it.as_ref().is_none_or(&can_use) {
@@ -410,7 +417,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
                 let rr = Rect::from_min_size(pos2(r.left() + 8.0, top + i as f32 * rh), vec2(r.width() - 16.0, rh - 4.0));
                 if i == rows / 2 {
                     if let Some(it) = it {
-                        text::image(&ui.painter().with_clip_rect(rr), &cosmo::plate(&it.asset), rr);
+                        cosmo::paint_plate(ui, rr, &it.asset, CornerRadius::ZERO, Color32::WHITE, ui.rect_contains_pointer(rr), Some(cosmo::since(ui.ctx(), ("plate_picked", it.sku.clone()))));
                     }
                     avatar(ui, Rect::from_center_size(pos2(rr.left() + 24.0, rr.center().y), vec2(32.0, 32.0)), &user.avatar_url());
                     ui.painter().text(pos2(rr.left() + 48.0, rr.center().y), Align2::LEFT_CENTER, &name, medium(16.0), Color32::WHITE);

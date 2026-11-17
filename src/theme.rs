@@ -275,6 +275,10 @@ pub fn set_reduced_motion(on: bool) {
     REDUCED.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+pub fn reduced_motion() -> bool {
+    REDUCED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Animation length, or zero when reduced motion is on.
 pub fn anim(secs: f32) -> f32 {
     if REDUCED.load(std::sync::atomic::Ordering::Relaxed) { 0.0 } else { secs }

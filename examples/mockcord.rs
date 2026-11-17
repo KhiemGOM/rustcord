@@ -2555,6 +2555,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", std::env::var("MOCK_CLIP_HD").ok().and_then(|f| std::fs::read(f).ok()).unwrap_or_else(|| include_bytes!("fixtures/clip.mp4").to_vec())),
         ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
+        ("GET", ["cdn", "media", "v1", "collectibles-shop", sku, "animated"]) => (200, "image/png", anim_gif(448, 84, sku.bytes().map(u32::from).sum())),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.starts_with("effect_") && f.ends_with(".gif") => (200, "image/gif", fx_gif(300, 400, f.len() as u32)),
         ("GET", ["cdn", "media", f]) if f.starts_with("frame_") && f.ends_with("_a.png") => (200, "image/png", fx_frame(300, 400)),
