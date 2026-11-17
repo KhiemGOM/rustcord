@@ -13,6 +13,7 @@ pub enum Sub {
     None,
     Mfa,
     Devices,
+    Standing,
 }
 
 fn masked(s: &str) -> String {
@@ -123,6 +124,7 @@ pub fn account(app: &mut App, ui: &mut Ui) -> bool {
     match app.sform.sub {
         Sub::Mfa => return mfa(app, ui),
         Sub::Devices => return devices(app, ui),
+        Sub::Standing => return standing_page(app, ui),
         Sub::None => {}
     }
     let me = app.store.user(app.store.me).cloned().unwrap_or_default();
@@ -194,7 +196,7 @@ pub fn account(app: &mut App, ui: &mut Ui) -> bool {
     let (label, icon, tint) = standing(state);
     let blurb = "Thank you for upholding Discord's Terms of Service and Community Guidelines. If you have a violation, it will appear here.";
     if status(ui, icon, tint, "Account Standing", blurb, label, true) {
-        edit = Some(Edit::Standing);
+        app.sform.sub = Sub::Standing;
     }
 
     section(ui, "Family Center");
@@ -247,6 +249,7 @@ pub fn crumbs(app: &mut App, ui: &mut Ui, head: Rect, title: &str) {
     let sub = match (app.settings_page, app.sform.sub) {
         (Some(super::Page::Account), Sub::Mfa) => "Multi-Factor Authentication",
         (Some(super::Page::Account), Sub::Devices) => "Logged-in Devices",
+        (Some(super::Page::Account), Sub::Standing) => "Account Standing",
         _ => "",
     };
     let at = pos2(head.left() + 16.0, head.top() + 24.0);
@@ -365,6 +368,77 @@ fn ago(iso: &str) -> String {
 
 fn faint_fill() -> Color32 {
     Color32::from_rgba_unmultiplied(151, 151, 159, 31)
+}
+
+const STANDING: [(&str, &str); 5] = [
+    ("all good", "Thank you for upholding Discord’s Terms of Service and Community Guidelines. If you have a violation, it will appear here."),
+    ("limited", "You may lose access to some parts of Discord if you break the rules again."),
+    ("very limited", "You can’t use some parts of Discord. You may be suspended if you break the rules again."),
+    ("at risk", "You broke Discord’s rules. You will be permanently suspended if you break them again."),
+    ("suspended", "Due to serious policy violations, your account is permanently suspended. You can no longer use Discord."),
+];
+
+fn standing_page(app: &mut App, ui: &mut Ui) -> bool {
+    section(ui, "Account Standing");
+    let Some(v) = loading(ui, remote(app, "safety", "/safety-hub/@me")) else { return false };
+    let state = v["account_standing"]["state"].as_u64().unwrap_or(100);
+    let at = ((state / 100).max(1) as usize - 1).min(4);
+    let (_, icon, tint) = standing(state);
+    let (adj, blurb) = STANDING[at];
+    let avatar_url = app.store.user(app.store.me).map(|u| u.avatar_url()).unwrap_or_default();
+    super::lead(ui);
+    let w = ui.available_width();
+    let tx = 16.0 + 92.0 + 16.0;
+    let text_w = w - tx;
+    let g = ui.painter().layout(blurb.into(), reg(14.0), pal().text_normal, text_w);
+    let h = 8.0 + 24.0 + 8.0 + g.size().y + 24.0 + 28.0 + 8.0 + 18.0;
+    let (r, _) = ui.allocate_exact_size(vec2(w, h.max(8.0 + 92.0)), Sense::hover());
+    let p = ui.painter().clone();
+    let disc = Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 8.0), vec2(92.0, 92.0));
+    p.circle_filled(disc.center(), 46.0, faint_fill());
+    crate::ui::avatar(ui, Rect::from_center_size(disc.center(), vec2(80.0, 80.0)), &avatar_url);
+    let x = r.left() + tx;
+    let mut y = r.top() + 8.0;
+    let lead = p.text(pos2(x, y + 12.0), Align2::LEFT_CENTER, "Your account is ", reg(20.0), pal().header_primary);
+    p.text(pos2(lead.right(), y + 12.0), Align2::LEFT_CENTER, adj, bold(20.0), tint);
+    y += 32.0;
+    let bottom = g.size().y;
+    p.galley(pos2(x, y), g, pal().text_normal);
+    y += bottom + 24.0;
+    p.rect_filled(Rect::from_min_size(pos2(x, y + 12.0), vec2(text_w, 4.0)), 0, faint_fill());
+    for (i, (label, _)) in STANDING.iter().enumerate() {
+        let (cx, align, lx) = match i {
+            0 => (x + 14.0, Align2::LEFT_TOP, x),
+            4 => (x + text_w - 14.0, Align2::RIGHT_TOP, x + text_w),
+            _ => (x + text_w * i as f32 / 4.0, Align2::CENTER_TOP, x + text_w * i as f32 / 4.0),
+        };
+        let c = pos2(cx, y + 14.0);
+        p.circle_filled(c, 14.0, pal().bg_secondary_alt);
+        if i == at {
+            icons::draw(&p, icon, Rect::from_center_size(c, vec2(24.0, 24.0)), tint);
+        } else {
+            p.circle_filled(c, 8.0, faint_fill());
+        }
+        let mut name = (*label).to_string();
+        name[..1].make_ascii_uppercase();
+        p.text(pos2(lx, y + 36.0), align, name, reg(14.0), pal().text_normal);
+    }
+    super::end(ui, 32.0);
+    let list = v["classifications"].as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        return false;
+    }
+    ui.label(RichText::new(format!("Active violations — {}", list.len())).font(semi(16.0)).color(pal().header_primary));
+    ui.label(RichText::new("These affect your account status until they expire.").font(reg(14.0)).color(pal().text_muted));
+    ui.add_space(8.0);
+    for c in &list {
+        Frame::new().fill(faint_fill()).corner_radius(8).inner_margin(16).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new(c["description"].as_str().or(c["id"].as_str()).unwrap_or("Violation")).font(reg(20.0)).color(pal().header_primary));
+        });
+        ui.add_space(8.0);
+    }
+    false
 }
 
 fn devices(app: &mut App, ui: &mut Ui) -> bool {
