@@ -4,15 +4,22 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 
 ## Build and run
 - `cargo run --release` runs the client; `cargo build --locked --release --bin rustcord --example mockcord` is what CI builds.
-- A few unit tests (`cargo test --release --bin rustcord`) cover the image cache and the emoji in names. The main verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
+- Compiling is the heavy part of working here, not testing: the client is one 120k-line crate, and release is fat LTO on one codegen unit, so a one-line edit costs about 8 minutes and 3 GB there. The loop:
+  1. Pure logic gets a unit test, run alone in the dev profile: `cargo test --bin rustcord <module or test name>`. Never `--release` for tests.
+  2. What needs the running client gets an e2e step, built on the `iter` profile (no LTO, incremental: the same edit took 23 s and 1.5 GB): `cargo build --profile iter --bin rustcord --example mockcord`, then `python e2e/from_step.py <step> --profile iter` for the group you touched.
+  3. Release is built once, when the change is finished: `python e2e/run.py` before the commit or the hand-back. Don't rebuild release between small edits.
+  4. No `cargo check` or clippy before a build or test of the same code, which type-checks it anyway. One build or e2e run at a time on a machine.
+- `python tools/build_cost.py <command>` prints a command's time and the peak memory of its process tree; the numbers above came from it.
+- Unit tests (`cargo test --bin rustcord`) cover pure logic such as the image cache and the emoji in names. The main verification is the e2e harness: `src/ui/e2e.rs` (steps run inside the client), `e2e/*.py` (checks), `examples/mockcord.rs` (fake Discord REST, gateway, CDN, voice with real DAVE).
 
 ## E2E
-- `python e2e/run.py` builds, then runs the client cold and warm against the mock. `--no-build` reuses `target/release`. It needs a real window and GPU.
+- `python e2e/run.py` builds, then runs the client cold and warm against the mock. `--no-build` reuses what is built. `--profile iter` builds and runs `target/iter` instead of `target/release`; `from_step.py` and the other scripts that start the mock take it too. It needs a real window and GPU.
+- Off release the startup and frame time budgets (`NEEDS_RELEASE` in `run.py`) are listed under `skipped`, like the checks that need `--focus`; only a release run judges them.
 - Output: `e2e/artifacts/report.json` (`checks`: name -> bool, plus `cold`/`warm` results), `report.md`, screenshots, `mock_requests.jsonl`. The exit code is 1 if any check is false.
 - Checks are named strings in `e2e/run.py`, `look.py`, `polish.py`, `qol.py`, `home.py`. Most are `marks_ms` set by `e2e.rs` steps, or assertions on the mock's request log.
 - `RUSTCORD_E2E_FROM=<step>` jumps to that step once the first channel has loaded (the groups are in the dispatch in `src/ui/e2e.rs`), to rerun one group against the mock without the rest.
 - The run replaces the clipboard (the paste step) and picks random ports, so parallel runs are fine.
-- Mock alone: `target/release/examples/mockcord.exe <http> <ws> <log.jsonl> [voice]` (the voice port takes tcp and udp). Point the client at it with `RUSTCORD_API=http://127.0.0.1:<http>/api/v9`, `RUSTCORD_CDN`, `RUSTCORD_EMOJI_CDN`, `RUSTCORD_FONTS`, `RUSTCORD_GATEWAY=ws://127.0.0.1:<ws>`, `RUSTCORD_TOKEN`, `RUSTCORD_DATA`. `run_client` in `run.py` has the full list.
+- Mock alone: `target/<profile>/examples/mockcord.exe <http> <ws> <log.jsonl> [voice]` (the voice port takes tcp and udp). Point the client at it with `RUSTCORD_API=http://127.0.0.1:<http>/api/v9`, `RUSTCORD_CDN`, `RUSTCORD_EMOJI_CDN`, `RUSTCORD_FONTS`, `RUSTCORD_GATEWAY=ws://127.0.0.1:<ws>`, `RUSTCORD_TOKEN`, `RUSTCORD_DATA`. `run_client` in `run.py` has the full list.
 - Real-account checks never run from `run.py`; they need an env var and the saved login (or `RUSTCORD_TOKEN`):
   - `RUSTCORD_TOUR=<dir>` walks the main screens and settings pages and screenshots them into `<dir>`, results in `<dir>/results.json`. Add `RUSTCORD_READONLY=1` so nothing that changes the account goes out. `RUSTCORD_TOUR_CHANNEL` and `RUSTCORD_TOUR_FORUM` take `guild/channel`.
   - `RUSTCORD_E2E=<dir> RUSTCORD_LIVE=<voice channel id>` joins that channel and goes live for `RUSTCORD_LIVE_SECS` (default 30). Never run it without the user's say-so: it is visible to others.

@@ -8,6 +8,7 @@ speakers closed, so a test run never records you or makes noise.
 
     python e2e/run.py                  # builds release first
     python e2e/run.py --no-build
+    python e2e/run.py --profile iter   # the cheap build, for iterating: see below
     python e2e/run.py --real-devices   # warm run uses your real mic, speakers and desktop
     python e2e/run.py --real-camera    # ...and your webcam
     python e2e/run.py --real-video     # warm run streams a real screen, mic and speakers stay fake
@@ -15,6 +16,11 @@ speakers closed, so a test run never records you or makes noise.
 
 Without --focus the test windows stay under everything and never take focus, and the checks that
 need focus (tidy.NEEDS_FOCUS) are listed as skipped instead of run.
+
+--profile takes a cargo profile and uses target/<profile>; from_step.py and the other scripts that
+import this one take it too. Only a release build is as fast as what ships, so off release the
+startup and frame time budgets (NEEDS_RELEASE) are listed as skipped. RUSTCORD_EXE and
+RUSTCORD_MOCK_EXE point at binaries built somewhere else.
 
 Artifacts land in e2e/artifacts/: report.json, report.md, screenshots, request log.
 """
@@ -105,10 +111,21 @@ def free_both():
 # random ports so parallel runs (other worktrees, other agents) can't cross wires
 HTTP, WS, VOICE, REMOTE = free_port(), free_port(), free_both(), free_port()
 BUDGET_MS = 1000
+PROFILE = sys.argv[sys.argv.index("--profile") + 1] if "--profile" in sys.argv else "release"
+BUILT = ROOT / "target" / ("debug" if PROFILE == "dev" else PROFILE)
+EXE = Path(os.environ.get("RUSTCORD_EXE") or BUILT / "rustcord.exe")
+MOCK = Path(os.environ.get("RUSTCORD_MOCK_EXE") or BUILT / "examples" / "mockcord.exe")
+NEEDS_RELEASE = (
+    f"cold: spawn -> first frame < {BUDGET_MS}ms",
+    f"warm: spawn -> first frame < {BUDGET_MS}ms",
+    f"warm: cached servers on screen < {BUDGET_MS}ms",
+    "frame cpu p99 < 8ms (cold)",
+    "frame cpu p99 < 8ms (warm)",
+)
 
 
 def build():
-    subprocess.run(["cargo", "build", "--release", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
+    subprocess.run(["cargo", "build", "--profile", PROFILE, "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
 
 
 def prime():
@@ -116,7 +133,7 @@ def prime():
     pages) before main runs. Pay that here so the timed cold start measures our code."""
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, RUSTCORD_DATA=tmp + "/data", RUSTCORD_E2E=tmp, RUSTCORD_FAKE_MIC="1", RUSTCORD_FAKE_CAM="1", RUSTCORD_SILENT="1")
-        p = subprocess.Popen([str(ROOT / "target" / "release" / "rustcord.exe")], env=env)
+        p = subprocess.Popen([str(EXE)], env=env)
         end = time.time() + 30
         while not (Path(tmp) / "first_frame_epoch_ms").exists() and time.time() < end:
             time.sleep(0.01)
@@ -183,9 +200,8 @@ def run_client(name, data_dir, extra=None):
     })
     env.update(extra or {})
     env = {k: v for k, v in env.items() if v is not None}
-    exe = Path(os.environ.get("RUSTCORD_EXE") or ROOT / "target" / "release" / "rustcord.exe")
     spawned = time.time() * 1000
-    p = subprocess.Popen([str(exe)], env=env)
+    p = subprocess.Popen([str(EXE)], env=env)
     code = wait_for(p, out)
     if (out / "results.json").exists():
         res = json.loads((out / "results.json").read_text(encoding="utf-8"))
@@ -216,7 +232,7 @@ def main():
     prime()
     served = sound.make(ART / "sounds")
     chunks = art.make(ROOT / "target" / "e2e-art")
-    mock = subprocess.Popen([str(ROOT / "target" / "release" / "examples" / "mockcord.exe"), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)],
+    mock = subprocess.Popen([str(MOCK), str(HTTP), str(WS), str(log), str(VOICE), str(REMOTE)],
                             env=dict(os.environ, MOCK_SOUNDS=str(served or ""), MOCK_ART=str(chunks or "")))
     time.sleep(0.5)
     try:
@@ -639,12 +655,14 @@ def main():
         **activity.checks({"cold": cold, "warm": warm}, reqs, data),
     }
     skipped = [] if focus else [k for k in tidy.NEEDS_FOCUS if checks.pop(k, None) is not None]
-    report = {"checks": checks, "skipped": skipped, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
+    untimed = [] if PROFILE == "release" else [k for k in NEEDS_RELEASE if checks.pop(k, None) is not None]
+    report = {"checks": checks, "skipped": skipped + untimed, "profile": PROFILE, "cold": cold, "warm": warm, "login": signin, "requests_seen": len(reqs), "sent_bodies": sent_bodies}
     (ART / "report.json").write_text(json.dumps(report, indent=2))
 
     md = ["# rustcord e2e report", ""]
     md += [f"- [{'x' if ok else ' '}] {name}" for name, ok in checks.items()]
     md += [f"- [-] skipped, needs --focus: {name}" for name in skipped]
+    md += [f"- [-] skipped, needs a release build: {name}" for name in untimed]
     for name, r in (("cold", cold), ("warm", warm), ("login", signin)):
         md += ["", f"## {name} start", "", f"- spawn -> first frame: {r.get('spawn_to_first_frame_ms')} ms"]
         md += [f"- {k}: {v} ms" for k, v in r.get("marks_ms", {}).items()]

@@ -8,7 +8,7 @@ wire, so the mock's request log is checked for that too.
     python e2e/tour.py 1280x720@150          # WxH in points, @zoom percent
     python e2e/tour.py --sheets 1280x720     # also contact sheets of each run's shots
 
-Needs target/release built; RUSTCORD_EXE and RUSTCORD_MOCK point at other builds. Shots land in a temp dir printed at the end, one folder per size.
+Needs target/release built (or --profile); RUSTCORD_EXE and RUSTCORD_MOCK point at other builds. Shots land in a temp dir printed at the end, one folder per size.
 """
 
 import json
@@ -22,7 +22,7 @@ from pathlib import Path
 import run
 
 DEFAULT = ["1280x720", "940x500", "1707x913"]
-MOCK = Path(os.environ.get("RUSTCORD_MOCK") or run.ROOT / "target" / "release" / "examples" / "mockcord.exe")
+MOCK = Path(os.environ.get("RUSTCORD_MOCK") or run.MOCK)
 
 
 def sweep(art, spec):
@@ -74,7 +74,7 @@ def sheets(folder):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    args = [a for i, a in enumerate(sys.argv[1:]) if not a.startswith("--") and sys.argv[i] != "--profile"]
     art = Path(tempfile.mkdtemp(prefix="rustcord_tour_"))
     run.ART = art
     ok = True
