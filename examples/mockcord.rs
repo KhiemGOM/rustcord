@@ -1850,8 +1850,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 prof["theme_colors"] = json!([0x1b6b5a, 0x0b3a52]);
             }
             let widgets = if id == 101 { json!([
-                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
-                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
+                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "comment": "Run it back", "tags": ["love_it"] }] } },
+                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "comment": null, "tags": [] }, { "game_id": "9005", "comment": null, "tags": [] }] } },
             ]) } else { json!([]) };
             let mut out = json!({
                 "user": user(id), "user_profile": prof, "widgets": widgets,
@@ -2114,6 +2114,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({ "claimed_at": status["claimed_at"], "entitlements": [], "errors": [] }))
         }
         ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
+        ("GET", ["api", "v9", "games"]) => {
+            let asked: Vec<&str> = path.split_once('?').map_or("", |q| q.1).split('&').filter_map(|kv| kv.strip_prefix("game_ids=")).collect();
+            let all = [("9001", "Mock Racers"), ("9002", "Crab Quest"), ("9003", "Outsider Game"), ("9004", "Genshin Impact"), ("9005", "Rust Simulator")];
+            ok(json!(all.iter().filter(|g| asked.contains(&g.0)).map(|g| json!({ "id": g.0, "name": g.1, "media": { "cover": { "type": "hash", "value": format!("gamecover{}", g.0) } } })).collect::<Vec<_>>()))
+        }
         ("GET", ["api", "v9", "games", "autocomplete"]) => {
             let q = query_str(path, "q").to_lowercase();
             if q.is_empty() || query_str(path, "filter_group") != "default" {

@@ -36,6 +36,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
     let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| presence::shown(l).cloned().collect()).unwrap_or_default();
     let spotify = app.profiles.get(&me).is_some_and(|m| m["connected_accounts"].as_array().is_some_and(|a| a.iter().any(|c| c["type"] == "spotify")));
     let app_icons = app.store.app_icons.clone();
+    let game_info = app.game_info.clone();
     let saved = app.notes.get(&uid).cloned().unwrap_or_default();
     let note_open_id = egui::Id::new(("note_open", uid));
     let react_id = egui::Id::new(("react_open", uid));
@@ -151,8 +152,8 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                         for (i, id) in ids.iter().take(4).enumerate() {
                             let ir = Rect::from_min_size(pos2(r.right() - 12.0 - (n - i) as f32 * 28.0 + 4.0, r.center().y - 12.0), vec2(24.0, 24.0));
                             ui.painter().rect_filled(ir, 4, egui::Color32::from_white_alpha(20));
-                            if let Some((a, h)) = id.parse::<u64>().ok().and_then(|a| app_icons.get(&a).cloned().flatten().map(|h| (a, h))) {
-                                text::image(ui.painter(), &format!("{}/app-icons/{a}/{h}.png?size=48", crate::api::cdn()), ir);
+                            if let Some(u) = crate::ui::profed::board::cover_url(&game_info, &app_icons, id, 48) {
+                                text::image(ui.painter(), &u, ir);
                             }
                         }
                         notes.insert("game_collection".into(), r);

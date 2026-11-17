@@ -95,6 +95,10 @@ impl Run {
                 if at("profed_backdrop").is_none() {
                     return;
                 }
+                if !app.game_info.get("9001").is_some_and(|i| i.as_ref().is_some_and(|i| i.name == "Mock Racers")) {
+                    return;
+                }
+                self.mark("profed_widget_game_names");
                 self.mark("profed_preview_art");
                 self.shot(ctx, "profed.png");
                 self.next(500);

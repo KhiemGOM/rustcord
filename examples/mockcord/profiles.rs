@@ -65,13 +65,7 @@ fn owned(cdn: &str) -> Vec<Value> {
 }
 
 fn games() -> Value {
-    json!([
-        { "id": "9001", "game_id": "9001", "name": "Mock Racers" },
-        { "id": "9002", "game_id": "9002", "name": "Crab Quest" },
-        { "id": "9003", "game_id": "9003", "name": "Outsider Game" },
-        { "id": "9004", "game_id": "9004", "name": "Genshin Impact" },
-        { "id": "9005", "game_id": "9005", "name": "Rust Simulator" },
-    ])
+    json!({ "suggested_games": ["9001", "9002", "9003", "9004", "9005"], "suggested_wishlist_games": ["9004"] })
 }
 
 fn applications() -> Vec<Value> {

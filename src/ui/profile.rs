@@ -546,6 +546,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut explore = false;
     let mut note_rect = Rect::NOTHING;
     let store = &app.store;
+    let games = &app.game_info;
     let notes = &mut app.rects;
     let frame = Frame::new().fill(pal().bg_primary).corner_radius(16).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
     let m = crate::ui::motion::Modal::new("full_profile".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
@@ -759,7 +760,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             match tab {
                 Tab::Board => {
                     let r = Rect::from_min_size(ui.cursor().min, vec2(432.0, 0.0));
-                    let mut h = super::profed::board::paint_widgets(ui, store, r, &widgets, pal().header_primary);
+                    let mut h = super::profed::board::paint_widgets(ui, store, games, r, &widgets, pal().header_primary);
                     if !linked.is_empty() {
                         ui.painter().text(pos2(r.left(), r.top() + h + 8.0), Align2::LEFT_CENTER, "Linked accounts", medium(12.0), pal().header_secondary);
                         for (i, n) in linked.iter().enumerate() {

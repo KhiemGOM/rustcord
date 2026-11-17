@@ -289,6 +289,7 @@ pub struct App {
     // someone's profile as a server shows it, by (person, server)
     pub member_profiles: Map<(Id, Id), serde_json::Value>,
     pub app_covers: Map<Id, Option<String>>,
+    pub game_info: Map<String, Option<profed::board::Info>>,
     pub full_profile: Option<profile::Full>,
     pub outbox: Map<Id, Vec<profile::Recent>>,
     // the + button's role list: server, member, where, search
@@ -574,6 +575,7 @@ impl App {
             profiles: Map::default(),
             member_profiles: Map::default(),
             app_covers: Map::default(),
+            game_info: Map::default(),
             full_profile: None,
             outbox: Map::default(),
             role_add: None,
