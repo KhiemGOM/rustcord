@@ -74,6 +74,19 @@ pub fn suggested(store: &crate::state::Tracked, gid: Id, cur: Option<Id>) -> Vec
     out
 }
 
+pub fn hidden_voice(store: &Store, gid: Id) -> Vec<&Channel> {
+    let Some(g) = store.guilds.get(&gid).filter(|_| store.opt_in.contains(&gid)) else { return Vec::new() };
+    let mut out: Vec<&Channel> = g
+        .channels
+        .iter()
+        .filter_map(|c| store.channels.get(c))
+        .filter(|c| c.is_voice() && store.can_view(c) && !store.listed(c))
+        .filter(|c| store.chan_flags.get(&c.id).is_none_or(|f| f & super::PINNED == 0))
+        .collect();
+    out.sort_by_key(|c| (store.channels.get(&c.parent).map_or(-1, |k| k.position), c.position, c.id));
+    out
+}
+
 pub fn first_channel(store: &Store, gid: Id) -> Option<Id> {
     tree(store, gid).into_iter().flat_map(|(_, k)| k).find(|c| c.is_text()).map(|c| c.id)
 }
@@ -450,6 +463,62 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool, muted: bool
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     (resp, add)
+}
+
+fn static_head(ui: &mut Ui, name: &str) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::hover());
+    text::paint_em(ui.painter(), pos2(rect.left() + 16.0, rect.top() + 12.0), Align2::LEFT_CENTER, name, medium(14.0), pal().channel_default, rect.width() - 32.0, 1.0);
+}
+
+fn voice_summary(ui: &mut Ui, store: &Store, gid: Id, chans: &[Id]) -> Option<(Id, egui::Pos2)> {
+    let g = store.guilds.get(&gid)?;
+    let mut users: Vec<Id> = g.voice.iter().filter(|(_, c)| chans.contains(c)).map(|(u, _)| *u).collect();
+    if users.is_empty() {
+        return None;
+    }
+    users.sort_by_cached_key(|u| store.name_in(gid, *u).to_lowercase());
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
+    let y = row.center().y;
+    icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(pos2(row.left() + 26.0, y), vec2(20.0, 20.0)), pal().channel_default);
+    let mut hit = None;
+    for (i, u) in users.iter().take(8).enumerate() {
+        let c = pos2(row.left() + 52.0 + i as f32 * 18.0, y);
+        if i > 0 {
+            ui.painter().circle_filled(c, 14.0, pal().bg_tertiary);
+        }
+        let r = Rect::from_center_size(c, vec2(24.0, 24.0));
+        if let Some(x) = store.user(*u) {
+            avatar(ui, r, &x.avatar_url());
+        }
+        if ui.interact(r, ui.id().with(("voice_face", *u)), Sense::click()).clicked() {
+            hit = Some((*u, r.right_top()));
+        }
+    }
+    if users.len() > 8 {
+        let x = row.left() + 52.0 + 7.0 * 18.0 + 18.0;
+        text::paint(ui.painter(), pos2(x, y), Align2::LEFT_CENTER, &format!("+{}", users.len() - 8), semi(12.0), pal().header_secondary, 40.0);
+    }
+    hit
+}
+
+fn voice_toggle(ui: &mut Ui, open: bool) -> bool {
+    ui.add_space(2.0);
+    let w = ui.available_width() - 24.0;
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+    let r = Rect::from_min_size(pos2(r.left() + 16.0, r.top()), vec2(w, 40.0));
+    let resp = ui.interact(r, resp.id.with("btn"), Sense::click());
+    let k = super::motion::hot(ui.ctx(), &resp);
+    ui.painter().rect(r, CornerRadius::same(8), super::motion::mix(pal().control, pal().control_hover, k), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    let label = if open { "Hide Voice Channels" } else { "Show All" };
+    let g = ui.painter().layout_no_wrap(label.to_string(), medium(16.0), pal().header_primary);
+    let x = r.center().x - (g.size().x + 26.0) / 2.0;
+    icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(pos2(x + 10.0, r.center().y), vec2(20.0, 20.0)), pal().header_primary);
+    ui.painter().galley(pos2(x + 26.0, r.center().y - g.size().y / 2.0), g, pal().header_primary);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    crate::ui::settings::mark(ui, "side:voice_toggle", r);
+    resp.clicked()
 }
 
 /// The "Suggested" label over the open and unread channels that aren't on the list, with its
