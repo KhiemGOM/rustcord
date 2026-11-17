@@ -39,6 +39,7 @@ mod polls;
 use polls::*;
 mod themecard;
 mod dmstart;
+mod obscure;
 use themecard::*;
 mod actions;
 use actions::*;
@@ -62,6 +63,7 @@ enum Act {
     Browser(String),
     Channel(Id),
     Reveal(Id),
+    Unveil(Id, bool),
     SaveEdit(Id, String),
     CancelEdit,
     Profile(Id, Pos2),
@@ -114,6 +116,7 @@ struct D<'a> {
     guild: Id,
     ch: Id,
     revealed: &'a Set<Id>,
+    unveiled: &'a Set<Id>,
     editing: &'a mut Option<(Id, String)>,
     marker: Option<Id>,
     hover_lock: Option<Id>,
@@ -400,6 +403,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         guild: chan.guild,
         ch,
         revealed: &app.revealed,
+        unveiled: &app.unveiled,
         editing: &mut app.editing,
         marker,
         hover_lock,
@@ -669,6 +673,13 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Channel(c) => app.open_thread(c, false, shift),
             Act::Reveal(id) => {
                 app.revealed.insert(id);
+            }
+            Act::Unveil(file, on) => {
+                if on {
+                    app.unveiled.insert(file);
+                } else {
+                    app.unveiled.remove(&file);
+                }
             }
             Act::SaveEdit(id, text) => {
                 app.editing = None;

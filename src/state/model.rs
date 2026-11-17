@@ -438,9 +438,17 @@ pub(crate) struct Attachment {
     pub waveform: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub id: Id,
+    #[serde(default)]
+    pub flags: u32,
 }
 
 impl Attachment {
+    pub fn spoiler(&self) -> bool {
+        self.flags & 8 != 0 || self.filename.starts_with("SPOILER_")
+    }
+
     pub fn is_image(&self) -> bool {
         self.w > 0 && (self.ctype.starts_with("image/") || has_img_ext(&self.filename))
     }
@@ -515,6 +523,8 @@ pub(crate) struct Embed {
     pub image: Option<Media>,
     pub thumb: Option<Media>,
     pub video: Option<Media>,
+    #[serde(default)]
+    pub flags: u32,
 }
 
 impl Embed {
@@ -543,6 +553,7 @@ impl Embed {
             image: Media::parse(&v["image"]),
             thumb: Media::parse(&v["thumbnail"]),
             video: Media::parse(&v["video"]),
+            flags: v["flags"].as_u64().unwrap_or(0) as u32,
         }
     }
 }

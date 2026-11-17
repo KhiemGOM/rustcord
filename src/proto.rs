@@ -286,6 +286,8 @@ account! {
     animate_emoji: bool,
     gif_autoplay: bool,
     spoilers: Spoilers,
+    explicit: [u8; 3],
+    gore: [u8; 3],
     locale: String,
     stream_previews: bool,
     soundboard_volume: f32,
@@ -334,6 +336,18 @@ fn text(w: &[u8]) -> Option<String> {
 
 /// `full` = the blob is a whole snapshot, so a missing developer_mode (a plain
 /// bool, never written when false) means off rather than "not mentioned".
+/// One of the sensitive content filters: its three contexts, each left at discord's default
+/// when unset.
+fn filter(w: &[u8], unset: [u8; 3]) -> [u8; 3] {
+    let mut out = unset;
+    for (n, v) in fields(w) {
+        if let (1..=3, Val::Int(x @ 1..=3)) = (n, v) {
+            out[n as usize - 1] = x as u8;
+        }
+    }
+    out
+}
+
 pub fn account(settings: &[u8], full: bool) -> Account {
     let mut a = Account::default();
     if full {
@@ -348,6 +362,8 @@ pub fn account(settings: &[u8], full: bool) -> Account {
         a.hour_cycle = Some(0);
         a.legacy_input = Some(false);
         a.game_suggestions = Some(true);
+        a.explicit = Some([1, 2, 1]);
+        a.gore = Some([2, 3, 2]);
         a.sticker_suggestions = Some(false);
         a.md_preview = Some(true);
     }
@@ -439,6 +455,8 @@ pub fn account(settings: &[u8], full: bool) -> Account {
                             }
                         }
                         7 => a.image_descriptions = Some(flag(w)),
+                        29 => a.explicit = Some(filter(w, [1, 2, 1])),
+                        32 => a.gore = Some(filter(w, [2, 3, 2])),
                         9 => a.inline_uploads = Some(flag(w)),
                         10 => a.inline_links = Some(flag(w)),
                         11 => a.gif_autoplay = Some(flag(w)),

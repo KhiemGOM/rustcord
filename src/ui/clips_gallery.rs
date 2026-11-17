@@ -328,7 +328,7 @@ pub fn play(app: &mut App, ctx: &egui::Context, g: &mut Gallery, c: Clip) {
 fn player(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     let Some(c) = g.playing.clone() else { return };
     let url = clip_url(&c);
-    let a = crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: c.name(), size: c.size, w: 0, h: 0, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new(), description: String::new() };
+    let a = crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: c.name(), size: c.size, w: 0, h: 0, ctype: "video/mp4".into(), ..Default::default() };
     let poster = format!("file:///{}", c.thumb().display().to_string().replace('\\', "/"));
     let info = crate::media::current(&url).map(|s| s.view().info);
     let screen = ctx.content_rect();

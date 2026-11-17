@@ -187,7 +187,7 @@ pub(super) fn direct(v: &crate::state::Media) -> bool {
 
 pub(super) fn inline_video(ui: &mut Ui, d: &mut D, e: &Embed, v: &crate::state::Media, msg: Id) -> Rect {
     let name = v.url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("video.mp4").to_string();
-    let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), duration: 0.0, waveform: String::new(), description: String::new() };
+    let a = crate::state::Attachment { url: v.url.clone(), proxy: v.url.clone(), filename: name, size: 0, w: v.w, h: v.h, ctype: "video/mp4".into(), ..Default::default() };
     let (w, h) = fit(v.w, v.h, 400.0, 300.0, ui.available_width());
     let poster = e.thumb.as_ref().map_or(v.url.as_str(), |t| t.url.as_str());
     let mut outs = Vec::new();
@@ -200,6 +200,22 @@ pub(super) fn inline_video(ui: &mut Ui, d: &mut D, e: &Embed, v: &crate::state::
 pub(super) fn is_video_file(url: &str) -> bool {
     let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
     [".mp4", ".m4v", ".mov", ".webm"].iter().any(|e| path.ends_with(e))
+}
+
+/// One of an embed's pictures, under discord's cover while the embed is flagged and unopened.
+fn picture(ui: &mut Ui, d: &mut D, e: &Embed, at: (Id, usize), url: &str, full: &str, size: egui::Vec2, poster: Option<&str>, alone: bool) -> egui::Response {
+    let (msg, idx) = at;
+    if let Some(key) = obscure::embed_hidden(d, msg, idx, e.flags) {
+        let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+        let blur = crate::state::Attachment { proxy: url.to_string(), url: url.to_string(), w: size.x as u32, h: size.y as u32, ..Default::default() };
+        if obscure::cover(ui, d, rect, CornerRadius::same(4), &blur, obscure::Why::Sensitive, alone, (msg, 100 + idx)) {
+            d.acts.push(Act::Unveil(key, true));
+        }
+        return resp;
+    }
+    let r = media(ui, d, url, full, size.x, size.y, poster);
+    obscure::embed_eye(ui, d, r.rect, msg, idx, e.flags);
+    r
 }
 
 pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> Option<Rect> {
@@ -220,7 +236,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
             let (mw, mh) = if m.w > 0 { (m.w, m.h) } else { still.map_or((0, 0), |s| (s.w, s.h)) };
             let (w, h) = fit(mw, mh, 400.0, 300.0, ui.available_width());
             let poster = still.filter(|s| gifv && s.url != m.url).map(|s| s.url.as_str());
-            let r = media(ui, d, &m.url, e.url.as_deref().unwrap_or(&m.url), w, h, poster);
+            let r = picture(ui, d, e, (msg, idx), &m.url, e.url.as_deref().unwrap_or(&m.url), vec2(w, h), poster, true);
             if ui.clip_rect().contains(r.rect.center()) {
                 d.rects.push((format!("{}:{msg}", if gifv { "gifv" } else { "embed_image" }), r.rect.intersect(ui.clip_rect())));
             }
@@ -330,7 +346,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
                     ui.vertical(|ui| {
                         ui.add_space(8.0);
                         let (w, h) = fit(t.w, t.h, 80.0, 80.0, 80.0);
-                        media(ui, d, &t.url, &t.url, w, h, None);
+                        picture(ui, d, e, (msg, idx), &t.url, &t.url, vec2(w, h), None, false);
                     });
                 }
             });
@@ -350,7 +366,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
                     d.rects.push((format!("embed_frame:{msg}"), rect));
                     d.rects.push(("embed_clip".into(), ui.clip_rect()));
                 } else {
-                    let r = media(ui, d, &m.url, &m.url, w, h, None);
+                    let r = picture(ui, d, e, (msg, idx), &m.url, &m.url, vec2(w, h), None, true);
                     let mut link = false;
                     if e.kind == "video" {
                         link = crate::ui::embedplay::pill(ui, r.rect, framed.is_some(), e.url.is_some());
