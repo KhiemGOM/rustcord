@@ -187,7 +187,8 @@ impl Run {
                 self.next(600);
             }
             5316 => {
-                let Some(r) = Self::at(ctx, &format!("studio:server:{gid}")) else {
+                let mine = app.store.guild_order.iter().copied().find(|g| app.store.my_perms(*g) & (crate::state::CREATE_GUILD_EXPRESSIONS | crate::state::MANAGE_GUILD_EXPRESSIONS) != 0);
+                let Some(r) = mine.and_then(|g| Self::at(ctx, &format!("studio:server:{g}"))) else {
                     if stuck {
                         self.shot(ctx, "rv_studio_no_menu.png");
                         self.step = 5319;
