@@ -551,6 +551,17 @@ fn banner_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     }
 }
 
+const TAG_LIST: f32 = 220.0;
+const TAG_CHROME: f32 = 72.0;
+
+fn tag_place(anchor: Rect, screen: Rect) -> (bool, f32) {
+    let below = screen.bottom() - anchor.bottom() - 6.0;
+    let above = anchor.top() - screen.top() - 6.0;
+    let up = below < TAG_LIST + TAG_CHROME && above > below;
+    let room = if up { above } else { below };
+    (up, (room - TAG_CHROME).clamp(88.0, TAG_LIST))
+}
+
 fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let ids: Vec<Id> = app.store.guild_order.iter().copied().filter(|g| app.store.guilds.get(g).is_some_and(|g| g.features.iter().any(|f| f == "GUILD_TAGS"))).collect();
     for g in &ids {
@@ -571,13 +582,15 @@ fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         .filter(|(_, n, t, _)| q.is_empty() || n.to_lowercase().contains(&q) || t.to_lowercase().contains(&q))
         .collect();
     let mut pick: Option<Option<Id>> = None;
-    let area = egui::Area::new("profed_tag_menu".into()).order(egui::Order::Tooltip).fixed_pos(ed.anchor.left_bottom() + vec2(-4.0, 6.0)).show(ctx, |ui| {
+    let (up, list_h) = tag_place(ed.anchor, ctx.content_rect());
+    let (pos, pivot) = if up { (ed.anchor.left_top() + vec2(-4.0, -6.0), Align2::LEFT_BOTTOM) } else { (ed.anchor.left_bottom() + vec2(-4.0, 6.0), Align2::LEFT_TOP) };
+    let area = egui::Area::new("profed_tag_menu".into()).order(egui::Order::Tooltip).fixed_pos(pos).pivot(pivot).show(ctx, |ui| {
         Frame::popup(ui.style()).fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, faint(41))).show(ui, |ui| {
             ui.set_width(320.0);
             let r = ui.add(egui::TextEdit::singleline(&mut ed.tag_q).hint_text("Search").desired_width(f32::INFINITY).font(reg(16.0)));
             mark(ui, "tag:search", r.rect);
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
                 if resp.hovered() {
                     ui.painter().rect_filled(r, CornerRadius::same(4), faint(31));
@@ -621,5 +634,31 @@ fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         ed.tag_q.clear();
     } else if area.response.clicked_elsewhere() && !ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| ed.anchor.contains(p)) {
         ed.menu = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_menu_opens_downward_when_it_fits() {
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0));
+        let anchor = Rect::from_min_size(pos2(400.0, 200.0), vec2(80.0, 24.0));
+        assert_eq!(tag_place(anchor, screen), (false, TAG_LIST));
+    }
+
+    #[test]
+    fn tag_menu_flips_above_and_shrinks_to_the_room_it_has() {
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 500.0));
+        let low = Rect::from_min_size(pos2(400.0, 400.0), vec2(80.0, 24.0));
+        let (up, h) = tag_place(low, screen);
+        assert!(up);
+        assert_eq!(h, TAG_LIST);
+        let tight = Rect::from_min_size(pos2(400.0, 180.0), vec2(80.0, 24.0));
+        let short = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 300.0));
+        let (up, h) = tag_place(tight, short);
+        assert!(up);
+        assert_eq!(h, 174.0 - TAG_CHROME);
     }
 }
