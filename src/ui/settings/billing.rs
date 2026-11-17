@@ -717,9 +717,6 @@ pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
         });
         ui.add_space(24.0);
     }
-    if sources.is_empty() {
-        super::note(ui, "No payment method saved");
-    }
     let mut edit = None;
     for s in &sources {
         let in_use = subs.iter().any(|x| x["payment_source_id"] == s["id"] && matches!(x["status"].as_u64(), Some(1..=3)));
@@ -731,10 +728,18 @@ pub fn billing(app: &mut App, ui: &mut Ui) -> bool {
         put(ui, "edit", edit);
     }
     ui.add_space(24.0);
-    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-        if primary(ui, "Add Payment Method").clicked() {
-            crate::webwin::add_card();
+    ui.horizontal(|ui| {
+        if sources.is_empty() {
+            ui.vertical(|ui| {
+                ui.label(RichText::new("No payment method saved").font(reg(14.0)).color(pal().text_normal));
+                ui.label(RichText::new("Checkout faster by saving a payment method").font(reg(14.0)).color(pal().text_muted));
+            });
         }
+        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            if primary(ui, "Add Payment Method").clicked() {
+                crate::webwin::add_card();
+            }
+        });
     });
     edit_source(app, ui, &sources);
 
