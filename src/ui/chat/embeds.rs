@@ -262,11 +262,7 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
     });
     let widest = desc
         .iter()
-        .flatten()
-        .map(|b| match b {
-            Block::Text(t) => ui.fonts_mut(|f| f.layout_job(t.job.clone())).size().x,
-            _ => 0.0,
-        })
+        .map(|blocks| unwrapped(ui, blocks))
         .chain(e.title.iter().map(|t| ui.fonts_mut(|f| f.layout_no_wrap(t.clone(), semi(16.0), Color32::WHITE)).size().x))
         .fold(0.0, f32::max);
     let r = Frame::new()
@@ -418,6 +414,16 @@ pub(super) fn embed(ui: &mut Ui, d: &mut D, e: &Embed, msg: Id, idx: usize) -> O
         bar,
     );
     Some(rect)
+}
+
+/// How wide the text would be with no line wrapped.
+fn unwrapped(ui: &Ui, blocks: &[Block]) -> f32 {
+    let wide = |b: &Block| match b {
+        Block::Text(t) => ui.fonts_mut(|f| f.layout_job(t.job.clone())).size().x,
+        Block::List(list) => list.indent + list.items.iter().map(|(_, inner)| unwrapped(ui, inner)).fold(0.0, f32::max),
+        _ => 0.0,
+    };
+    blocks.iter().map(wide).fold(0.0, f32::max)
 }
 
 pub(super) fn field(ui: &mut Ui, d: &mut D, f: &(String, String, bool), msg: Id) {

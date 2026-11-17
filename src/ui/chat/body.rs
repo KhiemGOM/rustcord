@@ -182,6 +182,28 @@ fn spans(galley: &egui::Galley, r: &std::ops::Range<usize>) -> Vec<(Rect, f32, f
         .collect()
 }
 
+/// A list item's marker, outside the item as chromium places it: a number ends where the item
+/// starts, with its dot and a space, and a bullet is a dot two thirds of the ascent wide that
+/// starts that far plus 7 before the item.
+fn bullet(ui: &Ui, marker: Marker, at: Pos2, size: f32, line: f32) {
+    let font = reg(size);
+    if let Marker::Number(n) = marker {
+        let space = ui.fonts_mut(|f| f.glyph_width(&font, ' '));
+        ui.painter().text(at + vec2(-space, line / 2.0), Align2::RIGHT_CENTER, format!("{n}."), font, pal().text_normal);
+        return;
+    }
+    // gg sans: ascent 1.018em, descent 0.316em
+    let (ascent, descent) = ((1.018 * size).round(), (0.316 * size).round());
+    let offset = (ascent * 2.0 / 3.0).floor();
+    let wide = ((offset + 1.0) / 2.0).floor();
+    let dot = Rect::from_min_size(at + vec2(-offset - 7.0, (line - ascent - descent) / 2.0 + (3.0 * (ascent - offset) / 2.0).floor()), vec2(wide, wide));
+    if marker == Marker::Disc {
+        ui.painter().circle_filled(dot.center(), wide / 2.0, pal().text_normal);
+    } else {
+        ui.painter().circle_stroke(dot.center(), wide / 2.0 - 0.5, Stroke::new(1.0, pal().text_normal));
+    }
+}
+
 /// A message's text. Discord keeps its code blocks and quotes to 90% of the text's width.
 pub(super) fn blocks_ui(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id) {
     blocks_in(ui, blocks, d, msg, 0.9);
@@ -367,6 +389,20 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                     }
                 }
                 ui.add_space(4.0);
+            }
+            Block::List(list) => {
+                // .markup ol, ul: 4 above the list, and li: 4 under each item
+                ui.add_space(4.0);
+                for (marker, inner) in &list.items {
+                    let at = ui.cursor().min + vec2(list.indent, 0.0);
+                    crate::ui::settings::mark(ui, &format!("li:{msg}:{marker:?}"), Rect::from_min_max(ui.cursor().min, at + vec2(0.0, list.line)));
+                    ui.scope_builder(UiBuilder::new().max_rect(Rect::from_min_size(at, vec2(ui.available_width() - list.indent, 100_000.0))), |ui| blocks_in(ui, inner, d, msg, cap));
+                    bullet(ui, *marker, at, list.size, list.line);
+                    // the margin under a list that ends the item collapses into the item's own
+                    if !matches!(inner.last(), Some(Block::List(_))) {
+                        ui.add_space(4.0);
+                    }
+                }
             }
             Block::Quote(inner) => {
                 ui.add_space(4.0);

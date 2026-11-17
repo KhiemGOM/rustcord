@@ -48,6 +48,24 @@ pub enum Block {
     Text(Inline),
     Code(String, String),
     Quote(Vec<Block>),
+    List(List),
+}
+
+pub struct List {
+    /// how far the items sit in from the text around the list
+    pub indent: f32,
+    /// the markers' font size and line height
+    pub size: f32,
+    pub line: f32,
+    pub items: Vec<(Marker, Vec<Block>)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Marker {
+    Disc,
+    /// a list inside a list
+    Circle,
+    Number(u64),
 }
 
 /// Which of a text's spoilers are open. Discord opens each one on its own click, so every
@@ -743,7 +761,7 @@ fn finish(b: B) -> Block {
 
 /// Lines of text and the quotes among them. Discord's headings are blocks with a margin of
 /// 16 above (8 or 4 when they come first) and 8 below, and its quotes are in --text-subtle.
-fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, out: &mut Vec<Block>) {
+fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, out: &mut Vec<Block>) {
     let plain = St { color, ..base(cx) };
     let mut b = new_b(cx, jumbo);
     let mut quote: Vec<&str> = Vec::new();
@@ -754,7 +772,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, out: &mut Vec<Bl
         if !quote.is_empty() {
             let inner = quote.join("\n");
             let mut q = Vec::new();
-            text_lines(cx, &inner, false, pal().header_secondary, &mut q);
+            text_lines(cx, &inner, false, pal().header_secondary, false, &mut q);
             out.push(Block::Quote(q));
             quote.clear();
         }
@@ -778,8 +796,20 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, out: &mut Vec<Bl
             continue;
         }
         flush_quote(&mut quote, out);
+        if let Some((indent, bullet, _)) = item(line) {
+            if b.chars > 0 {
+                out.push(finish(std::mem::replace(&mut b, new_b(cx, jumbo))));
+                first = true;
+            }
+            let mut rows = vec![line];
+            while let Some(row) = lines.next_if(|l| l.starts_with(' ') || item(l).is_some_and(|(i, ..)| i == indent)) {
+                rows.push(row);
+            }
+            out.push(list(cx, &rows, indent, bullet, color, listed));
+            continue;
+        }
         let (line, under) = bold_item(line).unwrap_or((line, ""));
-        let head = [("### ", 16.0), ("## ", 20.0), ("# ", 24.0)].into_iter().find_map(|(p, size)| Some((line.strip_prefix(p)?, size)));
+        let head = [("### ", 16.0), ("## ", 20.0), ("# ", 24.0)].into_iter().filter(|_| !listed).find_map(|(p, size)| Some((line.strip_prefix(p)?, size)));
         if !first {
             b.text("\n", plain);
             let margin = below.max(if head.is_some() { 16.0 } else { 0.0 });
@@ -805,12 +835,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, out: &mut Vec<Bl
             st.color = pal().header_primary;
             body = rest;
         }
-        let trimmed = body.trim_start();
-        let indent = body.len() - trimmed.len();
-        if let Some(item) = trimmed.strip_prefix("- ").or(trimmed.strip_prefix("* ")) {
-            b.text(&format!("{}• ", "    ".repeat(indent / 2 + 1)), st);
-            body = item;
-        } else if let Some(rest) = trimmed.strip_prefix("-# ") {
+        if let Some(rest) = body.trim_start().strip_prefix("-# ") {
             st.size = 14.0;
             st.color = pal().header_secondary;
             body = rest;
@@ -825,6 +850,52 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, out: &mut Vec<Bl
     if b.chars > 0 {
         out.push(finish(b));
     }
+}
+
+/// A list item's line as discord's rule reads it: its indent, its bullet (`*`, `-` or a number
+/// and a dot) and, after at least one space, its text.
+fn item(line: &str) -> Option<(usize, &str, &str)> {
+    let rest = line.trim_start_matches(' ');
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let bullet = match digits {
+        0 if rest.starts_with(['*', '-']) => 1,
+        0 => return None,
+        _ => digits + usize::from(rest[digits..].starts_with('.')),
+    };
+    let text = rest[bullet..].strip_prefix(' ').filter(|_| bullet > digits)?.trim_start_matches(' ');
+    (!text.is_empty()).then_some((line.len() - rest.len(), &rest[..bullet], text))
+}
+
+/// A run of list lines. The first bullet says whether the list is numbered and from where; a
+/// line with a bullet at most one space deeper is the next item; any other line belongs to the
+/// item above it, as more of its text or as a list inside it.
+fn list(cx: &Cx, rows: &[&str], indent: usize, bullet: &str, color: Color32, listed: bool) -> Block {
+    let start = bullet.strip_suffix('.').map(|n| n.parse::<u64>().unwrap_or(u64::MAX).clamp(1, 1_000_000_000));
+    let prefix = rows[0].len() - item(rows[0]).map_or(0, |(.., text)| text.len());
+    let mut texts: Vec<String> = Vec::new();
+    for row in rows {
+        match (item(row).filter(|(i, ..)| (indent..=indent + 1).contains(i)), texts.last_mut()) {
+            (None, Some(last)) => {
+                last.push('\n');
+                last.push_str(&row[row.bytes().take(prefix).take_while(|c| *c == b' ').count()..]);
+            }
+            (Some((.., text)), _) => texts.push(text.to_string()),
+            (None, None) => {}
+        }
+    }
+    // .markup ul is 16px in, ol 0.4em and 0.6em for each digit of its last number
+    let digits = start.map(|s| (s + texts.len() as u64 - 1).to_string().len() as f32);
+    let items = texts.iter().enumerate().map(|(i, text)| {
+        let mut inner = Vec::new();
+        text_lines(cx, text, false, color, true, &mut inner);
+        let marker = match start {
+            Some(s) => Marker::Number(s + i as u64),
+            None if listed => Marker::Circle,
+            None => Marker::Disc,
+        };
+        (marker, inner)
+    });
+    Block::List(List { indent: digits.map_or(16.0, |d| (0.4 + 0.6 * d) * cx.size), size: cx.size, line: cx.line(cx.size), items: items.collect() })
 }
 
 /// A line that opens with a bolded list item, "**3. Be kind** and so on": discord reads the bold's
@@ -860,14 +931,14 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         let Some(end) = after.find("```") else { break };
         let before = rest[..start].trim_end_matches('\n');
         if !before.is_empty() {
-            text_lines(cx, before, false, cx.color, &mut out);
+            text_lines(cx, before, false, cx.color, false, &mut out);
         }
         let (lang, code) = fence(&after[..end]);
         out.push(Block::Code(lang.to_string(), code.to_string()));
         rest = after[end + 3..].trim_start_matches('\n');
     }
     if !rest.is_empty() {
-        text_lines(cx, rest, jumbo, cx.color, &mut out);
+        text_lines(cx, rest, jumbo, cx.color, false, &mut out);
     }
     if cx.edited {
         let mut st = base(cx);
