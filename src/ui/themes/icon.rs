@@ -57,13 +57,21 @@ pub fn free(i: usize) -> bool {
     i < 2
 }
 
-fn draw(ui: &Ui, r: Rect, i: usize) {
-    if i == 0 {
-        egui::Image::from_bytes("bytes://rustcord.svg", crate::logo::SVG.as_bytes()).paint_at(ui, r);
-        return;
-    }
-    let u = crate::gif::uri(ui.ctx(), &url(i), true);
-    egui::Image::from_uri(u).corner_radius(CornerRadius::same((r.width() / 6.0) as u8)).show_loading_spinner(false).paint_at(ui, r);
+pub fn draw(ui: &Ui, r: Rect, i: usize, radius: u8) {
+    let image = if i == 0 {
+        egui::Image::from_bytes("bytes://rustcord_tile.svg", crate::logo::tile().as_bytes())
+    } else {
+        egui::Image::from_uri(crate::gif::uri(ui.ctx(), &url(i), true))
+    };
+    image.corner_radius(CornerRadius::same(radius)).show_loading_spinner(false).paint_at(ui, r);
+}
+
+/// The icon the rail's home button wears in place of Discord's glyph: Discord's own default
+/// keeps the glyph, and the Nitro ones show only for Nitro or while the preview panel is open.
+pub fn on_rail(app: &App) -> Option<usize> {
+    let previewing = app.themes.panel == Some(super::Panel::Icons);
+    let i = if previewing { app.themes.icon } else { None }.unwrap_or_else(|| index(&app.settings.app_icon));
+    (i != 1 && (i == 0 || previewing || unlocked(app))).then_some(i)
 }
 
 fn ring(ui: &mut Ui, r: Rect, on: bool, id: egui::Id) -> egui::Response {
@@ -90,7 +98,7 @@ pub fn grid(ui: &mut Ui, size: f32, chosen: usize, live: bool) -> Option<usize> 
     let mut clicked = None;
     for i in 0..ICONS.len() {
         let r = Rect::from_min_size(area.min + vec2((i % per_row) as f32 * (size + 8.0), (i / per_row) as f32 * (size + 8.0)), vec2(size, size));
-        draw(ui, r, i);
+        draw(ui, r, i, (size / 6.0) as u8);
         let resp = ring(ui, r, i == chosen, egui::Id::new(("app_icon", i)));
         mark(ui, &format!("icon:{}", ICONS[i].1), r);
         if resp.on_hover_text(ICONS[i].1).clicked() && (live || free(i)) {
@@ -142,7 +150,7 @@ pub fn panel(app: &mut App, ui: &mut Ui, r: Rect) {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (big, _) = ui.allocate_exact_size(vec2(BODY, 160.0), Sense::hover());
         ui.painter().rect_filled(big, CornerRadius::same(8), pal().bg_tertiary);
-        draw(ui, Rect::from_center_size(big.center() - vec2(0.0, 10.0), vec2(96.0, 96.0)), shown);
+        draw(ui, Rect::from_center_size(big.center() - vec2(0.0, 10.0), vec2(96.0, 96.0)), shown, 16);
         ui.painter().text(pos2(big.center().x, big.bottom() - 18.0), Align2::CENTER_CENTER, ICONS[shown].1, medium(14.0), pal().header_primary);
         ui.add_space(16.0);
         pick = grid(ui, 48.0, shown, true);

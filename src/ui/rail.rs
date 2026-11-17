@@ -21,7 +21,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
             let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
             let home = app.ui.guild.is_none();
+            let worn = super::themes::icon::on_rail(app);
             let r = item(ui, egui::Id::new("home"), home, false, |ui, rect, radius, _, k| {
+                if let Some(i) = worn {
+                    super::themes::icon::draw(ui, rect, i, radius);
+                    return;
+                }
                 ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().blurple, k));
                 icons::draw(ui.painter(), Icon::Discord, Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
