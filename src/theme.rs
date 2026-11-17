@@ -292,6 +292,18 @@ pub fn me() -> u64 {
     ME.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+static FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Whether the window has focus. Discord stops its spinners and typing dots without it
+/// (`.app-focused`).
+pub fn focused() -> bool {
+    FOCUSED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_focused(on: bool) {
+    FOCUSED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 static REDUCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn set_reduced_motion(on: bool) {
