@@ -530,11 +530,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         tones_open = false;
     }
     if add_emoji {
-        app.open_server_settings(guild);
-        if let Some(s) = &mut app.server {
-            s.page = super::server::Page::Emoji;
-        }
         app.picker = None;
+        super::emojistudio::open(app, guild);
         return;
     }
     ctx.data_mut(|d| {

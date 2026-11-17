@@ -34,6 +34,7 @@ mod favs;
 pub mod failed;
 mod feedabout;
 mod folders;
+mod emojistudio;
 mod follow;
 mod forum;
 mod forumbar;
@@ -374,6 +375,7 @@ pub struct App {
     pub sched: scheduled::State,
     pub launcher: Option<plus::Launcher>,
     pub follow: Option<follow::Follow>,
+    pub emoji_studio: Option<emojistudio::Studio>,
     pub publishing: Option<(Id, Id)>,
     pub modify: Option<attach::Modify>,
     pub group_pick: Option<dmpick::Pick>,
@@ -642,6 +644,7 @@ impl App {
             sched: Default::default(),
             launcher: None,
             follow: None,
+            emoji_studio: None,
             publishing: None,
             modify: None,
             group_pick: None,
