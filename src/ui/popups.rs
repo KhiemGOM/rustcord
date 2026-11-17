@@ -112,6 +112,9 @@ impl App {
     }
 
     pub fn open_profile(&mut self, user: Id, guild: Id, at: Pos2) {
+        if self.profile_shut.take() == Some(user) {
+            return;
+        }
         self.profile = Some((user, guild, at));
         let mine = user == self.store.me;
         self.want_profile(user, guild, &format!("with_mutual_guilds={}&with_mutual_friends={}", !mine, !mine));

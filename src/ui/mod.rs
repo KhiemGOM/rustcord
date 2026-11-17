@@ -282,6 +282,7 @@ pub struct App {
     pub soundboard: Option<(Id, Option<Vec<crate::state::Sound>>)>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
+    pub profile_shut: Option<Id>,
     pub profiles: Map<Id, serde_json::Value>,
     // someone's profile as a server shows it, by (person, server)
     pub member_profiles: Map<(Id, Id), serde_json::Value>,
@@ -566,6 +567,7 @@ impl App {
             soundboard: None,
             switcher: None,
             profile: None,
+            profile_shut: None,
             profiles: Map::default(),
             member_profiles: Map::default(),
             app_covers: Map::default(),

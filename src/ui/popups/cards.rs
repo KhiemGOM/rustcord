@@ -6,6 +6,9 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         if let Some(old) = ctx.data_mut(|d| d.remove_temp::<Id>(key)) {
             crate::ui::cosmo::forget(ctx, ("popout", old));
         }
+        if ctx.input(|i| !i.pointer.any_down() && !i.pointer.any_released()) {
+            app.profile_shut = None;
+        }
         return;
     };
     ctx.data_mut(|d| d.insert_temp(key, uid));
@@ -270,6 +273,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
         app.open_mod_view(gid, uid);
     } else if dismissed(ctx, &area.response) && app.user_menu.is_none() && app.role_add.is_none() && app.tag_pop.is_none() {
         app.profile = None;
+        app.profile_shut = ctx.input(|i| i.pointer.any_pressed()).then_some(uid);
     }
 }
 
