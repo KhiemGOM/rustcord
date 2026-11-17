@@ -322,6 +322,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let lead = if slashing || off { 0.0 } else { 24.0 + 23.0 };
                     let w = (ui.available_width() - lead - buttons - 8.0).max(8.0);
                     let mut text_pos = egui::Pos2::ZERO;
+                    let mut text_size = egui::Vec2::ZERO;
                     if slashing {
                         slash::row(app, ui, chan, tid, w, off);
                     } else {
@@ -362,6 +363,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                                     .lock_focus(true)
                                     .show(ui);
                                 text_pos = out.galley_pos;
+                                text_size = out.galley.size();
                                 spell_changed = super::spelling::composer(&mut app.spell, &mut app.settings, ui, &out, draft, tid);
                                 if let Some(r) = out.cursor_range.filter(|r| !r.is_empty() && out.response.has_focus()) {
                                     let [a, _] = r.sorted_cursors();
@@ -383,6 +385,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         app.save_settings(ui.ctx());
     }
     app.rects.insert("composer_text".into(), Rect::from_min_size(text_pos, vec2(1.0, 1.0)));
+    app.rects.insert("composer_text_box".into(), Rect::from_min_size(text_pos, text_size));
                     // discord's row: gift, gif, sticker, emoji, apps; 20px icons 40 apart. It sits flush right
                     // when it fits and runs off the box's edge, clipped, when it doesn't
                     let x0 = (ui.max_rect().right() - buttons).max(row_left + if slashing { 0.0 } else { 24.0 + 23.0 } + 8.0);

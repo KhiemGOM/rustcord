@@ -33,7 +33,12 @@ fn can_add(app: &App, gid: Id) -> bool {
 }
 
 pub fn open(app: &mut App, guild: Id) {
-    let Some(path) = rfd::FileDialog::new().add_filter("Images", &IMAGES).pick_file() else { return };
+    if let Some(path) = rfd::FileDialog::new().add_filter("Images", &IMAGES).pick_file() {
+        start(app, path, guild);
+    }
+}
+
+pub fn start(app: &mut App, path: PathBuf, guild: Id) {
     let Some(image) = super::server::form::data_uri(&path) else { return };
     let name = name_of(&path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
     let guild = Some(guild).filter(|g| *g != 0 && can_add(app, *g));
@@ -105,13 +110,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.add_space(20.0);
         label(ui, "Upload to");
         let shown = s.guild.and_then(|g| servers.iter().find(|x| x.0 == g)).map_or("Select a server", |x| x.1.as_str()).to_string();
-        super::settings::dropdown(ui, w, None, &shown, |ui| {
+        let pr = super::settings::dropdown(ui, w, None, &shown, |ui| {
             for (id, name) in &servers {
                 if super::menu_item(ui, None, name, false) {
                     pick = Some(*id);
                 }
             }
         });
+        super::settings::mark(ui, "studio:server", pr.rect);
         ui.add_space(20.0);
         if let Some(e) = &s.error {
             let g = ui.painter().layout(e.clone(), reg(14.0), pal().red, w);

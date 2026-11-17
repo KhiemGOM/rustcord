@@ -295,7 +295,9 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     } else if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
     } else if let Some(icon) = mark {
-        icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0)), col);
+        let r = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
+        icons::draw(ui.painter(), icon, r, col);
+        crate::ui::settings::mark(ui, &format!("dm_mark:{}", c.id), r);
     }
     (resp, act)
 }
