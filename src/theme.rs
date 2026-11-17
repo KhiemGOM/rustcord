@@ -239,12 +239,35 @@ const VIEW_DEFAULT: View = View {
     density: crate::cache::Density::Default,
 };
 
-/// A list row's height after the density setting: 4px tighter when compact, 4 roomier when spacious.
-pub fn row(h: f32) -> f32 {
-    match view().density {
+/// A list row's height under a density: discord's person rows are 38, 42 and 48
+/// (`.density-* .layout`) and its channel rows 28, 32 and 36.
+fn dense(density: crate::cache::Density, h: f32) -> f32 {
+    match density {
         crate::cache::Density::Compact => h - 4.0,
         crate::cache::Density::Default => h,
+        crate::cache::Density::Spacious if h == 42.0 => 48.0,
         crate::cache::Density::Spacious => h + 4.0,
+    }
+}
+
+#[test]
+fn rows_follow_discords_density_heights() {
+    use crate::cache::Density::*;
+    assert_eq!([Compact, Default, Spacious].map(|d| dense(d, 42.0)), [38.0, 42.0, 48.0]);
+    assert_eq!([Compact, Default, Spacious].map(|d| dense(d, 32.0)), [28.0, 32.0, 36.0]);
+}
+
+/// A list row's height after the density setting.
+pub fn row(h: f32) -> f32 {
+    dense(view().density, h)
+}
+
+/// `--custom-member-list-width`, which the density setting also moves.
+pub fn members_w() -> f32 {
+    match view().density {
+        crate::cache::Density::Compact => 256.0,
+        crate::cache::Density::Default => 264.0,
+        crate::cache::Density::Spacious => 268.0,
     }
 }
 static VIEW: std::sync::RwLock<View> = std::sync::RwLock::new(VIEW_DEFAULT);
