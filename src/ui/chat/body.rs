@@ -254,6 +254,7 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                         }
                     }
                 }
+                let mut spoilers = 0;
                 for (r, kind, line, h) in &t.boxes {
                     let (grow, top) = match kind {
                         Boxed::Code(pad) => (*pad, (line - h) / 2.0),
@@ -272,6 +273,17 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                         })
                         .filter(|q| q.width() > grow)
                         .collect();
+                    // for the e2e driver: the last one drawn of each kind
+                    let name = match kind {
+                        Boxed::Code(_) => "code".to_string(),
+                        Boxed::Spoiler(key) => {
+                            spoilers += 1;
+                            format!("{}{spoilers}", if key.is_some() { "covered" } else { "open" })
+                        }
+                    };
+                    if let Some(q) = pieces.first() {
+                        crate::ui::settings::mark(ui, &format!("box:{name}"), *q);
+                    }
                     let (fill, edge) = match kind {
                         Boxed::Code(_) => (pal().bg_code, Stroke::new(1.0, pal().border_normal)),
                         Boxed::Spoiler(None) => (pal().spoiler_revealed, Stroke::NONE),
@@ -395,7 +407,7 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                 ui.add_space(4.0);
                 for (marker, inner) in &list.items {
                     let at = ui.cursor().min + vec2(list.indent, 0.0);
-                    crate::ui::settings::mark(ui, &format!("li:{msg}:{marker:?}"), Rect::from_min_max(ui.cursor().min, at + vec2(0.0, list.line)));
+                    crate::ui::settings::mark(ui, &format!("li:{marker:?}"), Rect::from_min_max(ui.cursor().min, at + vec2(0.0, list.line)));
                     ui.scope_builder(UiBuilder::new().max_rect(Rect::from_min_size(at, vec2(ui.available_width() - list.indent, 100_000.0))), |ui| blocks_in(ui, inner, d, msg, cap));
                     bullet(ui, *marker, at, list.size, list.line);
                     // the margin under a list that ends the item collapses into the item's own
@@ -415,6 +427,8 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                     .response
                     .rect;
                 ui.painter().rect_filled(Rect::from_min_max(pos2(x, top), pos2(x + 4.0, r.bottom())), CornerRadius::same(4), pal().spine);
+                crate::ui::settings::mark(ui, "quote", Rect::from_min_max(pos2(x, top), pos2(x + 16.0 + wide, r.bottom())));
+                crate::ui::settings::mark(ui, "quote_room", Rect::from_min_size(pos2(x, top), vec2(ui.available_width(), 1.0)));
                 ui.add_space(4.0);
             }
         }
