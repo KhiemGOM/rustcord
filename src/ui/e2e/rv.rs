@@ -107,6 +107,10 @@ impl Run {
                 if let Some(g) = app.store.guilds.get_mut(&gid) {
                     g.voice.insert(ALICE, vc);
                     g.streaming.insert(ALICE);
+                    if let Some(r) = g.roles.get_mut(&gid) {
+                        self.rects.insert("rv_perms".into(), serde_json::json!(r.perms));
+                        r.perms |= crate::state::CONNECT;
+                    }
                 }
                 app.ui.voice_open.remove(&gid);
                 self.rects.insert("rv_vc".into(), serde_json::json!(vc));
@@ -151,9 +155,13 @@ impl Run {
             }
             5313 => {
                 app.store.opt_in.remove(&gid);
+                let perms = self.rects.get("rv_perms").and_then(|v| v.as_u64());
                 if let Some(g) = app.store.guilds.get_mut(&gid) {
                     g.voice.remove(&ALICE);
                     g.streaming.remove(&ALICE);
+                    if let (Some(r), Some(p)) = (g.roles.get_mut(&gid), perms) {
+                        r.perms = p;
+                    }
                 }
                 app.ui.voice_open.remove(&gid);
                 self.queue.push_back(vec![Event::PointerMoved(pos2(900.0, 400.0))]);
@@ -182,6 +190,7 @@ impl Run {
                 let name = app.store.guilds.get(&gid).map(|g| g.name.clone()).unwrap_or_default();
                 let Some(r) = Self::at(ctx, &format!("menu_row:{name}")) else {
                     if stuck {
+                        self.shot(ctx, "rv_studio_no_menu.png");
                         self.step = 5319;
                     }
                     return;
