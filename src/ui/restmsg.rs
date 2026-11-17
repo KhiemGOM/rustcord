@@ -36,7 +36,8 @@ impl App {
                         self.keyed.insert(k, Some(Err(e)));
                         return;
                     }
-                    Tag::Feed | Tag::Favs | Tag::AppIcons(_) | Tag::Product(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
+                    Tag::Saved(k) => return titlebar::saved(self, k, &serde_json::Value::Null),
+                    Tag::Feed | Tag::Favs | Tag::AppIcons(_) | Tag::Product(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
