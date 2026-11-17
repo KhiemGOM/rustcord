@@ -91,7 +91,9 @@ pub(super) fn show(ui: &mut Ui, d: &mut D, chan: &Channel, mutual: Option<&[Id]>
                     n => format!("{n} Mutual Servers"),
                 };
                 let resp = ui.add(egui::Label::new(RichText::new(label).font(reg(14.0)).color(pal().header_secondary)).sense(if list.is_empty() { Sense::hover() } else { Sense::click() }));
-                d.rects.push(("dm_start:servers".into(), resp.rect));
+                if ui.clip_rect().contains_rect(resp.rect) {
+                    crate::ui::settings::mark(ui, "dm_start:servers", resp.rect);
+                }
                 if !list.is_empty() && resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -109,7 +111,9 @@ pub(super) fn show(ui: &mut Ui, d: &mut D, chan: &Channel, mutual: Option<&[Id]>
                     ui.add_space(7.0);
                 }
                 let resp = button(ui, text, filled, on);
-                d.rects.push((format!("dm_start:{text}"), resp.rect));
+                if ui.clip_rect().contains_rect(resp.rect) {
+                    crate::ui::settings::mark(ui, &format!("dm_start:{text}"), resp.rect);
+                }
                 if resp.clicked() {
                     d.acts.push(Act::Start(match text {
                         "Unblock" => Start::Unblock(u.id),

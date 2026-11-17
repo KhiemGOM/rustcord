@@ -90,7 +90,7 @@ impl Run {
             _ => {
                 super::live::event(app, "MESSAGE_DELETE", serde_json::json!({ "id": self.text, "channel_id": general.to_string(), "guild_id": self.target.0.to_string() }));
                 self.text.clear();
-                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5310 };
             }
         }
     }
