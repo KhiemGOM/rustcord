@@ -232,6 +232,7 @@ fn list(app: &mut App, ui: &mut Ui) {
     }
     ui.add_space(24.0);
     let mut section = None;
+    let mut above_hot = false;
 
     let mut act: Option<(Id, &'static str)> = None;
     let mut menu = None;
@@ -243,6 +244,7 @@ fn list(app: &mut App, ui: &mut Ui) {
                     ui.add_space(20.0);
                 }
                 section = Some(key);
+                above_hot = false;
                 let name = match (tab, kind) {
                     (0, _) => "Online",
                     (1, _) => "All friends",
@@ -256,7 +258,11 @@ fn list(app: &mut App, ui: &mut Ui) {
             // discord's rows stop 16 short of the search field, where its scrollbar runs
             let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 16.0, 62.0), Sense::click());
             app.rects.insert(format!("friend:{uid}"), row);
-            ui.painter().hline(row.x_range(), row.top(), Stroke::new(1.0, pal().bg_mod_hover));
+            let hot = resp.hovered();
+            if !hot && !above_hot {
+                ui.painter().hline(row.left() + 6.0..=row.right(), row.top(), Stroke::new(1.0, pal().border_subtle));
+            }
+            above_hot = hot;
             super::motion::wash(ui, &resp, row.shrink2(vec2(-10.0, 1.0)), 8, pal().bg_mod_hover, 0.2);
             let av = Rect::from_min_size(pos2(row.left(), row.center().y - 18.5), vec2(32.0, 32.0));
             let Some(u) = app.store.user(uid) else { continue };
