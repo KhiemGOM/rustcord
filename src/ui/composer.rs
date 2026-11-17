@@ -319,7 +319,8 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     // the text stops short of the buttons, 40 wide each, and gives way to them first
                     let slots = if off { 0 } else { (if wide { 5 } else { 3 }) + usize::from(app.settings.send_button) };
                     let buttons = slots as f32 * 40.0;
-                    let w = (ui.available_width() - buttons - 8.0).max(8.0);
+                    let lead = if slashing || off { 0.0 } else { 24.0 + 23.0 };
+                    let w = (ui.available_width() - lead - buttons - 8.0).max(8.0);
                     let mut text_pos = egui::Pos2::ZERO;
                     if slashing {
                         slash::row(app, ui, chan, tid, w, off);
@@ -629,4 +630,4 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
     }
     (act, card.has_focus())
 }
-
+
