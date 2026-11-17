@@ -355,13 +355,25 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
 /// A profile's badges, the account's then the server's, `size` apiece, from x along cy. Each says
 /// what it is on hover and opens its page when clicked; past six, the rest are a count. Hands back
 /// where the next thing starts.
-pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) -> f32 {
+fn all_badges(p: Option<&Value>) -> Vec<&Value> {
     let mut all: Vec<&Value> = p.and_then(|p| p["badges"].as_array()).into_iter().flatten().collect();
     for b in p.and_then(|p| p["guild_badges"].as_array()).into_iter().flatten() {
         if !all.iter().any(|a| a["id"] == b["id"]) {
             all.push(b);
         }
     }
+    all
+}
+
+pub fn badges_width(ui: &Ui, p: Option<&Value>, size: f32) -> f32 {
+    let n = all_badges(p).len();
+    let more = n.saturating_sub(6);
+    let tail = if more > 0 { 7.7 + ui.painter().layout_no_wrap(format!("+{more}"), reg(14.0), pal().header_primary).size().x } else { 0.0 };
+    n.min(6) as f32 * (size + 2.0) + tail
+}
+
+pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) -> f32 {
+    let mut all = all_badges(p);
     let more = all.len().saturating_sub(6);
     if more > 0 {
         all.truncate(6);
@@ -382,7 +394,7 @@ pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) ->
         x += size + 2.0;
     }
     if more > 0 {
-        x = ui.painter().text(pos2(x + 3.0, cy), Align2::LEFT_CENTER, format!("+{more}"), reg(14.0), pal().header_primary).right() + 2.0;
+        x = ui.painter().text(pos2(x + 5.7, cy), Align2::LEFT_CENTER, format!("+{more}"), reg(14.0), pal().header_primary).right() + 2.0;
     }
     x
 }

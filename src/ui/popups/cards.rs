@@ -413,17 +413,25 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
     let layers = crate::ui::cosmo::layers_of(app, worn.as_ref());
     let since = crate::ui::cosmo::since(ui.ctx(), ("side", uid));
     let (mut banner, mut full, mut tab) = (BannerAct::default(), false, None);
+    let widgets = worn.as_ref().map(crate::ui::profed::widgets_of).unwrap_or_default();
+    crate::ui::profed::board::want_game_icons(app, &widgets);
+    let live: Vec<crate::state::Activity> = app.store.activities.get(&uid).map(|l| presence::shown(l).cloned().collect()).unwrap_or_default();
+    let spotify = app.profiles.get(&app.store.me).is_some_and(|m| m["connected_accounts"].as_array().is_some_and(|a| a.iter().any(|c| c["type"] == "spotify")));
+    let mut open_url = None;
     let height = ui.available_height();
     let store = &app.store;
+    let app_icons = &app.store.app_icons;
     let p = app.profiles.get(&uid);
     let bio = p.and_then(|p| shown(p, "bio").as_str().or(p["user"]["bio"].as_str())).unwrap_or("").to_string();
-    Frame::new().fill(pal().bg_input).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
+    let ring = ui.painter().add(egui::Shape::Noop);
+    let fill = if theme(p).is_some() { egui::Color32::TRANSPARENT } else { pal().bg_input };
+    let card = Frame::new().fill(fill).corner_radius(8).inner_margin(2).stroke(egui::Stroke::new(1.0, pal().border_subtle)).show(ui, |ui| {
         ui.set_width(300.0);
-        ui.set_min_height(height - 2.0);
+        ui.set_min_height(height - 6.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         let _theme = crate::theme::scope(theme_palette(p));
         let wash = ui.painter().add(egui::Shape::Noop);
-        let top = card_head(ui, &user, p, user.display(), status);
+        let top = card_head(ui, &user, p, &store.name_in(0, uid), status);
         banner = banner_buttons(ui, top, stranger, !stranger && !user.bot, false);
         full = clicked_flag(ui.ctx(), "card_name_clicked") == Some(uid);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
@@ -441,8 +449,23 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
             ui.add_space(8.0);
             let since = chrono::DateTime::from_timestamp_millis(crate::state::snowflake_ms(uid)).map(|d| d.format("%b %-d, %Y").to_string()).unwrap_or_default();
             ui.label(RichText::new(since).font(reg(14.0)).color(pal().text_normal));
+            if !widgets.is_empty() {
+                ui.add_space(20.0);
+                if games_row(ui, &crate::ui::profed::board::game_ids(&widgets), app_icons) {
+                    tab = Some(profile::Tab::Board);
+                }
+            }
+            for a in &live {
+                ui.add_space(if widgets.is_empty() { 20.0 } else { 12.0 });
+                let icon = app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=96", crate::api::cdn(), a.app));
+                match presence::card(ui, a, 268.0, &icon, spotify, &store.name_in(0, uid), false) {
+                    Some(presence::Act::Play(u)) => open_url = Some(u),
+                    Some(presence::Act::Connect) => open_url = Some("https://discord.com/settings/connections".into()),
+                    None => {}
+                }
+            }
         });
-        let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 2.0 - 58.0), vec2(268.0, 40.0));
+        let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 61.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
         ui.painter().rect(b, 8, egui::Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
@@ -450,6 +473,10 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         theme_wash(ui, wash, p, ui.min_rect());
         crate::ui::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
     });
+    theme_ring(ui, ring, p, card.response.rect);
+    if let Some(u) = open_url {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(u));
+    }
     if let Some(at) = banner.more.or(banner.friend) {
         app.user_menu = Some((uid, 0, None, at));
     }
@@ -498,6 +525,50 @@ pub(crate) fn theme_palette(p: Option<&serde_json::Value>) -> Option<&'static cr
 
 pub(crate) fn theme_top(p: Option<&serde_json::Value>) -> Option<egui::Color32> {
     theme(p).map(|t| t.top)
+}
+
+fn games_row(ui: &mut Ui, ids: &[String], icons: &crate::state::Map<Id, Option<String>>) -> bool {
+    let (r, resp) = ui.allocate_exact_size(vec2(268.0, 40.0), Sense::click());
+    ui.painter().rect_filled(r, 8, egui::Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 31 } else { 13 }));
+    ui.painter().text(pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, "Game Collection", medium(14.0), pal().header_primary);
+    let more = ids.len().saturating_sub(3);
+    let mut x = r.right() - 8.0;
+    if more > 0 {
+        x = ui.painter().text(pos2(x, r.center().y), Align2::RIGHT_CENTER, format!("+{more}"), medium(12.0), pal().header_primary).left() - 10.0;
+    }
+    let shown = ids.len().min(3);
+    for (i, id) in ids.iter().take(3).enumerate() {
+        let ir = Rect::from_min_size(pos2(x - 24.0 - (shown - 1 - i) as f32 * 28.0, r.center().y - 12.0), vec2(24.0, 24.0));
+        ui.painter().rect_filled(ir, 4, egui::Color32::from_white_alpha(20));
+        if let Some((a, h)) = id.parse::<u64>().ok().and_then(|a| icons.get(&a).cloned().flatten().map(|h| (a, h))) {
+            text::image(ui.painter(), &format!("{}/app-icons/{a}/{h}.png?size=48", crate::api::cdn()), ir);
+        }
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    crate::ui::settings::mark(ui, "dm_profile:games", r);
+    resp.clicked()
+}
+
+fn theme_ring(ui: &Ui, slot: egui::layers::ShapeIdx, p: Option<&serde_json::Value>, rect: Rect) {
+    let Some(c) = p.and_then(|p| shown(p, "theme_colors").as_array()).filter(|c| c.len() == 2 && theme(p).is_some()) else { return };
+    let rgb = |v: &serde_json::Value| {
+        let n = v.as_u64().unwrap_or(0) as u32;
+        egui::Color32::from_rgb((n >> 16) as u8, (n >> 8) as u8, n as u8)
+    };
+    let (a, b) = (rgb(&c[0]), rgb(&c[1]));
+    let (from, to) = (rect.top() + 2.0 + 105.0, rect.bottom() - 72.0);
+    let mut mesh = egui::Mesh::default();
+    let size = ui.ctx().fonts(|f| f.font_image_size());
+    let mut tess = egui::epaint::Tessellator::new(ui.ctx().pixels_per_point(), Default::default(), size, Vec::new());
+    tess.tessellate_rect(&egui::epaint::RectShape::filled(rect, 8, egui::Color32::WHITE), &mut mesh);
+    for v in &mut mesh.vertices {
+        let t = ((v.pos.y - from) / (to - from).max(1.0)).clamp(0.0, 1.0);
+        let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+        v.color = egui::Color32::from_rgba_unmultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), v.color.a());
+    }
+    ui.painter().set(slot, mesh);
 }
 
 /// A nitro profile theme: the card washed from its primary colour down to its accent, under
@@ -566,6 +637,7 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
             }
         });
         ui.add_space(1.3);
+        let mut wrap = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let copy = text::label(ui, &user.username, reg(14.0), pal().header_primary, Sense::click());
@@ -588,8 +660,18 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
             {
                 click_flag(ui.ctx(), "card_tag_clicked", *g);
             }
-            profile::badges(ui, p, chip.map_or(r.right() + 8.0, |t| t.right() + 6.0), r.center().y, 20.0);
+            let x = chip.map_or(r.right() + 8.0, |t| t.right() + 6.0);
+            if x + profile::badges_width(ui, p, 20.0) <= ui.max_rect().right() {
+                profile::badges(ui, p, x, r.center().y, 20.0);
+            } else {
+                wrap = true;
+            }
         });
+        if wrap {
+            ui.add_space(4.0);
+            let (row, _) = ui.allocate_exact_size(vec2(268.0, 22.0), Sense::hover());
+            profile::badges(ui, p, row.left(), row.center().y, 20.0);
+        }
     });
     top
 }
