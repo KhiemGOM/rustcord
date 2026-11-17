@@ -19,7 +19,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let slot = format!("stream_preview:{key}");
     let seen = egui::Id::new(("stream_preview_url", &key));
     let asked = egui::Id::new(("stream_preview_at", &key));
-    if let Some(Some(res)) = app.keyed.remove(&slot) {
+    let answered = matches!(app.keyed.get(&slot), Some(Some(_)));
+    if answered && let Some(Some(res)) = app.keyed.remove(&slot) {
         let now = ctx.input(|i| i.time);
         let tries = ctx.data(|d| d.get_temp::<(f64, u32)>(asked)).map_or(0, |t| t.1);
         match res.ok().and_then(|v| v["url"].as_str().map(str::to_string)) {
