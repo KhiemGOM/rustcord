@@ -226,7 +226,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
         egui::TextEdit::singleline(&mut app.sform.search)
             .frame(Frame::NONE)
             .margin(Margin::ZERO)
-            .font(reg(16.0))
+            .font(field_font(ui.ctx(), 16.0))
             .hint_text(RichText::new("Search").color(pal().text_muted))
             .desired_width(170.0),
     );
@@ -816,7 +816,7 @@ pub fn input(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egu
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO)
                     .password(password)
-                    .font(reg(16.0))
+                    .font(field_font(ui.ctx(), 16.0))
                     .text_color(pal().text_normal)
                     .hint_text(RichText::new(hint).color(pal().text_muted))
                     .desired_width(ui.available_width()),

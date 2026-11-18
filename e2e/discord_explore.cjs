@@ -51,6 +51,19 @@ function priority(task, families, visits) {
     return task.priority + (families[task.family] || 0) * .25 + (visits[task.novelty_key] || 0) * 2;
 }
 
+// States carry live text (unread counts, what people are playing), so a long run keeps meeting the
+// same controls in states it hasn't seen; past this many tries the same input on the same kind of
+// thing is dropped rather than tried again.
+const REPEATS = 3;
+
+function inputKey(family, input) {
+    if (input.target) return noveltyKey(family, input.target, input.method);
+    const { key, box, ...scroll } = input.scroll || {};
+    return createHash('sha256').update(JSON.stringify([family, input.method, input.key ?? input.text ?? input.delta, scroll])).digest('hex').slice(0, 24);
+}
+
+const worn = (task, visits) => task.kind === 'action' && (visits[inputKey(task.family, task.input)] || 0) >= REPEATS;
+
 const plainTitle = title => title.replace(/^(?:\(\d+\+?\)|•)\s*/, '');
 
 async function run(args) {
@@ -209,7 +222,7 @@ async function run(args) {
                 if (attempted.has(attemptKey)) continue;
                 attempted.add(attemptKey);
                 queue.push({ route: task.route, family: task.family, kind: 'action', steps, before: state.fingerprint, key, input: { method, target },
-                    novelty_key: noveltyKey(task.family, target, method),
+                    novelty_key: inputKey(task.family, { method, target }),
                     priority: (method === 'click' && target.role === 'tab' ? 2 : method === 'right-click' ? 3 : method === 'click' ? 4 : target.submenu ? 5 : 8) + steps.length * .1 });
             }
         }
@@ -237,6 +250,10 @@ async function run(args) {
         while (queue.length && !stopped()) {
             const disk = fs.statfsSync(out);
             if (disk.bavail * disk.bsize < 1024 ** 3) { manifest.status = 'blocked'; manifest.error = 'less than 1 GiB free'; break; }
+            const fresh = queue.filter(task => !worn(task, targetVisits));
+            manifest.repeats_dropped = (manifest.repeats_dropped || 0) + queue.length - fresh.length;
+            queue = fresh;
+            if (!queue.length) break;
             queue.sort((a, b) => priority(a, familyAttempts, targetVisits) - priority(b, familyAttempts, targetVisits));
             const task = queue[0];
             const matches = state => task.required_text
@@ -308,7 +325,10 @@ async function run(args) {
             familyAttempts[task.family] = (familyAttempts[task.family] || 0) + 1;
             const entry = frontier.get(task.key);
             if (entry && row.input_executed) entry.methods[task.input.method] = (entry.methods[task.input.method] || 0) + 1;
-            if (task.novelty_key && row.input_executed) targetVisits[task.novelty_key] = (targetVisits[task.novelty_key] || 0) + 1;
+            if (row.input_executed) {
+                const tried = inputKey(task.family, task.input);
+                targetVisits[tried] = (targetVisits[tried] || 0) + 1;
+            }
             manifest.status = 'running';
             queue.shift();
             checkpoint();
@@ -332,4 +352,4 @@ if (require.main === module) {
     else run(args).then(code => { process.exitCode = code; }).catch(error => { console.error(error.message); process.exitCode = 2; });
 }
 
-module.exports = { options, seeds, parseState, priority, noveltyKey };
+module.exports = { options, seeds, parseState, priority, noveltyKey, inputKey, worn, REPEATS };

@@ -96,7 +96,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                         let r = ui.add(
                             egui::TextEdit::multiline(&mut post.body)
                                 .frame(Frame::NONE)
-                                .font(reg(16.0))
+                                .font(field_font(ui.ctx(), 16.0))
                                 .margin(Margin { left: 34, ..Margin::ZERO })
                                 .desired_rows(2)
                                 .hint_text("Enter a message...")

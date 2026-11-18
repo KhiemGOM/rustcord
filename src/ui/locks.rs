@@ -10,6 +10,11 @@ fn every_put_moves_the_cursor_past_its_box() {
     check("e2e/puts.py");
 }
 
+#[test]
+fn every_text_box_says_which_font_it_types_in() {
+    check("e2e/fields.py");
+}
+
 fn check(script: &str) {
     let root = env!("CARGO_MANIFEST_DIR");
     let ran = ["python", "python3", "py"].iter().find_map(|py| Command::new(py).arg(script).current_dir(root).output().ok());

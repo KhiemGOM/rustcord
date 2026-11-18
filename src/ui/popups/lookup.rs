@@ -428,7 +428,7 @@ pub(crate) fn threads_menu(app: &mut App, button: &egui::Response, ch: Id) {
             inner,
             egui::TextEdit::singleline(&mut q)
                 .hint_text(RichText::new("Search for Thread Name").color(pal().text_muted))
-                .font(reg(14.0))
+                .font(field_font(ui.ctx(), 14.0))
                 .frame(Frame::NONE)
                 .margin(Margin::ZERO),
         );

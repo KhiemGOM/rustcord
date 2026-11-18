@@ -314,9 +314,9 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
             field,
             egui::TextEdit::singleline(&mut tb.query)
                 .frame(Frame::NONE)
-                .font(reg(14.0))
+                .font(field_font(ui.ctx(), 14.0))
                 .vertical_align(egui::Align::Center)
-                .hint_text(RichText::new("Search by username or id").font(reg(14.0)).color(pal().text_muted))
+                .hint_text(RichText::new("Search by username or id").font(field_font(ui.ctx(), 14.0)).color(pal().text_muted))
                 .desired_width(field.width()),
         );
         app.rects.insert("members:search".into(), r.rect);
@@ -897,9 +897,9 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
             field,
             egui::TextEdit::singleline(&mut h.browse)
                 .frame(Frame::NONE)
-                .font(reg(16.0))
+                .font(field_font(ui.ctx(), 16.0))
                 .vertical_align(egui::Align::Center)
-                .hint_text(RichText::new("Search Channels").font(reg(16.0)).color(pal().text_muted))
+                .hint_text(RichText::new("Search Channels").font(field_font(ui.ctx(), 16.0)).color(pal().text_muted))
                 .desired_width(field.width()),
         );
         ui.advance_cursor_after_rect(b);

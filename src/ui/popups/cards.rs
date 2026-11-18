@@ -218,10 +218,10 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                             egui::TextEdit::singleline(&mut text)
                                 .id(egui::Id::new("profile_msg_box"))
                                 .frame(Frame::NONE)
-                                .font(reg(14.0))
+                                .font(field_font(ui.ctx(), 14.0))
                                 .text_color(pal().text_normal)
                                 .vertical_align(egui::Align::Center)
-                                .hint_text(RichText::new(hint).font(reg(14.0)).color(pal().text_muted))
+                                .hint_text(RichText::new(hint).font(field_font(ui.ctx(), 14.0)).color(pal().text_muted))
                                 .desired_width(field.width()),
                         );
                         if !ui.ctx().memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {

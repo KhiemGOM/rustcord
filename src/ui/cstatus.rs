@@ -94,7 +94,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         pick = Some(b.left_bottom());
                     }
                     let clear_w = if blank { 0.0 } else { 32.0 };
-                    let r = ui.add(TextEdit::singleline(&mut s.text).frame(Frame::NONE).margin(Margin::ZERO).font(reg(16.0)).text_color(pal().text_normal).hint_text(RichText::new("Support has arrived!").color(pal().text_muted)).desired_width(ui.available_width() - clear_w));
+                    let r = ui.add(TextEdit::singleline(&mut s.text).frame(Frame::NONE).margin(Margin::ZERO).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).hint_text(RichText::new("Support has arrived!").color(pal().text_muted)).desired_width(ui.available_width() - clear_w));
                     settings::mark_in(ctx, "cstatus_input", r.rect);
                     save |= r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift);
                     if !picking {

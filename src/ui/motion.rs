@@ -156,8 +156,15 @@ pub fn cycle(ctx: &Context, period: f32) -> f32 {
 /// Discord's three pulsing dots (the typing line, "loading"): opacity and scale of dot `i`.
 /// `steps(12)` runs inside each keyframe gap, so it moves in 25ms jumps and rests half the loop;
 /// frames come every 50ms while it moves, since a step is under 6% of the opacity, and not at all
-/// while it rests.
+/// while it rests. Without focus discord stops them, solid (`.paused .dot`).
 pub fn dots(ctx: &Context, i: usize) -> (f32, f32) {
+    dots_in(ctx, i, crate::theme::focused())
+}
+
+fn dots_in(ctx: &Context, i: usize, focused: bool) -> (f32, f32) {
+    if !focused {
+        return (1.0, 1.0);
+    }
     let period = if anim(1.0) == 0.0 { 2.4 } else { 1.2 };
     let t = ctx.input(|i| i.time) as f32;
     let p = (t - 0.15 * i as f32).rem_euclid(period) / period;
@@ -232,7 +239,10 @@ pub fn paint_spinner(ui: &Ui, rect: egui::Rect, color: Color32) {
     }
     let size = rect.width();
     let ctx = ui.ctx();
-    let (turn, a, b, alpha) = if anim(1.0) == 0.0 {
+    // .circular and .path only animate under .app-focused; at rest the path is a dot at 280deg
+    let (turn, a, b, alpha) = if !crate::theme::focused() {
+        (280.0 / 360.0, 0.0, 1.0 / 125.66, 1.0)
+    } else if anim(1.0) == 0.0 {
         ctx.request_repaint_after(Duration::from_millis(50));
         (0.0, 0.0, 0.75, keys(&[(0.0, 1.0), (0.5, 0.6), (1.0, 1.0)], (ctx.input(|i| i.time) as f32 % 1.4) / 1.4))
     } else {
@@ -256,11 +266,21 @@ pub fn paint_spinner(ui: &Ui, rect: egui::Rect, color: Color32) {
 pub fn ellipsis(ui: &Ui, left_center: egui::Pos2, color: Color32) {
     let ctx = ui.ctx();
     let low = anim(1.0) == 0.0;
-    ctx.request_repaint_after(Duration::from_millis(32));
+    let focused = crate::theme::focused();
+    if focused {
+        ctx.request_repaint_after(Duration::from_millis(32));
+    }
     for i in 0..3 {
         let p = (ctx.input(|i| i.time) as f32 - 0.2 * i as f32).rem_euclid(1.4) / 1.4;
         let u = if p < 0.5 { EASE_IN_OUT.at(p * 2.0) } else { 1.0 - EASE_IN_OUT.at(p * 2.0 - 1.0) };
-        let (alpha, scale) = if low { (1.0 - 0.4 * u, 1.0) } else { (1.0 - 0.7 * u, 1.0 - 0.2 * u) };
+        // .pulsingEllipsis .item rests at opacity .3 when nothing animates it
+        let (alpha, scale) = if !focused {
+            (0.3, 1.0)
+        } else if low {
+            (1.0 - 0.4 * u, 1.0)
+        } else {
+            (1.0 - 0.7 * u, 1.0 - 0.2 * u)
+        };
         let c = left_center + egui::vec2(3.0 + 8.0 * i as f32, 0.0);
         ui.painter().rect_filled(egui::Rect::from_center_size(c, egui::vec2(6.0, 6.0) * scale), 3.0, color.gamma_multiply(alpha));
     }
@@ -596,6 +616,24 @@ mod tests {
         assert!(close(at(1.3, false), 1.0, 1e-6));
         assert!(close(at(2.0, true), 0.0, 1e-3));
         assert!(close(at(2.2, true), 0.5, 1e-3));
+    }
+
+    #[test]
+    fn typing_dots_stop_solid_without_focus_and_ask_for_no_frame() {
+        let ctx = Context::default();
+        // a new context asks for its second and third frames whatever is drawn
+        for _ in 0..3 {
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        }
+        let asked = |focused: bool| {
+            let mut dot = (0.0, 0.0);
+            let mut frame = ctx.run_ui(egui::RawInput { time: Some(0.1), ..Default::default() }, |ui| dot = dots_in(ui.ctx(), 0, focused));
+            frame.textures_delta.clear();
+            (dot, frame.viewport_output.values().any(|v| v.repaint_delay < Duration::from_secs(1)))
+        };
+        assert_eq!(asked(false), ((1.0, 1.0), false));
+        let (dot, repaint) = asked(true);
+        assert!(dot.0 < 1.0 && repaint);
     }
 
     #[test]

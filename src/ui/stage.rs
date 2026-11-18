@@ -388,7 +388,7 @@ fn start(app: &mut App, ctx: &egui::Context) {
         ui.label(RichText::new("STAGE TOPIC").font(semi(12.0)).color(pal().header_secondary));
         ui.add_space(8.0);
         Frame::new().fill(pal().bg_tertiary).corner_radius(4).inner_margin(10).show(ui, |ui| {
-            let r = ui.add(egui::TextEdit::singleline(&mut form.topic).frame(Frame::NONE).char_limit(120).hint_text("What's your Stage about?").desired_width(ui.available_width()));
+            let r = ui.add(egui::TextEdit::singleline(&mut form.topic).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).char_limit(120).hint_text("What's your Stage about?").desired_width(ui.available_width()));
             r.request_focus();
         });
         if !form.edit {

@@ -55,7 +55,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label(RichText::new("discord.gg/").font(reg(16.0)).color(pal().header_secondary));
-                    let r = ui.add(egui::TextEdit::singleline(&mut code).frame(Frame::NONE).margin(Margin::ZERO).font(reg(16.0)).text_color(pal().text_normal).desired_width(ui.available_width()));
+                    let r = ui.add(egui::TextEdit::singleline(&mut code).frame(Frame::NONE).margin(Margin::ZERO).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).desired_width(ui.available_width()));
                     super::super::settings::mark(ui, "field:vanity", r.rect);
                 });
             });

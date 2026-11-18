@@ -347,7 +347,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             ui.vertical(|ui| {
                                 ui.add_space(17.0);
                                 let mut styled = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| super::mdpreview::layout(ui, text.as_str(), wrap);
-                                let mut edit = egui::TextEdit::multiline(draft);
+                                let mut edit = egui::TextEdit::multiline(draft).font(field_font(ui.ctx(), 16.0));
                                 if preview {
                                     edit = edit.layouter(&mut styled);
                                 }

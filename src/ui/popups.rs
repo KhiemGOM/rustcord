@@ -229,7 +229,7 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
                 field.shrink2(vec2(12.0, 10.0)),
                 egui::TextEdit::singleline(text)
                     .hint_text(RichText::new("What's going on?").color(pal().text_muted))
-                    .font(reg(16.0))
+                    .font(field_font(ui.ctx(), 16.0))
                     .char_limit(500)
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO),
@@ -399,7 +399,7 @@ pub fn timeout(app: &mut App, ctx: &egui::Context) {
             ui.add_space(8.0);
             input_frame().corner_radius(8).inner_margin(12).show(ui, |ui| {
                 ui.add(
-                    egui::TextEdit::multiline(&mut t.reason)
+                    egui::TextEdit::multiline(&mut t.reason).font(field_font(ui.ctx(), 16.0))
                         .frame(Frame::NONE)
                         .desired_rows(3)
                         .hint_text("Enter a reason. This will only be visible in the Audit Log and will not be shown to the member.")

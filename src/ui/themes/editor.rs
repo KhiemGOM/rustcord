@@ -214,7 +214,7 @@ fn value(ui: &mut Ui, title: &str, text: &mut String, shown: String, unit: &str,
                 .stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61)))
                 .corner_radius(8)
                 .inner_margin(egui::Margin::symmetric(8, 4))
-                .show(ui, |ui| ui.add(egui::TextEdit::singleline(text).id(egui::Id::new(("themes_value", title))).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(reg(14.0)).text_color(pal().text_normal).horizontal_align(egui::Align::Max).desired_width(40.0)))
+                .show(ui, |ui| ui.add(egui::TextEdit::singleline(text).id(egui::Id::new(("themes_value", title))).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(field_font(ui.ctx(), 14.0)).text_color(pal().text_normal).horizontal_align(egui::Align::Max).desired_width(40.0)))
                 .inner;
             mark(ui, &format!("themes:{title}:input"), r.rect);
             if r.changed()
@@ -313,7 +313,7 @@ pub fn show(app: &mut App, ui: &mut Ui, r: Rect) {
                 .stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61)))
                 .corner_radius(8)
                 .inner_margin(egui::Margin::symmetric(10, 7))
-                .show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut d.hex).id(egui::Id::new("themes_hex")).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(reg(14.0)).text_color(pal().text_normal).char_limit(7).desired_width(w - 22.0)))
+                .show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut d.hex).id(egui::Id::new("themes_hex")).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).font(field_font(ui.ctx(), 14.0)).text_color(pal().text_normal).char_limit(7).desired_width(w - 22.0)))
                 .inner;
             mark(ui, "themes:hex", resp.rect);
             if resp.changed()

@@ -4,11 +4,14 @@
     python e2e/discord_pair.py replay --journeys <journeys.json> --out <new-directory>
     python e2e/discord_pair.py diff --live <recorder-directory> --replay <replay-directory> --out <report-directory>
     python e2e/discord_pair.py show --live <recorder-directory> --replay <replay-directory> --state action-000014 [--side before] [--box x,y,w,h] [--crop out.png]
+    python e2e/discord_pair.py since --before <older-report-directory> --after <report-directory>
 
 `show` prints one paired state's numbers for both clients inside a box, and with --crop saves the two
 screenshots' box side by side, Discord on the left. `journeys` turns each input e2e/discord_explore.cjs recorded into one Rustcord can repeat. `replay`
 runs them in Rustcord, read-only, on the saved login. `diff` pairs what each client drew after each
-input, text by text, and lists what is missing, extra, moved, resized or recoloured. See e2e/PARITY.md.
+input, text by text, and lists what is missing, extra, moved, resized or recoloured. `since` sets two
+`diff` reports side by side and lists what the later one has more of, to catch what a batch of changes
+made worse on real content. See e2e/PARITY.md.
 """
 
 import argparse
@@ -373,6 +376,29 @@ def show(live, replayed, state, side, box, crop):
         print('crop:', crop.resolve())
 
 
+VALUED = ('font size', 'font', 'colour', 'fill colour', 'corner radius')
+
+
+def rises(before, after, least=10):
+    """What the later of two diff reports has more of: (kind, region, the two clients' values), with
+    how often per hundred paired states in each report and the count in the later one. A kind with no
+    pair of values (spacing, missing, extra) is one row per region. The reports rarely pair the same
+    number of states, so rates are compared, not counts."""
+    def rates(report):
+        counts = Counter()
+        for state in report['states']:
+            for row in state['differences']:
+                what = json.dumps(row.get('by')) if row['kind'] in VALUED else ''
+                counts[(row['kind'], row.get('region'), what)] += 1
+        per = 100 / max(len(report['states']), 1)
+        return {key: n * per for key, n in counts.items()}, counts
+    old, _ = rates(before)
+    new, counts = rates(after)
+    rose = [(round(new[key] - old.get(key, 0), 1), key, round(old.get(key, 0), 1), round(new[key], 1), counts[key])
+            for key in new if counts[key] >= least and new[key] > 1.5 * old.get(key, 0)]
+    return sorted(rose, reverse=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest='command', required=True)
@@ -397,9 +423,18 @@ def main():
     look.add_argument('--side', choices=['before', 'after'], default='after')
     look.add_argument('--box', type=lambda text: [float(n) for n in text.split(',')])
     look.add_argument('--crop', type=Path)
+    later = commands.add_parser('since')
+    later.add_argument('--before', type=Path, required=True)
+    later.add_argument('--after', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'show':
         return show(args.live, args.replay, args.state, args.side, args.box, args.crop)
+    if args.command == 'since':
+        read = lambda folder: json.loads((folder / 'differences.json').read_text(encoding='utf-8'))
+        print('per 100 paired states: rise | before -> after (count) | kind, region, discord and rustcord values')
+        for rise, (kind, region, what), old, new, count in rises(read(args.before), read(args.after))[:30]:
+            print(f'{rise:7.1f} | {old:6.1f} -> {new:6.1f} ({count}) | {kind}, {region} {what}')
+        return
     if args.command == 'journeys':
         made = journeys(args.live)[:args.limit]
         args.out.write_text(json.dumps(made), encoding='utf-8')

@@ -102,8 +102,8 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
                 let r = ui.add(
                     egui::TextEdit::singleline(q)
                         .frame(Frame::NONE)
-                        .font(reg(22.0))
-                        .hint_text(RichText::new("Where would you like to go?").font(reg(22.0)).color(pal().text_muted))
+                        .font(field_font(ui.ctx(), 22.0))
+                        .hint_text(RichText::new("Where would you like to go?").font(field_font(ui.ctx(), 22.0)).color(pal().text_muted))
                         .desired_width(ui.available_width()),
                 );
                 r.request_focus();
@@ -136,18 +136,19 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
             ui.painter().hline(rule.x_range(), rule.center().y, egui::Stroke::new(1.0, pal().border_subtle));
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label(RichText::new("Protip").font(semi(12.0)).color(pal().positive));
-                ui.label(RichText::new("Start searches with").font(reg(12.0)).color(pal().header_secondary));
+                // discord's line is text with its own spaces around the keys, in --text-default
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label(RichText::new("Protip:").font(semi(12.0)).color(pal().positive));
+                ui.label(RichText::new(" Start searches with ").font(reg(12.0)).color(pal().text_normal));
                 ui.scope(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.65;
                     for key in ["@", "#", "!", "*", "$"] {
                         let (r, _) = ui.allocate_exact_size(vec2(11.2, 20.0), Sense::hover());
                         ui.painter().rect_filled(r, 4, pal().bg_tertiary);
-                        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, key, reg(12.0), pal().header_secondary);
+                        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, key, mono(12.0), pal().text_normal);
                     }
                 });
-                ui.label(RichText::new("to narrow results.").font(reg(12.0)).color(pal().header_secondary));
+                ui.label(RichText::new(" to narrow results. ").font(reg(12.0)).color(pal().text_normal));
                 let learn = ui.add(egui::Label::new(RichText::new("Learn more").font(reg(12.0)).color(pal().link)).sense(Sense::click()));
                 if learn.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

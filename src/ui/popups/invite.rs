@@ -27,7 +27,7 @@ pub(super) fn invite(app: &mut App, ctx: &egui::Context) {
             ui.add_space(8.0);
             input_frame().corner_radius(3).inner_margin(10).show(ui, |ui| {
                 let r = ui.add(
-                    egui::TextEdit::singleline(text)
+                    egui::TextEdit::singleline(text).font(field_font(ui.ctx(), 16.0))
                         .frame(Frame::NONE)
                         .hint_text("https://discord.gg/hTKzmak")
                         .desired_width(ui.available_width()),
@@ -200,7 +200,7 @@ pub(super) fn made_invite(app: &mut App, ctx: &egui::Context) {
                     inner,
                     egui::TextEdit::singleline(&mut inv.query)
                         .hint_text(RichText::new("Search for friends").color(pal().text_muted))
-                        .font(reg(16.0))
+                        .font(field_font(ui.ctx(), 16.0))
                         .frame(Frame::NONE)
                         .margin(Margin::ZERO),
                 );

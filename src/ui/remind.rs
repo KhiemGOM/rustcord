@@ -42,7 +42,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let (r, _) = ui.allocate_exact_size(vec2(432.0, 40.0), egui::Sense::hover());
             ui.painter().rect_filled(r, 8, pal().input_bg);
             let inner = r.shrink2(vec2(12.0, 10.0));
-            let e = ui.put(inner, egui::TextEdit::singleline(&mut c.text).hint_text(RichText::new("5pm, tomorrow 9am, in 2 hours, friday").color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(egui::Margin::ZERO));
+            let e = ui.put(inner, egui::TextEdit::singleline(&mut c.text).hint_text(RichText::new("5pm, tomorrow 9am, in 2 hours, friday").color(pal().text_muted)).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(egui::Margin::ZERO));
             super::settings::mark(ui, "remind_custom:input", r);
             ui.painter().rect_stroke(r, 8, Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
             ui.advance_cursor_after_rect(r);

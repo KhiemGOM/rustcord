@@ -380,7 +380,7 @@ pub fn list(ui: &mut Ui, app: &mut App) -> Option<Id> {
             ui.add_space(8.0);
             match &mut edit {
                 Some((id, draft)) if *id == it.id => {
-                    let r = ui.add(egui::TextEdit::multiline(draft).desired_rows(1).desired_width(ui.available_width()).font(reg(16.0)));
+                    let r = ui.add(egui::TextEdit::multiline(draft).desired_rows(1).desired_width(ui.available_width()).font(field_font(ui.ctx(), 16.0)));
                     super::settings::mark(ui, "sched:edit", r.rect);
                     r.request_focus();
                     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);

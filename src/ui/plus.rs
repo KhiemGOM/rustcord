@@ -125,7 +125,7 @@ pub fn launcher(app: &mut App, ctx: &egui::Context) {
                     icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(sr.left() + 22.0, sr.center().y), vec2(16.0, 16.0)), pal().header_primary);
                     let e = ui.put(
                         Rect::from_min_max(pos2(sr.left() + 44.0, sr.center().y - 10.0), pos2(sr.right() - 12.0, sr.center().y + 10.0)),
-                        egui::TextEdit::singleline(&mut l.q).hint_text("Search Apps & Commands").font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
+                        egui::TextEdit::singleline(&mut l.q).hint_text("Search Apps & Commands").font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                     );
                     ui.painter().rect_stroke(sr, 8, Stroke::new(1.0, pal().blurple), egui::StrokeKind::Inside);
                     ui.advance_cursor_after_rect(sr);

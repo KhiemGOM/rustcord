@@ -9,6 +9,8 @@ impl eframe::App for App {
         if self.ui_priority != Some(focused) {
             self.ui_priority = Some(focused);
             crate::winsys::set_ui_priority(focused);
+            // a test run's window never has focus and still has to animate
+            crate::theme::set_focused(focused || crate::winsys::harness());
         }
         self.pump(ctx);
         self.status_expiry(ctx);

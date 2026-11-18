@@ -29,7 +29,7 @@ fn bullets(ui: &mut Ui, head: &str, items: [&str; 3], ok: bool) {
 
 fn area(ui: &mut Ui, v: &mut String, hint: &str, rows: usize) {
     Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
-        let r = ui.add(egui::TextEdit::multiline(v).frame(Frame::NONE).margin(Margin::ZERO).desired_rows(rows).font(reg(16.0)).text_color(pal().text_normal).hint_text(RichText::new(hint).color(pal().text_muted)).desired_width(ui.available_width()));
+        let r = ui.add(egui::TextEdit::multiline(v).frame(Frame::NONE).margin(Margin::ZERO).desired_rows(rows).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).hint_text(RichText::new(hint).color(pal().text_muted)).desired_width(ui.available_width()));
         super::super::settings::mark(ui, &format!("field:{hint}"), r.rect);
     });
 }

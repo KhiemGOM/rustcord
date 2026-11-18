@@ -314,7 +314,7 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut query)
-                        .font(reg(14.0))
+                        .font(field_font(ui.ctx(), 14.0))
                         .hint_text("Role")
                         .desired_width(204.0),
                 );
@@ -449,8 +449,8 @@ pub fn note_box(ui: &mut Ui, rects: &mut crate::state::Map<String, Rect>, key: &
             .id(nid)
             .frame(Frame::NONE)
             .desired_rows(1)
-            .font(reg(size))
-            .hint_text(RichText::new("Click to add a note").font(reg(size)).color(pal().text_muted))
+            .font(field_font(ui.ctx(), size))
+            .hint_text(RichText::new("Click to add a note").font(field_font(ui.ctx(), size)).color(pal().text_muted))
             .desired_width(w),
     );
     if focus && !ui.memory(|m| m.areas().visible_last_frame(&ui.layer_id())) {
@@ -843,10 +843,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         let a = Rect::from_min_size(pos2(r.left() + 4.0, r.top() + 4.0), vec2(40.0, 40.0));
                         match g.icon_url() {
                             Some(url) => crate::gif::paint_still(ui, &url, a, CornerRadius::same(12), false),
-                            None => {
-                                ui.painter().rect_filled(a, CornerRadius::same(12), pal().blurple);
-                                ui.painter().text(a.center(), Align2::CENTER_CENTER, g.acronym(), medium(10.0), Color32::WHITE);
-                            }
+                            None => super::guild_initials(ui, a, 12, &g.acronym()),
                         }
                         let nick = p
                             .and_then(|p| p["mutual_guilds"].as_array())

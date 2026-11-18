@@ -158,7 +158,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                             t["emoji_name"] = if p.0.is_empty() { Value::Null } else { json!(p.0) };
                             t["emoji_id"] = if p.1 == 0 { Value::Null } else { json!(p.1.to_string()) };
                         }
-                        let r = ui.add(egui::TextEdit::singleline(&mut label).frame(Frame::NONE).margin(Margin::ZERO).char_limit(20).font(reg(16.0)).text_color(pal().text_normal).desired_width(ui.available_width()));
+                        let r = ui.add(egui::TextEdit::singleline(&mut label).frame(Frame::NONE).margin(Margin::ZERO).char_limit(20).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).desired_width(ui.available_width()));
                         super::super::settings::mark(ui, &format!("trait:{}", i + 1), r.rect);
                     });
                 });
@@ -175,7 +175,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     ui.add_space(8.0);
     let mut desc = d["description"].as_str().unwrap_or_default().to_string();
     Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
-        let r = ui.add(egui::TextEdit::multiline(&mut desc).frame(Frame::NONE).margin(Margin::ZERO).desired_rows(4).char_limit(300).font(reg(16.0)).text_color(pal().text_normal).hint_text(RichText::new("Tell the world a bit about this server.").color(pal().text_muted)).desired_width(ui.available_width()));
+        let r = ui.add(egui::TextEdit::multiline(&mut desc).frame(Frame::NONE).margin(Margin::ZERO).desired_rows(4).char_limit(300).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).hint_text(RichText::new("Tell the world a bit about this server.").color(pal().text_muted)).desired_width(ui.available_width()));
         super::super::settings::mark(ui, "field:description", r.rect);
     });
     d["description"] = json!(desc);

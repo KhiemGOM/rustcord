@@ -148,7 +148,7 @@ pub(super) fn input(ui: &mut Ui, value: &mut String, password: bool, hint: &str)
                     .frame(Frame::NONE)
                     .password(password)
                     .hint_text(RichText::new(hint).color(pal().text_muted))
-                    .font(reg(16.0))
+                    .font(field_font(ui.ctx(), 16.0))
                     .text_color(pal().text_normal)
                     .desired_width(ui.available_width()),
             )

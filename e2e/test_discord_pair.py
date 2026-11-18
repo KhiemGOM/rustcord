@@ -125,5 +125,15 @@ class Journeys(unittest.TestCase):
         self.assertEqual((made[2]['guild'], made[2]['channel'], made[2]['steps'][0]['rect']), (None, None, 'msg:300000000000000002'))
 
 
+class Since(unittest.TestCase):
+    def test_a_new_wrong_size_is_the_first_rise_and_drift_in_counts_is_not_one(self):
+        row = lambda kind, region, by=None: {'kind': kind, 'region': region, 'by': by, 'text': 'x'}
+        state = lambda rows: {'id': 'action-000001 after', 'differences': rows}
+        before = {'states': [state([row('spacing', 'chat')] * 4) for _ in range(10)]}
+        after = {'states': [state([row('spacing', 'chat')] * 4 + [row('font size', 'rail', [10, 11.88])] * 3) for _ in range(5)]}
+        found = discord_pair.rises(before, after)
+        self.assertEqual([(key, old, new, count) for _, key, old, new, count in found], [(('font size', 'rail', '[10, 11.88]'), 0, 300.0, 15)])
+
+
 if __name__ == '__main__':
     unittest.main()

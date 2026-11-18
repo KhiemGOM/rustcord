@@ -69,7 +69,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                     inner,
                     egui::TextEdit::singleline(&mut f.query)
                         .hint_text(RichText::new("Search").color(pal().text_muted))
-                        .font(reg(16.0))
+                        .font(field_font(ui.ctx(), 16.0))
                         .frame(Frame::NONE)
                         .margin(Margin::ZERO),
                 );
@@ -160,7 +160,7 @@ pub(super) fn forward(app: &mut App, ctx: &egui::Context) {
                         inner,
                         egui::TextEdit::singleline(&mut f.note)
                             .hint_text(RichText::new("Add an optional message...").color(pal().text_muted))
-                            .font(reg(16.0))
+                            .font(field_font(ui.ctx(), 16.0))
                             .frame(Frame::NONE)
                             .margin(Margin::ZERO),
                     );
@@ -260,7 +260,7 @@ pub(super) fn new_thread(app: &mut App, ctx: &egui::Context) {
                 ui.painter().rect_filled(r, 8, pal().input_bg);
                 let e = ui.put(
                     r.shrink2(vec2(12.0, 10.0)),
-                    egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(reg(16.0)).frame(Frame::NONE).margin(Margin::ZERO),
+                    egui::TextEdit::singleline(text).hint_text(RichText::new(hint).color(pal().text_muted)).font(field_font(ui.ctx(), 16.0)).frame(Frame::NONE).margin(Margin::ZERO),
                 );
                 ui.painter().rect_stroke(r, 8, egui::Stroke::new(1.0, if e.has_focus() { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 ui.advance_cursor_after_rect(r);
