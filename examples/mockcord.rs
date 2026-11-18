@@ -1217,9 +1217,10 @@ fn query(path: &str, key: &str) -> Option<u64> {
 }
 
 /// Windows ships no gg sans, so the download path gets a system font in woff2 clothes.
-const NAME_FONT_ASSETS: [&str; 11] = [
+const NAME_FONT_ASSETS: [&str; 12] = [
     "33d4f12a85e1f736", "e6f5f44abb520735", "c560709c3470bb66", "52b541f86401a5b6", "69c735ca5c604de7", "8f20cb550d739cea",
     "27b34a77ba5d693e", "45ef50dce38a931a", "4841dace333e9054", "c00df4f25667809b", "aa59ae54ce7e540a",
+    "a7bafac436428e6c",
 ];
 
 fn gg_stand_in(face: &str) -> Vec<u8> {
