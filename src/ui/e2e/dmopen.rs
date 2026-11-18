@@ -8,6 +8,7 @@ use egui::{Event, Modifiers, vec2};
 use super::Run;
 use crate::ui::App;
 
+const ALICE: u64 = 101;
 const ALICE_DM: u64 = 3000;
 
 impl Run {
@@ -15,6 +16,9 @@ impl Run {
         let stuck = self.step_at.elapsed() > Duration::from_secs(10);
         match self.step {
             5310 => {
+                if let Some(u) = app.store.users.get_mut(&ALICE) {
+                    u.font = 7;
+                }
                 app.select_guild(None);
                 app.open(ALICE_DM);
                 self.tries = 0;
@@ -37,6 +41,9 @@ impl Run {
                     }
                     return;
                 };
+                if Self::said(ctx, "header:font").as_deref() == Some("name7") {
+                    self.mark("dm_header_name_font");
+                }
                 let near = |a: f32, b: f32| (a - b).abs() < 0.6;
                 if near(block.height(), 32.0) && near(first.height(), 32.0) && near(block.left() - first.right(), 7.0) && servers.right() < first.left() && near(servers.center().y, first.center().y) {
                     self.mark("dm_start_row");
@@ -55,6 +62,9 @@ impl Run {
                 self.next(200);
             }
             _ => {
+                if let Some(u) = app.store.users.get_mut(&ALICE) {
+                    u.font = 0;
+                }
                 app.confirm = None;
                 self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5400 };
             }

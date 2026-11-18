@@ -119,7 +119,9 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         }
                     }
                     // the name keeps its width and is clipped by the group, as discord's overflow does
-                    let t = text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
+                    let font = if chan.kind == 1 { chan.recipients.first().and_then(|u| app.store.user(*u)).map_or(medium(16.0), |u| name_font(u.font, 16.0)) } else { medium(16.0) };
+                    crate::ui::settings::said(ui.ctx(), "header:font", &font.family.to_string());
+                    let t = text::layout_em(ui.ctx(), &title, font, pal().header_primary, f32::INFINITY, 1.0);
                     let (r, resp) = ui.allocate_exact_size(t.size(), if chan.kind == 3 { Sense::click() } else { Sense::hover() });
                     t.paint(ui.painter(), pos2(r.min.x, r.min.y.floor()));
                     if chan.kind == 1
