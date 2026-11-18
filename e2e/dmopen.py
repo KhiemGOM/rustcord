@@ -9,4 +9,6 @@ def checks(runs, reqs):
         "dm start: Block asks before it blocks, and backing out sends nothing": both("dm_start_block_asks") and not blocked,
         "dm header: the person's name is in their display name font": both("dm_header_name_font"),
         "group dm: a member's nameplate and avatar decoration show in the member list": both("group_member_cosmetics"),
+        "dm start: the heading wears the person's display name style": both("dm_start_styled_heading"),
+        "group dm start: Invite to Group DM and Edit Group side by side, and Edit Group opens the group's editor": both("group_start") and both("group_start_edit_opens"),
     }

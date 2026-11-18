@@ -46,6 +46,9 @@ impl Run {
                 if Self::said(ctx, "header:font").as_deref() == Some("name7") {
                     self.mark("dm_header_name_font");
                 }
+                if Self::said(ctx, "dm_start:styled").is_some() {
+                    self.mark("dm_start_styled_heading");
+                }
                 let near = |a: f32, b: f32| (a - b).abs() < 0.6;
                 if near(block.height(), 32.0) && near(first.height(), 32.0) && near(block.left() - first.right(), 7.0) && servers.right() < first.left() && near(servers.center().y, first.center().y) {
                     self.mark("dm_start_row");
@@ -87,6 +90,38 @@ impl Run {
                     self.mark("group_member_cosmetics");
                 }
                 self.shot(ctx, "group_cosmetics.png");
+                self.tries = 0;
+                self.next(200);
+            }
+            5315 => {
+                let screen = ctx.content_rect();
+                let seen = |key: &str| Self::at(ctx, &format!("group_start:{key}")).filter(|r| screen.contains_rect(*r));
+                let (Some(invite), Some(edit)) = (seen("invite"), seen("edit")) else {
+                    if self.tries < 30 {
+                        self.tries += 1;
+                        self.queue.push_back(vec![Event::PointerMoved(screen.center())]);
+                        self.queue.push_back(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, 150.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+                        self.wait = Instant::now() + Duration::from_millis(250);
+                    } else {
+                        self.shot(ctx, "group_start_missing.png");
+                        self.step = 5317;
+                    }
+                    return;
+                };
+                if (invite.center().y - edit.center().y).abs() < 0.6 && invite.right() < edit.left() {
+                    self.mark("group_start");
+                }
+                self.shot(ctx, "group_start.png");
+                self.click(edit.center());
+                self.next(500);
+            }
+            5316 => {
+                if matches!(app.user_dialog, Some(crate::ui::userdlg::Dialog::Group { .. })) {
+                    self.mark("group_start_edit_opens");
+                } else if !stuck {
+                    return;
+                }
+                app.user_dialog = None;
                 self.next(200);
             }
             _ => {
