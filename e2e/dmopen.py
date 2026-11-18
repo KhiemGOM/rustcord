@@ -8,4 +8,5 @@ def checks(runs, reqs):
         "dm start: the servers you share, then the friend button and Block 7 apart, on one row of 32px buttons": both("dm_start_row"),
         "dm start: Block asks before it blocks, and backing out sends nothing": both("dm_start_block_asks") and not blocked,
         "dm header: the person's name is in their display name font": both("dm_header_name_font"),
+        "group dm: a member's nameplate and avatar decoration show in the member list": both("group_member_cosmetics"),
     }

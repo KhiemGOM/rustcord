@@ -466,8 +466,19 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             }
             let st = store.status(uid);
             let fade = if st == Status::Offline && !resp.hovered() && uid != store.me { 0.3 } else { 1.0 };
+            if let Some(asset) = u.nameplate.as_deref() {
+                let plate = Rect::from_min_max(pos2((inner.right() - inner.height() * 448.0 / 84.0).max(inner.left()), inner.top()), inner.max);
+                let tint = if fade < 1.0 { egui::Color32::from_white_alpha(77) } else { egui::Color32::WHITE };
+                super::cosmo::paint_plate(ui, plate, asset, CornerRadius::same(8), tint, resp.hovered(), None);
+                super::settings::mark(ui, &format!("group:plate:{uid}"), plate);
+            }
             let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
             avatar(ui, av, &u.avatar_url());
+            if let Some(d) = u.decoration_url() {
+                let at = Rect::from_center_size(av.center(), av.size() * 1.2);
+                super::text::image(ui.painter(), &d, at);
+                super::settings::mark(ui, &format!("group:decoration:{uid}"), at);
+            }
             if fade < 1.0 {
                 ui.painter().circle_filled(av.center(), 19.5, pal().bg_primary.gamma_multiply(0.7));
             } else {

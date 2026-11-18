@@ -10,6 +10,8 @@ use crate::ui::App;
 
 const ALICE: u64 = 101;
 const ALICE_DM: u64 = 3000;
+const BOB: u64 = 102;
+const GROUP_DM: u64 = 3001;
 
 impl Run {
     pub(super) fn dmopen_steps(&mut self, app: &mut App, ctx: &egui::Context) {
@@ -61,7 +63,38 @@ impl Run {
                 app.confirm = None;
                 self.next(200);
             }
+            5313 => {
+                let who = app.store.channels.get(&GROUP_DM).and_then(|c| c.recipients.first().copied()).unwrap_or(BOB);
+                self.loaded = who as usize;
+                if let Some(u) = app.store.users.get_mut(&who) {
+                    u.nameplate = Some("nameplates/mock/7002/".into());
+                    u.decoration = Some("a_mock_decoration".into());
+                }
+                app.ui.hide_members = false;
+                app.open(GROUP_DM);
+                self.next(900);
+            }
+            5314 => {
+                let who = self.loaded;
+                let (Some(plate), Some(_)) = (Self::at(ctx, &format!("group:plate:{who}")), Self::at(ctx, &format!("group:decoration:{who}"))) else {
+                    if stuck {
+                        self.shot(ctx, "group_cosmetics_missing.png");
+                        self.step = 5315;
+                    }
+                    return;
+                };
+                if plate.right() > ctx.content_rect().right() - 20.0 {
+                    self.mark("group_member_cosmetics");
+                }
+                self.shot(ctx, "group_cosmetics.png");
+                self.next(200);
+            }
             _ => {
+                if let Some(u) = app.store.users.get_mut(&(self.loaded as u64)).filter(|_| self.loaded != 0) {
+                    u.nameplate = None;
+                    u.decoration = None;
+                }
+                self.loaded = 0;
                 if let Some(u) = app.store.users.get_mut(&ALICE) {
                     u.font = 0;
                 }
