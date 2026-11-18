@@ -93,8 +93,6 @@ impl eframe::App for App {
         } else if splash::waiting(self) {
             splash::show(ui);
         } else {
-            settings::test_mode_banner(self, ui);
-            viewas::bar(self, ui);
             // a modal over the app; shown first so it takes ESC before the chat does
             let settings_open = self.settings_page.is_some();
             if settings_open {
@@ -124,7 +122,7 @@ impl eframe::App for App {
                     .response
                     .rect
             };
-            let notice = !full && (self.streamer_notice(ui) || survey::bar(self, ui));
+            let notice = !full && (viewas::bar(self, ui) || self.streamer_notice(ui) || settings::test_mode_banner(self, ui) || survey::bar(self, ui));
             if !full {
                 themes::show(self, ui);
             }

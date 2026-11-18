@@ -553,6 +553,9 @@ impl Run {
                     return;
                 };
                 self.mark("developer_test_mode_banner");
+                if at("test_mode:inner").is_some_and(|i| (i.left() - 112.0).abs() < 0.6) {
+                    self.mark("test_mode_notice_slot");
+                }
                 self.shot(ctx, "test_mode_banner.png");
                 self.click(r.center());
                 self.next(500);
