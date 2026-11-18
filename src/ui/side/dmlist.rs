@@ -302,7 +302,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     (resp, act)
 }
 
-pub(super) fn group_color(id: Id) -> Color32 {
+pub(crate) fn group_color(id: Id) -> Color32 {
     let c = [
         pal().blurple,
         Color32::from_rgb(0x3b, 0xa5, 0x5c),

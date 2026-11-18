@@ -10,6 +10,7 @@ use crate::theme::*;
 mod guildlist;
 use guildlist::*;
 mod dmlist;
+pub(crate) use dmlist::group_color;
 use dmlist::*;
 mod favlist;
 

@@ -459,6 +459,8 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if at_start {
             if chan.guild == 0 && chan.kind == 1 {
                 dmstart::show(ui, &mut d, chan, mutual.as_deref());
+            } else if chan.guild == 0 && chan.kind == 3 {
+                dmstart::group(ui, &mut d, chan);
             } else if welcome(ui, d.store, chan) {
                 d.acts.push(Act::EditChannel);
             }

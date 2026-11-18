@@ -11,7 +11,8 @@ mod suggest;
 
 pub use draft::{Pic, Slot, widgets_of};
 pub use pick::{gif_arrived, gif_modal};
-pub use style::PRESETS;
+pub use draft::Style;
+pub use style::{PRESETS, paint_name};
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;

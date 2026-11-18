@@ -8,6 +8,8 @@ pub(super) enum Start {
     Block(Id),
     Unblock(Id),
     Servers(Id),
+    InviteToGroup(Id),
+    EditGroup(Id),
 }
 
 /// Which buttons discord puts under the start of a DM, by what the person is to you: the label,
@@ -24,9 +26,14 @@ pub(super) fn buttons(rel: Option<u8>, bot: bool) -> Vec<(&'static str, bool, bo
 }
 
 fn button(ui: &mut Ui, text: &str, filled: bool, on: bool) -> egui::Response {
+    icon_button(ui, None, text, filled, on)
+}
+
+fn icon_button(ui: &mut Ui, icon: Option<Icon>, text: &str, filled: bool, on: bool) -> egui::Response {
     let ink = if filled { Color32::WHITE } else { pal().text_normal };
     let g = ui.painter().layout_no_wrap(text.into(), medium(14.0), ink);
-    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), if on { Sense::click() } else { Sense::hover() });
+    let lead = if icon.is_some() { 24.0 } else { 0.0 };
+    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0 + lead, 32.0), if on { Sense::click() } else { Sense::hover() });
     let hot = on && resp.hovered();
     if filled {
         let fill = if hot { pal().blurple.gamma_multiply(0.85) } else { pal().blurple };
@@ -35,7 +42,10 @@ fn button(ui: &mut Ui, text: &str, filled: bool, on: bool) -> egui::Response {
         let fill = Color32::from_rgba_unmultiplied(151, 151, 159, if hot { 51 } else { 31 });
         ui.painter().rect(r, 8, fill, Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 41)), egui::StrokeKind::Inside);
     }
-    ui.painter().galley(pos2(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, ink);
+    if let Some(icon) = icon {
+        icons::draw(ui.painter(), icon, Rect::from_min_size(pos2(r.left() + 12.0, r.center().y - 9.0), vec2(18.0, 18.0)), ink);
+    }
+    ui.painter().galley(pos2(r.left() + 12.0 + lead, r.center().y - g.size().y / 2.0), g, ink);
     if hot {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -54,7 +64,20 @@ pub(super) fn show(ui: &mut Ui, d: &mut D, chan: &Channel, mutual: Option<&[Id]>
         let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
         avatar(ui, r, &u.avatar_url());
         ui.add_space(6.0);
-        ui.label(RichText::new(&title).font(bold(32.0)).color(pal().header_primary));
+        let style = (u.style.is_some() || u.font != 0).then(|| {
+            let (effect, colors) = u.style.clone().unwrap_or((1, Vec::new()));
+            crate::ui::profed::Style { font: u.font, effect, colors }
+        });
+        match style {
+            Some(st) => {
+                let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+                crate::ui::profed::paint_name(ui, row.left_center(), Align2::LEFT_CENTER, &title, Some(&st), 32.0, row.width(), resp.hovered());
+                crate::ui::settings::said(ui.ctx(), "dm_start:styled", &title);
+            }
+            None => {
+                ui.label(RichText::new(&title).font(bold(32.0)).color(pal().header_primary));
+            }
+        }
         ui.add_space(7.0);
         ui.label(RichText::new(&u.username).font(medium(24.0)).color(pal().header_primary));
         ui.add_space(19.0);
@@ -127,6 +150,47 @@ pub(super) fn show(ui: &mut Ui, d: &mut D, chan: &Channel, mutual: Option<&[Id]>
     });
 }
 
+/// The top of a group DM: its icon, its name, a welcome, and the buttons to invite people and to
+/// edit the group.
+pub(super) fn group(ui: &mut Ui, d: &mut D, chan: &Channel) {
+    let title = channel_title(d.store, chan.id);
+    ui.add_space(16.0);
+    Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
+        match &chan.icon {
+            Some(icon) => avatar(ui, r, &format!("{}/channel-icons/{}/{}.png?size=160", crate::api::cdn(), chan.id, icon)),
+            None => {
+                ui.painter().circle_filled(r.center(), 40.0, crate::ui::side::group_color(chan.id));
+                icons::draw(ui.painter(), Icon::People, Rect::from_center_size(r.center(), vec2(48.0, 48.0)), Color32::WHITE);
+            }
+        }
+        ui.add_space(6.0);
+        ui.label(RichText::new(&title).font(bold(32.0)).color(pal().header_primary));
+        ui.add_space(19.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.label(RichText::new("Welcome to the beginning of the ").font(reg(16.0)).color(pal().text_normal));
+            ui.label(RichText::new(&title).font(semi(16.0)).color(pal().text_normal));
+            ui.label(RichText::new(" group.").font(reg(16.0)).color(pal().text_normal));
+        });
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.set_height(32.0);
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let invite = icon_button(ui, Some(Icon::PersonAdd), "Invite to Group DM", true, true);
+            crate::ui::settings::mark(ui, "group_start:invite", invite.rect);
+            if invite.clicked() {
+                d.acts.push(Act::Start(Start::InviteToGroup(chan.id)));
+            }
+            let edit = icon_button(ui, Some(Icon::Pencil), "Edit Group", false, true);
+            crate::ui::settings::mark(ui, "group_start:edit", edit.rect);
+            if edit.clicked() {
+                d.acts.push(Act::Start(Start::EditGroup(chan.id)));
+            }
+        });
+    });
+}
+
 pub(super) fn act(app: &mut App, what: Start) {
     let name = |app: &App, u: Id| app.store.name_in(0, u);
     match what {
@@ -153,6 +217,8 @@ pub(super) fn act(app: &mut App, what: Start) {
         }
         Start::Unblock(u) => app.rest_in("DELETE", format!("/users/@me/relationships/{u}"), None, "DM Channel", crate::net::Tag::reason()),
         Start::Servers(u) => app.open_full(u, 0, crate::ui::profile::Tab::Servers),
+        Start::InviteToGroup(ch) => app.group_pick = Some(crate::ui::dmpick::Pick::new(Some(ch))),
+        Start::EditGroup(ch) => app.user_dialog = Some(crate::ui::userdlg::Dialog::group(&app.store, ch)),
     }
 }
 
