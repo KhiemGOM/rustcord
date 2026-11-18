@@ -44,8 +44,9 @@ pub(crate) fn take_text(i: &mut egui::InputState, s: &str) -> bool {
 /// Discord's channel list sits in the app frame: a hairline down its left and along its top
 /// with a 12px rounded corner where they meet, the frame colour showing outside the curve, an
 /// 8px strip of frame below the account card, and on onyx a line where the chat page starts.
-pub(super) fn side_edge(p: &egui::Painter, r: Rect) {
-    let rad = 12.0;
+/// Under a notice the sidebar's corner is square; the notice takes the rounding.
+pub(super) fn side_edge(p: &egui::Painter, r: Rect, square: bool) {
+    let rad = if square { 0.0 } else { 12.0 };
     let c = pos2(r.left() + rad, r.top() + rad);
     let arc: Vec<Pos2> = (0..=12)
         .map(|i| {

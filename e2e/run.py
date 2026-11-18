@@ -86,6 +86,7 @@ import r1
 import rv
 import mdtext
 import dmopen
+import survey
 import regressions
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -645,6 +646,7 @@ def main():
         **r1.checks({"cold": cold, "warm": warm}, reqs),
         **mdtext.checks({"cold": cold, "warm": warm}),
         **dmopen.checks({"cold": cold, "warm": warm}, reqs),
+        **survey.checks({"cold": cold, "warm": warm}, reqs),
         **rv.checks({"cold": cold, "warm": warm}, reqs),
         **regressions.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),

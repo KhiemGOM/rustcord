@@ -72,6 +72,7 @@ mod hubjoin;
 mod plus;
 mod poll;
 mod scheduled;
+mod survey;
 mod blocked;
 mod pollvotes;
 mod remind;

@@ -134,7 +134,7 @@ impl Run {
                     u.font = 0;
                 }
                 app.confirm = None;
-                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5400 };
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5320 };
             }
         }
     }
