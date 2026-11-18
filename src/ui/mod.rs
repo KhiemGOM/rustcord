@@ -72,6 +72,7 @@ mod hubjoin;
 mod plus;
 mod poll;
 mod scheduled;
+mod notice;
 mod survey;
 mod blocked;
 mod pollvotes;
@@ -389,6 +390,7 @@ pub struct App {
     pub cam_on_join: Option<Id>,
     // what Discord told us alone about a send it refused: the channel and the words
     pub notice: Option<(Id, String)>,
+    pub streamer_closed: bool,
     // the Edit Image dialog over a picture about to be uploaded
     pub crop: Option<crop::Crop>,
     // Set a custom status, over the account card
@@ -657,6 +659,7 @@ impl App {
             feed_about: false,
             cam_on_join: None,
             notice: None,
+            streamer_closed: false,
             crop: None,
             status_text: None,
             sticker_q: None,

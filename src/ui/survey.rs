@@ -2,11 +2,11 @@
 //! button to the survey. Fetched on connect at most once a day; closing or answering one hides it
 //! for good, and its seen ping goes out at most once a day.
 
-use egui::{Color32, CornerRadius, Rect, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Color32, Ui};
 use serde_json::Value;
 
 use super::App;
-use super::icons::{self, Icon};
+use super::notice::Hit;
 use crate::net::Tag;
 use crate::state::{ADMINISTRATOR, Id, Store};
 use crate::theme::*;
@@ -81,39 +81,12 @@ pub fn bar(app: &mut App, ui: &mut Ui) -> bool {
         app.save_at = Some(std::time::Instant::now());
         app.rest("POST", format!("/users/@me/survey/{id}/seen"), None, Tag::Quiet);
     }
-    let (mut close, mut go) = (false, false);
-    egui::Panel::top("survey").exact_size(36.0).resizable(false).show_separator_line(false).frame(egui::Frame::NONE).show(ui, |ui| {
-        let r = ui.max_rect();
-        let p = ui.painter().clone();
-        p.rect_filled(r, CornerRadius { nw: 8, ..CornerRadius::ZERO }, pal().blurple);
-        p.with_clip_rect(r).rect_stroke(Rect::from_min_max(r.min, r.max + vec2(4.0, 4.0)), CornerRadius { nw: 8, ..CornerRadius::ZERO }, Stroke::new(1.0, pal().frame_border), egui::StrokeKind::Inside);
-        let text = p.layout_no_wrap(prompt.into(), medium(14.0), Color32::WHITE);
-        let label = p.layout_no_wrap(cta.into(), medium(14.0), Color32::WHITE);
-        let bw = label.size().x + 20.0;
-        let x = (r.left() + 4.0 + r.right() - 28.0) / 2.0 - (text.size().x + 10.0 + bw) / 2.0;
-        let br = Rect::from_min_size(pos2(x + text.size().x + 10.0, r.top() + 6.0), vec2(bw, 24.0));
-        p.galley(pos2(x, r.center().y - text.size().y / 2.0), text, Color32::WHITE);
-        let b = ui.interact(br, egui::Id::new("survey_go"), Sense::click());
-        let hot = crate::ui::motion::hot(ui.ctx(), &b);
-        p.rect(br, 3, Color32::WHITE.gamma_multiply(hot), Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Inside);
-        p.galley_with_override_text_color(pos2(br.left() + 10.0, br.center().y - label.size().y / 2.0), label, crate::ui::motion::mix(Color32::WHITE, Color32::from_rgb(0x22, 0x22, 0x22), hot));
-        let cr = Rect::from_min_size(pos2(r.right() - 36.0, r.top()), vec2(36.0, 36.0));
-        let c = ui.interact(cr, egui::Id::new("survey_close"), Sense::click());
-        icons::draw(&p, Icon::Close, Rect::from_center_size(cr.center(), vec2(18.0, 18.0)), Color32::WHITE);
-        if b.hovered() || c.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        crate::ui::settings::mark(ui, "survey:bar", r);
-        crate::ui::settings::mark(ui, "survey:go", br);
-        crate::ui::settings::mark(ui, "survey:close", cr);
-        crate::ui::settings::said(ui.ctx(), "survey:prompt", prompt);
-        go = b.clicked();
-        close = c.clicked();
-    });
+    let hit = super::notice::strip(ui, pal().blurple, prompt, cta, Color32::from_rgb(0x22, 0x22, 0x22));
+    let go = matches!(hit, Some(Hit::Button));
     if go && let Some(url) = s["url"].as_str().filter(|u| u.starts_with("https://")) {
         let _ = open::that_detached(url);
     }
-    if go || close {
+    if hit.is_some() {
         app.ui.surveys_hidden.push(key.to_string());
         app.save_at = Some(std::time::Instant::now());
     }

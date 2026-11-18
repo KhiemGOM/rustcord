@@ -25,7 +25,7 @@ impl Run {
                 self.next(0);
             }
             5322 => {
-                let (Some(bar), Some(go), Some(close)) = (Self::at(ctx, "survey:bar"), Self::at(ctx, "survey:go"), Self::at(ctx, "survey:close")) else {
+                let (Some(bar), Some(go), Some(close)) = (Self::at(ctx, "notice:bar"), Self::at(ctx, "notice:button"), Self::at(ctx, "notice:close")) else {
                     if stuck {
                         self.shot(ctx, "survey_missing.png");
                         self.step = 5329;
@@ -34,7 +34,7 @@ impl Run {
                 };
                 let near = |a: f32, b: f32| (a - b).abs() < 0.6;
                 let side = app.rects.get("home:Friends").copied();
-                if Self::said(ctx, "survey:prompt").as_deref() == Some(PROMPT)
+                if Self::said(ctx, "notice:text").as_deref() == Some(PROMPT)
                     && near(bar.left(), 72.0)
                     && near(bar.height(), 36.0)
                     && near(bar.right(), ctx.content_rect().right())
@@ -49,7 +49,7 @@ impl Run {
                 self.next(500);
             }
             5323 => {
-                if Self::at(ctx, "survey:bar").is_none() && app.ui.surveys_hidden.iter().any(|k| k == "2024-11_blocking") {
+                if Self::at(ctx, "notice:bar").is_none() && app.ui.surveys_hidden.iter().any(|k| k == "2024-11_blocking") {
                     self.mark("survey_closed");
                 } else if !stuck {
                     return;

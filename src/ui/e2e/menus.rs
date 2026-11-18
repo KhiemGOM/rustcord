@@ -326,6 +326,9 @@ impl Run {
                     return self.fail("the profile popout showed a note in streamer mode".into());
                 }
                 self.mark("streamer_hides_note");
+                if Self::said(ctx, "notice:text").as_deref() == Some("Streamer Mode is enabled. Usernames have been truncated.") && Self::at(ctx, "notice:bar").is_some_and(|b| (b.left() - 72.0).abs() < 0.6) {
+                    self.mark("streamer_notice");
+                }
                 app.settings.streamer = false;
                 app.save_settings(ctx);
                 app.profile = None;

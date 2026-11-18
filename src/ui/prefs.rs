@@ -259,39 +259,26 @@ impl App {
     }
 
     // the purple strip the official client shows across the top in streamer mode
-    pub(super) fn streamer_banner(&mut self, ui: &mut Ui) {
+    /// Discord's Streamer Mode notice; closing it hides it until Streamer Mode is next turned on.
+    pub(super) fn streamer_notice(&mut self, ui: &mut Ui) -> bool {
         if !self.settings.streamer {
-            return;
+            self.streamer_closed = false;
+            return false;
         }
-        let mut off = false;
-        egui::Panel::top("streamer_banner")
-            .exact_size(36.0)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(Frame::new().fill(Color32::from_rgb(0x59, 0x3b, 0xd3)))
-            .show(ui, |ui| {
-                let r = ui.max_rect();
-                let p = ui.painter();
-                let msg = p.layout_no_wrap("Streamer Mode is enabled. Stay safe, friend.".into(), semi(14.0), Color32::WHITE);
-                let link = p.layout_no_wrap("Disable".into(), semi(14.0), Color32::WHITE);
-                let total = msg.size().x + 10.0 + link.size().x;
-                let x = r.center().x - total / 2.0;
-                let y = r.center().y - msg.size().y / 2.0;
-                let lr = Rect::from_min_size(pos2(x + msg.size().x + 10.0, y), link.size());
-                p.galley(pos2(x, y), msg, Color32::WHITE);
-                p.galley(lr.min, link, Color32::WHITE);
-                p.hline(lr.x_range(), lr.bottom(), egui::Stroke::new(1.0, Color32::WHITE));
-                let resp = ui.interact(lr, egui::Id::new("streamer_off"), Sense::click());
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                off = resp.clicked();
-            });
-        if off {
-            self.settings.streamer = false;
-            self.settings.streamer_auto = false;
-            self.save_settings(ui.ctx());
+        if self.streamer_closed {
+            return false;
         }
+        let twitch = Color32::from_rgb(0x91, 0x47, 0xff);
+        match super::notice::strip(ui, twitch, "Streamer Mode is enabled. Usernames have been truncated.", "Disable", twitch) {
+            Some(super::notice::Hit::Button) => {
+                self.settings.streamer = false;
+                self.settings.streamer_auto = false;
+                self.save_settings(ui.ctx());
+            }
+            Some(super::notice::Hit::Close) => self.streamer_closed = true,
+            None => {}
+        }
+        true
     }
 
     pub(super) fn update_title(&mut self, ctx: &egui::Context) {
