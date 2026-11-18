@@ -9,7 +9,8 @@ use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::{App, motion, text};
 
-pub const FONTS: [u8; 12] = [11, 3, 4, 6, 7, 8, 10, 12, 13, 14, 15, 16];
+/// The picker's fonts in discord's order (gg sans, then Tempo); 17, Pricedown, isn't offered there.
+pub const FONTS: [u8; 12] = [11, 12, 3, 4, 6, 7, 8, 10, 13, 14, 15, 16];
 pub const EFFECTS: [(u8, &str); 7] = [(1, "Solid"), (2, "Gradient"), (3, "Neon"), (4, "Toon"), (5, "Pop"), (8, "Gummy"), (7, "Prism")];
 pub const PRESETS: [u32; 7] = [0xd9dbe1, 0x23d160, 0x1d9bf0, 0xb91dfc, 0xe3074d, 0xff3b1f, 0xc9a50f];
 
@@ -44,6 +45,11 @@ impl Edit {
         self.effect = EFFECTS[(t / 13) % EFFECTS.len()].0;
         self.colors = (0..self.wants()).map(|i| PRESETS[(t / (29 + i * 7) + i) % PRESETS.len()]).collect();
     }
+}
+
+#[test]
+fn every_font_in_the_picker_can_be_drawn() {
+    assert!(FONTS.iter().all(|f| *f == 11 || crate::fonts::NAME_FONTS.iter().any(|(id, ..)| id == f)));
 }
 
 fn face(font: u8, size: f32) -> FontId {

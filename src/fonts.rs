@@ -27,7 +27,7 @@ pub const FACES: [(&str, &str, bool, u16, &str); 10] = [
 
 /// Nitro display name fonts: discord's font_id, the family its stylesheet registers, and the
 /// asset. The other ids (default, and a few retired ones) are plain gg sans.
-pub const NAME_FONTS: [(u8, &str, &str); 11] = [
+pub const NAME_FONTS: [(u8, &str, &str); 12] = [
     (3, "Sakura", "33d4f12a85e1f736"),
     (4, "Jellybean", "e6f5f44abb520735"),
     (6, "Modern", "c560709c3470bb66"),
@@ -39,6 +39,7 @@ pub const NAME_FONTS: [(u8, &str, &str); 11] = [
     (14, "Mainframe", "4841dace333e9054"),
     (15, "Headbang", "c00df4f25667809b"),
     (16, "Journal", "aa59ae54ce7e540a"),
+    (17, "Pricedown", "a7bafac436428e6c"),
 ];
 
 static FRESH: AtomicBool = AtomicBool::new(false);
