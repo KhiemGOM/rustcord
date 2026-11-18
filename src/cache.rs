@@ -33,6 +33,10 @@ pub struct UiState {
     pub skin: u8,
     pub frequent_stickers: Vec<crate::state::Id>,
     pub fav_stickers: Vec<crate::state::Id>,
+    // discord's survey notice: when it last asked for one and pinged one seen (ms), and the ones closed
+    pub survey_fetched: i64,
+    pub survey_seen: i64,
+    pub surveys_hidden: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

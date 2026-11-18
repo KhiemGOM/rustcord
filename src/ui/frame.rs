@@ -93,7 +93,6 @@ impl eframe::App for App {
         } else if splash::waiting(self) {
             splash::show(ui);
         } else {
-            self.streamer_banner(ui);
             settings::test_mode_banner(self, ui);
             viewas::bar(self, ui);
             // a modal over the app; shown first so it takes ESC before the chat does
@@ -125,6 +124,7 @@ impl eframe::App for App {
                     .response
                     .rect
             };
+            let notice = !full && (self.streamer_notice(ui) || survey::bar(self, ui));
             if !full {
                 themes::show(self, ui);
             }
@@ -138,7 +138,7 @@ impl eframe::App for App {
                     .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
                     .show(ui, |ui| directory::show(self, ui));
                 let side = egui::Rect::from_min_size(c.response.rect.min, vec2(side_w, c.response.rect.height()));
-                side_edge(ui.painter(), side);
+                side_edge(ui.painter(), side, notice);
                 side::card(self, ui, rail, side);
                 c.response.rect
             } else {
@@ -153,7 +153,7 @@ impl eframe::App for App {
                     .show_separator_line(false)
                     .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { left: dms, right: 2 - dms, ..egui::Margin::ZERO }))
                     .show(ui, |ui| side::show(self, ui));
-                side_edge(ui.painter(), r.response.rect);
+                side_edge(ui.painter(), r.response.rect, notice);
                 side::card(self, ui, rail, r.response.rect);
                 drop(dark);
                 if let Some(w) = self.dragged(&ctx, "side", r.response.rect.width(), side_w) {

@@ -29,6 +29,7 @@ def checks(runs, reqs, data):
         "shop: Featured drew the hero's items and the category tiles": both("shop_featured_content"),
         "shop: discord's shop marketing put NEW on the Shop row, and opening the Shop dismissed it on the account": "shop_new_pill" in cold and "shop_new_gone" in cold
             and has("/users/@me/collectibles-marketing?platform=0") and dismissed,
+        "shop: a badge marketing's own text and icon go on the Shop row's pill": "shop_promo_pill" in cold,
         "shop: Browse listed the catalog and Show only filtered it": both("shop_browse") and both("shop_filter"),
         "shop: a card opened the product, and it closed on Escape and on the backdrop": both("shop_detail") and both("shop_detail_escape") and both("shop_detail_backdrop"),
         "shop: the heart added the item to the wishlist on discord and the wishlist tab lists it": both("shop_wish") and wished and both("shop_wishlist"),

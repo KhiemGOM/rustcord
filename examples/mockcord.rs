@@ -33,6 +33,8 @@ mod sched;
 mod wallet;
 #[path = "mockcord/gameshop.rs"]
 mod gameshop;
+#[path = "mockcord/survey.rs"]
+mod survey;
 #[path = "mockcord/hub.rs"]
 mod hub;
 #[path = "mockcord/school.rs"]
@@ -1482,6 +1484,9 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
     }
     if let Some((code, v)) = gameshop::route(method, &parts) {
         return (code, "application/json", v.to_string().into_bytes());
+    }
+    if let Some((code, v)) = survey::route(method, &parts) {
+        return (code, "application/json", if code == 204 { Vec::new() } else { v.to_string().into_bytes() });
     }
     if let Some((code, v)) = wallet::route(method, &parts) {
         return (code, "application/json", v.to_string().into_bytes());

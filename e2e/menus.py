@@ -32,6 +32,7 @@ def checks(runs, reqs, data):
         "menus: the rail tooltip sat beside its icon": both("rail_tip_beside_icon"),
         "menus: the title bar said Discover and Quests": both("title_says_discover") and both("title_says_quests"),
         "menus: streamer mode kept the note out of the profile popout": both("streamer_hides_note"),
+        "menus: streamer mode's notice is discord's, right of the rail": both("streamer_notice"),
         "menus: a search with pinned, before and has went out as ids and params": any("pinned=true" in p and "max_id=" in p and "has=image" in p for p in searches),
         "menus: a timed status sent its expiry": any(s.get("status") == "idle" and s.get("expires") and s.get("created") for s in statuses),
         "menus: Create Your Server and Notification Settings fit a short window": both("new_server_fits_short") and both("notifs_fits_short"),

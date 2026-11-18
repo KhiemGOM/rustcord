@@ -59,6 +59,7 @@ mod r1;
 mod rv;
 mod mdtext;
 mod dmopen;
+mod survey;
 mod themes;
 mod serverx;
 mod shopx;
@@ -1516,6 +1517,7 @@ impl Run {
             5200..=5299 => self.r1_steps(app, ctx),
             5300..=5309 => self.mdtext_steps(app, ctx),
             5310..=5319 => self.dmopen_steps(app, ctx),
+            5320..=5329 => self.survey_steps(app, ctx),
             5400..=5449 => self.rv_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
