@@ -64,7 +64,9 @@ impl Run {
                 self.next(200);
             }
             5313 => {
-                if let Some(u) = app.store.users.get_mut(&BOB) {
+                let who = app.store.channels.get(&GROUP_DM).and_then(|c| c.recipients.first().copied()).unwrap_or(BOB);
+                self.loaded = who as usize;
+                if let Some(u) = app.store.users.get_mut(&who) {
                     u.nameplate = Some("nameplates/mock/7002/".into());
                     u.decoration = Some("a_mock_decoration".into());
                 }
@@ -73,7 +75,8 @@ impl Run {
                 self.next(900);
             }
             5314 => {
-                let (Some(plate), Some(_)) = (Self::at(ctx, &format!("group:plate:{BOB}")), Self::at(ctx, &format!("group:decoration:{BOB}"))) else {
+                let who = self.loaded;
+                let (Some(plate), Some(_)) = (Self::at(ctx, &format!("group:plate:{who}")), Self::at(ctx, &format!("group:decoration:{who}"))) else {
                     if stuck {
                         self.shot(ctx, "group_cosmetics_missing.png");
                         self.step = 5315;
@@ -87,10 +90,11 @@ impl Run {
                 self.next(200);
             }
             _ => {
-                if let Some(u) = app.store.users.get_mut(&BOB) {
+                if let Some(u) = app.store.users.get_mut(&(self.loaded as u64)).filter(|_| self.loaded != 0) {
                     u.nameplate = None;
                     u.decoration = None;
                 }
+                self.loaded = 0;
                 if let Some(u) = app.store.users.get_mut(&ALICE) {
                     u.font = 0;
                 }
