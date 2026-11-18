@@ -84,6 +84,9 @@ impl Run {
                 if at("home:shop_new").is_some() {
                     self.mark("shop_new_pill");
                 }
+                if Self::said(ctx, "home:shop_pill").as_deref() == Some("PROMO") {
+                    self.mark("shop_promo_pill");
+                }
                 self.click(r.center());
                 self.next(0);
                 self.step = 3206;

@@ -49,8 +49,10 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
                 ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
-                if label == "Shop" && promo.is_some() {
-                    new_pill(ui, pos2(inner.right() - 16.0, row.center().y));
+                if label == "Shop"
+                    && let Some((_, _, text, icon)) = &promo
+                {
+                    shop_pill(ui, pos2(inner.right() - 16.0, row.center().y), text, *icon);
                 }
                 if label == "Friends" {
                     if pending > 0 {
@@ -66,7 +68,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                         "Quests" => app.open_quests(),
                         "Nitro Home" => app.open_shop(crate::ui::shop::Page::Nitro),
                         "Shop" => {
-                            if let Some((dc, version)) = promo {
+                            if let Some((dc, version, ..)) = promo {
                                 let times = app.store.dismissed.get(&dc).map_or(0, |d| d.1) + 1;
                                 app.store.dismissed.insert(dc, (version, times));
                                 app.proto_patch(crate::proto::dismiss_patch(dc, version, chrono::Utc::now().timestamp_millis() as u64, times), crate::net::Tag::Quiet);
@@ -146,24 +148,43 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     }
 }
 
-fn shop_promo(app: &mut App) -> Option<(u64, u64)> {
-    let (dc, version) = {
+fn shop_promo(app: &mut App) -> Option<(u64, u64, String, Option<Icon>)> {
+    let (dc, version, text, icon) = {
         let Some(Ok(v)) = crate::ui::settings::remote(app, "shop_marketing", "/users/@me/collectibles-marketing?platform=0") else { return None };
         let m = &v["marketings"]["0"];
-        if !matches!(m["type"].as_u64(), Some(1 | 3 | 4)) {
+        if !matches!(m["type"].as_u64(), Some(1..=4)) {
             return None;
         }
-        (m["dismissible_content"].as_u64()?, m["version"].as_u64()?)
+        let (text, icon) = pill_face(m, chrono::Utc::now());
+        (m["dismissible_content"].as_u64()?, m["version"].as_u64()?, text, icon)
     };
-    (app.store.dismissed.get(&dc).map_or(0, |d| d.0) < version).then_some((dc, version))
+    (app.store.dismissed.get(&dc).map_or(0, |d| d.0) < version).then_some((dc, version, text, icon))
 }
 
-fn new_pill(ui: &mut Ui, right_center: egui::Pos2) {
-    let g = ui.painter().layout_no_wrap("NEW".into(), semi(12.0), Color32::from_rgb(0x2f, 0x30, 0x35));
-    let r = Rect::from_min_max(pos2(right_center.x - g.size().x - 16.0, right_center.y - 8.0), pos2(right_center.x, right_center.y + 8.0));
+/// What the Shop row's pill says, as discord's shop button badge: whole days left when the
+/// marketing counts down, else its own text, else NEW; with the icon it names.
+fn pill_face(m: &serde_json::Value, now: chrono::DateTime<chrono::Utc>) -> (String, Option<Icon>) {
+    let days = m["badge_countdown_ends_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|end| ((end.timestamp_millis() - now.timestamp_millis()) as f64 / 86_400_000.0).ceil() as i64).filter(|d| *d > 0);
+    let text = match (days, m["badge_text"].as_str().filter(|t| !t.is_empty())) {
+        (Some(d), _) => format!("{d}D LEFT"),
+        (None, Some(t)) => t.to_uppercase(),
+        (None, None) => "NEW".into(),
+    };
+    (text, (m["badge_icon"].as_str() == Some("TagIcon")).then_some(Icon::Tag))
+}
+
+fn shop_pill(ui: &mut Ui, right_center: egui::Pos2, text: &str, icon: Option<Icon>) {
+    let ink = Color32::from_rgb(0x2f, 0x30, 0x35);
+    let g = ui.painter().layout_no_wrap(text.into(), semi(12.0), ink);
+    let lead = if icon.is_some() { 14.0 } else { 0.0 };
+    let r = Rect::from_min_max(pos2(right_center.x - g.size().x - 16.0 - lead, right_center.y - 8.0), pos2(right_center.x, right_center.y + 8.0));
     ui.painter().rect_filled(r, CornerRadius::same(8), Color32::WHITE);
-    ui.painter().galley(pos2(r.left() + 8.0, r.center().y - g.size().y / 2.0), g, Color32::WHITE);
+    if let Some(icon) = icon {
+        icons::draw(ui.painter(), icon, Rect::from_min_size(pos2(r.left() + 7.0, r.center().y - 6.0), vec2(12.0, 12.0)), ink);
+    }
+    ui.painter().galley(pos2(r.left() + 8.0 + lead, r.center().y - g.size().y / 2.0), g, ink);
     crate::ui::settings::mark(ui, "home:shop_new", r);
+    crate::ui::settings::said(ui.ctx(), "home:shop_pill", text);
 }
 
 pub(super) const WAVE_STICKER: Id = 749054660769218631;
@@ -311,4 +332,21 @@ pub(crate) fn group_color(id: Id) -> Color32 {
         Color32::from_rgb(0xeb, 0x45, 0x9e),
     ];
     c[(id % 5) as usize]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_shop_pill_says_what_the_marketing_asks() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-19T12:00:00Z").unwrap().to_utc();
+        let face = |m| pill_face(&m, now);
+        assert_eq!(face(json!({ "type": 4 })), ("NEW".into(), None));
+        assert_eq!(face(json!({ "badge_text": "" })), ("NEW".into(), None));
+        assert_eq!(face(json!({ "badge_text": "Promo", "badge_icon": "TagIcon" })), ("PROMO".into(), Some(Icon::Tag)));
+        assert_eq!(face(json!({ "badge_text": "Promo", "badge_countdown_ends_at": "2026-11-21T13:00:00Z" })), ("3D LEFT".into(), None));
+        assert_eq!(face(json!({ "badge_text": "Promo", "badge_countdown_ends_at": "2026-11-19T11:00:00Z" })), ("PROMO".into(), None));
+    }
 }
