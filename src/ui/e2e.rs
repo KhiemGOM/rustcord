@@ -825,7 +825,8 @@ impl Run {
                 self.next(0);
             }
             19 => {
-                if app.profiles.contains_key(&(self.loaded as Id)) {
+                let who = self.loaded as Id;
+                if app.profiles.contains_key(&who) || app.member_profiles.contains_key(&(who, self.target.0)) {
                     self.mark("profile");
                     self.next(800);
                 }
