@@ -122,6 +122,7 @@ mod webart;
 mod favorites;
 mod widgets;
 pub(crate) use widgets::avatar;
+pub(crate) use widgets::guild_initials;
 pub(crate) use widgets::status_dot;
 pub(crate) use widgets::badge;
 pub(crate) use widgets::badge_in;

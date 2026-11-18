@@ -830,10 +830,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         let a = Rect::from_min_size(pos2(r.left() + 4.0, r.top() + 4.0), vec2(40.0, 40.0));
                         match g.icon_url() {
                             Some(url) => crate::gif::paint_still(ui, &url, a, CornerRadius::same(12), false),
-                            None => {
-                                ui.painter().rect_filled(a, CornerRadius::same(12), pal().blurple);
-                                ui.painter().text(a.center(), Align2::CENTER_CENTER, g.acronym(), medium(10.0), Color32::WHITE);
-                            }
+                            None => super::guild_initials(ui, a, 12, &g.acronym()),
                         }
                         let nick = p
                             .and_then(|p| p["mutual_guilds"].as_array())
