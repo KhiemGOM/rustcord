@@ -1,12 +1,27 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { httpAllowed, gatewayAllowed, actionsFor, fingerprint, installGuard, inspect, resolveTarget, contextMatches, checkOutcome } = require('./discord_reference.cjs');
-const { options, seeds, parseState, priority, noveltyKey } = require('./discord_explore.cjs');
+const { options, seeds, parseState, priority, noveltyKey, inputKey, worn, REPEATS } = require('./discord_explore.cjs');
 
 test('repeated controls lose priority across routes without being dropped', () => {
     const task = { family: 'home', priority: 3, novelty_key: 'same-menu' };
     assert.ok(priority(task, {}, { 'same-menu': 2 }) > priority(task, {}, {}));
     assert.ok(priority(task, { home: 10 }, {}) > priority(task, {}, {}));
+});
+
+test('an input tried enough times on the same kind of thing is dropped, wherever its state came from', () => {
+    const wheel = (delta, top) => ({ kind: 'action', family: 'home', input: { method: 'wheel', delta, scroll: { key: 'k' + top, box: [0, top, 10, 10], role: 'list', name: 'Messages' } } });
+    const visits = {};
+    for (let i = 0; i < REPEATS; i++) {
+        assert.equal(worn(wheel(550, i), visits), false);
+        const key = inputKey('home', wheel(550, i).input);
+        visits[key] = (visits[key] || 0) + 1;
+    }
+    assert.equal(worn(wheel(550, 99), visits), true);
+    assert.equal(worn(wheel(-550, 0), visits), false);
+    const escape = { kind: 'action', family: 'home', input: { method: 'key', key: 'Escape' } };
+    assert.notEqual(inputKey('home', escape.input), inputKey('home', { method: 'key', key: 'Tab' }));
+    assert.equal(worn({ kind: 'root', family: 'home' }, visits), false);
 });
 
 test('rows of one list count as one thing tried per family, a named control as itself everywhere', () => {
