@@ -5,6 +5,38 @@ pub(crate) fn avatar(ui: &Ui, rect: Rect, url: &str) {
     crate::gif::paint_still(ui, url, rect, CornerRadius::same((rect.width() / 2.0) as u8), ui.rect_contains_pointer(rect));
 }
 
+/// A server without an icon as discord's guild icon draws one: its initials in the text colour on
+/// --background-base-lower, sized from the table for the icon's size by how many there are, and
+/// cut at the icon's edge rather than elided.
+pub(crate) fn guild_initials(ui: &Ui, rect: Rect, radius: impl Into<CornerRadius>, acronym: &str) {
+    ui.painter().rect_filled(rect, radius, pal().bg_primary);
+    let font = reg(initials_px(rect.width(), acronym.chars().count()));
+    text::paint(&ui.painter().with_clip_rect(rect.intersect(ui.clip_rect())), rect.center(), egui::Align2::CENTER_CENTER, acronym, font, pal().text_normal, f32::INFINITY);
+}
+
+/// Discord's tables, Smol (16) to XLarge (100), read at the number of initials, not one less.
+fn initials_px(wide: f32, n: usize) -> f32 {
+    const TABLES: [(f32, &[f32]); 8] = [
+        (16.0, &[10.0, 10.0, 8.0, 6.0, 6.0, 4.0]),
+        (20.0, &[12.0, 12.0, 10.0, 10.0, 8.0, 6.0, 4.0]),
+        (24.0, &[13.0, 13.0, 11.0, 11.0, 9.0, 7.0, 5.0]),
+        (30.0, &[14.0, 14.0, 12.0, 12.0, 10.0, 8.0, 6.0]),
+        (40.0, &[16.0, 16.0, 14.0, 14.0, 12.0, 10.0, 8.0]),
+        (50.0, &[18.0, 18.0, 16.0, 16.0, 14.0, 12.0, 10.0]),
+        (64.0, &[19.0, 19.0, 17.0, 17.0, 15.0, 13.0, 11.0]),
+        (100.0, &[20.0, 20.0, 18.0, 18.0, 16.0, 14.0, 12.0]),
+    ];
+    let (_, sizes) = TABLES.iter().min_by(|a, b| (a.0 - wide).abs().total_cmp(&(b.0 - wide).abs())).unwrap_or(&TABLES[0]);
+    sizes.get(n).or(sizes.last()).copied().unwrap_or(10.0)
+}
+
+#[test]
+fn initials_take_discords_size_for_the_icon() {
+    assert_eq!(initials_px(16.0, 5), 4.0);
+    assert_eq!([initials_px(40.0, 2), initials_px(40.0, 5)], [14.0, 10.0]);
+    assert_eq!(initials_px(16.0, 9), 4.0);
+}
+
 pub(crate) fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
     let r = (avatar.width() * 0.16).max(4.0);
     let c = pos2(avatar.right() - r * 0.9, avatar.bottom() - r * 0.9);

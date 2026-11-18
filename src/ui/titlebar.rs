@@ -4,7 +4,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Image, Key, Margin, Modifiers, PointerButton, Rect, RichText, Sense, Ui, ViewportCommand, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, badge, chat, popups, take_key, text};
+use super::{App, badge, chat, guild_initials, popups, take_key, text};
 use crate::net::Tag;
 use crate::state::{Id, Message, Store};
 use crate::theme::*;
@@ -192,10 +192,7 @@ fn guild_mark(ui: &Ui, store: &Store, gid: Id, rect: Rect) {
         Some(url) => {
             Image::from_uri(url).corner_radius(radius).show_loading_spinner(false).paint_at(ui, rect);
         }
-        None => {
-            let size = if g.acronym().chars().count() > 2 { 7.0 } else { 8.0 } * rect.width() / 16.0;
-            text::paint(ui.painter(), rect.center(), Align2::CENTER_CENTER, &g.acronym(), reg(size), pal().text_normal, rect.width());
-        }
+        None => guild_initials(ui, rect, radius, &g.acronym()),
     }
 }
 
