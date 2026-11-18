@@ -37,10 +37,25 @@ fn initials_take_discords_size_for_the_icon() {
     assert_eq!(initials_px(16.0, 9), 4.0);
 }
 
+fn status_spec(size: f32) -> (f32, f32, f32) {
+    match size.round() as u32 {
+        ..=20 => (6.0, 2.0, 0.0),
+        21..=24 => (8.0, 3.0, 0.0),
+        25..=32 => (10.0, 3.0, 0.0),
+        33..=48 => (12.0, 4.0, 0.0),
+        49..=56 => (14.0, 4.0, 2.0),
+        57..=80 => (16.0, 6.0, 4.0),
+        81..=96 => (20.0, 8.0, 6.0),
+        97..=120 => (24.0, 8.0, 8.0),
+        _ => (30.0, 10.0, 10.0),
+    }
+}
+
 pub(crate) fn status_dot(ui: &Ui, avatar: Rect, s: Status, ring: Color32) {
-    let r = (avatar.width() * 0.16).max(4.0);
-    let c = pos2(avatar.right() - r * 0.9, avatar.bottom() - r * 0.9);
-    ui.painter().circle_filled(c, r + 2.5, ring);
+    let (dot, stroke, offset) = status_spec(avatar.width());
+    let r = dot / 2.0;
+    let c = avatar.max - vec2(r + offset, r + offset);
+    ui.painter().circle_filled(c, r + stroke, ring);
     let col = status_color(s);
     match s {
         Status::Offline => {

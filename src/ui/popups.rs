@@ -112,8 +112,12 @@ impl App {
     }
 
     pub fn open_profile(&mut self, user: Id, guild: Id, at: Pos2) {
+        if self.profile_shut.take() == Some(user) {
+            return;
+        }
         self.profile = Some((user, guild, at));
-        self.want_profile(user, guild, "with_mutual_guilds=true&with_mutual_friends=true");
+        let mine = user == self.store.me;
+        self.want_profile(user, guild, &format!("with_mutual_guilds={}&with_mutual_friends={}", !mine, !mine));
     }
 
     pub fn open_timeout(&mut self, gid: Id, uid: Id) {
@@ -182,6 +186,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::hubjoin::show(app, ctx);
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
+    super::emojistudio::show(app, ctx);
+    super::streamtip::show(app, ctx);
     super::dmpick::show(app, ctx);
     super::topic::show(app, ctx);
     super::feedabout::show(app, ctx);

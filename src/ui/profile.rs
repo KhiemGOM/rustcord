@@ -355,13 +355,25 @@ pub fn role_picker(app: &mut App, ctx: &egui::Context) {
 /// A profile's badges, the account's then the server's, `size` apiece, from x along cy. Each says
 /// what it is on hover and opens its page when clicked; past six, the rest are a count. Hands back
 /// where the next thing starts.
-pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) -> f32 {
+fn all_badges(p: Option<&Value>) -> Vec<&Value> {
     let mut all: Vec<&Value> = p.and_then(|p| p["badges"].as_array()).into_iter().flatten().collect();
     for b in p.and_then(|p| p["guild_badges"].as_array()).into_iter().flatten() {
         if !all.iter().any(|a| a["id"] == b["id"]) {
             all.push(b);
         }
     }
+    all
+}
+
+pub fn badges_width(ui: &Ui, p: Option<&Value>, size: f32) -> f32 {
+    let n = all_badges(p).len();
+    let more = n.saturating_sub(6);
+    let tail = if more > 0 { 7.7 + ui.painter().layout_no_wrap(format!("+{more}"), reg(14.0), pal().header_primary).size().x } else { 0.0 };
+    n.min(6) as f32 * (size + 2.0) + tail
+}
+
+pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) -> f32 {
+    let mut all = all_badges(p);
     let more = all.len().saturating_sub(6);
     if more > 0 {
         all.truncate(6);
@@ -382,7 +394,7 @@ pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) ->
         x += size + 2.0;
     }
     if more > 0 {
-        x = ui.painter().text(pos2(x + 3.0, cy), Align2::LEFT_CENTER, format!("+{more}"), reg(14.0), pal().header_primary).right() + 2.0;
+        x = ui.painter().text(pos2(x + 5.7, cy), Align2::LEFT_CENTER, format!("+{more}"), reg(14.0), pal().header_primary).right() + 2.0;
     }
     x
 }
@@ -534,6 +546,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut explore = false;
     let mut note_rect = Rect::NOTHING;
     let store = &app.store;
+    let games = &app.game_info;
     let notes = &mut app.rects;
     let frame = Frame::new().fill(pal().bg_primary).corner_radius(16).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
     let m = crate::ui::motion::Modal::new("full_profile".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
@@ -747,7 +760,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             match tab {
                 Tab::Board => {
                     let r = Rect::from_min_size(ui.cursor().min, vec2(432.0, 0.0));
-                    let mut h = super::profed::board::paint_widgets(ui, store, r, &widgets, pal().header_primary);
+                    let mut h = super::profed::board::paint_widgets(ui, store, games, r, &widgets, pal().header_primary);
                     if !linked.is_empty() {
                         ui.painter().text(pos2(r.left(), r.top() + h + 8.0), Align2::LEFT_CENTER, "Linked accounts", medium(12.0), pal().header_secondary);
                         for (i, n) in linked.iter().enumerate() {

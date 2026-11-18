@@ -5,7 +5,6 @@ use super::{input, link, primary, refetch, secondary};
 use crate::net::{Cmd, Tag};
 use crate::theme::*;
 use crate::ui::App;
-use super::account::standing;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Edit {
@@ -16,7 +15,6 @@ pub enum Edit {
     Disable,
     Delete,
     Owner,
-    Standing,
     Totp,
     TotpOff,
     Codes,
@@ -474,10 +472,6 @@ fn modal(app: &mut App, ctx: &egui::Context) {
     let uname = pomelo(app, ctx);
     let email = app.store.email.clone().unwrap_or_default();
     let old_phone = app.store.me_raw["phone"].as_str().unwrap_or("").to_string();
-    let standing_state = match app.remote.get("safety") {
-        Some(Some(Ok(v))) => v.clone(),
-        _ => Value::Null,
-    };
     let Some(m) = &mut app.sform.modal else { return };
     let step = m.step;
     let (head, sub) = match (m.kind, step) {
@@ -494,7 +488,6 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         (Edit::Disable, _) => ("Disable Account", "Are you sure that you want to disable your account? This will immediately log you out and make your account inaccessible to anyone."),
         (Edit::Delete, _) => ("Delete Account", "Are you sure that you want to delete your account? This will immediately log you out of your account and you will not be able to log in again."),
         (Edit::Owner, _) => ("You own servers!", "In order to delete or disable your account you must first transfer ownership of all servers that you own."),
-        (Edit::Standing, _) => ("Account Standing", ""),
         (Edit::Totp, 0) => ("Enable Authenticator App", "Protect your account with a second step when you log in."),
         (Edit::Totp, _) => ("Backup codes", "Keep these somewhere safe. Each one works once."),
         (Edit::TotpOff, _) => ("Remove Authenticator App", "Are you sure you want to remove your Authenticator App?"),
@@ -519,7 +512,6 @@ fn modal(app: &mut App, ctx: &egui::Context) {
         (Edit::Disable, _) => ("Disable Account", pal().red, None),
         (Edit::Delete, _) => ("Delete Account", pal().red, None),
         (Edit::Owner, _) => ("Okay", pal().blurple, None),
-        (Edit::Standing, _) => ("", pal().blurple, None),
         (Edit::TotpOff, _) => ("Remove", pal().red, None),
         (Edit::Totp, _) | (Edit::Codes, _) | (Edit::AddKey, 1..) => ("", pal().blurple, None),
         (Edit::AddKey, _) => ("Continue", pal().blurple, None),
@@ -603,17 +595,6 @@ fn modal(app: &mut App, ctx: &egui::Context) {
                 label(ui, "Password");
                 let r = input(ui, &mut m.f[0], "", true);
                 super::mark(ui, "modal_input", r.rect);
-            }
-            (Edit::Standing, _) => {
-                let (name, _, _) = standing(standing_state["account_standing"]["state"].as_u64().unwrap_or(100));
-                ui.label(RichText::new(name).font(semi(16.0)).color(pal().header_primary));
-                let list = standing_state["classifications"].as_array().cloned().unwrap_or_default();
-                if list.is_empty() {
-                    para(ui, "You have no violations on your account.");
-                }
-                for c in &list {
-                    para(ui, c["description"].as_str().or(c["id"].as_str()).unwrap_or("Violation"));
-                }
             }
             (Edit::Totp, 0) => {
                 para(ui, "1. Download an authenticator app such as Google Authenticator or Authy.");
@@ -711,7 +692,7 @@ fn submit(app: &mut App, alt: bool) {
         }
         (Edit::Disable, _) => ("POST", "/users/@me/disable".into(), Some(json!({ "password": m.f[0] }))),
         (Edit::Delete, _) => ("POST", "/users/@me/delete".into(), Some(json!({ "password": m.f[0] }))),
-        (Edit::Owner | Edit::Standing, _) => {
+        (Edit::Owner, _) => {
             app.sform.modal = None;
             return;
         }

@@ -34,6 +34,8 @@ mod favs;
 pub mod failed;
 mod feedabout;
 mod folders;
+mod emojistudio;
+mod streamtip;
 mod follow;
 mod forum;
 mod forumbar;
@@ -283,10 +285,12 @@ pub struct App {
     pub soundboard: Option<(Id, Option<Vec<crate::state::Sound>>)>,
     pub switcher: Option<String>,
     pub profile: Option<(Id, Id, Pos2)>,
+    pub profile_shut: Option<Id>,
     pub profiles: Map<Id, serde_json::Value>,
     // someone's profile as a server shows it, by (person, server)
     pub member_profiles: Map<(Id, Id), serde_json::Value>,
     pub app_covers: Map<Id, Option<String>>,
+    pub game_info: Map<String, Option<profed::board::Info>>,
     pub full_profile: Option<profile::Full>,
     pub outbox: Map<Id, Vec<profile::Recent>>,
     // the + button's role list: server, member, where, search
@@ -374,6 +378,7 @@ pub struct App {
     pub sched: scheduled::State,
     pub launcher: Option<plus::Launcher>,
     pub follow: Option<follow::Follow>,
+    pub emoji_studio: Option<emojistudio::Studio>,
     pub publishing: Option<(Id, Id)>,
     pub modify: Option<attach::Modify>,
     pub group_pick: Option<dmpick::Pick>,
@@ -567,9 +572,11 @@ impl App {
             soundboard: None,
             switcher: None,
             profile: None,
+            profile_shut: None,
             profiles: Map::default(),
             member_profiles: Map::default(),
             app_covers: Map::default(),
+            game_info: Map::default(),
             full_profile: None,
             outbox: Map::default(),
             role_add: None,
@@ -641,6 +648,7 @@ impl App {
             sched: Default::default(),
             launcher: None,
             follow: None,
+            emoji_studio: None,
             publishing: None,
             modify: None,
             group_pick: None,

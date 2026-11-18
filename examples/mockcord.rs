@@ -770,7 +770,9 @@ fn quests_base() -> Vec<Value> {
     let quest = |id: &str, name: &str, task: Value, reward: Value, hue: &str| {
         json!({ "id": id, "preview": false, "config": {
             "id": id, "config_version": 2, "starts_at": iso(now_ms() - 86_400_000), "expires_at": iso(now_ms() + 6 * 86_400_000), "features": [],
-            "assets": { "hero": "hero.png", "quest_bar_hero": "hero.png", "game_tile": "tile.png", "logotype": "logo.png" },
+            "assets": { "hero": format!("quests/{id}/hero.png"), "quest_bar_hero": format!("quests/{id}/hero.png"), "game_tile": "PLACEHOLDER", "logotype": "PLACEHOLDER",
+                        "game_tile_dark": format!("quests/{id}/tile.png"), "game_tile_light": format!("quests/{id}/tile.png"),
+                        "logotype_dark": format!("quests/{id}/logo.png"), "logotype_light": format!("quests/{id}/logo.png") },
             "colors": { "primary": hue, "secondary": "#404a7b" },
             "messages": { "quest_name": name, "game_title": "Mock Racers", "game_publisher": "Mock Games" },
             "task_config_v2": { "tasks": task, "join_operator": "or" },
@@ -1737,6 +1739,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ])),
         ("POST", ["api", "v9", "channels", _, "send-soundboard-sound"]) => (204, "application/json", Vec::new()),
         ("POST", ["api", "v9", "streams", _, "preview"]) => (204, "application/json", Vec::new()),
+        ("GET", ["api", "v9", "streams", _, "preview"]) => {
+            let port = PORT.load(std::sync::atomic::Ordering::Relaxed);
+            ok(json!({ "url": format!("http://127.0.0.1:{port}/cdn/attachments/2011/1/photo-800x450-1.png") }))
+        }
         // e2e/bench.py: a busy account's background traffic for `secs`, `rate` events a second:
         // presences in the open server, typing and messages in another one
         ("POST", ["api", "v9", "mock", "busy"]) => {
@@ -1844,8 +1850,8 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
                 prof["theme_colors"] = json!([0x1b6b5a, 0x0b3a52]);
             }
             let widgets = if id == 101 { json!([
-                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "name": "Mock Racers", "comment": "Run it back", "tags": ["love_it"] }] } },
-                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "name": "Crab Quest", "comment": null, "tags": [] }, { "game_id": "9005", "name": "Rust Simulator", "comment": null, "tags": [] }] } },
+                { "id": "w1", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "favorite_games", "games": [{ "game_id": "9001", "comment": "Run it back", "tags": ["love_it"] }] } },
+                { "id": "w2", "updated_at": "2026-11-01T10:00:00+00:00", "data": { "type": "played_games", "games": [{ "game_id": "9002", "comment": null, "tags": [] }, { "game_id": "9005", "comment": null, "tags": [] }] } },
             ]) } else { json!([]) };
             let mut out = json!({
                 "user": user(id), "user_profile": prof, "widgets": widgets,
@@ -1900,6 +1906,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["api", "v9", "users", "@me", "email-settings"]) => ok(json!({ "initialized": true, "categories": { "communication": true, "social": true, "updates_and_announcements": false, "tips": false, "recommendations_and_events": false } })),
         ("PATCH", ["api", "v9", "users", "@me", "email-settings"]) => ok(json!({ "initialized": true, "categories": serde_json::from_slice::<Value>(body).unwrap_or_default()["settings"]["categories"] })),
         ("GET", ["api", "v9", "users", "@me", "consent"]) => ok(json!({ "usage_statistics": { "consented": true }, "personalization": { "consented": false } })),
+        ("GET", ["api", "v9", "safety-hub", "@me"]) => ok(json!({ "account_standing": { "state": 100 }, "classifications": [] })),
         ("GET", ["api", "v9", "auth", "sessions"]) => ok(json!({ "user_sessions": [
             { "id_hash": "aaa", "approx_last_used_time": "2026-10-07T10:00:00+00:00", "client_info": { "os": "Windows", "platform": "Discord Client", "location": "Bangkok, Thailand" } },
             { "id_hash": "bbb", "approx_last_used_time": "2026-10-01T10:00:00+00:00", "client_info": { "os": "Android", "platform": "Discord Android", "location": "Bangkok, Thailand" } },
@@ -2114,6 +2121,11 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(json!({ "claimed_at": status["claimed_at"], "entitlements": [], "errors": [] }))
         }
         ("GET", ["api", "v9", "users", "@me", "scheduled-events"]) => ok(json!([])),
+        ("GET", ["api", "v9", "games"]) => {
+            let asked: Vec<&str> = path.split_once('?').map_or("", |q| q.1).split('&').filter_map(|kv| kv.strip_prefix("game_ids=")).collect();
+            let all = [("9001", "Mock Racers"), ("9002", "Crab Quest"), ("9003", "Outsider Game"), ("9004", "Genshin Impact"), ("9005", "Rust Simulator")];
+            ok(json!(all.iter().filter(|g| asked.contains(&g.0)).map(|g| json!({ "id": g.0, "name": g.1, "media": { "cover": { "type": "hash", "value": format!("gamecover{}", g.0) } } })).collect::<Vec<_>>()))
+        }
         ("GET", ["api", "v9", "games", "autocomplete"]) => {
             let q = query_str(path, "q").to_lowercase();
             if q.is_empty() || query_str(path, "filter_group") != "default" {
@@ -2555,6 +2567,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
         ("GET", ["cdn", "media", "clip.mp4"]) => (200, "video/mp4", std::env::var("MOCK_CLIP_HD").ok().and_then(|f| std::fs::read(f).ok()).unwrap_or_else(|| include_bytes!("fixtures/clip.mp4").to_vec())),
         ("GET", ["cdn", "media", "tone.mp3"]) => (200, "audio/mpeg", include_bytes!("fixtures/tone.mp3").to_vec()),
         ("GET", ["cdn", "media", "hello.rs"]) => (200, "text/plain", include_bytes!("fixtures/hello.rs").to_vec()),
+        ("GET", ["cdn", "media", "v1", "collectibles-shop", sku, "animated"]) => (200, "image/png", anim_gif(448, 84, sku.bytes().map(u32::from).sum())),
         ("GET", ["cdn", "media", f]) if f.ends_with(".mp4") => (200, "video/mp4", include_bytes!("fixtures/spin.mp4").to_vec()),
         ("GET", ["cdn", "media", f]) if f.starts_with("effect_") && f.ends_with(".gif") => (200, "image/gif", fx_gif(300, 400, f.len() as u32)),
         ("GET", ["cdn", "media", f]) if f.starts_with("frame_") && f.ends_with("_a.png") => (200, "image/png", fx_frame(300, 400)),

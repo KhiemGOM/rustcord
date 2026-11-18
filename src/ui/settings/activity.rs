@@ -1,4 +1,4 @@
-use egui::{Align2, Frame, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align, Align2, Frame, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::privacy::{NOTIF, PRIVACY, STATUS, blob, related, write};
 use super::wire::{self, Patch};
@@ -165,22 +165,30 @@ pub(super) fn hypesquad(app: &mut App, ui: &mut Ui) -> bool {
     let mut pick = None;
     let mut leave = false;
     super::lead(ui);
+    ui.spacing_mut().item_spacing.x = 16.0;
+    let col_w = (ui.available_width() - 32.0) / 3.0;
+    let blurb_h = HOUSES.iter().map(|h| ui.painter().layout(h.3.into(), reg(14.0), Color32::WHITE, col_w - 34.0).size().y).fold(0.0, f32::max);
     ui.columns(3, |cols| {
         for (i, (id, _, name, blurb, color)) in HOUSES.iter().enumerate() {
             let ui = &mut cols[i];
             Frame::new().fill(pal().bg_primary).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61))).corner_radius(8).inner_margin(16).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::hover());
-                ui.painter().circle_filled(r.center(), 30.0, *color);
-                crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Gem, egui::Rect::from_center_size(r.center(), vec2(28.0, 28.0)), Color32::WHITE);
+                ui.painter().circle_filled(r.center(), 32.0, *color);
+                crate::ui::icons::draw(ui.painter(), crate::ui::icons::Icon::Gem, egui::Rect::from_center_size(r.center(), vec2(32.0, 32.0)), Color32::WHITE);
+                ui.add_space(12.0);
+                let (t, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+                ui.painter().text(t.center(), Align2::CENTER_CENTER, *name, semi(20.0), pal().header_primary);
                 ui.add_space(8.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(RichText::new(*name).font(semi(18.0)).color(pal().header_primary));
-                });
-                ui.label(RichText::new(*blurb).font(reg(13.0)).color(pal().header_secondary));
-                ui.add_space(8.0);
+                let (t, _) = ui.allocate_exact_size(vec2(ui.available_width(), blurb_h), Sense::hover());
+                let mut job = egui::text::LayoutJob::simple(blurb.to_string(), reg(14.0), pal().header_secondary, t.width());
+                job.halign = Align::Center;
+                let g = ui.fonts_mut(|f| f.layout_job(job));
+                ui.painter().galley(pos2(t.center().x, t.top()), g, pal().header_secondary);
+                ui.add_space(16.0);
                 if current == Some(*id) {
-                    ui.label(RichText::new("Your house").font(semi(14.0)).color(*color));
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, "Your house", semi(16.0), *color);
                 } else {
                     let r = crate::ui::button(ui, "Join", *color, ui.available_width());
                     super::mark(ui, &format!("house:{name}"), r.rect);

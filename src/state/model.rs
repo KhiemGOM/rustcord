@@ -78,11 +78,6 @@ impl User {
         self.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=96&passthrough=true", crate::api::cdn()))
     }
 
-    /// The still of a nameplate, 448x84 with its own fade on the left.
-    pub fn nameplate_url(&self) -> Option<String> {
-        self.nameplate.as_ref().map(|a| format!("{}/assets/collectibles/{a}static.png", crate::api::cdn()))
-    }
-
     pub fn display(&self) -> &str {
         self.global_name.as_deref().unwrap_or(&self.username)
     }

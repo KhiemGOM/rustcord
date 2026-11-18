@@ -234,11 +234,11 @@ fn dims(kind: Kind) -> (f32, f32, usize) {
     }
 }
 
-fn tile_art(ui: &Ui, r: Rect, it: &Item, locked: bool) {
+fn tile_art(ui: &Ui, r: Rect, it: &Item, locked: bool, hot: bool, picked: Option<f64>) {
     let p = ui.painter().with_clip_rect(r);
     match it.kind {
-        Kind::Decoration => text::image(&p, &cosmo::deco(&it.asset, 128), Rect::from_center_size(r.center(), vec2(64.0, 64.0))),
-        Kind::Nameplate => text::image(&p, &cosmo::plate(&it.asset), r),
+        Kind::Decoration => text::image(&p, &cosmo::deco(&it.asset, 240), Rect::from_center_size(r.center(), vec2(64.0, 64.0))),
+        Kind::Nameplate => cosmo::paint_plate(ui, r.shrink(1.0), &it.asset, CornerRadius::same(7), Color32::WHITE, hot, picked),
         _ => text::image(&p, &it.thumb, r),
     }
     if locked {
@@ -269,6 +269,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
     let free: Vec<Item> = shop.iter().filter(|i| i.kind == kind && i.nitro && !owned_skus.contains(&i.sku.as_str())).cloned().collect();
     let buy: Vec<Item> = shop.iter().filter(|i| i.kind == kind && !i.nitro && !owned_skus.contains(&i.sku.as_str())).cloned().collect();
     let selected = sel.clone();
+    let picked = |ui: &Ui, it: &Item| (selected.as_ref() == Some(it)).then(|| cosmo::since(ui.ctx(), ("plate_picked", it.sku.clone())));
     let can_use = |i: &Item| owned_skus.contains(&i.sku.as_str()) || (i.nitro && nitro);
     let (mut apply, mut cancel, mut shop_open) = (false, false, false);
     let screen = ctx.content_rect();
@@ -316,7 +317,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
             for (i, it) in mine_items.iter().enumerate() {
                 let r = place(i + 2, y);
                 let resp = tile(ui, r, &it.sku, selected.as_ref() == Some(it));
-                tile_art(ui, r, it, false);
+                tile_art(ui, r, it, false, resp.hovered(), picked(ui, it));
                 mark(ui, &format!("collectible:{}", it.sku), r);
                 if resp.on_hover_text(if it.label.is_empty() { &it.name } else { &it.label }).clicked() {
                     chosen = Some(Some(it.clone()));
@@ -331,7 +332,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
                 for (i, it) in items.iter().enumerate() {
                     let r = place(i, y);
                     let resp = tile(ui, r, &it.sku, selected.as_ref() == Some(it));
-                    tile_art(ui, r, it, lock);
+                    tile_art(ui, r, it, lock, resp.hovered(), picked(ui, it));
                     mark(ui, &format!("collectible:{}", it.sku), r);
                     if resp.on_hover_text(if it.label.is_empty() { &it.name } else { &it.label }).clicked() {
                         chosen = Some(Some(it.clone()));
@@ -357,12 +358,18 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
         apply = footer_button(ui, ap, if ok { "Apply" } else { "Get in Shop" }, true, true, "pick:apply");
         ui.allocate_rect(Rect::from_min_size(area.min, vec2(w, max_h)), Sense::hover());
     });
+    let chosen_new = chosen.is_some();
     if let Dlg::Pick(_, s) = &mut ed.dlg
         && let Some(c) = chosen
     {
         *s = c;
     }
     ed.to_shop |= shop_open;
+    if let Some(it) = &selected
+        && (chosen_new || apply || cancel || m.should_close())
+    {
+        cosmo::forget(ctx, ("plate_picked", it.sku.clone()));
+    }
     if apply {
         let it = selected.clone();
         if it.as_ref().is_none_or(&can_use) {
@@ -399,7 +406,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
             let av = Rect::from_center_size(r.center(), vec2(d, d));
             avatar(ui, av, &user.avatar_url());
             if let Some(it) = it {
-                text::image(ui.painter(), &cosmo::deco(&it.asset, 256), Rect::from_center_size(av.center(), av.size() * 1.2));
+                text::image(ui.painter(), &cosmo::deco(&it.asset, 240), Rect::from_center_size(av.center(), av.size() * 1.2));
             }
         }
         Kind::Nameplate => {
@@ -410,7 +417,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
                 let rr = Rect::from_min_size(pos2(r.left() + 8.0, top + i as f32 * rh), vec2(r.width() - 16.0, rh - 4.0));
                 if i == rows / 2 {
                     if let Some(it) = it {
-                        text::image(&ui.painter().with_clip_rect(rr), &cosmo::plate(&it.asset), rr);
+                        cosmo::paint_plate(ui, rr, &it.asset, CornerRadius::ZERO, Color32::WHITE, ui.rect_contains_pointer(rr), Some(cosmo::since(ui.ctx(), ("plate_picked", it.sku.clone()))));
                     }
                     avatar(ui, Rect::from_center_size(pos2(rr.left() + 24.0, rr.center().y), vec2(32.0, 32.0)), &user.avatar_url());
                     ui.painter().text(pos2(rr.left() + 48.0, rr.center().y), Align2::LEFT_CENTER, &name, medium(16.0), Color32::WHITE);
@@ -551,6 +558,17 @@ fn banner_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     }
 }
 
+const TAG_LIST: f32 = 220.0;
+const TAG_CHROME: f32 = 72.0;
+
+fn tag_place(anchor: Rect, screen: Rect) -> (bool, f32) {
+    let below = screen.bottom() - anchor.bottom() - 6.0;
+    let above = anchor.top() - screen.top() - 6.0;
+    let up = below < TAG_LIST + TAG_CHROME && above > below;
+    let room = if up { above } else { below };
+    (up, (room - TAG_CHROME).clamp(88.0, TAG_LIST))
+}
+
 fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let ids: Vec<Id> = app.store.guild_order.iter().copied().filter(|g| app.store.guilds.get(g).is_some_and(|g| g.features.iter().any(|f| f == "GUILD_TAGS"))).collect();
     for g in &ids {
@@ -571,13 +589,15 @@ fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         .filter(|(_, n, t, _)| q.is_empty() || n.to_lowercase().contains(&q) || t.to_lowercase().contains(&q))
         .collect();
     let mut pick: Option<Option<Id>> = None;
-    let area = egui::Area::new("profed_tag_menu".into()).order(egui::Order::Tooltip).fixed_pos(ed.anchor.left_bottom() + vec2(-4.0, 6.0)).show(ctx, |ui| {
+    let (up, list_h) = tag_place(ed.anchor, ctx.content_rect());
+    let (pos, pivot) = if up { (ed.anchor.left_top() + vec2(-4.0, -6.0), Align2::LEFT_BOTTOM) } else { (ed.anchor.left_bottom() + vec2(-4.0, 6.0), Align2::LEFT_TOP) };
+    let area = egui::Area::new("profed_tag_menu".into()).order(egui::Order::Tooltip).fixed_pos(pos).pivot(pivot).show(ctx, |ui| {
         Frame::popup(ui.style()).fill(pal().bg_floating).corner_radius(8).stroke(Stroke::new(1.0, faint(41))).show(ui, |ui| {
             ui.set_width(320.0);
             let r = ui.add(egui::TextEdit::singleline(&mut ed.tag_q).hint_text("Search").desired_width(f32::INFINITY).font(field_font(ui.ctx(), 16.0)));
             mark(ui, "tag:search", r.rect);
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
                 if resp.hovered() {
                     ui.painter().rect_filled(r, CornerRadius::same(4), faint(31));
@@ -621,5 +641,31 @@ fn tag_menu(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         ed.tag_q.clear();
     } else if area.response.clicked_elsewhere() && !ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| ed.anchor.contains(p)) {
         ed.menu = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_menu_opens_downward_when_it_fits() {
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0));
+        let anchor = Rect::from_min_size(pos2(400.0, 200.0), vec2(80.0, 24.0));
+        assert_eq!(tag_place(anchor, screen), (false, TAG_LIST));
+    }
+
+    #[test]
+    fn tag_menu_flips_above_and_shrinks_to_the_room_it_has() {
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 500.0));
+        let low = Rect::from_min_size(pos2(400.0, 400.0), vec2(80.0, 24.0));
+        let (up, h) = tag_place(low, screen);
+        assert!(up);
+        assert_eq!(h, TAG_LIST);
+        let tight = Rect::from_min_size(pos2(400.0, 180.0), vec2(80.0, 24.0));
+        let short = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 300.0));
+        let (up, h) = tag_place(tight, short);
+        assert!(up);
+        assert_eq!(h, 174.0 - TAG_CHROME);
     }
 }

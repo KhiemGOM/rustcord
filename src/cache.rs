@@ -18,6 +18,7 @@ pub struct UiState {
     // the profile card beside one-on-one dms
     pub hide_dm_profile: bool,
     pub open_folders: Set<Id>,
+    pub voice_open: Set<Id>,
     // new keys: beta 2 saved its 240 defaults whether or not anyone dragged
     #[serde(rename = "channels_w")]
     pub side_w: f32,

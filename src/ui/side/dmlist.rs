@@ -230,7 +230,17 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         pal().text_muted
     };
     let mentions = if muted { 0 } else { store.mentions(c.id) };
-    let right = if mentions > 0 { inner.right() - 30.0 } else { inner.right() - 8.0 };
+    let them = person.map(|u| u.id);
+    let mark = if hovered || mentions > 0 || wave_here(store, c) {
+        None
+    } else if them.is_some_and(|u| store.relationships.get(&u) == Some(&crate::state::BLOCKED)) {
+        Some(Icon::Deny)
+    } else if them.is_some_and(|u| store.ignored.contains(&u)) {
+        Some(Icon::EyeOff)
+    } else {
+        store.pinned.contains(&c.id).then_some(Icon::Pin)
+    };
+    let right = if mentions > 0 { inner.right() - 30.0 } else if mark.is_some() { inner.right() - 28.0 } else { inner.right() - 8.0 };
     // discord keeps a styled name's font when it's unread; a plain one goes semibold
     let style = name_font(person.map_or(0, |u| u.font), 16.0);
     let font = if unread && style == medium(16.0) { semi(16.0) } else { style };
@@ -284,6 +294,10 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     } else if mentions > 0 {
         badge(ui, pos2(inner.right() - 8.0, row.center().y), mentions, None);
+    } else if let Some(icon) = mark {
+        let r = Rect::from_center_size(pos2(inner.right() - 16.0, row.center().y), vec2(16.0, 16.0));
+        icons::draw(ui.painter(), icon, r, col);
+        crate::ui::settings::mark(ui, &format!("dm_mark:{}", c.id), r);
     }
     (resp, act)
 }

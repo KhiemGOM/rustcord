@@ -19,7 +19,11 @@ pub fn url(file: &str) -> String {
 
 /// Draws it once it has arrived. False until then, so a caller can keep its stand-in.
 pub fn draw(p: &Painter, file: &str, rect: Rect) -> bool {
-    let poll = egui::Image::new(crate::gif::uri(p.ctx(), &url(file), p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
+    draw_url(p, &url(file), rect)
+}
+
+pub fn draw_url(p: &Painter, url: &str, rect: Rect) -> bool {
+    let poll = egui::Image::new(crate::gif::uri(p.ctx(), url, p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
     let Ok(egui::load::TexturePoll::Ready { texture }) = poll else { return false };
     p.image(texture.id, rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
     true

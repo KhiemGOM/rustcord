@@ -110,10 +110,10 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                         ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
                     }
                     // a nameplate sits behind the row, flush right at the row's height
-                    if let Some(url) = store.user(*uid).and_then(|u| u.nameplate_url()) {
+                    if let Some(asset) = store.user(*uid).and_then(|u| u.nameplate.as_deref()) {
                         let plate = Rect::from_min_max(pos2((inner.right() - inner.height() * 448.0 / 84.0).max(inner.left()), inner.top()), inner.max);
                         let tint = if offline && !hovered { egui::Color32::from_white_alpha(77) } else { egui::Color32::WHITE };
-                        egui::Image::from_uri(url).corner_radius(CornerRadius::same(8)).tint(tint).show_loading_spinner(false).paint_at(ui, plate);
+                        super::cosmo::paint_plate(ui, plate, asset, CornerRadius::same(8), tint, hovered, None);
                     }
                     // discord fades the whole offline row to .3, except your own
                     let fade = if offline && !hovered && *uid != store.me { 0.3 } else { 1.0 };

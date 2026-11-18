@@ -1,7 +1,7 @@
 //! The shop's profile cosmetics: what each avatar decoration, profile effect, profile frame and
 //! nameplate is, where its pictures live, and how an effect's layers play over a profile.
 
-use egui::{Rect, Ui, pos2, vec2};
+use egui::{Color32, CornerRadius, Rect, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::App;
@@ -91,7 +91,7 @@ impl Item {
 
     pub fn still(&self) -> String {
         match self.kind {
-            Kind::Decoration => deco(&self.asset, 96),
+            Kind::Decoration => deco(&self.asset, 240),
             Kind::Nameplate => plate(&self.asset),
             Kind::Effect | Kind::Frame => self.thumb.clone(),
         }
@@ -104,6 +104,32 @@ pub fn deco(asset: &str, size: u32) -> String {
 
 pub fn plate(asset: &str) -> String {
     format!("{}/assets/collectibles/{asset}static.png", crate::api::cdn())
+}
+
+fn plate_anim(asset: &str) -> Option<String> {
+    let sku = asset.trim_end_matches('/').rsplit('/').next().filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))?;
+    Some(format!("{}/media/v1/collectibles-shop/{sku}/animated", crate::api::cdn()))
+}
+
+/// A nameplate in `r`: its still, and over it the animated one while the window is focused and
+/// motion isn't reduced and it is `hot` (hovered, looping) or picked (once, from `picked`).
+pub fn paint_plate(ui: &Ui, r: Rect, asset: &str, radius: CornerRadius, tint: Color32, hot: bool, picked: Option<f64>) {
+    let ctx = ui.ctx();
+    let draw = |u: String| egui::Image::from_uri(u).corner_radius(radius).tint(tint).show_loading_spinner(false).paint_at(ui, r);
+    draw(plate(asset));
+    if !(hot || picked.is_some()) || crate::theme::reduced_motion() || !ctx.input(|i| i.focused) {
+        return;
+    }
+    let Some(url) = plate_anim(asset) else { return };
+    if hot {
+        draw(crate::gif::uri(ctx, &url, true));
+        return;
+    }
+    let ms = ((ctx.input(|i| i.time) - picked.unwrap_or_default()) * 1000.0).max(0.0) as u128;
+    draw(crate::gif::uri_at(ctx, &url, ms, true));
+    if let Some(wait) = crate::gif::wait_at(ctx, &url, ms, true) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(wait as u64));
+    }
 }
 
 /// The products in a purchases list, or in the shop's categories.
@@ -133,12 +159,19 @@ pub fn items(v: &Value) -> Vec<Item> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Layer, schedule};
+    use super::{Layer, plate_anim, schedule};
 
     fn layer(looped: bool, duration: u64, start: u64, delay: u64) -> Layer {
         Layer { src: "x.png".into(), looped, duration, start, delay, ..Default::default() }
     }
     const STILL: fn(u128) -> Option<u128> = |_| None;
+
+    #[test]
+    fn a_nameplate_animation_is_asked_for_by_the_sku_its_folder_ends_in() {
+        let url = plate_anim("nameplates/night_flight/1551708828741931039/").unwrap();
+        assert!(url.ends_with("/media/v1/collectibles-shop/1551708828741931039/animated"));
+        assert!(plate_anim("nameplates/night_flight/").is_none());
+    }
 
     #[test]
     fn a_still_frame_that_loops_without_a_gap_never_wakes() {

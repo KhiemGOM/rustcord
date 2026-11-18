@@ -36,7 +36,8 @@ impl App {
                         self.keyed.insert(k, Some(Err(e)));
                         return;
                     }
-                    Tag::Feed | Tag::Favs | Tag::AppIcons(_) | Tag::Product(_) | Tag::Saved(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
+                    Tag::Saved(k) => return titlebar::saved(self, k, &serde_json::Value::Null),
+                    Tag::Feed | Tag::Favs | Tag::AppIcons(_) | Tag::Games(_) | Tag::Product(_) | Tag::Note(_) | Tag::Outbox(_) | Tag::GuildProfile(_) | Tag::ModView(_) => return,
                     Tag::Boosts(g, k) => {
                         if let Some(i) = self.boost_info.get_mut(&g) {
                             i.loaded |= 1 << k;
@@ -191,6 +192,12 @@ impl App {
                     self.store.app_icons.insert(crate::state::sid(&a["id"]), a["icon"].as_str().map(str::to_string));
                     self.app_covers.insert(crate::state::sid(&a["id"]), a["cover_image"].as_str().map(str::to_string));
                 }
+            }
+            Tag::Games(asked) => {
+                for g in asked {
+                    self.game_info.insert(g, None);
+                }
+                self.game_info.extend(profed::board::parse_games(&v).into_iter().map(|(id, i)| (id, Some(i))));
             }
             Tag::InvitePreview(code) => self.invite_card.got(&code, &v),
             Tag::ChatInvite(code) => self.chat_invites.got(&code, &v),

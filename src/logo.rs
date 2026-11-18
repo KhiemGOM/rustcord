@@ -5,6 +5,13 @@ use resvg::{tiny_skia, usvg};
 
 pub const SVG: &str = include_str!("../assets/rustcord.svg");
 
+/// The logo on a square, for the tiles that Discord draws as rounded squares: the crab at the
+/// size it has in the circle, on the same orange to the corners.
+pub fn tile() -> &'static str {
+    static TILE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| SVG.replacen(r##"<circle cx="128" cy="128" r="128" fill="#f26b1d"/>"##, r##"<rect width="256" height="256" fill="#f26b1d"/>"##, 1));
+    &TILE
+}
+
 /// The logo with `over` drawn on top, its own shapes cut away under a `hole` (x, y, r) so a
 /// status dot stays readable on the orange.
 pub fn with(over: &str, hole: Option<(f32, f32, f32)>) -> String {

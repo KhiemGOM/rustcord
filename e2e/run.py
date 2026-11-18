@@ -83,6 +83,7 @@ import tidy
 import p4c
 import p5
 import r1
+import rv
 import mdtext
 import dmopen
 import regressions
@@ -644,6 +645,7 @@ def main():
         **r1.checks({"cold": cold, "warm": warm}, reqs),
         **mdtext.checks({"cold": cold, "warm": warm}),
         **dmopen.checks({"cold": cold, "warm": warm}, reqs),
+        **rv.checks({"cold": cold, "warm": warm}, reqs),
         **regressions.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
         **auth.checks(signin, reqs),

@@ -1,4 +1,4 @@
-use egui::{Align, Align2, Color32, Key, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, Align2, Color32, CornerRadius, Key, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::{Look, KEYS, act, card, confirm, end, faint, fetch, get, input, lead, mark, pill, put, refetch, remote, section, settle, small, solid};
@@ -88,44 +88,96 @@ fn redeem(app: &mut App, ui: &mut Ui) {
     }
 }
 
+fn tier_icons(v: &Value) -> Vec<Option<String>> {
+    let tiers = v["tiers"].as_array().cloned().unwrap_or_default();
+    (0..TIERS.len())
+        .map(|i| tiers.get(i).and_then(|t| t["complex_icon_static_url"].as_str().or(t["simple_icon_url"].as_str())).map(str::to_string))
+        .collect()
+}
+
+fn tier_art(p: &egui::Painter, url: Option<&String>, rect: Rect, fallback: Color32) {
+    if url.is_some_and(|u| crate::ui::webart::draw_url(p, u, rect)) {
+        return;
+    }
+    icons::draw(p, Icon::Gift, rect.shrink(rect.width() * 0.1), fallback);
+}
+
 fn badge(app: &mut App, ui: &mut Ui) {
-    let count = match remote(app, "badge", "/users/%40me/badges/17") {
-        Some(Ok(v)) => gifted(v),
-        _ => 0,
+    let (count, art) = match remote(app, "badge", "/users/%40me/badges/17") {
+        Some(Ok(v)) => (gifted(v), tier_icons(v)),
+        _ => (0, vec![None; TIERS.len()]),
     };
-    let top = TIERS.iter().rev().find(|t| count >= t.1);
-    let max = TIERS.iter().find(|t| count < t.1).map_or(20, |t| t.1);
+    let at = TIERS.iter().rposition(|t| count >= t.1);
+    let next = TIERS.iter().position(|t| count < t.1);
     lead(ui);
     let w = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(w, 340.0), Sense::hover());
-    ui.painter().rect_filled(r, 12, pal().bg_secondary);
+    let pad = 32.0;
+    let inner = w - 2.0 * pad;
+    let cols = (((inner + 8.0) / 104.0) as usize).clamp(1, TIERS.len());
+    let rows = TIERS.len().div_ceil(cols);
+    let grid_h = rows as f32 * 106.0 + (rows - 1) as f32 * 8.0;
+    let top_h = if count > 0 { 80.0 + 16.0 + 1.0 + 16.0 } else { 0.0 };
+    let body_h = pad + top_h + grid_h + 16.0 + 16.0 + pad;
+    let (r, _) = ui.allocate_exact_size(vec2(w, body_h + 88.0), Sense::hover());
+    let body = Rect::from_min_size(r.min, vec2(w, body_h));
+    let foot = Rect::from_min_max(pos2(r.left(), body.bottom()), r.max);
     let p = ui.painter().clone();
-    let icon = Rect::from_center_size(pos2(r.left() + 64.0, r.top() + 64.0), vec2(56.0, 56.0));
-    icons::draw(&p, Icon::Gift, icon, top.map_or(pal().text_muted, |t| t.2));
-    let title = match top {
-        Some(t) => format!("You unlocked {}!", t.0),
-        None => "Send a gift to unlock Patron!".to_string(),
-    };
-    p.text(pos2(r.left() + 112.0, r.top() + 44.0), Align2::LEFT_CENTER, title, medium(16.0), pal().header_primary);
-    let bar = Rect::from_min_size(pos2(r.left() + 112.0, r.top() + 62.0), vec2(w - 144.0, 8.0));
-    p.rect_filled(bar, 4, faint(31));
-    let frac = (count as f32 / max as f32).clamp(0.0, 1.0);
-    p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, 8.0)), 4, pal().blurple);
-    p.text(pos2(bar.right(), bar.bottom() + 12.0), Align2::RIGHT_CENTER, format!("{count}/{max} gifts"), reg(12.0), pal().header_secondary);
-    p.hline((r.left() + 32.0)..=(r.right() - 32.0), r.top() + 112.0, Stroke::new(1.0, faint(51)));
-    let col = (w - 64.0) / 6.0;
-    for (i, (name, need, tint)) in TIERS.iter().enumerate() {
-        let tile = Rect::from_min_size(pos2(r.left() + 32.0 + col * i as f32, r.top() + 132.0), vec2(col, 108.0));
-        if top.is_some_and(|t| t.0 == *name) {
-            p.rect_filled(tile.shrink2(vec2(4.0, 0.0)), 8, faint(31));
+    p.rect_filled(body, CornerRadius { nw: 12, ne: 12, sw: 0, se: 0 }, faint(20));
+    p.rect_filled(foot, CornerRadius { nw: 0, ne: 0, sw: 12, se: 12 }, pal().bg_secondary);
+    let mut y = body.top() + pad;
+    if count > 0 {
+        let row = Rect::from_min_size(pos2(body.left() + pad, y), vec2(inner, 80.0));
+        if let Some(i) = at {
+            tier_art(&p, art[i].as_ref(), Rect::from_center_size(pos2(row.left() + 40.0, row.center().y), vec2(48.0, 48.0)), TIERS[i].2);
         }
-        let lit = count >= *need;
-        icons::draw(&p, Icon::Gift, Rect::from_center_size(tile.center_top() + vec2(0.0, 32.0), vec2(40.0, 40.0)), if lit { *tint } else { pal().text_muted });
-        p.text(tile.center_top() + vec2(0.0, 68.0), Align2::CENTER_CENTER, *name, semi(14.0), pal().header_primary);
-        p.text(tile.center_top() + vec2(0.0, 88.0), Align2::CENTER_CENTER, format!("Gifted {need}x"), reg(12.0), pal().header_secondary);
+        let text_x = row.left() + 88.0;
+        let right = if next.is_some() { row.right() - 88.0 } else { row.right() };
+        let title = match (at, next) {
+            (_, Some(n)) => {
+                let more = TIERS[n].1 - count;
+                format!("Send {more} more gift{} to unlock {}!", if more == 1 { "" } else { "s" }, TIERS[n].0)
+            }
+            (Some(i), None) => format!("You unlocked {}!", TIERS[i].0),
+            _ => String::new(),
+        };
+        p.text(pos2(text_x, row.center().y - 22.0), Align2::LEFT_CENTER, title, medium(16.0), pal().header_primary);
+        let bar = Rect::from_min_size(pos2(text_x, row.center().y - 3.0), vec2(right - text_x, 6.0));
+        p.rect_filled(bar, 3, faint(51));
+        let max = next.map_or(TIERS[TIERS.len() - 1].1, |n| TIERS[n].1);
+        p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * (count as f32 / max as f32).clamp(0.0, 1.0), 6.0)), 3, pal().blurple);
+        p.text(pos2(bar.right(), bar.bottom() + 14.0), Align2::RIGHT_CENTER, format!("{}/{max} gifts", count.min(max)), reg(12.0), pal().text_muted);
+        if let Some(n) = next {
+            tier_art(&p, art[n].as_ref(), Rect::from_center_size(pos2(row.right() - 40.0, row.center().y), vec2(48.0, 48.0)), TIERS[n].2);
+        }
+        y = row.bottom() + 16.0;
+        p.hline(body.left() + pad..=body.right() - pad, y, Stroke::new(1.0, faint(51)));
+        y += 17.0;
     }
-    p.text(pos2(r.center().x, r.top() + 262.0), Align2::CENTER_CENTER, "Your badge progresses as you gift. Exceptions include when a gift is refunded or when fraud is detected.", reg(12.0), pal().header_secondary);
-    if solid(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 304.0), vec2(140.0, 40.0)), "Send a Gift", pal().blurple, Color32::WHITE) {
+    for (i, (name, need, tint)) in TIERS.iter().enumerate() {
+        let (row, col) = (i / cols, i % cols);
+        let in_row = (TIERS.len() - row * cols).min(cols);
+        let x0 = body.center().x - (in_row as f32 * 104.0 - 8.0) / 2.0;
+        let tile = Rect::from_min_size(pos2(x0 + col as f32 * 104.0, y + row as f32 * 114.0), vec2(96.0, 106.0));
+        if at == Some(i) {
+            p.rect(tile, 12, faint(20), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+        }
+        let ic = Rect::from_center_size(pos2(tile.center().x, tile.top() + 8.0 + 22.0), vec2(44.0, 44.0));
+        tier_art(&p, art[i].as_ref(), ic, if count >= *need { *tint } else { pal().text_muted });
+        p.text(pos2(tile.center().x, tile.top() + 8.0 + 44.0 + 8.0 + 9.0), Align2::CENTER_CENTER, *name, semi(14.0), pal().text_muted);
+        p.text(pos2(tile.center().x, tile.top() + 8.0 + 44.0 + 8.0 + 18.0 + 2.0 + 8.0), Align2::CENTER_CENTER, format!("Gifted {need}x"), reg(12.0), pal().text_muted);
+    }
+    y += grid_h + 16.0;
+    p.text(pos2(body.center().x, y + 8.0), Align2::CENTER_CENTER, "Your badge progresses as you gift. Exceptions include when a gift is refunded or when fraud is detected.", reg(12.0), pal().text_muted);
+    let btn = Rect::from_min_size(pos2(foot.right() - 24.0 - 132.0, foot.top() + 24.0), vec2(132.0, 40.0));
+    let resp = ui.interact(btn, egui::Id::new("gift_badge_send"), Sense::click());
+    p.rect_filled(btn, 8, if resp.hovered() { pal().blurple.gamma_multiply(0.85) } else { pal().blurple });
+    icons::draw(&p, Icon::Gift, Rect::from_center_size(pos2(btn.left() + 26.0, btn.center().y), vec2(20.0, 20.0)), Color32::WHITE);
+    p.text(pos2(btn.left() + 44.0, btn.center().y), Align2::LEFT_CENTER, "Send a Gift", medium(16.0), Color32::WHITE);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    mark(ui, "billing:Send a Gift", btn);
+    if resp.clicked() {
         app.open_buy(crate::ui::buy::What::NitroGift);
     }
     end(ui, 24.0);

@@ -40,7 +40,7 @@ def checks(runs, reqs, data):
         "profed: the banner pencil opens its menu, and Change Profile Effect opens that picker": has("profed_banner_menu", "profed_banner_menu_opens_effects"),
         "profed: the server tag menu lists tags and picks one": has("profed_tag_menu", "profed_tag_picked"),
         "profed: pronouns and bio edit on the card, and Add custom status opens the status dialog": has("profed_card_edits", "profed_status_opens"),
-        "profed: widgets are added from their dialogs and Browse All Widgets opens": has("profed_widget_added", "profed_widget_games_added", "profed_browse_widgets") and fetched("/widget-configs/featured") and fetched("/users/@me/widgets/suggested-games"),
+        "profed: widgets are added from their dialogs and Browse All Widgets opens": has("profed_widget_added", "profed_widget_games_added", "profed_browse_widgets", "profed_widget_game_names") and fetched("/widget-configs/featured") and fetched("/users/@me/widgets/suggested-games"),
         "profed: the Board, Activity and Wishlist tabs switch": has("profed_tabs"),
         "profed: changes raise the save bar and Save writes the profile, account and widgets in discord's bodies": has("profed_save_bar", "profed_saved") and bool(widgets)
             and "hello from the editor" in last.get("bio", "") and last.get("pronouns") == "they/them" and last.get("theme_colors", [None])[0] == 0x00B89A
@@ -48,7 +48,7 @@ def checks(runs, reqs, data):
             and acct.get("avatar_decoration_sku_id") == "7001" and acct.get("nameplate_sku_id") == "7002" and acct.get("avatar_id") == "2"
             and acct.get("display_name_font_id") == 7 and acct.get("display_name_effect_id") == 2 and len(acct.get("display_name_colors", [])) == 2 and bool(acct.get("primary_guild_id"))
             and widgets and {w["data"]["type"] for w in widgets[-1]["widgets"]} == {"favorite_games", "played_games"},
-        "profed: Hide Styles collapses the panel": has("profed_hide_styles"),
+        "profed: Hide Styles collapses the panel and Show Styles brings it back": has("profed_hide_styles", "profed_show_styles"),
         "profed: a server's profile opens from the guild, and Save writes /guilds/{id}/profile/@me": has("profed_server_profile", "profed_server_saved")
             and any(b.get("pronouns") == "ze/zir" for b in body(reqs, "PATCH", "/api/v9/guilds/1001/profile/@me")),
         "profile: someone's effect and frame resolve from /collectibles-products and play on their popout": has("profile_effect_resolved", "profile_effect_plays_on_profile") and fetched("/collectibles-products/7003"),

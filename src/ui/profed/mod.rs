@@ -274,15 +274,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let panel = Rect::from_min_size(area.min, vec2(PANEL_W.min(area.width() * 0.5), area.height()));
             panel_ui(app, &mut ed, ui, panel, &user);
             x = panel.right();
-        } else {
-            let b = Rect::from_min_size(pos2(area.left(), area.top() + 16.0), vec2(36.0, 36.0));
-            let resp = ui.interact(b, ui.id().with("show_styles"), Sense::click());
-            ui.painter().rect_filled(b, CornerRadius { nw: 0, ne: 8, sw: 0, se: 8 }, faint(41));
-            icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), pal().header_primary);
-            ed.hide &= !resp.on_hover_text("Show Styles").clicked();
         }
         let region = Rect::from_min_max(pos2(x, area.top()), area.max);
         region_ui(app, &mut ed, ui, region, &user);
+        if ed.hide {
+            let b = Rect::from_min_size(pos2(area.left(), area.top() + 16.0), vec2(36.0, 36.0));
+            let resp = ui.interact(b, ui.id().with("show_styles"), Sense::click());
+            ui.painter().rect_filled(b, CornerRadius { nw: 0, ne: 8, sw: 0, se: 8 }, faint(if resp.hovered() { 61 } else { 41 }));
+            icons::draw(ui.painter(), Icon::ChevronRight, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), pal().header_primary);
+            mark(ui, "show_styles", b);
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            ed.hide &= !resp.on_hover_text("Show Styles").clicked();
+        }
         let c = Rect::from_min_size(pos2(area.right() - 56.0, area.top() + 12.0), vec2(32.0, 32.0));
         let resp = ui.interact(c, ui.id().with("profed_close"), Sense::click());
         ui.painter().circle_filled(c.center(), 16.0, faint(if resp.hovered() { 61 } else { 31 }));
@@ -429,7 +434,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     mark(ui, "tile:nameplate", r);
     let d = &ed.draft;
     match &d.nameplate {
-        Some(n) => text::image(&ui.painter().with_clip_rect(r.shrink(1.0)), &cosmo::plate(&n.asset), r),
+        Some(n) => cosmo::paint_plate(ui, r.shrink(1.0), &n.asset, CornerRadius::same(7), Color32::WHITE, resp.hovered(), None),
         None => {
             let av = Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0));
             ui.painter().circle_filled(av.center(), 16.0, faint(61));
@@ -474,7 +479,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     ui.painter().circle_stroke(c.center(), c.width() / 2.0, Stroke::new(1.0, faint(61)));
     if let Some(dec) = &d.decoration {
         avatar(ui, c, &user.avatar_url());
-        text::image(ui.painter(), &cosmo::deco(&dec.asset, 128), Rect::from_center_size(c.center(), c.size() * 1.2));
+        text::image(ui.painter(), &cosmo::deco(&dec.asset, 240), Rect::from_center_size(c.center(), c.size() * 1.2));
     } else {
         ui.painter().circle_filled(c.center(), c.width() / 2.0, faint(31));
         icons::draw(ui.painter(), Icon::Discord, c.shrink(16.0), faint(100));
@@ -603,8 +608,9 @@ fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &c
         return;
     }
     mark(ui, "profed_region", region);
-    let pad = PAD.min(region.width() * 0.08);
-    let inner = region.shrink2(vec2(pad, pad));
+    let content = if ed.hide { Rect::from_center_size(region.center(), vec2(REGION_W.min(region.width()), region.height())) } else { region };
+    let pad = PAD.min(content.width() * 0.08);
+    let inner = content.shrink2(vec2(pad, pad));
     let card_w = CARD_W.min(inner.width());
     let side_by_side = !one_column(ui.ctx()) && inner.width() >= CARD_W + 32.0 + 2.0 * board::CELL_MIN + 16.0;
     let mut scroll = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(region.left(), region.top() + pad), pos2(region.right(), region.bottom() - 8.0))));

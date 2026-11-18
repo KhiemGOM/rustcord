@@ -6,7 +6,7 @@ use crate::net::Tag;
 use crate::state::{Channel, Id, MANAGE_GUILD, sid};
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
-use crate::ui::{Confirm, menu_item, settings};
+use crate::ui::{Confirm, option, settings};
 
 const HOURS: [(u64, &str); 4] = [(1, "1 Hour"), (6, "6 Hours"), (12, "12 Hours"), (24, "24 Hours")];
 
@@ -129,7 +129,7 @@ pub fn pause_modal(app: &mut App, ctx: &egui::Context) {
         let w = ui.available_width();
         settings::dropdown(ui, w, None, shown, |ui| {
             for (h, l) in HOURS {
-                if menu_item(ui, None, l, false) {
+                if option(ui, p.2 == h, l).clicked() {
                     p.2 = h;
                 }
             }
@@ -333,7 +333,7 @@ fn webhooks(app: &mut App, ui: &mut Ui, c: &Channel, hooks: &[Value]) {
                 let w = ui.available_width();
                 settings::dropdown(ui, w, None, &shown, |ui| {
                     for (cid, n) in &chans {
-                        if menu_item(ui, None, &format!("#{n}"), false) {
+                        if option(ui, e.chan == *cid, &format!("#{n}")).clicked() {
                             e.chan = *cid;
                         }
                     }

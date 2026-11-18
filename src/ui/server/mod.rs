@@ -6,7 +6,7 @@ mod access;
 mod community;
 mod discovery;
 mod engage;
-mod form;
+pub(super) mod form;
 mod perks;
 mod profile;
 mod sound;

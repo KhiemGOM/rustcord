@@ -163,6 +163,7 @@ impl Run {
                 self.next(500);
             }
             1916 => {
+                self.shot(ctx, "select_open.png");
                 self.queue.push_back(vec![Event::Text("1".into())]);
                 self.next(400);
             }

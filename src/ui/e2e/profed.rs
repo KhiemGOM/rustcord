@@ -95,6 +95,10 @@ impl Run {
                 if at("profed_backdrop").is_none() {
                     return;
                 }
+                if !app.game_info.get("9001").is_some_and(|i| i.as_ref().is_some_and(|i| i.name == "Mock Racers")) {
+                    return;
+                }
+                self.mark("profed_widget_game_names");
                 self.mark("profed_preview_art");
                 self.shot(ctx, "profed.png");
                 self.next(500);
@@ -396,12 +400,12 @@ impl Run {
                     self.mark("profed_hide_styles");
                     self.shot(ctx, "profed_hidden.png");
                 }
-                if let Some(e) = &mut app.profed {
-                    e.hide = false;
-                }
-                self.next(200);
+                click(self, "show_styles");
             }
             3994 => {
+                if app.profed.as_ref().is_some_and(|e| !e.hide) {
+                    self.mark("profed_show_styles");
+                }
                 app.profed = None;
                 app.settings_page = None;
                 app.open_profile(101, 0, egui::pos2(300.0, 160.0));

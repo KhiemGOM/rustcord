@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::draft::{Game, Slot, Widget};
 use super::{Dlg, Editor, Tab, faint, round_icon};
-use crate::state::sid;
+use crate::state::{Id, Map, sid};
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
 use crate::ui::settings::{mark, remote};
@@ -25,11 +25,81 @@ fn applications(v: &Value) -> &[Value] {
     v["applications"].as_array().map(Vec::as_slice).unwrap_or_default()
 }
 
+/// `GET /users/@me/widgets/suggested-games`: two lists of game ids, played and wishlisted.
+fn suggested_ids(v: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for k in ["suggested_games", "suggested_wishlist_games"] {
+        for id in v[k].as_array().into_iter().flatten() {
+            if let Some(id) = id.as_str().map(str::to_string).or_else(|| id.as_u64().map(|n| n.to_string()))
+                && !out.contains(&id)
+            {
+                out.push(id);
+            }
+        }
+    }
+    out
+}
+
 fn featured_tiles(apps: &[Value]) -> [Option<&Value>; 2] {
     ["1346069614634864772", "1323482066758930452"].map(|id| apps.iter().find(|a| a["id"].as_str() == Some(id)))
 }
 
+#[derive(Clone)]
+pub struct Info {
+    pub name: String,
+    pub cover: Option<String>,
+}
+
+/// What `GET /games?game_ids=` says about each game: its name and where its cover is.
+pub fn parse_games(v: &Value) -> Vec<(String, Info)> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| {
+            let id = g["id"].as_str()?.to_string();
+            let cover = match (g["media"]["cover"]["type"].as_str(), g["media"]["cover"]["value"].as_str()) {
+                (Some("hash"), Some(h)) => Some(format!("{}/app-icons/{id}/{h}.png?size=256", crate::api::cdn())),
+                (Some("url"), Some(u)) => Some(u.to_string()),
+                _ => None,
+            };
+            Some((id, Info { name: g["name"].as_str().unwrap_or("").to_string(), cover }))
+        })
+        .collect()
+}
+
+pub fn want_games(app: &mut App, ids: &[String]) {
+    let mut want: Vec<String> = ids.iter().filter(|i| !i.is_empty() && !app.game_info.contains_key(*i)).cloned().collect();
+    want.sort_unstable();
+    want.dedup();
+    for chunk in want.chunks(20) {
+        for g in chunk {
+            app.game_info.insert(g.clone(), None);
+        }
+        let q: Vec<String> = chunk.iter().map(|g| format!("game_ids={g}")).collect();
+        app.rest("GET", format!("/games?{}", q.join("&")), None, crate::net::Tag::Games(chunk.to_vec()));
+    }
+}
+
+pub fn game_name<'a>(games: &'a Map<String, Option<Info>>, g: &'a Game) -> &'a str {
+    match games.get(&g.id) {
+        Some(Some(i)) if g.name.is_empty() => &i.name,
+        _ => &g.name,
+    }
+}
+
+pub fn cover_url(games: &Map<String, Option<Info>>, icons: &Map<Id, Option<String>>, id: &str, size: u32) -> Option<String> {
+    if let Some(Some(Info { cover: Some(c), .. })) = games.get(id) {
+        return Some(c.clone());
+    }
+    let a = id.parse::<u64>().ok()?;
+    let hash = icons.get(&a)?.as_ref()?;
+    Some(format!("{}/app-icons/{a}/{hash}.png?size={size}", crate::api::cdn()))
+}
+
 fn game_art(app: &App, id: &str) -> Option<String> {
+    if let Some(Some(Info { cover: Some(c), .. })) = app.game_info.get(id) {
+        return Some(c.clone());
+    }
     let a = id.parse::<u64>().ok()?;
     let hash = app.app_covers.get(&a).and_then(Option::as_ref).or_else(|| app.store.app_icons.get(&a)?.as_ref())?;
     Some(format!("{}/app-icons/{a}/{hash}.png?size=256", crate::api::cdn()))
@@ -202,11 +272,13 @@ pub fn game_ids(ws: &[Widget]) -> Vec<String> {
 }
 
 pub fn want_game_icons(app: &mut App, ws: &[Widget]) {
-    want_icons(app, &game_ids(ws));
+    let ids = game_ids(ws);
+    want_icons(app, &ids);
+    want_games(app, &ids);
 }
 
 /// A profile's widgets as cards: each with its title and the games' covers and names.
-pub fn paint_widgets(ui: &mut Ui, store: &crate::state::Store, r: Rect, ws: &[Widget], ink: Color32) -> f32 {
+pub fn paint_widgets(ui: &mut Ui, store: &crate::state::Store, games: &Map<String, Option<Info>>, r: Rect, ws: &[Widget], ink: Color32) -> f32 {
     let mut y = r.top();
     for w in ws {
         ui.painter().text(pos2(r.left(), y + 8.0), Align2::LEFT_CENTER, w.slot.title(), medium(12.0), ink.gamma_multiply(0.88));
@@ -215,12 +287,11 @@ pub fn paint_widgets(ui: &mut Ui, store: &crate::state::Store, r: Rect, ws: &[Wi
         for (i, g) in w.games.iter().enumerate() {
             let cr = Rect::from_min_size(pos2(r.left() + (i % per) as f32 * 64.0, y + (i / per) as f32 * 110.0), vec2(56.0, 75.0));
             ui.painter().rect_filled(cr, CornerRadius::same(8), faint(21));
-            let url = g.id.parse::<u64>().ok().and_then(|a| store.app_icons.get(&a).cloned().flatten().map(|h| format!("{}/app-icons/{a}/{h}.png?size=128", crate::api::cdn())));
-            if let Some(u) = url {
+            if let Some(u) = cover_url(games, &store.app_icons, &g.id, 128) {
                 text::image(&ui.painter().with_clip_rect(cr), &u, cr);
             }
             ui.painter().rect_stroke(cr, CornerRadius::same(8), Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
-            text::paint(ui.painter(), pos2(cr.left(), cr.bottom() + 10.0), Align2::LEFT_CENTER, &g.name, reg(12.0), ink, 56.0);
+            text::paint(ui.painter(), pos2(cr.left(), cr.bottom() + 10.0), Align2::LEFT_CENTER, game_name(games, g), reg(12.0), ink, 56.0);
             mark(ui, &format!("profile_game:{}", g.id), cr);
         }
         y += w.games.len().div_ceil(per) as f32 * 110.0 + 12.0;
@@ -249,6 +320,7 @@ fn board(app: &mut App, ed: &mut Editor, ui: &mut Ui, r: Rect) -> f32 {
         .chain(apps.iter().filter_map(|a| a["id"].as_str().map(str::to_string)))
         .chain(Slot::ALL.into_iter().flat_map(preview_games).map(|id| id.to_string())).collect();
     want_icons(app, &ids);
+    want_games(app, &game_ids(&ed.draft.widgets));
     let me = app.store.me;
     let idents = remote(app, "idents", &format!("/users/{me}/application-identities?with_profiles=true")).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
     let linked_ids: Vec<String> = idents.as_array().into_iter().flatten().filter_map(|i| i["application_id"].as_str().map(str::to_string)).collect();
@@ -324,7 +396,7 @@ fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot
     if n == 1 {
         match w.and_then(|w| w.games.first()) {
             Some(g) => {
-                text::paint(ui.painter(), pos2(left + cwid + 12.0, cell.top() + 36.0), Align2::LEFT_CENTER, &g.name, medium(14.0), Color32::WHITE, cell.width() - cwid - 36.0);
+                text::paint(ui.painter(), pos2(left + cwid + 12.0, cell.top() + 36.0), Align2::LEFT_CENTER, game_name(&app.game_info, g), medium(14.0), Color32::WHITE, cell.width() - cwid - 36.0);
             }
             None => {
                 for (k, bw) in [72.0f32, 114.0].into_iter().enumerate() {
@@ -336,7 +408,9 @@ fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot
     let label_y = cell.top() + 84.0 - 14.0;
     let label = if w.is_some() { format!("{} ({})", slot.title(), w.map_or(0, |w| w.games.len())) } else { slot.title().to_string() };
     ui.painter().text(pos2(cell.center().x, label_y + 18.0), Align2::CENTER_CENTER, label, medium(16.0), Color32::WHITE);
-    plus(ui, pos2(cell.center().x, cell.top() + 40.0), w.is_some());
+    if w.is_none() || resp.hovered() {
+        plus(ui, pos2(cell.center().x, cell.top() + 40.0), w.is_some());
+    }
     mark(ui, &format!("widget:{}", slot.wire()), cell);
     if resp.clicked() {
         let games = w.map(|w| w.games.clone()).unwrap_or_default();
@@ -377,9 +451,14 @@ fn frame() -> Frame {
 pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let sugg = remote(app, "suggested", SUGGESTED).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
     let Dlg::Widget(e) = &mut ed.dlg else { return };
-    let rows: Vec<(String, String)> = sugg.as_array().into_iter().flatten().map(|g| (g["game_id"].as_str().or(g["application_id"].as_str()).or(g["id"].as_str()).unwrap_or("").to_string(), g["name"].as_str().unwrap_or("").to_string())).collect();
-    let ids: Vec<String> = rows.iter().map(|r| r.0.clone()).chain(e.games.iter().map(|g| g.id.clone())).collect();
+    let suggested = suggested_ids(&sugg);
+    let ids: Vec<String> = suggested.iter().cloned().chain(e.games.iter().map(|g| g.id.clone())).collect();
     want_icons(app, &ids);
+    want_games(app, &ids);
+    let rows: Vec<(String, String)> = suggested.into_iter().filter_map(|id| match app.game_info.get(&id) {
+        Some(Some(i)) => Some((id, i.name.clone())),
+        _ => None,
+    }).collect();
     let (mut save, mut close) = (false, false);
     let max = e.slot.max();
     let screen = ctx.content_rect();
@@ -397,7 +476,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         ui.add_space(8.0);
         let q = e.q.to_lowercase();
         egui::ScrollArea::vertical().max_height((screen.height() - 360.0).clamp(120.0, 340.0)).show(ui, |ui| {
-            let mut all: Vec<(String, String)> = e.games.iter().map(|g| (g.id.clone(), g.name.clone())).collect();
+            let mut all: Vec<(String, String)> = e.games.iter().map(|g| (g.id.clone(), game_name(&app.game_info, g).to_string())).collect();
             for r in &rows {
                 if !all.iter().any(|a| a.0 == r.0) {
                     all.push(r.clone());
@@ -507,6 +586,27 @@ pub fn browse(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn games_come_back_with_a_name_and_a_cover_hash_or_url() {
+        let v = serde_json::json!([
+            {"id": "11", "name": "The Last of Us Part II", "media": {"cover": {"type": "hash", "value": "abc"}}},
+            {"id": "12", "name": "Other", "media": {"cover": {"type": "url", "value": "https://example.test/c.png"}}},
+            {"id": "13", "name": "No art"}
+        ]);
+        let games = super::parse_games(&v);
+        assert_eq!(games[0].1.name, "The Last of Us Part II");
+        assert!(games[0].1.cover.as_deref().unwrap().ends_with("/app-icons/11/abc.png?size=256"));
+        assert_eq!(games[1].1.cover.as_deref(), Some("https://example.test/c.png"));
+        assert!(games[2].1.cover.is_none());
+    }
+
+    #[test]
+    fn suggested_games_are_two_lists_of_ids() {
+        let v = serde_json::json!({"suggested_games": ["1", 2], "suggested_wishlist_games": ["2", "3"]});
+        assert_eq!(super::suggested_ids(&v), ["1", "2", "3"]);
+        assert!(super::suggested_ids(&serde_json::json!([{"id": "1"}])).is_empty());
+    }
+
     #[test]
     fn featured_tiles_keep_the_reference_games_when_other_apps_are_returned() {
         let apps = serde_json::json!([

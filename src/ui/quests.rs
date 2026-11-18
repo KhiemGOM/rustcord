@@ -123,9 +123,31 @@ fn date(v: &Value, fmt: &str) -> String {
     v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&chrono::Local).format(fmt).to_string()).unwrap_or_default()
 }
 
+fn asset_url(q: &Value, file: &str, theme: bool) -> String {
+    let cdn = crate::api::cdn();
+    if file.starts_with("http://") || file.starts_with("https://") {
+        file.to_string()
+    } else if file.contains('/') {
+        format!("{cdn}/{file}")
+    } else {
+        format!("{cdn}/quests/{}{}/{file}", q["id"].as_str().unwrap_or_default(), if theme { if light() { "/light" } else { "/dark" } } else { "" })
+    }
+}
+
 fn asset(q: &Value, name: &str) -> Option<String> {
-    let file = config(q)["assets"][name].as_str().filter(|f| !f.is_empty())?;
-    Some(format!("{}/quests/{}/{file}", crate::api::cdn(), q["id"].as_str().unwrap_or_default()))
+    let real = |v: &Value| v.as_str().filter(|f| !f.is_empty() && *f != "PLACEHOLDER").map(str::to_string);
+    let assets = &config(q)["assets"];
+    let themed = matches!(name, "game_tile" | "logotype");
+    if themed && let Some(f) = real(&assets[format!("{name}_{}", if light() { "light" } else { "dark" })]) {
+        return Some(asset_url(q, &f, false));
+    }
+    real(&assets[name]).map(|f| asset_url(q, &f, themed))
+}
+
+fn reward_image(q: &Value) -> Option<String> {
+    let r = &config(q)["rewards_config"]["rewards"][0];
+    let file = r["asset"].as_str().filter(|f| !f.is_empty() && !f.ends_with(".mp4") && !f.ends_with(".webm"))?;
+    Some(asset_url(q, file, false))
 }
 
 /// How far along it is: 0 to 1, from the task's progress against its target.
@@ -184,6 +206,11 @@ fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut V
     if let Some(url) = asset(q, "game_tile") {
         text::image(ui.painter(), &url, Rect::from_min_size(pos2(r.left() + 13.0, banner.bottom() - 40.0), vec2(28.0, 28.0)));
     }
+    if let Some(url) = asset(q, "logotype") {
+        let area = Rect::from_min_size(pos2(r.left() + 13.0, shade.top() - 52.0), vec2(120.0, 44.0));
+        let size = egui::Image::from_uri(url.clone()).load_and_calc_size(ui, area.size()).unwrap_or(area.size());
+        egui::Image::from_uri(url).show_loading_spinner(false).paint_at(ui, Rect::from_min_size(pos2(area.left(), area.bottom() - size.y), size));
+    }
     let y = banner.bottom() - 26.0;
     let promoted = ui.painter().text(pos2(r.left() + 49.0, y), Align2::LEFT_CENTER, "Promoted by", medium(14.0), pal().text_muted);
     icons::draw(ui.painter(), Icon::Verified, Rect::from_center_size(pos2(promoted.right() + 14.0, y), vec2(16.0, 16.0)), pal().green);
@@ -206,8 +233,11 @@ fn card(ui: &mut Ui, r: Rect, q: &Value, claimed: bool, busy: bool, acts: &mut V
     });
     let body = Rect::from_min_max(pos2(r.left(), banner.bottom()), r.max);
     let tile = Rect::from_min_size(pos2(body.left() + 13.0, body.top() + 16.0), vec2(64.0, 64.0));
-    if let Some(url) = asset(q, "logotype").or_else(|| asset(q, "game_tile")) {
-        text::image(ui.painter(), &url, tile);
+    ui.painter().rect_filled(tile, CornerRadius::same(8), Color32::from_black_alpha(90));
+    if config(q)["rewards_config"]["rewards"][0]["type"].as_u64() == Some(4) {
+        icons::draw(ui.painter(), Icon::Gem, tile.shrink(14.0), accent);
+    } else if let Some(url) = reward_image(q).or_else(|| asset(q, "game_tile")) {
+        egui::Image::from_uri(url).corner_radius(8).show_loading_spinner(false).paint_at(ui, tile);
     }
     let x = tile.right() + 16.0;
     let w = r.right() - 13.0 - x;

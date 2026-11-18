@@ -1,5 +1,14 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+enum Sec<'a> {
+    Suggested,
+    Pinned,
+    Cat(Option<&'a Channel>),
+    Active,
+    Voice(Id),
+}
+
 pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     // html collapses runs of spaces in names, so discord never shows them
     let name = app.store.guilds.get(&gid).map(|g| g.name.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default();
@@ -144,6 +153,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     let mut events_act: Option<EventsAct> = None;
     let mut open_chat: Option<Id> = None;
     let mut join_act: Option<(Id, Id)> = None;
+    let mut voice_flip = false;
     let goal = app.boost_info.get(&gid).map(|i| i.goal()).filter(|g| *g > 0).unwrap_or(33);
     let mut home_page = None;
     let hub_row = crate::ui::hub::offered(&app.store, gid).then_some(!app.settings.hub_seen);
@@ -217,15 +227,53 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     !on
                 });
             }
-            let sections = Some((Some("Suggested"), None, suggested)).filter(|s| !s.2.is_empty()).into_iter().chain(Some((Some("Pinned Channels"), None, pinned)).filter(|s| !s.2.is_empty())).chain(groups.into_iter().map(|(c, k)| (None, c, k)));
-            for (virt, cat, kids) in sections {
-                let (suggest_sec, pin_sec) = (virt == Some("Suggested"), virt == Some("Pinned Channels"));
+            let hidden = hidden_voice(store, gid);
+            let voice_open = app.ui.voice_open.contains(&gid);
+            let in_voice = |c: &Channel| store.guilds.get(&gid).is_some_and(|g| g.voice.values().any(|v| *v == c.id));
+            suggested.retain(|c| !(hidden.iter().any(|h| h.id == c.id) && (voice_open || in_voice(c))));
+            let mut voice: Vec<(Sec, Vec<&Channel>)> = Vec::new();
+            if voice_open {
+                for c in &hidden {
+                    match voice.last_mut() {
+                        Some((Sec::Voice(p), kids)) if *p == c.parent => kids.push(c),
+                        _ => voice.push((Sec::Voice(c.parent), vec![c])),
+                    }
+                }
+            } else {
+                let busy: Vec<&Channel> = hidden.iter().copied().filter(|c| in_voice(c)).collect();
+                if !busy.is_empty() {
+                    voice.push((Sec::Active, busy));
+                }
+            }
+            let sections = Some((Sec::Suggested, suggested))
+                .filter(|s| !s.1.is_empty())
+                .into_iter()
+                .chain(Some((Sec::Pinned, pinned)).filter(|s| !s.1.is_empty()))
+                .chain(groups.into_iter().map(|(c, k)| (Sec::Cat(c), k)))
+                .chain(voice);
+            for (sec, kids) in sections {
+                let (suggest_sec, pin_sec, voice_sec) = (matches!(sec, Sec::Suggested), matches!(sec, Sec::Pinned), matches!(sec, Sec::Active | Sec::Voice(_)));
+                let cat = if let Sec::Cat(c) = sec { c } else { None };
                 // hiding muted channels takes empty categories with them, but never the open channel
-                let kids: Vec<&Channel> = kids.into_iter().filter(|c| !hide || cur == Some(c.id) || !store.is_muted(c)).collect();
+                let kids: Vec<&Channel> = kids.into_iter().filter(|c| voice_sec || !hide || cur == Some(c.id) || !store.is_muted(c)).collect();
                 if hide && kids.is_empty() && (cat.is_some() || pin_sec) {
                     continue;
                 }
                 let collapsed = if pin_sec { app.ui.collapsed.contains(&gid) } else { cat.is_some_and(|c| app.store.collapsed.contains(&c.id)) };
+                match sec {
+                    Sec::Active => {
+                        ui.add_space(15.0);
+                        static_head(ui, "Active Now");
+                    }
+                    Sec::Voice(p) => match store.channels.get(&p) {
+                        Some(k) => {
+                            ui.add_space(15.0);
+                            static_head(ui, &k.name);
+                        }
+                        None => ui.add_space(16.0),
+                    },
+                    _ => {}
+                }
                 if suggest_sec {
                     ui.add_space(15.0);
                     if suggested_head(ui) {
@@ -258,6 +306,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                     let unread = kids.iter().any(|k| k.is_text() && store.unread(k));
                     channel_menu(&r, store, cat, unread, collapsed, dev, false, &mut menu);
                 }
+                let folded: Vec<Id> = if collapsed && cat.is_some() { kids.iter().filter(|c| c.is_voice()).map(|c| c.id).collect() } else { Vec::new() };
                 for c in kids {
                     let selected = cur == Some(c.id);
                     // a muted category folds its unread channels away with the rest, but doesn't dim them
@@ -326,7 +375,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         }
                         channel_menu(&r, store, t, store.unread(t), false, dev, false, &mut menu);
                     }
-                    if c.is_voice() && !collapsed {
+                    if matches!(sec, Sec::Active) {
+                        if let Some((u, at)) = voice_summary(ui, store, gid, &[c.id]) {
+                            person = Some((u, c.id, false, at));
+                        }
+                    } else if c.is_voice() && !collapsed {
                         if let Some((u, secondary, at)) = voice_users(ui, store, &app.voice, gid, c.id, app.settings.hide_names.contains(&c.id)) {
                             person = Some((u, c.id, secondary, at));
                         }
@@ -335,17 +388,26 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         }
                     }
                 }
+                if let Some((u, at)) = voice_summary(ui, store, gid, &folded) {
+                    person = Some((u, 0, false, at));
+                }
                 if suggest_sec {
                     ui.add_space(9.0);
                     let (sep, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
                     ui.painter().hline(sep.x_range().shrink(16.0), sep.center().y + 1.0, egui::Stroke::new(1.0, pal().border_subtle));
                 }
             }
+            if !hidden.is_empty() && voice_toggle(ui, voice_open) {
+                voice_flip = true;
+            }
             ui.add_space(12.0);
         });
         ui.ctx().data_mut(|d| d.insert_temp(scroll_id, out.state.offset.y));
     });
     crate::ui::reorder::drag(app, ui.ctx());
+    if voice_flip && !app.ui.voice_open.remove(&gid) {
+        app.ui.voice_open.insert(gid);
+    }
     if let Some((u, c, secondary, at)) = person {
         if secondary {
             app.user_menu = Some((u, gid, None, at));
