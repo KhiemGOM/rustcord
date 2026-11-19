@@ -1,7 +1,7 @@
 """Rustcord against the desktop Discord on the real account, measured the same way from outside.
 
     python e2e/vs_discord.py prep                         before restarting the PC
-    python e2e/vs_discord.py run --channel <guild>/<channel> [--warm 5] [--secs 60] [--exe <rustcord.exe>]
+    python e2e/vs_discord.py run --channel <guild>/<channel> [--warm 5] [--secs 60] [--exe <rustcord.exe>] [--record]
     python e2e/vs_discord.py restore                      only if a run died before putting things back
 
 prep checks Rustcord's saved login, copies its data dir (the run is read-only and leaves the real one
@@ -13,9 +13,12 @@ drawing a covered window.
 
 Each client opens the same channel through a discord:// link and is timed from launch to its first
 window, its main window, and its picture settling (under 1% of it changing for 1.5 s). Then one
-session each: idle, scrolling the chat with the wheel, Alt+Down through channels, minimized. CPU and
+session each: idle, scrolling the chat with the wheel, Alt+Down through channels, Ctrl+Alt+Down
+through servers, the quick switcher, the emoji picker, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
+--record also films every launch into footage/ next to them (see footage.py); the encoder works on the
+GPU while the numbers are taken, the same for both, and the report says it was on.
 """
 import ctypes
 import json
@@ -29,6 +32,8 @@ import winreg
 from ctypes import wintypes
 from pathlib import Path
 
+import cut
+import footage
 from bench import cpu_s, handle, k32, u32
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -98,6 +103,10 @@ class Client:
         self.t0 = time.time()
         self.launcher = subprocess.Popen(cmd, env=env)
         self.handles = {}
+        self.events = [("launch", self.t0)]
+
+    def mark(self, event):
+        self.events.append((event, time.time()))
 
     def tree(self):
         rows = processes()
@@ -136,7 +145,7 @@ class Client:
 
     def cpu(self):
         self.tree()
-        return sum(cpu_s(h) for h in self.handles.values())
+        return sum(cpu_s(h) for h in list(self.handles.values()))
 
     def memory(self):
         from bench import Mem
@@ -210,9 +219,13 @@ def start(c, settle_cap=60):
     while time.time() < end and not hwnd:
         if t["first_window_ms"] is None and c.windows():
             t["first_window_ms"] = round((time.time() - c.t0) * 1000)
+            c.mark("first_window")
         if hwnd := c.main_window():
             t["main_window_ms"] = round((time.time() - c.t0) * 1000)
-            t["first_window_ms"] = t["first_window_ms"] or t["main_window_ms"]
+            if t["first_window_ms"] is None:
+                t["first_window_ms"] = t["main_window_ms"]
+                c.mark("first_window")
+            c.mark("main_window")
             front(hwnd)
         time.sleep(0.02)
     if not hwnd:
@@ -225,6 +238,7 @@ def start(c, settle_cap=60):
             still_since = still_since or time.time()
             if time.time() - still_since >= 1.5:
                 t["settled_ms"] = round((still_since - c.t0) * 1000)
+                c.events.append(("settled", still_since))
                 break
         else:
             still_since = None
@@ -255,7 +269,7 @@ def gpu(pids, secs):
     return {"gpu_mb": round(mem / 2**20), "gpu_3d_pct": round(engine, 2)}
 
 
-def measure(c, secs, during=None):
+def measure(c, label, secs, during=None):
     """CPU (% of one core) of the whole client over secs, with GPU counters read alongside; during() drives input meanwhile."""
     import threading
     pids = c.tree()
@@ -263,6 +277,7 @@ def measure(c, secs, during=None):
     reader = threading.Thread(target=lambda: g.update(gpu(pids, secs)))
     a = c.cpu()
     t = time.time()
+    c.mark(label)
     reader.start()
     if during:
         during(t + secs)
@@ -270,6 +285,7 @@ def measure(c, secs, during=None):
         time.sleep(secs)
     reader.join()
     b = c.cpu()
+    c.mark(f"{label}_end")
     return {"cpu_pct_of_one_core": round((b - a) / (time.time() - t) * 100, 2), **g, "memory_mb": c.memory()}
 
 
@@ -284,13 +300,45 @@ def wheel(hwnd, until):
         time.sleep(0.09)
 
 
+def press(*vks):
+    """A chord: each key down in order, then up in reverse. The arrows are extended keys."""
+    ext = lambda vk: 1 if vk in (0x26, 0x28) else 0
+    for vk in vks:
+        u32.keybd_event(vk, 0, ext(vk), 0)
+    for vk in reversed(vks):
+        u32.keybd_event(vk, 0, ext(vk) | 2, 0)
+
+
 def channels(until):
     while time.time() < until:
-        u32.keybd_event(0x12, 0, 0, 0)
-        u32.keybd_event(0x28, 0, 1, 0)
-        u32.keybd_event(0x28, 0, 3, 0)
-        u32.keybd_event(0x12, 0, 2, 0)
+        press(0x12, 0x28)
         time.sleep(1.5)
+
+
+def servers(until):
+    while time.time() < until:
+        press(0x11, 0x12, 0x28)
+        time.sleep(2)
+
+
+def switcher(until):
+    """Ctrl+K and arrows through the results, never a letter: typing where the switcher didn't open would tell the channel you're typing."""
+    while time.time() < until:
+        press(0x11, 0x4B)
+        time.sleep(1.2)
+        for _ in range(3):
+            press(0x28)
+            time.sleep(0.4)
+        press(0x1B)
+        time.sleep(1)
+
+
+def emoji(until):
+    while time.time() < until:
+        press(0x11, 0x45)
+        time.sleep(2.5)
+        press(0x1B)
+        time.sleep(1)
 
 
 def quiet(limit=600, below=8.0, secs=20):
@@ -405,7 +453,12 @@ def main():
     stamp = time.strftime("%Y%m%d-%H%M")
     out = OUT / stamp
     out.mkdir(parents=True)
-    report = {"when": stamp, "uptime_min_at_start": round(up_min, 1), "machine_quiet": quiet(),
+    record = "--record" in sys.argv
+    if record and not footage.FFMPEG:
+        raise SystemExit("--record needs ffmpeg on PATH")
+    shots = iter(range(1, 100))
+    film = (lambda what, name: footage.Recording(out / "footage", f"{next(shots):02}-{what}-{name.lower()}")) if record else (lambda *_: footage.Off())
+    report = {"when": stamp, "recorded": record, "uptime_min_at_start": round(up_min, 1), "machine_quiet": quiet(),
               "rustcord_exe": exe, "discord_version": sorted(p.name for p in DISCORD.glob("app-*"))[-1],
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
@@ -414,36 +467,50 @@ def main():
         vencord_off()
         report["vencord"] = (resources() / "app.asar").stat().st_size < 4096
         for name in ("Rustcord", "Discord"):
+            rec = film("cold", name)
             c = make[name]()
+            rec.follow(c)
             report["cold"][name], _ = start(c)
             print(name, "cold", report["cold"][name], flush=True)
             c.kill()
+            rec.stop()
             quiet(120)
         for i in range(warm):
             for name in (("Rustcord", "Discord") if i % 2 == 0 else ("Discord", "Rustcord")):
+                rec = film(f"warm{i + 1}", name)
                 c = make[name]()
+                rec.follow(c)
                 t, _ = start(c)
                 report["warm"][name].append(t)
                 print(name, "warm", t, flush=True)
                 c.kill()
+                rec.stop()
                 quiet(120)
         for name in ("Rustcord", "Discord"):
+            rec = film("session", name)
             c = make[name]()
+            rec.follow(c)
             _, hwnd = start(c)
             s = report["session"][name] = {}
             if hwnd:
                 time.sleep(30)
                 front(hwnd)
-                s["idle"] = measure(c, secs)
-                s["scroll"] = measure(c, 20, lambda until: wheel(hwnd, until))
-                s["channels"] = measure(c, 30, channels)
+                s["idle"] = measure(c, "idle", secs)
+                s["scroll"] = measure(c, "scroll", 20, lambda until: wheel(hwnd, until))
+                s["channels"] = measure(c, "channels", 30, channels)
+                s["servers"] = measure(c, "servers", 20, servers)
+                front(hwnd)
+                s["switcher"] = measure(c, "switcher", 15, switcher)
+                s["emoji"] = measure(c, "emoji", 15, emoji)
                 time.sleep(5)
-                s["after_channels"] = measure(c, 15)
+                s["after_use"] = measure(c, "after_use", 15)
                 u32.ShowWindow(hwnd, 6)
+                c.mark("minimize")
                 time.sleep(10)
-                s["minimized"] = measure(c, secs)
+                s["minimized"] = measure(c, "minimized", secs)
             print(name, "session", json.dumps(s), flush=True)
             c.kill()
+            rec.stop()
             quiet(120)
     finally:
         restore()
@@ -451,6 +518,8 @@ def main():
     (out / "report.json").write_text(json.dumps(report, indent=2))
     (out / "report.md").write_text(markdown(report))
     print(markdown(report))
+    if record:
+        print(cut.cut(out))
     print(f"\n{out}")
 
 
@@ -464,14 +533,14 @@ def markdown(r):
     for when in ("cold", "warm_median"):
         for k in ("first_window_ms", "main_window_ms", "settled_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
-    for phase in ("idle", "scroll", "channels", "after_channels", "minimized"):
+    for phase in ("idle", "scroll", "channels", "servers", "switcher", "emoji", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))
         rows.append((f"{phase}: GPU 3D %", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_3d_pct")))
         rows.append((f"{phase}: Task Manager memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("task_manager")))
         rows.append((f"{phase}: private commit (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("private")))
         rows.append((f"{phase}: GPU memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_mb")))
     rows.append(("processes", lambda n: r["session"].get(n, {}).get("idle", {}).get("memory_mb", {}).get("processes")))
-    lines = [f"Rustcord vs Discord ({r['discord_version']}{', with Vencord' if r['vencord'] else ''}), {r['when']}, {r['uptime_min_at_start']} min after boot, machine quiet: {r['machine_quiet']}", "",
+    lines = [f"Rustcord vs Discord ({r['discord_version']}{', with Vencord' if r['vencord'] else ''}), {r['when']}, {r['uptime_min_at_start']} min after boot, machine quiet: {r['machine_quiet']}{', screen recorded during the run' if r.get('recorded') else ''}", "",
              "| | Rustcord | Discord |", "|---|---|---|"]
     lines += [f"| {label} | {f('Rustcord')} | {f('Discord')} |" for label, f in rows]
     return "\n".join(lines) + "\n"
