@@ -6,7 +6,8 @@
 
 prep checks Rustcord's saved login, copies its data dir (the run is read-only and leaves the real one
 alone), and takes Discord off Windows startup so its first launch after the restart is as cold as
-Rustcord's. run puts it back. Run it straight after the restart with nothing else open: it takes
+Rustcord's. run puts it back. Discord runs stock: Vencord's 200-byte app.asar is set aside for the run
+and put back after it, along with the startup entry. Run it straight after the restart with nothing else open: it takes
 real mouse and keyboard input and puts each client in front at the same size, because Chromium stops
 drawing a covered window.
 
@@ -331,7 +332,24 @@ def discord_run_key(value=None, remove=False):
                 return None
 
 
+def resources():
+    return sorted(DISCORD.glob("app-*"))[-1] / "resources"
+
+
+def vencord_off():
+    r = resources()
+    if (r / "_app.asar").exists() and (r / "app.asar").stat().st_size < 4096:
+        (r / "app.asar").rename(r / "app.asar.vencord")
+        (r / "_app.asar").rename(r / "app.asar")
+        print("Vencord off for the run")
+
+
 def restore():
+    r = resources()
+    if (r / "app.asar.vencord").exists():
+        (r / "app.asar").rename(r / "_app.asar")
+        (r / "app.asar.vencord").rename(r / "app.asar")
+        print("Vencord back on")
     if SAVED_RUN.exists():
         discord_run_key(json.loads(SAVED_RUN.read_text())["value"])
         SAVED_RUN.unlink()
@@ -390,9 +408,11 @@ def main():
     report = {"when": stamp, "uptime_min_at_start": round(up_min, 1), "machine_quiet": quiet(),
               "rustcord_exe": exe, "discord_version": sorted(p.name for p in DISCORD.glob("app-*"))[-1],
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
-              "vencord": (Path(os.environ["APPDATA"]) / "Vencord").exists(), "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
+              "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
     make = {"Rustcord": lambda: rustcord(link, exe), "Discord": lambda: discord(link)}
     try:
+        vencord_off()
+        report["vencord"] = (resources() / "app.asar").stat().st_size < 4096
         for name in ("Rustcord", "Discord"):
             c = make[name]()
             report["cold"][name], _ = start(c)
