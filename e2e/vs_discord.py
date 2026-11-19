@@ -13,7 +13,8 @@ drawing a covered window.
 
 Each client opens the same channel through a discord:// link and is timed from launch to its first
 window, its main window, and its picture settling (under 1% of it changing for 1.5 s). Then one
-session each: idle, scrolling the chat with the wheel, Alt+Down through channels, minimized. CPU and
+session each: idle, scrolling the chat with the wheel, Alt+Down through channels, Ctrl+Alt+Down
+through servers, the quick switcher, the emoji picker, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
 --record also films every launch into footage/ next to them (see footage.py); the encoder works on the
@@ -31,6 +32,7 @@ import winreg
 from ctypes import wintypes
 from pathlib import Path
 
+import cut
 import footage
 from bench import cpu_s, handle, k32, u32
 
@@ -298,13 +300,45 @@ def wheel(hwnd, until):
         time.sleep(0.09)
 
 
+def press(*vks):
+    """A chord: each key down in order, then up in reverse. The arrows are extended keys."""
+    ext = lambda vk: 1 if vk in (0x26, 0x28) else 0
+    for vk in vks:
+        u32.keybd_event(vk, 0, ext(vk), 0)
+    for vk in reversed(vks):
+        u32.keybd_event(vk, 0, ext(vk) | 2, 0)
+
+
 def channels(until):
     while time.time() < until:
-        u32.keybd_event(0x12, 0, 0, 0)
-        u32.keybd_event(0x28, 0, 1, 0)
-        u32.keybd_event(0x28, 0, 3, 0)
-        u32.keybd_event(0x12, 0, 2, 0)
+        press(0x12, 0x28)
         time.sleep(1.5)
+
+
+def servers(until):
+    while time.time() < until:
+        press(0x11, 0x12, 0x28)
+        time.sleep(2)
+
+
+def switcher(until):
+    """Ctrl+K and arrows through the results, never a letter: typing where the switcher didn't open would tell the channel you're typing."""
+    while time.time() < until:
+        press(0x11, 0x4B)
+        time.sleep(1.2)
+        for _ in range(3):
+            press(0x28)
+            time.sleep(0.4)
+        press(0x1B)
+        time.sleep(1)
+
+
+def emoji(until):
+    while time.time() < until:
+        press(0x11, 0x45)
+        time.sleep(2.5)
+        press(0x1B)
+        time.sleep(1)
 
 
 def quiet(limit=600, below=8.0, secs=20):
@@ -464,8 +498,12 @@ def main():
                 s["idle"] = measure(c, "idle", secs)
                 s["scroll"] = measure(c, "scroll", 20, lambda until: wheel(hwnd, until))
                 s["channels"] = measure(c, "channels", 30, channels)
+                s["servers"] = measure(c, "servers", 20, servers)
+                front(hwnd)
+                s["switcher"] = measure(c, "switcher", 15, switcher)
+                s["emoji"] = measure(c, "emoji", 15, emoji)
                 time.sleep(5)
-                s["after_channels"] = measure(c, "after_channels", 15)
+                s["after_use"] = measure(c, "after_use", 15)
                 u32.ShowWindow(hwnd, 6)
                 c.mark("minimize")
                 time.sleep(10)
@@ -481,7 +519,7 @@ def main():
     (out / "report.md").write_text(markdown(report))
     print(markdown(report))
     if record:
-        print(footage.side_by_side(out, RECT))
+        print(cut.cut(out))
     print(f"\n{out}")
 
 
@@ -495,7 +533,7 @@ def markdown(r):
     for when in ("cold", "warm_median"):
         for k in ("first_window_ms", "main_window_ms", "settled_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
-    for phase in ("idle", "scroll", "channels", "after_channels", "minimized"):
+    for phase in ("idle", "scroll", "channels", "servers", "switcher", "emoji", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))
         rows.append((f"{phase}: GPU 3D %", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_3d_pct")))
         rows.append((f"{phase}: Task Manager memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("task_manager")))

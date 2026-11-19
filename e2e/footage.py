@@ -3,18 +3,16 @@
 `vs_discord.py run --record` films every launch of a client: the whole screen at 60 fps, encoded on the
 GPU's video engine, plus <name>.csv (the client's CPU, memory and GPU every 250 ms) and
 <name>.events.json (launch, first window, settled, each phase), both in seconds from the video's
-first frame. `python e2e/footage.py sbs <run dir>` puts the cold launches side by side from launch.
+first frame. `python e2e/cut.py <run dir>` cuts them into one video.
 """
 import atexit
 import csv
 import json
 import shutil
 import subprocess
-import sys
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
 
 FFMPEG = shutil.which("ffmpeg")
 CAPTURE = ["-c:v", "hevc_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "18", "-tag:v", "hvc1"]
@@ -121,26 +119,3 @@ def gpu_rows(path, pids):
         out.append((t, round(sum(num(i) for i, mem in cols if mem) / 2**20), round(sum(num(i) for i, mem in cols if not mem), 1)))
     return out
 
-
-def side_by_side(run, rect, tail=3.0):
-    """The cold launches cropped to the client rect, next to each other, both starting half a second before launch."""
-    folder = Path(run) / "footage"
-    clips = []
-    for name in ("Rustcord", "Discord"):
-        base = next(folder.glob(f"*-cold-{name.lower()}.mp4")).with_suffix("")
-        ev = {e["event"]: e["t"] for e in json.loads(base.with_suffix(".events.json").read_text())}
-        clips.append((base.with_suffix(".mp4"), ev["launch"], ev.get("settled") or ev.get("main_window") or 10))
-    secs = max(end - start for _, start, end in clips) + 0.5 + tail
-    x, y, w, h = rect
-    args = [FFMPEG, "-hide_banner", "-loglevel", "error"]
-    for path, start, _ in clips:
-        args += ["-ss", str(max(0, start - 0.5)), "-i", str(path)]
-    crop = f"crop={w}:{h}:{x}:{y},tpad=stop_mode=clone:stop_duration={secs}"
-    out = folder / "cold-side-by-side.mp4"
-    subprocess.run(args + ["-filter_complex", f"[0:v]{crop}[a];[1:v]{crop}[b];[a][b]hstack", "-t", str(secs), *ENCODE, "-y", str(out)], check=True)
-    return out
-
-
-if __name__ == "__main__" and sys.argv[1:2] == ["sbs"]:
-    run = Path(sys.argv[2])
-    print(side_by_side(run, json.loads((run / "report.json").read_text())["rect"]))
