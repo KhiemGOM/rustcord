@@ -1,7 +1,7 @@
 """Rustcord against the desktop Discord on the real account, measured the same way from outside.
 
     python e2e/vs_discord.py prep                         before restarting the PC
-    python e2e/vs_discord.py run --channel <guild>/<channel> [--warm 5] [--secs 60] [--exe <rustcord.exe>]
+    python e2e/vs_discord.py run --channel <guild>/<channel> [--warm 5] [--secs 60] [--exe <rustcord.exe>] [--record]
     python e2e/vs_discord.py restore                      only if a run died before putting things back
 
 prep checks Rustcord's saved login, copies its data dir (the run is read-only and leaves the real one
@@ -16,6 +16,8 @@ window, its main window, and its picture settling (under 1% of it changing for 1
 session each: idle, scrolling the chat with the wheel, Alt+Down through channels, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
+--record also films every launch into footage/ next to them (see footage.py); the encoder works on the
+GPU while the numbers are taken, the same for both, and the report says it was on.
 """
 import ctypes
 import json
@@ -29,6 +31,7 @@ import winreg
 from ctypes import wintypes
 from pathlib import Path
 
+import footage
 from bench import cpu_s, handle, k32, u32
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -98,6 +101,10 @@ class Client:
         self.t0 = time.time()
         self.launcher = subprocess.Popen(cmd, env=env)
         self.handles = {}
+        self.events = [("launch", self.t0)]
+
+    def mark(self, event):
+        self.events.append((event, time.time()))
 
     def tree(self):
         rows = processes()
@@ -136,7 +143,7 @@ class Client:
 
     def cpu(self):
         self.tree()
-        return sum(cpu_s(h) for h in self.handles.values())
+        return sum(cpu_s(h) for h in list(self.handles.values()))
 
     def memory(self):
         from bench import Mem
@@ -210,9 +217,13 @@ def start(c, settle_cap=60):
     while time.time() < end and not hwnd:
         if t["first_window_ms"] is None and c.windows():
             t["first_window_ms"] = round((time.time() - c.t0) * 1000)
+            c.mark("first_window")
         if hwnd := c.main_window():
             t["main_window_ms"] = round((time.time() - c.t0) * 1000)
-            t["first_window_ms"] = t["first_window_ms"] or t["main_window_ms"]
+            if t["first_window_ms"] is None:
+                t["first_window_ms"] = t["main_window_ms"]
+                c.mark("first_window")
+            c.mark("main_window")
             front(hwnd)
         time.sleep(0.02)
     if not hwnd:
@@ -225,6 +236,7 @@ def start(c, settle_cap=60):
             still_since = still_since or time.time()
             if time.time() - still_since >= 1.5:
                 t["settled_ms"] = round((still_since - c.t0) * 1000)
+                c.events.append(("settled", still_since))
                 break
         else:
             still_since = None
@@ -255,7 +267,7 @@ def gpu(pids, secs):
     return {"gpu_mb": round(mem / 2**20), "gpu_3d_pct": round(engine, 2)}
 
 
-def measure(c, secs, during=None):
+def measure(c, label, secs, during=None):
     """CPU (% of one core) of the whole client over secs, with GPU counters read alongside; during() drives input meanwhile."""
     import threading
     pids = c.tree()
@@ -263,6 +275,7 @@ def measure(c, secs, during=None):
     reader = threading.Thread(target=lambda: g.update(gpu(pids, secs)))
     a = c.cpu()
     t = time.time()
+    c.mark(label)
     reader.start()
     if during:
         during(t + secs)
@@ -270,6 +283,7 @@ def measure(c, secs, during=None):
         time.sleep(secs)
     reader.join()
     b = c.cpu()
+    c.mark(f"{label}_end")
     return {"cpu_pct_of_one_core": round((b - a) / (time.time() - t) * 100, 2), **g, "memory_mb": c.memory()}
 
 
@@ -405,7 +419,12 @@ def main():
     stamp = time.strftime("%Y%m%d-%H%M")
     out = OUT / stamp
     out.mkdir(parents=True)
-    report = {"when": stamp, "uptime_min_at_start": round(up_min, 1), "machine_quiet": quiet(),
+    record = "--record" in sys.argv
+    if record and not footage.FFMPEG:
+        raise SystemExit("--record needs ffmpeg on PATH")
+    shots = iter(range(1, 100))
+    film = (lambda what, name: footage.Recording(out / "footage", f"{next(shots):02}-{what}-{name.lower()}")) if record else (lambda *_: footage.Off())
+    report = {"when": stamp, "recorded": record, "uptime_min_at_start": round(up_min, 1), "machine_quiet": quiet(),
               "rustcord_exe": exe, "discord_version": sorted(p.name for p in DISCORD.glob("app-*"))[-1],
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
@@ -414,36 +433,46 @@ def main():
         vencord_off()
         report["vencord"] = (resources() / "app.asar").stat().st_size < 4096
         for name in ("Rustcord", "Discord"):
+            rec = film("cold", name)
             c = make[name]()
+            rec.follow(c)
             report["cold"][name], _ = start(c)
             print(name, "cold", report["cold"][name], flush=True)
             c.kill()
+            rec.stop()
             quiet(120)
         for i in range(warm):
             for name in (("Rustcord", "Discord") if i % 2 == 0 else ("Discord", "Rustcord")):
+                rec = film(f"warm{i + 1}", name)
                 c = make[name]()
+                rec.follow(c)
                 t, _ = start(c)
                 report["warm"][name].append(t)
                 print(name, "warm", t, flush=True)
                 c.kill()
+                rec.stop()
                 quiet(120)
         for name in ("Rustcord", "Discord"):
+            rec = film("session", name)
             c = make[name]()
+            rec.follow(c)
             _, hwnd = start(c)
             s = report["session"][name] = {}
             if hwnd:
                 time.sleep(30)
                 front(hwnd)
-                s["idle"] = measure(c, secs)
-                s["scroll"] = measure(c, 20, lambda until: wheel(hwnd, until))
-                s["channels"] = measure(c, 30, channels)
+                s["idle"] = measure(c, "idle", secs)
+                s["scroll"] = measure(c, "scroll", 20, lambda until: wheel(hwnd, until))
+                s["channels"] = measure(c, "channels", 30, channels)
                 time.sleep(5)
-                s["after_channels"] = measure(c, 15)
+                s["after_channels"] = measure(c, "after_channels", 15)
                 u32.ShowWindow(hwnd, 6)
+                c.mark("minimize")
                 time.sleep(10)
-                s["minimized"] = measure(c, secs)
+                s["minimized"] = measure(c, "minimized", secs)
             print(name, "session", json.dumps(s), flush=True)
             c.kill()
+            rec.stop()
             quiet(120)
     finally:
         restore()
@@ -451,6 +480,8 @@ def main():
     (out / "report.json").write_text(json.dumps(report, indent=2))
     (out / "report.md").write_text(markdown(report))
     print(markdown(report))
+    if record:
+        print(footage.side_by_side(out, RECT))
     print(f"\n{out}")
 
 
@@ -471,7 +502,7 @@ def markdown(r):
         rows.append((f"{phase}: private commit (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("private")))
         rows.append((f"{phase}: GPU memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_mb")))
     rows.append(("processes", lambda n: r["session"].get(n, {}).get("idle", {}).get("memory_mb", {}).get("processes")))
-    lines = [f"Rustcord vs Discord ({r['discord_version']}{', with Vencord' if r['vencord'] else ''}), {r['when']}, {r['uptime_min_at_start']} min after boot, machine quiet: {r['machine_quiet']}", "",
+    lines = [f"Rustcord vs Discord ({r['discord_version']}{', with Vencord' if r['vencord'] else ''}), {r['when']}, {r['uptime_min_at_start']} min after boot, machine quiet: {r['machine_quiet']}{', screen recorded during the run' if r.get('recorded') else ''}", "",
              "| | Rustcord | Discord |", "|---|---|---|"]
     lines += [f"| {label} | {f('Rustcord')} | {f('Discord')} |" for label, f in rows]
     return "\n".join(lines) + "\n"
