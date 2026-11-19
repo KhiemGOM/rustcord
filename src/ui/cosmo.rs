@@ -39,6 +39,8 @@ pub struct Layer {
     pub z: i64,
     // a frame is stretched over its card; an effect keeps its shape, as wide as the card, from the top
     pub fill: bool,
+    pub animation_type: u64,
+    pub reduced_motion_src: String,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +77,8 @@ impl Item {
                 delay: l["loopDelay"].as_u64().unwrap_or(0),
                 z: l["zIndex"].as_i64().unwrap_or(0),
                 fill: kind == Kind::Frame,
+                animation_type: i["animationType"].as_u64().unwrap_or(0),
+                reduced_motion_src: text("reducedMotionSrc"),
             })
             .collect();
         Some(Item {
@@ -159,7 +163,7 @@ pub fn items(v: &Value) -> Vec<Item> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Layer, plate_anim, schedule};
+    use super::{Layer, Show, plate_anim, schedule, show};
 
     fn layer(looped: bool, duration: u64, start: u64, delay: u64) -> Layer {
         Layer { src: "x.png".into(), looped, duration, start, delay, ..Default::default() }
@@ -171,6 +175,28 @@ mod tests {
         let url = plate_anim("nameplates/night_flight/1551708828741931039/").unwrap();
         assert!(url.ends_with("/media/v1/collectibles-shop/1551708828741931039/animated"));
         assert!(plate_anim("nameplates/night_flight/").is_none());
+    }
+
+    #[test]
+    fn without_focus_a_persistent_effect_stands_still_and_an_intermittent_one_goes() {
+        assert_eq!(show(1, false, false), Show::Still);
+        assert_eq!(show(2, false, false), Show::Hide);
+        assert_eq!(show(1, true, false), Show::Play);
+        assert_eq!(show(2, true, false), Show::Play);
+    }
+
+    #[test]
+    fn reduced_motion_stills_an_effect_the_window_would_draw() {
+        assert_eq!(show(1, true, true), Show::Still);
+        assert_eq!(show(2, true, true), Show::Still);
+        assert_eq!(show(1, false, true), Show::Still);
+        assert_eq!(show(2, false, true), Show::Hide);
+    }
+
+    #[test]
+    fn an_effect_without_an_animation_type_plays_as_before() {
+        assert_eq!(show(0, false, false), Show::Play);
+        assert_eq!(show(0, true, true), Show::Still);
     }
 
     #[test]
@@ -310,6 +336,24 @@ fn schedule(l: &Layer, now: u128, frame_wait: impl Fn(u128) -> Option<u128>) -> 
     (Some(t), wake)
 }
 
+#[derive(Debug, PartialEq)]
+enum Show {
+    Play,
+    Still,
+    Hide,
+}
+
+/// Discord's effect player: without window focus a persistent effect shows its still and an
+/// intermittent one isn't drawn; reduced motion shows the still.
+fn show(animation_type: u64, focused: bool, reduced: bool) -> Show {
+    match animation_type {
+        2 if !focused => Show::Hide,
+        1 if !focused => Show::Still,
+        _ if reduced => Show::Still,
+        _ => Show::Play,
+    }
+}
+
 /// Plays `layers` over `rect` the way discord's profile effects do: a layer starts `start` ms
 /// after `since`, runs `duration` ms, and a looping one waits `delay` ms between plays. Layers
 /// with a higher z are drawn last. Hands back whether anything is still due to play.
@@ -319,7 +363,21 @@ pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
     order.sort_by_key(|l| l.z);
     let mut live = false;
     let mut wake: Option<u128> = None;
+    let (focused, reduced) = (ui.ctx().input(|i| i.focused), crate::theme::reduced_motion());
+    let mut stills: Vec<&str> = Vec::new();
     for l in order {
+        match show(l.animation_type, focused, reduced) {
+            Show::Play => {}
+            Show::Hide => continue,
+            Show::Still => {
+                let src = l.reduced_motion_src.as_str();
+                if !src.is_empty() && !stills.contains(&src) {
+                    stills.push(src);
+                    paint_layer(ui, rect, l, egui::Image::new(src));
+                }
+                continue;
+            }
+        }
         let (draw, next) = schedule(l, now, |t| crate::gif::wait_at(ui.ctx(), &l.src, t, !l.looped));
         live |= draw.is_some() || next.is_some();
         if let Some(n) = next {
@@ -327,18 +385,21 @@ pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
         }
         let Some(t) = draw else { continue };
         let uri = crate::gif::uri_at(ui.ctx(), &l.src, t, !l.looped);
-        let poll = egui::Image::new(uri).load_for_size(ui.ctx(), rect.size());
-        if let Ok(egui::load::TexturePoll::Ready { texture }) = poll {
-            let p = ui.painter().with_clip_rect(rect);
-            let at = if l.fill { rect } else { Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * texture.size.y / texture.size.x.max(1.0))) };
-            p.image(texture.id, at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
-        }
+        paint_layer(ui, rect, l, egui::Image::new(uri));
     }
     // one wake for whichever layer changes first; a still that loops into itself asks for none
     if let Some(ms) = wake {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(ms.max(1) as u64));
     }
     live
+}
+
+fn paint_layer(ui: &Ui, rect: Rect, l: &Layer, img: egui::Image) {
+    if let Ok(egui::load::TexturePoll::Ready { texture }) = img.load_for_size(ui.ctx(), rect.size()) {
+        let p = ui.painter().with_clip_rect(rect);
+        let at = if l.fill { rect } else { Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * texture.size.y / texture.size.x.max(1.0))) };
+        p.image(texture.id, at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
+    }
 }
 
 /// A profile's effect (and frame) laid over its card, from when the card opened.
