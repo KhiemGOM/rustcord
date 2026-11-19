@@ -3,7 +3,8 @@
     python e2e/bench.py [--build] [--profile release|fast] [--secs 15] [--rate 20] [--guilds 115] [--history 800] [--target target]
 
 A cold launch (empty data dir) for startup, then a warm one that sits idle for --secs, takes
---rate gateway events a second for --secs (presences, typing, messages elsewhere), repaints
+--rate gateway events a second for --secs (presences, typing, messages elsewhere), sits idle without
+focus for --secs (where a client in the background spends its day), repaints
 nonstop for --secs to price a frame, scrolls a --history message chat with the wheel for --secs and prices its frames, has its memory read, then opens its recent channels for
 3x --secs and has it read again. The mock adds --guilds servers of 115 channels each, about a real account's size
 (0 for the plain mock). The window opens behind everything and ignores the real mouse and
@@ -264,6 +265,11 @@ def main():
         report["busy"] = window(h, tmp / "w", secs)
         report["busy"]["rate"] = rate
         time.sleep(3)
+        (tmp / "w" / "blur").touch()
+        time.sleep(1)
+        report["idle_unfocused"] = window(h, tmp / "w", secs)
+        (tmp / "w" / "blur").unlink()
+        time.sleep(1)
         report["scroll"] = scroll(h, tmp / "w", secs)
         time.sleep(1)
         (tmp / "w" / "spin").touch()

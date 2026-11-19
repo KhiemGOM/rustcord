@@ -177,7 +177,9 @@ struct BenchIo {
     spin: std::sync::atomic::AtomicBool,
     scroll: std::sync::atomic::AtomicBool,
     browse: std::sync::atomic::AtomicBool,
+    blur: std::sync::atomic::AtomicBool,
     out: std::sync::Mutex<Option<String>>,
+    ctx: std::sync::OnceLock<egui::Context>,
 }
 
 impl BenchIo {
@@ -187,9 +189,15 @@ impl BenchIo {
         let me = io.clone();
         let _ = std::thread::Builder::new().name("bench-io".into()).spawn(move || {
             loop {
-                me.spin.store(dir.join("spin").exists(), Relaxed);
-                me.scroll.store(dir.join("scroll").exists(), Relaxed);
-                me.browse.store(dir.join("browse").exists(), Relaxed);
+                let flags = [(&me.spin, "spin"), (&me.scroll, "scroll"), (&me.browse, "browse"), (&me.blur, "blur")];
+                let mut changed = false;
+                for (flag, file) in flags {
+                    let on = dir.join(file).exists();
+                    changed |= flag.swap(on, Relaxed) != on;
+                }
+                if changed && let Some(ctx) = me.ctx.get() {
+                    ctx.request_repaint();
+                }
                 let out = me.out.lock().unwrap_or_else(|e| e.into_inner()).take();
                 if let Some(s) = out {
                     let _ = std::fs::write(dir.join("bench.json"), s);
@@ -526,12 +534,14 @@ impl Run {
                 && let Some(io) = self.bench_io.clone()
             {
                 use std::sync::atomic::Ordering::Relaxed;
+                io.ctx.get_or_init(|| ctx.clone());
                 if self.browse.is_none() && io.browse.load(Relaxed) {
                     self.browse = Some((app.ui.recent.clone(), 0, Instant::now() - Duration::from_secs(3)));
                 }
                 self.bench = Some(Instant::now());
                 self.spin = io.spin.load(Relaxed);
                 self.scroll = io.scroll.load(Relaxed);
+                self.blur = io.blur.load(Relaxed);
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
                 let loaders = ctx.loaders();
                 let mut images = serde_json::Map::new();
