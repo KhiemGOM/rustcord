@@ -1,6 +1,6 @@
 # Rustcord
 
-Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel and behaviour parity with Discord's desktop app.
+Native Discord desktop client in Rust (egui on Direct3D 11), Windows only. Goal: pixel and behaviour parity with Discord's desktop app.
 
 ## Build and run
 - `cargo run --release` runs the client; `cargo build --locked --release --bin rustcord --example mockcord` is what CI builds.
@@ -29,7 +29,8 @@ Native Discord desktop client in Rust (egui + glow), Windows only. Goal: pixel a
 - `python e2e/bench.py` measures startup, idle and busy CPU, frames drawn and who asked for them, the cost of one frame, and memory (with what each image loader holds), against the mock at a real account's size (`--guilds 115`: 120 servers, 14k channels). Output: `e2e/artifacts/bench.json`. Run it before and after anything that touches the frame loop, the store or repaints; single runs of idle CPU are noisy (the GPU driver spins on vsync), compare a few.
 - Iterate on the `fast` profile (`cargo build --profile fast`, `python e2e/bench.py --profile fast`): thin LTO and incremental, so a one-file rebuild took ~7 min where release's fat LTO took ~20, and it measured within ~10% of release, and it keeps line tables for a profiler. Only the final before/after goes on a real `release` build. `exe_mb` from a fast build isn't comparable (unstripped).
 - `bench.json` has `cpu_by_thread` (per thread name, `main` is the oldest) and `app_cpu_pct` (without the bench's own threads). Between runs, whole-process CPU on one machine swings wider than most single changes; compare thread by thread, alternate before/after in one session, and keep a copy of the old exe to run against.
-- Direct3D 12 instead of Vulkan was tried on an NVIDIA laptop (RTX 4060): warm first frame ~30% sooner and ~48 MB less video memory, but the driver's work moves onto the main thread (scrolling: main 32% vs 38% of a core, about the same in total). Reverted, Vulkan stays; AMD and Intel weren't measured.
+- `python e2e/vs_discord.py prep`, restart, then `python e2e/vs_discord.py run --channel <guild>/<channel>` measures Rustcord against the installed Discord on the real account, both from outside the same way: launch to settled picture cold and warm, then idle, wheel scrolling, Alt+Down through channels and minimized, with CPU, memory and GPU summed over each client's processes. It takes the real mouse and keyboard and puts each client in front, so only run it with the user away and their say-so. Output: `e2e/artifacts/vs-discord/<time>/report.md`.
+- Drawing is Direct3D 11 through a fork of eframe in `vendor/eframe` (`python tools/fork_eframe.py <version>` remakes it from the registry copy; the painter is `vendor/eframe/src/native/d3d11.rs`, its shader `d3d11.hlsl`, compiled by `python tools/hlsl.py`). wgpu was dropped because its drivers sit in the process: on an AMD card an empty egui window held ~125 MB committed and ~170 MB of video memory on Vulkan (~120 and ~96 on Direct3D 12), against 33 and 22 for a bare D3D11 window. The painter keeps each texture's pixels (the font atlas's are egui's), so a lost device (driver update, reset) is rebuilt in place; `RUSTCORD_E2E_FROM=5450 RUSTCORD_E2E_TO=1` loses it on purpose and compares the window before and after.
 
 ## Parity
 - Judged against Discord's own CSS tokens (surface colours, 0.122 hover overlay, metrics in `look.py` and `run.py`) and live captures of the real client, not by taste. Commit messages and comments cite "live captures".

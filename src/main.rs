@@ -76,41 +76,14 @@ fn main() -> eframe::Result {
     } else if !std::env::args().any(|a| a == "--startup") {
         winsys::show_early(size, cache::window_color());
     }
-    let run = |backends| {
-        let opts = eframe::NativeOptions {
-            viewport: viewport.clone(),
-            centered: true,
-            wgpu_options: gpu(backends),
-            ..Default::default()
-        };
-        eframe::run_native(
-            "Rustcord",
-            opts,
-            Box::new(|cc| {
-                let snap = snap.lock().unwrap().take().ok_or("started twice")?;
-                Ok(Box::new(ui::App::new(cc, t0, snap)))
-            }),
-        )
-    };
-    // only Vulkan is asked for, because also starting Direct3D 12 just to not pick it takes 45 ms
-    let forced = eframe::wgpu::Backends::from_env();
-    let done = run(forced.unwrap_or(eframe::wgpu::Backends::VULKAN));
-    let never_started = snap.lock().unwrap().is_some();
-    if done.is_err() && never_started && forced.is_none() {
-        return run(eframe::wgpu::Backends::DX12);
-    }
-    done
+    let opts = eframe::NativeOptions { viewport, centered: true, ..Default::default() };
+    eframe::run_native(
+        "Rustcord",
+        opts,
+        Box::new(|cc| {
+            let snap = snap.lock().unwrap().take().ok_or("started twice")?;
+            Ok(Box::new(ui::App::new(cc, t0, snap)))
+        }),
+    )
 }
 
-/// Vulkan where there is one, else Direct3D 12: Vulkan's driver keeps far less in the process.
-fn gpu(backends: eframe::wgpu::Backends) -> eframe::egui_wgpu::WgpuConfiguration {
-    use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
-    use eframe::wgpu::DeviceType;
-    let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = backends;
-    setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, surface| {
-        let usable = |a: &&eframe::wgpu::Adapter| surface.is_none_or(|s| a.is_surface_supported(s));
-        adapters.iter().filter(usable).min_by_key(|a| a.get_info().device_type == DeviceType::Cpu).cloned().ok_or_else(|| "no gpu adapter".into())
-    }));
-    eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: WgpuSetup::CreateNew(setup), ..Default::default() }
-}

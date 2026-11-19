@@ -233,6 +233,7 @@ impl eframe::App for App {
             }
         }
         if let Some(mut e) = self.e2e.take() {
+            e.memory();
             e.step(self, &ctx);
             e.frame_time(started.elapsed());
             self.e2e = Some(e);

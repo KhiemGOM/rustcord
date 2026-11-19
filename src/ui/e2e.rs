@@ -56,6 +56,7 @@ mod p4c;
 mod p5;
 mod p5b;
 mod r1;
+mod gpu;
 mod rv;
 mod mdtext;
 mod dmopen;
@@ -127,6 +128,8 @@ pub struct Run {
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
     blur: bool,
+    memory: serde_json::Value,
+    memory_at: Option<Instant>,
     probes: Vec<(String, Vec<(String, Probe)>)>,
     tries: u32,
     // links the app asked to open in the browser
@@ -177,7 +180,9 @@ struct BenchIo {
     spin: std::sync::atomic::AtomicBool,
     scroll: std::sync::atomic::AtomicBool,
     browse: std::sync::atomic::AtomicBool,
+    blur: std::sync::atomic::AtomicBool,
     out: std::sync::Mutex<Option<String>>,
+    ctx: std::sync::OnceLock<egui::Context>,
 }
 
 impl BenchIo {
@@ -187,9 +192,15 @@ impl BenchIo {
         let me = io.clone();
         let _ = std::thread::Builder::new().name("bench-io".into()).spawn(move || {
             loop {
-                me.spin.store(dir.join("spin").exists(), Relaxed);
-                me.scroll.store(dir.join("scroll").exists(), Relaxed);
-                me.browse.store(dir.join("browse").exists(), Relaxed);
+                let flags = [(&me.spin, "spin"), (&me.scroll, "scroll"), (&me.browse, "browse"), (&me.blur, "blur")];
+                let mut changed = false;
+                for (flag, file) in flags {
+                    let on = dir.join(file).exists();
+                    changed |= flag.swap(on, Relaxed) != on;
+                }
+                if changed && let Some(ctx) = me.ctx.get() {
+                    ctx.request_repaint();
+                }
                 let out = me.out.lock().unwrap_or_else(|e| e.into_inner()).take();
                 if let Some(s) = out {
                     let _ = std::fs::write(dir.join("bench.json"), s);
@@ -250,6 +261,8 @@ impl Run {
             cache_guilds: None,
             slow: Vec::new(),
             blur: false,
+            memory: serde_json::Value::Null,
+            memory_at: None,
             probes: Vec::new(),
             tries: 0,
             opened: Vec::new(),
@@ -346,6 +359,36 @@ impl Run {
             self.costs.push(ms);
         }
         self.frames.push(ms);
+    }
+
+    /// For the bench, once a second: the video memory we hold on the first adapter, and what each heap has committed.
+    pub fn memory(&mut self) {
+        if self.bench.is_none() || self.memory_at.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        self.memory_at = Some(Instant::now());
+        let mb = |b: u64| (b as f64 / 1048576.0 * 10.0).round() / 10.0;
+        let gpu = unsafe {
+            use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter3, IDXGIFactory1};
+            use windows::core::Interface;
+            CreateDXGIFactory1::<IDXGIFactory1>().and_then(|f| f.EnumAdapters1(0)).and_then(|a| a.cast::<IDXGIAdapter3>()).ok().map(|a| {
+                let (mut local, mut shared) = (DXGI_QUERY_VIDEO_MEMORY_INFO::default(), DXGI_QUERY_VIDEO_MEMORY_INFO::default());
+                let _ = a.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut local);
+                let _ = a.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &mut shared);
+                json!({ "video_mb": mb(local.CurrentUsage), "shared_mb": mb(shared.CurrentUsage) })
+            })
+        };
+        use windows_sys::Win32::System::Memory::{GetProcessHeaps, HEAP_SUMMARY, HeapSummary};
+        let mut heaps = vec![std::ptr::null_mut(); 64];
+        let n = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) } as usize;
+        let heaps: Vec<_> = heaps[..n.min(64)]
+            .iter()
+            .filter_map(|&h| {
+                let mut s = HEAP_SUMMARY { cb: std::mem::size_of::<HEAP_SUMMARY>() as u32, cbAllocated: 0, cbCommitted: 0, cbReserved: 0, cbMaxReserve: 0 };
+                (unsafe { HeapSummary(h, 0, &mut s) } != 0).then(|| json!([mb(s.cbAllocated as u64), mb(s.cbCommitted as u64)]))
+            })
+            .collect();
+        self.memory = json!({ "gpu": gpu, "heaps_allocated_committed_mb": heaps });
     }
 
     pub fn inject(&mut self, raw: &mut egui::RawInput) {
@@ -526,12 +569,14 @@ impl Run {
                 && let Some(io) = self.bench_io.clone()
             {
                 use std::sync::atomic::Ordering::Relaxed;
+                io.ctx.get_or_init(|| ctx.clone());
                 if self.browse.is_none() && io.browse.load(Relaxed) {
                     self.browse = Some((app.ui.recent.clone(), 0, Instant::now() - Duration::from_secs(3)));
                 }
                 self.bench = Some(Instant::now());
                 self.spin = io.spin.load(Relaxed);
                 self.scroll = io.scroll.load(Relaxed);
+                self.blur = io.blur.load(Relaxed);
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
                 let loaders = ctx.loaders();
                 let mut images = serde_json::Map::new();
@@ -541,7 +586,7 @@ impl Run {
                 {
                     images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
                 }
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel, "memory": self.memory });
                 *io.out.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.to_string());
             }
             return;
@@ -1519,6 +1564,7 @@ impl Run {
             5310..=5319 => self.dmopen_steps(app, ctx),
             5320..=5329 => self.survey_steps(app, ctx),
             5400..=5449 => self.rv_steps(app, ctx),
+            5450..=5459 => self.gpu_steps(app, ctx),
             4800..=4899 => self.serverx_steps(app, ctx),
             3600..=3699 => self.gateway_steps(app, ctx),
             3000..=3099 => self.fixes_steps(app, ctx),

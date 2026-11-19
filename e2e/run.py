@@ -86,6 +86,7 @@ import r1
 import rv
 import mdtext
 import dmopen
+import gpu
 import survey
 import regressions
 
@@ -647,6 +648,7 @@ def main():
         **mdtext.checks({"cold": cold, "warm": warm}),
         **dmopen.checks({"cold": cold, "warm": warm}, reqs),
         **survey.checks({"cold": cold, "warm": warm}, reqs),
+        **gpu.checks({"cold": cold, "warm": warm}),
         **rv.checks({"cold": cold, "warm": warm}, reqs),
         **regressions.checks({"cold": cold, "warm": warm}, reqs),
         **motion.checks({"cold": cold, "warm": warm}, reqs, data),
