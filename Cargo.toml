@@ -2,7 +2,7 @@
 name = "rustcord"
 version = "0.1.2"
 edition = "2024"
-description = "An unofficial native Discord desktop client for Windows, in Rust (egui + wgpu)"
+description = "An unofficial native Discord desktop client for Windows, in Rust (egui + Direct3D 11)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/KhiemGOM/rustcord"
 readme = "README.md"
@@ -17,8 +17,7 @@ chrono = "0.4.45"
 cpal = "0.18.2"
 davey = "0.1.4"
 dirs = "7.0.0"
-# wgpu on vulkan: on an AMD card an empty window costs 58 MB there, 91 MB through OpenGL
-eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts"] }
+eframe = { version = "0.36.2", default-features = false, features = ["d3d11", "default_fonts"] }
 egui = "0.36.2"
 resvg = { version = "0.45.1", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false, features = ["image", "gif", "webp", "file", "svg"] }
@@ -117,3 +116,6 @@ opt-level = 3
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[patch.crates-io]
+eframe = { path = "vendor/eframe" }

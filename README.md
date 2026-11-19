@@ -1,6 +1,6 @@
 # Rustcord
 
-A native Discord client in Rust (egui + wgpu). Same layout and colours as the desktop app, without Electron. Windows 10/11 only.
+A native Discord client in Rust (egui on Direct3D 11). Same layout and colours as the desktop app, without Electron. Windows 10/11 only.
 
 > [!WARNING]
 > **Unofficial.** Rustcord is not made by, affiliated with or endorsed by Discord Inc. "Discord" and its logos are Discord's trademarks.

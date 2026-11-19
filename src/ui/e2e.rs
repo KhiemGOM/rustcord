@@ -360,24 +360,23 @@ impl Run {
         self.frames.push(ms);
     }
 
-    /// For the bench, once a second: what wgpu's allocator holds, by allocation, and what each heap has committed.
-    pub fn memory(&mut self, device: &eframe::wgpu::Device) {
+    /// For the bench, once a second: the video memory we hold on the first adapter, and what each heap has committed.
+    pub fn memory(&mut self) {
         if self.bench.is_none() || self.memory_at.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
             return;
         }
         self.memory_at = Some(Instant::now());
         let mb = |b: u64| (b as f64 / 1048576.0 * 10.0).round() / 10.0;
-        let gpu = device.generate_allocator_report().map(|r| {
-            let mut by: std::collections::HashMap<&str, u64> = Default::default();
-            for a in &r.allocations {
-                *by.entry(a.name.as_str()).or_default() += a.size;
-            }
-            let mut top: Vec<_> = by.into_iter().collect();
-            top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-            let blocks: Vec<f64> = r.blocks.iter().map(|b| mb(b.size)).collect();
-            json!({ "allocated_mb": mb(r.total_allocated_bytes), "reserved_mb": mb(r.total_reserved_bytes), "blocks_mb": blocks,
-                    "top": top.iter().take(12).map(|(k, n)| json!([k, mb(*n)])).collect::<Vec<_>>() })
-        });
+        let gpu = unsafe {
+            use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter3, IDXGIFactory1};
+            use windows::core::Interface;
+            CreateDXGIFactory1::<IDXGIFactory1>().and_then(|f| f.EnumAdapters1(0)).and_then(|a| a.cast::<IDXGIAdapter3>()).ok().map(|a| {
+                let (mut local, mut shared) = (DXGI_QUERY_VIDEO_MEMORY_INFO::default(), DXGI_QUERY_VIDEO_MEMORY_INFO::default());
+                let _ = a.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut local);
+                let _ = a.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &mut shared);
+                json!({ "video_mb": mb(local.CurrentUsage), "shared_mb": mb(shared.CurrentUsage) })
+            })
+        };
         use windows_sys::Win32::System::Memory::{GetProcessHeaps, HEAP_SUMMARY, HeapSummary};
         let mut heaps = vec![std::ptr::null_mut(); 64];
         let n = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) } as usize;
