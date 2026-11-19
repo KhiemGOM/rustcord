@@ -278,6 +278,7 @@ def main():
         report["frame_cost_ms"] = {"cpu": round(spin["cpu_pct_of_one_core"] * 10 / spin["frames_per_s"], 2), "ui": round(spin["ui_ms_per_s"] / spin["frames_per_s"], 2),
                                    "frames_per_s": spin["frames_per_s"]}
         report["memory_mb"] = mem_mb(h)
+        report["memory_inside"] = (stats(tmp / "w") or {}).get("memory")
         # the recent channels one after another, three seconds each, as someone reading around would
         (tmp / "w" / "spin").unlink()
         (tmp / "w" / "browse").touch()

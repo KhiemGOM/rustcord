@@ -127,6 +127,8 @@ pub struct Run {
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
     blur: bool,
+    memory: serde_json::Value,
+    memory_at: Option<Instant>,
     probes: Vec<(String, Vec<(String, Probe)>)>,
     tries: u32,
     // links the app asked to open in the browser
@@ -258,6 +260,8 @@ impl Run {
             cache_guilds: None,
             slow: Vec::new(),
             blur: false,
+            memory: serde_json::Value::Null,
+            memory_at: None,
             probes: Vec::new(),
             tries: 0,
             opened: Vec::new(),
@@ -354,6 +358,37 @@ impl Run {
             self.costs.push(ms);
         }
         self.frames.push(ms);
+    }
+
+    /// For the bench, once a second: what wgpu's allocator holds, by allocation, and what each heap has committed.
+    pub fn memory(&mut self, device: &eframe::wgpu::Device) {
+        if self.bench.is_none() || self.memory_at.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        self.memory_at = Some(Instant::now());
+        let mb = |b: u64| (b as f64 / 1048576.0 * 10.0).round() / 10.0;
+        let gpu = device.generate_allocator_report().map(|r| {
+            let mut by: std::collections::HashMap<&str, u64> = Default::default();
+            for a in &r.allocations {
+                *by.entry(a.name.as_str()).or_default() += a.size;
+            }
+            let mut top: Vec<_> = by.into_iter().collect();
+            top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            let blocks: Vec<f64> = r.blocks.iter().map(|b| mb(b.size)).collect();
+            json!({ "allocated_mb": mb(r.total_allocated_bytes), "reserved_mb": mb(r.total_reserved_bytes), "blocks_mb": blocks,
+                    "top": top.iter().take(12).map(|(k, n)| json!([k, mb(*n)])).collect::<Vec<_>>() })
+        });
+        use windows_sys::Win32::System::Memory::{GetProcessHeaps, HEAP_SUMMARY, HeapSummary};
+        let mut heaps = vec![std::ptr::null_mut(); 64];
+        let n = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) } as usize;
+        let heaps: Vec<_> = heaps[..n.min(64)]
+            .iter()
+            .filter_map(|&h| {
+                let mut s = HEAP_SUMMARY { cb: std::mem::size_of::<HEAP_SUMMARY>() as u32, cbAllocated: 0, cbCommitted: 0, cbReserved: 0, cbMaxReserve: 0 };
+                (unsafe { HeapSummary(h, 0, &mut s) } != 0).then(|| json!([mb(s.cbAllocated as u64), mb(s.cbCommitted as u64)]))
+            })
+            .collect();
+        self.memory = json!({ "gpu": gpu, "heaps_allocated_committed_mb": heaps });
     }
 
     pub fn inject(&mut self, raw: &mut egui::RawInput) {
@@ -551,7 +586,7 @@ impl Run {
                 {
                     images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
                 }
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel });
+                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel, "memory": self.memory });
                 *io.out.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.to_string());
             }
             return;

@@ -233,6 +233,9 @@ impl eframe::App for App {
             }
         }
         if let Some(mut e) = self.e2e.take() {
+            if let Some(rs) = frame.wgpu_render_state() {
+                e.memory(&rs.device);
+            }
             e.step(self, &ctx);
             e.frame_time(started.elapsed());
             self.e2e = Some(e);
