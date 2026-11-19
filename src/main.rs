@@ -112,5 +112,7 @@ fn gpu(backends: eframe::wgpu::Backends) -> eframe::egui_wgpu::WgpuConfiguration
         let usable = |a: &&eframe::wgpu::Adapter| surface.is_none_or(|s| a.is_surface_supported(s));
         adapters.iter().filter(usable).min_by_key(|a| a.get_info().device_type == DeviceType::Cpu).cloned().ok_or_else(|| "no gpu adapter".into())
     }));
+    let device = setup.device_descriptor.clone();
+    setup.device_descriptor = std::sync::Arc::new(move |a| eframe::wgpu::DeviceDescriptor { memory_hints: eframe::wgpu::MemoryHints::MemoryUsage, ..device(a) });
     eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: WgpuSetup::CreateNew(setup), ..Default::default() }
 }
