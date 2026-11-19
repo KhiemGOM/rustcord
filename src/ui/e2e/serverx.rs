@@ -215,6 +215,9 @@ impl Run {
                 }
                 self.shot(ctx, "viewas_bar.png");
                 self.mark("viewas_on");
+                if rect(app, "viewas:back").is_some_and(|b| (b.left() - 88.0).abs() < 0.6) {
+                    self.mark("viewas_notice_slot");
+                }
                 let Some(r) = rect(app, "viewas:disable") else { return };
                 self.click(r.center());
                 self.next(500);

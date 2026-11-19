@@ -2,7 +2,7 @@
 //! kept while test mode is on.
 
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Align, Frame, Margin, Rect, Sense, Ui, pos2, vec2};
+use egui::{Align, CornerRadius, Frame, Margin, Rect, Sense, Ui, pos2, vec2};
 
 use super::modals::{Act, dialog as show, label};
 use super::{dropdown, mark, toggle};
@@ -93,8 +93,8 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
 }
 
 /// The strip across the top while an application is in test mode; its close button ends the mode.
-pub fn banner(app: &mut App, ui: &mut Ui) {
-    let Some(name) = app.settings.test_app.as_ref().map(|a| a.id.clone()) else { return };
+pub fn banner(app: &mut App, ui: &mut Ui) -> bool {
+    let Some(name) = app.settings.test_app.as_ref().map(|a| a.id.clone()) else { return false };
     let [fill, ink] = pal().notice;
     let mut job = LayoutJob::default();
     job.halign = Align::Center;
@@ -109,7 +109,7 @@ pub fn banner(app: &mut App, ui: &mut Ui) {
     egui::Panel::top("test_mode_banner")
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(fill).inner_margin(Margin { left: 40, right: 40, top: 9, bottom: 9 }))
+        .frame(Frame::new().fill(fill).corner_radius(CornerRadius { nw: 8, ..CornerRadius::ZERO }).inner_margin(Margin { left: 40, right: 40, top: 9, bottom: 9 }))
         .show(ui, |ui| {
             let w = ui.available_width();
             job.wrap.max_width = w;
@@ -121,6 +121,7 @@ pub fn banner(app: &mut App, ui: &mut Ui) {
             let resp = ui.interact(hit, egui::Id::new("test_mode_close"), Sense::click());
             icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(hit.center(), vec2(16.0, 16.0)), ink);
             mark(ui, "test_mode:close", hit);
+            mark(ui, "test_mode:inner", full);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -130,4 +131,5 @@ pub fn banner(app: &mut App, ui: &mut Ui) {
         app.settings.test_app = None;
         app.save_settings(ui.ctx());
     }
+    true
 }

@@ -44,6 +44,7 @@ def checks(runs, reqs, data):
             and both("joins_approved") and both("joins_rejected") and both("joins_rejected_with_reason") and both("joins_gateway_create") and both("joins_sort")
             and any(b.get("action") == "APPROVED" for b in patches) and any(b.get("action") == "REJECTED" and b.get("rejection_reason") == "please read the rules first" for b in patches),
         "serverx: View Server as Role replaced the owner's permissions under its bar and Disable put them back": both("viewas_on") and both("viewas_off"),
+        "serverx: View Server as Role's bar sits in discord's notice slot, right of the rail": both("viewas_notice_slot"),
             "serverx: a linked role's Steam requirement saved with its Games field, operator and value": both("linked_fields")
             and any(e.get("connection_type") == "steam" and "connection_metadata_field" not in e for e in links)
             and any(e.get("connection_metadata_field") == "game_count" and e.get("operator") == 4 and e.get("value") == "0" for e in links),

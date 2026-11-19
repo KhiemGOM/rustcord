@@ -47,8 +47,8 @@ fn outlined(ui: &mut Ui, label: &str, back: bool) -> egui::Response {
     resp
 }
 
-pub fn bar(app: &mut App, ui: &mut Ui) {
-    let Some((gid, picked)) = app.store.viewing.clone() else { return };
+pub fn bar(app: &mut App, ui: &mut Ui) -> bool {
+    let Some((gid, picked)) = app.store.viewing.clone() else { return false };
     let mut back = false;
     let mut off = false;
     let mut toggle = None;
@@ -60,7 +60,7 @@ pub fn bar(app: &mut App, ui: &mut Ui) {
         .exact_size(40.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().blurple).inner_margin(egui::Margin::symmetric(16, 0)))
+        .frame(Frame::new().fill(pal().blurple).corner_radius(egui::CornerRadius { nw: 8, ..egui::CornerRadius::ZERO }).inner_margin(egui::Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;
@@ -107,4 +107,5 @@ pub fn bar(app: &mut App, ui: &mut Ui) {
     } else if off {
         app.store.viewing = None;
     }
+    true
 }
