@@ -220,7 +220,7 @@ impl Run {
                 app.emoji_studio = None;
                 app.profile = None;
                 app.quests = None;
-                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 3110 };
+                self.step = if std::env::var_os("RUSTCORD_E2E_TO").is_some() { 9999 } else { 5450 };
             }
         }
     }
