@@ -161,6 +161,9 @@ pub use {egui_glow, glow};
 #[cfg(feature = "wgpu_no_default_features")]
 pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui_wgpu::wgpu};
 
+#[cfg(feature = "d3d11")]
+pub use native::d3d11::{device_resets, lose_device};
+
 mod epi;
 
 // Re-export everything in `epi` so `eframe` users don't have to care about what `epi` is:

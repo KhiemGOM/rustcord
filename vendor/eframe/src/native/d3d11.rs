@@ -1,11 +1,22 @@
 //! egui on Direct3D 11: one device for every viewport, a flip-model swapchain per window.
 //! Draws exactly as egui-wgpu does into a gamma-space framebuffer (`d3d11.hlsl`).
+//! Each texture keeps its pixels (the font atlas's are egui's), so when the device is lost (a
+//! driver update or reset) the painter makes a new one and puts every window and texture back
+//! without the app's help.
 #![allow(unsafe_code)]
 
-use std::{cell::RefCell, num::NonZeroU32, sync::Arc, time::Instant};
+use std::{
+    cell::RefCell,
+    num::NonZeroU32,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering::Relaxed},
+    },
+    time::{Duration, Instant},
+};
 
 use ahash::HashMap;
-use egui::{TextureId, UserData, ViewportId, ViewportIdSet, epaint};
+use egui::{ColorImage, TextureId, UserData, ViewportId, ViewportIdSet, epaint};
 use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
 use windows::{
     Win32::{
@@ -29,16 +40,32 @@ const MAX_TEXTURE_SIDE: usize = 8192;
 
 pub type Error = windows::core::Error;
 
+static LOSE: AtomicBool = AtomicBool::new(false);
+static RESETS: AtomicU32 = AtomicU32::new(0);
+
+/// Acts on the next frame as if the device had been lost, for a test to see the recovery.
+pub fn lose_device() {
+    LOSE.store(true, Relaxed);
+}
+
+/// How many times the painter has made a new device after losing one.
+pub fn device_resets() -> u32 {
+    RESETS.load(Relaxed)
+}
+
 struct Surface {
+    hwnd: HWND,
     swapchain: IDXGISwapChain1,
     target: Option<ID3D11RenderTargetView>,
     size: [u32; 2],
 }
 
 struct Texture {
-    texture: ID3D11Texture2D,
-    view: ID3D11ShaderResourceView,
+    // None while the device is lost
+    gpu: Option<(ID3D11Texture2D, ID3D11ShaderResourceView)>,
     options: epaint::textures::TextureOptions,
+    // None for the font atlas, which egui keeps whole
+    image: Option<Arc<ColorImage>>,
 }
 
 struct Buffer {
@@ -46,8 +73,8 @@ struct Buffer {
     capacity: usize,
 }
 
-pub struct Painter {
-    egui_ctx: egui::Context,
+/// Everything that belongs to one device and goes when it's lost.
+struct Gpu {
     device: ID3D11Device,
     ctx: ID3D11DeviceContext,
     factory: IDXGIFactory2,
@@ -57,13 +84,21 @@ pub struct Painter {
     blend: ID3D11BlendState,
     raster: ID3D11RasterizerState,
     locals: ID3D11Buffer,
+}
+
+pub struct Painter {
+    egui_ctx: egui::Context,
+    gpu: Gpu,
     vertices: Option<Buffer>,
     indices: Option<Buffer>,
     surfaces: HashMap<ViewportId, Surface>,
     textures: HashMap<TextureId, Texture>,
     samplers: HashMap<epaint::textures::TextureOptions, ID3D11SamplerState>,
     dithering: bool,
-    captured: RefCell<Vec<(ViewportId, Vec<UserData>, Arc<egui::ColorImage>)>>,
+    lost: bool,
+    // windows waiting for a swapchain on the new device
+    orphans: HashMap<ViewportId, (HWND, [u32; 2])>,
+    captured: RefCell<Vec<(ViewportId, Vec<UserData>, Arc<ColorImage>)>>,
 }
 
 fn device(kind: D3D_DRIVER_TYPE) -> windows::core::Result<(ID3D11Device, ID3D11DeviceContext)> {
@@ -75,8 +110,8 @@ fn device(kind: D3D_DRIVER_TYPE) -> windows::core::Result<(ID3D11Device, ID3D11D
     Ok((device.ok_or_else(Error::empty)?, ctx.ok_or_else(Error::empty)?))
 }
 
-impl Painter {
-    pub fn new(egui_ctx: egui::Context, dithering: bool) -> Result<Self, Error> {
+impl Gpu {
+    fn new() -> windows::core::Result<Self> {
         let (device, ctx) = device(D3D_DRIVER_TYPE_HARDWARE).or_else(|err| {
             log::warn!("no Direct3D 11 hardware device ({err}), drawing with WARP");
             device(D3D_DRIVER_TYPE_WARP)
@@ -84,8 +119,6 @@ impl Painter {
         let dxgi: IDXGIDevice1 = device.cast()?;
         unsafe { dxgi.SetMaximumFrameLatency(2)? };
         let factory: IDXGIFactory2 = unsafe { dxgi.GetAdapter()?.GetParent()? };
-
-        let (mut vs, mut ps, mut layout) = (None, None, None);
         let element = |name: PCSTR, format, offset| D3D11_INPUT_ELEMENT_DESC {
             SemanticName: name,
             SemanticIndex: 0,
@@ -100,7 +133,7 @@ impl Painter {
             element(s!("TEXCOORD"), DXGI_FORMAT_R32G32_FLOAT, 8),
             element(s!("COLOR"), DXGI_FORMAT_R8G8B8A8_UNORM, 16),
         ];
-        let (mut blend, mut raster, mut locals) = (None, None, None);
+        let (mut vs, mut ps, mut layout, mut blend, mut raster, mut locals) = (None, None, None, None, None, None);
         unsafe {
             device.CreateVertexShader(VS, None, Some(&mut vs))?;
             device.CreatePixelShader(PS, None, Some(&mut ps))?;
@@ -135,7 +168,6 @@ impl Painter {
             device.CreateBuffer(&l, None, Some(&mut locals))?;
         }
         Ok(Self {
-            egui_ctx,
             device,
             ctx,
             factory,
@@ -145,12 +177,66 @@ impl Painter {
             blend: blend.ok_or_else(Error::empty)?,
             raster: raster.ok_or_else(Error::empty)?,
             locals: locals.ok_or_else(Error::empty)?,
+        })
+    }
+
+    fn swapchain(&self, hwnd: HWND, size: [u32; 2]) -> windows::core::Result<IDXGISwapChain1> {
+        let desc = DXGI_SWAP_CHAIN_DESC1 {
+            Width: size[0],
+            Height: size[1],
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            BufferCount: 2,
+            SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+            ..Default::default()
+        };
+        let swapchain = unsafe { self.factory.CreateSwapChainForHwnd(&self.device, hwnd, &desc, None, None)? };
+        unsafe { self.factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)? };
+        Ok(swapchain)
+    }
+
+    fn texture(&self, image: &ColorImage) -> windows::core::Result<(ID3D11Texture2D, ID3D11ShaderResourceView)> {
+        let [w, h] = image.size;
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: w as u32,
+            Height: h as u32,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            ..Default::default()
+        };
+        let data = D3D11_SUBRESOURCE_DATA { pSysMem: image.pixels.as_ptr().cast(), SysMemPitch: (w * 4) as u32, SysMemSlicePitch: 0 };
+        let (mut texture, mut view) = (None, None);
+        unsafe {
+            self.device.CreateTexture2D(&desc, Some(&data), Some(&mut texture))?;
+            let texture = texture.as_ref().ok_or_else(Error::empty)?;
+            self.device.CreateShaderResourceView(texture, None, Some(&mut view))?;
+        }
+        Ok((texture.ok_or_else(Error::empty)?, view.ok_or_else(Error::empty)?))
+    }
+}
+
+fn removed(err: &Error) -> bool {
+    err.code() == DXGI_ERROR_DEVICE_REMOVED || err.code() == DXGI_ERROR_DEVICE_RESET
+}
+
+impl Painter {
+    pub fn new(egui_ctx: egui::Context, dithering: bool) -> Result<Self, Error> {
+        Ok(Self {
+            egui_ctx,
+            gpu: Gpu::new()?,
             vertices: None,
             indices: None,
             surfaces: Default::default(),
             textures: Default::default(),
             samplers: Default::default(),
             dithering,
+            lost: false,
+            orphans: Default::default(),
             captured: Default::default(),
         })
     }
@@ -173,19 +259,8 @@ impl Painter {
         let hwnd = HWND(handle.hwnd.get() as _);
         let size = window.inner_size();
         let size = [size.width.max(1), size.height.max(1)];
-        let desc = DXGI_SWAP_CHAIN_DESC1 {
-            Width: size[0],
-            Height: size[1],
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            BufferCount: 2,
-            SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
-            ..Default::default()
-        };
-        let swapchain = unsafe { self.factory.CreateSwapChainForHwnd(&self.device, hwnd, &desc, None, None)? };
-        unsafe { self.factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)? };
-        self.surfaces.insert(viewport_id, Surface { swapchain, target: None, size });
+        let swapchain = self.gpu.swapchain(hwnd, size)?;
+        self.surfaces.insert(viewport_id, Surface { hwnd, swapchain, target: None, size });
         Ok(())
     }
 
@@ -200,10 +275,10 @@ impl Painter {
             return;
         }
         surface.target = None;
-        unsafe { self.ctx.OMSetRenderTargets(None, None) };
+        unsafe { self.gpu.ctx.OMSetRenderTargets(None, None) };
         if let Err(err) = unsafe { surface.swapchain.ResizeBuffers(0, size[0], size[1], DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0)) } {
             log::error!("ResizeBuffers: {err}");
-            return;
+            self.lost |= removed(&err);
         }
         surface.size = size;
     }
@@ -218,12 +293,13 @@ impl Painter {
 
     pub fn gc_viewports(&mut self, active: &ViewportIdSet) {
         self.surfaces.retain(|id, _| active.contains(id));
+        self.orphans.retain(|id, _| active.contains(id));
     }
 
     pub fn destroy(&mut self) {
         self.surfaces.clear();
         self.textures.clear();
-        unsafe { self.ctx.ClearState() };
+        unsafe { self.gpu.ctx.ClearState() };
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -237,21 +313,71 @@ impl Painter {
         capture: Vec<UserData>,
         _window: &Arc<winit::window::Window>,
     ) -> f32 {
+        if LOSE.swap(false, Relaxed) || unsafe { self.gpu.device.GetDeviceRemovedReason() }.is_err() {
+            self.lost = true;
+        }
+        if self.lost {
+            if let Err(err) = self.recover() {
+                log::error!("no new Direct3D 11 device yet: {err}");
+                self.egui_ctx.request_repaint_after(Duration::from_secs(1));
+            }
+        }
         for (id, deltas) in textures_delta.set.drain() {
             for delta in deltas {
                 if let Err(err) = self.update_texture(id, &delta) {
                     log::error!("texture {id:?}: {err}");
+                    self.lost |= removed(&err);
                 }
             }
         }
-        let vsync = self.paint(viewport_id, pixels_per_point, clear_color, clipped_primitives, capture).unwrap_or_else(|err| {
-            log::error!("paint: {err}");
+        let vsync = if self.lost {
             0.0
-        });
+        } else {
+            self.paint(viewport_id, pixels_per_point, clear_color, clipped_primitives, capture).unwrap_or_else(|err| {
+                log::error!("paint: {err}");
+                if removed(&err) {
+                    self.lost = true;
+                    self.egui_ctx.request_repaint();
+                }
+                0.0
+            })
+        };
         for id in textures_delta.free.drain() {
             self.textures.remove(&id);
         }
         vsync
+    }
+
+    /// A new device, and on it every window's swapchain and every texture as they were.
+    fn recover(&mut self) -> windows::core::Result<()> {
+        log::warn!("the Direct3D 11 device was lost, making a new one");
+        self.orphans.extend(self.surfaces.drain().map(|(id, s)| (id, (s.hwnd, s.size))));
+        self.samplers.clear();
+        self.vertices = None;
+        self.indices = None;
+        unsafe {
+            self.gpu.ctx.ClearState();
+            self.gpu.ctx.Flush();
+        }
+        let gpu = Gpu::new()?;
+        for (id, t) in &mut self.textures {
+            let image = match &t.image {
+                Some(image) => Arc::clone(image),
+                None if *id == TextureId::default() => Arc::new(self.egui_ctx.fonts(|f| f.image())),
+                None => continue,
+            };
+            t.gpu = Some(gpu.texture(&image)?);
+        }
+        for (&id, &(hwnd, size)) in &self.orphans {
+            let swapchain = gpu.swapchain(hwnd, size)?;
+            self.surfaces.insert(id, Surface { hwnd, swapchain, target: None, size });
+        }
+        self.orphans.clear();
+        self.gpu = gpu;
+        self.lost = false;
+        RESETS.fetch_add(1, Relaxed);
+        self.egui_ctx.request_repaint();
+        Ok(())
     }
 
     fn update_texture(&mut self, id: TextureId, delta: &epaint::ImageDelta) -> windows::core::Result<()> {
@@ -260,36 +386,29 @@ impl Painter {
         if w == 0 || h == 0 {
             return Ok(());
         }
-        let pixels = raw(&image.pixels);
         if let Some(pos) = delta.pos {
             let Some(t) = self.textures.get_mut(&id) else {
                 return Ok(());
             };
-            let area = D3D11_BOX { left: pos[0] as u32, top: pos[1] as u32, front: 0, right: (pos[0] + w) as u32, bottom: (pos[1] + h) as u32, back: 1 };
-            unsafe { self.ctx.UpdateSubresource(&t.texture, 0, Some(&area), pixels.as_ptr().cast(), (w * 4) as u32, 0) };
+            if let Some((texture, _)) = &t.gpu {
+                let area = D3D11_BOX { left: pos[0] as u32, top: pos[1] as u32, front: 0, right: (pos[0] + w) as u32, bottom: (pos[1] + h) as u32, back: 1 };
+                unsafe { self.gpu.ctx.UpdateSubresource(texture, 0, Some(&area), image.pixels.as_ptr().cast(), (w * 4) as u32, 0) };
+            }
+            if let Some(whole) = &mut t.image {
+                let whole = Arc::make_mut(whole);
+                let width = whole.size[0];
+                for (y, row) in image.pixels.chunks_exact(w).enumerate() {
+                    let at = (pos[1] + y) * width + pos[0];
+                    whole.pixels[at..at + w].copy_from_slice(row);
+                }
+            }
             t.options = delta.options;
             return Ok(());
         }
-        let desc = D3D11_TEXTURE2D_DESC {
-            Width: w as u32,
-            Height: h as u32,
-            MipLevels: 1,
-            ArraySize: 1,
-            Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            Usage: D3D11_USAGE_DEFAULT,
-            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
-            ..Default::default()
-        };
-        let data = D3D11_SUBRESOURCE_DATA { pSysMem: pixels.as_ptr().cast(), SysMemPitch: (w * 4) as u32, SysMemSlicePitch: 0 };
-        let (mut texture, mut view) = (None, None);
-        unsafe {
-            self.device.CreateTexture2D(&desc, Some(&data), Some(&mut texture))?;
-            let texture = texture.as_ref().ok_or_else(Error::empty)?;
-            self.device.CreateShaderResourceView(texture, None, Some(&mut view))?;
-        }
-        self.textures.insert(id, Texture { texture: texture.ok_or_else(Error::empty)?, view: view.ok_or_else(Error::empty)?, options: delta.options });
-        Ok(())
+        let made = self.gpu.texture(image);
+        let image = (id != TextureId::default()).then(|| Arc::clone(image));
+        self.textures.insert(id, Texture { gpu: made.as_ref().ok().cloned(), options: delta.options, image });
+        made.map(|_| ())
     }
 
     fn sampler(&mut self, options: epaint::textures::TextureOptions) -> windows::core::Result<ID3D11SamplerState> {
@@ -319,7 +438,7 @@ impl Painter {
             ..Default::default()
         };
         let mut s = None;
-        unsafe { self.device.CreateSamplerState(&desc, Some(&mut s))? };
+        unsafe { self.gpu.device.CreateSamplerState(&desc, Some(&mut s))? };
         let s = s.ok_or_else(Error::empty)?;
         self.samplers.insert(options, s.clone());
         Ok(s)
@@ -338,19 +457,19 @@ impl Painter {
                 ..Default::default()
             };
             let mut buffer = None;
-            unsafe { self.device.CreateBuffer(&desc, None, Some(&mut buffer))? };
+            unsafe { self.gpu.device.CreateBuffer(&desc, None, Some(&mut buffer))? };
             *slot = Some(Buffer { buffer: buffer.ok_or_else(Error::empty)?, capacity });
         }
         let buffer = slot.as_ref().ok_or_else(Error::empty)?.buffer.clone();
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
-            self.ctx.Map(&buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut mapped))?;
+            self.gpu.ctx.Map(&buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut mapped))?;
             let mut at = mapped.pData.cast::<u8>();
             for p in parts {
                 std::ptr::copy_nonoverlapping(p.as_ptr(), at, p.len());
                 at = at.add(p.len());
             }
-            self.ctx.Unmap(&buffer, 0);
+            self.gpu.ctx.Unmap(&buffer, 0);
         }
         Ok(buffer)
     }
@@ -362,7 +481,7 @@ impl Painter {
         if surface.target.is_none() {
             let back: ID3D11Texture2D = unsafe { surface.swapchain.GetBuffer(0)? };
             let mut target = None;
-            unsafe { self.device.CreateRenderTargetView(&back, None, Some(&mut target))? };
+            unsafe { self.gpu.device.CreateRenderTargetView(&back, None, Some(&mut target))? };
             surface.target = target;
         }
         let size = surface.size;
@@ -383,20 +502,21 @@ impl Painter {
         locals[0..4].copy_from_slice(&(size[0] as f32 / ppp).to_le_bytes());
         locals[4..8].copy_from_slice(&(size[1] as f32 / ppp).to_le_bytes());
         locals[8..12].copy_from_slice(&u32::from(self.dithering).to_le_bytes());
-        write(&self.ctx, &self.locals, &locals)?;
+        let g = &self.gpu;
+        write(&g.ctx, &g.locals, &locals)?;
 
         unsafe {
-            self.ctx.OMSetRenderTargets(Some(&[Some(target.clone())]), None);
-            self.ctx.ClearRenderTargetView(&target, &clear_color);
-            self.ctx.RSSetViewports(Some(&[D3D11_VIEWPORT { TopLeftX: 0.0, TopLeftY: 0.0, Width: size[0] as f32, Height: size[1] as f32, MinDepth: 0.0, MaxDepth: 1.0 }]));
-            self.ctx.RSSetState(&self.raster);
-            self.ctx.OMSetBlendState(&self.blend, Some(&[0.0; 4]), u32::MAX);
-            self.ctx.IASetInputLayout(&self.layout);
-            self.ctx.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            self.ctx.VSSetShader(&self.vs, None);
-            self.ctx.PSSetShader(&self.ps, None);
-            self.ctx.VSSetConstantBuffers(0, Some(&[Some(self.locals.clone())]));
-            self.ctx.PSSetConstantBuffers(0, Some(&[Some(self.locals.clone())]));
+            g.ctx.OMSetRenderTargets(Some(&[Some(target.clone())]), None);
+            g.ctx.ClearRenderTargetView(&target, &clear_color);
+            g.ctx.RSSetViewports(Some(&[D3D11_VIEWPORT { TopLeftX: 0.0, TopLeftY: 0.0, Width: size[0] as f32, Height: size[1] as f32, MinDepth: 0.0, MaxDepth: 1.0 }]));
+            g.ctx.RSSetState(&g.raster);
+            g.ctx.OMSetBlendState(&g.blend, Some(&[0.0; 4]), u32::MAX);
+            g.ctx.IASetInputLayout(&g.layout);
+            g.ctx.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            g.ctx.VSSetShader(&g.vs, None);
+            g.ctx.PSSetShader(&g.ps, None);
+            g.ctx.VSSetConstantBuffers(0, Some(&[Some(g.locals.clone())]));
+            g.ctx.PSSetConstantBuffers(0, Some(&[Some(g.locals.clone())]));
         }
 
         if indices.iter().any(|i| !i.is_empty()) {
@@ -404,8 +524,8 @@ impl Painter {
             let ib = self.fill(true, &indices)?;
             let stride = std::mem::size_of::<epaint::Vertex>() as u32;
             unsafe {
-                self.ctx.IASetVertexBuffers(0, 1, Some(&Some(vb)), Some(&stride), Some(&0));
-                self.ctx.IASetIndexBuffer(&ib, DXGI_FORMAT_R32_UINT, 0);
+                self.gpu.ctx.IASetVertexBuffers(0, 1, Some(&Some(vb)), Some(&stride), Some(&0));
+                self.gpu.ctx.IASetIndexBuffer(&ib, DXGI_FORMAT_R32_UINT, 0);
             }
             let (mut first_index, mut first_vertex) = (0u32, 0i32);
             let (mut bound, mut options, mut clipped) = (None, None, None);
@@ -414,23 +534,25 @@ impl Painter {
                 let r = scissor(clip, ppp, size);
                 if r.right > r.left && r.bottom > r.top
                     && let Some(t) = self.textures.get(&mesh.texture_id)
+                    && let Some((_, view)) = &t.gpu
                 {
-                    let (view, opts) = (t.view.clone(), t.options);
+                    let (view, opts) = (view.clone(), t.options);
                     if options != Some(opts) {
                         let sampler = self.sampler(opts)?;
-                        unsafe { self.ctx.PSSetSamplers(0, Some(&[Some(sampler)])) };
+                        unsafe { self.gpu.ctx.PSSetSamplers(0, Some(&[Some(sampler)])) };
                         options = Some(opts);
                     }
+                    let ctx = &self.gpu.ctx;
                     unsafe {
                         if bound != Some(mesh.texture_id) {
-                            self.ctx.PSSetShaderResources(0, Some(&[Some(view)]));
+                            ctx.PSSetShaderResources(0, Some(&[Some(view)]));
                             bound = Some(mesh.texture_id);
                         }
                         if clipped != Some((r.left, r.top, r.right, r.bottom)) {
-                            self.ctx.RSSetScissorRects(Some(&[r]));
+                            ctx.RSSetScissorRects(Some(&[r]));
                             clipped = Some((r.left, r.top, r.right, r.bottom));
                         }
-                        self.ctx.DrawIndexed(count, first_index, first_vertex);
+                        ctx.DrawIndexed(count, first_index, first_vertex);
                     }
                 }
                 first_index += count;
@@ -453,7 +575,8 @@ impl Painter {
         Ok(start.elapsed().as_secs_f32())
     }
 
-    fn read_back(&self, swapchain: &IDXGISwapChain1, size: [u32; 2]) -> windows::core::Result<egui::ColorImage> {
+    fn read_back(&self, swapchain: &IDXGISwapChain1, size: [u32; 2]) -> windows::core::Result<ColorImage> {
+        let (device, ctx) = (&self.gpu.device, &self.gpu.ctx);
         let back: ID3D11Texture2D = unsafe { swapchain.GetBuffer(0)? };
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { back.GetDesc(&mut desc) };
@@ -462,12 +585,12 @@ impl Painter {
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
         desc.MiscFlags = 0;
         let mut staging = None;
-        unsafe { self.device.CreateTexture2D(&desc, None, Some(&mut staging))? };
+        unsafe { device.CreateTexture2D(&desc, None, Some(&mut staging))? };
         let staging = staging.ok_or_else(Error::empty)?;
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
-            self.ctx.CopyResource(&staging, &back);
-            self.ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+            ctx.CopyResource(&staging, &back);
+            ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
         }
         let [w, h] = [size[0] as usize, size[1] as usize];
         let mut pixels = Vec::with_capacity(w * h);
@@ -475,8 +598,8 @@ impl Painter {
             let row = unsafe { std::slice::from_raw_parts(mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize), w * 4) };
             pixels.extend(row.chunks_exact(4).map(|c| egui::Color32::from_rgba_premultiplied(c[2], c[1], c[0], c[3])));
         }
-        unsafe { self.ctx.Unmap(&staging, 0) };
-        Ok(egui::ColorImage::new([w, h], pixels))
+        unsafe { ctx.Unmap(&staging, 0) };
+        Ok(ColorImage::new([w, h], pixels))
     }
 }
 

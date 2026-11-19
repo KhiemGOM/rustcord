@@ -172,10 +172,17 @@ mod wgpu_integration;""", """#[cfg(feature = "wgpu_no_default_features")]
 mod wgpu_integration;
 
 #[cfg(feature = "d3d11")]
-mod d3d11;
+pub(crate) mod d3d11;
 
 #[cfg(feature = "d3d11")]
 mod d3d11_integration;"""))
+
+edit("src/lib.rs", ("""#[cfg(feature = "wgpu_no_default_features")]
+pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui_wgpu::wgpu};""", """#[cfg(feature = "wgpu_no_default_features")]
+pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui_wgpu::wgpu};
+
+#[cfg(feature = "d3d11")]
+pub use native::d3d11::{device_resets, lose_device};"""))
 s = (DST / "src/native/wgpu_integration.rs").read_text(encoding="utf-8")
 start = s.index("        // Inject the display handle into the wgpu setup")
 end = s.index("        let mut viewport_info = ViewportInfo::default();")

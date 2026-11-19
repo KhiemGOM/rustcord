@@ -19,7 +19,7 @@ mod glow_integration;
 mod wgpu_integration;
 
 #[cfg(feature = "d3d11")]
-mod d3d11;
+pub(crate) mod d3d11;
 
 #[cfg(feature = "d3d11")]
 mod d3d11_integration;
