@@ -447,6 +447,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     }, |i, hot| {
                         let (e, ok) = customs[i];
+                        if first.is_some() && !hot && (best.is_some() || !*ok) {
+                            return;
+                        }
                         let it = (e.url(), format!(":{}:", e.name), Some(if *ok { format!("from {name}") } else { "Needs Nitro or a role here".into() }));
                         if first.is_none() {
                             first = Some(it.clone());
@@ -475,6 +478,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }, |i| {
                         chosen = Some(Chosen::Unicode(uni[i].0));
                     }, |i, hot| {
+                        if first.is_some() && best.is_some() && !hot {
+                            return;
+                        }
                         let it = (twemoji(uni[i].0), format!(":{}:", uni[i].1), None);
                         if first.is_none() {
                             first = Some(it.clone());
@@ -716,7 +722,34 @@ fn grid(
 ) {
     let cols = 9;
     let cell = 48.0;
-    for row in 0..n.div_ceil(cols) {
+    let rows = n.div_ceil(cols);
+    let origin = ui.cursor().min;
+    let clip = ui.clip_rect();
+    let seen = |row: usize| {
+        let y = origin.y + row as f32 * cell;
+        y + cell >= clip.top() && y <= clip.bottom()
+    };
+    let mut row = 0;
+    while row < rows {
+        // rows off screen are one block of space: an account's servers come to tens of thousands
+        // of cells, and laying each out cost 9 ms a frame
+        if !seen(row) {
+            let run = (row..rows).take_while(|r| !seen(*r)).count();
+            for i in row * cols..((row + run) * cols).min(n) {
+                let r = Rect::from_min_size(origin + vec2(8.0 + (i % cols) as f32 * cell, (i / cols) as f32 * cell), vec2(cell, cell));
+                let on = kbd.sel == Some(base + i);
+                if base + i == 0 {
+                    super::settings::mark(ui, "emoji0", r);
+                }
+                if on && kbd.moved {
+                    ui.scroll_to_rect(r, None);
+                }
+                hover(i, on && kbd.moved);
+            }
+            ui.allocate_exact_size(vec2(8.0 + cols as f32 * cell, run as f32 * cell), Sense::hover());
+            row += run;
+            continue;
+        }
         ui.horizontal(|ui| {
             ui.add_space(8.0);
             for c in 0..cols {
@@ -749,6 +782,7 @@ fn grid(
                 }
             }
         });
+        row += 1;
     }
 }
 
