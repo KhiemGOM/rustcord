@@ -405,6 +405,16 @@ impl Painter {
             t.options = delta.options;
             return Ok(());
         }
+        if let Some(t) = self.textures.get_mut(&id) {
+            if let (Some((texture, _)), Some(old)) = (&t.gpu, &t.image) {
+                if old.size == image.size {
+                    unsafe { self.gpu.ctx.UpdateSubresource(texture, 0, None, image.pixels.as_ptr().cast(), (w * 4) as u32, 0) };
+                    t.image = Some(Arc::clone(image));
+                    t.options = delta.options;
+                    return Ok(());
+                }
+            }
+        }
         let made = self.gpu.texture(image);
         let image = (id != TextureId::default()).then(|| Arc::clone(image));
         self.textures.insert(id, Texture { gpu: made.as_ref().ok().cloned(), options: delta.options, image });
