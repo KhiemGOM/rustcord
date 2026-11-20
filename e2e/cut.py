@@ -24,8 +24,8 @@ CHART = (24, 1196, W - 24, 1416)
 BG, PANEL, TEXT, DIM, GRID = (17, 18, 20), (30, 31, 34), (242, 243, 245), (148, 155, 164), (52, 54, 59)
 NAMES = ("Rustcord", "Discord")
 COLOR = {"Rustcord": (232, 116, 59), "Discord": (88, 101, 242)}
-PHASES = [("scroll", "Scrolling the chat"), ("channels", "Switching channels"), ("servers", "Switching servers"),
-          ("switcher", "The quick switcher"), ("emoji", "The emoji picker"), ("idle", "Sitting idle"), ("minimized", "Minimized")]
+PHASES = [("scroll", "Scrolling the chat"), ("switcher", "The quick switcher"), ("emoji", "The emoji picker"),
+          ("channels", "Switching channels"), ("servers", "Switching servers"), ("idle", "Sitting idle"), ("minimized", "Minimized")]
 
 
 def font(size, bold=False):
@@ -81,7 +81,12 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-"]
     for tk, s in zip(takes, starts):
         args += ["-ss", f"{s:.3f}", "-i", str(tk.video)]
-    clip = lambda i: f"[{i + 1}:v]crop={w}:{h}:{x}:{y},scale={VW}:{VH},fps={FPS},tpad=stop_mode=clone:stop_duration={secs + 1}[v{i}]"
+    # before the app's window appears, its crop is the desktop behind it; black that out so a cold
+    # launch never shows what was on screen first.
+    appear = lambda tk, s: max(0.0, next((tk.ev[e] for e in ("first_window", "main_window", "settled") if e in tk.ev), s) - s)
+    blk = [appear(tk, s) if launch else 0.0 for tk, s in zip(takes, starts)]
+    box = lambda i: f",drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='lt(t\\,{blk[i]:.3f})'" if blk[i] > 0 else ""
+    clip = lambda i: f"[{i + 1}:v]crop={w}:{h}:{x}:{y},scale={VW}:{VH}{box(i)},fps={FPS},tpad=stop_mode=clone:stop_duration={secs + 1}[v{i}]"
     graph = f"{clip(0)};{clip(1)};[0:v][v0]overlay={VX[0]}:{VY}[a];[a][v1]overlay={VX[1]}:{VY}"
     ff = subprocess.Popen(args + ["-filter_complex", graph, "-frames:v", str(n), *ENCODE, "-r", str(FPS), "-y", str(out)], stdin=subprocess.PIPE)
 

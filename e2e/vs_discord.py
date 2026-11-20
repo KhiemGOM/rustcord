@@ -7,14 +7,17 @@
 prep checks Rustcord's saved login, copies its data dir (the run is read-only and leaves the real one
 alone), and takes Discord off Windows startup so its first launch after the restart is as cold as
 Rustcord's. run puts it back. Discord runs stock: Vencord's 200-byte app.asar is set aside for the run
-and put back after it, along with the startup entry. Run it straight after the restart with nothing else open: it takes
+and hardware acceleration is switched on if it was off (off, Discord draws on the CPU and holds no
+video memory, which is not what it ships as); both are put back after it, along with the startup entry. Run it straight after the restart with nothing else open: it takes
 real mouse and keyboard input and puts each client in front at the same size, because Chromium stops
 drawing a covered window.
 
 Each client opens the same channel through a discord:// link and is timed from launch to its first
 window, its main window, and its picture settling (under 1% of it changing for 1.5 s). Then one
-session each: idle, scrolling the chat with the wheel, Alt+Down through channels, Ctrl+Alt+Down
-through servers, the quick switcher, the emoji picker, minimized. CPU and
+session each: Esc first (Discord opens on its What's New after an update, and the wheel would scroll
+that), then idle, scrolling the chat with the wheel, the quick switcher and the emoji picker (both
+while still in the channel the link opened, where posting is allowed: Discord opens no picker where
+it isn't), Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
 --record also films every launch into footage/ next to them (see footage.py); the encoder works on the
@@ -40,6 +43,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "e2e" / "artifacts" / "vs-discord"
 DATA = OUT / "rustcord-data"
 SAVED_RUN = OUT / "discord-run-key.json"
+SAVED_HW = OUT / "discord-hardware-off"
+SETTINGS = Path(os.environ["APPDATA"]) / "discord" / "settings.json"
 LOCAL = Path(os.environ["LOCALAPPDATA"])
 DISCORD = LOCAL / "Discord"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -259,7 +264,7 @@ def gpu(pids, secs):
     for i, name in enumerate(head):
         if not any(t in name for t in tags):
             continue
-        vals = [float(r[i]) for r in samples if i < len(r) and r[i].strip() not in ("", " ")]
+        vals = [max(0.0, float(r[i])) for r in samples if i < len(r) and r[i].strip() not in ("", " ")]
         if not vals:
             continue
         if "Dedicated Usage" in name:
@@ -392,7 +397,25 @@ def vencord_off():
         print("Vencord off for the run")
 
 
+def hardware(on):
+    s = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    s["enableHardwareAcceleration"] = on
+    SETTINGS.write_text(json.dumps(s, indent=2), encoding="utf-8")
+
+
+def stock():
+    vencord_off()
+    if json.loads(SETTINGS.read_text(encoding="utf-8")).get("enableHardwareAcceleration") is False:
+        SAVED_HW.write_text("")
+        hardware(True)
+        print("Discord's hardware acceleration on for the run")
+
+
 def restore():
+    if SAVED_HW.exists():
+        hardware(False)
+        SAVED_HW.unlink()
+        print("Discord's hardware acceleration off again")
     r = resources()
     if (r / "app.asar.vencord").exists():
         (r / "app.asar").rename(r / "_app.asar")
@@ -464,7 +487,8 @@ def main():
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
     make = {"Rustcord": lambda: rustcord(link, exe), "Discord": lambda: discord(link)}
     try:
-        vencord_off()
+        stock()
+        report["hardware_acceleration_turned_on"] = SAVED_HW.exists()
         report["vencord"] = (resources() / "app.asar").stat().st_size < 4096
         for name in ("Rustcord", "Discord"):
             rec = film("cold", name)
@@ -495,13 +519,14 @@ def main():
             if hwnd:
                 time.sleep(30)
                 front(hwnd)
+                press(0x1B)
+                time.sleep(3)
                 s["idle"] = measure(c, "idle", secs)
                 s["scroll"] = measure(c, "scroll", 20, lambda until: wheel(hwnd, until))
-                s["channels"] = measure(c, "channels", 30, channels)
-                s["servers"] = measure(c, "servers", 20, servers)
-                front(hwnd)
                 s["switcher"] = measure(c, "switcher", 15, switcher)
                 s["emoji"] = measure(c, "emoji", 15, emoji)
+                s["channels"] = measure(c, "channels", 30, channels)
+                s["servers"] = measure(c, "servers", 20, servers)
                 time.sleep(5)
                 s["after_use"] = measure(c, "after_use", 15)
                 u32.ShowWindow(hwnd, 6)
@@ -533,14 +558,14 @@ def markdown(r):
     for when in ("cold", "warm_median"):
         for k in ("first_window_ms", "main_window_ms", "settled_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
-    for phase in ("idle", "scroll", "channels", "servers", "switcher", "emoji", "after_use", "minimized"):
+    for phase in ("idle", "scroll", "switcher", "emoji", "channels", "servers", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))
         rows.append((f"{phase}: GPU 3D %", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_3d_pct")))
         rows.append((f"{phase}: Task Manager memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("task_manager")))
         rows.append((f"{phase}: private commit (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("private")))
         rows.append((f"{phase}: GPU memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_mb")))
     rows.append(("processes", lambda n: r["session"].get(n, {}).get("idle", {}).get("memory_mb", {}).get("processes")))
-    lines = [f"Rustcord vs Discord ({r['discord_version']}{', with Vencord' if r['vencord'] else ''}), {r['when']}, {r['uptime_min_at_start']} min after boot, machine quiet: {r['machine_quiet']}{', screen recorded during the run' if r.get('recorded') else ''}", "",
+    lines = [f"Rustcord vs Discord ({r['discord_version']}{', with Vencord' if r['vencord'] else ''}), {r['when']}, {r['uptime_min_at_start']} min after boot, machine quiet: {r['machine_quiet']}{', screen recorded during the run' if r.get('recorded') else ''}{", Discord's hardware acceleration turned on for it" if r.get('hardware_acceleration_turned_on') else ''}", "",
              "| | Rustcord | Discord |", "|---|---|---|"]
     lines += [f"| {label} | {f('Rustcord')} | {f('Discord')} |" for label, f in rows]
     return "\n".join(lines) + "\n"
