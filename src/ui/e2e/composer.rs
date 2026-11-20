@@ -106,9 +106,13 @@ impl Run {
                 }
                 app.drafts.remove(&SLOW);
                 app.open(READONLY);
+                self.chord(egui::Key::E, egui::Modifiers::COMMAND);
                 self.next(600);
             }
             569 => when!(matches!(gate_of(app, READONLY), Some(Gate::Off(_))), {
+                if app.picker.take().is_none() {
+                    self.mark("composer_no_perm_no_picker");
+                }
                 self.mark("composer_no_perm");
                 self.shot(ctx, "composer_no_perm.png");
                 app.open(NEWS);
