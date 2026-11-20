@@ -115,6 +115,16 @@ fn plate_anim(asset: &str) -> Option<String> {
     Some(format!("{}/media/v1/collectibles-shop/{sku}/animated", crate::api::cdn()))
 }
 
+/// A worn avatar decoration in `r`: its still, and the animation over it while `hot` with the
+/// window focused and motion not reduced, as discord plays one under the pointer. Asked for
+/// animated everywhere, a member list decoded every frame of some seventy of them at startup.
+pub fn paint_deco(ui: &Ui, r: Rect, url: &str, hot: bool) {
+    super::text::image(ui.painter(), &url.replacen("passthrough=true", "passthrough=false", 1), r);
+    if hot && !crate::theme::reduced_motion() && ui.ctx().input(|i| i.focused) {
+        super::text::image(ui.painter(), url, r);
+    }
+}
+
 /// A nameplate in `r`: its still, and over it the animated one while the window is focused and
 /// motion isn't reduced and it is `hot` (hovered, looping) or picked (once, from `picked`).
 pub fn paint_plate(ui: &Ui, r: Rect, asset: &str, radius: CornerRadius, tint: Color32, hot: bool, picked: Option<f64>) {

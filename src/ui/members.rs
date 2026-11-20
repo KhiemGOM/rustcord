@@ -121,7 +121,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     if let Some(u) = store.user(*uid) {
                         avatar(ui, av, &u.avatar_url());
                         if let Some(d) = u.decoration_url() {
-                            super::text::image(ui.painter(), &d, Rect::from_center_size(av.center(), av.size() * 1.2));
+                            super::cosmo::paint_deco(ui, Rect::from_center_size(av.center(), av.size() * 1.2), &d, hovered);
                         }
                         if fade < 1.0 {
                             ui.painter().circle_filled(av.center(), 19.5, pal().bg_primary.gamma_multiply(0.7));
@@ -476,7 +476,7 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             avatar(ui, av, &u.avatar_url());
             if let Some(d) = u.decoration_url() {
                 let at = Rect::from_center_size(av.center(), av.size() * 1.2);
-                super::text::image(ui.painter(), &d, at);
+                super::cosmo::paint_deco(ui, at, &d, resp.hovered());
                 super::settings::mark(ui, &format!("group:decoration:{uid}"), at);
             }
             if fade < 1.0 {
