@@ -25,6 +25,11 @@ CHART = (24, 1196, W - 24, 1416)
 BG, PANEL, TEXT, DIM, GRID = (17, 18, 20), (30, 31, 34), (242, 243, 245), (148, 155, 164), (52, 54, 59)
 NAMES = ("Rustcord", "Discord")
 COLOR = {"Rustcord": (232, 116, 59), "Discord": (88, 101, 242)}
+DISCLAIMER = [
+    "Measured on a throwaway account made for this test, on one PC, one run each; your own numbers will vary.",
+    "Discord is the stock client with hardware acceleration on (its default on this PC was off, which draws on the CPU).",
+    "Memory is what Task Manager shows; committed memory is higher and is not under 100 MB on a full account.",
+]
 PHASES = [("scroll", "Scrolling the chat"), ("switcher", "The quick switcher"), ("emoji", "The emoji picker"),
           ("gifs", "GIFs in chat"), ("video", "Playing a video"),
           ("channels", "Switching channels"), ("servers", "Switching servers"), ("idle", "Sitting idle"), ("minimized", "Minimized")]
@@ -165,11 +170,13 @@ def summary(out, r, secs=6.0):
     d.text((cols[1], 300), "Rustcord", font=font(56, True), fill=COLOR["Rustcord"], anchor="mm")
     d.text((cols[2], 300), "Discord", font=font(56, True), fill=COLOR["Discord"], anchor="mm")
     for i, (label, f) in enumerate(rows):
-        yy = 390 + i * 92
-        d.line((240, yy - 58, W - 240, yy - 58), fill=GRID, width=2)
-        d.text((240, yy), label, font=font(46), fill=DIM, anchor="lm")
-        d.text((cols[1], yy), f("Rustcord"), font=font(56, True), fill=TEXT, anchor="mm")
-        d.text((cols[2], yy), f("Discord"), font=font(56, True), fill=TEXT, anchor="mm")
+        yy = 384 + i * 86
+        d.line((240, yy - 54, W - 240, yy - 54), fill=GRID, width=2)
+        d.text((240, yy), label, font=font(44), fill=DIM, anchor="lm")
+        d.text((cols[1], yy), f("Rustcord"), font=font(54, True), fill=TEXT, anchor="mm")
+        d.text((cols[2], yy), f("Discord"), font=font(54, True), fill=TEXT, anchor="mm")
+    for i, line in enumerate(DISCLAIMER):
+        d.text((240, 1330 + i * 34), line, font=font(24), fill=DIM, anchor="lm")
     png = out.with_suffix(".png")
     img.save(png)
     subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-loop", "1", "-framerate", str(FPS), "-i", str(png), "-frames:v", str(round(secs * FPS)),

@@ -226,7 +226,7 @@ def changed(a, b):
     return sum(abs(p - q) > 12 for p, q in zip(a, b)) / len(a)
 
 
-CURTAIN = "import tkinter as t;r=t.Tk();r.overrideredirect(1);r.geometry(f'{r.winfo_screenwidth()}x{r.winfo_screenheight()}+0+0');r.configure(bg='#808080');r.attributes('-topmost',1);r.update();r.attributes('-topmost',0);r.mainloop()"
+CURTAIN = "import tkinter as t;r=t.Tk();r.overrideredirect(1);r.geometry(f'{r.winfo_screenwidth()}x{r.winfo_screenheight()}+0+0');r.configure(bg='black');r.attributes('-topmost',1);r.update();r.attributes('-topmost',0);r.mainloop()"
 
 
 def curtain():
