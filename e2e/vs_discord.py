@@ -12,8 +12,9 @@ video memory, which is not what it ships as); both are put back after it, along 
 real mouse and keyboard input and puts each client in front at the same size, because Chromium stops
 drawing a covered window.
 
-Each client opens the same channel through a discord:// link and is timed from launch to its first
-window, its main window, and its picture settling (under 1% of it changing for 1.5 s). Then one
+Each client opens the same channel through a discord:// link, over a grey sheet that hides the
+desktop, and is timed from launch to its first window, its main window, the moment it fills its rect
+(shown) and its picture settling after that (under 1% of it changing for 1.5 s). Then one
 session each: Esc first (Discord opens on its What's New after an update, and the wheel would scroll
 that), then idle, scrolling the chat with the wheel, the quick switcher and the emoji picker (both
 while still in the channel the link opened, where posting is allowed: Discord opens no picker where
@@ -105,6 +106,7 @@ class Client:
 
     def __init__(self, name, exe_name, cmd, env=None):
         self.name, self.exe_name = name, exe_name
+        self.before = grab()
         self.t0 = time.time()
         self.launcher = subprocess.Popen(cmd, env=env)
         self.handles = {}
@@ -216,9 +218,21 @@ def changed(a, b):
     return sum(abs(p - q) > 12 for p, q in zip(a, b)) / len(a)
 
 
+CURTAIN = "import tkinter as t;r=t.Tk();r.overrideredirect(1);r.geometry(f'{r.winfo_screenwidth()}x{r.winfo_screenheight()}+0+0');r.configure(bg='#808080');r.attributes('-topmost',1);r.update();r.attributes('-topmost',0);r.mainloop()"
+
+
+def curtain():
+    """A grey sheet over the desktop, under the clients: the recording shows nothing else of the
+    screen, and a client is on screen once most of its rect is no longer grey."""
+    p = subprocess.Popen([sys.executable, "-c", CURTAIN])
+    time.sleep(2)
+    return p
+
+
 def start(c, settle_cap=60):
-    """Launch to first window, main window, and a settled picture, in ms."""
-    t = {"first_window_ms": None, "main_window_ms": None, "settled_ms": None}
+    """Launch to first window, main window, the client filling its rect, and its picture settling, in ms.
+    Settling only counts once it fills the rect: Discord's splash sits still for a second or two first."""
+    t = {"first_window_ms": None, "main_window_ms": None, "shown_ms": None, "settled_ms": None}
     end = c.t0 + settle_cap
     hwnd = None
     while time.time() < end and not hwnd:
@@ -239,7 +253,10 @@ def start(c, settle_cap=60):
     while time.time() < end:
         time.sleep(0.05)
         now = grab()
-        if changed(last, now) < 0.01:
+        if t["shown_ms"] is None and changed(c.before, now) >= 0.7:
+            t["shown_ms"] = round((time.time() - c.t0) * 1000)
+            c.mark("shown")
+        if t["shown_ms"] is not None and changed(last, now) < 0.01:
             still_since = still_since or time.time()
             if time.time() - still_since >= 1.5:
                 t["settled_ms"] = round((still_since - c.t0) * 1000)
@@ -486,6 +503,7 @@ def main():
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
     make = {"Rustcord": lambda: rustcord(link, exe), "Discord": lambda: discord(link)}
+    sheet = curtain()
     try:
         stock()
         report["hardware_acceleration_turned_on"] = SAVED_HW.exists()
@@ -538,8 +556,9 @@ def main():
             rec.stop()
             quiet(120)
     finally:
+        sheet.kill()
         restore()
-    report["warm_median"] = {name: {k: median([r[k] for r in runs]) for k in ("first_window_ms", "main_window_ms", "settled_ms")} for name, runs in report["warm"].items()}
+    report["warm_median"] = {name: {k: median([r[k] for r in runs]) for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms")} for name, runs in report["warm"].items()}
     (out / "report.json").write_text(json.dumps(report, indent=2))
     (out / "report.md").write_text(markdown(report))
     print(markdown(report))
@@ -556,7 +575,7 @@ def median(xs):
 def markdown(r):
     rows = [("Install size (MB)", lambda n: r["install_mb"][n])]
     for when in ("cold", "warm_median"):
-        for k in ("first_window_ms", "main_window_ms", "settled_ms"):
+        for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
     for phase in ("idle", "scroll", "switcher", "emoji", "channels", "servers", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))

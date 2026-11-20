@@ -2,7 +2,8 @@
 
     python e2e/cut.py <run dir> [--secs 10]
 
-Needs a `vs_discord.py run --record` run. The clients were filmed one after the other; each clip
+Needs a `vs_discord.py run --record` run. It opens on the first launch and a later one, then each
+interaction. The clients were filmed one after the other; each clip
 starts both at the same moment of the interaction (launch, first scroll, ...), and the numbers come
 from the CSV recorded with each video. Writes <run dir>/comparison.mp4, 2560x1440 at 60 fps.
 """
@@ -79,8 +80,11 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
     starts = [max(0.0, s) for s in starts]
     x, y, w, h = rect
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-"]
-    for tk, s in zip(takes, starts):
-        args += ["-ss", f"{s:.3f}", "-i", str(tk.video)]
+    # a launch is closed 1.5 s after it settles; past that its crop is the desktop again, so its
+    # last second of picture and numbers is held instead
+    ends = [tk.ev["settled"] + 1.2 if launch and "settled" in tk.ev else s + secs for tk, s in zip(takes, starts)]
+    for tk, s, end in zip(takes, starts, ends):
+        args += ["-ss", f"{s:.3f}", "-t", f"{max(0.1, end - s):.3f}", "-i", str(tk.video)]
     # before the app's window appears, its crop is the desktop behind it; black that out so a cold
     # launch never shows what was on screen first.
     appear = lambda tk, s: max(0.0, next((tk.ev[e] for e in ("first_window", "main_window", "settled") if e in tk.ev), s) - s)
@@ -91,7 +95,7 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
     ff = subprocess.Popen(args + ["-filter_complex", graph, "-frames:v", str(n), *ENCODE, "-r", str(FPS), "-y", str(out)], stdin=subprocess.PIPE)
 
     base = backdrop(title, sub)
-    mems = [tk.mem(s, s + secs) for tk, s in zip(takes, starts)]
+    mems = [tk.mem(s, min(s + secs, end)) for tk, s, end in zip(takes, starts, ends)]
     top = max([m for series in mems for _, m in series] + [1]) * 1.15
     cx0, cy0, cx1, cy1 = CHART[0] + 90, CHART[1] + 60, CHART[2] - 20, CHART[3] - 20
     px = lambda t, m: (cx0 + (cx1 - cx0) * t / secs, cy1 - (cy1 - cy0) * m / top)
@@ -106,8 +110,9 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
         img = base.copy()
         d = ImageDraw.Draw(img)
         for i, (name, tk, s, series) in enumerate(zip(NAMES, takes, starts, mems)):
-            row, x0 = tk.at(s + tau), VX[i]
-            mem, gpu, procs, cpu = num(row.get("task_manager_mb")), num(row.get("gpu_mb")), num(row.get("processes")), tk.cpu(s + tau)
+            now = min(s + tau, ends[i])
+            row, x0 = tk.at(now), VX[i]
+            mem, gpu, procs, cpu = num(row.get("task_manager_mb")), num(row.get("gpu_mb")), num(row.get("processes")), tk.cpu(now)
             yb = VY + VH + 14
             d.text((x0, yb), f"{mem} MB" if mem is not None else "-", font=big, fill=COLOR[name])
             d.text((x0 + 4, yb + 100), "memory", font=label, fill=DIM)
@@ -137,7 +142,9 @@ def summary(out, r, secs=6.0):
     d.text((W // 2, 150), "Rustcord vs Discord", font=font(96, True), fill=TEXT, anchor="mm")
     s = r["session"]
     get = lambda n, *path: _dig(s.get(n, {}), *path)
-    rows = [("Ready after a cold start", lambda n: f"{r['cold'][n]['settled_ms'] / 1000:.2f} s" if r["cold"].get(n, {}).get("settled_ms") else "-"),
+    took = lambda ms: f"{ms / 1000:.2f} s" if ms else "-"
+    rows = [("Ready, first launch", lambda n: took(r["cold"].get(n, {}).get("settled_ms"))),
+            ("Ready, opening it again", lambda n: took(r.get("warm_median", {}).get(n, {}).get("settled_ms"))),
             ("Memory, idle (Task Manager)", lambda n: f"{get(n, 'idle', 'memory_mb', 'task_manager')} MB"),
             ("Memory committed, idle", lambda n: f"{get(n, 'idle', 'memory_mb', 'private')} MB"),
             ("GPU memory, idle", lambda n: f"{get(n, 'idle', 'gpu_mb')} MB"),
@@ -149,7 +156,7 @@ def summary(out, r, secs=6.0):
     d.text((cols[1], 300), "Rustcord", font=font(56, True), fill=COLOR["Rustcord"], anchor="mm")
     d.text((cols[2], 300), "Discord", font=font(56, True), fill=COLOR["Discord"], anchor="mm")
     for i, (label, f) in enumerate(rows):
-        yy = 410 + i * 116
+        yy = 410 + i * 106
         d.line((240, yy - 58, W - 240, yy - 58), fill=GRID, width=2)
         d.text((240, yy), label, font=font(46), fill=DIM, anchor="lm")
         d.text((cols[1], yy), f("Rustcord"), font=font(56, True), fill=TEXT, anchor="mm")
@@ -175,11 +182,13 @@ def cut(run, secs=10.0):
     take = lambda what, name: Take(next(folder.glob(f"*-{what}-{name.lower()}.mp4")).with_suffix(""), name)
     sub = f"Rustcord and Discord {r['discord_version'].removeprefix('app-')} on the same account, filmed one after the other on the same PC"
     clips = []
-    cold = [take("cold", n) for n in NAMES]
-    starts = [tk.ev["launch"] - 0.5 for tk in cold]
-    ready = max(tk.ev.get("settled", tk.ev.get("main_window", 8)) - tk.ev["launch"] for tk in cold)
-    clips.append(parts / "00-launch.mp4")
-    segment(clips[-1], "Opening the app", sub, cold, starts, min(ready + 3, 25), r["rect"], launch=True)
+    for what, title in (("cold", "Opening the app for the first time"), ("warm1", "Opening it again")):
+        if not all(list(folder.glob(f"*-{what}-{n.lower()}.mp4")) for n in NAMES):
+            continue
+        takes = [take(what, n) for n in NAMES]
+        ready = max(tk.ev.get("settled", tk.ev.get("main_window", 8)) - tk.ev["launch"] for tk in takes)
+        clips.append(parts / f"00-{what}.mp4")
+        segment(clips[-1], title, sub, takes, [tk.ev["launch"] - 0.5 for tk in takes], min(ready + 3, 25), r["rect"], launch=True)
     session = [take("session", n) for n in NAMES]
     for i, (phase, title) in enumerate(PHASES, 1):
         if all(phase in tk.ev for tk in session):
