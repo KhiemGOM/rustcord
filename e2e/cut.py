@@ -26,6 +26,7 @@ BG, PANEL, TEXT, DIM, GRID = (17, 18, 20), (30, 31, 34), (242, 243, 245), (148, 
 NAMES = ("Rustcord", "Discord")
 COLOR = {"Rustcord": (232, 116, 59), "Discord": (88, 101, 242)}
 PHASES = [("scroll", "Scrolling the chat"), ("switcher", "The quick switcher"), ("emoji", "The emoji picker"),
+          ("gifs", "GIFs in chat"), ("video", "Playing a video"),
           ("channels", "Switching channels"), ("servers", "Switching servers"), ("idle", "Sitting idle"), ("minimized", "Minimized")]
 
 
@@ -80,9 +81,9 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
     starts = [max(0.0, s) for s in starts]
     x, y, w, h = rect
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-"]
-    # a launch is closed 1.5 s after it settles; past that its crop is the desktop again, so its
-    # last second of picture and numbers is held instead
-    ends = [tk.ev["settled"] + 1.2 if launch and "settled" in tk.ev else s + secs for tk, s in zip(takes, starts)]
+    # a launch is closed once it's live; past that its crop is the sheet behind it, so its last
+    # picture and numbers are held instead
+    ends = [tk.ev["launch_end"] - 0.2 if launch and "launch_end" in tk.ev else s + secs for tk, s in zip(takes, starts)]
     for tk, s, end in zip(takes, starts, ends):
         args += ["-ss", f"{s:.3f}", "-t", f"{max(0.1, end - s):.3f}", "-i", str(tk.video)]
     # before the app's window appears, its crop is the desktop behind it; black that out so a cold
@@ -121,12 +122,17 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
             for j, line in enumerate(lines):
                 d.text((x0 + VW, yb + 6 + j * 42), line, font=small, fill=TEXT, anchor="ra")
             if launch:
-                go, ready = tk.ev["launch"] - s, tk.ev.get("settled", 1e9) - tk.ev["launch"]
-                t = min(max(0.0, tau - go), ready)
-                done = tau - go >= ready
-                text = f"Ready in {ready:.2f} s" if done else f"{t:.2f} s"
-                d.rounded_rectangle((x0 + VW - 400, VY - 70, x0 + VW, VY - 10), 14, fill=COLOR[name] if done else PANEL)
-                d.text((x0 + VW - 200, VY - 40), text, font=font(40, True), fill=TEXT, anchor="mm")
+                t = max(0.0, tau - (tk.ev["launch"] - s))
+                seen, live = (tk.ev.get(e, 1e9) - tk.ev["launch"] for e in ("settled", "live"))
+                live = max(live, seen) if live < 1e8 else live
+                if t >= live:
+                    text = f"On screen and live in {live:.2f} s" if live == seen else f"On screen in {seen:.2f} s, live in {live:.2f} s"
+                elif t >= seen:
+                    text = f"On screen in {seen:.2f} s, connecting"
+                else:
+                    text = f"{t:.2f} s"
+                d.rounded_rectangle((x0 + VW - 700, VY - 70, x0 + VW, VY - 10), 14, fill=COLOR[name] if t >= live else PANEL)
+                d.text((x0 + VW - 350, VY - 40), text, font=font(34, True), fill=TEXT, anchor="mm")
             pts = [px(t, m) for t, m in series if t <= tau]
             if len(pts) > 1:
                 d.line(pts, fill=COLOR[name], width=5, joint="curve")
@@ -143,8 +149,11 @@ def summary(out, r, secs=6.0):
     s = r["session"]
     get = lambda n, *path: _dig(s.get(n, {}), *path)
     took = lambda ms: f"{ms / 1000:.2f} s" if ms else "-"
-    rows = [("Ready, first launch", lambda n: took(r["cold"].get(n, {}).get("settled_ms"))),
-            ("Ready, opening it again", lambda n: took(r.get("warm_median", {}).get(n, {}).get("settled_ms"))),
+    live = lambda t: max(t.get("live_ms") or 0, t.get("settled_ms") or 0)
+    rows = [("On screen, first launch", lambda n: took(r["cold"].get(n, {}).get("settled_ms"))),
+            ("Live, first launch", lambda n: took(live(r["cold"].get(n, {})))),
+            ("On screen, opening it again", lambda n: took(r.get("warm_median", {}).get(n, {}).get("settled_ms"))),
+            ("Live, opening it again", lambda n: took(live(r.get("warm_median", {}).get(n, {})))),
             ("Memory, idle (Task Manager)", lambda n: f"{get(n, 'idle', 'memory_mb', 'task_manager')} MB"),
             ("Memory committed, idle", lambda n: f"{get(n, 'idle', 'memory_mb', 'private')} MB"),
             ("GPU memory, idle", lambda n: f"{get(n, 'idle', 'gpu_mb')} MB"),
@@ -156,7 +165,7 @@ def summary(out, r, secs=6.0):
     d.text((cols[1], 300), "Rustcord", font=font(56, True), fill=COLOR["Rustcord"], anchor="mm")
     d.text((cols[2], 300), "Discord", font=font(56, True), fill=COLOR["Discord"], anchor="mm")
     for i, (label, f) in enumerate(rows):
-        yy = 410 + i * 106
+        yy = 390 + i * 92
         d.line((240, yy - 58, W - 240, yy - 58), fill=GRID, width=2)
         d.text((240, yy), label, font=font(46), fill=DIM, anchor="lm")
         d.text((cols[1], yy), f("Rustcord"), font=font(56, True), fill=TEXT, anchor="mm")
@@ -186,7 +195,7 @@ def cut(run, secs=10.0):
         if not all(list(folder.glob(f"*-{what}-{n.lower()}.mp4")) for n in NAMES):
             continue
         takes = [take(what, n) for n in NAMES]
-        ready = max(tk.ev.get("settled", tk.ev.get("main_window", 8)) - tk.ev["launch"] for tk in takes)
+        ready = max(max(tk.ev.get(e, 0) for e in ("settled", "live", "main_window")) - tk.ev["launch"] for tk in takes)
         clips.append(parts / f"00-{what}.mp4")
         segment(clips[-1], title, sub, takes, [tk.ev["launch"] - 0.5 for tk in takes], min(ready + 3, 25), r["rect"], launch=True)
     session = [take("session", n) for n in NAMES]

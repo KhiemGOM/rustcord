@@ -2,6 +2,7 @@
 
     python e2e/vs_discord.py prep                         before restarting the PC
     python e2e/vs_discord.py run --channel <guild>/<channel> [--warm 5] [--secs 60] [--exe <rustcord.exe>] [--record]
+                                 [--gifs <guild>/<channel>/<message>] [--video <guild>/<channel>/<message>]
     python e2e/vs_discord.py restore                      only if a run died before putting things back
 
 prep checks Rustcord's saved login, copies its data dir (the run is read-only and leaves the real one
@@ -14,11 +15,13 @@ drawing a covered window.
 
 Each client opens the same channel through a discord:// link, over a grey sheet that hides the
 desktop, and is timed from launch to its first window, its main window, the moment it fills its rect
-(shown) and its picture settling after that (under 1% of it changing for 1.5 s). Then one
+(shown), its picture settling after that (under 1% of it changing for 1.5 s) and the status line
+under your name last changing (live: Rustcord draws from its cache before the gateway answers). Then one
 session each: Esc first (Discord opens on its What's New after an update, and the wheel would scroll
 that), then idle, scrolling the chat with the wheel, the quick switcher and the emoji picker (both
 while still in the channel the link opened, where posting is allowed: Discord opens no picker where
-it isn't), Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
+it isn't), the message --gifs names (GIFs play on their own), the one --video names with a click
+on it to play, Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
 --record also films every launch into footage/ next to them (see footage.py); the encoder works on the
@@ -180,11 +183,16 @@ class Client:
 
 def rustcord(link, exe):
     env = dict(os.environ, RUSTCORD_DATA=str(DATA), RUSTCORD_READONLY="1")
-    return Client("Rustcord", Path(exe).name.lower(), [exe, link], env)
+    c = Client("Rustcord", Path(exe).name.lower(), [exe, link], env)
+    c.open = lambda to: subprocess.Popen([exe, to], env=env)
+    return c
 
 
 def discord(link):
-    return Client("Discord", "discord.exe", [str(DISCORD / "Update.exe"), "--processStart", "Discord.exe", "--process-start-args", f"--url -- {link}"])
+    cmd = lambda to: [str(DISCORD / "Update.exe"), "--processStart", "Discord.exe", "--process-start-args", f"--url -- {to}"]
+    c = Client("Discord", "discord.exe", cmd(link))
+    c.open = lambda to: subprocess.Popen(cmd(to))
+    return c
 
 
 def front(hwnd):
@@ -196,9 +204,9 @@ def front(hwnd):
     u32.SetForegroundWindow(hwnd)
 
 
-def grab(w=160, h=100):
-    """The client's rect on screen, shrunk to w x h grey levels."""
-    x, y, cw, ch = RECT
+def grab(w=160, h=100, box=None):
+    """The client's rect on screen (or box, in screen pixels), shrunk to w x h grey levels."""
+    x, y, cw, ch = box or RECT
     screen = u32.GetDC(None)
     dc = gdi.CreateCompatibleDC(screen)
     bmp = gdi.CreateCompatibleBitmap(screen, w, h)
@@ -232,7 +240,7 @@ def curtain():
 def start(c, settle_cap=60):
     """Launch to first window, main window, the client filling its rect, and its picture settling, in ms.
     Settling only counts once it fills the rect: Discord's splash sits still for a second or two first."""
-    t = {"first_window_ms": None, "main_window_ms": None, "shown_ms": None, "settled_ms": None}
+    t = {"first_window_ms": None, "main_window_ms": None, "shown_ms": None, "settled_ms": None, "live_ms": None}
     end = c.t0 + settle_cap
     hwnd = None
     while time.time() < end and not hwnd:
@@ -265,6 +273,18 @@ def start(c, settle_cap=60):
         else:
             still_since = None
         last = now
+    if t["settled_ms"] is not None:
+        # the line under your name: Rustcord draws from its cache and says Connecting there until
+        # the gateway answers, Discord only shows once it has. Live is when that line last changes.
+        box = (RECT[0] + 60, RECT[1] + RECT[3] - 40, 200, 34)
+        was, t["live_ms"] = grab(200, 34, box), t["shown_ms"]
+        while time.time() < c.t0 + t["shown_ms"] / 1000 + 12:
+            time.sleep(0.1)
+            if changed(was, grab(200, 34, box)) > 0.01:
+                t["live_ms"] = round((time.time() - c.t0) * 1000)
+                break
+        c.events.append(("live", c.t0 + t["live_ms"] / 1000))
+    c.mark("launch_end")
     return t, hwnd
 
 
@@ -329,6 +349,25 @@ def press(*vks):
         u32.keybd_event(vk, 0, ext(vk), 0)
     for vk in reversed(vks):
         u32.keybd_event(vk, 0, ext(vk) | 2, 0)
+
+
+def click(hwnd, fx, fy):
+    r = wintypes.RECT()
+    u32.GetWindowRect(hwnd, ctypes.byref(r))
+    u32.SetCursorPos(r.left + int((r.right - r.left) * fx), r.top + int((r.bottom - r.top) * fy))
+    u32.mouse_event(0x0002, 0, 0, 0, 0)
+    u32.mouse_event(0x0004, 0, 0, 0, 0)
+
+
+def protocol(value=None):
+    """Who opens discord:// links. Each client claims it when it starts; the run hands it back."""
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\discord\shell\open\command") as k:
+        if value is not None:
+            return winreg.SetValueEx(k, "", 0, winreg.REG_SZ, value)
+        try:
+            return winreg.QueryValueEx(k, "")[0]
+        except FileNotFoundError:
+            return None
 
 
 def channels(until):
@@ -503,7 +542,7 @@ def main():
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
     make = {"Rustcord": lambda: rustcord(link, exe), "Discord": lambda: discord(link)}
-    sheet = curtain()
+    sheet, handler = curtain(), protocol()
     try:
         stock()
         report["hardware_acceleration_turned_on"] = SAVED_HW.exists()
@@ -516,7 +555,7 @@ def main():
             print(name, "cold", report["cold"][name], flush=True)
             c.kill()
             rec.stop()
-            quiet(120)
+            quiet(30)
         for i in range(warm):
             for name in (("Rustcord", "Discord") if i % 2 == 0 else ("Discord", "Rustcord")):
                 rec = film(f"warm{i + 1}", name)
@@ -527,7 +566,7 @@ def main():
                 print(name, "warm", t, flush=True)
                 c.kill()
                 rec.stop()
-                quiet(120)
+                quiet(30)
         for name in ("Rustcord", "Discord"):
             rec = film("session", name)
             c = make[name]()
@@ -543,6 +582,17 @@ def main():
                 s["scroll"] = measure(c, "scroll", 20, lambda until: wheel(hwnd, until))
                 s["switcher"] = measure(c, "switcher", 15, switcher)
                 s["emoji"] = measure(c, "emoji", 15, emoji)
+                if arg("--gifs"):
+                    c.open(f"discord://-/channels/{arg('--gifs')}")
+                    time.sleep(6)
+                    front(hwnd)
+                    s["gifs"] = measure(c, "gifs", 15)
+                if arg("--video"):
+                    c.open(f"discord://-/channels/{arg('--video')}")
+                    time.sleep(6)
+                    front(hwnd)
+                    click(hwnd, 0.44, 0.52)
+                    s["video"] = measure(c, "video", 20)
                 s["channels"] = measure(c, "channels", 30, channels)
                 s["servers"] = measure(c, "servers", 20, servers)
                 time.sleep(5)
@@ -554,11 +604,13 @@ def main():
             print(name, "session", json.dumps(s), flush=True)
             c.kill()
             rec.stop()
-            quiet(120)
+            quiet(30)
     finally:
         sheet.kill()
+        if handler:
+            protocol(handler)
         restore()
-    report["warm_median"] = {name: {k: median([r[k] for r in runs]) for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms")} for name, runs in report["warm"].items()}
+    report["warm_median"] = {name: {k: median([r[k] for r in runs]) for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms", "live_ms")} for name, runs in report["warm"].items()}
     (out / "report.json").write_text(json.dumps(report, indent=2))
     (out / "report.md").write_text(markdown(report))
     print(markdown(report))
@@ -575,9 +627,9 @@ def median(xs):
 def markdown(r):
     rows = [("Install size (MB)", lambda n: r["install_mb"][n])]
     for when in ("cold", "warm_median"):
-        for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms"):
+        for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms", "live_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
-    for phase in ("idle", "scroll", "switcher", "emoji", "channels", "servers", "after_use", "minimized"):
+    for phase in ("idle", "scroll", "switcher", "emoji", "gifs", "video", "channels", "servers", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))
         rows.append((f"{phase}: GPU 3D %", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_3d_pct")))
         rows.append((f"{phase}: Task Manager memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("task_manager")))
