@@ -140,6 +140,11 @@ class Client:
             owner = wintypes.DWORD()
             u32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
             if owner.value in pids and u32.IsWindowVisible(hwnd) and not u32.GetWindow(hwnd, 4):
+                # a client can start minimised (Discord remembers it was); count a minimised titled
+                # window as its full window so main_window finds it and front() restores it
+                if u32.IsIconic(hwnd) and u32.GetWindowTextLengthW(hwnd) > 0:
+                    found.append((hwnd, 9000, 9000))
+                    return True
                 r = wintypes.RECT()
                 u32.GetWindowRect(hwnd, ctypes.byref(r))
                 if r.right - r.left > 100 and r.bottom - r.top > 100:
@@ -201,7 +206,8 @@ u32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.
 def front(hwnd):
     x, y, w, h = RECT
     u32.ShowWindow(hwnd, 9)
-    # HWND_TOPMOST (-1), so the client sits above the black sheet, which is itself topmost
+    # HWND_TOPMOST (-1): the client joins the topmost band above the sheet; SetForegroundWindow then
+    # puts it at the very top, over the sheet and any other topmost window (e.g. Task Manager)
     u32.SetWindowPos(hwnd, -1, x, y, w, h, 0x0040)
     u32.keybd_event(0x12, 0, 0, 0)
     u32.keybd_event(0x12, 0, 2, 0)
@@ -230,14 +236,26 @@ def changed(a, b):
     return sum(abs(p - q) > 12 for p, q in zip(a, b)) / len(a)
 
 
-# stays on top for the whole run: a client is lifted above it when it's brought to the front, but
-# anything else (the editor, a terminal) is always behind it, so the recording never catches it.
+# a black sheet topmost over everything (even an elevated, always-on-top Task Manager); the client is
+# fronted topmost and brought to the foreground, which lifts it to the very top, above the sheet.
 CURTAIN = "import tkinter as t;r=t.Tk();r.overrideredirect(1);r.geometry(f'{r.winfo_screenwidth()}x{r.winfo_screenheight()}+0+0');r.configure(bg='black');r.attributes('-topmost',1);r.mainloop()"
 
 
 def curtain():
-    """A grey sheet over the desktop, under the clients: the recording shows nothing else of the
-    screen, and a client is on screen once most of its rect is no longer grey."""
+    """A black sheet over the desktop, under the clients: the recording shows nothing else of the
+    screen, and a client is on screen once its rect carries real detail, not the sheet."""
+    # kill any sheet a crashed earlier run left behind, or it would cover this run's clients
+    dead = []
+    def each(hwnd, _):
+        t = ctypes.create_unicode_buffer(8)
+        u32.GetWindowTextW(hwnd, t, 8)
+        if u32.IsWindowVisible(hwnd) and t.value == "tk":
+            o = wintypes.DWORD(); u32.GetWindowThreadProcessId(hwnd, ctypes.byref(o)); dead.append(o.value)
+        return True
+    u32.EnumWindows(ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(each), 0)
+    for pid in set(dead):
+        if h := k32.OpenProcess(0x0001, False, pid):
+            k32.TerminateProcess(h, 0); k32.CloseHandle(h)
     p = subprocess.Popen([sys.executable, "-c", CURTAIN])
     time.sleep(2)
     return p
@@ -263,11 +281,21 @@ def start(c, settle_cap=60):
         time.sleep(0.02)
     if not hwnd:
         return t, None
-    last, still_since = grab(), None
+    last, still_since, refront = grab(), None, 0.0
     while time.time() < end:
         time.sleep(0.05)
+        # a client can swap its window as it loads (Discord's splash, then the app): keep the real
+        # one on top of the sheet, or the capture would settle on black behind it
+        if time.time() - refront > 0.4:
+            refront = time.time()
+            if h2 := c.main_window():
+                hwnd = h2
+                front(h2)
         now = grab()
-        if t["shown_ms"] is None and changed(c.before, now) >= 0.7:
+        # "on screen" means the real UI, not just the sheet or a blank frame: the rect has to carry
+        # real detail (the black sheet is ~1-3 grey levels, a loaded client 45+), however much of it
+        # the window fills (a sparse view like Discord's channel list is still "on screen")
+        if t["shown_ms"] is None and len(set(now)) >= 45:
             t["shown_ms"] = round((time.time() - c.t0) * 1000)
             c.mark("shown")
         if t["shown_ms"] is not None and changed(last, now) < 0.01:
@@ -320,6 +348,8 @@ def gpu(pids, secs):
 def measure(c, label, secs, during=None):
     """CPU (% of one core) of the whole client over secs, with GPU counters read alongside; during() drives input meanwhile."""
     import threading
+    if label != "minimized" and (hw := c.main_window()):
+        front(hw)  # keep the client over the sheet (and any Task Manager that popped up) for this clip
     pids = c.tree()
     g = {}
     reader = threading.Thread(target=lambda: g.update(gpu(pids, secs)))
@@ -597,7 +627,11 @@ def main():
                     c.open(f"discord://-/channels/{arg('--video')}")
                     time.sleep(6)
                     front(hwnd)
-                    click(hwnd, 0.44, 0.52)
+                    # the thumbnail sits in a different place in each client (Rustcord anchors the
+                    # lone message high, Discord pins it above the composer); click its middle, below
+                    # the author line, so the click plays the video instead of opening a profile
+                    click(hwnd, *((0.42, 0.56) if c.name == "Rustcord" else (0.34, 0.74)))
+                    time.sleep(0.6)
                     s["video"] = measure(c, "video", 20)
                 s["channels"] = measure(c, "channels", 30, channels)
                 s["servers"] = measure(c, "servers", 20, servers)
@@ -607,6 +641,7 @@ def main():
                 c.mark("minimize")
                 time.sleep(10)
                 s["minimized"] = measure(c, "minimized", secs)
+                u32.ShowWindow(hwnd, 9)  # restore before killing, so it doesn't start minimised next time
             print(name, "session", json.dumps(s), flush=True)
             c.kill()
             rec.stop()
