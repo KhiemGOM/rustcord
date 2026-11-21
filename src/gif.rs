@@ -201,18 +201,26 @@ fn frame_at(ctx: &egui::Context, url: &str) -> usize {
 fn frame_for(ctx: &egui::Context, url: &str, t: u128, wake: bool) -> usize {
     let Some(durs) = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))) else { return 0 };
     let total = durs.all().map(|d| d.as_millis()).sum::<u128>().max(1);
+    let now = t;
     let t = t % total;
     let mut end = 0;
     for (i, d) in durs.all().enumerate() {
         end += d.as_millis();
         if t < end {
             if wake {
-                ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
+                ctx.request_repaint_after(Duration::from_millis(wake_in(now, end - t) as u64));
             }
             return i;
         }
     }
     0
+}
+
+/// How long to sleep at `now` for a frame due in `wait`, all in ms: to the next 16 ms tick at or
+/// after it. A screenful of animations each waking for its own frame drew on every refresh of a
+/// 144 Hz monitor; on shared ticks they draw 62 times a second at most.
+fn wake_in(now: u128, wait: u128) -> u128 {
+    (now + wait).div_ceil(16) * 16 - now
 }
 
 /// `uri` for an animation that has been running `ms` since it was started, rather than since
@@ -378,6 +386,17 @@ impl ImageLoader for GifLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn animations_wake_on_shared_ticks() {
+        for now in [0u128, 1, 15, 16, 17, 1000, 123_457] {
+            for wait in [1u128, 7, 16, 20, 33, 100] {
+                let sleep = super::wake_in(now, wait);
+                assert!(sleep >= wait && sleep < wait + 16, "{now} {wait} {sleep}");
+                assert_eq!((now + sleep) % 16, 0);
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

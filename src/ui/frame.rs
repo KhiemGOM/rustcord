@@ -203,10 +203,14 @@ impl eframe::App for App {
                 e.cost("cache_save", took.elapsed());
             }
         }
-        // images off screen for two minutes go, animations (all their frames in memory) after ten seconds
+        // images off screen for two minutes go, animations (all their frames in memory) after ten
+        // seconds. walking servers piles textures up faster than that, and each costs the process
+        // three times its pixels (the driver's two copies and the painter's), so past 32 MB of
+        // pixels, about two screens' worth, what's been off screen for ten seconds goes.
         if self.sweep_at.elapsed() >= Duration::from_secs(5) {
             self.sweep_at = Instant::now();
-            for uri in self.textures.stale(Duration::from_secs(120), Duration::from_secs(10)) {
+            let age = if egui::load::TextureLoader::byte_size(&*self.textures) > 32 << 20 { Duration::from_secs(10) } else { Duration::from_secs(120) };
+            for uri in self.textures.stale(age, Duration::from_secs(10)) {
                 ctx.forget_image(&uri);
             }
         }

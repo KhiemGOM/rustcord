@@ -23,6 +23,7 @@ def checks(runs, reqs, data):
         "composer: slowmode showed its countdown and held the second message back": both("composer_slowmode") and both("composer_slow_blocked")
             and len([r for r in sent("POST", "/channels/2015/messages")]) == 2,
         "composer: a channel you can't post in disabled the box": both("composer_no_perm"),
+        "composer: Ctrl+E opened no emoji picker in a channel you can't post in": both("composer_no_perm_no_picker"),
         "composer: an announcement channel showed Follow, and the modal posted to followers": both("composer_follow_bar") and both("composer_follow_modal")
             and all((r.get("rects", {}).get("composer_follow_bar_h") or 999) < 60 for r in runs.values())
             and sum(body(r).get("webhook_channel_id") == "2100" for r in sent("POST", "/channels/2002/followers")) == 4,

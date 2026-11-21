@@ -156,9 +156,11 @@ impl App {
         } else {
             None
         };
+        let shown = self.picker.is_some() || self.gifs.is_some() || self.stickers.is_some();
+        let gated = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| !matches!(super::gate::check(self, c), super::gate::Gate::Open));
         if let Some(t) = tab
             && self.rects.contains_key("composer")
-            && (!layered || self.picker.is_some() || self.gifs.is_some() || self.stickers.is_some())
+            && (shown || !(layered || gated))
         {
             picker::toggle(self, t);
         }

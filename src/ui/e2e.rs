@@ -124,6 +124,8 @@ pub struct Run {
     last_off: f32,
     // the channels a "browse" file has us open one after another, the next one, and when
     browse: Option<(Vec<Id>, usize, Instant)>,
+    // when a "servers" file last had us step to the next server
+    walked: Option<Instant>,
     causes: std::collections::HashMap<String, u32>,
     cache_guilds: Option<usize>,
     slow: Vec<serde_json::Value>,
@@ -181,6 +183,8 @@ struct BenchIo {
     scroll: std::sync::atomic::AtomicBool,
     browse: std::sync::atomic::AtomicBool,
     blur: std::sync::atomic::AtomicBool,
+    emoji: std::sync::atomic::AtomicBool,
+    servers: std::sync::atomic::AtomicBool,
     out: std::sync::Mutex<Option<String>>,
     ctx: std::sync::OnceLock<egui::Context>,
 }
@@ -192,7 +196,7 @@ impl BenchIo {
         let me = io.clone();
         let _ = std::thread::Builder::new().name("bench-io".into()).spawn(move || {
             loop {
-                let flags = [(&me.spin, "spin"), (&me.scroll, "scroll"), (&me.browse, "browse"), (&me.blur, "blur")];
+                let flags = [(&me.spin, "spin"), (&me.scroll, "scroll"), (&me.browse, "browse"), (&me.blur, "blur"), (&me.emoji, "emoji"), (&me.servers, "servers")];
                 let mut changed = false;
                 for (flag, file) in flags {
                     let on = dir.join(file).exists();
@@ -257,6 +261,7 @@ impl Run {
             travel: 0.0,
             last_off: 0.0,
             browse: None,
+            walked: None,
             causes: Default::default(),
             cache_guilds: None,
             slow: Vec::new(),
@@ -577,6 +582,14 @@ impl Run {
                 self.spin = io.spin.load(Relaxed);
                 self.scroll = io.scroll.load(Relaxed);
                 self.blur = io.blur.load(Relaxed);
+                if io.servers.load(Relaxed) && self.walked.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
+                    self.walked = Some(Instant::now());
+                    self.chord(Key::ArrowDown, Modifiers::COMMAND | Modifiers::ALT);
+                    ctx.request_repaint_after(Duration::from_secs(2));
+                }
+                if io.emoji.load(Relaxed) != matches!(app.picker, Some((super::Pick::Composer, _))) {
+                    super::picker::toggle(app, super::picker::Tab::Emoji);
+                }
                 let marks: serde_json::Map<String, serde_json::Value> = self.marks.iter().map(|(k, v)| (k.clone(), json!(v.round()))).collect();
                 let loaders = ctx.loaders();
                 let mut images = serde_json::Map::new();
@@ -586,7 +599,24 @@ impl Run {
                 {
                     images.insert(id.rsplit("::").next().unwrap_or(&id).to_string(), json!(n >> 20));
                 }
-                let out = json!({ "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel, "memory": self.memory });
+                let textures = {
+                    let m = ctx.tex_manager();
+                    let m = m.read();
+                    let mut all: Vec<(usize, String)> = m.allocated().map(|(_, t)| (t.bytes_used(), format!("{}x{} {}", t.size[0], t.size[1], t.name.chars().take(140).collect::<String>()))).collect();
+                    all.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+                    let mut kinds: std::collections::HashMap<String, (usize, usize)> = Default::default();
+                    for (_, t) in m.allocated() {
+                        let path = t.name.split('?').next().unwrap_or_default().trim_start_matches("https://");
+                        let kind = path.split('/').take(2).collect::<Vec<_>>().join("/");
+                        let e = kinds.entry(format!("{kind} {}x{}", t.size[0], t.size[1])).or_default();
+                        *e = (e.0 + 1, e.1 + t.bytes_used());
+                    }
+                    let mut kinds: Vec<_> = kinds.into_iter().collect();
+                    kinds.sort_unstable_by(|a, b| b.1.1.cmp(&a.1.1));
+                    json!({ "count": all.len(), "mb": all.iter().map(|t| t.0).sum::<usize>() >> 20, "biggest": all.iter().take(25).map(|(b, n)| format!("{} KB {n}", b >> 10)).collect::<Vec<_>>(),
+                        "kinds": kinds.iter().take(30).map(|(k, (n, b))| format!("{} KB in {n} of {k}", b >> 10)).collect::<Vec<_>>() })
+                };
+                let out = json!({ "textures": textures, "frames": self.frames.len(), "ui_ms": self.frames.iter().sum::<f32>(), "marks_ms": marks, "slow_frames": self.slow, "causes": self.causes, "images_mb": images, "browsed": self.browse.as_ref().map(|b| b.1), "costs": self.costs, "travel": self.travel, "memory": self.memory });
                 *io.out.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.to_string());
             }
             return;
