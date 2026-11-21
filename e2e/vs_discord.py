@@ -195,10 +195,14 @@ def discord(link):
     return c
 
 
+u32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+
+
 def front(hwnd):
     x, y, w, h = RECT
     u32.ShowWindow(hwnd, 9)
-    u32.SetWindowPos(hwnd, 0, x, y, w, h, 0x0040)
+    # HWND_TOPMOST (-1), so the client sits above the black sheet, which is itself topmost
+    u32.SetWindowPos(hwnd, -1, x, y, w, h, 0x0040)
     u32.keybd_event(0x12, 0, 0, 0)
     u32.keybd_event(0x12, 0, 2, 0)
     u32.SetForegroundWindow(hwnd)
@@ -226,7 +230,9 @@ def changed(a, b):
     return sum(abs(p - q) > 12 for p, q in zip(a, b)) / len(a)
 
 
-CURTAIN = "import tkinter as t;r=t.Tk();r.overrideredirect(1);r.geometry(f'{r.winfo_screenwidth()}x{r.winfo_screenheight()}+0+0');r.configure(bg='black');r.attributes('-topmost',1);r.update();r.attributes('-topmost',0);r.mainloop()"
+# stays on top for the whole run: a client is lifted above it when it's brought to the front, but
+# anything else (the editor, a terminal) is always behind it, so the recording never catches it.
+CURTAIN = "import tkinter as t;r=t.Tk();r.overrideredirect(1);r.geometry(f'{r.winfo_screenwidth()}x{r.winfo_screenheight()}+0+0');r.configure(bg='black');r.attributes('-topmost',1);r.mainloop()"
 
 
 def curtain():

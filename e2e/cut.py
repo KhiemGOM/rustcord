@@ -155,10 +155,17 @@ def summary(out, r, secs=6.0):
     get = lambda n, *path: _dig(s.get(n, {}), *path)
     took = lambda ms: f"{ms / 1000:.2f} s" if ms else "-"
     live = lambda t: max(t.get("live_ms") or 0, t.get("settled_ms") or 0)
-    rows = [("On screen, first launch", lambda n: took(r["cold"].get(n, {}).get("settled_ms"))),
-            ("Live, first launch", lambda n: took(live(r["cold"].get(n, {})))),
-            ("On screen, opening it again", lambda n: took(r.get("warm_median", {}).get(n, {}).get("settled_ms"))),
-            ("Live, opening it again", lambda n: took(live(r.get("warm_median", {}).get(n, {})))),
+    shown_c = {n: r["cold"].get(n, {}).get("settled_ms") for n in NAMES}
+    shown_w = {n: r.get("warm_median", {}).get(n, {}).get("settled_ms") for n in NAMES}
+    # "live" (gateway connected) only earns its own row when it lands clearly after the window shows
+    sep = any((live(r["cold"].get(n, {})) or 0) - (shown_c[n] or 0) > 300 for n in NAMES)
+    rows = [("On screen, first launch", lambda n: took(shown_c[n]))]
+    if sep:
+        rows.append(("Live, first launch", lambda n: took(live(r["cold"].get(n, {})))))
+    rows.append(("On screen, opening it again", lambda n: took(shown_w[n])))
+    if sep:
+        rows.append(("Live, opening it again", lambda n: took(live(r.get("warm_median", {}).get(n, {})))))
+    rows += [
             ("Memory, idle (Task Manager)", lambda n: f"{get(n, 'idle', 'memory_mb', 'task_manager')} MB"),
             ("Memory committed, idle", lambda n: f"{get(n, 'idle', 'memory_mb', 'private')} MB"),
             ("GPU memory, idle", lambda n: f"{get(n, 'idle', 'gpu_mb')} MB"),
