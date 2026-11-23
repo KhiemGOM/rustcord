@@ -1319,12 +1319,18 @@ impl Run {
             65 => {
                 let Some(u) = app.voice.live.iter().copied().find(|u| *u != me) else { return };
                 let Some(r) = app.rects.get(&format!("voice:watch:{u}")).copied() else { return };
+                if app.rects.get(&format!("voice:tile:{u}")).is_some_and(|t| !t.intersects(r) && t.size() == r.size()) {
+                    self.mark("call_stream_tile");
+                }
                 self.click(r.center());
                 self.next(0);
             }
             66 => {
                 if app.voice.stream.as_ref().is_some_and(|l| !l.mine && l.state == State::Connected && l.frame.is_some()) {
                     self.mark("stream_in");
+                    if app.rects.get(&format!("voice:tile:{me}")).is_some_and(|t| t.height() == 112.0) && app.rects.contains_key("voice:stopstream") {
+                        self.mark("call_watch_strip");
+                    }
                     self.next(std::env::var("RUSTCORD_E2E_HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(500));
                 }
             }

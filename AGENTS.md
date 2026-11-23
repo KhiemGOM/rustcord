@@ -22,6 +22,7 @@ Native Discord desktop client in Rust (egui on Direct3D 11), Windows only. Goal:
 - Mock alone: `target/<profile>/examples/mockcord.exe <http> <ws> <log.jsonl> [voice]` (the voice port takes tcp and udp). Point the client at it with `RUSTCORD_API=http://127.0.0.1:<http>/api/v9`, `RUSTCORD_CDN`, `RUSTCORD_EMOJI_CDN`, `RUSTCORD_FONTS`, `RUSTCORD_GATEWAY=ws://127.0.0.1:<ws>`, `RUSTCORD_TOKEN`, `RUSTCORD_DATA`. `run_client` in `run.py` has the full list.
 - Real-account checks never run from `run.py`; they need an env var and the saved login (or `RUSTCORD_TOKEN`):
   - `RUSTCORD_TOUR=<dir>` walks the main screens and settings pages and screenshots them into `<dir>`, results in `<dir>/results.json`. Add `RUSTCORD_READONLY=1` so nothing that changes the account goes out. `RUSTCORD_TOUR_CHANNEL` and `RUSTCORD_TOUR_FORUM` take `guild/channel`.
+  - `RUSTCORD_READONLY=voice` is read-only except that a call can be joined and a stream watched, so a `RUSTCORD_REPLAY` journey can compare a call on a throwaway account. Never on the user's own account: joining is visible to others.
   - `RUSTCORD_E2E=<dir> RUSTCORD_LIVE=<voice channel id>` joins that channel and goes live for `RUSTCORD_LIVE_SECS` (default 30). Never run it without the user's say-so: it is visible to others.
   - Both also run against the mock (use the env above), which is how to check them.
 
